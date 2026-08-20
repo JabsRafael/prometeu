@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prometheus</title>
+  </head>
+  <body>
+    <!-- Navegação nunca some: trocar de workspace não é trocar de modo. -->
+    <nav class="rail" id="rail"></nav>
+
+    <div class="stack">
+      <header class="top">
+        <span class="flame"></span>
+        <span id="crumb" class="crumb"></span>
+        <span class="spacer"></span>
+        <span id="msg" class="msg"></span>
+        <button id="new" class="pri">Novo workspace</button>
+      </header>
+
+      <main>
+        <section id="boardView" class="view">
+          <div class="boardmain">
+            <div class="pulse" id="pulse"></div>
+            <div class="cols" id="cols"></div>
+          </div>
+        </section>
+
+        <section id="wsView" class="view wsview" hidden>
+          <div class="center">
+            <div class="tabbar" id="tabbar"></div>
+            <div class="termwrap">
+              <div id="term"></div>
+              <div id="cards"></div>
+              <div class="offline" id="offline" hidden>
+                <h3>Conversa desligada</h3>
+                <p>O processo não está rodando — nenhum sobrevive ao fechamento do app.
+                   A conversa continua salva; retomar volta de onde parou.</p>
+                <button id="resume" class="pri">Retomar conversa</button>
+                <span class="path" id="offpath"></span>
+              </div>
+            </div>
+          </div>
+          <aside class="side">
+            <div class="sidetabs">
+              <button id="tab-files" class="sidetab on">Arquivos</button>
+              <button id="tab-diff" class="sidetab">Mudanças <span id="diffcount"></span></button>
+              <span class="spacer"></span>
+              <button id="reveal" class="mini" title="abrir o worktree no Finder">↗</button>
+            </div>
+            <div class="sidebody">
+              <div class="tree" id="tree"></div>
+              <div class="difflist" id="difflist" hidden></div>
+            </div>
+            <div class="docktabs">
+              <button id="dock-run" class="sidetab">Run</button>
+              <button id="dock-term" class="sidetab">Terminal</button>
+              <span class="spacer"></span>
+              <button id="dock-kill" class="mini" title="encerrar este processo">■</button>
+              <button id="dock-toggle" class="mini" title="esconder">▾</button>
+            </div>
+            <div class="dockwrap" id="dockwrap"><div id="dockterm"></div></div>
+            <div class="sidefoot" id="wtpath"></div>
+          </aside>
+        </section>
+      </main>
+    </div>
+
+    <div class="veil" id="veil" hidden></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
