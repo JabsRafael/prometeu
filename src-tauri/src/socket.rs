@@ -189,40 +189,70 @@ pub fn decide_permission(state: State<AppState>, id: u64, decision: String) -> R
     Ok(())
 }
 
-/// Responde um AskUserQuestion: manda o dígito da opção escolhida.
-///
-/// Dígito e não seta: seta é relativa e erra acumulado se um evento se perder;
-/// dígito é absoluto. O seletor do Claude Code numera as opções a partir de 1.
-#[tauri::command]
-pub fn answer_question(state: State<AppState>, session: String, index: usize) -> Result<(), String> {
-    grace(&state, &session);
-    let digit = char::from_digit(index as u32 + 1, 10).ok_or("opção fora do alcance")?;
-    let mut ptys = state.ptys.lock().unwrap();
-    ptys.get_mut(&session).ok_or("sessão não está rodando")?.write(&digit.to_string())
+/// Uma resposta por pergunta do AskUserQuestion.
+#[derive(serde::Deserialize)]
+pub struct Answer {
+    /// Índices das opções escolhidas, na ordem em que vieram no payload.
+    pub picks: Vec<usize>,
+    /// Quantas opções a pergunta tem — o texto livre entra logo depois da última.
+    pub options: usize,
+    pub multi: bool,
+    pub free: Option<String>,
 }
 
-/// Responde com texto livre: é a opção "Type something" do seletor, que fica
-/// logo depois da última opção — daí o `+ 1`.
+/// Intervalo entre teclas. O seletor redesenha entre uma e outra; teclas
+/// grudadas se perdem no meio do render.
+const KEYSTROKE: Duration = Duration::from_millis(130);
+
+/// Responde um AskUserQuestion inteiro — todas as perguntas e o envio.
+///
+/// A gramática do seletor foi levantada na marra, e as duas metades diferem:
+///
+///   escolha única   o dígito seleciona **e avança** sozinho para a próxima
+///   multiSelect     o dígito só marca a caixa; avançar exige Tab
+///
+/// Nos dois casos o Enter final é quem envia. Mandar só o dígito num
+/// multiSelect deixa a caixa marcada e o agente parado — foi esse o bug.
+///
+/// Dígito e não seta: seta é relativa e erra acumulado se um evento se perder.
+/// Nada é lido da tela; os índices vêm do payload do hook.
 #[tauri::command]
-pub fn answer_free(
+pub fn answer_questions(
     state: State<AppState>,
     session: String,
-    options: usize,
-    text: String,
+    answers: Vec<Answer>,
 ) -> Result<(), String> {
     grace(&state, &session);
-    let digit = char::from_digit(options as u32 + 1, 10).ok_or("opções demais")?;
+
+    for answer in &answers {
+        for &pick in &answer.picks {
+            key(&state, &session, &digit(pick + 1)?)?;
+        }
+        if let Some(text) = answer.free.as_deref().filter(|t| !t.trim().is_empty()) {
+            // "Type something" é sempre a opção logo depois da última.
+            key(&state, &session, &digit(answer.options + 1)?)?;
+            key(&state, &session, text)?;
+            key(&state, &session, "\r")?;
+        }
+        if answer.multi {
+            key(&state, &session, "\t")?;
+        }
+    }
+
+    key(&state, &session, "\r")
+}
+
+fn digit(n: usize) -> Result<String, String> {
+    char::from_digit(n as u32, 10).map(String::from).ok_or("opções demais".into())
+}
+
+fn key(state: &State<AppState>, session: &str, text: &str) -> Result<(), String> {
     {
         let mut ptys = state.ptys.lock().unwrap();
-        let pty = ptys.get_mut(&session).ok_or("sessão não está rodando")?;
-        pty.write(&digit.to_string())?;
+        ptys.get_mut(session).ok_or("sessão não está rodando")?.write(text)?;
     }
-    std::thread::sleep(PICKER_GRACE);
-    let mut ptys = state.ptys.lock().unwrap();
-    let pty = ptys.get_mut(&session).ok_or("sessão não está rodando")?;
-    pty.write(&text)?;
-    std::thread::sleep(Duration::from_millis(150));
-    pty.write("\r")
+    std::thread::sleep(KEYSTROKE);
+    Ok(())
 }
 
 fn grace(state: &State<AppState>, session: &str) {

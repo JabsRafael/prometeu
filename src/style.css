@@ -371,3 +371,15 @@ main { flex: 1; min-height: 0; position: relative; }
   border-radius: 0 0 12px 12px;
 }
 .sheetbar .hint { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
+
+/* Pergunta com mais de um grupo: cada um ganha cabeçalho e as escolhas ficam
+   marcadas até você enviar. */
+.ask .qhead { display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
+.ask .qtag {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--wait);
+}
+.ask .qtext { font-size: 13px; font-weight: 600; line-height: 1.4; }
+.opt.picked { background: var(--wait-bg); border-color: var(--wait); }
+.opt.picked .num { background: var(--wait); color: #20180a; }
+.opt.picked .txt b { color: var(--ink); }

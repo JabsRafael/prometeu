@@ -109,48 +109,102 @@ function shell(kind: string, title: string): HTMLElement {
   return el;
 }
 
-export function showQuestion(session: string, q: Question) {
-  if (session !== current) return;
-  const el = shell(q.header ? `pergunta · ${q.header}` : "pergunta", q.question);
-  const options = q.options ?? [];
-  liveOptions = options.length;
+type Answer = { picks: number[]; options: number; multi: boolean; free: string | null };
 
-  const list = document.createElement("div");
-  list.className = "opts";
+/// Desenha o AskUserQuestion inteiro: todas as perguntas, não só a primeira.
+/// Uma pergunta de escolha única e sem irmãs continua sendo um clique só — que
+/// é o caso comum e não pode ficar mais lento por causa do caso raro.
+export function showQuestion(session: string, questions: Question[]) {
+  if (session !== current || !questions.length) return;
 
-  // O índice aqui é o mesmo que a TUI numerou: os dois leem a lista que veio
-  // no payload do hook. Nada é lido da tela.
-  options.forEach((opt, i) => {
-    const b = document.createElement("button");
-    b.className = "opt";
-    b.innerHTML = `<span class="num"></span><span class="txt"><b></b><span></span></span><span class="key"></span>`;
-    b.querySelector(".num")!.textContent = String(i + 1);
-    b.querySelector("b")!.textContent = opt.label;
-    b.querySelector(".txt span")!.textContent = opt.description ?? "";
-    b.querySelector(".key")!.textContent = `^${i + 1}`;
-    b.addEventListener("click", () => {
-      invoke("answer_question", { session, index: i }).catch((e) => fail(String(e)));
-      dismiss(el);
+  const solo = questions.length === 1 && !questions[0].multiSelect;
+  const first = questions[0];
+  const el = shell(
+    solo && first.header ? `pergunta · ${first.header}` : "pergunta",
+    solo ? first.question : `${questions.length} perguntas`,
+  );
+
+  const answers: Answer[] = questions.map((q) => ({
+    picks: [],
+    options: q.options?.length ?? 0,
+    multi: !!q.multiSelect,
+    free: null,
+  }));
+
+  const send = () => {
+    invoke("answer_questions", { session, answers }).catch((e) => fail(String(e)));
+    dismiss(el);
+  };
+
+  questions.forEach((q, qi) => {
+    if (!solo) {
+      const head = document.createElement("div");
+      head.className = "qhead";
+      head.innerHTML = `<span class="qtag"></span><span class="qtext"></span>`;
+      head.querySelector(".qtag")!.textContent = q.header ?? `${qi + 1}`;
+      head.querySelector(".qtext")!.textContent = q.question;
+      el.append(head);
+    }
+
+    const list = document.createElement("div");
+    list.className = "opts";
+
+    // O índice é o mesmo que a TUI numerou: os dois leem a lista que veio no
+    // payload do hook. Nada é lido da tela.
+    (q.options ?? []).forEach((opt, i) => {
+      const b = document.createElement("button");
+      b.className = "opt";
+      b.innerHTML = `<span class="num"></span><span class="txt"><b></b><span></span></span><span class="key"></span>`;
+      b.querySelector(".num")!.textContent = String(i + 1);
+      b.querySelector("b")!.textContent = opt.label;
+      b.querySelector(".txt span")!.textContent = opt.description ?? "";
+      b.querySelector(".key")!.textContent = solo ? `^${i + 1}` : "";
+      b.addEventListener("click", () => {
+        if (solo) {
+          answers[0].picks = [i];
+          return send();
+        }
+        // multiSelect alterna; escolha única troca.
+        const picks = answers[qi].picks;
+        if (q.multiSelect) {
+          const at = picks.indexOf(i);
+          at === -1 ? picks.push(i) : picks.splice(at, 1);
+        } else {
+          answers[qi].picks = picks[0] === i ? [] : [i];
+        }
+        [...list.children].forEach((c, ci) =>
+          c.classList.toggle("picked", answers[qi].picks.includes(ci)),
+        );
+      });
+      list.append(b);
     });
-    list.append(b);
+
+    el.append(list);
   });
 
   const free = document.createElement("div");
   free.className = "free";
   free.innerHTML = `<input placeholder="Digite ou cole uma resposta…" /><button>↵</button>`;
   const input = free.querySelector("input")!;
-  const send = () => {
+  const sendFree = () => {
     if (!input.value.trim()) return;
-    // Texto livre entra pela opção "Type something", que fica logo depois da
-    // última — daí o índice ser o número de opções + 1, calculado no Rust.
-    invoke("answer_free", { session, options: options.length, text: input.value })
-      .catch((e) => fail(String(e)));
-    dismiss(el);
+    // Texto livre entra pela opção "Type something", logo depois da última.
+    answers[0].free = input.value;
+    send();
   };
-  free.querySelector("button")!.addEventListener("click", send);
-  input.addEventListener("keydown", (e) => e.key === "Enter" && send());
+  free.querySelector("button")!.addEventListener("click", sendFree);
+  input.addEventListener("keydown", (e) => e.key === "Enter" && sendFree());
+  el.append(free);
 
-  el.append(list, free);
+  if (!solo) {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML = `<button class="ok">Enviar</button>`;
+    row.querySelector(".ok")!.addEventListener("click", send);
+    el.append(row);
+  }
+
+  liveOptions = solo ? (first.options?.length ?? 0) : 0;
 }
 
 export function showPermission(id: number, session: string, tool: string, input: unknown) {

@@ -25,7 +25,12 @@ export type Workspace = {
 export type Board = { columns: string[]; projects: Project[]; workspaces: Workspace[] };
 
 export type Option = { label: string; description?: string };
-export type Question = { question: string; header?: string; options?: Option[] };
+export type Question = {
+  question: string;
+  header?: string;
+  options?: Option[];
+  multiSelect?: boolean;
+};
 
 const RANK: Record<Status, number> = { querendo: 3, rodando: 2, pronta: 1, desligada: 0 };
 

@@ -308,8 +308,8 @@ listen<Board>("board", ({ payload }) => {
 listen<{ session: string; payload: { tool_input?: { questions?: Question[] } } }>(
   "question",
   ({ payload }) => {
-    const q = payload.payload.tool_input?.questions?.[0];
-    if (q) session.showQuestion(payload.session, q);
+    const qs = payload.payload.tool_input?.questions;
+    if (qs?.length) session.showQuestion(payload.session, qs);
   },
 );
 

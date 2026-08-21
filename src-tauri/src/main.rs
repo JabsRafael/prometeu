@@ -60,8 +60,7 @@ fn main() {
             pty::pty_resize,
             pty::pty_buffer,
             socket::decide_permission,
-            socket::answer_question,
-            socket::answer_free,
+            socket::answer_questions,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao subir o Prometheus");
