@@ -517,6 +517,14 @@ pub fn open_dock(
     Ok(key)
 }
 
+/// Abre o worktree no Finder.
+#[tauri::command]
+pub fn reveal(state: State<AppState>, id: String) -> Result<(), String> {
+    let root = worktree_of(&state, &id).ok_or("workspace sumiu")?;
+    let ok = Command::new("open").arg(&root).status().map_err(|e| e.to_string())?.success();
+    ok.then_some(()).ok_or_else(|| format!("não abriu {}", root.display()))
+}
+
 #[tauri::command]
 pub fn close_dock(state: State<AppState>, id: String, kind: String) {
     state.ptys.lock().unwrap().remove(&format!("{id}:{kind}"));

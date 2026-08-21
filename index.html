@@ -7,28 +7,40 @@
   </head>
   <body>
     <!-- Navegação nunca some: trocar de workspace não é trocar de modo. -->
-    <nav class="rail" id="rail"></nav>
+    <nav class="rail" id="rail">
+      <div class="railtop" data-tauri-drag-region="deep">
+        <button id="railtoggle" class="ico" title="Esconder barra lateral  ⌘B"></button>
+        <span class="spacer"></span>
+        <button id="back" class="ico nav" title="Voltar  ⌘[" disabled></button>
+        <button id="fwd" class="ico" title="Avançar  ⌘]" disabled></button>
+      </div>
+      <div class="railbody" id="railbody"></div>
+    </nav>
 
     <div class="stack">
-      <header class="top">
-        <span class="flame"></span>
-        <span id="crumb" class="crumb"></span>
+      <header class="top" data-tauri-drag-region="deep">
+        <button id="railshow" class="ico" title="Mostrar barra lateral  ⌘B" hidden></button>
+        <div id="crumb" class="crumb"></div>
         <span class="spacer"></span>
         <span id="msg" class="msg"></span>
-        <button id="new" class="pri">Novo workspace</button>
+        <div id="wsctl" class="wsctl" hidden>
+          <span id="wsstatus" class="chip"></span>
+          <select id="wscol" class="pick" title="Etapa no quadro"></select>
+          <button id="sidetoggle" class="ico" title="Painel lateral"></button>
+        </div>
       </header>
 
       <main>
         <section id="boardView" class="view">
           <div class="boardmain">
-            <div class="pulse" id="pulse"></div>
+            <div class="subbar pulse" id="pulse"></div>
             <div class="cols" id="cols"></div>
           </div>
         </section>
 
         <section id="wsView" class="view wsview" hidden>
           <div class="center">
-            <div class="tabbar" id="tabbar"></div>
+            <div class="subbar tabbar" id="tabbar"></div>
             <div class="termwrap">
               <div id="term"></div>
               <div id="cards"></div>
@@ -36,31 +48,43 @@
                 <h3>Conversa desligada</h3>
                 <p>O processo não está rodando — nenhum sobrevive ao fechamento do app.
                    A conversa continua salva; retomar volta de onde parou.</p>
-                <button id="resume" class="pri">Retomar conversa</button>
+                <button id="resume" class="pri lg">Retomar conversa</button>
                 <span class="path" id="offpath"></span>
               </div>
             </div>
           </div>
-          <aside class="side">
+          <aside class="side" id="side">
             <div class="sidetabs">
               <button id="tab-files" class="sidetab on">Arquivos</button>
               <button id="tab-diff" class="sidetab">Mudanças <span id="diffcount"></span></button>
               <span class="spacer"></span>
-              <button id="reveal" class="mini" title="abrir o worktree no Finder">↗</button>
+              <button id="reveal" class="ico" title="Abrir o worktree no Finder"></button>
             </div>
             <div class="sidebody">
               <div class="tree" id="tree"></div>
               <div class="difflist" id="difflist" hidden></div>
             </div>
-            <div class="docktabs">
-              <button id="dock-run" class="sidetab">Run</button>
-              <button id="dock-term" class="sidetab">Terminal</button>
-              <span class="spacer"></span>
-              <button id="dock-kill" class="mini" title="encerrar este processo">■</button>
-              <button id="dock-toggle" class="mini" title="esconder">▾</button>
+            <div class="dock" id="dock">
+              <div class="docktabs">
+                <button id="dock-toggle" class="ico" title="Recolher"></button>
+                <button id="dock-run" class="docktab">Run</button>
+                <button id="dock-term" class="docktab">Terminal</button>
+                <span class="spacer"></span>
+                <button id="dock-kill" class="ico" title="Encerrar este processo" hidden></button>
+              </div>
+              <div class="dockbody">
+                <div class="dockwrap" id="dockwrap" hidden><div id="dockterm"></div></div>
+                <div class="dockempty" id="dockempty">
+                  <h4>Abrir um terminal</h4>
+                  <div class="row">
+                    <button id="empty-term" class="pri lg">Terminal</button>
+                    <button id="empty-run" class="lg">Run</button>
+                  </div>
+                  <p>Um shell neste worktree, ou o script de run do repositório
+                     (<code>[scripts] run</code> no settings.toml).</p>
+                </div>
+              </div>
             </div>
-            <div class="dockwrap" id="dockwrap"><div id="dockterm"></div></div>
-            <div class="sidefoot" id="wtpath"></div>
           </aside>
         </section>
       </main>

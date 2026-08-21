@@ -8,7 +8,12 @@ import { Terminal } from "@xterm/xterm";
 const term = new Terminal({
   fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
   fontSize: 12,
-  theme: { background: "#11151b", foreground: "#9aa5b8", cursor: "#ff6b3d" },
+  theme: {
+    background: "#141110",
+    foreground: "#a4a09d",
+    cursor: "#d8c2b3",
+    selectionBackground: "#373533",
+  },
   scrollback: 4000,
 });
 const fit = new FitAddon();

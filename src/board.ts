@@ -1,3 +1,4 @@
+import { avatar, icon } from "./icons";
 import { statusOf, worst, type Board, type Status, type Workspace } from "./types";
 
 const LABEL: Record<Status, string> = {
@@ -5,13 +6,6 @@ const LABEL: Record<Status, string> = {
   querendo: "quer você",
   pronta: "pronta",
   desligada: "desligada",
-};
-
-const DOT: Record<Status, string> = {
-  rodando: "var(--run)",
-  querendo: "var(--wait)",
-  pronta: "var(--done)",
-  desligada: "var(--ink-3)",
 };
 
 export type Hooks = {
@@ -36,76 +30,76 @@ export function render(board: Board, hooks: Hooks) {
 
 const el = (id: string) => document.getElementById(id)!;
 
-/* ---------- rail: projeto → workspace ---------- */
+function h(tag: string, className: string, html = ""): HTMLElement {
+  const node = document.createElement(tag);
+  node.className = className;
+  node.innerHTML = html;
+  return node;
+}
+
+/* ---------- sidebar: Criar · Quadro · Projetos → workspaces ---------- */
 
 function renderRail(board: Board, hooks: Hooks) {
-  const rail = el("rail");
+  const rail = el("railbody");
   rail.replaceChildren();
 
-  const brand = document.createElement("div");
-  brand.className = "railbrand";
-  brand.textContent = "Prometheus";
-  rail.append(brand);
+  rail.append(h("div", "navitem brand", `${icon("flame")}<span>Prometheus</span>`));
 
-  const quadro = document.createElement("button");
-  quadro.className = "item" + (openId === null ? " on" : "");
-  quadro.innerHTML = `<span></span><span class="n"></span>`;
-  quadro.children[0].textContent = "Quadro";
-  quadro.children[1].textContent = String(board.workspaces.length);
+  const create = h("button", "navitem", `${icon("plus")}<span>Criar</span>`);
+  create.title = "Novo workspace  ⌘N";
+  create.addEventListener("click", () => hooks.newWorkspace());
+  rail.append(create);
+
+  const quadro = h(
+    "button",
+    "navitem" + (openId === null ? " on" : ""),
+    `${icon("kanban")}<span>Quadro</span><span class="n"></span>`,
+  );
+  quadro.querySelector(".n")!.textContent = String(board.workspaces.length);
   quadro.addEventListener("click", hooks.toBoard);
-  rail.append(quadro);
+  rail.append(quadro, document.createElement("hr"));
 
-  const head = document.createElement("div");
-  head.className = "lbl rowlbl";
-  head.innerHTML = `<span>Projetos</span>`;
-  const add = document.createElement("button");
-  add.className = "mini";
-  add.textContent = "+";
-  add.title = "registrar um repositório";
+  const sect = h("div", "sect", `<span>Projetos</span>`);
+  const add = h("button", "ico sm", icon("folder-plus"));
+  add.title = "Registrar um repositório";
   add.addEventListener("click", hooks.addProject);
-  head.append(add);
-  rail.append(head);
+  sect.append(add);
+  rail.append(sect);
 
   if (!board.projects.length) {
-    const hint = document.createElement("div");
-    hint.className = "railhint";
-    hint.textContent = "registre um repositório no + acima";
-    rail.append(hint);
+    rail.append(h("div", "railhint", "Registre um repositório no ícone acima."));
   }
 
   for (const project of board.projects) {
-    const group = document.createElement("div");
-    group.className = "grp";
+    const mine = board.workspaces.filter((w) => w.project === project.id);
 
-    const row = document.createElement("div");
-    row.className = "project";
-    row.innerHTML = `<span></span>`;
-    row.children[0].textContent = project.name;
-    const plus = document.createElement("button");
-    plus.className = "mini";
-    plus.textContent = "+";
+    const row = h("div", "proj", `${avatar(project.name)}<span></span><span class="n"></span>`);
+    row.children[1].textContent = project.name;
+    row.children[2].textContent = mine.length ? String(mine.length) : "";
+    const plus = h("button", "ico sm", icon("plus"));
     // Criar workspace já dentro do projeto é o que torna começar algo rápido.
-    plus.title = `novo workspace em ${project.name}`;
+    plus.title = `Novo workspace em ${project.name}`;
     plus.addEventListener("click", () => hooks.newWorkspace(project.id));
     row.append(plus);
-    group.append(row);
+    rail.append(row);
 
-    for (const ws of board.workspaces.filter((w) => w.project === project.id)) {
-      const b = document.createElement("button");
-      b.className = "item sub" + (ws.id === openId ? " on" : "");
-      b.innerHTML = `<i class="dot"></i><span></span><span class="n"></span>`;
-      (b.children[0] as HTMLElement).style.background = DOT[statusOf(ws)];
+    for (const ws of mine) {
+      const b = h(
+        "button",
+        "navitem sub" + (ws.id === openId ? " on" : ""),
+        `<i class="dot"></i><span></span><span class="n"></span>`,
+      );
+      (b.children[0] as HTMLElement).style.background = `var(--dot-${statusOf(ws)})`;
       b.children[1].textContent = ws.title;
       b.children[2].textContent = ws.tabs.length > 1 ? `${ws.tabs.length}` : "";
-      b.title = `${ws.branch} · ${ws.tabs.length} conversa(s)`;
+      b.title = `${ws.branch} · ${LABEL[statusOf(ws)]}`;
       b.addEventListener("click", () => hooks.open(ws));
-      group.append(b);
+      rail.append(b);
     }
-    rail.append(group);
   }
 }
 
-/* ---------- faixa de números ---------- */
+/* ---------- resumo, na linha das abas ---------- */
 
 function renderPulse(list: Workspace[]) {
   const by = (s: Status) => list.filter((w) => statusOf(w) === s).length;
@@ -113,17 +107,14 @@ function renderPulse(list: Workspace[]) {
     ["querem você", by("querendo"), "var(--wait)"],
     ["rodando", by("rodando"), "var(--run)"],
     ["prontas", by("pronta"), "var(--done)"],
-    ["conversas", list.reduce((n, w) => n + w.tabs.length, 0), "var(--ink-2)"],
+    ["conversas", list.reduce((n, w) => n + w.tabs.length, 0), "var(--fg-3)"],
   ];
   el("pulse").replaceChildren(
     ...stats.map(([k, v, color]) => {
-      const d = document.createElement("div");
-      d.className = "stat";
-      d.innerHTML = `<span class="v"></span><span class="k"></span>`;
-      const val = d.children[0] as HTMLElement;
-      val.textContent = String(v);
-      val.style.color = color;
-      d.children[1].textContent = k;
+      const d = h("span", "stat", `<i class="dot"></i><b></b><span></span>`);
+      (d.children[0] as HTMLElement).style.background = color;
+      d.children[1].textContent = String(v);
+      d.children[2].textContent = k;
       return d;
     }),
   );
@@ -138,14 +129,11 @@ function renderColumns(board: Board, hooks: Hooks) {
   for (const name of board.columns) {
     const mine = board.workspaces.filter((w) => w.column === name);
 
-    const col = document.createElement("div");
-    col.className = "col";
-    col.innerHTML = `<div class="head"><span class="t"></span><span class="c"></span></div>`;
+    const col = h("div", "col", `<div class="head"><span class="t"></span><span class="c"></span></div>`);
     col.querySelector(".t")!.textContent = name;
     col.querySelector(".c")!.textContent = String(mine.length);
 
-    const drop = document.createElement("div");
-    drop.className = "drop";
+    const drop = h("div", "drop");
     drop.addEventListener("dragover", (e) => {
       e.preventDefault();
       drop.classList.add("over");
@@ -158,12 +146,7 @@ function renderColumns(board: Board, hooks: Hooks) {
       if (id) hooks.move(id, name);
     });
 
-    if (!mine.length) {
-      const empty = document.createElement("div");
-      empty.className = "empty";
-      empty.textContent = "arraste um card para cá";
-      drop.append(empty);
-    }
+    if (!mine.length) drop.append(h("div", "empty", "arraste um card para cá"));
     for (const ws of mine) drop.append(card(ws, hooks));
 
     col.append(drop);
@@ -173,51 +156,39 @@ function renderColumns(board: Board, hooks: Hooks) {
 
 function card(ws: Workspace, hooks: Hooks): HTMLElement {
   const status = statusOf(ws);
-  const el = document.createElement("button");
-  el.className = "card" + (ws.id === openId ? " here" : "");
+  const el = h("button", "card" + (ws.id === openId ? " here" : ""));
   el.draggable = true;
   el.addEventListener("dragstart", (e) => e.dataTransfer?.setData("text/plain", ws.id));
   el.addEventListener("click", () => hooks.open(ws));
 
-  const repo = document.createElement("div");
-  repo.className = "repo";
+  const repo = h("div", "repo");
   repo.textContent = `${ws.repo_name} · ${ws.branch}`;
-
-  const title = document.createElement("div");
-  title.className = "ttl";
+  const title = h("div", "ttl");
   title.textContent = ws.title;
-
   el.append(repo, title);
 
   // A linha de atividade vem da aba mais urgente — ou o que o agente está
   // rodando agora, ou o que ele perguntou e está esperando.
   const note = worst(ws)?.note;
   if (note) {
-    const line = document.createElement("div");
-    line.className = "act" + (status === "querendo" ? " ask" : "");
+    const line = h("div", "act" + (status === "querendo" ? " ask" : ""));
     line.textContent = note;
     el.append(line);
   }
 
-  const foot = document.createElement("div");
-  foot.className = "foot";
-  const chip = document.createElement("span");
-  chip.className = `chip s-${status}`;
-  chip.innerHTML = `<i class="dot"></i>`;
+  const foot = h("div", "foot");
+  const chip = h("span", `chip s-${status}`, `<i class="dot"></i>`);
   chip.append(LABEL[status]);
   foot.append(chip);
 
   if (ws.tabs.length > 1) {
-    const tabs = document.createElement("span");
-    tabs.className = "chip s-desligada";
+    const tabs = h("span", "chip");
     tabs.textContent = `${ws.tabs.length} conversas`;
     foot.append(tabs);
   }
 
-  const x = document.createElement("span");
-  x.className = "x";
-  x.textContent = "×";
-  x.title = "tirar do quadro (worktree e branch ficam)";
+  const x = h("span", "x ico sm", icon("x"));
+  x.title = "Tirar do quadro (worktree e branch ficam)";
   x.addEventListener("click", (e) => {
     e.stopPropagation();
     hooks.drop(ws.id);

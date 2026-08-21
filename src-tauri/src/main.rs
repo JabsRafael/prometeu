@@ -51,6 +51,7 @@ fn main() {
             session::list_dir,
             session::open_dock,
             session::close_dock,
+            session::reveal,
             session::run_script,
             session::new_tab,
             session::close_tab,

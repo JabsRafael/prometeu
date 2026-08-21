@@ -8,7 +8,12 @@ import type { Question } from "./types";
 const term = new Terminal({
   fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
   fontSize: 13,
-  theme: { background: "#0e1116", foreground: "#e7ebf2", cursor: "#ff6b3d" },
+  theme: {
+    background: "#141110",
+    foreground: "#eae8e6",
+    cursor: "#d8c2b3",
+    selectionBackground: "#373533",
+  },
   allowProposedApi: true,
   scrollback: 8000,
 });

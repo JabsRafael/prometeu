@@ -3,10 +3,14 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import * as board from "./board";
 import * as dock from "./dock";
+import { avatar, icon } from "./icons";
 import { openLauncher, type Draft } from "./launcher";
 import * as session from "./session";
 import "./style.css";
 import { statusOf, type Board, type Question, type Status, type Workspace } from "./types";
+
+// Navegador puro (sem Tauri): back falso, só para mexer na UI.
+if (!("__TAURI_INTERNALS__" in window)) await import("./mock");
 
 const $ = (id: string) => document.getElementById(id)!;
 let state: Board = { columns: [], projects: [], workspaces: [] };
@@ -49,26 +53,56 @@ function draw() {
   if (openWs) drawWorkspace();
 }
 
-function showBoard() {
+/* Histórico ← →: quadro e workspaces visitados, como as setas do Conductor. */
+const hist: (string | null)[] = [];
+let at = -1;
+function visit(to: string | null) {
+  if (hist[at] === to) return;
+  hist.splice(at + 1);
+  hist.push(to);
+  at = hist.length - 1;
+  drawNav();
+}
+function drawNav() {
+  ($("back") as HTMLButtonElement).disabled = at <= 0;
+  ($("fwd") as HTMLButtonElement).disabled = at >= hist.length - 1;
+}
+function travel(dir: -1 | 1) {
+  const next = at + dir;
+  if (next < 0 || next >= hist.length) return;
+  at = next;
+  const ws = state.workspaces.find((w) => w.id === hist[at]);
+  ws ? openWorkspace(ws, false) : showBoard(false);
+  drawNav();
+}
+$("back").addEventListener("click", () => travel(-1));
+$("fwd").addEventListener("click", () => travel(1));
+
+function showBoard(push = true) {
+  if (push) visit(null);
   session.detach();
   board.setOpen((openWs = null));
   $("boardView").hidden = false;
   $("wsView").hidden = true;
-  $("crumb").textContent = "todos os workspaces";
+  $("wsctl").hidden = true;
+  $("crumb").replaceChildren(Object.assign(document.createElement("span"), { textContent: "Quadro" }));
   draw();
 }
 
-async function openWorkspace(ws: Workspace) {
+async function openWorkspace(ws: Workspace, push = true) {
+  if (push) visit(ws.id);
   const first = ws.tabs.find((t) => t.id === ws.active) ?? ws.tabs[0];
   board.setOpen((openWs = ws.id));
   openDirs.clear();
   dockPane = null;
   dock.detach();
-  drawDockTabs();
+  drawDock();
   $("boardView").hidden = true;
   $("wsView").hidden = false;
-  draw();
+  $("wsctl").hidden = false;
+  // attach primeiro: é ele quem define a sessão corrente que as abas marcam.
   if (first) await session.attach(first.id);
+  draw();
 }
 
 /* ---------- tela do workspace ---------- */
@@ -77,8 +111,30 @@ function drawWorkspace() {
   const ws = current();
   if (!ws) return showBoard();
 
-  $("crumb").textContent = `${ws.repo_name} › ${ws.title}`;
-  $("wtpath").textContent = ws.worktree;
+  // Migalha como no Conductor: avatar do projeto › nome do workspace.
+  const crumb = $("crumb");
+  crumb.innerHTML = `${avatar(ws.repo_name)}<span></span><span class="sep">${icon("chevron-right", 12)}</span><span></span>`;
+  crumb.children[1].textContent = ws.repo_name;
+  crumb.children[3].textContent = ws.title;
+
+  const st = statusOf(ws);
+  const chip = $("wsstatus");
+  chip.className = `chip s-${st}`;
+  chip.innerHTML = `<i class="dot"></i>`;
+  chip.append(LABEL[st]);
+
+  // O evento `board` chega a cada ferramenta do agente; o select só é refeito
+  // quando a lista muda, e o valor não é tocado enquanto ele está em foco.
+  const sel = $("wscol") as HTMLSelectElement;
+  const cols = state.columns.join("\n");
+  if (sel.dataset.cols !== cols) {
+    sel.dataset.cols = cols;
+    sel.replaceChildren(
+      ...state.columns.map((name) => Object.assign(document.createElement("option"), { value: name, textContent: name })),
+    );
+  }
+  if (document.activeElement !== sel) sel.value = ws.column;
+
   $("offpath").textContent = ws.worktree;
   drawTabs(ws);
   drawDiff(ws.id);
@@ -89,7 +145,12 @@ function drawWorkspace() {
   $("offline").hidden = tab?.status !== "desligada";
 }
 
-/// Barra de abas à esquerda, etapa do quadro à direita: uma linha só, cheia.
+$("wscol").addEventListener("change", () => {
+  const ws = current();
+  if (ws) invoke("move_workspace", { id: ws.id, column: ($("wscol") as HTMLSelectElement).value });
+});
+
+/// Abas sublinhadas, uma por conversa, e o + logo depois da última.
 function drawTabs(ws: Workspace) {
   const bar = $("tabbar");
   bar.replaceChildren();
@@ -105,8 +166,9 @@ function drawTabs(ws: Workspace) {
 
     if (ws.tabs.length > 1) {
       const x = document.createElement("span");
-      x.className = "tabx";
-      x.textContent = "×";
+      x.className = "tabx ico sm";
+      x.innerHTML = icon("x", 12);
+      x.title = "Fechar conversa";
       x.addEventListener("click", (e) => {
         e.stopPropagation();
         invoke("close_tab", { workspace: ws.id, tab: tab.id });
@@ -117,30 +179,11 @@ function drawTabs(ws: Workspace) {
   }
 
   const add = document.createElement("button");
-  add.className = "tabadd";
-  add.textContent = "+";
+  add.className = "ico";
+  add.innerHTML = icon("plus");
   add.title = "Conversa nova, mesmos arquivos  ⌘T";
   add.addEventListener("click", () => newTab());
   bar.append(add);
-
-  const spacer = document.createElement("span");
-  spacer.className = "spacer";
-  bar.append(spacer);
-
-  const chip = document.createElement("span");
-  const st = statusOf(ws);
-  chip.className = `chip s-${st}`;
-  chip.innerHTML = `<i class="dot"></i>`;
-  chip.append(LABEL[st]);
-  bar.append(chip);
-
-  for (const name of state.columns) {
-    const b = document.createElement("button");
-    b.className = "colchip" + (name === ws.column ? " on" : "");
-    b.textContent = name;
-    b.addEventListener("click", () => invoke("move_workspace", { id: ws.id, column: name }));
-    bar.append(b);
-  }
 }
 
 async function selectTab(workspace: string, tab: string) {
@@ -169,6 +212,7 @@ async function newTab() {
 
 let sidePane: "files" | "diff" = "files";
 let dockPane: "run" | "terminal" | null = null;
+let dockOpen = true;
 const openDirs = new Set<string>();
 
 function setSidePane(pane: "files" | "diff") {
@@ -183,6 +227,10 @@ function setSidePane(pane: "files" | "diff") {
 
 $("tab-files").addEventListener("click", () => setSidePane("files"));
 $("tab-diff").addEventListener("click", () => setSidePane("diff"));
+$("reveal").addEventListener("click", () => {
+  const ws = current();
+  if (ws) invoke("reveal", { id: ws.id }).catch((e) => say(String(e), true));
+});
 
 /// Árvore preguiçosa: uma pasta por chamada, aberta sob demanda. Repo grande
 /// não paga por galho que ninguém abriu.
@@ -198,10 +246,12 @@ async function fillDir(id: string, rel: string, into: HTMLElement, depth: number
   const entries = await invoke<Entry[]>("list_dir", { id, rel });
   for (const entry of entries) {
     const row = document.createElement("button");
-    row.className = "treerow" + (entry.dir ? " isdir" : "");
-    row.style.paddingLeft = `${8 + depth * 13}px`;
+    row.className = "treerow";
+    row.style.paddingLeft = `${16 + depth * 20}px`;
     row.innerHTML = `<span class="tw"></span><span class="tn"></span>`;
-    row.children[0].textContent = entry.dir ? "▸" : "";
+    const glyph = (open: boolean) =>
+      (row.children[0].innerHTML = icon(entry.dir ? (open ? "folder-open" : "folder") : "file"));
+    glyph(false);
     row.children[1].textContent = entry.name;
     into.append(row);
 
@@ -220,11 +270,11 @@ async function fillDir(id: string, rel: string, into: HTMLElement, depth: number
         if (!kids.childElementCount) await fillDir(id, entry.path, kids, depth + 1);
       }
       kids.hidden = isOpen;
-      row.children[0].textContent = isOpen ? "▸" : "▾";
+      glyph(!isOpen);
     });
 
     if (openDirs.has(entry.path)) {
-      row.children[0].textContent = "▾";
+      glyph(true);
       kids.hidden = false;
       await fillDir(id, entry.path, kids, depth + 1);
     }
@@ -236,36 +286,46 @@ async function fillDir(id: string, rel: string, into: HTMLElement, depth: number
 async function setDock(pane: "run" | "terminal") {
   const ws = current();
   if (!ws) return;
-  const same = dockPane === pane;
+  const same = dockOpen && dockPane === pane;
   dockPane = same ? null : pane;
-  drawDockTabs();
+  dockOpen = true;
+  drawDock();
   if (!dockPane) return dock.detach();
   try {
     await dock.open(ws.id, pane);
     dock.focus();
   } catch (err) {
     dockPane = null;
-    drawDockTabs();
+    drawDock();
     say(String(err), true);
   }
 }
 
-function drawDockTabs() {
+function drawDock() {
+  $("dock").classList.toggle("closed", !dockOpen);
+  $("dock-toggle").innerHTML = icon(dockOpen ? "chevron-down" : "chevron-right");
+  $("dock-toggle").title = dockOpen ? "Recolher" : "Expandir";
   $("dock-run").classList.toggle("on", dockPane === "run");
   $("dock-term").classList.toggle("on", dockPane === "terminal");
   $("dockwrap").hidden = dockPane === null;
-  $("dock-toggle").textContent = dockPane === null ? "▴" : "▾";
+  $("dockempty").hidden = dockPane !== null;
+  $("dock-kill").hidden = dockPane === null;
 }
 
 $("dock-run").addEventListener("click", () => setDock("run"));
 $("dock-term").addEventListener("click", () => setDock("terminal"));
-$("dock-toggle").addEventListener("click", () => setDock(dockPane ?? "terminal"));
+$("empty-run").addEventListener("click", () => setDock("run"));
+$("empty-term").addEventListener("click", () => setDock("terminal"));
+$("dock-toggle").addEventListener("click", () => {
+  dockOpen = !dockOpen;
+  drawDock();
+});
 $("dock-kill").addEventListener("click", () => {
   const ws = current();
   if (ws && dockPane) {
     dock.kill(ws.id, dockPane);
     dockPane = null;
-    drawDockTabs();
+    drawDock();
   }
 });
 
@@ -298,10 +358,32 @@ async function drawDiff(id: string) {
   );
 }
 
+/* ---------- painéis laterais ---------- */
+
+function toggleRail() {
+  const hidden = document.body.classList.toggle("norail");
+  $("railshow").hidden = !hidden;
+  // As setas acompanham: sidebar recolhida, elas vão para o header.
+  (hidden ? $("railshow") : $("railtoggle")).after($("back"), $("fwd"));
+}
+$("railtoggle").addEventListener("click", toggleRail);
+$("railshow").addEventListener("click", toggleRail);
+$("sidetoggle").addEventListener("click", () => document.body.classList.toggle("noside"));
+
 /* ---------- eventos do back ---------- */
 
 listen<Board>("board", ({ payload }) => {
   state = payload;
+  // Workspace removido sai do histórico; duas paradas iguais seguidas viram uma.
+  const alive = new Set(state.workspaces.map((w) => w.id));
+  for (let i = hist.length - 1; i >= 0; i--) {
+    const id = hist[i];
+    if ((id !== null && !alive.has(id)) || (i > 0 && id === hist[i - 1])) {
+      hist.splice(i, 1);
+      if (i <= at) at--;
+    }
+  }
+  drawNav();
   draw();
 });
 
@@ -341,8 +423,6 @@ function launch(projectId?: string) {
   });
 }
 
-$("new").addEventListener("click", () => launch(current()?.project));
-
 $("resume").addEventListener("click", async () => {
   const tab = session.currentSession();
   if (!tab) return;
@@ -366,6 +446,14 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     newTab();
   }
+  if (cmd && e.key === "b") {
+    e.preventDefault();
+    toggleRail();
+  }
+  if (cmd && (e.key === "[" || e.key === "]")) {
+    e.preventDefault();
+    travel(e.key === "[" ? -1 : 1);
+  }
   if (e.key === "Escape" && !$("veil").hidden) {
     $("veil").hidden = true;
     $("veil").replaceChildren();
@@ -374,7 +462,20 @@ document.addEventListener("keydown", (e) => {
 
 /* ---------- início ---------- */
 
+for (const [id, name] of [
+  ["railtoggle", "panel-left"],
+  ["railshow", "panel-left"],
+  ["back", "arrow-left"],
+  ["fwd", "arrow-right"],
+  ["sidetoggle", "panel-right"],
+  ["reveal", "external-link"],
+  ["dock-kill", "square"],
+] as const) {
+  $(id).innerHTML = icon(name);
+}
+
 session.initTerminal((m) => say(m, true));
 dock.init($("dockterm"));
+drawDock();
 state = await invoke<Board>("load_board");
 showBoard();

@@ -15,7 +15,17 @@
         "label": "main",
         "title": "Prometheus",
         "width": 1320,
-        "height": 860
+        "height": 860,
+        "minWidth": 900,
+        "minHeight": 560,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 14,
+          "y": 13
+        },
+        "theme": "Dark",
+        "backgroundColor": "#141110"
       }
     ],
     "security": {

@@ -68,6 +68,7 @@ Os dois rodam lado a lado sem se pisarem.
 ```sh
 npm install
 npm run app          # tauri dev
+npm run dev          # só o front, no navegador (localhost:1420) com um back falso — para mexer na UI
 ```
 
 Aponte um repositório git e um nome de branch, e clique em **Criar sessão**.
