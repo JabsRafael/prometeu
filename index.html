@@ -52,6 +52,15 @@
                 <span class="path" id="offpath"></span>
               </div>
             </div>
+            <!-- Mudanças: o diff de todos os arquivos empilhado num scroll só. -->
+            <div class="diffview" id="diffview" hidden>
+              <div class="vbar">
+                <span class="vcrumb" id="dcrumb"></span>
+                <span class="spacer"></span>
+                <button id="dfold" class="ico" title="Recolher todos"></button>
+              </div>
+              <div class="dlist" id="dlist"></div>
+            </div>
             <!-- Arquivo aberto pela árvore: toma o lugar do terminal, como no Conductor. -->
             <div class="viewer" id="viewer" hidden>
               <div class="vbar">

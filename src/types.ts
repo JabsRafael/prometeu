@@ -24,6 +24,16 @@ export type Workspace = {
 
 export type Board = { columns: string[]; projects: Project[]; workspaces: Workspace[] };
 
+/// Um arquivo mexido no worktree. `patch` são os trechos `@@` do diff — vazio
+/// quando não há o que desenhar (binário, ou grande demais).
+export type Change = {
+  path: string;
+  added: number;
+  removed: number;
+  new_file: boolean;
+  patch: string;
+};
+
 export type Option = { label: string; description?: string };
 export type Question = {
   question: string;

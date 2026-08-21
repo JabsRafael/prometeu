@@ -96,6 +96,44 @@ end
   ".rubocop.yml": "# Omakase Ruby styling for Rails\ninherit_gem: { rubocop-rails-omakase: rubocop.yml }\n\nAllCops:\n  TargetRubyVersion: 3.4\n  NewCops: enable\n",
 };
 
+const changes = [
+  {
+    path: "src/style.css",
+    added: 6,
+    removed: 2,
+    new_file: false,
+    patch: [
+      "@@ -212,7 +212,11 @@ .card {",
+      "   display: flex;",
+      "-  gap: 4px;",
+      "-  padding: 8px;",
+      "+  gap: 8px;",
+      "+  padding: 12px;",
+      "+  border-radius: var(--r-lg);",
+      " }",
+      "@@ -318,3 +322,6 @@ .foot {",
+      " .foot .x:hover { color: var(--err); }",
+      "+.foot .chip { padding: 0; }",
+      "+.foot .chip .dot { width: 7px; }",
+      "+",
+    ].join("\n"),
+  },
+  {
+    path: "src/icons.ts",
+    added: 4,
+    removed: 0,
+    new_file: true,
+    patch: [
+      "@@ -0,0 +1,4 @@",
+      '+export function icon(name: string, size = 16): string {',
+      '+  const PATHS: Record<string, string> = { plus: "M5 12h14" };',
+      "+  return `<svg width=\"${size}\">${PATHS[name]}</svg>`;",
+      "+}",
+    ].join("\n"),
+  },
+  { path: "public/logo.png", added: 0, removed: 0, new_file: true, patch: "" },
+];
+
 const SAMPLE =
   "\x1b[1mClaude Code\x1b[0m v2.1.238\r\n" +
   "Opus 5 (1M context) with high effort · Claude Max\r\n" +
@@ -123,11 +161,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     case "pty_buffer":
       return [...new TextEncoder().encode(SAMPLE)];
     case "workspace_diff":
-      return [
-        { path: "src/style.css", added: 212, removed: 180, new_file: false },
-        { path: "src/icons.ts", added: 48, removed: 0, new_file: true },
-        { path: "index.html", added: 31, removed: 12, new_file: false },
-      ];
+      return changes;
     case "list_dir":
       return tree[args.rel ?? ""] ?? [];
     case "read_file":

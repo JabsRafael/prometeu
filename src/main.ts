@@ -2,13 +2,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import * as board from "./board";
+import * as diff from "./diff";
 import * as dock from "./dock";
 import { avatar, fileIcon, icon } from "./icons";
 import { openLauncher, type Draft } from "./launcher";
 import * as session from "./session";
 import "./style.css";
 import * as viewer from "./viewer";
-import { statusOf, type Board, type Question, type Status, type Workspace } from "./types";
+import { statusOf, type Board, type Change, type Question, type Status, type Workspace } from "./types";
 
 // Navegador puro (sem Tauri): back falso, só para mexer na UI.
 if (!("__TAURI_INTERNALS__" in window)) await import("./mock");
@@ -103,8 +104,11 @@ async function openWorkspace(ws: Workspace, push = true) {
   $("wsctl").hidden = false;
   // attach primeiro: é ele quem define a sessão corrente que as abas marcam.
   if (first) await session.attach(first.id);
-  // Volta para onde parou: arquivo aberto continua aberto.
-  files(ws.id).active ? await showFile() : showTerm();
+  // Volta para onde parou: arquivo aberto continua aberto, diff continua na tela.
+  const fs = files(ws.id);
+  if (fs.diff) showChanges();
+  else if (fs.active) await showFile();
+  else showTerm();
   draw();
 }
 
@@ -156,16 +160,17 @@ $("wscol").addEventListener("change", () => {
   if (ws) invoke("move_workspace", { id: ws.id, column: ($("wscol") as HTMLSelectElement).value });
 });
 
-/// Abas sublinhadas: uma por conversa, depois uma por arquivo aberto, e o +
-/// logo depois da última.
+/// Abas sublinhadas: uma por conversa, a de Mudanças, depois uma por arquivo
+/// aberto, e o + logo depois da última.
 function drawTabs(ws: Workspace) {
   const bar = $("tabbar");
   bar.replaceChildren();
   const fs = files(ws.id);
+  const elsewhere = fs.diff || fs.active;
 
   for (const tab of ws.tabs) {
     const b = document.createElement("button");
-    b.className = "tab" + (!fs.active && tab.id === session.currentSession() ? " on" : "");
+    b.className = "tab" + (!elsewhere && tab.id === session.currentSession() ? " on" : "");
     b.innerHTML = `<i class="dot"></i><span></span>`;
     (b.children[0] as HTMLElement).style.background = `var(--dot-${tab.status})`;
     b.children[1].textContent = tab.title;
@@ -183,6 +188,20 @@ function drawTabs(ws: Workspace) {
       });
       b.append(x);
     }
+    bar.append(b);
+  }
+
+  // A aba de Mudanças existe enquanto houver o que mostrar — ou enquanto ela
+  // estiver aberta, para o worktree ficar limpo sem a tela sumir debaixo de você.
+  const changes = changesOf.get(ws.id) ?? [];
+  if (changes.length || fs.diff) {
+    const b = document.createElement("button");
+    b.className = "tab file" + (fs.diff ? " on" : "");
+    b.innerHTML = `${icon("diff", 14)}<span></span><span class="n"></span>`;
+    b.children[1].textContent = "Mudanças";
+    b.children[2].textContent = changes.length ? String(changes.length) : "";
+    b.title = "Diff do worktree inteiro";
+    b.addEventListener("click", () => showChanges());
     bar.append(b);
   }
 
@@ -217,12 +236,14 @@ async function selectTab(workspace: string, tab: string) {
 
 /* ---------- arquivos abertos ---------- */
 
-/// Abas de arquivo por workspace, só em memória: fechar o app fecha os arquivos.
-type Files = { open: string[]; active: string | null };
+/// O que está no centro de cada workspace, só em memória: fechar o app volta
+/// tudo para a conversa. `diff` ligado é a tela de mudanças; `active` é o
+/// arquivo aberto; nenhum dos dois é o terminal.
+type Files = { open: string[]; active: string | null; diff: boolean };
 const filesOf = new Map<string, Files>();
 function files(id: string): Files {
   let f = filesOf.get(id);
-  if (!f) filesOf.set(id, (f = { open: [], active: null }));
+  if (!f) filesOf.set(id, (f = { open: [], active: null, diff: false }));
   return f;
 }
 
@@ -240,16 +261,35 @@ async function showFile() {
   const ws = current();
   const path = ws && files(ws.id).active;
   if (!ws || !path) return showTerm();
-  $("termwrap").hidden = true;
-  $("viewer").hidden = false;
+  files(ws.id).diff = false;
+  center("viewer");
   await viewer.show(ws.id, path);
 }
 
 function showTerm() {
   const ws = current();
-  if (ws) files(ws.id).active = null;
-  $("termwrap").hidden = false;
-  $("viewer").hidden = true;
+  if (ws) {
+    files(ws.id).active = null;
+    files(ws.id).diff = false;
+  }
+  center("termwrap");
+}
+
+/// Tela de mudanças. `focus` vem do clique na lista da direita: é a mesma tela,
+/// só rolada até aquele arquivo.
+function showChanges(focus?: string) {
+  const ws = current();
+  if (!ws) return;
+  const fs = files(ws.id);
+  fs.active = null;
+  fs.diff = true;
+  center("diffview");
+  drawChanges(ws.id, focus);
+  drawTabs(ws);
+}
+
+function center(show: "termwrap" | "viewer" | "diffview") {
+  for (const id of ["termwrap", "viewer", "diffview"] as const) $(id).hidden = id !== show;
 }
 
 async function closeFile(path: string) {
@@ -419,32 +459,65 @@ $("dock-kill").addEventListener("click", () => {
 
 /// Painel da direita. Redesenha junto com o quadro, que já é atualizado a cada
 /// ferramenta que o agente usa — então o diff acompanha sozinho, sem polling.
+const changesOf = new Map<string, Change[]>();
+
 async function drawDiff(id: string) {
-  type Change = { path: string; added: number; removed: number; new_file: boolean };
-  const files = await invoke<Change[]>("workspace_diff", { id });
-  $("diffcount").textContent = files.length ? String(files.length) : "";
+  const changes = await invoke<Change[]>("workspace_diff", { id });
+  changesOf.set(id, changes);
+  $("diffcount").textContent = changes.length ? String(changes.length) : "";
 
   const list = $("difflist");
-  if (!files.length) {
+  if (!changes.length) {
     const none = document.createElement("div");
     none.className = "none";
     none.textContent = "worktree limpo";
-    return list.replaceChildren(none);
+    list.replaceChildren(none);
+  } else {
+    list.replaceChildren(
+      ...changes.map((f) => {
+        // A lista é o índice da tela do centro: clicar rola até o arquivo.
+        const row = document.createElement("button");
+        row.className = "diffrow";
+        row.title = f.path;
+        row.innerHTML = `<span class="p"></span><span class="new"></span><span class="a"></span><span class="r"></span>`;
+        row.children[0].textContent = f.path;
+        row.children[1].textContent = f.new_file ? "novo" : "";
+        row.children[2].textContent = f.added ? `+${f.added}` : "";
+        row.children[3].textContent = f.removed ? `−${f.removed}` : "";
+        row.addEventListener("click", () => showChanges(f.path));
+        return row;
+      }),
+    );
   }
-  list.replaceChildren(
-    ...files.map((f) => {
-      const row = document.createElement("div");
-      row.className = "diffrow";
-      row.title = f.path;
-      row.innerHTML = `<span class="p"></span><span class="new"></span><span class="a"></span><span class="r"></span>`;
-      row.children[0].textContent = f.path;
-      row.children[1].textContent = f.new_file ? "novo" : "";
-      row.children[2].textContent = f.added ? `+${f.added}` : "";
-      row.children[3].textContent = f.removed ? `−${f.removed}` : "";
-      return row;
-    }),
-  );
+
+  const ws = current();
+  if (ws?.id !== id) return;
+  drawTabs(ws); // a aba de Mudanças aparece, some e conta junto com a lista
+  if (files(id).diff) drawChanges(id);
 }
+
+/// Resumo na barra e o diff empilhado embaixo. Redesenhar é barato: a tela só é
+/// refeita quando algum patch mudou de verdade.
+function drawChanges(id: string, focus?: string) {
+  const changes = changesOf.get(id) ?? [];
+  const added = changes.reduce((n, c) => n + c.added, 0);
+  const removed = changes.reduce((n, c) => n + c.removed, 0);
+
+  const crumb = $("dcrumb");
+  crumb.innerHTML = `${icon("diff", 14)}<span class="nm"></span><span class="a"></span><span class="r"></span>`;
+  crumb.children[1].textContent = `${changes.length} ${changes.length === 1 ? "arquivo" : "arquivos"}`;
+  crumb.children[2].textContent = added ? `+${added}` : "";
+  crumb.children[3].textContent = removed ? `−${removed}` : "";
+
+  diff.render($("dlist"), id, changes, focus);
+}
+
+$("dfold").addEventListener("click", () => {
+  const ws = current();
+  if (!ws) return;
+  diff.foldAll((changesOf.get(ws.id) ?? []).map((c) => c.path));
+  drawChanges(ws.id);
+});
 
 /* ---------- painéis laterais ---------- */
 
@@ -538,10 +611,15 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     toggleRail();
   }
-  const file = openWs && files(openWs).active;
-  if (cmd && e.key === "w" && file) {
+  const fs = openWs ? files(openWs) : null;
+  if (cmd && e.key === "w" && fs?.active) {
     e.preventDefault();
-    closeFile(file);
+    closeFile(fs.active);
+  } else if (cmd && e.key === "w" && fs?.diff) {
+    // Sair do diff é voltar para a conversa, como fechar a aba de um arquivo.
+    e.preventDefault();
+    const tab = session.currentSession();
+    tab ? selectTab(openWs!, tab) : showTerm();
   }
   if (cmd && (e.key === "[" || e.key === "]")) {
     e.preventDefault();
@@ -564,6 +642,7 @@ for (const [id, name] of [
   ["reveal", "external-link"],
   ["collapse", "list-tree"],
   ["dock-kill", "square"],
+  ["dfold", "chevron-up"],
 ] as const) {
   $(id).innerHTML = icon(name);
 }

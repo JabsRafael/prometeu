@@ -379,10 +379,15 @@ pub struct FileChange {
     pub added: u32,
     pub removed: u32,
     pub new_file: bool,
+    /// Os trechos `@@` do diff, sem o cabeçalho `diff --git`/`index`, que a
+    /// tela não mostra. Vem vazio quando não há o que desenhar: binário, ou
+    /// patch grande demais para valer a viagem até a webview.
+    pub patch: String,
 }
 
 /// O que mudou no worktree deste workspace — compartilhado por todas as abas,
-/// que é justamente o motivo de elas existirem.
+/// que é justamente o motivo de elas existirem. A conta fica em `changes_in`,
+/// que é o que o teste consegue rodar contra um worktree de verdade.
 #[tauri::command]
 pub fn workspace_diff(state: State<AppState>, id: String) -> Vec<FileChange> {
     let Some(worktree) = state
@@ -396,29 +401,163 @@ pub fn workspace_diff(state: State<AppState>, id: String) -> Vec<FileChange> {
     else {
         return Vec::new();
     };
-    let wt = Path::new(&worktree);
+    changes_in(Path::new(&worktree))
+}
 
-    let mut out: Vec<FileChange> = git(wt, &["diff", "--numstat", "HEAD"])
+fn changes_in(wt: &Path) -> Vec<FileChange> {
+    // `--no-renames` para o caminho do numstat e o do patch serem o mesmo: com
+    // detecção de rename o numstat diz `src/{a => b}.ts` e o patch diz `b`.
+    let mut patches = patch_map(&git(wt, &["diff", "--no-color", "--no-renames", "-U3", "HEAD"]));
+
+    let mut out: Vec<FileChange> = git(wt, &["diff", "--numstat", "--no-renames", "HEAD"])
         .lines()
         .filter_map(|l| {
             let mut f = l.split('\t');
             let added = f.next()?.parse().unwrap_or(0);
             let removed = f.next()?.parse().unwrap_or(0);
-            Some(FileChange { path: f.next()?.to_string(), added, removed, new_file: false })
+            let path = f.next()?.to_string();
+            let patch = patches.remove(&path).unwrap_or_default();
+            Some(FileChange { path, added, removed, new_file: false, patch })
         })
         .collect();
 
     // Arquivo novo ainda não está no índice, então o numstat não o vê. Conta as
-    // linhas direto — é barato e evita mexer no índice do usuário.
+    // linhas direto — é barato e evita mexer no índice do usuário. O patch dele
+    // também não existe: é o arquivo inteiro entrando, então nasce aqui.
     for path in git(wt, &["ls-files", "--others", "--exclude-standard"]).lines() {
-        let added = std::fs::read_to_string(wt.join(path))
-            .map(|s| s.lines().count() as u32)
-            .unwrap_or(0);
-        out.push(FileChange { path: path.to_string(), added, removed: 0, new_file: true });
+        let text = std::fs::read_to_string(wt.join(path)).unwrap_or_default();
+        let added = text.lines().count() as u32;
+        let patch = match added {
+            0 => String::new(),
+            n => std::iter::once(format!("@@ -0,0 +1,{n} @@"))
+                .chain(text.lines().map(|l| format!("+{l}")))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        };
+        out.push(FileChange { path: path.to_string(), added, removed: 0, new_file: true, patch: cap(patch) });
     }
 
     out.sort_by(|a, b| (b.added + b.removed).cmp(&(a.added + a.removed)));
     out
+}
+
+/// Corta a saída de um `git diff` em um patch por arquivo. Guarda só as linhas
+/// dos trechos: o caminho sai do `+++ b/…` (ou do `--- a/…`, quando o arquivo
+/// foi apagado e o destino é `/dev/null`), que aguenta nome com espaço.
+fn patch_map(text: &str) -> std::collections::HashMap<String, String> {
+    let mut out = std::collections::HashMap::new();
+    let mut path = String::new();
+    let mut old = String::new();
+    let mut body: Vec<&str> = Vec::new();
+    let mut in_hunk = false;
+
+    let mut flush = |path: &mut String, body: &mut Vec<&str>| {
+        if !path.is_empty() {
+            out.insert(std::mem::take(path), cap(body.join("\n")));
+        }
+        body.clear();
+    };
+
+    for line in text.lines() {
+        if line.starts_with("diff --git ") {
+            flush(&mut path, &mut body);
+            old.clear();
+            in_hunk = false;
+        } else if let Some(p) = line.strip_prefix("--- a/") {
+            old = p.to_string();
+        } else if let Some(p) = line.strip_prefix("+++ ") {
+            path = match p.strip_prefix("b/") {
+                Some(p) => p.to_string(),
+                None => std::mem::take(&mut old), // +++ /dev/null: arquivo apagado
+            };
+        } else if line.starts_with("@@") {
+            in_hunk = true;
+            body.push(line);
+        } else if in_hunk {
+            body.push(line);
+        }
+    }
+    flush(&mut path, &mut body);
+    out
+}
+
+/// Diff de arquivo gerado (lock, bundle, snapshot) não se lê na tela e trava a
+/// webview. Passando disto, a tela mostra só o resumo com o +/−.
+fn cap(patch: String) -> String {
+    match patch.len() > 400_000 {
+        true => String::new(),
+        false => patch,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::patch_map;
+
+    /// Saída de `git diff HEAD` com três arquivos: um mexido, um apagado e um
+    /// com espaço no nome. O caminho tem de sair certo nos três.
+    const DIFF: &str = "\
+diff --git a/src/main.ts b/src/main.ts
+index 1c1c1c1..2d2d2d2 100644
+--- a/src/main.ts
++++ b/src/main.ts
+@@ -12,3 +12,4 @@ const $ = (id: string) => document.getElementById(id)!;
+ let state: Board;
+-let openWs = null;
++let openWs: string | null = null;
++let sidePane = \"files\";
+diff --git a/src/old.ts b/src/old.ts
+deleted file mode 100644
+index 3e3e3e3..0000000
+--- a/src/old.ts
++++ /dev/null
+@@ -1,2 +0,0 @@
+-const gone = true;
+-export default gone;
+diff --git a/docs/com espaco.md b/docs/com espaco.md
+--- a/docs/com espaco.md
++++ b/docs/com espaco.md
+@@ -1 +1 @@
+-antes
++depois
+";
+
+    /// Contra o git de verdade, no worktree onde este teste está rodando: todo
+    /// arquivo que a lista mostra com linhas contadas tem de vir com trecho para
+    /// desenhar. Binário conta 0/0 e não tem patch — esse é o caso de fora.
+    #[test]
+    fn a_lista_e_o_patch_falam_do_mesmo_arquivo() {
+        let wt = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        for change in super::changes_in(wt) {
+            if change.added + change.removed == 0 {
+                continue;
+            }
+            assert!(
+                change.patch.contains("@@"),
+                "{} tem {}+/{}- e nenhum trecho",
+                change.path,
+                change.added,
+                change.removed
+            );
+        }
+    }
+
+    #[test]
+    fn separa_um_patch_por_arquivo() {
+        let map = patch_map(DIFF);
+        assert_eq!(map.len(), 3);
+
+        let main = &map["src/main.ts"];
+        assert!(main.starts_with("@@ -12,3 +12,4 @@ const $"), "{main}");
+        assert!(main.contains("+let openWs: string | null = null;"));
+        // Cabeçalho `index`/`---`/`+++` não entra: a tela não mostra.
+        assert!(!main.contains("index 1c1c1c1"));
+        assert!(!main.contains("--- a/src/main.ts"));
+
+        // Apagado: o destino é /dev/null, então o caminho vem do `--- a/`.
+        assert!(map["src/old.ts"].contains("-export default gone;"));
+        assert_eq!(map["docs/com espaco.md"].lines().count(), 3);
+    }
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
