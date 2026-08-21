@@ -49,6 +49,7 @@ fn main() {
             session::remove_workspace,
             session::workspace_diff,
             session::list_dir,
+            session::read_file,
             session::open_dock,
             session::close_dock,
             session::reveal,

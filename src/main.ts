@@ -3,10 +3,11 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import * as board from "./board";
 import * as dock from "./dock";
-import { avatar, icon } from "./icons";
+import { avatar, fileIcon, icon } from "./icons";
 import { openLauncher, type Draft } from "./launcher";
 import * as session from "./session";
 import "./style.css";
+import * as viewer from "./viewer";
 import { statusOf, type Board, type Question, type Status, type Workspace } from "./types";
 
 // Navegador puro (sem Tauri): back falso, só para mexer na UI.
@@ -102,6 +103,8 @@ async function openWorkspace(ws: Workspace, push = true) {
   $("wsctl").hidden = false;
   // attach primeiro: é ele quem define a sessão corrente que as abas marcam.
   if (first) await session.attach(first.id);
+  // Volta para onde parou: arquivo aberto continua aberto.
+  files(ws.id).active ? await showFile() : showTerm();
   draw();
 }
 
@@ -139,6 +142,9 @@ function drawWorkspace() {
   drawTabs(ws);
   drawDiff(ws.id);
   if (sidePane === "files") drawTree(ws.id);
+  // O agente edita; o arquivo na tela acompanha, sem polling.
+  const file = files(ws.id).active;
+  if (file) viewer.show(ws.id, file);
 
   const tab = ws.tabs.find((t) => t.id === session.currentSession());
   // Terminal mudo confunde; a saída fica escrita na tela.
@@ -150,14 +156,16 @@ $("wscol").addEventListener("change", () => {
   if (ws) invoke("move_workspace", { id: ws.id, column: ($("wscol") as HTMLSelectElement).value });
 });
 
-/// Abas sublinhadas, uma por conversa, e o + logo depois da última.
+/// Abas sublinhadas: uma por conversa, depois uma por arquivo aberto, e o +
+/// logo depois da última.
 function drawTabs(ws: Workspace) {
   const bar = $("tabbar");
   bar.replaceChildren();
+  const fs = files(ws.id);
 
   for (const tab of ws.tabs) {
     const b = document.createElement("button");
-    b.className = "tab" + (tab.id === session.currentSession() ? " on" : "");
+    b.className = "tab" + (!fs.active && tab.id === session.currentSession() ? " on" : "");
     b.innerHTML = `<i class="dot"></i><span></span>`;
     (b.children[0] as HTMLElement).style.background = `var(--dot-${tab.status})`;
     b.children[1].textContent = tab.title;
@@ -178,6 +186,20 @@ function drawTabs(ws: Workspace) {
     bar.append(b);
   }
 
+  for (const path of fs.open) {
+    const b = document.createElement("button");
+    b.className = "tab file" + (path === fs.active ? " on" : "");
+    b.innerHTML = `${icon("file", 14)}<span></span><span class="tabx ico sm">${icon("x", 12)}</span>`;
+    b.children[1].textContent = path.slice(path.lastIndexOf("/") + 1);
+    b.title = path;
+    b.addEventListener("click", () => openFile(path));
+    b.querySelector(".tabx")!.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeFile(path);
+    });
+    bar.append(b);
+  }
+
   const add = document.createElement("button");
   add.className = "ico";
   add.innerHTML = icon("plus");
@@ -188,8 +210,62 @@ function drawTabs(ws: Workspace) {
 
 async function selectTab(workspace: string, tab: string) {
   invoke("focus_tab", { workspace, tab });
+  showTerm();
   await session.attach(tab);
   drawWorkspace();
+}
+
+/* ---------- arquivos abertos ---------- */
+
+/// Abas de arquivo por workspace, só em memória: fechar o app fecha os arquivos.
+type Files = { open: string[]; active: string | null };
+const filesOf = new Map<string, Files>();
+function files(id: string): Files {
+  let f = filesOf.get(id);
+  if (!f) filesOf.set(id, (f = { open: [], active: null }));
+  return f;
+}
+
+async function openFile(path: string) {
+  const ws = current();
+  if (!ws) return;
+  const fs = files(ws.id);
+  if (!fs.open.includes(path)) fs.open.push(path);
+  fs.active = path;
+  await showFile();
+  drawTabs(ws);
+}
+
+async function showFile() {
+  const ws = current();
+  const path = ws && files(ws.id).active;
+  if (!ws || !path) return showTerm();
+  $("termwrap").hidden = true;
+  $("viewer").hidden = false;
+  await viewer.show(ws.id, path);
+}
+
+function showTerm() {
+  const ws = current();
+  if (ws) files(ws.id).active = null;
+  $("termwrap").hidden = false;
+  $("viewer").hidden = true;
+}
+
+async function closeFile(path: string) {
+  const ws = current();
+  if (!ws) return;
+  const fs = files(ws.id);
+  const at = fs.open.indexOf(path);
+  if (at !== -1) fs.open.splice(at, 1);
+  if (fs.active === path) {
+    // Cai na vizinha; sem vizinha, volta para a conversa.
+    const next = fs.open[at] ?? fs.open[at - 1];
+    if (next) return openFile(next);
+    const tab = session.currentSession();
+    tab ? await selectTab(ws.id, tab) : showTerm();
+  }
+  drawTabs(ws);
 }
 
 async function newTab() {
@@ -201,6 +277,7 @@ async function newTab() {
       prompt: "",
       ...session.dims(),
     });
+    showTerm();
     await session.attach(tab.id);
     drawWorkspace();
   } catch (err) {
@@ -227,6 +304,11 @@ function setSidePane(pane: "files" | "diff") {
 
 $("tab-files").addEventListener("click", () => setSidePane("files"));
 $("tab-diff").addEventListener("click", () => setSidePane("diff"));
+$("collapse").addEventListener("click", () => {
+  openDirs.clear();
+  const ws = current();
+  if (ws) drawTree(ws.id);
+});
 $("reveal").addEventListener("click", () => {
   const ws = current();
   if (ws) invoke("reveal", { id: ws.id }).catch((e) => say(String(e), true));
@@ -247,15 +329,21 @@ async function fillDir(id: string, rel: string, into: HTMLElement, depth: number
   for (const entry of entries) {
     const row = document.createElement("button");
     row.className = "treerow";
-    row.style.paddingLeft = `${16 + depth * 20}px`;
-    row.innerHTML = `<span class="tw"></span><span class="tn"></span>`;
-    const glyph = (open: boolean) =>
-      (row.children[0].innerHTML = icon(entry.dir ? (open ? "folder-open" : "folder") : "file"));
+    row.style.paddingLeft = `${14 + depth * 20}px`;
+    row.innerHTML = `<span class="tw"></span><span class="tn"></span><span class="tc"></span>`;
+    // Pasta aberta troca o ícone e o chevron da ponta, que só aparece no hover.
+    const glyph = (open: boolean) => {
+      row.children[0].innerHTML = entry.dir ? icon(open ? "folder-open" : "folder") : fileIcon(entry.name);
+      row.children[2].innerHTML = entry.dir ? icon(open ? "chevron-down" : "chevron-right", 14) : "";
+    };
     glyph(false);
     row.children[1].textContent = entry.name;
     into.append(row);
 
-    if (!entry.dir) continue;
+    if (!entry.dir) {
+      row.addEventListener("click", () => openFile(entry.path));
+      continue;
+    }
 
     const kids = document.createElement("div");
     kids.hidden = true;
@@ -450,6 +538,11 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     toggleRail();
   }
+  const file = openWs && files(openWs).active;
+  if (cmd && e.key === "w" && file) {
+    e.preventDefault();
+    closeFile(file);
+  }
   if (cmd && (e.key === "[" || e.key === "]")) {
     e.preventDefault();
     travel(e.key === "[" ? -1 : 1);
@@ -469,12 +562,14 @@ for (const [id, name] of [
   ["fwd", "arrow-right"],
   ["sidetoggle", "panel-right"],
   ["reveal", "external-link"],
+  ["collapse", "list-tree"],
   ["dock-kill", "square"],
 ] as const) {
   $(id).innerHTML = icon(name);
 }
 
 session.initTerminal((m) => say(m, true));
+viewer.init((m) => say(m, true));
 dock.init($("dockterm"));
 drawDock();
 state = await invoke<Board>("load_board");

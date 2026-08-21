@@ -41,7 +41,7 @@
         <section id="wsView" class="view wsview" hidden>
           <div class="center">
             <div class="subbar tabbar" id="tabbar"></div>
-            <div class="termwrap">
+            <div class="termwrap" id="termwrap">
               <div id="term"></div>
               <div id="cards"></div>
               <div class="offline" id="offline" hidden>
@@ -52,12 +52,25 @@
                 <span class="path" id="offpath"></span>
               </div>
             </div>
+            <!-- Arquivo aberto pela árvore: toma o lugar do terminal, como no Conductor. -->
+            <div class="viewer" id="viewer" hidden>
+              <div class="vbar">
+                <span class="vcrumb" id="vcrumb"></span>
+                <span class="spacer"></span>
+                <button id="vcopy" class="ico" title="Copiar caminho"></button>
+              </div>
+              <div class="vcode" id="vcode">
+                <div class="gutter" id="vgutter"></div>
+                <pre id="vpre"></pre>
+              </div>
+            </div>
           </div>
           <aside class="side" id="side">
             <div class="sidetabs">
               <button id="tab-files" class="sidetab on">Arquivos</button>
               <button id="tab-diff" class="sidetab">Mudanças <span id="diffcount"></span></button>
               <span class="spacer"></span>
+              <button id="collapse" class="ico" title="Recolher pastas"></button>
               <button id="reveal" class="ico" title="Abrir o worktree no Finder"></button>
             </div>
             <div class="sidebody">

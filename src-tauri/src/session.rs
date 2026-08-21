@@ -479,6 +479,24 @@ pub fn list_dir(state: State<AppState>, id: String, rel: String) -> Vec<Entry> {
     out
 }
 
+/// Conteúdo de um arquivo do worktree, para o viewer. Só texto: binário e
+/// arquivo enorme viram erro legível em vez de travar a webview.
+#[tauri::command]
+pub fn read_file(state: State<AppState>, id: String, rel: String) -> Result<String, String> {
+    let root = worktree_of(&state, &id).ok_or("workspace sumiu")?;
+    let root = root.canonicalize().map_err(|e| e.to_string())?;
+    let file = root.join(&rel);
+    if !file.canonicalize().map(|f| f.starts_with(&root)).unwrap_or(false) {
+        return Err("caminho fora do worktree".into());
+    }
+    let meta = std::fs::metadata(&file).map_err(|e| e.to_string())?;
+    if meta.len() > 2 * 1024 * 1024 {
+        return Err(format!("arquivo grande demais ({} KB)", meta.len() / 1024));
+    }
+    let bytes = std::fs::read(&file).map_err(|e| e.to_string())?;
+    String::from_utf8(bytes).map_err(|_| "arquivo binário".to_string())
+}
+
 /// Segundo terminal do workspace, no mesmo worktree: um shell para você, ou o
 /// script de run do repositório. Não é sessão de agente — não tem hook, não
 /// aparece como aba, não entra no quadro.

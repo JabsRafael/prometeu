@@ -63,6 +63,37 @@ const tree: Record<string, { name: string; path: string; dir: boolean }[]> = {
     dir: true,
   })),
   "app/adapters": ["transcriber.rb", "waha.rb"].map((name) => ({ name, path: `app/adapters/${name}`, dir: false })),
+  bin: ["brakeman", "ci", "dev", "rails", "rake", "rubocop", "setup"].map((name) => ({ name, path: `bin/${name}`, dir: false })),
+};
+
+const files: Record<string, string> = {
+  "app/adapters/transcriber.rb": `class Transcriber
+  MODEL = "gemini-3.6-flash".freeze
+
+  class << self
+    def call(audio, extension:)
+      Tempfile.create([ "audio", extension ]) do |file|
+        file.binmode
+        file.write(audio)
+        file.flush
+
+        transcription(file.path)
+      end
+    end
+
+    private
+      def transcription(path)
+        RubyLLM.transcribe(
+          path, model: MODEL, provider: :gemini, assume_model_exists: true, language: "portuguese"
+        ).text
+      end
+  end
+end
+`,
+  "CLAUDE.md": "# Njord\n\nControle financeiro pessoal em Rails.\n\n## Regras\n\n- Competência é o dia em que o dinheiro **saiu**.\n- Rodar `bin/ci` antes de abrir PR. Ver [docs](docs/README.md).\n",
+  ".gitignore": "# Ignore bundler config.\n/.bundle\n/log/*\n!/log/.keep\n/tmp/*\n",
+  Dockerfile: "# syntax=docker/dockerfile:1\nFROM ruby:3.4-slim AS base\nWORKDIR /rails\nENV RAILS_ENV=production\nRUN apt-get update -qq && apt-get install -y curl\nCMD [\"bin/rails\", \"server\"]\n",
+  ".rubocop.yml": "# Omakase Ruby styling for Rails\ninherit_gem: { rubocop-rails-omakase: rubocop.yml }\n\nAllCops:\n  TargetRubyVersion: 3.4\n  NewCops: enable\n",
 };
 
 const SAMPLE =
@@ -99,6 +130,9 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       ];
     case "list_dir":
       return tree[args.rel ?? ""] ?? [];
+    case "read_file":
+      if (args.rel in files) return files[args.rel];
+      throw args.rel.endsWith(".lock") ? "arquivo grande demais (2140 KB)" : "arquivo binário";
     case "move_workspace": {
       const target = board.workspaces.find((x) => x.id === args.id);
       if (target) target.column = args.column;
