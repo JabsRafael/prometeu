@@ -1,0 +1,12 @@
+[package]
+name = "prometheus-hook"
+version = "0.1.0"
+edition = "2021"
+
+# Crate separada de propósito: o hook não sabe o que é Tauri, e assim compilar
+# ele não dispara o build script do app — que valida o sidecar que este mesmo
+# binário vai virar.
+
+[dependencies]
+serde_json = "1"
+dirs = "6"
