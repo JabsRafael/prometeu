@@ -74,3 +74,8 @@ export function kill(workspace: string, kind: "terminal" | "run") {
 export function focus() {
   term.focus();
 }
+
+/// A chave do pty aberto no dock, para quem precisa escrever nele de fora.
+export function currentKey() {
+  return key;
+}

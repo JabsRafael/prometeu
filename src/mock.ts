@@ -228,6 +228,14 @@ w.mock = {
         },
       },
     }),
+  /// Simula soltar arquivos num ponto da tela — o mesmo evento que o Tauri
+  /// manda quando você arrasta de fora para dentro da janela.
+  drop: (paths: string[], x = innerWidth / 2, y = innerHeight / 2) => {
+    const position = { x: x * devicePixelRatio, y: y * devicePixelRatio };
+    emit("tauri://drag-over", { position });
+    emit("tauri://drag-drop", { paths, position });
+  },
+  over: (position: { x: number; y: number }) => emit("tauri://drag-over", { position }),
   perm: () =>
     emit("permission", {
       id: 1,

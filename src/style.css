@@ -608,3 +608,13 @@ body.noside .side { display: none; }
 .sheetbar .hint { font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sheetbar .pri { height: 28px; padding: 0 12px; }
 .sheetbar kbd { font: inherit; font-size: 12px; opacity: 0.6; }
+
+/* ---------- arquivo arrastado de fora ---------- */
+
+/* Soltar em cima do terminal escreve o caminho nele; a moldura diz em qual. */
+.dropping { position: relative; }
+.dropping::after {
+  content: ""; position: absolute; inset: 2px; pointer-events: none; z-index: 3;
+  border: 1.5px dashed var(--accent); border-radius: var(--r-lg);
+  background: rgb(255 107 61 / 0.06);
+}

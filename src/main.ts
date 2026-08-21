@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import * as board from "./board";
 import * as diff from "./diff";
@@ -567,6 +568,53 @@ listen<{ id: number; session: string; payload: { tool_name?: string; tool_input?
     );
   },
 );
+
+/* ---------- arrastar arquivo para dentro do terminal ---------- */
+
+/// O Tauri come os eventos de drag do HTML para entregar caminho de arquivo de
+/// verdade, então quem escuta é a webview, não o documento. Soltar escreve o
+/// caminho no pty — é o que o Terminal do macOS faz, e é assim que uma imagem
+/// chega no Claude Code.
+type Drag = { type: string; paths?: string[]; position?: { x: number; y: number } };
+
+/// Caminho vai escapado como o Terminal escapa ao soltar um arquivo: barra
+/// invertida em tudo que o shell leria como outra coisa.
+const escapePath = (p: string) => p.replace(/([\s!"#$&'()*,:;<>?[\\\]^`{|}~])/g, "\\$1");
+
+/// Onde o arquivo caiu: o terminal da conversa, o do dock, ou lugar nenhum.
+function dropTarget(at?: { x: number; y: number }) {
+  if (!at || !$("veil").hidden) return null;
+  const dpr = window.devicePixelRatio || 1;
+  const el = document.elementFromPoint(at.x / dpr, at.y / dpr);
+  if (!el) return null;
+  if (el.closest("#dock")) return { host: $("dock"), pty: dock.currentKey(), focus: dock.focus };
+  if (el.closest("#termwrap")) return { host: $("termwrap"), pty: session.currentSession(), focus: session.focus };
+  return null;
+}
+
+let dropHost: HTMLElement | null = null;
+function markDrop(host: HTMLElement | null) {
+  if (dropHost === host) return;
+  dropHost?.classList.remove("dropping");
+  dropHost = host;
+  dropHost?.classList.add("dropping");
+}
+
+getCurrentWebview().onDragDropEvent(({ payload }) => {
+  const drag = payload as Drag;
+  if (drag.type === "leave") return markDrop(null);
+
+  const target = dropTarget(drag.position);
+  if (drag.type !== "drop") return markDrop(target?.pty ? target.host : null);
+
+  markDrop(null);
+  const paths = drag.paths ?? [];
+  if (!target?.pty || !paths.length) return;
+  // Espaço no fim: o próximo arquivo, ou o que você for escrever, não cola.
+  invoke("pty_write", { session: target.pty, data: paths.map(escapePath).join(" ") + " " })
+    .then(() => target.focus())
+    .catch((e) => say(String(e), true));
+});
 
 /* ---------- ações ---------- */
 

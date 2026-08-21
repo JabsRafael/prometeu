@@ -94,6 +94,10 @@ export function currentSession() {
   return current;
 }
 
+export function focus() {
+  term.focus();
+}
+
 export function dims() {
   return { cols: term.cols, rows: term.rows };
 }
