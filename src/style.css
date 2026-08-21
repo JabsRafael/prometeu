@@ -336,7 +336,12 @@ main { flex: 1; min-height: 0; position: relative; }
 .vcrumb .a { color: var(--done); }
 .vcrumb .r { color: var(--err); }
 
-.dlist { flex: 1; min-height: 0; overflow: auto; padding: 12px 0 40px; }
+/* Sem respiro no topo do scroll: `.dhead` gruda em `top: 0`, que é a borda do
+   scrollport e não o fim do padding — 12px aqui viravam uma frestinha por onde
+   o código de cima passa antes do cabeçalho. O respiro vai na barra, que está
+   fora do scroll. */
+.diffview .vbar { padding-bottom: 12px; }
+.dlist { flex: 1; min-height: 0; overflow: auto; padding: 0 0 40px; }
 .dlist .none { color: var(--fg-3); padding: 40px 20px; text-align: center; }
 
 .dfile { border-top: 1px solid var(--line); }
