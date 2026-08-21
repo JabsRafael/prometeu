@@ -82,13 +82,20 @@ pub fn remove_workspace(app: AppHandle, state: State<AppState>, id: String) {
     publish(&app, &state);
 }
 
+/// `async` aqui é o threadpool do Tauri, não uma corotina: `git worktree add`
+/// e o `fetch` da base levam segundos, e na thread principal isso é a janela
+/// inteira congelada enquanto o worktree monta.
 #[allow(clippy::too_many_arguments)]
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_workspace(
     app: AppHandle,
     state: State<AppState>,
     project: String,
     branch: String,
+    base: String,
+    // Ligado, a branch nasce num worktree só dela; desligado, ela nasce no
+    // próprio repositório — e é o diretório de trabalho dele que troca.
+    worktree: bool,
     title: String,
     column: String,
     prompt: String,
@@ -106,10 +113,27 @@ pub fn create_workspace(
         .ok_or("caminho de repo inválido")?
         .to_string();
 
-    let worktree = paths::worktree_dir(&repo_name, &branch);
-    add_worktree(&repo_path, &branch, &worktree)?;
+    // Branch vazia é a escolha de não criar branch nenhuma: a sessão abre no
+    // repositório onde ele estiver. Worktree, esse, sempre precisa de uma —
+    // é a branch que dá nome e destino à pasta.
+    let (root, branch) = match (worktree, branch.trim().is_empty()) {
+        (true, true) => return Err("um worktree precisa de uma branch própria".into()),
+        (true, false) => {
+            let dir = paths::worktree_dir(&repo_name, &branch);
+            add_worktree(&repo_path, &branch, &base, &dir)?;
+            (dir, branch)
+        }
+        (false, false) => {
+            switch_branch(&repo_path, &branch, &base)?;
+            (repo_path.clone(), branch)
+        }
+        (false, true) => {
+            let head = head_branch(&repo_path).unwrap_or_else(|| "HEAD".into());
+            (repo_path.clone(), head)
+        }
+    };
 
-    let tab = spawn_tab(&app, &state, &worktree, "conversa", first_message(&prompt, &inject), cols, rows)?;
+    let tab = spawn_tab(&app, &state, &root, "conversa", first_message(&prompt, &inject), cols, rows)?;
 
     let ws = Workspace {
         id: uuid::Uuid::new_v4().to_string(),
@@ -118,7 +142,7 @@ pub fn create_workspace(
         repo: repo_path.display().to_string(),
         repo_name,
         branch,
-        worktree: worktree.display().to_string(),
+        worktree: root.display().to_string(),
         column,
         active: Some(tab.id.clone()),
         tabs: vec![tab],
@@ -309,26 +333,25 @@ fn summarize(prompt: &str) -> String {
     }
 }
 
-fn add_worktree(repo: &Path, branch: &str, dest: &Path) -> Result<(), String> {
+/// `base` é de onde a branch nova sai — `origin/main`, por padrão. Branch que
+/// já existe ignora a base: aí o worktree só a traz de volta para o disco, e
+/// mudar o ponto de partida de trabalho que já começou não é criar workspace.
+fn add_worktree(repo: &Path, branch: &str, base: &str, dest: &Path) -> Result<(), String> {
     if dest.exists() {
         return Ok(());
     }
     std::fs::create_dir_all(dest.parent().ok_or("worktree sem pai")?).map_err(|e| e.to_string())?;
 
-    let exists = Command::new("git")
-        .arg("-C").arg(repo)
-        .args(["rev-parse", "--verify", "--quiet"])
-        .arg(format!("refs/heads/{branch}"))
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-
     let mut cmd = Command::new("git");
     cmd.arg("-C").arg(repo).arg("worktree").arg("add");
-    if exists {
+    if has_commit(repo, &format!("refs/heads/{branch}")) {
         cmd.arg(dest).arg(branch);
     } else {
         cmd.arg("-b").arg(branch).arg(dest);
+        if !base.is_empty() {
+            prepare_base(repo, base)?;
+            cmd.arg(base);
+        }
     }
 
     let out = cmd.output().map_err(|e| format!("git não rodou: {e}"))?;
@@ -336,6 +359,136 @@ fn add_worktree(repo: &Path, branch: &str, dest: &Path) -> Result<(), String> {
         return Err(format!("git worktree add: {}", String::from_utf8_lossy(&out.stderr).trim()));
     }
     Ok(())
+}
+
+/// Worktree desligado: a branch nasce no próprio repositório e é o diretório de
+/// trabalho dele que troca de branch. Serve para quem quer o agente mexendo no
+/// clone de sempre — o preço é que o repo sai de onde estava, e mudança não
+/// commitada vai junto (ou o git recusa, e o erro sobe para a tela).
+fn switch_branch(repo: &Path, branch: &str, base: &str) -> Result<(), String> {
+    if head_branch(repo).as_deref() == Some(branch) {
+        return Ok(());
+    }
+
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(repo).arg("switch");
+    if has_commit(repo, &format!("refs/heads/{branch}")) {
+        cmd.arg(branch);
+    } else {
+        cmd.arg("-c").arg(branch);
+        if !base.is_empty() {
+            prepare_base(repo, base)?;
+            cmd.arg(base);
+        }
+    }
+
+    let out = cmd.output().map_err(|e| format!("git não rodou: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("git switch: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    Ok(())
+}
+
+fn head_branch(repo: &Path) -> Option<String> {
+    let name = git(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).trim().to_string();
+    (!name.is_empty() && name != "HEAD").then_some(name)
+}
+
+/// Deixa a base pronta para virar ponto de partida: um `origin/main` velho é o
+/// lugar errado, então atualiza só aquela ref — e segue mesmo se a rede não
+/// deixar, porque base local desatualizada ainda é melhor que não criar nada.
+fn prepare_base(repo: &Path, base: &str) -> Result<(), String> {
+    if let Some((remote, rest)) = base.split_once('/') {
+        if has_commit(repo, &format!("refs/remotes/{base}")) {
+            let _ = fetch(repo, remote, rest);
+        }
+    }
+    match has_commit(repo, base) {
+        true => Ok(()),
+        false => Err(format!("a branch base '{base}' não existe em {}", repo.display())),
+    }
+}
+
+/// `git fetch` com coleira: rede pendurada não pode virar app pendurado, e a
+/// base local velha ainda dá um worktree utilizável.
+fn fetch(repo: &Path, remote: &str, branch: &str) -> Result<(), String> {
+    let mut child = Command::new("git")
+        .arg("-C").arg(repo)
+        .args(["fetch", "--quiet", remote, branch])
+        .stdin(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return Ok(()),
+            Err(e) => return Err(e.to_string()),
+            Ok(None) if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                return Err("fetch demorou demais".into());
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
+        }
+    }
+}
+
+/// Se a ref existe e aponta para um commit — `--verify` sozinho aceita coisas
+/// que o `worktree add` depois recusa.
+fn has_commit(repo: &Path, reference: &str) -> bool {
+    Command::new("git")
+        .arg("-C").arg(repo)
+        .args(["rev-parse", "--verify", "--quiet"])
+        .arg(format!("{reference}^{{commit}}"))
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// As branches do repositório, para o lançador escolher de onde a nova sai.
+/// Mais recente primeiro: a que você mexeu ontem é a que você quer hoje.
+#[derive(serde::Serialize)]
+pub struct Branches {
+    pub all: Vec<String>,
+    pub default: String,
+}
+
+#[tauri::command(async)]
+pub fn list_branches(project: String) -> Branches {
+    let repo = PathBuf::from(expand(&project));
+    let refs = |pattern: &str| -> Vec<String> {
+        git(&repo, &["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", pattern])
+            .lines()
+            .map(str::trim)
+            .filter(|r| !r.is_empty() && !r.ends_with("/HEAD"))
+            .map(str::to_string)
+            .collect()
+    };
+    let locals = refs("refs/heads");
+    let remotes = refs("refs/remotes");
+
+    // `origin/HEAD` é o que o clone gravou como principal do remoto. Sem ele,
+    // os nomes de sempre; sem eles, a branch em que o repo está agora.
+    let head = git(&repo, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).trim().to_string();
+    let default = [head, "origin/main".to_string(), "origin/master".to_string()]
+        .into_iter()
+        .find(|r| !r.is_empty() && remotes.contains(r))
+        .or_else(|| {
+            let head = git(&repo, &["rev-parse", "--abbrev-ref", "HEAD"]).trim().to_string();
+            (!head.is_empty() && head != "HEAD").then_some(head)
+        })
+        .or_else(|| locals.first().cloned())
+        .unwrap_or_default();
+
+    // A base escolhida encabeça a lista; o resto vem local antes de remoto,
+    // que é a ordem em que se pensa em branch.
+    let mut all: Vec<String> = Vec::new();
+    for name in [default.clone()].into_iter().chain(locals).chain(remotes) {
+        if !name.is_empty() && !all.contains(&name) {
+            all.push(name);
+        }
+    }
+    Branches { all, default }
 }
 
 /// Um settings por sessão, nunca o global — senão o Prometheus briga com qualquer
@@ -493,6 +646,7 @@ fn cap(patch: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::patch_map;
+    use std::process::Command;
 
     /// Saída de `git diff HEAD` com três arquivos: um mexido, um apagado e um
     /// com espaço no nome. O caminho tem de sair certo nos três.
@@ -540,6 +694,69 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
                 change.removed
             );
         }
+    }
+
+    /// Um repo de mentira com remoto de verdade (o "origin" é uma pasta ao
+    /// lado): é o único jeito de provar que a base escolhida no lançador é de
+    /// onde a branch nasce, e que `origin/main` é o padrão que o clone gravou.
+    #[test]
+    fn a_branch_nova_sai_da_base_escolhida() {
+        let root = std::env::temp_dir().join(format!("prometheus-base-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (origin, local) = (root.join("origin"), root.join("clone"));
+        std::fs::create_dir_all(&origin).unwrap();
+
+        let run = |dir: &std::path::Path, args: &[&str]| {
+            let out = Command::new("git").arg("-C").arg(dir).args(args).output().unwrap();
+            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+
+        run(&origin, &["init", "-q", "-b", "main"]);
+        run(&origin, &["config", "user.email", "t@t"]);
+        run(&origin, &["config", "user.name", "t"]);
+        std::fs::write(origin.join("a.txt"), "a").unwrap();
+        run(&origin, &["add", "-A"]);
+        run(&origin, &["commit", "-qm", "a"]);
+        run(&origin, &["checkout", "-qb", "velha"]);
+        std::fs::write(origin.join("b.txt"), "b").unwrap();
+        run(&origin, &["add", "-A"]);
+        run(&origin, &["commit", "-qm", "b"]);
+        let velha = run(&origin, &["rev-parse", "HEAD"]);
+        run(&origin, &["checkout", "-q", "main"]);
+
+        let out = Command::new("git")
+            .args(["clone", "-q"])
+            .arg(&origin)
+            .arg(&local)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+
+        let branches = super::list_branches(local.display().to_string());
+        assert_eq!(branches.default, "origin/main");
+        assert_eq!(branches.all.first().unwrap(), "origin/main");
+        assert!(branches.all.contains(&"origin/velha".to_string()), "{:?}", branches.all);
+
+        let dest = root.join("wt");
+        super::add_worktree(&local, "nova", "origin/velha", &dest).unwrap();
+        assert_eq!(run(&dest, &["rev-parse", "HEAD"]), velha);
+        assert_eq!(run(&dest, &["rev-parse", "--abbrev-ref", "HEAD"]), "nova");
+
+        // Base que não existe não vira worktree de lugar nenhum: dá erro.
+        let erro = super::add_worktree(&local, "outra", "origin/fantasma", &root.join("wt2"));
+        assert!(erro.unwrap_err().contains("fantasma"));
+
+        // Worktree desligado: a branch nasce no próprio clone, e é o HEAD dele
+        // que anda. Nenhuma pasta nova, mesmo commit da base.
+        super::switch_branch(&local, "aqui", "origin/velha").unwrap();
+        assert_eq!(run(&local, &["rev-parse", "--abbrev-ref", "HEAD"]), "aqui");
+        assert_eq!(run(&local, &["rev-parse", "HEAD"]), velha);
+        // Já estar na branch pedida é um no-op, não um erro.
+        super::switch_branch(&local, "aqui", "origin/main").unwrap();
+        assert_eq!(run(&local, &["rev-parse", "HEAD"]), velha);
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

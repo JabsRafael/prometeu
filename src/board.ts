@@ -187,6 +187,14 @@ function card(ws: Workspace, hooks: Hooks): HTMLElement {
     foot.append(tabs);
   }
 
+  // Sem worktree o agente mexe no clone de sempre; isso não pode ser invisível.
+  if (ws.worktree === ws.repo) {
+    const here = h("span", "chip");
+    here.textContent = "no repo";
+    here.title = "Sem worktree: esta conversa mexe no próprio repositório";
+    foot.append(here);
+  }
+
   const x = h("span", "x ico sm", icon("x"));
   x.title = "Tirar do quadro (worktree e branch ficam)";
   x.addEventListener("click", (e) => {

@@ -44,6 +44,7 @@ fn main() {
             session::load_board,
             session::add_project,
             session::remove_project,
+            session::list_branches,
             session::create_workspace,
             session::move_workspace,
             session::remove_workspace,

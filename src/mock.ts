@@ -173,6 +173,16 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       emit("board", board);
       return;
     }
+    case "list_branches":
+      return {
+        all: [
+          "origin/main", "main", "entire/checkpoints/v1", "manual-sleep-button",
+          "dashboard-app-preview", "export-project-zip", "fix/deploy-build-cache",
+          "password-reset-crud", "project-renaming", "refactor/railsway-specs-and-lint",
+          "origin/entire/checkpoints/v1", "origin/manual-sleep-button",
+        ],
+        default: "origin/main",
+      };
     case "open_dock":
       return `${args.id}:${args.kind}`;
     case "new_tab":

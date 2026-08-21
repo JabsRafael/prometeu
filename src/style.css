@@ -524,6 +524,7 @@ body.noside .side { display: none; }
   z-index: 20; padding: 20vh 24px 24px;
 }
 .sheet {
+  position: relative;
   width: min(768px, 100%); background: var(--bg-raised);
   border: 1px solid var(--line-raised); border-radius: var(--r-xl);
   box-shadow: 0 24px 64px -16px rgb(0 0 0 / 0.8);
@@ -535,6 +536,54 @@ body.noside .side { display: none; }
 }
 .sheettop .who { display: flex; align-items: center; gap: 0; padding-left: 4px; }
 .sheettop .who .pick { color: var(--fg); font-weight: 500; padding-left: 8px; }
+/* Chavinha: o rótulo e o trilho no mesmo botão, como o toggle do Conductor. */
+.sw { gap: 8px; padding-right: 6px; }
+.sw .knob {
+  width: 26px; height: 15px; flex: none; border-radius: 8px; position: relative;
+  background: var(--bg-btn); transition: background 0.12s;
+}
+.sw .knob::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px;
+  border-radius: 50%; background: var(--fg); transition: transform 0.12s;
+}
+.sw:disabled { opacity: 0.4; pointer-events: none; }
+.sw.on { color: var(--fg); }
+.sw.on .knob { background: var(--tab-line); }
+.sw.on .knob::after { transform: translateX(11px); background: var(--pri-fg); }
+
+.sheettop .base { max-width: 280px; }
+.sheettop .base > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheettop .base.open, .sheettop .base:not(.empty) { color: var(--fg); }
+.sheettop .base.empty { color: var(--fg-3); }
+/* Base desabilitada (sem branch nova) tem de parecer desabilitada: sem branch
+   não há de onde sair. */
+.sheettop .base:disabled { opacity: 0.35; pointer-events: none; color: var(--fg-3); }
+
+/* Lista de branches: busca em cima, rolagem embaixo — o seletor do Conductor. */
+.picker {
+  position: absolute; top: 40px; left: 12px; z-index: 1;
+  width: min(420px, calc(100% - 24px)); max-height: 320px;
+  background: var(--bg-raised); border: 1px solid var(--line-raised);
+  border-radius: var(--r-lg); box-shadow: 0 16px 40px -12px rgb(0 0 0 / 0.8);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.pfind {
+  display: flex; align-items: center; gap: 8px; padding: 0 12px; height: 40px;
+  flex: none; border-bottom: 1px solid var(--line-raised); color: var(--fg-3);
+}
+.pfind input { border: none; background: none; padding: 0; height: 100%; }
+.pfind input:focus-visible { outline: none; }
+.plist { overflow-y: auto; padding: 6px; min-height: 0; }
+.prow {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 30px;
+  padding: 0 8px; border-radius: var(--r); background: none; color: var(--fg-2);
+  justify-content: flex-start; font-weight: 400;
+}
+.prow.on { background: var(--bg-raised-2); color: var(--fg); }
+.prow > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prow .pc { width: 14px; flex: none; display: flex; color: var(--tab-line); }
+.plist .none { padding: 10px 8px; font-size: 12px; color: var(--fg-3); }
+
 .sheet textarea {
   border: none; background: none; border-radius: 0; padding: 16px;
   font-size: 14px; line-height: 1.5; resize: none; min-height: 162px;
@@ -544,6 +593,7 @@ body.noside .side { display: none; }
 .mini-row { display: grid; grid-template-columns: 72px 1fr; gap: 10px; align-items: center; }
 .mini-row > span:first-child { font-size: 12px; color: var(--fg-2); }
 .mini-row input { background: var(--bg); }
+.mini-row input:disabled { opacity: 0.45; }
 .chips { display: flex; gap: 4px; flex-wrap: wrap; }
 .chips button.on { background: var(--bg-raised-2); color: var(--fg); }
 .inj { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
