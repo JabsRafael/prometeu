@@ -127,10 +127,16 @@ input::placeholder, textarea::placeholder { color: var(--fg-3); }
   display: flex; flex-direction: column; min-height: 0;
 }
 body.norail .rail { display: none; }
-/* Semáforo do macOS fica em cima da webview: a faixa de cima é só para ele. */
+/* Semáforo do macOS fica em cima da webview: a faixa de cima é só para ele.
+   O `trafficLightPosition.y` do tauri.conf.json não é a margem de cima: o tao
+   deixa o contêiner do semáforo com `botão + y` de altura, e o AppKit prende o
+   botão a 9pt do fundo desse contêiner — então o que sobra em cima é `y − 9` e
+   o centro do botão cai em `y − 9 + 14/2`. Centrar na faixa é
+   `y = --top-h / 2 + 2` → 21,5 para 39px (botão de 14pt, macOS 26).
+   Mexeu na altura da faixa, refaz a conta. */
 .railtop {
   height: var(--top-h); flex: none; display: flex; align-items: center; gap: 2px;
-  padding: 0 12px 0 76px;
+  padding: 0 12px 0 84px;
 }
 .railtop .nav { margin-left: 8px; }
 body.norail .top { padding-left: 84px; }
