@@ -3,10 +3,12 @@ name = "prometheus"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.77"
-default-run = "prometheus"
+# O nome do binário é o nome que o macOS mostra no Dock e no menu durante o
+# `tauri dev`, onde não existe .app com productName para consultar.
+default-run = "Prometheus"
 
 [[bin]]
-name = "prometheus"
+name = "Prometheus"
 path = "src/main.rs"
 
 [workspace]
