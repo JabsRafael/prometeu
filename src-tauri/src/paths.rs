@@ -47,7 +47,33 @@ pub fn worktree_dir(repo_name: &str, branch: &str) -> PathBuf {
         .join("prometheus")
         .join(format!("worktrees{}", suffix()))
         .join(repo_name)
-        .join(branch.replace('/', "-"))
+        .join(dir_name(branch))
+}
+
+/// O nome da pasta de uma branch. Trocar `/` por `-` é o que dá nome legível,
+/// mas sozinho ele colide: `feat/x` e `feat-x` viravam a mesma pasta, e a
+/// segunda sessão pegava silenciosamente o worktree da primeira — na branch
+/// errada, com o quadro mentindo qual era.
+///
+/// Quando a troca acontece, o nome ganha um sufixo tirado da branch inteira.
+/// Nome sem `/` continua exatamente como era, que é o caso comum.
+fn dir_name(branch: &str) -> String {
+    let flat = branch.replace('/', "-");
+    match flat == branch {
+        true => flat,
+        false => format!("{flat}-{:06x}", fnv1a(branch) & 0xff_ffff),
+    }
+}
+
+/// FNV-1a. Não precisa ser criptográfico — precisa ser estável entre execuções
+/// (o caminho fica gravado no quadro) e não valer uma dependência nova.
+fn fnv1a(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in s.bytes() {
+        h ^= byte as u64;
+        h = h.wrapping_mul(0x100_0000_01b3);
+    }
+    h
 }
 
 /// Onde o Claude Code guarda o transcript de uma sessão: ele troca no caminho do
@@ -84,5 +110,17 @@ mod tests {
     fn slug_troca_tudo_que_nao_e_alfanumerico() {
         let path = transcript("abc", Path::new("/Users/ana/.prometheus/wt/x_1"));
         assert!(path.ends_with("-Users-ana--prometheus-wt-x-1/abc.jsonl"), "{}", path.display());
+    }
+
+    /// Branch sem `/` mantém o nome; com `/`, o nome achatado nunca é o mesmo
+    /// de uma branch que já se chamava assim.
+    #[test]
+    fn branch_com_barra_nao_colide_com_a_achatada() {
+        assert_eq!(dir_name("feat-x"), "feat-x");
+        assert_ne!(dir_name("feat/x"), dir_name("feat-x"));
+        assert!(dir_name("feat/x").starts_with("feat-x-"), "{}", dir_name("feat/x"));
+        // Estável: o caminho fica gravado no quadro e tem de continuar valendo.
+        assert_eq!(dir_name("feat/x"), dir_name("feat/x"));
+        assert_ne!(dir_name("a/b"), dir_name("a/c"));
     }
 }

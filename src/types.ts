@@ -1,5 +1,15 @@
 export type Status = "rodando" | "querendo" | "pronta" | "desligada";
 
+/// Como cada estado se chama na tela. Um lugar só: estava escrito igual no
+/// quadro e no cabeçalho, e duas cópias de um rótulo é uma cópia que um dia
+/// deixa de bater com a outra.
+export const LABEL: Record<Status, string> = {
+  rodando: "rodando",
+  querendo: "quer você",
+  pronta: "pronta",
+  desligada: "desligada",
+};
+
 export type Tab = {
   id: string;
   title: string;
@@ -23,6 +33,10 @@ export type Workspace = {
   archived: boolean;
   pinned: boolean;
   unread: boolean;
+  /// O agente roda solto aqui, sem card de permissão. Escolhido no lançador e
+  /// válido para todas as abas: o worktree é o mesmo, e duas conversas nos
+  /// mesmos arquivos com regras diferentes seriam uma armadilha.
+  skip_permissions: boolean;
   /// Base das dez portas reservadas a este worktree.
   port: number | null;
   tabs: Tab[];

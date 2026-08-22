@@ -18,6 +18,10 @@ export type Draft = {
   stage: string;
   prompt: string;
   inject: string[];
+  /// Ligado, o agente roda solto: nenhuma ferramenta para para pedir. É o que
+  /// faz o quadro valer a pena — mas só é aceitável porque o worktree é
+  /// isolado. Desligado, cada permissão vira o card com Permitir e Negar.
+  skipPermissions: boolean;
 };
 
 type Branches = { all: string[]; default: string };
@@ -26,6 +30,7 @@ type Branches = { all: string[]; default: string };
 /// trabalha do mesmo jeito amanhã, e refazer o clique toda vez cansa.
 const WORKTREE_KEY = "prometheus:worktree";
 const BRANCH_KEY = "prometheus:branch-nova";
+const SOLTO_KEY = "prometheus:solto";
 
 /// O lançador é uma caixa de texto e um seletor de projeto — o "Create" do
 /// Conductor. Tudo que dá para deduzir fica atrás de "detalhes"; criar é Enter.
@@ -43,6 +48,7 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
     stage: board.stages[1] ?? board.stages[0],
     prompt: "",
     inject: [],
+    skipPermissions: localStorage.getItem(SOLTO_KEY) !== "0",
   };
 
   const sheet = document.createElement("div");
@@ -55,6 +61,9 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
       </button>
       <button id="d-more" class="ghost">Detalhes ${icon("chevron-down", 12)}</button>
       <span class="spacer"></span>
+      <button id="d-solto" class="ghost sw" role="switch">
+        <span>Solto</span><i class="knob"></i>
+      </button>
       <button id="d-nb" class="ghost sw" role="switch">
         <span>Branch nova</span><i class="knob"></i>
       </button>
@@ -98,15 +107,22 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
   const projectName = () => board.projects.find((p) => p.id === projectSel.value)?.name ?? "";
   const drawHint = () => {
     $("d-avatar").innerHTML = avatar(projectName());
-    if (!draft.newBranch) {
-      hint.textContent = `no próprio repo ${projectName()} · na branch em que ele já está`;
-      return;
-    }
     const from = draft.base ? ` · sai de ${draft.base}` : "";
-    const onde = draft.worktree
-      ? `worktree novo em ${projectName()}`
-      : `no próprio repo ${projectName()} — ele troca de branch`;
-    hint.textContent = `${onde} · ${branch.value}${from}`;
+    const onde = !draft.newBranch
+      ? `no próprio repo ${projectName()} · na branch em que ele já está`
+      : draft.worktree
+        ? `worktree novo em ${projectName()} · ${branch.value}${from}`
+        : `no próprio repo ${projectName()} — ele troca de branch · ${branch.value}${from}`;
+
+    // Solto é aceitável porque o worktree é descartável. Sem worktree o agente
+    // roda sem pedir nada no clone em que você trabalha — dá para querer isso,
+    // mas não dá para não saber.
+    //
+    // O aviso vem na frente porque a linha é cortada no fim: se ele fosse o
+    // rabo da frase, seria justamente ele a virar reticências.
+    const risky = draft.skipPermissions && !draft.worktree;
+    hint.classList.toggle("warn", risky);
+    hint.textContent = risky ? `solto no seu clone, sem pedir permissão · ${onde}` : onde;
   };
   drawHint();
   projectSel.addEventListener("change", drawHint);
@@ -119,12 +135,20 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
   // está. A quarta não existe: worktree sem branch própria não é worktree.
   const wt = $<HTMLButtonElement>("d-wt");
   const nb = $<HTMLButtonElement>("d-nb");
+  const solto = $<HTMLButtonElement>("d-solto");
 
   const drawSwitches = () => {
-    for (const [el, on] of [[wt, draft.worktree], [nb, draft.newBranch]] as const) {
+    for (const [el, on] of [
+      [wt, draft.worktree],
+      [nb, draft.newBranch],
+      [solto, draft.skipPermissions],
+    ] as const) {
       el.classList.toggle("on", on);
       el.setAttribute("aria-checked", String(on));
     }
+    solto.title = draft.skipPermissions
+      ? "O agente não para para pedir permissão. Vale porque o worktree é isolado — repare no aviso quando ele não for"
+      : "Cada permissão vira um card com Permitir e Negar, aqui na tela";
     nb.disabled = draft.worktree;
     nb.title = draft.worktree
       ? "Worktree sempre nasce com uma branch só dele"
@@ -149,6 +173,11 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
   nb.addEventListener("click", () => {
     draft.newBranch = !draft.newBranch;
     localStorage.setItem(BRANCH_KEY, draft.newBranch ? "1" : "0");
+    drawSwitches();
+  });
+  solto.addEventListener("click", () => {
+    draft.skipPermissions = !draft.skipPermissions;
+    localStorage.setItem(SOLTO_KEY, draft.skipPermissions ? "1" : "0");
     drawSwitches();
   });
 

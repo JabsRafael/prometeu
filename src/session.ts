@@ -1,112 +1,54 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { FitAddon } from "@xterm/addon-fit";
-import { Terminal } from "@xterm/xterm";
-import "@xterm/xterm/css/xterm.css";
+import { Term } from "./term";
 import type { Question } from "./types";
+import { $ } from "./util";
 
-const term = new Terminal({
-  fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
-  fontSize: 13,
-  theme: {
-    background: "#141110",
-    foreground: "#eae8e6",
-    cursor: "#d8c2b3",
-    selectionBackground: "#373533",
-  },
-  allowProposedApi: true,
-  scrollback: 8000,
-});
-const fit = new FitAddon();
-let current: string | null = null;
+/// A conversa: o terminal onde o `claude` de verdade está rodando, e os cards
+/// que aparecem em cima dele quando o agente precisa de você.
+
+const term = new Term({ fontSize: 13, foreground: "#eae8e6", scrollback: 8000 });
 let fail: (m: string) => void = () => {};
 
-/// Opções da pergunta aberta na sessão em foco, para o atalho de teclado.
+/// Opções da pergunta aberta, para o atalho de teclado. Zero quando não há
+/// pergunta na tela, ou quando ela tem mais de uma parte — aí não existe "a"
+/// opção 1.
 let liveOptions = 0;
 
 export function initTerminal(onError: (m: string) => void) {
   fail = onError;
-  term.loadAddon(fit);
-  term.open(document.getElementById("term")!);
-
-  term.onData((data) => {
-    if (current) invoke("pty_write", { session: current, data });
-  });
+  term.open($("term"));
+  window.addEventListener("resize", () => term.refit());
 
   // Ctrl+1..4 responde a pergunta aberta sem tirar a mão do teclado, como no
   // seletor do próprio Claude Code. O terminal não vê essas teclas.
-  term.attachCustomKeyEventHandler((e) => {
+  term.onKey((e) => {
     if (e.type !== "keydown" || !e.ctrlKey || !liveOptions) return true;
     const n = Number(e.key);
     if (!Number.isInteger(n) || n < 1 || n > liveOptions) return true;
     document.querySelectorAll<HTMLElement>(".ask .opt")[n - 1]?.click();
     return false;
   });
-
-  new ResizeObserver(() => refit()).observe(document.getElementById("term")!);
-  window.addEventListener("resize", () => refit());
-
-  const decoder = new TextDecoder("utf-8");
-  listen<[string, number[]]>("pty", ({ payload: [session, bytes] }) => {
-    // Outras abas seguem rodando por trás; só a aberta é desenhada.
-    if (session !== current) return;
-    term.write(decoder.decode(new Uint8Array(bytes), { stream: true }));
-  });
 }
 
-/// Medir o terminal é o ponto frágil da tela: se a conta roda com a view ainda
-/// escondida, ou antes de a barra de etapas assentar, sobram linhas e a última
-/// fica cortada na borda de baixo. Daí esperar o próximo quadro e só medir
-/// quando o elemento tem tamanho de verdade.
-let pending = 0;
-function refit(force = false) {
-  cancelAnimationFrame(pending);
-  pending = requestAnimationFrame(() => {
-    const host = document.getElementById("term")!;
-    if (!host.clientHeight || !host.clientWidth) return;
-    const before = `${term.cols}x${term.rows}`;
-    fit.fit();
-    const changed = `${term.cols}x${term.rows}` !== before;
-    if (current && (force || changed)) {
-      invoke("pty_resize", { session: current, cols: term.cols, rows: term.rows });
-    }
-  });
-}
-
-/// Troca o terminal para outra sessão, redesenhando a rolagem guardada.
 export async function attach(id: string) {
-  current = id;
   cards().replaceChildren();
   liveOptions = 0;
-  term.reset();
-  const buf = await invoke<number[]>("pty_buffer", { session: id });
-  term.write(new TextDecoder("utf-8").decode(new Uint8Array(buf)));
-  refit(true);
+  await term.attach(id);
   term.focus();
 }
 
 export function detach() {
-  current = null;
+  term.detach();
   liveOptions = 0;
 }
 
-export function currentSession() {
-  return current;
-}
-
-export function focus() {
-  term.focus();
-}
-
-export function dims() {
-  return { cols: term.cols, rows: term.rows };
-}
+export const currentSession = () => term.current();
+export const focus = () => term.focus();
+export const dims = () => term.dims();
 
 /* ---------- cards de resposta ---------- */
 
-function cards() {
-  return document.getElementById("cards")!;
-}
+const cards = () => $("cards");
 
 function shell(kind: string, title: string): HTMLElement {
   const el = document.createElement("div");
@@ -118,13 +60,39 @@ function shell(kind: string, title: string): HTMLElement {
   return el;
 }
 
+/// Uma resposta por pergunta, na ordem em que vieram no payload. O back traduz
+/// isto em teclas — ver `keystrokes` no `socket.rs`.
 type Answer = { picks: number[]; options: number; multi: boolean; free: string | null };
+
+/// Campo de texto livre. Um por pergunta: era um só para todas, escrevendo
+/// sempre em `answers[0]`, então num AskUserQuestion de duas perguntas o texto
+/// ia para a primeira e as outras seguiam sem resposta nenhuma.
+function freeField(onSend: (text: string) => void, submits: boolean): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "free";
+  box.innerHTML = `<input placeholder="Digite ou cole uma resposta…" /><button>↵</button>`;
+  const input = box.querySelector("input")!;
+  const send = () => {
+    if (input.value.trim()) onSend(input.value);
+  };
+  box.querySelector("button")!.addEventListener("click", send);
+  // Com uma pergunta só, Enter responde e envia. Com várias, ele só guarda o
+  // texto naquela pergunta — enviar é o botão embaixo, depois de responder
+  // todas.
+  input.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    send();
+    if (!submits) input.blur();
+  });
+  return box;
+}
 
 /// Desenha o AskUserQuestion inteiro: todas as perguntas, não só a primeira.
 /// Uma pergunta de escolha única e sem irmãs continua sendo um clique só — que
 /// é o caso comum e não pode ficar mais lento por causa do caso raro.
 export function showQuestion(session: string, questions: Question[]) {
-  if (session !== current || !questions.length) return;
+  if (session !== currentSession() || !questions.length) return;
 
   const solo = questions.length === 1 && !questions[0].multiSelect;
   const first = questions[0];
@@ -173,7 +141,8 @@ export function showQuestion(session: string, questions: Question[]) {
           answers[0].picks = [i];
           return send();
         }
-        // multiSelect alterna; escolha única troca.
+        // multiSelect alterna; escolha única troca. Escolher uma opção apaga o
+        // texto livre daquela pergunta: as duas coisas são a mesma resposta.
         const picks = answers[qi].picks;
         if (q.multiSelect) {
           const at = picks.indexOf(i);
@@ -181,29 +150,24 @@ export function showQuestion(session: string, questions: Question[]) {
         } else {
           answers[qi].picks = picks[0] === i ? [] : [i];
         }
-        [...list.children].forEach((c, ci) =>
-          c.classList.toggle("picked", answers[qi].picks.includes(ci)),
-        );
+        answers[qi].free = null;
+        paint(list, answers[qi].picks);
       });
       list.append(b);
     });
 
     el.append(list);
+    el.append(
+      freeField((text) => {
+        answers[qi].free = text;
+        if (solo) return send();
+        // Texto livre é resposta: apaga a opção que estava marcada, e a linha
+        // marcada some junto para a tela não dizer duas coisas.
+        answers[qi].picks = [];
+        paint(list, []);
+      }, solo),
+    );
   });
-
-  const free = document.createElement("div");
-  free.className = "free";
-  free.innerHTML = `<input placeholder="Digite ou cole uma resposta…" /><button>↵</button>`;
-  const input = free.querySelector("input")!;
-  const sendFree = () => {
-    if (!input.value.trim()) return;
-    // Texto livre entra pela opção "Type something", logo depois da última.
-    answers[0].free = input.value;
-    send();
-  };
-  free.querySelector("button")!.addEventListener("click", sendFree);
-  input.addEventListener("keydown", (e) => e.key === "Enter" && sendFree());
-  el.append(free);
 
   if (!solo) {
     const row = document.createElement("div");
@@ -216,8 +180,12 @@ export function showQuestion(session: string, questions: Question[]) {
   liveOptions = solo ? (first.options?.length ?? 0) : 0;
 }
 
+function paint(list: HTMLElement, picks: number[]) {
+  [...list.children].forEach((c, i) => c.classList.toggle("picked", picks.includes(i)));
+}
+
 export function showPermission(id: number, session: string, tool: string, input: unknown) {
-  if (session !== current) return;
+  if (session !== currentSession()) return;
   const el = shell("quer permissão", tool);
 
   const pre = document.createElement("pre");

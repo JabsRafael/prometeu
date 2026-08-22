@@ -1,14 +1,8 @@
 import { avatar, icon, stageIcon } from "./icons";
 import * as menu from "./menu";
 import * as rename from "./rename";
-import { statusOf, worst, type Board, type Status, type Workspace } from "./types";
-
-const LABEL: Record<Status, string> = {
-  rodando: "rodando",
-  querendo: "quer você",
-  pronta: "pronta",
-  desligada: "desligada",
-};
+import { LABEL, statusOf, worst, type Board, type Status, type Workspace } from "./types";
+import { h } from "./util";
 
 export type Hooks = {
   open: (ws: Workspace) => void;
@@ -41,13 +35,6 @@ export function render(board: Board, hooks: Hooks) {
 }
 
 const el = (id: string) => document.getElementById(id)!;
-
-function h(tag: string, className: string, html = ""): HTMLElement {
-  const node = document.createElement(tag);
-  node.className = className;
-  node.innerHTML = html;
-  return node;
-}
 
 /* ---------- renomear e menu ---------- */
 
@@ -329,6 +316,14 @@ function card(ws: Workspace, board: Board, hooks: Hooks): HTMLElement {
     here.textContent = "no repo";
     here.title = "Sem worktree: esta conversa mexe no próprio repositório";
     foot.append(here);
+  }
+
+  // Por que este card para tanto: aqui cada ferramenta pede para passar.
+  if (!ws.skip_permissions) {
+    const asks = h("span", "chip");
+    asks.textContent = "pede permissão";
+    asks.title = "Cada ferramenta vira um card com Permitir e Negar";
+    foot.append(asks);
   }
 
   if (ws.pinned) {

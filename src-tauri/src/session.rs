@@ -1,20 +1,16 @@
-use crate::state::{Board, Project, Status, Tab, Workspace};
-use crate::{paths, pty, scripts, AppState};
+use crate::lock::lock;
+use crate::state::{publish, Board, Project, Status, Tab, Workspace};
+use crate::{paths, pty, scripts, socket, AppState};
 use portable_pty::CommandBuilder;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
 
 #[tauri::command]
 pub fn load_board(state: State<AppState>) -> Board {
-    state.board.lock().unwrap().clone()
+    lock(&state.board).clone()
 }
 
-fn publish(app: &AppHandle, state: &State<AppState>) {
-    let board = state.board.lock().unwrap();
-    board.save();
-    let _ = app.emit("board", board.clone());
-}
 
 /* ---------- projetos ---------- */
 
@@ -33,22 +29,22 @@ pub fn add_project(app: AppHandle, state: State<AppState>, path: String) -> Resu
         path: id.clone(),
     };
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if !board.projects.iter().any(|p| p.id == id) {
             board.projects.push(project.clone());
         }
     }
-    publish(&app, &state);
+    publish(&app);
     Ok(project)
 }
 
 #[tauri::command]
 pub fn remove_project(app: AppHandle, state: State<AppState>, id: String) {
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         board.projects.retain(|p| p.id != id);
     }
-    publish(&app, &state);
+    publish(&app);
 }
 
 /* ---------- workspaces ---------- */
@@ -58,12 +54,12 @@ pub fn remove_project(app: AppHandle, state: State<AppState>, id: String) {
 #[tauri::command]
 pub fn set_stage(app: AppHandle, state: State<AppState>, id: String, stage: String) {
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(&id) {
             ws.stage = stage;
         }
     }
-    publish(&app, &state);
+    publish(&app);
 }
 
 /// Arquivar é sair da lista, não morrer: worktree, branch e transcript ficam, e
@@ -71,6 +67,7 @@ pub fn set_stage(app: AppHandle, state: State<AppState>, id: String, stage: Stri
 /// workspace que ninguém vê é pergunta esperando resposta que ninguém lê.
 #[tauri::command]
 pub fn archive_workspace(app: AppHandle, state: State<AppState>, id: String, archived: bool) {
+    let mut dead: Vec<String> = Vec::new();
     // O `archive` derruba o que o workspace deixou fora do worktree — container,
     // banco, túnel. Roda antes de arquivar, enquanto o que ele precisa apagar
     // ainda existe, e solto: é limpeza, e prender a janela nela seria pior do
@@ -92,23 +89,31 @@ pub fn archive_workspace(app: AppHandle, state: State<AppState>, id: String, arc
         }
     }
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(&id) {
             ws.archived = archived;
             if archived {
-                let ids: Vec<String> = ws.tabs.iter().map(|t| t.id.clone()).collect();
+                dead = ws.tabs.iter().map(|t| t.id.clone()).collect();
                 for tab in &mut ws.tabs {
                     tab.status = Status::Desligada;
                     tab.note = None;
                 }
-                let mut ptys = state.ptys.lock().unwrap();
-                for id in ids {
-                    ptys.remove(&id);
-                }
             }
         }
     }
-    publish(&app, &state);
+    // Fora do lock do quadro: encerrar é sinalizar e esperar, e isso com o
+    // quadro trancado pararia as outras sessões.
+    stop(&state, &dead);
+    publish(&app);
+}
+
+/// Encerra as sessões destas abas: o processo morre, o que estava pendurado no
+/// socket é esquecido. Transcript e worktree ficam — retomar é outro caminho.
+fn stop(state: &State<AppState>, tabs: &[String]) {
+    for tab in tabs {
+        pty::kill(state, tab);
+        socket::forget(state, tab);
+    }
 }
 
 /// O nome nasce da primeira frase do prompt, que quase nunca é o nome que o
@@ -120,12 +125,12 @@ pub fn rename_workspace(app: AppHandle, state: State<AppState>, id: String, titl
         return;
     }
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(&id) {
             ws.title = title.to_string();
         }
     }
-    publish(&app, &state);
+    publish(&app);
 }
 
 /// Fixar é a etiqueta de "é neste que eu volto agora" — sobe para o topo da
@@ -133,12 +138,12 @@ pub fn rename_workspace(app: AppHandle, state: State<AppState>, id: String, titl
 #[tauri::command]
 pub fn pin_workspace(app: AppHandle, state: State<AppState>, id: String, pinned: bool) {
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(&id) {
             ws.pinned = pinned;
         }
     }
-    publish(&app, &state);
+    publish(&app);
 }
 
 /// Marcar como não lido à mão: dar de cara com a novidade e não poder lidar com
@@ -146,29 +151,29 @@ pub fn pin_workspace(app: AppHandle, state: State<AppState>, id: String, pinned:
 #[tauri::command]
 pub fn set_unread(app: AppHandle, state: State<AppState>, id: String, unread: bool) {
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(&id) {
             ws.unread = unread;
         }
     }
-    publish(&app, &state);
+    publish(&app);
 }
 
 /// Qual workspace está na tela — e, por isso, deixa de ter novidade. Sem isto o
 /// back marcaria como não lido o que você está vendo acontecer na sua frente.
 #[tauri::command]
 pub fn look_at(app: AppHandle, state: State<AppState>, id: Option<String>) {
-    *state.looking.lock().unwrap() = id.clone();
+    *lock(&state.looking) = id.clone();
     let Some(id) = id else { return };
     let had = {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         match board.workspace_mut(&id) {
             Some(ws) => std::mem::replace(&mut ws.unread, false),
             None => false,
         }
     };
     if had {
-        publish(&app, &state);
+        publish(&app);
     }
 }
 
@@ -177,42 +182,53 @@ pub fn look_at(app: AppHandle, state: State<AppState>, id: Option<String>) {
 #[tauri::command]
 pub fn remove_workspace(app: AppHandle, state: State<AppState>, id: String) {
     kill_docks(&state, &id);
-    {
-        let mut board = state.board.lock().unwrap();
-        if let Some(ws) = board.workspace_mut(&id) {
-            let ids: Vec<String> = ws.tabs.iter().map(|t| t.id.clone()).collect();
-            let mut ptys = state.ptys.lock().unwrap();
-            for id in ids {
-                ptys.remove(&id);
-            }
-        }
+    let dead: Vec<String> = {
+        let mut board = lock(&state.board);
+        let dead = board
+            .workspace_mut(&id)
+            .map(|ws| ws.tabs.iter().map(|t| t.id.clone()).collect())
+            .unwrap_or_default();
         board.workspaces.retain(|w| w.id != id);
-    }
-    publish(&app, &state);
+        dead
+    };
+    stop(&state, &dead);
+    publish(&app);
 }
 
-/// `async` aqui é o threadpool do Tauri, não uma corotina: `git worktree add`
-/// e o `fetch` da base levam segundos, e na thread principal isso é a janela
-/// inteira congelada enquanto o worktree monta.
-#[allow(clippy::too_many_arguments)]
-#[tauri::command(async)]
-pub fn create_workspace(
-    app: AppHandle,
-    state: State<AppState>,
+/// O que o lançador montou. Um struct, e não doze parâmetros soltos: o front já
+/// tem esse objeto inteiro, e passá-lo como um só é o que impede a lista de
+/// argumentos de crescer a cada chavinha nova na tela.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Draft {
     project: String,
+    /// Vazia é a escolha de não criar branch nenhuma.
     branch: String,
+    /// De onde a branch nova sai.
     base: String,
-    // Ligado, a branch nasce num worktree só dela; desligado, ela nasce no
-    // próprio repositório — e é o diretório de trabalho dele que troca.
+    /// Ligado, a branch nasce num worktree só dela; desligado, ela nasce no
+    /// próprio repositório — e é o diretório de trabalho dele que troca.
     worktree: bool,
     title: String,
     stage: String,
     prompt: String,
     inject: Vec<String>,
+    /// O agente roda solto, sem parar a cada ferramenta.
+    skip_permissions: bool,
+}
+
+/// `async` aqui é o threadpool do Tauri, não uma corotina: `git worktree add`
+/// e o `fetch` da base levam segundos, e na thread principal isso é a janela
+/// inteira congelada enquanto o worktree monta.
+#[tauri::command(async)]
+pub fn create_workspace(
+    app: AppHandle,
+    state: State<AppState>,
+    draft: Draft,
     cols: u16,
     rows: u16,
 ) -> Result<Workspace, String> {
-    let repo_path = PathBuf::from(expand(&project));
+    let repo_path = PathBuf::from(expand(&draft.project));
     if !repo_path.join(".git").exists() {
         return Err(format!("{} não é um repositório git", repo_path.display()));
     }
@@ -225,16 +241,16 @@ pub fn create_workspace(
     // Branch vazia é a escolha de não criar branch nenhuma: a sessão abre no
     // repositório onde ele estiver. Worktree, esse, sempre precisa de uma —
     // é a branch que dá nome e destino à pasta.
-    let (root, branch) = match (worktree, branch.trim().is_empty()) {
+    let (root, branch) = match (draft.worktree, draft.branch.trim().is_empty()) {
         (true, true) => return Err("um worktree precisa de uma branch própria".into()),
         (true, false) => {
-            let dir = paths::worktree_dir(&repo_name, &branch);
-            add_worktree(&repo_path, &branch, &base, &dir)?;
-            (dir, branch)
+            let dir = paths::worktree_dir(&repo_name, &draft.branch);
+            add_worktree(&repo_path, &draft.branch, &draft.base, &dir)?;
+            (dir, draft.branch)
         }
         (false, false) => {
-            switch_branch(&repo_path, &branch, &base)?;
-            (repo_path.clone(), branch)
+            switch_branch(&repo_path, &draft.branch, &draft.base)?;
+            (repo_path.clone(), draft.branch)
         }
         (false, true) => {
             let head = head_branch(&repo_path).unwrap_or_else(|| "HEAD".into());
@@ -246,25 +262,35 @@ pub fn create_workspace(
     // recebem no ambiente — e é o que deixa dois worktrees do mesmo projeto
     // subirem o servidor ao mesmo tempo sem um matar o outro.
     let port = {
-        let board = state.board.lock().unwrap();
+        let board = lock(&state.board);
         let taken: Vec<u16> = board.workspaces.iter().filter_map(|w| w.port).collect();
         scripts::alloc_port(&taken)
     };
 
-    let tab = spawn_tab(&app, &state, &root, "conversa", first_message(&prompt, &inject), cols, rows)?;
+    let tab = spawn_tab(
+        &app,
+        &state,
+        &root,
+        "conversa",
+        first_message(&draft.prompt, &draft.inject),
+        draft.skip_permissions,
+        cols,
+        rows,
+    )?;
 
     let ws = Workspace {
         id: uuid::Uuid::new_v4().to_string(),
-        title: if title.trim().is_empty() { branch.clone() } else { title },
+        title: if draft.title.trim().is_empty() { branch.clone() } else { draft.title },
         project: repo_path.display().to_string(),
         repo: repo_path.display().to_string(),
         repo_name,
         branch,
         worktree: root.display().to_string(),
-        stage,
+        stage: draft.stage,
         archived: false,
         pinned: false,
         unread: false,
+        skip_permissions: draft.skip_permissions,
         port,
         active: Some(tab.id.clone()),
         tabs: vec![tab],
@@ -272,7 +298,7 @@ pub fn create_workspace(
 
     // O workspace entra no quadro antes de o setup subir: é no quadro que o fim
     // dele vai procurar as abas com fala guardada.
-    state.board.lock().unwrap().workspaces.push(ws.clone());
+    lock(&state.board).workspaces.push(ws.clone());
 
     // Worktree recém-nascido não tem nada que o `.gitignore` esconde:
     // dependências, `.env`, banco, build. O setup é o que faz dele um lugar onde
@@ -286,7 +312,7 @@ pub fn create_workspace(
         let _ = start_script(&app, &state, &ws, "setup", &command, cols, rows);
     }
 
-    publish(&app, &state);
+    publish(&app);
     Ok(ws)
 }
 
@@ -303,36 +329,38 @@ pub fn new_tab(
     cols: u16,
     rows: u16,
 ) -> Result<Tab, String> {
-    let (worktree, n) = {
-        let board = state.board.lock().unwrap();
+    // A regra de permissão é do workspace: conversa nova nos mesmos arquivos
+    // nasce com a mesma que as irmãs.
+    let (worktree, n, skip) = {
+        let board = lock(&state.board);
         let ws = board.workspaces.iter().find(|w| w.id == workspace).ok_or("workspace sumiu")?;
-        (PathBuf::from(&ws.worktree), ws.tabs.len() + 1)
+        (PathBuf::from(&ws.worktree), ws.tabs.len() + 1, ws.skip_permissions)
     };
 
     let title = if prompt.trim().is_empty() {
         format!("conversa {n}")
     } else {
-        summarize(&prompt)
+        tab_title(&prompt)
     };
     let pending = (!prompt.trim().is_empty()).then(|| prompt.trim().to_string());
-    let tab = spawn_tab(&app, &state, &worktree, &title, pending, cols, rows)?;
+    let tab = spawn_tab(&app, &state, &worktree, &title, pending, skip, cols, rows)?;
 
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(&workspace) {
             ws.active = Some(tab.id.clone());
             ws.tabs.push(tab.clone());
         }
     }
-    publish(&app, &state);
+    publish(&app);
     Ok(tab)
 }
 
 #[tauri::command]
 pub fn close_tab(app: AppHandle, state: State<AppState>, workspace: String, tab: String) {
-    state.ptys.lock().unwrap().remove(&tab);
+    stop(&state, std::slice::from_ref(&tab));
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(&workspace) {
             ws.tabs.retain(|t| t.id != tab);
             if ws.active.as_deref() == Some(tab.as_str()) {
@@ -340,18 +368,18 @@ pub fn close_tab(app: AppHandle, state: State<AppState>, workspace: String, tab:
             }
         }
     }
-    publish(&app, &state);
+    publish(&app);
 }
 
 #[tauri::command]
 pub fn focus_tab(app: AppHandle, state: State<AppState>, workspace: String, tab: String) {
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(&workspace) {
             ws.active = Some(tab);
         }
     }
-    publish(&app, &state);
+    publish(&app);
 }
 
 /// O nome da conversa nasce da primeira frase do prompt, ou de um "conversa 2"
@@ -370,7 +398,7 @@ pub fn rename_tab(
         return;
     }
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(t) = board
             .workspace_mut(&workspace)
             .and_then(|ws| ws.tabs.iter_mut().find(|t| t.id == tab))
@@ -378,7 +406,7 @@ pub fn rename_tab(
             t.title = title.to_string();
         }
     }
-    publish(&app, &state);
+    publish(&app);
 }
 
 /// Retoma uma aba desligada. O transcript vive em
@@ -392,46 +420,49 @@ pub fn resume_tab(
     cols: u16,
     rows: u16,
 ) -> Result<bool, String> {
-    let worktree = state
-        .board
-        .lock()
-        .unwrap()
+    let (worktree, skip) = lock(&state.board)
         .workspace_of(&tab)
-        .map(|w| PathBuf::from(&w.worktree))
+        .map(|w| (PathBuf::from(&w.worktree), w.skip_permissions))
         .ok_or("aba não encontrada")?;
     if !worktree.exists() {
         return Err(format!("worktree sumiu: {}", worktree.display()));
     }
 
+    // O que sobrou da sessão anterior sai antes: o processo já morreu, mas o
+    // `Pty` continua no mapa até alguém tirar.
+    pty::kill(&state, &tab);
+
     // Conversa que nunca falou não tem transcript, e `--resume` morre nela. Aí a
     // aba renasce com o mesmo id: não há nada perdido, e travar a tela num erro
     // por causa de uma conversa vazia seria pior.
     let resume = paths::transcript(&tab, &worktree).exists();
-    let handle = pty::spawn(&app, &tab, claude_cmd(&tab, &worktree, resume)?, cols, rows, false, None)?;
-    state.ptys.lock().unwrap().insert(tab.clone(), handle);
+    let handle = pty::spawn(&app, &tab, claude_cmd(&tab, &worktree, resume, skip)?, cols, rows, false, None)?;
+    lock(&state.ptys).insert(tab.clone(), handle);
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(t) = board.tab_mut(&tab) {
             t.status = Status::Pronta;
             t.note = None;
         }
     }
-    publish(&app, &state);
+    publish(&app);
     Ok(resume)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_tab(
     app: &AppHandle,
     state: &State<AppState>,
     worktree: &Path,
     title: &str,
     pending_prompt: Option<String>,
+    skip_permissions: bool,
     cols: u16,
     rows: u16,
 ) -> Result<Tab, String> {
     let id = uuid::Uuid::new_v4().to_string();
-    let handle = pty::spawn(app, &id, claude_cmd(&id, worktree, false)?, cols, rows, false, None)?;
-    state.ptys.lock().unwrap().insert(id.clone(), handle);
+    let handle = pty::spawn(app, &id, claude_cmd(&id, worktree, false, skip_permissions)?, cols, rows, false, None)?;
+    lock(&state.ptys).insert(id.clone(), handle);
     Ok(Tab {
         id,
         title: title.to_string(),
@@ -445,7 +476,17 @@ fn spawn_tab(
 
 /// Monta a linha de comando do Claude Code. `resume` decide se a sessão nasce
 /// nova ou continua a que já existe — o id é o mesmo nos dois casos.
-fn claude_cmd(id: &str, worktree: &Path, resume: bool) -> Result<CommandBuilder, String> {
+///
+/// `skip` é a chavinha do lançador. Solta, cada sessão vive no seu worktree
+/// isolado e não para a cada ferramenta — que é o motivo de existir o quadro.
+/// Presa, cada permissão vira o card com Permitir e Negar, que é o motivo de
+/// existir o socket. As duas coisas são verdade, e quem escolhe é quem vai
+/// olhar: worktree descartável pede solta, clone de sempre pede presa.
+///
+/// O hook de PermissionRequest fica instalado nos dois casos, porque
+/// AskUserQuestion passa por ele mesmo em bypass — testado: o seletor aparece e
+/// o dígito acerta.
+fn claude_cmd(id: &str, worktree: &Path, resume: bool, skip: bool) -> Result<CommandBuilder, String> {
     let settings = write_settings(id)?;
     let mut cmd = CommandBuilder::new("claude");
     cmd.args([
@@ -453,14 +494,10 @@ fn claude_cmd(id: &str, worktree: &Path, resume: bool) -> Result<CommandBuilder,
         settings.to_str().ok_or("caminho de settings inválido")?,
         if resume { "--resume" } else { "--session-id" },
         id,
-        // Sessão do Prometheus roda solta: cada uma vive no seu worktree isolado,
-        // e parar a cada permissão derruba o motivo de existir o quadro.
-        // O hook de PermissionRequest continua instalado porque AskUserQuestion
-        // passa por ele mesmo em bypass — testado: o seletor aparece e o dígito
-        // acerta. Só o card de "quer permissão" deixa de existir.
-        // ponytail: virar opção no lançador é uma linha, quando doer.
-        "--dangerously-skip-permissions",
     ]);
+    if skip {
+        cmd.arg("--dangerously-skip-permissions");
+    }
     cmd.cwd(worktree);
     // O CommandBuilder herda o ambiente inteiro por padrão, e `env()` só sobrescreve
     // chave por chave — não remove nada. Sem o env_clear, um `claude` rodando dentro
@@ -493,7 +530,10 @@ fn first_message(prompt: &str, inject: &[String]) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join("\n\n"))
 }
 
-fn summarize(prompt: &str) -> String {
+/// Rótulo de aba a partir da primeira frase do prompt. Corta mais curto que o
+/// nome do workspace (que o lançador monta): a barra de abas é estreita e
+/// várias delas dividem a linha.
+fn tab_title(prompt: &str) -> String {
     let line = prompt.trim().lines().next().unwrap_or("").trim();
     match line.chars().count() > 34 {
         true => line.chars().take(33).collect::<String>() + "…",
@@ -505,8 +545,22 @@ fn summarize(prompt: &str) -> String {
 /// já existe ignora a base: aí o worktree só a traz de volta para o disco, e
 /// mudar o ponto de partida de trabalho que já começou não é criar workspace.
 fn add_worktree(repo: &Path, branch: &str, base: &str, dest: &Path) -> Result<(), String> {
+    // Pasta que já está lá é reaproveitada — mas só se for a branch pedida.
+    // Antes qualquer pasta com o nome certo servia, então um worktree na branch
+    // errada era adotado calado e o quadro passava a mentir em que branch a
+    // sessão estava mexendo.
     if dest.exists() {
-        return Ok(());
+        return match head_branch(dest) {
+            Some(head) if head == branch => Ok(()),
+            Some(head) => Err(format!(
+                "{} já existe e está na branch '{head}', não em '{branch}'",
+                dest.display()
+            )),
+            None => Err(format!(
+                "{} já existe e não é um worktree em branch nenhuma",
+                dest.display()
+            )),
+        };
     }
     std::fs::create_dir_all(dest.parent().ok_or("worktree sem pai")?).map_err(|e| e.to_string())?;
 
@@ -718,20 +772,16 @@ pub fn workspace_branch(state: State<AppState>, id: String) -> Option<String> {
 /// O que mudou no worktree deste workspace — compartilhado por todas as abas,
 /// que é justamente o motivo de elas existirem. A conta fica em `changes_in`,
 /// que é o que o teste consegue rodar contra um worktree de verdade.
-#[tauri::command]
+/// `async` porque isto é o caminho mais quente do app: dois `git` e a leitura
+/// de todo arquivo novo, e a tela pede de novo a cada ferramenta que o agente
+/// usa. Na thread principal, era a janela travando em rajada — o front ainda
+/// junta as chamadas por cima disto.
+#[tauri::command(async)]
 pub fn workspace_diff(state: State<AppState>, id: String) -> Vec<FileChange> {
-    let Some(worktree) = state
-        .board
-        .lock()
-        .unwrap()
-        .workspaces
-        .iter()
-        .find(|w| w.id == id)
-        .map(|w| w.worktree.clone())
-    else {
-        return Vec::new();
-    };
-    changes_in(Path::new(&worktree))
+    match worktree_of(&state, &id) {
+        Some(worktree) => changes_in(&worktree),
+        None => Vec::new(),
+    }
 }
 
 fn changes_in(wt: &Path) -> Vec<FileChange> {
@@ -767,7 +817,7 @@ fn changes_in(wt: &Path) -> Vec<FileChange> {
         out.push(FileChange { path: path.to_string(), added, removed: 0, new_file: true, patch: cap(patch) });
     }
 
-    out.sort_by(|a, b| (b.added + b.removed).cmp(&(a.added + a.removed)));
+    out.sort_by_key(|c| std::cmp::Reverse(c.added + c.removed));
     out
 }
 
@@ -924,6 +974,14 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         let erro = super::add_worktree(&local, "outra", "origin/fantasma", &root.join("wt2"));
         assert!(erro.unwrap_err().contains("fantasma"));
 
+        // Pasta que já existe na branch pedida é reaproveitada — é o que faz
+        // criar duas vezes o mesmo workspace não estourar.
+        super::add_worktree(&local, "nova", "origin/velha", &dest).unwrap();
+        // Mas na branch errada, não: adotar calado era o quadro passar a mentir
+        // em que branch a sessão estava mexendo.
+        let erro = super::add_worktree(&local, "outra-branch", "origin/main", &dest).unwrap_err();
+        assert!(erro.contains("nova"), "{erro}");
+
         // Worktree desligado: a branch nasce no próprio clone, e é o HEAD dele
         // que anda. Nenhuma pasta nova, mesmo commit da base.
         super::switch_branch(&local, "aqui", "origin/velha").unwrap();
@@ -979,16 +1037,27 @@ pub struct Entry {
     pub dir: bool,
 }
 
+/// Resolve um caminho relativo dentro do worktree, ou recusa.
+///
+/// As duas pontas são canonicalizadas antes de comparar. Só a de dentro era, e
+/// aí bastava um symlink no caminho do worktree — `/tmp` no macOS é um deles —
+/// para o `starts_with` dar falso e a árvore vir vazia sem erro nenhum.
+fn inside(root: &Path, rel: &str) -> Result<PathBuf, String> {
+    let root = root.canonicalize().map_err(|e| e.to_string())?;
+    let real = root.join(rel).canonicalize().map_err(|e| e.to_string())?;
+    match real.starts_with(&root) {
+        true => Ok(real),
+        false => Err("caminho fora do worktree".into()),
+    }
+}
+
 /// Lista uma pasta do worktree. Um nível por chamada: árvore inteira de um repo
 /// grande custa caro e quase nunca é olhada além do primeiro galho.
 #[tauri::command]
 pub fn list_dir(state: State<AppState>, id: String, rel: String) -> Vec<Entry> {
     let Some(root) = worktree_of(&state, &id) else { return Vec::new() };
-    let dir = root.join(&rel);
     // Não deixa `..` no caminho escapar do worktree.
-    if !dir.canonicalize().map(|d| d.starts_with(&root)).unwrap_or(false) {
-        return Vec::new();
-    }
+    let Ok(dir) = inside(&root, &rel) else { return Vec::new() };
 
     let mut out: Vec<Entry> = std::fs::read_dir(&dir)
         .into_iter()
@@ -1008,7 +1077,7 @@ pub fn list_dir(state: State<AppState>, id: String, rel: String) -> Vec<Entry> {
         })
         .collect();
 
-    out.sort_by(|a, b| (!a.dir, a.name.to_lowercase()).cmp(&(!b.dir, b.name.to_lowercase())));
+    out.sort_by_key(|e| (!e.dir, e.name.to_lowercase()));
     out
 }
 
@@ -1017,11 +1086,7 @@ pub fn list_dir(state: State<AppState>, id: String, rel: String) -> Vec<Entry> {
 #[tauri::command]
 pub fn read_file(state: State<AppState>, id: String, rel: String) -> Result<String, String> {
     let root = worktree_of(&state, &id).ok_or("workspace sumiu")?;
-    let root = root.canonicalize().map_err(|e| e.to_string())?;
-    let file = root.join(&rel);
-    if !file.canonicalize().map(|f| f.starts_with(&root)).unwrap_or(false) {
-        return Err("caminho fora do worktree".into());
-    }
+    let file = inside(&root, &rel)?;
     let meta = std::fs::metadata(&file).map_err(|e| e.to_string())?;
     if meta.len() > 2 * 1024 * 1024 {
         return Err(format!("arquivo grande demais ({} KB)", meta.len() / 1024));
@@ -1051,7 +1116,7 @@ pub fn open_dock(
     let ws = workspace_copy(&state, &id).ok_or("workspace sumiu")?;
     let key = format!("{id}:{kind}");
 
-    if state.ptys.lock().unwrap().get(&key).is_some_and(|p| p.alive()) {
+    if lock(&state.ptys).get(&key).is_some_and(|p| p.alive()) {
         return Ok(key); // já está de pé; o buffer redesenha
     }
 
@@ -1066,7 +1131,7 @@ pub fn open_dock(
             cmd.env(key, value);
         }
         let handle = pty::spawn(&app, &key, cmd, cols, rows, true, None)?;
-        state.ptys.lock().unwrap().insert(key.clone(), handle);
+        lock(&state.ptys).insert(key.clone(), handle);
         return Ok(key);
     }
 
@@ -1096,7 +1161,7 @@ fn start_script(
     let key = format!("{}:{kind}", ws.id);
     // Entrada morta não conta: é só a rolagem do que rodou antes, e subir de
     // novo a substitui.
-    if state.ptys.lock().unwrap().get(&key).is_some_and(|p| p.alive()) {
+    if lock(&state.ptys).get(&key).is_some_and(|p| p.alive()) {
         return Ok(());
     }
     // `-l` porque um `setup` que chama `nvm`, `rbenv` ou `mise` precisa do que o
@@ -1116,7 +1181,7 @@ fn start_script(
         Box::new(move |code| release_prompts(&app, &id, code)) as pty::OnExit
     });
     let handle = pty::spawn(app, &key, cmd, cols, rows, true, on_exit)?;
-    state.ptys.lock().unwrap().insert(key, handle);
+    lock(&state.ptys).insert(key, handle);
     Ok(())
 }
 
@@ -1128,7 +1193,7 @@ fn start_script(
 fn release_prompts(app: &AppHandle, workspace: &str, code: Option<u32>) {
     let state = app.state::<AppState>();
     let pending: Vec<String> = {
-        let board = state.board.lock().unwrap();
+        let board = lock(&state.board);
         board
             .workspaces
             .iter()
@@ -1137,7 +1202,7 @@ fn release_prompts(app: &AppHandle, workspace: &str, code: Option<u32>) {
             .unwrap_or_default()
     };
     let waiting: Vec<String> = {
-        let ready = state.ready.lock().unwrap();
+        let ready = lock(&state.ready);
         pending.into_iter().filter(|t| ready.contains(t)).collect()
     };
     let warning = match code {
@@ -1170,7 +1235,7 @@ fn script_env(ws: &Workspace) -> Vec<(String, String)> {
 /// para recriar, ganha a sua na primeira vez que é aberto — o painel pede os
 /// scripts, e a porta vai junto, porque é ela que ele mostra.
 fn ensure_port(state: &State<AppState>, id: &str) -> Option<u16> {
-    let mut board = state.board.lock().unwrap();
+    let mut board = lock(&state.board);
     let current = board.workspaces.iter().find(|w| w.id == id)?.port;
     if current.is_some() {
         return current;
@@ -1192,7 +1257,7 @@ pub fn reveal(state: State<AppState>, id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn close_dock(state: State<AppState>, id: String, kind: String) {
-    state.ptys.lock().unwrap().remove(&format!("{id}:{kind}"));
+    pty::kill(&state, &format!("{id}:{kind}"));
 }
 
 /// Derruba todo dock do workspace — setup, run e terminal. Sem isto, arquivar
@@ -1200,7 +1265,7 @@ pub fn close_dock(state: State<AppState>, id: String, kind: String) {
 /// conhece mais.
 fn kill_docks(state: &State<AppState>, id: &str) {
     let prefix = format!("{id}:");
-    state.ptys.lock().unwrap().retain(|key, _| !key.starts_with(&prefix));
+    lock(&state.ptys).retain(|key, _| !key.starts_with(&prefix));
 }
 
 /// O que este repositório declara, mais a porta reservada a este worktree. O
@@ -1228,10 +1293,7 @@ pub struct DockView {
 #[tauri::command]
 pub fn dock_state(state: State<AppState>, id: String) -> Vec<DockView> {
     let prefix = format!("{id}:");
-    state
-        .ptys
-        .lock()
-        .unwrap()
+    lock(&state.ptys)
         .iter()
         .filter_map(|(key, pty)| {
             Some(DockView { kind: key.strip_prefix(&prefix)?.to_string(), alive: pty.alive() })
@@ -1275,14 +1337,11 @@ pub fn scripts_prompt(state: State<AppState>, id: String) -> String {
 }
 
 fn workspace_copy(state: &State<AppState>, id: &str) -> Option<Workspace> {
-    state.board.lock().unwrap().workspaces.iter().find(|w| w.id == id).cloned()
+    lock(&state.board).workspaces.iter().find(|w| w.id == id).cloned()
 }
 
 fn worktree_of(state: &State<AppState>, id: &str) -> Option<PathBuf> {
-    state
-        .board
-        .lock()
-        .unwrap()
+    lock(&state.board)
         .workspaces
         .iter()
         .find(|w| w.id == id)

@@ -27,6 +27,7 @@ const ws = (
   archived: false,
   pinned: false,
   unread: false,
+  skip_permissions: true,
   port: 3100,
   tabs,
   active: tabs[0]?.id ?? null,
@@ -276,12 +277,14 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     // O lançador inteiro funciona no navegador, e o workspace novo nasce sem
     // script nenhum — que é o estado em que a aba Setup tem algo a dizer.
     case "create_workspace": {
+      const draft = args.draft;
       const id = `nova-${nextId++}`;
-      const repo = String(args.project).split("/").pop() ?? "repo";
-      const fresh = ws(id, args.project, repo, args.title || args.branch, args.stage, [
+      const repo = String(draft.project).split("/").pop() ?? "repo";
+      const fresh = ws(id, draft.project, repo, draft.title || draft.branch, draft.stage, [
         { id: `t-${id}`, title: "conversa", status: "pronta", note: null },
       ]);
-      fresh.branch = args.branch || "main";
+      fresh.branch = draft.branch || "main";
+      fresh.skip_permissions = draft.skipPermissions;
       board.workspaces.push(fresh);
       emit("board", board);
       return fresh;

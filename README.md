@@ -36,6 +36,23 @@ Claude Code de verdade rodando ali.
 Uma conexão por invocação de hook, então a conexão já é a correlação: sem ids de
 mensagem, sem multiplexação.
 
+### Solto ou pedindo permissão
+
+A chavinha **Solto** no lançador, por workspace:
+
+- **Ligada** (padrão) a sessão nasce com `--dangerously-skip-permissions`. Nada
+  para para pedir, que é o que faz o quadro valer a pena: agente que trava a
+  cada `Write` não trabalha enquanto você olha outra coisa. Vale porque o
+  worktree é isolado e descartável.
+- **Desligada** cada ferramenta vira o card com Permitir e Negar, e o card do
+  quadro ganha um "pede permissão" dizendo por que aquela sessão para tanto.
+
+Solto **sem** worktree é o único par que merece aviso, e o lançador o dá em
+laranja: aí o agente mexe sem pedir no clone em que você trabalha.
+
+O hook de `PermissionRequest` fica instalado nos dois casos, porque
+`AskUserQuestion` passa por ele mesmo em bypass.
+
 ### O caso do AskUserQuestion
 
 Verificado empiricamente no Claude Code 2.1.237, e é a única sutileza real do
@@ -134,16 +151,32 @@ Playwright dirige — a webview do Tauri no macOS é WKWebView e não fala CDP.
 ## Testes
 
 ```sh
-cd src-tauri && cargo test
+npm test      # os dois lados
 ```
 
-Cobre o ida-e-volta do hook, a garantia de que o app fora do ar não deixa o
-agente pendurado, a leitura do settings.toml — e o contrato entre o front e os
-**dois** backs: todo `invoke` de `src/*.ts` tem que existir no
-`generate_handler!` e ter resposta no `src/mock.ts`. Sem essa checagem o mock
-apodrece calado, devolvendo `null` para um comando que nasceu só do lado do Rust.
+Cobre o que erra calado:
+
+- o ida-e-volta do hook, e a garantia de que o app fora do ar não deixa o agente
+  pendurado;
+- o contrato entre o front e os **dois** backs: todo `invoke` de `src/*.ts` tem
+  que existir no `generate_handler!` e ter resposta no `src/mock.ts`. Sem essa
+  checagem o mock apodrece calado, devolvendo `null` para um comando que nasceu
+  só do lado do Rust;
+- que **encerrar uma sessão encerra mesmo** — o filho que ignora o desligamento
+  educado e o neto que o filho deixou para trás, que é o `node` do servidor de
+  dev segurando a porta depois de você mandar fechar;
+- a **gramática do seletor** — quais teclas respondem um `AskUserQuestion`. É a
+  única parte do projeto que adivinha o estado de uma TUI, então é a que mais
+  precisa de um teste dizendo o que era verdade quando funcionou;
+- a leitura do settings.toml, e a base de onde a branch nova sai, contra um git
+  de verdade;
+- o corte de um `git diff` em um patch por arquivo, e a conta de número de linha
+  que o front faz em cima dele.
 
 ## Estado
 
-Fatia vertical: **uma** sessão por vez, sem quadro, sem automação, sem preset.
-Se o botão da pergunta não fosse bom, nada disso valeria — então ele veio primeiro.
+Um quadro de workspaces, cada um num worktree, com várias conversas dentro. A
+etapa é sua e o estado é do agente — dois eixos que não se misturam.
+
+Se o botão da pergunta não fosse bom, nada disso valeria — então ele veio
+primeiro.

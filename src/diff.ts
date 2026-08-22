@@ -1,6 +1,6 @@
 import { fileIcon, icon } from "./icons";
 import type { Change } from "./types";
-import { highlight } from "./viewer";
+import { highlight } from "./highlight";
 
 /// Tela de mudanças: o diff de todos os arquivos do worktree empilhado num
 /// scroll só, como a review de um PR. Cabeçalho de arquivo gruda no topo,
@@ -124,11 +124,14 @@ function row(r: Row, path: string): HTMLElement {
 
 /* ---------- patch unificado → linhas ---------- */
 
-type Row = { kind: "hunk" | "ctx" | "add" | "del"; no: number; text: string };
+export type Row = { kind: "hunk" | "ctx" | "add" | "del"; no: number; text: string };
 
 /// O número mostrado é o da linha no arquivo de agora; em linha apagada, o do
 /// arquivo de antes — é o único que existe para ela.
-function rows(patch: string): Row[] {
+///
+/// Exportada para o teste: é a única parte desta tela que é conta, e o que ela
+/// erra sai como número de linha errado — que ninguém confere de olho.
+export function rows(patch: string): Row[] {
   const out: Row[] = [];
   let before = 0;
   let after = 0;

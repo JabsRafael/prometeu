@@ -3,41 +3,23 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import * as board from "./board";
-import * as diff from "./diff";
 import * as dock from "./dock";
-import { avatar, fileIcon, icon, stageIcon } from "./icons";
+import * as dockbar from "./dockbar";
+import { icon } from "./icons";
 import { openLauncher, type Draft } from "./launcher";
 import * as menu from "./menu";
 import * as rename from "./rename";
 import * as session from "./session";
 import "./style.css";
+import type { Board, Question, Workspace } from "./types";
+import { $ } from "./util";
 import * as viewer from "./viewer";
-import {
-  statusOf,
-  type Board,
-  type Change,
-  type DockKind,
-  type DockState,
-  type Question,
-  type Scripts,
-  type Status,
-  type Tab,
-  type Workspace,
-} from "./types";
+import * as ws from "./workspace";
 
 // Navegador puro (sem Tauri): back falso, só para mexer na UI.
 if (!("__TAURI_INTERNALS__" in window)) await import("./mock");
 
-const $ = (id: string) => document.getElementById(id)!;
 let state: Board = { stages: [], projects: [], workspaces: [] };
-let openWs: string | null = null;
-
-const LABEL: Record<Status, string> = {
-  rodando: "rodando",
-  querendo: "quer você",
-  pronta: "pronta",
-  desligada: "desligada",
-};
 
 /// Recado na barra de cima. Some sozinho: recado que fica vira parte do
 /// cabeçalho, e daqui a uma hora você está lendo o aviso de outra coisa. Quem
@@ -50,30 +32,28 @@ function say(text: string, isError = false) {
   if (text && !text.endsWith("…")) fade = setTimeout(() => say(""), 6000);
 }
 
-const current = () => state.workspaces.find((w) => w.id === openWs);
-
 /* ---------- navegação ---------- */
 
 const hooks: board.Hooks = {
-  open: (ws) => openWorkspace(ws),
-  setStage: (id, stage) => invoke("set_stage", { id, stage }),
+  open: (w) => openWorkspace(w),
+  setStage: ws.setStage,
   drop: (id) => {
-    if (openWs === id) showBoard();
+    if (ws.id() === id) showBoard();
     invoke("remove_workspace", { id });
   },
-  rename: (id, title) => renameWorkspace(id, title),
+  rename: ws.renameWorkspace,
   // Arquivar o que está aberto na tela deixaria você dentro do que acabou de
   // sair da lista; o quadro é para onde se volta.
   archive: (id, archived) => {
-    if (archived && openWs === id) showBoard();
+    if (archived && ws.id() === id) showBoard();
     invoke("archive_workspace", { id, archived }).catch((e) => say(String(e), true));
   },
   pin: (id, pinned) => invoke("pin_workspace", { id, pinned }),
   unread: (id, unread) => invoke("set_unread", { id, unread }),
   reveal: (id) => invoke("reveal", { id }).catch((e) => say(String(e), true)),
-  copyPath: (ws) => {
-    navigator.clipboard.writeText(ws.worktree);
-    say(`${ws.worktree} copiado`);
+  copyPath: (w) => {
+    navigator.clipboard.writeText(w.worktree);
+    say(`${w.worktree} copiado`);
   },
   toBoard: () => showBoard(),
   addProject: async () => {
@@ -90,22 +70,7 @@ function draw() {
   // que foi digitado, ou tira o menu do lugar no meio do clique.
   if (rename.editing() || menu.isOpen()) return;
   board.render(state, hooks);
-  if (openWs) drawWorkspace();
-}
-
-/// Fim de um rename. Nome novo grava — e o `board` que volta do back redesenha;
-/// desistência só devolve a linha ao normal.
-function renameWorkspace(id: string, title: string | null) {
-  draw();
-  if (title) invoke("rename_workspace", { id, title }).catch((e) => say(String(e), true));
-}
-
-/// Mesmo contrato, para a aba: o nome dela nasce da primeira frase do prompt —
-/// ou de um "conversa 2" quando não houve prompt — e nenhum dos dois é o assunto
-/// que ela acaba tendo.
-function renameTab(workspace: string, tab: string, title: string | null) {
-  draw();
-  if (title) invoke("rename_tab", { workspace, tab, title }).catch((e) => say(String(e), true));
+  if (ws.id()) ws.draw();
 }
 
 /* Histórico ← →: quadro e workspaces visitados, como as setas do Conductor. */
@@ -126,8 +91,8 @@ function travel(dir: -1 | 1) {
   const next = at + dir;
   if (next < 0 || next >= hist.length) return;
   at = next;
-  const ws = state.workspaces.find((w) => w.id === hist[at]);
-  ws ? openWorkspace(ws, false) : showBoard(false);
+  const target = state.workspaces.find((w) => w.id === hist[at]);
+  target ? openWorkspace(target, false) : showBoard(false);
   drawNav();
 }
 $("back").addEventListener("click", () => travel(-1));
@@ -135,782 +100,15 @@ $("fwd").addEventListener("click", () => travel(1));
 
 function showBoard(push = true) {
   if (push) visit(null);
-  session.detach();
-  invoke("look_at", { id: null });
-  board.setOpen((openWs = null));
-  $("boardView").hidden = false;
-  $("wsView").hidden = true;
-  $("wsctl").hidden = true;
+  ws.leave();
   $("crumb").replaceChildren(Object.assign(document.createElement("span"), { textContent: "Quadro" }));
   draw();
 }
 
-async function openWorkspace(ws: Workspace, push = true) {
-  if (push) visit(ws.id);
-  const first = ws.tabs.find((t) => t.id === ws.active) ?? ws.tabs[0];
-  // Abrir é ler: a novidade deste workspace morre aqui, e o que acontecer nele
-  // enquanto ele estiver na tela não vira novidade nova.
-  invoke("look_at", { id: ws.id });
-  board.setOpen((openWs = ws.id));
-  openDirs.clear();
-  dockPane = null;
-  runName = undefined;
-  dockInfo = { scripts: NO_SCRIPTS, docks: [] };
-  dock.detach();
-  drawDock();
-  refreshDock();
-  $("boardView").hidden = true;
-  $("wsView").hidden = false;
-  $("wsctl").hidden = false;
-  // attach primeiro: é ele quem define a sessão corrente que as abas marcam.
-  if (first) await session.attach(first.id);
-  // Volta para onde parou: arquivo aberto continua aberto, diff continua na tela.
-  const fs = files(ws.id);
-  if (fs.diff) showChanges();
-  else if (fs.active) await showFile();
-  else showTerm();
-  draw();
+async function openWorkspace(target: Workspace, push = true) {
+  if (push) visit(target.id);
+  await ws.open(target);
 }
-
-/* ---------- tela do workspace ---------- */
-
-function drawWorkspace() {
-  const ws = current();
-  if (!ws) return showBoard();
-
-  // Migalha como no Conductor: avatar do projeto › nome do workspace › branch.
-  const crumb = $("crumb");
-  crumb.innerHTML =
-    `${avatar(ws.repo_name)}<span></span><span class="sep">${icon("chevron-right", 12)}</span><span></span>` +
-    `<button class="branch" hidden>${icon("git-branch", 12)}<span></span></button>`;
-  crumb.children[1].textContent = ws.repo_name;
-  const name = crumb.children[3] as HTMLElement;
-  name.textContent = ws.title;
-  // Na migalha não tem lápis: nada ali é clicável, então o duplo clique é livre.
-  name.title = "Duplo clique para renomear";
-  name.addEventListener("dblclick", () =>
-    rename.start(name, ws.title, (title) => renameWorkspace(ws.id, title), "crumb"),
-  );
-
-  const st = statusOf(ws);
-  const chip = $("wsstatus");
-  chip.className = `chip s-${st}`;
-  chip.innerHTML = `<i class="dot"></i>`;
-  chip.append(LABEL[st]);
-
-  // A etapa é o mesmo submenu do botão direito, ancorado no botão: um lugar só
-  // para escolher, esteja você no quadro ou dentro da conversa.
-  const stage = $("wsstage");
-  stage.innerHTML = `${stageIcon(state.stages.indexOf(ws.stage), state.stages.length, 14)}<span></span>`;
-  stage.children[1].textContent = ws.stage;
-  stage.onclick = () => {
-    const at = stage.getBoundingClientRect();
-    menu.openAt(
-      { x: at.left, y: at.bottom + 4 },
-      state.stages.map((name, i) => ({
-        label: name,
-        glyph: stageIcon(i, state.stages.length),
-        checked: name === ws.stage,
-        run: () => hooks.setStage(ws.id, name),
-      })),
-    );
-  };
-
-  $("offpath").textContent = ws.worktree;
-  drawBranch(ws);
-  drawTabs(ws);
-  drawDiff(ws.id);
-  if (sidePane === "files") drawTree(ws.id);
-  // O agente edita; o arquivo na tela acompanha, sem polling.
-  const file = files(ws.id).active;
-  if (file) viewer.show(ws.id, file);
-
-  const tab = ws.tabs.find((t) => t.id === session.currentSession());
-  // Terminal mudo confunde; a saída fica escrita na tela.
-  $("offline").hidden = tab?.status !== "desligada";
-}
-
-/* ---------- branch do worktree ---------- */
-
-/// Em que branch o worktree está agora — lido do git, e não do `ws.branch` que
-/// ficou gravado quando o workspace nasceu: o agente comita, troca de branch,
-/// rebaseia, e o que a migalha tem que dizer é onde o próximo commit cai.
-/// O cache é o que impede a pastilha de piscar entre dois redesenhos, que são
-/// muitos — a tela é refeita a cada ferramenta que o agente usa.
-const branchOf = new Map<string, string>();
-
-function paintBranch(id: string) {
-  const chip = $("crumb").querySelector<HTMLElement>(".branch");
-  const name = branchOf.get(id);
-  if (!chip || !name) return;
-  chip.hidden = false;
-  chip.children[1].textContent = name;
-  chip.title = "Branch deste worktree — clique para copiar";
-  chip.onclick = () => {
-    navigator.clipboard.writeText(name);
-    say(`${name} copiado`);
-  };
-}
-
-async function drawBranch(ws: Workspace) {
-  paintBranch(ws.id);
-  // Nome vazio é HEAD solto, e dizer isso é melhor do que não dizer nada: um
-  // worktree em detached HEAD é justamente onde um commit se perde.
-  const name = (await invoke<string | null>("workspace_branch", { id: ws.id })) ?? "HEAD solto";
-  branchOf.set(ws.id, name);
-  if (openWs === ws.id) paintBranch(ws.id);
-}
-
-/// Abas sublinhadas: uma por conversa, a de Mudanças, depois uma por arquivo
-/// aberto, e o + logo depois da última.
-function drawTabs(ws: Workspace) {
-  // Refazer a barra com um campo de renomear aberto nela apaga o que foi
-  // digitado — e o diff, que redesenha sozinho, chega aqui a toda hora.
-  if (rename.editing()) return;
-  const bar = $("tabbar");
-  bar.replaceChildren();
-  const fs = files(ws.id);
-  const elsewhere = fs.diff || fs.active;
-
-  for (const tab of ws.tabs) {
-    const b = document.createElement("button");
-    b.className = "tab" + (!elsewhere && tab.id === session.currentSession() ? " on" : "");
-    b.innerHTML = `<i class="dot"></i><span></span>`;
-    (b.children[0] as HTMLElement).style.background = `var(--dot-${tab.status})`;
-    b.dataset.tab = tab.id;
-    b.children[1].textContent = tab.title;
-    b.title = `${LABEL[tab.status]} · duplo clique para renomear`;
-    b.addEventListener("click", () => selectTab(ws.id, tab.id));
-    b.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      menu.openAt({ x: e.clientX, y: e.clientY }, tabMenu(ws, tab));
-    });
-
-    if (ws.tabs.length > 1) {
-      const x = document.createElement("span");
-      x.className = "tabx ico sm";
-      x.innerHTML = icon("x", 12);
-      x.title = "Fechar conversa";
-      x.addEventListener("click", (e) => {
-        e.stopPropagation();
-        invoke("close_tab", { workspace: ws.id, tab: tab.id });
-      });
-      b.append(x);
-    }
-    bar.append(b);
-  }
-
-  // A aba de Mudanças existe enquanto houver o que mostrar e você não a tiver
-  // fechado — ou enquanto ela estiver aberta, para o worktree ficar limpo sem a
-  // tela sumir debaixo de você.
-  const changes = changesOf.get(ws.id) ?? [];
-  if (fs.diff || (changes.length && !fs.hidDiff)) {
-    const b = document.createElement("button");
-    b.className = "tab file" + (fs.diff ? " on" : "");
-    b.innerHTML = `${icon("diff", 14)}<span></span><span class="n"></span>`;
-    b.children[1].textContent = "Mudanças";
-    b.children[2].textContent = changes.length ? String(changes.length) : "";
-    b.title = "Diff do worktree inteiro";
-    b.addEventListener("click", () => showChanges());
-    const x = document.createElement("span");
-    x.className = "tabx ico sm";
-    x.innerHTML = icon("x", 12);
-    x.title = fs.diff ? "Fechar Mudanças  ⌘W" : "Fechar Mudanças";
-    x.addEventListener("click", (e) => {
-      e.stopPropagation();
-      closeChanges();
-    });
-    b.append(x);
-    bar.append(b);
-  }
-
-  for (const path of fs.open) {
-    const b = document.createElement("button");
-    b.className = "tab file" + (path === fs.active ? " on" : "");
-    b.innerHTML = `${icon("file", 14)}<span></span><span class="tabx ico sm">${icon("x", 12)}</span>`;
-    b.children[1].textContent = path.slice(path.lastIndexOf("/") + 1);
-    b.title = path;
-    b.addEventListener("click", () => openFile(path));
-    b.querySelector(".tabx")!.addEventListener("click", (e) => {
-      e.stopPropagation();
-      closeFile(path);
-    });
-    bar.append(b);
-  }
-
-  const add = document.createElement("button");
-  add.className = "ico";
-  add.innerHTML = icon("plus");
-  add.title = "Conversa nova, mesmos arquivos  ⌘T";
-  add.addEventListener("click", () => newTab());
-  bar.append(add);
-}
-
-/// Abre o campo no rótulo da aba que está na barra agora. Procurar o botão na
-/// hora, em vez de guardar o de quando o gesto começou, é o que faz o renomear
-/// sobreviver ao redesenho que a troca de aba dispara no caminho.
-function editTab(id: string) {
-  const ws = current();
-  const tab = ws?.tabs.find((t) => t.id === id);
-  const b = $("tabbar").querySelector<HTMLElement>(`.tab[data-tab="${CSS.escape(id)}"]`);
-  if (!ws || !tab || !b) return;
-  rename.start(b.children[1] as HTMLElement, tab.title, (title) => renameTab(ws.id, id, title), "tab");
-}
-
-// Duplo clique renomeia, como no nome do workspace na migalha. Escuta na barra e
-// não no botão: o primeiro clique troca de aba, a troca refaz a barra, e o botão
-// em que o gesto começou já não existe quando o duplo clique chega.
-$("tabbar").addEventListener("dblclick", (e) => {
-  const b = (e.target as HTMLElement).closest<HTMLElement>(".tab[data-tab]");
-  if (b?.dataset.tab) editTab(b.dataset.tab);
-});
-
-/// Tudo que se faz com uma conversa, no botão direito — o mesmo lugar em que
-/// moram as ações do workspace, em vez de um botãozinho por ação na aba.
-function tabMenu(ws: Workspace, tab: Tab): menu.Item[] {
-  const items: menu.Item[] = [
-    { label: "Renomear", glyph: icon("pencil"), run: () => editTab(tab.id) },
-  ];
-  // A última conversa não fecha: um workspace sem conversa nenhuma é uma tela
-  // vazia sem nada para clicar.
-  if (ws.tabs.length > 1) {
-    items.push("sep", {
-      label: "Fechar conversa",
-      glyph: icon("x"),
-      danger: true,
-      run: () => invoke("close_tab", { workspace: ws.id, tab: tab.id }),
-    });
-  }
-  return items;
-}
-
-async function selectTab(workspace: string, tab: string) {
-  const fs = files(workspace);
-  // Clicar na aba em que você já está não refaz nada. É o que deixa o duplo
-  // clique chegar inteiro no renomear: o rótulo continua sendo o mesmo nó.
-  if (tab === session.currentSession() && !fs.diff && !fs.active) return;
-  invoke("focus_tab", { workspace, tab });
-  showTerm();
-  await session.attach(tab);
-  drawWorkspace();
-}
-
-/* ---------- arquivos abertos ---------- */
-
-/// O que está no centro de cada workspace, só em memória: fechar o app volta
-/// tudo para a conversa. `diff` ligado é a tela de mudanças; `active` é o
-/// arquivo aberto; nenhum dos dois é o terminal.
-type Files = {
-  open: string[];
-  active: string | null;
-  diff: boolean;
-  /// Você fechou a aba de Mudanças. Sem isto ela renasceria no redesenho
-  /// seguinte, porque o worktree continua sujo — e aí fechar não fecharia nada.
-  hidDiff: boolean;
-};
-const filesOf = new Map<string, Files>();
-function files(id: string): Files {
-  let f = filesOf.get(id);
-  if (!f) filesOf.set(id, (f = { open: [], active: null, diff: false, hidDiff: false }));
-  return f;
-}
-
-async function openFile(path: string) {
-  const ws = current();
-  if (!ws) return;
-  const fs = files(ws.id);
-  if (!fs.open.includes(path)) fs.open.push(path);
-  fs.active = path;
-  await showFile();
-  drawTabs(ws);
-}
-
-async function showFile() {
-  const ws = current();
-  const path = ws && files(ws.id).active;
-  if (!ws || !path) return showTerm();
-  files(ws.id).diff = false;
-  center("viewer");
-  await viewer.show(ws.id, path);
-}
-
-function showTerm() {
-  const ws = current();
-  if (ws) {
-    files(ws.id).active = null;
-    files(ws.id).diff = false;
-  }
-  center("termwrap");
-}
-
-/// Tela de mudanças. `focus` vem do clique na lista da direita: é a mesma tela,
-/// só rolada até aquele arquivo.
-function showChanges(focus?: string) {
-  const ws = current();
-  if (!ws) return;
-  const fs = files(ws.id);
-  fs.active = null;
-  fs.diff = true;
-  fs.hidDiff = false;
-  center("diffview");
-  drawChanges(ws.id, focus);
-  drawTabs(ws);
-}
-
-/// Fechar a aba de Mudanças é tirá-la da barra, não só sair da tela: uma aba que
-/// fica depois do x não foi fechada. Ela volta quando você abre o diff de novo
-/// pela lista da direita, ou quando o worktree limpa e suja outra vez — o que é
-/// trabalho novo, e não o que você mandou embora.
-async function closeChanges() {
-  const ws = current();
-  if (!ws) return;
-  const fs = files(ws.id);
-  const wasOpen = fs.diff;
-  fs.hidDiff = true;
-  // `diff` fica ligado até o `showTerm` da vez desligar: é ele que faz o
-  // `selectTab` entender que a tela precisa trocar.
-  if (wasOpen) {
-    const tab = session.currentSession();
-    if (tab) await selectTab(ws.id, tab);
-    else showTerm();
-  }
-  drawTabs(ws);
-}
-
-function center(show: "termwrap" | "viewer" | "diffview") {
-  for (const id of ["termwrap", "viewer", "diffview"] as const) $(id).hidden = id !== show;
-}
-
-async function closeFile(path: string) {
-  const ws = current();
-  if (!ws) return;
-  const fs = files(ws.id);
-  const at = fs.open.indexOf(path);
-  if (at !== -1) fs.open.splice(at, 1);
-  if (fs.active === path) {
-    // Cai na vizinha; sem vizinha, volta para a conversa.
-    const next = fs.open[at] ?? fs.open[at - 1];
-    if (next) return openFile(next);
-    const tab = session.currentSession();
-    tab ? await selectTab(ws.id, tab) : showTerm();
-  }
-  drawTabs(ws);
-}
-
-async function newTab() {
-  const ws = current();
-  if (!ws) return;
-  try {
-    const tab = await invoke<{ id: string }>("new_tab", {
-      workspace: ws.id,
-      prompt: "",
-      ...session.dims(),
-    });
-    showTerm();
-    await session.attach(tab.id);
-    drawWorkspace();
-  } catch (err) {
-    say(String(err), true);
-  }
-}
-
-/* ---------- painel da direita ---------- */
-
-let sidePane: "files" | "diff" = "files";
-let dockPane: DockKind | null = null;
-let dockOpen = true;
-const openDirs = new Set<string>();
-
-function setSidePane(pane: "files" | "diff") {
-  sidePane = pane;
-  $("tab-files").classList.toggle("on", pane === "files");
-  $("tab-diff").classList.toggle("on", pane === "diff");
-  $("tree").hidden = pane !== "files";
-  $("difflist").hidden = pane !== "diff";
-  const ws = current();
-  if (ws && pane === "files") drawTree(ws.id);
-}
-
-$("tab-files").addEventListener("click", () => setSidePane("files"));
-$("tab-diff").addEventListener("click", () => {
-  // Já no painel de Mudanças, clicar de novo traz o diff para o centro. É o
-  // caminho de volta depois de fechar a aba — sem ele, quem fechou só voltaria
-  // clicando num arquivo da lista.
-  const changes = openWs ? (changesOf.get(openWs)?.length ?? 0) : 0;
-  if (sidePane === "diff" && changes) showChanges();
-  else setSidePane("diff");
-});
-$("collapse").addEventListener("click", () => {
-  openDirs.clear();
-  const ws = current();
-  if (ws) drawTree(ws.id);
-});
-$("reveal").addEventListener("click", () => {
-  const ws = current();
-  if (ws) invoke("reveal", { id: ws.id }).catch((e) => say(String(e), true));
-});
-
-/// Árvore preguiçosa: uma pasta por chamada, aberta sob demanda. Repo grande
-/// não paga por galho que ninguém abriu.
-async function drawTree(id: string) {
-  const tree = $("tree");
-  tree.replaceChildren();
-  await fillDir(id, "", tree, 0);
-}
-
-type Entry = { name: string; path: string; dir: boolean };
-
-async function fillDir(id: string, rel: string, into: HTMLElement, depth: number) {
-  const entries = await invoke<Entry[]>("list_dir", { id, rel });
-  for (const entry of entries) {
-    const row = document.createElement("button");
-    row.className = "treerow";
-    row.style.paddingLeft = `${14 + depth * 20}px`;
-    row.innerHTML = `<span class="tw"></span><span class="tn"></span><span class="tc"></span>`;
-    // Pasta aberta troca o ícone e o chevron da ponta, que só aparece no hover.
-    const glyph = (open: boolean) => {
-      row.children[0].innerHTML = entry.dir ? icon(open ? "folder-open" : "folder") : fileIcon(entry.name);
-      row.children[2].innerHTML = entry.dir ? icon(open ? "chevron-down" : "chevron-right", 14) : "";
-    };
-    glyph(false);
-    row.children[1].textContent = entry.name;
-    into.append(row);
-
-    if (!entry.dir) {
-      row.addEventListener("click", () => openFile(entry.path));
-      continue;
-    }
-
-    const kids = document.createElement("div");
-    kids.hidden = true;
-    into.append(kids);
-
-    row.addEventListener("click", async () => {
-      const isOpen = openDirs.has(entry.path);
-      if (isOpen) {
-        openDirs.delete(entry.path);
-      } else {
-        openDirs.add(entry.path);
-        if (!kids.childElementCount) await fillDir(id, entry.path, kids, depth + 1);
-      }
-      kids.hidden = isOpen;
-      glyph(!isOpen);
-    });
-
-    if (openDirs.has(entry.path)) {
-      glyph(true);
-      kids.hidden = false;
-      await fillDir(id, entry.path, kids, depth + 1);
-    }
-  }
-}
-
-/* ---------- dock: setup, run e terminal ---------- */
-
-const NO_SCRIPTS: Scripts = { file: null, setup: null, runs: [], archive: null, port: null };
-
-/// O que o repositório declara e o que existe no dock agora. Vem do back quando
-/// o workspace abre e sempre que um script sobe ou morre — nada de polling.
-let dockInfo: { scripts: Scripts; docks: DockState[] } = { scripts: NO_SCRIPTS, docks: [] };
-/// Qual `[scripts.run.<nome>]` o botão dispara. Vazio é o padrão do repositório.
-let runName: string | undefined;
-
-const isUp = (pane: DockKind) => dockInfo.docks.some((d) => d.kind === pane && d.alive);
-/// Rodou e morreu: a rolagem ainda está lá, com o `✗ saiu com código` no fim.
-const hasLog = (pane: DockKind) => dockInfo.docks.some((d) => d.kind === pane);
-const declares = (pane: DockKind) =>
-  pane === "setup" ? !!dockInfo.scripts.setup : dockInfo.scripts.runs.length > 0;
-
-async function refreshDock() {
-  const ws = current();
-  if (!ws) return;
-  const [scripts, docks] = await Promise.all([
-    invoke<Scripts>("workspace_scripts", { id: ws.id }),
-    invoke<DockState[]>("dock_state", { id: ws.id }),
-  ]);
-  // Trocar de workspace no meio da ida ao back deixaria o painel falando do
-  // repositório errado.
-  if (openWs !== ws.id) return;
-  dockInfo = { scripts, docks };
-  drawDock();
-}
-
-/// Escolhe a aba. `start` é o único jeito de um script começar: abrir a aba só
-/// anexa ao que já está de pé, senão olhar o log de ontem viraria subir servidor.
-async function setDock(pane: DockKind | null, start = false) {
-  const ws = current();
-  if (!ws) return;
-  dockPane = pane;
-  dockOpen = true;
-  drawDock();
-  if (!pane) return dock.detach();
-  try {
-    if (pane === "terminal" || start || isUp(pane)) {
-      await dock.open(ws.id, pane, pane === "run" ? runName : undefined);
-      dock.focus();
-    } else if (hasLog(pane)) {
-      // Morreu: só a rolagem, sem reiniciar. É aqui que o setup de ontem
-      // continua dizendo que falhou.
-      await dock.show(ws.id, pane);
-    } else {
-      dock.detach();
-    }
-  } catch (err) {
-    say(String(err), true);
-  }
-  await refreshDock();
-}
-
-const DOCK_TABS = [
-  ["dock-setup", "setup"],
-  ["dock-run", "run"],
-  ["dock-term", "terminal"],
-] as const;
-
-function drawDock() {
-  $("dock").classList.toggle("closed", !dockOpen);
-  $("dock-toggle").innerHTML = icon(dockOpen ? "chevron-down" : "chevron-right");
-  $("dock-toggle").title = dockOpen ? "Recolher" : "Expandir";
-  for (const [id, pane] of DOCK_TABS) {
-    $(id).classList.toggle("on", dockPane === pane);
-    // Ponto na aba do que está rodando: o run continua de pé com o painel em
-    // Setup, e sem isto não haveria como saber que ele está lá.
-    $(id).classList.toggle("live", isUp(pane));
-  }
-
-  // O botão de Run mora na barra e não na aba: ⌘R é o mesmo esteja qual estiver
-  // na frente, e é a mesma pergunta com as duas respostas.
-  const up = isUp("run");
-  $("runsplit").hidden = !dockInfo.scripts.runs.length;
-  $("run-pick").hidden = dockInfo.scripts.runs.length < 2;
-  $("run-go").innerHTML =
-    `${icon(up ? "square" : "play", 13)}<span>${up ? "Parar" : "Run"}</span><kbd>⌘R</kbd>`;
-
-  const live = dockPane !== null && (dockPane === "terminal" || isUp(dockPane) || hasLog(dockPane));
-  $("dockwrap").hidden = !live;
-  $("dockempty").hidden = live;
-  // No painel de Run quem encerra é o "Parar" ao lado: dois botões para a mesma
-  // coisa, e a barra fica larga demais para caber os três nomes de aba.
-  const alive = dockPane !== null && isUp(dockPane);
-  $("dock-kill").hidden = !alive || dockPane === "run";
-  // Setup que rodou e morreu: a rolagem fica na frente, e rodar de novo é este
-  // botão — o de Run já é o da barra.
-  $("dock-again").hidden = !(dockPane === "setup" && hasLog("setup") && !isUp("setup"));
-  if (!live) drawDockEmpty();
-}
-
-/// A caixa tracejada. O que ela pede muda com o que falta: um repositório que
-/// não declara nada precisa de um script; um que declara precisa de um clique.
-function drawDockEmpty() {
-  const row = $("empty-row");
-  row.replaceChildren();
-  $("empty-glyph").hidden = true;
-  const button = (label: string, cls: string, run: () => void) => {
-    const b = document.createElement("button");
-    b.className = `${cls} lg`;
-    b.textContent = label;
-    b.addEventListener("click", run);
-    row.append(b);
-  };
-  const title = (text: string) => {
-    $("empty-title").textContent = text;
-    $("empty-title").hidden = !text;
-  };
-
-  if (dockPane === null) {
-    title("Terminais deste worktree");
-    button("Setup", "", () => setDock("setup"));
-    button("Run", "", () => setDock("run"));
-    button("Terminal", "pri", () => setDock("terminal"));
-    $("empty-sub").textContent =
-      "Setup prepara o worktree, Run sobe o projeto, Terminal é um shell aqui dentro.";
-    return;
-  }
-
-  if (!declares(dockPane)) {
-    title(`Adicionar script de ${dockPane}`);
-    button("Perguntar ao agente", "pri", askForScripts);
-    button("Escrever à mão", "", writeScriptsFile);
-    $("empty-sub").textContent =
-      dockPane === "setup"
-        ? "Comandos que rodam quando um worktree nasce, para instalar dependências e preparar o ambiente."
-        : "O comando que sobe o projeto, para você testar a mudança sem sair daqui.";
-    return;
-  }
-
-  // Há script e não há processo: falta o clique.
-  const setup = dockPane === "setup";
-  const port = dockInfo.scripts.port;
-  $("empty-glyph").hidden = false;
-  $("empty-glyph").innerHTML = icon(setup ? "rotate" : "play", 44);
-  title("");
-  button(setup ? "Rodar setup" : "Iniciar Run  ⌘R", "outline", () => setDock(dockPane, true));
-  $("empty-sub").textContent = setup
-    ? "O setup já rodou quando este worktree nasceu. Rodar de novo é seguro se ele for idempotente."
-    : `Teste sua mudança aqui.${port ? ` $PROMETHEUS_PORT é ${port}.` : ""}`;
-}
-
-/// Manda o próprio agente ler o repositório e escrever o settings.toml. Conversa
-/// nova, e não a que está aberta: o assunto é outro, e o contexto de agora não
-/// tem que pagar por isto.
-async function askForScripts() {
-  const ws = current();
-  if (!ws) return;
-  try {
-    const prompt = await invoke<string>("scripts_prompt", { id: ws.id });
-    const tab = await invoke<Tab>("new_tab", { workspace: ws.id, prompt, ...session.dims() });
-    showTerm();
-    await session.attach(tab.id);
-    drawWorkspace();
-  } catch (err) {
-    say(String(err), true);
-  }
-}
-
-/// Cria o arquivo com o exemplo comentado e abre no visualizador — que é onde
-/// se vê o que dá para escrever antes de ir para o editor.
-async function writeScriptsFile() {
-  const ws = current();
-  if (!ws) return;
-  try {
-    await openFile(await invoke<string>("create_scripts_file", { id: ws.id }));
-    await refreshDock();
-  } catch (err) {
-    say(String(err), true);
-  }
-}
-
-/// ⌘R. Sem script declarado, leva para a aba que pede um — que é a resposta
-/// certa para "eu quis rodar e não dá".
-async function toggleRun() {
-  const ws = current();
-  if (!ws) return;
-  if (!dockInfo.scripts.runs.length) return setDock("run");
-  if (!isUp("run")) return setDock("run", true);
-  await dock.kill(ws.id, "run");
-  await refreshDock();
-}
-
-for (const [id, pane] of DOCK_TABS) {
-  // Clicar na aba aberta recolhe: é assim que se some com a saída sem matar o
-  // processo que a produziu.
-  $(id).addEventListener("click", () => setDock(dockOpen && dockPane === pane ? null : pane));
-}
-$("run-go").addEventListener("click", toggleRun);
-$("run-pick").addEventListener("click", (e) => {
-  const at = (e.currentTarget as HTMLElement).getBoundingClientRect();
-  const chosen = runName ?? dockInfo.scripts.runs[0]?.name;
-  menu.openAt({ x: at.left - 40, y: at.bottom + 4 }, [
-    ...dockInfo.scripts.runs.map((r) => ({
-      label: r.name,
-      hint: r.command.length > 36 ? `${r.command.slice(0, 35)}…` : r.command,
-      checked: chosen === r.name,
-      run: async () => {
-        runName = r.name;
-        const ws = current();
-        if (ws && isUp("run")) await dock.kill(ws.id, "run");
-        setDock("run", true);
-      },
-    })),
-    "sep",
-    { label: "Abrir o settings.toml", glyph: icon("file", 14), run: writeScriptsFile },
-  ]);
-});
-$("dock-toggle").addEventListener("click", () => {
-  dockOpen = !dockOpen;
-  drawDock();
-});
-$("dock-kill").addEventListener("click", async () => {
-  const ws = current();
-  if (ws && dockPane) {
-    await dock.kill(ws.id, dockPane);
-    refreshDock();
-  }
-});
-$("dock-again").addEventListener("click", () => setDock("setup", true));
-
-/// Script que morreu sozinho — terminou, ou quebrou. A aba volta para o botão
-/// de começar sem ninguém perguntar de tempos em tempos.
-listen<[string, number | null]>("pty-closed", ({ payload: [key] }) => {
-  if (openWs && key.startsWith(`${openWs}:`)) refreshDock();
-});
-
-/// Painel da direita. Redesenha junto com o quadro, que já é atualizado a cada
-/// ferramenta que o agente usa — então o diff acompanha sozinho, sem polling.
-const changesOf = new Map<string, Change[]>();
-
-async function drawDiff(id: string) {
-  const changes = await invoke<Change[]>("workspace_diff", { id });
-  changesOf.set(id, changes);
-  $("diffcount").textContent = changes.length ? String(changes.length) : "";
-  // Worktree limpo esquece que a aba foi fechada: o que sujar depois é trabalho
-  // novo, e não o diff que você mandou embora.
-  if (!changes.length) files(id).hidDiff = false;
-
-  const list = $("difflist");
-  if (!changes.length) {
-    const none = document.createElement("div");
-    none.className = "none";
-    none.textContent = "worktree limpo";
-    list.replaceChildren(none);
-  } else {
-    list.replaceChildren(
-      ...changes.map((f) => {
-        // A lista é o índice da tela do centro: clicar rola até o arquivo.
-        const row = document.createElement("button");
-        row.className = "diffrow";
-        row.title = f.path;
-        row.innerHTML = `<span class="p"></span><span class="new"></span><span class="a"></span><span class="r"></span>`;
-        row.children[0].textContent = f.path;
-        row.children[1].textContent = f.new_file ? "novo" : "";
-        row.children[2].textContent = f.added ? `+${f.added}` : "";
-        row.children[3].textContent = f.removed ? `−${f.removed}` : "";
-        row.addEventListener("click", () => showChanges(f.path));
-        return row;
-      }),
-    );
-  }
-
-  const ws = current();
-  if (ws?.id !== id) return;
-  drawTabs(ws); // a aba de Mudanças aparece, some e conta junto com a lista
-  if (files(id).diff) drawChanges(id);
-}
-
-/// Resumo na barra e o diff empilhado embaixo. Redesenhar é barato: a tela só é
-/// refeita quando algum patch mudou de verdade.
-function drawChanges(id: string, focus?: string) {
-  const changes = changesOf.get(id) ?? [];
-  const added = changes.reduce((n, c) => n + c.added, 0);
-  const removed = changes.reduce((n, c) => n + c.removed, 0);
-
-  const crumb = $("dcrumb");
-  crumb.innerHTML = `${icon("diff", 14)}<span class="nm"></span><span class="a"></span><span class="r"></span>`;
-  crumb.children[1].textContent = `${changes.length} ${changes.length === 1 ? "arquivo" : "arquivos"}`;
-  crumb.children[2].textContent = added ? `+${added}` : "";
-  crumb.children[3].textContent = removed ? `−${removed}` : "";
-
-  diff.render($("dlist"), id, changes, focus);
-}
-
-$("dfold").addEventListener("click", () => {
-  const ws = current();
-  if (!ws) return;
-  diff.foldAll((changesOf.get(ws.id) ?? []).map((c) => c.path));
-  drawChanges(ws.id);
-});
-
-/* ---------- painéis laterais ---------- */
-
-function toggleRail() {
-  const hidden = document.body.classList.toggle("norail");
-  $("railshow").hidden = !hidden;
-  // As setas acompanham: sidebar recolhida, elas vão para o header.
-  (hidden ? $("railshow") : $("railtoggle")).after($("back"), $("fwd"));
-}
-$("railtoggle").addEventListener("click", toggleRail);
-$("railshow").addEventListener("click", toggleRail);
-$("sidetoggle").addEventListener("click", () => document.body.classList.toggle("noside"));
 
 /* ---------- eventos do back ---------- */
 
@@ -925,9 +123,14 @@ listen<Board>("board", ({ payload }) => {
       if (i <= at) at--;
     }
   }
+  ws.forget(alive);
   drawNav();
   draw();
 });
+
+/// Script que morreu sozinho — terminou, ou quebrou. A aba volta para o botão
+/// de começar sem ninguém perguntar de tempos em tempos.
+listen<[string, number | null]>("pty-closed", ({ payload: [key] }) => dockbar.closed(key));
 
 listen<{ session: string; payload: { tool_input?: { questions?: Question[] } } }>(
   "question",
@@ -1003,9 +206,9 @@ function launch(projectId?: string) {
   openLauncher(state, projectId, async (draft: Draft) => {
     say("montando worktree…");
     try {
-      const ws = await invoke<Workspace>("create_workspace", { ...draft, ...session.dims() });
+      const created = await invoke<Workspace>("create_workspace", { draft, ...session.dims() });
       say("");
-      openWorkspace(ws);
+      openWorkspace(created);
     } catch (err) {
       say(String(err), true);
     }
@@ -1027,36 +230,42 @@ $("resume").addEventListener("click", async () => {
   }
 });
 
+/* ---------- painéis laterais ---------- */
+
+function toggleRail() {
+  const hidden = document.body.classList.toggle("norail");
+  $("railshow").hidden = !hidden;
+  // As setas acompanham: sidebar recolhida, elas vão para o header.
+  (hidden ? $("railshow") : $("railtoggle")).after($("back"), $("fwd"));
+}
+$("railtoggle").addEventListener("click", toggleRail);
+$("railshow").addEventListener("click", toggleRail);
+$("sidetoggle").addEventListener("click", () => document.body.classList.toggle("noside"));
+
 document.addEventListener("keydown", (e) => {
   const cmd = e.metaKey || e.ctrlKey;
+  const open = ws.id();
   if (cmd && e.key === "n") {
     e.preventDefault();
-    launch(current()?.project);
+    launch(state.workspaces.find((w) => w.id === open)?.project);
   }
-  if (cmd && e.key === "t" && openWs) {
+  if (cmd && e.key === "t" && open) {
     e.preventDefault();
-    newTab();
+    ws.newTab();
   }
-  if (cmd && e.shiftKey && e.key.toLowerCase() === "a" && openWs) {
+  if (cmd && e.shiftKey && e.key.toLowerCase() === "a" && open) {
     e.preventDefault();
-    hooks.archive(openWs, true);
+    hooks.archive(open, true);
+  }
+  if (cmd && e.key === "r" && open) {
+    e.preventDefault();
+    dockbar.toggleRun();
   }
   if (cmd && e.key === "b") {
     e.preventDefault();
     toggleRail();
   }
-  if (cmd && e.key === "r" && openWs) {
-    e.preventDefault();
-    toggleRun();
-  }
-  const fs = openWs ? files(openWs) : null;
-  if (cmd && e.key === "w" && fs?.active) {
-    e.preventDefault();
-    closeFile(fs.active);
-  } else if (cmd && e.key === "w" && fs?.diff) {
-    e.preventDefault();
-    closeChanges();
-  }
+  if (cmd && e.key === "w" && ws.closeActive()) e.preventDefault();
   if (cmd && (e.key === "[" || e.key === "]")) {
     e.preventDefault();
     travel(e.key === "[" ? -1 : 1);
@@ -1085,9 +294,9 @@ for (const [id, name] of [
   $(id).innerHTML = icon(name);
 }
 
+ws.init({ say, board: () => state, redraw: draw, toBoard: () => showBoard() });
 session.initTerminal((m) => say(m, true));
 viewer.init((m) => say(m, true));
 dock.init($("dockterm"));
-drawDock();
 state = await invoke<Board>("load_board");
 showBoard();
