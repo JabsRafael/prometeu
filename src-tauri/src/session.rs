@@ -308,6 +308,33 @@ pub fn focus_tab(app: AppHandle, state: State<AppState>, workspace: String, tab:
     publish(&app, &state);
 }
 
+/// O nome da conversa nasce da primeira frase do prompt, ou de um "conversa 2"
+/// quando não houve prompt — e nenhum dos dois é o assunto que ela acaba tendo.
+/// Nome vazio é desistência, não apagar o que já existe, como no workspace.
+#[tauri::command]
+pub fn rename_tab(
+    app: AppHandle,
+    state: State<AppState>,
+    workspace: String,
+    tab: String,
+    title: String,
+) {
+    let title = title.trim();
+    if title.is_empty() {
+        return;
+    }
+    {
+        let mut board = state.board.lock().unwrap();
+        if let Some(t) = board
+            .workspace_mut(&workspace)
+            .and_then(|ws| ws.tabs.iter_mut().find(|t| t.id == tab))
+        {
+            t.title = title.to_string();
+        }
+    }
+    publish(&app, &state);
+}
+
 /// Retoma uma aba desligada. O transcript vive em
 /// `~/.claude/projects/<slug>/<id>.jsonl` e sobrevive ao app, ao worktree e ao
 /// reboot — então `--resume` devolve a conversa inteira de onde parou.
@@ -631,6 +658,15 @@ pub struct FileChange {
     /// tela não mostra. Vem vazio quando não há o que desenhar: binário, ou
     /// patch grande demais para valer a viagem até a webview.
     pub patch: String,
+}
+
+/// Em que branch o worktree está agora. Não é `ws.branch`, que é a branch com
+/// que o workspace nasceu: o agente comita, troca, rebaseia — e o que importa
+/// na tela é onde o próximo commit vai cair, não o nome de quando foi criado.
+/// `None` é HEAD solto (detached), que também é uma resposta.
+#[tauri::command(async)]
+pub fn workspace_branch(state: State<AppState>, id: String) -> Option<String> {
+    head_branch(&worktree_of(&state, &id)?)
 }
 
 /// O que mudou no worktree deste workspace — compartilhado por todas as abas,

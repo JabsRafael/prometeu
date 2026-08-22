@@ -12,7 +12,15 @@ import * as rename from "./rename";
 import * as session from "./session";
 import "./style.css";
 import * as viewer from "./viewer";
-import { statusOf, type Board, type Change, type Question, type Status, type Workspace } from "./types";
+import {
+  statusOf,
+  type Board,
+  type Change,
+  type Question,
+  type Status,
+  type Tab,
+  type Workspace,
+} from "./types";
 
 // Navegador puro (sem Tauri): back falso, só para mexer na UI.
 if (!("__TAURI_INTERNALS__" in window)) await import("./mock");
@@ -89,6 +97,14 @@ function renameWorkspace(id: string, title: string | null) {
   if (title) invoke("rename_workspace", { id, title }).catch((e) => say(String(e), true));
 }
 
+/// Mesmo contrato, para a aba: o nome dela nasce da primeira frase do prompt —
+/// ou de um "conversa 2" quando não houve prompt — e nenhum dos dois é o assunto
+/// que ela acaba tendo.
+function renameTab(workspace: string, tab: string, title: string | null) {
+  draw();
+  if (title) invoke("rename_tab", { workspace, tab, title }).catch((e) => say(String(e), true));
+}
+
 /* Histórico ← →: quadro e workspaces visitados, como as setas do Conductor. */
 const hist: (string | null)[] = [];
 let at = -1;
@@ -156,9 +172,11 @@ function drawWorkspace() {
   const ws = current();
   if (!ws) return showBoard();
 
-  // Migalha como no Conductor: avatar do projeto › nome do workspace.
+  // Migalha como no Conductor: avatar do projeto › nome do workspace › branch.
   const crumb = $("crumb");
-  crumb.innerHTML = `${avatar(ws.repo_name)}<span></span><span class="sep">${icon("chevron-right", 12)}</span><span></span>`;
+  crumb.innerHTML =
+    `${avatar(ws.repo_name)}<span></span><span class="sep">${icon("chevron-right", 12)}</span><span></span>` +
+    `<button class="branch" hidden>${icon("git-branch", 12)}<span></span></button>`;
   crumb.children[1].textContent = ws.repo_name;
   const name = crumb.children[3] as HTMLElement;
   name.textContent = ws.title;
@@ -193,6 +211,7 @@ function drawWorkspace() {
   };
 
   $("offpath").textContent = ws.worktree;
+  drawBranch(ws);
   drawTabs(ws);
   drawDiff(ws.id);
   if (sidePane === "files") drawTree(ws.id);
@@ -205,9 +224,43 @@ function drawWorkspace() {
   $("offline").hidden = tab?.status !== "desligada";
 }
 
+/* ---------- branch do worktree ---------- */
+
+/// Em que branch o worktree está agora — lido do git, e não do `ws.branch` que
+/// ficou gravado quando o workspace nasceu: o agente comita, troca de branch,
+/// rebaseia, e o que a migalha tem que dizer é onde o próximo commit cai.
+/// O cache é o que impede a pastilha de piscar entre dois redesenhos, que são
+/// muitos — a tela é refeita a cada ferramenta que o agente usa.
+const branchOf = new Map<string, string>();
+
+function paintBranch(id: string) {
+  const chip = $("crumb").querySelector<HTMLElement>(".branch");
+  const name = branchOf.get(id);
+  if (!chip || !name) return;
+  chip.hidden = false;
+  chip.children[1].textContent = name;
+  chip.title = "Branch deste worktree — clique para copiar";
+  chip.onclick = () => {
+    navigator.clipboard.writeText(name);
+    say(`${name} copiado`);
+  };
+}
+
+async function drawBranch(ws: Workspace) {
+  paintBranch(ws.id);
+  // Nome vazio é HEAD solto, e dizer isso é melhor do que não dizer nada: um
+  // worktree em detached HEAD é justamente onde um commit se perde.
+  const name = (await invoke<string | null>("workspace_branch", { id: ws.id })) ?? "HEAD solto";
+  branchOf.set(ws.id, name);
+  if (openWs === ws.id) paintBranch(ws.id);
+}
+
 /// Abas sublinhadas: uma por conversa, a de Mudanças, depois uma por arquivo
 /// aberto, e o + logo depois da última.
 function drawTabs(ws: Workspace) {
+  // Refazer a barra com um campo de renomear aberto nela apaga o que foi
+  // digitado — e o diff, que redesenha sozinho, chega aqui a toda hora.
+  if (rename.editing()) return;
   const bar = $("tabbar");
   bar.replaceChildren();
   const fs = files(ws.id);
@@ -218,9 +271,14 @@ function drawTabs(ws: Workspace) {
     b.className = "tab" + (!elsewhere && tab.id === session.currentSession() ? " on" : "");
     b.innerHTML = `<i class="dot"></i><span></span>`;
     (b.children[0] as HTMLElement).style.background = `var(--dot-${tab.status})`;
+    b.dataset.tab = tab.id;
     b.children[1].textContent = tab.title;
-    b.title = LABEL[tab.status];
+    b.title = `${LABEL[tab.status]} · duplo clique para renomear`;
     b.addEventListener("click", () => selectTab(ws.id, tab.id));
+    b.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      menu.openAt({ x: e.clientX, y: e.clientY }, tabMenu(ws, tab));
+    });
 
     if (ws.tabs.length > 1) {
       const x = document.createElement("span");
@@ -236,10 +294,11 @@ function drawTabs(ws: Workspace) {
     bar.append(b);
   }
 
-  // A aba de Mudanças existe enquanto houver o que mostrar — ou enquanto ela
-  // estiver aberta, para o worktree ficar limpo sem a tela sumir debaixo de você.
+  // A aba de Mudanças existe enquanto houver o que mostrar e você não a tiver
+  // fechado — ou enquanto ela estiver aberta, para o worktree ficar limpo sem a
+  // tela sumir debaixo de você.
   const changes = changesOf.get(ws.id) ?? [];
-  if (changes.length || fs.diff) {
+  if (fs.diff || (changes.length && !fs.hidDiff)) {
     const b = document.createElement("button");
     b.className = "tab file" + (fs.diff ? " on" : "");
     b.innerHTML = `${icon("diff", 14)}<span></span><span class="n"></span>`;
@@ -247,6 +306,15 @@ function drawTabs(ws: Workspace) {
     b.children[2].textContent = changes.length ? String(changes.length) : "";
     b.title = "Diff do worktree inteiro";
     b.addEventListener("click", () => showChanges());
+    const x = document.createElement("span");
+    x.className = "tabx ico sm";
+    x.innerHTML = icon("x", 12);
+    x.title = fs.diff ? "Fechar Mudanças  ⌘W" : "Fechar Mudanças";
+    x.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeChanges();
+    });
+    b.append(x);
     bar.append(b);
   }
 
@@ -272,7 +340,49 @@ function drawTabs(ws: Workspace) {
   bar.append(add);
 }
 
+/// Abre o campo no rótulo da aba que está na barra agora. Procurar o botão na
+/// hora, em vez de guardar o de quando o gesto começou, é o que faz o renomear
+/// sobreviver ao redesenho que a troca de aba dispara no caminho.
+function editTab(id: string) {
+  const ws = current();
+  const tab = ws?.tabs.find((t) => t.id === id);
+  const b = $("tabbar").querySelector<HTMLElement>(`.tab[data-tab="${CSS.escape(id)}"]`);
+  if (!ws || !tab || !b) return;
+  rename.start(b.children[1] as HTMLElement, tab.title, (title) => renameTab(ws.id, id, title), "tab");
+}
+
+// Duplo clique renomeia, como no nome do workspace na migalha. Escuta na barra e
+// não no botão: o primeiro clique troca de aba, a troca refaz a barra, e o botão
+// em que o gesto começou já não existe quando o duplo clique chega.
+$("tabbar").addEventListener("dblclick", (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLElement>(".tab[data-tab]");
+  if (b?.dataset.tab) editTab(b.dataset.tab);
+});
+
+/// Tudo que se faz com uma conversa, no botão direito — o mesmo lugar em que
+/// moram as ações do workspace, em vez de um botãozinho por ação na aba.
+function tabMenu(ws: Workspace, tab: Tab): menu.Item[] {
+  const items: menu.Item[] = [
+    { label: "Renomear", glyph: icon("pencil"), run: () => editTab(tab.id) },
+  ];
+  // A última conversa não fecha: um workspace sem conversa nenhuma é uma tela
+  // vazia sem nada para clicar.
+  if (ws.tabs.length > 1) {
+    items.push("sep", {
+      label: "Fechar conversa",
+      glyph: icon("x"),
+      danger: true,
+      run: () => invoke("close_tab", { workspace: ws.id, tab: tab.id }),
+    });
+  }
+  return items;
+}
+
 async function selectTab(workspace: string, tab: string) {
+  const fs = files(workspace);
+  // Clicar na aba em que você já está não refaz nada. É o que deixa o duplo
+  // clique chegar inteiro no renomear: o rótulo continua sendo o mesmo nó.
+  if (tab === session.currentSession() && !fs.diff && !fs.active) return;
   invoke("focus_tab", { workspace, tab });
   showTerm();
   await session.attach(tab);
@@ -284,11 +394,18 @@ async function selectTab(workspace: string, tab: string) {
 /// O que está no centro de cada workspace, só em memória: fechar o app volta
 /// tudo para a conversa. `diff` ligado é a tela de mudanças; `active` é o
 /// arquivo aberto; nenhum dos dois é o terminal.
-type Files = { open: string[]; active: string | null; diff: boolean };
+type Files = {
+  open: string[];
+  active: string | null;
+  diff: boolean;
+  /// Você fechou a aba de Mudanças. Sem isto ela renasceria no redesenho
+  /// seguinte, porque o worktree continua sujo — e aí fechar não fecharia nada.
+  hidDiff: boolean;
+};
 const filesOf = new Map<string, Files>();
 function files(id: string): Files {
   let f = filesOf.get(id);
-  if (!f) filesOf.set(id, (f = { open: [], active: null, diff: false }));
+  if (!f) filesOf.set(id, (f = { open: [], active: null, diff: false, hidDiff: false }));
   return f;
 }
 
@@ -328,8 +445,29 @@ function showChanges(focus?: string) {
   const fs = files(ws.id);
   fs.active = null;
   fs.diff = true;
+  fs.hidDiff = false;
   center("diffview");
   drawChanges(ws.id, focus);
+  drawTabs(ws);
+}
+
+/// Fechar a aba de Mudanças é tirá-la da barra, não só sair da tela: uma aba que
+/// fica depois do x não foi fechada. Ela volta quando você abre o diff de novo
+/// pela lista da direita, ou quando o worktree limpa e suja outra vez — o que é
+/// trabalho novo, e não o que você mandou embora.
+async function closeChanges() {
+  const ws = current();
+  if (!ws) return;
+  const fs = files(ws.id);
+  const wasOpen = fs.diff;
+  fs.hidDiff = true;
+  // `diff` fica ligado até o `showTerm` da vez desligar: é ele que faz o
+  // `selectTab` entender que a tela precisa trocar.
+  if (wasOpen) {
+    const tab = session.currentSession();
+    if (tab) await selectTab(ws.id, tab);
+    else showTerm();
+  }
   drawTabs(ws);
 }
 
@@ -388,7 +526,14 @@ function setSidePane(pane: "files" | "diff") {
 }
 
 $("tab-files").addEventListener("click", () => setSidePane("files"));
-$("tab-diff").addEventListener("click", () => setSidePane("diff"));
+$("tab-diff").addEventListener("click", () => {
+  // Já no painel de Mudanças, clicar de novo traz o diff para o centro. É o
+  // caminho de volta depois de fechar a aba — sem ele, quem fechou só voltaria
+  // clicando num arquivo da lista.
+  const changes = openWs ? (changesOf.get(openWs)?.length ?? 0) : 0;
+  if (sidePane === "diff" && changes) showChanges();
+  else setSidePane("diff");
+});
 $("collapse").addEventListener("click", () => {
   openDirs.clear();
   const ws = current();
@@ -510,6 +655,9 @@ async function drawDiff(id: string) {
   const changes = await invoke<Change[]>("workspace_diff", { id });
   changesOf.set(id, changes);
   $("diffcount").textContent = changes.length ? String(changes.length) : "";
+  // Worktree limpo esquece que a aba foi fechada: o que sujar depois é trabalho
+  // novo, e não o diff que você mandou embora.
+  if (!changes.length) files(id).hidDiff = false;
 
   const list = $("difflist");
   if (!changes.length) {
@@ -714,10 +862,8 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     closeFile(fs.active);
   } else if (cmd && e.key === "w" && fs?.diff) {
-    // Sair do diff é voltar para a conversa, como fechar a aba de um arquivo.
     e.preventDefault();
-    const tab = session.currentSession();
-    tab ? selectTab(openWs!, tab) : showTerm();
+    closeChanges();
   }
   if (cmd && (e.key === "[" || e.key === "]")) {
     e.preventDefault();

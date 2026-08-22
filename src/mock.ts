@@ -180,6 +180,15 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       emit("board", board);
       return;
     }
+    case "rename_tab": {
+      const target = board.workspaces.find((x) => x.id === args.workspace);
+      const tab = target?.tabs.find((t) => t.id === args.tab);
+      if (tab) tab.title = args.title;
+      emit("board", board);
+      return;
+    }
+    case "workspace_branch":
+      return board.workspaces.find((x) => x.id === args.id)?.branch ?? null;
     case "set_stage": {
       const target = board.workspaces.find((x) => x.id === args.id);
       if (target) target.stage = args.stage;
