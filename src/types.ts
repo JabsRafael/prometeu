@@ -1,5 +1,15 @@
 export type Status = "rodando" | "querendo" | "pronta" | "desligada";
 
+/// Como cada estado se chama na tela. Um lugar só: estava escrito igual no
+/// quadro e no cabeçalho, e duas cópias de um rótulo é uma cópia que um dia
+/// deixa de bater com a outra.
+export const LABEL: Record<Status, string> = {
+  rodando: "rodando",
+  querendo: "quer você",
+  pronta: "pronta",
+  desligada: "desligada",
+};
+
 export type Tab = {
   id: string;
   title: string;
