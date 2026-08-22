@@ -1,7 +1,13 @@
 #!/bin/sh
 # Solta uma versão nova: marca, constrói assinado e publica onde o app procura.
 #
-#   sh scripts/release.sh 0.1.4
+#   sh scripts/release.sh 0.1.6
+#   sh scripts/release.sh 0.1.6 "- o que mudou, na sua voz"
+#
+# As notas são escritas à mão. Sem o segundo argumento o editor abre com um
+# rascunho, como num commit. Antes elas saíam do `git log`, o que publicava as
+# mensagens de commit de um repositório privado num repositório público — e
+# mensagem de commit é escrita para quem mexe no código, não para quem usa.
 #
 # O que sai daqui é o que o Prometheus instalado baixa sozinho. Três peças:
 #
@@ -18,13 +24,39 @@ set -eu
 cd "$(dirname "$0")/.."
 
 VERSION=${1:-}
-[ -n "$VERSION" ] || { echo "uso: sh scripts/release.sh <versão>   (ex.: 0.1.4)" >&2; exit 1; }
+[ -n "$VERSION" ] || { echo "uso: sh scripts/release.sh <versão> [notas]   (ex.: 0.1.6)" >&2; exit 1; }
+NOTES=${2:-}
 REPO=gbrancaglione/prometheus-releases
 
 [ -z "$(git status --porcelain)" ] || { echo "há mudança não commitada — resolva antes de soltar" >&2; exit 1; }
 [ "$(git rev-parse --abbrev-ref HEAD)" = "main" ] || { echo "release sai da main" >&2; exit 1; }
 
 PREV=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+# ---------- as notas ----------
+
+# Escritas antes de construir: um build de dois minutos para descobrir no fim
+# que não havia o que dizer é tempo jogado fora.
+if [ -z "$NOTES" ]; then
+  [ -t 0 ] || { echo "sem terminal para abrir o editor — passe as notas no segundo argumento" >&2; exit 1; }
+  DRAFT=$(mktemp -t prometheus-notas)
+  {
+    echo "- "
+    echo
+    echo "# As notas da $VERSION, para quem usa o app — elas aparecem na release"
+    echo "# e no aviso de atualização dentro do Prometheus."
+    echo "#"
+    echo "# Linhas começando com # somem. Salvar vazio cancela o release."
+    echo "#"
+    echo "# Commits desde ${PREV:-o começo}, só para lembrar o que houve:"
+    git log --reverse --pretty="#   %s" "${PREV:+$PREV..}HEAD" | grep -v "^#   Marcar a versão" || true
+  } > "$DRAFT"
+  "${EDITOR:-vi}" "$DRAFT"
+  NOTES=$(grep -v "^#" "$DRAFT" | sed -e "s/[[:space:]]*$//" | sed -e "/./,\$!d")
+  rm -f "$DRAFT"
+fi
+# Sem "- " sozinho, sem linha em branco: vazio é vazio.
+[ -n "$(printf '%s' "$NOTES" | tr -d '[:space:]-')" ] || { echo "sem notas — release cancelado" >&2; exit 1; }
 
 # ---------- marcar ----------
 
@@ -64,10 +96,6 @@ DMG=$OUT/dmg/Prometheus_${VERSION}_aarch64.dmg
 [ -f "$TAR.sig" ] || { echo "o build saiu sem assinatura — a chave não foi lida" >&2; exit 1; }
 
 # ---------- o manifesto ----------
-
-# As notas são os commits desde a última versão, menos o "Marcar a versão".
-NOTES=$(git log --reverse --pretty="- %s" "${PREV:+$PREV..}HEAD^" | grep -v '^- Marcar a versão' || true)
-[ -n "$NOTES" ] || NOTES="- ajustes internos"
 
 python3 - "$VERSION" "$TAR.sig" "$REPO" "$NOTES" <<'PY' > "$OUT/latest.json"
 import json, subprocess, sys
