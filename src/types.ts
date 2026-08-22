@@ -33,6 +33,10 @@ export type Workspace = {
   archived: boolean;
   pinned: boolean;
   unread: boolean;
+  /// O agente roda solto aqui, sem card de permissão. Escolhido no lançador e
+  /// válido para todas as abas: o worktree é o mesmo, e duas conversas nos
+  /// mesmos arquivos com regras diferentes seriam uma armadilha.
+  skip_permissions: boolean;
   tabs: Tab[];
   active: string | null;
 };

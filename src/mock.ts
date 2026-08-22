@@ -27,6 +27,7 @@ const ws = (
   archived: false,
   pinned: false,
   unread: false,
+  skip_permissions: true,
   tabs,
   active: tabs[0]?.id ?? null,
 });
@@ -237,6 +238,16 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       return `${args.id}:${args.kind}`;
     case "new_tab":
       return { id: "t1" };
+    case "create_workspace": {
+      const d = args.draft;
+      const novo = ws("novo", d.project, "njord", d.title || d.branch, d.stage, [
+        { id: "tn", title: "conversa", status: "pronta", note: null },
+      ]);
+      novo.skip_permissions = d.skipPermissions;
+      board.workspaces.push(novo);
+      emit("board", board);
+      return novo;
+    }
     case "resume_tab":
       return true;
     case "plugin:dialog|open":

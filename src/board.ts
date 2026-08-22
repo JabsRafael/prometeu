@@ -318,6 +318,13 @@ function card(ws: Workspace, board: Board, hooks: Hooks): HTMLElement {
     foot.append(here);
   }
 
+  // Por que este card para tanto: aqui cada ferramenta pede para passar.
+  if (!ws.skip_permissions) {
+    const asks = h("span", "chip");
+    asks.textContent = "pede permissão";
+    asks.title = "Cada ferramenta vira um card com Permitir e Negar";
+    foot.append(asks);
+  }
 
   if (ws.pinned) {
     const tack = h("span", "chip", icon("pin", 13));

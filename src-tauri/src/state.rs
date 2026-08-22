@@ -102,10 +102,23 @@ pub struct Workspace {
     /// Aconteceu algo aqui enquanto você olhava outra coisa.
     #[serde(default)]
     pub unread: bool,
+    /// O agente roda solto neste workspace, sem parar a cada ferramenta. É
+    /// propriedade do workspace e não da aba porque o worktree é o mesmo: duas
+    /// conversas nos mesmos arquivos com regras diferentes de permissão seriam
+    /// uma armadilha. Vale para as abas que já existem e para as próximas.
+    ///
+    /// Quadro gravado antes desta opção existir vem sem o campo, e o padrão
+    /// reproduz o que o app fazia então.
+    #[serde(default = "yes")]
+    pub skip_permissions: bool,
     #[serde(default)]
     pub tabs: Vec<Tab>,
     #[serde(default)]
     pub active: Option<String>,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Workspace {

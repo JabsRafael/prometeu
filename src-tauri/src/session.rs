@@ -195,6 +195,8 @@ pub struct Draft {
     stage: String,
     prompt: String,
     inject: Vec<String>,
+    /// O agente roda solto, sem parar a cada ferramenta.
+    skip_permissions: bool,
 }
 
 /// `async` aqui é o threadpool do Tauri, não uma corotina: `git worktree add`
@@ -244,6 +246,7 @@ pub fn create_workspace(
         &root,
         "conversa",
         first_message(&draft.prompt, &draft.inject),
+        draft.skip_permissions,
         cols,
         rows,
     )?;
@@ -260,6 +263,7 @@ pub fn create_workspace(
         archived: false,
         pinned: false,
         unread: false,
+        skip_permissions: draft.skip_permissions,
         active: Some(tab.id.clone()),
         tabs: vec![tab],
     };
@@ -282,10 +286,12 @@ pub fn new_tab(
     cols: u16,
     rows: u16,
 ) -> Result<Tab, String> {
-    let (worktree, n) = {
+    // A regra de permissão é do workspace: conversa nova nos mesmos arquivos
+    // nasce com a mesma que as irmãs.
+    let (worktree, n, skip) = {
         let board = lock(&state.board);
         let ws = board.workspaces.iter().find(|w| w.id == workspace).ok_or("workspace sumiu")?;
-        (PathBuf::from(&ws.worktree), ws.tabs.len() + 1)
+        (PathBuf::from(&ws.worktree), ws.tabs.len() + 1, ws.skip_permissions)
     };
 
     let title = if prompt.trim().is_empty() {
@@ -294,7 +300,7 @@ pub fn new_tab(
         tab_title(&prompt)
     };
     let pending = (!prompt.trim().is_empty()).then(|| prompt.trim().to_string());
-    let tab = spawn_tab(&app, &state, &worktree, &title, pending, cols, rows)?;
+    let tab = spawn_tab(&app, &state, &worktree, &title, pending, skip, cols, rows)?;
 
     {
         let mut board = lock(&state.board);
@@ -371,9 +377,9 @@ pub fn resume_tab(
     cols: u16,
     rows: u16,
 ) -> Result<bool, String> {
-    let worktree = lock(&state.board)
+    let (worktree, skip) = lock(&state.board)
         .workspace_of(&tab)
-        .map(|w| PathBuf::from(&w.worktree))
+        .map(|w| (PathBuf::from(&w.worktree), w.skip_permissions))
         .ok_or("aba não encontrada")?;
     if !worktree.exists() {
         return Err(format!("worktree sumiu: {}", worktree.display()));
@@ -389,7 +395,7 @@ pub fn resume_tab(
     // aba renasce com o mesmo id: não há nada perdido, e travar a tela num erro
     // por causa de uma conversa vazia seria pior.
     let resume = paths::transcript(&tab, &worktree).exists();
-    let handle = pty::spawn(&app, &tab, claude_cmd(&tab, &worktree, resume)?, cols, rows)?;
+    let handle = pty::spawn(&app, &tab, claude_cmd(&tab, &worktree, resume, skip)?, cols, rows)?;
     lock(&state.ptys).insert(tab.clone(), handle);
     {
         let mut board = lock(&state.board);
@@ -402,17 +408,19 @@ pub fn resume_tab(
     Ok(resume)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_tab(
     app: &AppHandle,
     state: &State<AppState>,
     worktree: &Path,
     title: &str,
     pending_prompt: Option<String>,
+    skip_permissions: bool,
     cols: u16,
     rows: u16,
 ) -> Result<Tab, String> {
     let id = uuid::Uuid::new_v4().to_string();
-    let handle = pty::spawn(app, &id, claude_cmd(&id, worktree, false)?, cols, rows)?;
+    let handle = pty::spawn(app, &id, claude_cmd(&id, worktree, false, skip_permissions)?, cols, rows)?;
     lock(&state.ptys).insert(id.clone(), handle);
     Ok(Tab {
         id,
@@ -427,7 +435,17 @@ fn spawn_tab(
 
 /// Monta a linha de comando do Claude Code. `resume` decide se a sessão nasce
 /// nova ou continua a que já existe — o id é o mesmo nos dois casos.
-fn claude_cmd(id: &str, worktree: &Path, resume: bool) -> Result<CommandBuilder, String> {
+///
+/// `skip` é a chavinha do lançador. Solta, cada sessão vive no seu worktree
+/// isolado e não para a cada ferramenta — que é o motivo de existir o quadro.
+/// Presa, cada permissão vira o card com Permitir e Negar, que é o motivo de
+/// existir o socket. As duas coisas são verdade, e quem escolhe é quem vai
+/// olhar: worktree descartável pede solta, clone de sempre pede presa.
+///
+/// O hook de PermissionRequest fica instalado nos dois casos, porque
+/// AskUserQuestion passa por ele mesmo em bypass — testado: o seletor aparece e
+/// o dígito acerta.
+fn claude_cmd(id: &str, worktree: &Path, resume: bool, skip: bool) -> Result<CommandBuilder, String> {
     let settings = write_settings(id)?;
     let mut cmd = CommandBuilder::new("claude");
     cmd.args([
@@ -435,11 +453,10 @@ fn claude_cmd(id: &str, worktree: &Path, resume: bool) -> Result<CommandBuilder,
         settings.to_str().ok_or("caminho de settings inválido")?,
         if resume { "--resume" } else { "--session-id" },
         id,
-        // Sessão do Prometheus roda solta: cada uma vive no seu worktree isolado,
-        // e parar a cada permissão derruba o motivo de existir o quadro.
-        // ponytail: virar opção no lançador é uma linha, quando doer.
-        "--dangerously-skip-permissions",
     ]);
+    if skip {
+        cmd.arg("--dangerously-skip-permissions");
+    }
     cmd.cwd(worktree);
     // O CommandBuilder herda o ambiente inteiro por padrão, e `env()` só sobrescreve
     // chave por chave — não remove nada. Sem o env_clear, um `claude` rodando dentro
