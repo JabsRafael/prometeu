@@ -10,11 +10,15 @@ mod state;
 use state::Board;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
-use std::sync::Mutex;
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 pub struct AppState {
     pub board: Mutex<Board>,
+    /// Para onde o quadro vai quando muda: uma thread só, que junta as
+    /// gravações. Ver `state::spawn_saver`.
+    pub save: Sender<Arc<Board>>,
     /// Toda aba de todo workspace continua rodando com o quadro na frente.
     /// Chave é o id da sessão, que é o id da aba.
     pub ptys: Mutex<HashMap<String, pty::Pty>>,
@@ -62,6 +66,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             board: Mutex::new(Board::load()),
+            save: state::spawn_saver(),
             ptys: Mutex::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
             seq: AtomicU64::new(0),
@@ -104,6 +109,13 @@ fn main() {
             socket::decide_permission,
             socket::answer_questions,
         ])
-        .run(tauri::generate_context!())
-        .expect("erro ao subir o Prometheus");
+        .build(tauri::generate_context!())
+        .expect("erro ao subir o Prometheus")
+        .run(|app, event| {
+            // A gravação do quadro é adiada para não pesar no caminho quente.
+            // Sair é o único momento em que não existe "daqui a pouco".
+            if matches!(event, tauri::RunEvent::Exit) {
+                state::save_now(app);
+            }
+        });
 }

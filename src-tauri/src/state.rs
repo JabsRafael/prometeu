@@ -7,8 +7,13 @@
 //! A separação existe porque perder uma conversa não pode custar o worktree, e
 //! começar conversa nova sobre os arquivos que você já mexeu tem que ser ⌘T.
 
-use crate::paths;
+use crate::lock::lock;
+use crate::{paths, AppState};
 use serde::{Deserialize, Serialize};
+use std::sync::mpsc::{channel, Sender};
+use std::sync::Arc;
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -189,12 +194,18 @@ impl Board {
         board
     }
 
+    /// Grava num arquivo ao lado e renomeia por cima. `rename` é atômico no
+    /// mesmo sistema de arquivos, então nunca existe um `board.json` cortado no
+    /// meio — e um quadro cortado no meio não volta a carregar.
     pub fn save(&self) {
-        if let Some(dir) = path().parent() {
+        let path = path();
+        if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        if let Ok(json) = serde_json::to_vec_pretty(self) {
-            let _ = std::fs::write(path(), json);
+        let Ok(json) = serde_json::to_vec_pretty(self) else { return };
+        let tmp = path.with_extension("json.tmp");
+        if std::fs::write(&tmp, json).is_ok() && std::fs::rename(&tmp, &path).is_err() {
+            let _ = std::fs::remove_file(&tmp);
         }
     }
 
@@ -224,4 +235,48 @@ impl Board {
 
 fn path() -> std::path::PathBuf {
     paths::root().join("board.json")
+}
+
+/* ---------- publicar ---------- */
+
+/// Manda o quadro para a tela e para o disco. Único caminho: quem mexe no
+/// quadro mexe sob o lock e chama isto depois.
+///
+/// O lock sai antes de qualquer I/O. Antes ele ficava tomado durante o
+/// `serde_json` e o `write`, e como isto roda **a cada ferramenta que o agente
+/// usa**, cada tool call de cada sessão parava as outras para esperar o disco.
+pub fn publish(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let board = Arc::new(lock(&state.board).clone());
+    let _ = state.save.send(board.clone());
+    let _ = app.emit("board", &*board);
+}
+
+/// Grava agora, nesta thread. É o que fecha a janela de perda que a gravação
+/// adiada abre: o app morrendo dentro do `COALESCE` levaria junto a última
+/// mudança. Chamado na saída, quando não há mais depois.
+pub fn save_now(app: &AppHandle) {
+    lock(&app.state::<AppState>().board).save();
+}
+
+/// Junta as gravações numa só. Uma sessão ativa dispara dezenas de eventos por
+/// minuto, e o quadro inteiro cabe num write — então o que importa é gravar o
+/// **último**, não todos.
+const COALESCE: Duration = Duration::from_millis(250);
+
+/// A thread que grava. Recebe o quadro por canal, espera a poeira assentar e
+/// escreve uma vez só o estado mais recente que chegou.
+pub fn spawn_saver() -> Sender<Arc<Board>> {
+    let (tx, rx) = channel::<Arc<Board>>();
+    std::thread::spawn(move || {
+        while let Ok(mut board) = rx.recv() {
+            std::thread::sleep(COALESCE);
+            // Tudo que chegou durante a espera: só o último interessa.
+            while let Ok(newer) = rx.try_recv() {
+                board = newer;
+            }
+            board.save();
+        }
+    });
+    tx
 }

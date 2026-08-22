@@ -3,7 +3,7 @@
 //! que cada sessão está fazendo.
 
 use crate::lock::lock;
-use crate::state::Status;
+use crate::state::{publish, Status};
 use crate::{paths, AppState};
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -154,8 +154,8 @@ pub fn set(app: &AppHandle, session: &str, status: Option<Status>, note: Option<
     }
     let state = app.state::<AppState>();
     let looking = lock(&state.looking).clone();
-    let mut board = lock(&state.board);
     {
+        let mut board = lock(&state.board);
         let Some(ws) = board.workspace_of_mut(session) else { return };
         // Novidade é o agente ter parado de trabalhar enquanto você olhava outra
         // coisa: terminou, ou travou numa pergunta. "Rodando" não é notícia.
@@ -172,8 +172,7 @@ pub fn set(app: &AppHandle, session: &str, status: Option<Status>, note: Option<
             tab.note = Some(n);
         }
     }
-    board.save();
-    let _ = app.emit("board", board.clone());
+    publish(app);
 }
 
 /// Manda a primeira fala montada no lançador, uma vez só.
@@ -183,9 +182,9 @@ fn send_pending_prompt(app: &AppHandle, session: &str) {
         let mut board = lock(&state.board);
         let Some(tab) = board.tab_mut(session) else { return };
         let Some(p) = tab.pending_prompt.take() else { return };
-        board.save();
         p
     };
+    publish(app);
 
     let app = app.clone();
     let session = session.to_string();
@@ -257,7 +256,10 @@ const KEYSTROKE: Duration = Duration::from_millis(130);
 ///
 /// Dígito e não seta: seta é relativa e erra acumulado se um evento se perder.
 /// Nada é lido da tela; os índices vêm do payload do hook.
-#[tauri::command]
+///
+/// `async` porque isto dorme: a folga do seletor mais 130ms por tecla. Na
+/// thread principal, era a janela inteira congelada durante a resposta.
+#[tauri::command(async)]
 pub fn answer_questions(
     state: State<AppState>,
     session: String,

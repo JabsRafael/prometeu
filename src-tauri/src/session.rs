@@ -1,21 +1,16 @@
 use crate::lock::lock;
-use crate::state::{Board, Project, Status, Tab, Workspace};
+use crate::state::{publish, Board, Project, Status, Tab, Workspace};
 use crate::{paths, pty, AppState};
 use portable_pty::CommandBuilder;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
 
 #[tauri::command]
 pub fn load_board(state: State<AppState>) -> Board {
     lock(&state.board).clone()
 }
 
-fn publish(app: &AppHandle, state: &State<AppState>) {
-    let board = lock(&state.board);
-    board.save();
-    let _ = app.emit("board", board.clone());
-}
 
 /* ---------- projetos ---------- */
 
@@ -39,7 +34,7 @@ pub fn add_project(app: AppHandle, state: State<AppState>, path: String) -> Resu
             board.projects.push(project.clone());
         }
     }
-    publish(&app, &state);
+    publish(&app);
     Ok(project)
 }
 
@@ -49,7 +44,7 @@ pub fn remove_project(app: AppHandle, state: State<AppState>, id: String) {
         let mut board = lock(&state.board);
         board.projects.retain(|p| p.id != id);
     }
-    publish(&app, &state);
+    publish(&app);
 }
 
 /* ---------- workspaces ---------- */
@@ -64,7 +59,7 @@ pub fn set_stage(app: AppHandle, state: State<AppState>, id: String, stage: Stri
             ws.stage = stage;
         }
     }
-    publish(&app, &state);
+    publish(&app);
 }
 
 /// Arquivar é sair da lista, não morrer: worktree, branch e transcript ficam, e
@@ -89,7 +84,7 @@ pub fn archive_workspace(app: AppHandle, state: State<AppState>, id: String, arc
             }
         }
     }
-    publish(&app, &state);
+    publish(&app);
 }
 
 /// O nome nasce da primeira frase do prompt, que quase nunca é o nome que o
@@ -106,7 +101,7 @@ pub fn rename_workspace(app: AppHandle, state: State<AppState>, id: String, titl
             ws.title = title.to_string();
         }
     }
-    publish(&app, &state);
+    publish(&app);
 }
 
 /// Fixar é a etiqueta de "é neste que eu volto agora" — sobe para o topo da
@@ -119,7 +114,7 @@ pub fn pin_workspace(app: AppHandle, state: State<AppState>, id: String, pinned:
             ws.pinned = pinned;
         }
     }
-    publish(&app, &state);
+    publish(&app);
 }
 
 /// Marcar como não lido à mão: dar de cara com a novidade e não poder lidar com
@@ -132,7 +127,7 @@ pub fn set_unread(app: AppHandle, state: State<AppState>, id: String, unread: bo
             ws.unread = unread;
         }
     }
-    publish(&app, &state);
+    publish(&app);
 }
 
 /// Qual workspace está na tela — e, por isso, deixa de ter novidade. Sem isto o
@@ -149,7 +144,7 @@ pub fn look_at(app: AppHandle, state: State<AppState>, id: Option<String>) {
         }
     };
     if had {
-        publish(&app, &state);
+        publish(&app);
     }
 }
 
@@ -168,7 +163,7 @@ pub fn remove_workspace(app: AppHandle, state: State<AppState>, id: String) {
         }
         board.workspaces.retain(|w| w.id != id);
     }
-    publish(&app, &state);
+    publish(&app);
 }
 
 /// `async` aqui é o threadpool do Tauri, não uma corotina: `git worktree add`
@@ -241,7 +236,7 @@ pub fn create_workspace(
     };
 
     lock(&state.board).workspaces.push(ws.clone());
-    publish(&app, &state);
+    publish(&app);
     Ok(ws)
 }
 
@@ -279,7 +274,7 @@ pub fn new_tab(
             ws.tabs.push(tab.clone());
         }
     }
-    publish(&app, &state);
+    publish(&app);
     Ok(tab)
 }
 
@@ -295,7 +290,7 @@ pub fn close_tab(app: AppHandle, state: State<AppState>, workspace: String, tab:
             }
         }
     }
-    publish(&app, &state);
+    publish(&app);
 }
 
 #[tauri::command]
@@ -306,7 +301,7 @@ pub fn focus_tab(app: AppHandle, state: State<AppState>, workspace: String, tab:
             ws.active = Some(tab);
         }
     }
-    publish(&app, &state);
+    publish(&app);
 }
 
 /// O nome da conversa nasce da primeira frase do prompt, ou de um "conversa 2"
@@ -333,7 +328,7 @@ pub fn rename_tab(
             t.title = title.to_string();
         }
     }
-    publish(&app, &state);
+    publish(&app);
 }
 
 /// Retoma uma aba desligada. O transcript vive em
@@ -368,7 +363,7 @@ pub fn resume_tab(
             t.note = None;
         }
     }
-    publish(&app, &state);
+    publish(&app);
     Ok(resume)
 }
 
@@ -670,7 +665,11 @@ pub fn workspace_branch(state: State<AppState>, id: String) -> Option<String> {
 /// O que mudou no worktree deste workspace — compartilhado por todas as abas,
 /// que é justamente o motivo de elas existirem. A conta fica em `changes_in`,
 /// que é o que o teste consegue rodar contra um worktree de verdade.
-#[tauri::command]
+///
+/// `async` porque isto é o caminho mais quente do app: dois `git` e a leitura
+/// de todo arquivo novo, e a tela pede de novo a cada ferramenta que o agente
+/// usa. Na thread principal, era a janela travando em rajada.
+#[tauri::command(async)]
 pub fn workspace_diff(state: State<AppState>, id: String) -> Vec<FileChange> {
     let Some(worktree) = lock(&state.board)
         .workspaces
