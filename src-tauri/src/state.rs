@@ -69,7 +69,21 @@ pub struct Workspace {
     pub repo_name: String,
     pub branch: String,
     pub worktree: String,
-    pub column: String,
+    /// Onde o trabalho está — o que o quadro desenhava como coluna. É seu, não
+    /// do processo: `Status` é o que o agente está fazendo agora, `stage` é o
+    /// que você decidiu sobre o trabalho. `column` é o nome antigo.
+    #[serde(alias = "column")]
+    pub stage: String,
+    /// Fora da lista, mas nada foi perdido: worktree, branch e transcript
+    /// continuam onde estavam.
+    #[serde(default)]
+    pub archived: bool,
+    /// No topo da lista. Não é etapa nem atividade: é "é neste que eu volto".
+    #[serde(default)]
+    pub pinned: bool,
+    /// Aconteceu algo aqui enquanto você olhava outra coisa.
+    #[serde(default)]
+    pub unread: bool,
     #[serde(default)]
     pub tabs: Vec<Tab>,
     #[serde(default)]
@@ -97,7 +111,10 @@ impl Workspace {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Board {
-    pub columns: Vec<String>,
+    /// A sequência de etapas, na ordem. O ícone de cada uma sai da posição
+    /// nela, então trocar a lista troca os ícones — sem tabela para manter.
+    #[serde(alias = "columns")]
+    pub stages: Vec<String>,
     #[serde(default)]
     pub projects: Vec<Project>,
     /// `cards` era o nome antigo, quando workspace e sessão eram a mesma coisa.
@@ -108,7 +125,7 @@ pub struct Board {
 impl Default for Board {
     fn default() -> Self {
         Board {
-            columns: ["Preparando", "Fazendo", "Code review", "Travado", "Feito"]
+            stages: ["Preparando", "Fazendo", "Code review", "Travado", "Feito"]
                 .map(String::from)
                 .to_vec(),
             projects: Vec::new(),
@@ -149,6 +166,15 @@ impl Board {
             }
         }
 
+        // Etapa gravada que não está mais na lista deixaria o workspace fora de
+        // todo grupo — invisível. Volta para a primeira.
+        let first = board.stages.first().cloned().unwrap_or_default();
+        for ws in &mut board.workspaces {
+            if !board.stages.contains(&ws.stage) {
+                ws.stage = first.clone();
+            }
+        }
+
         // Repositório que já tem workspace é projeto, mesmo que nunca tenha sido
         // registrado à mão.
         for ws in board.workspaces.clone() {
@@ -183,6 +209,12 @@ impl Board {
             .iter_mut()
             .flat_map(|w| w.tabs.iter_mut())
             .find(|t| t.id == session)
+    }
+
+    /// O workspace dono da sessão, para escrever nele — é assim que um hook,
+    /// que só conhece o `session_id`, marca novidade no card certo.
+    pub fn workspace_of_mut(&mut self, session: &str) -> Option<&mut Workspace> {
+        self.workspaces.iter_mut().find(|w| w.tabs.iter().any(|t| t.id == session))
     }
 
     pub fn workspace_of(&self, session: &str) -> Option<&Workspace> {

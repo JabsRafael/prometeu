@@ -53,15 +53,103 @@ pub fn remove_project(app: AppHandle, state: State<AppState>, id: String) {
 
 /* ---------- workspaces ---------- */
 
+/// A etapa é propriedade do workspace, não o lugar onde ele está: muda pelo
+/// menu, pelo cabeçalho ou arrastando o card — dá no mesmo.
 #[tauri::command]
-pub fn move_workspace(app: AppHandle, state: State<AppState>, id: String, column: String) {
+pub fn set_stage(app: AppHandle, state: State<AppState>, id: String, stage: String) {
     {
         let mut board = state.board.lock().unwrap();
         if let Some(ws) = board.workspace_mut(&id) {
-            ws.column = column;
+            ws.stage = stage;
         }
     }
     publish(&app, &state);
+}
+
+/// Arquivar é sair da lista, não morrer: worktree, branch e transcript ficam, e
+/// desarquivar traz tudo de volta. Os processos, esses, param — agente vivo num
+/// workspace que ninguém vê é pergunta esperando resposta que ninguém lê.
+#[tauri::command]
+pub fn archive_workspace(app: AppHandle, state: State<AppState>, id: String, archived: bool) {
+    {
+        let mut board = state.board.lock().unwrap();
+        if let Some(ws) = board.workspace_mut(&id) {
+            ws.archived = archived;
+            if archived {
+                let ids: Vec<String> = ws.tabs.iter().map(|t| t.id.clone()).collect();
+                for tab in &mut ws.tabs {
+                    tab.status = Status::Desligada;
+                    tab.note = None;
+                }
+                let mut ptys = state.ptys.lock().unwrap();
+                for id in ids {
+                    ptys.remove(&id);
+                }
+            }
+        }
+    }
+    publish(&app, &state);
+}
+
+/// O nome nasce da primeira frase do prompt, que quase nunca é o nome que o
+/// trabalho tem no fim. Nome vazio é desistência, não apagar o que já existe.
+#[tauri::command]
+pub fn rename_workspace(app: AppHandle, state: State<AppState>, id: String, title: String) {
+    let title = title.trim();
+    if title.is_empty() {
+        return;
+    }
+    {
+        let mut board = state.board.lock().unwrap();
+        if let Some(ws) = board.workspace_mut(&id) {
+            ws.title = title.to_string();
+        }
+    }
+    publish(&app, &state);
+}
+
+/// Fixar é a etiqueta de "é neste que eu volto agora" — sobe para o topo da
+/// lista sem mentir sobre a etapa em que o trabalho está.
+#[tauri::command]
+pub fn pin_workspace(app: AppHandle, state: State<AppState>, id: String, pinned: bool) {
+    {
+        let mut board = state.board.lock().unwrap();
+        if let Some(ws) = board.workspace_mut(&id) {
+            ws.pinned = pinned;
+        }
+    }
+    publish(&app, &state);
+}
+
+/// Marcar como não lido à mão: dar de cara com a novidade e não poder lidar com
+/// ela agora é o caso mais comum de todos.
+#[tauri::command]
+pub fn set_unread(app: AppHandle, state: State<AppState>, id: String, unread: bool) {
+    {
+        let mut board = state.board.lock().unwrap();
+        if let Some(ws) = board.workspace_mut(&id) {
+            ws.unread = unread;
+        }
+    }
+    publish(&app, &state);
+}
+
+/// Qual workspace está na tela — e, por isso, deixa de ter novidade. Sem isto o
+/// back marcaria como não lido o que você está vendo acontecer na sua frente.
+#[tauri::command]
+pub fn look_at(app: AppHandle, state: State<AppState>, id: Option<String>) {
+    *state.looking.lock().unwrap() = id.clone();
+    let Some(id) = id else { return };
+    let had = {
+        let mut board = state.board.lock().unwrap();
+        match board.workspace_mut(&id) {
+            Some(ws) => std::mem::replace(&mut ws.unread, false),
+            None => false,
+        }
+    };
+    if had {
+        publish(&app, &state);
+    }
 }
 
 /// Tira o workspace do quadro. Não mexe no worktree nem na branch de propósito:
@@ -97,7 +185,7 @@ pub fn create_workspace(
     // próprio repositório — e é o diretório de trabalho dele que troca.
     worktree: bool,
     title: String,
-    column: String,
+    stage: String,
     prompt: String,
     inject: Vec<String>,
     cols: u16,
@@ -143,7 +231,10 @@ pub fn create_workspace(
         repo_name,
         branch,
         worktree: root.display().to_string(),
-        column,
+        stage,
+        archived: false,
+        pinned: false,
+        unread: false,
         active: Some(tab.id.clone()),
         tabs: vec![tab],
     };
@@ -227,7 +318,7 @@ pub fn resume_tab(
     tab: String,
     cols: u16,
     rows: u16,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let worktree = state
         .board
         .lock()
@@ -239,7 +330,11 @@ pub fn resume_tab(
         return Err(format!("worktree sumiu: {}", worktree.display()));
     }
 
-    let handle = pty::spawn(&app, &tab, claude_cmd(&tab, &worktree, true)?, cols, rows)?;
+    // Conversa que nunca falou não tem transcript, e `--resume` morre nela. Aí a
+    // aba renasce com o mesmo id: não há nada perdido, e travar a tela num erro
+    // por causa de uma conversa vazia seria pior.
+    let resume = paths::transcript(&tab, &worktree).exists();
+    let handle = pty::spawn(&app, &tab, claude_cmd(&tab, &worktree, resume)?, cols, rows)?;
     state.ptys.lock().unwrap().insert(tab.clone(), handle);
     {
         let mut board = state.board.lock().unwrap();
@@ -249,7 +344,7 @@ pub fn resume_tab(
         }
     }
     publish(&app, &state);
-    Ok(())
+    Ok(resume)
 }
 
 fn spawn_tab(

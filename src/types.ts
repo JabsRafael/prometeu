@@ -17,12 +17,17 @@ export type Workspace = {
   repo_name: string;
   branch: string;
   worktree: string;
-  column: string;
+  /// A etapa em que você pôs o trabalho. `Status` é o que o agente está
+  /// fazendo; esta é a sua leitura do trabalho, e as duas não se misturam.
+  stage: string;
+  archived: boolean;
+  pinned: boolean;
+  unread: boolean;
   tabs: Tab[];
   active: string | null;
 };
 
-export type Board = { columns: string[]; projects: Project[]; workspaces: Workspace[] };
+export type Board = { stages: string[]; projects: Project[]; workspaces: Workspace[] };
 
 /// Um arquivo mexido no worktree. `patch` são os trechos `@@` do diff — vazio
 /// quando não há o que desenhar (binário, ou grande demais).

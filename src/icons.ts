@@ -34,7 +34,20 @@ const PATHS = {
   "git-branch":
     '<path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  pencil: '<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>',
+  archive:
+    '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+  "archive-restore":
+    '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="m9 15 3-3 3 3"/><path d="M12 12v6"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
+  pin:
+    '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>',
+  "pin-off":
+    '<path d="M12 17v5"/><path d="m2 2 20 20"/><path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11"/><path d="M14 4.09V7a1 1 0 0 0 .3.71l3.99 3.99A2 2 0 0 1 19 13.24V16"/><path d="M8 2h8a2 2 0 0 1 0 4 1 1 0 0 0-1 1"/>',
+  mail:
+    '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+  "mail-open":
+    '<path d="M21.2 8.4c.5.38.8.97.8 1.6v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10a2 2 0 0 1 .8-1.6l8-6a2 2 0 0 1 2.4 0z"/><path d="m22 10-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 10"/>',
 };
 
 export type IconName = keyof typeof PATHS;
@@ -45,6 +58,34 @@ export function icon(name: IconName, size = 16): string {
     `stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
     PATHS[name] +
     "</svg>"
+  );
+}
+
+/* ---------- ícone de etapa ---------- */
+
+/// O anel que enche conforme o trabalho anda: a primeira etapa é o anel
+/// tracejado (nada começou), as do meio enchem por fração, e a última é o
+/// check. O desenho sai da posição na lista — trocar as etapas troca os
+/// ícones, e não existe tabela de nome para ícone para manter.
+export function stageIcon(at: number, total: number, size = 16): string {
+  const svg = (inner: string, color = "currentColor") =>
+    `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" ` +
+    `stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
+    inner +
+    "</svg>";
+
+  const ring = '<circle cx="12" cy="12" r="9"/>';
+  if (at <= 0) return svg('<circle cx="12" cy="12" r="9" stroke-dasharray="2.6 2.6"/>');
+  if (at >= total - 1) return svg(`${ring}<path d="m8.5 12 2.5 2.5 4.5-5"/>`, "var(--done)");
+
+  // O miolo é um círculo de raio 4 com traço grosso: o `dasharray` come a volta
+  // dele, então a fatia cheia é a fração do perímetro (2π·4 ≈ 25,1). A ponta
+  // tem de ser reta: arredondada, o traço de 8 de largura põe meia largura de
+  // arco a mais em cada ponta e um quarto vira quase o círculo inteiro.
+  const fill = (25.1 * at) / (total - 1);
+  return svg(
+    `${ring}<circle cx="12" cy="12" r="4" stroke-width="8" stroke-linecap="butt" ` +
+      `stroke-dasharray="${fill.toFixed(1)} 25.1" transform="rotate(-90 12 12)"/>`,
   );
 }
 

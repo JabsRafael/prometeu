@@ -13,7 +13,7 @@ const ws = (
   project: string,
   repo: string,
   title: string,
-  column: string,
+  stage: string,
   tabs: Workspace["tabs"],
 ): Workspace => ({
   id,
@@ -23,13 +23,16 @@ const ws = (
   repo_name: repo,
   branch: `prometheus/${id}`,
   worktree: `~/.prometheus/worktrees/${repo}/prometheus-${id}`,
-  column,
+  stage,
+  archived: false,
+  pinned: false,
+  unread: false,
   tabs,
   active: tabs[0]?.id ?? null,
 });
 
 const board: Board = {
-  columns: ["Preparando", "Fazendo", "Code review", "Travado", "Feito"],
+  stages: ["Preparando", "Fazendo", "Code review", "Travado", "Feito"],
   projects: [
     { id: "p1", name: "njord", path: "/Users/gustavo/dev/njord" },
     { id: "p2", name: "prometheus", path: "/Users/gustavo/dev/prometheus" },
@@ -42,9 +45,13 @@ const board: Board = {
     ws("ui-2231", "p2", "prometheus", "Tela igual ao Conductor", "Fazendo", [
       { id: "t3", title: "conversa 1", status: "rodando", note: "Edit src/style.css" },
     ]),
-    ws("icone-2140", "p2", "prometheus", "Ícone do app", "Code review", [
-      { id: "t4", title: "conversa 1", status: "querendo", note: "Qual tamanho de ícone você quer gerar?" },
-    ]),
+    // Uma pergunta esperando você é justamente o que vira novidade.
+    Object.assign(
+      ws("icone-2140", "p2", "prometheus", "Ícone do app", "Code review", [
+        { id: "t4", title: "conversa 1", status: "querendo", note: "Qual tamanho de ícone você quer gerar?" },
+      ]),
+      { unread: true },
+    ),
   ],
 };
 
@@ -167,9 +174,43 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     case "read_file":
       if (args.rel in files) return files[args.rel];
       throw args.rel.endsWith(".lock") ? "arquivo grande demais (2140 KB)" : "arquivo binário";
-    case "move_workspace": {
+    case "rename_workspace": {
       const target = board.workspaces.find((x) => x.id === args.id);
-      if (target) target.column = args.column;
+      if (target) target.title = args.title;
+      emit("board", board);
+      return;
+    }
+    case "set_stage": {
+      const target = board.workspaces.find((x) => x.id === args.id);
+      if (target) target.stage = args.stage;
+      emit("board", board);
+      return;
+    }
+    case "pin_workspace": {
+      const target = board.workspaces.find((x) => x.id === args.id);
+      if (target) target.pinned = args.pinned;
+      emit("board", board);
+      return;
+    }
+    case "set_unread": {
+      const target = board.workspaces.find((x) => x.id === args.id);
+      if (target) target.unread = args.unread;
+      emit("board", board);
+      return;
+    }
+    case "look_at": {
+      const target = board.workspaces.find((x) => x.id === args.id);
+      if (target?.unread) {
+        target.unread = false;
+        emit("board", board);
+      }
+      return;
+    }
+    case "archive_workspace": {
+      const target = board.workspaces.find((x) => x.id === args.id);
+      if (target) target.archived = args.archived;
+      // Como no Rust: arquivar derruba os processos das abas.
+      if (target && args.archived) target.tabs.forEach((t) => (t.status = "desligada"));
       emit("board", board);
       return;
     }
@@ -187,6 +228,8 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       return `${args.id}:${args.kind}`;
     case "new_tab":
       return { id: "t1" };
+    case "resume_tab":
+      return true;
     case "plugin:dialog|open":
       return null;
     default:

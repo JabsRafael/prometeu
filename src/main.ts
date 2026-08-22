@@ -5,8 +5,10 @@ import { open } from "@tauri-apps/plugin-dialog";
 import * as board from "./board";
 import * as diff from "./diff";
 import * as dock from "./dock";
-import { avatar, fileIcon, icon } from "./icons";
+import { avatar, fileIcon, icon, stageIcon } from "./icons";
 import { openLauncher, type Draft } from "./launcher";
+import * as menu from "./menu";
+import * as rename from "./rename";
 import * as session from "./session";
 import "./style.css";
 import * as viewer from "./viewer";
@@ -16,7 +18,7 @@ import { statusOf, type Board, type Change, type Question, type Status, type Wor
 if (!("__TAURI_INTERNALS__" in window)) await import("./mock");
 
 const $ = (id: string) => document.getElementById(id)!;
-let state: Board = { columns: [], projects: [], workspaces: [] };
+let state: Board = { stages: [], projects: [], workspaces: [] };
 let openWs: string | null = null;
 
 const LABEL: Record<Status, string> = {
@@ -26,9 +28,15 @@ const LABEL: Record<Status, string> = {
   desligada: "desligada",
 };
 
+/// Recado na barra de cima. Some sozinho: recado que fica vira parte do
+/// cabeçalho, e daqui a uma hora você está lendo o aviso de outra coisa. Quem
+/// termina em "…" é progresso e fica até quem começou apagar.
+let fade = 0;
 function say(text: string, isError = false) {
   $("msg").textContent = text;
   $("msg").classList.toggle("err", isError);
+  clearTimeout(fade);
+  if (text && !text.endsWith("…")) fade = setTimeout(() => say(""), 6000);
 }
 
 const current = () => state.workspaces.find((w) => w.id === openWs);
@@ -37,10 +45,24 @@ const current = () => state.workspaces.find((w) => w.id === openWs);
 
 const hooks: board.Hooks = {
   open: (ws) => openWorkspace(ws),
-  move: (id, column) => invoke("move_workspace", { id, column }),
+  setStage: (id, stage) => invoke("set_stage", { id, stage }),
   drop: (id) => {
     if (openWs === id) showBoard();
     invoke("remove_workspace", { id });
+  },
+  rename: (id, title) => renameWorkspace(id, title),
+  // Arquivar o que está aberto na tela deixaria você dentro do que acabou de
+  // sair da lista; o quadro é para onde se volta.
+  archive: (id, archived) => {
+    if (archived && openWs === id) showBoard();
+    invoke("archive_workspace", { id, archived }).catch((e) => say(String(e), true));
+  },
+  pin: (id, pinned) => invoke("pin_workspace", { id, pinned }),
+  unread: (id, unread) => invoke("set_unread", { id, unread }),
+  reveal: (id) => invoke("reveal", { id }).catch((e) => say(String(e), true)),
+  copyPath: (ws) => {
+    navigator.clipboard.writeText(ws.worktree);
+    say(`${ws.worktree} copiado`);
   },
   toBoard: () => showBoard(),
   addProject: async () => {
@@ -52,8 +74,19 @@ const hooks: board.Hooks = {
 };
 
 function draw() {
+  // Campo de renomear ou menu aberto: o quadro é redesenhado a cada ferramenta
+  // que o agente usa, e refazer a linha debaixo do que você está usando apaga o
+  // que foi digitado, ou tira o menu do lugar no meio do clique.
+  if (rename.editing() || menu.isOpen()) return;
   board.render(state, hooks);
   if (openWs) drawWorkspace();
+}
+
+/// Fim de um rename. Nome novo grava — e o `board` que volta do back redesenha;
+/// desistência só devolve a linha ao normal.
+function renameWorkspace(id: string, title: string | null) {
+  draw();
+  if (title) invoke("rename_workspace", { id, title }).catch((e) => say(String(e), true));
 }
 
 /* Histórico ← →: quadro e workspaces visitados, como as setas do Conductor. */
@@ -84,6 +117,7 @@ $("fwd").addEventListener("click", () => travel(1));
 function showBoard(push = true) {
   if (push) visit(null);
   session.detach();
+  invoke("look_at", { id: null });
   board.setOpen((openWs = null));
   $("boardView").hidden = false;
   $("wsView").hidden = true;
@@ -95,6 +129,9 @@ function showBoard(push = true) {
 async function openWorkspace(ws: Workspace, push = true) {
   if (push) visit(ws.id);
   const first = ws.tabs.find((t) => t.id === ws.active) ?? ws.tabs[0];
+  // Abrir é ler: a novidade deste workspace morre aqui, e o que acontecer nele
+  // enquanto ele estiver na tela não vira novidade nova.
+  invoke("look_at", { id: ws.id });
   board.setOpen((openWs = ws.id));
   openDirs.clear();
   dockPane = null;
@@ -123,7 +160,13 @@ function drawWorkspace() {
   const crumb = $("crumb");
   crumb.innerHTML = `${avatar(ws.repo_name)}<span></span><span class="sep">${icon("chevron-right", 12)}</span><span></span>`;
   crumb.children[1].textContent = ws.repo_name;
-  crumb.children[3].textContent = ws.title;
+  const name = crumb.children[3] as HTMLElement;
+  name.textContent = ws.title;
+  // Na migalha não tem lápis: nada ali é clicável, então o duplo clique é livre.
+  name.title = "Duplo clique para renomear";
+  name.addEventListener("dblclick", () =>
+    rename.start(name, ws.title, (title) => renameWorkspace(ws.id, title), "crumb"),
+  );
 
   const st = statusOf(ws);
   const chip = $("wsstatus");
@@ -131,17 +174,23 @@ function drawWorkspace() {
   chip.innerHTML = `<i class="dot"></i>`;
   chip.append(LABEL[st]);
 
-  // O evento `board` chega a cada ferramenta do agente; o select só é refeito
-  // quando a lista muda, e o valor não é tocado enquanto ele está em foco.
-  const sel = $("wscol") as HTMLSelectElement;
-  const cols = state.columns.join("\n");
-  if (sel.dataset.cols !== cols) {
-    sel.dataset.cols = cols;
-    sel.replaceChildren(
-      ...state.columns.map((name) => Object.assign(document.createElement("option"), { value: name, textContent: name })),
+  // A etapa é o mesmo submenu do botão direito, ancorado no botão: um lugar só
+  // para escolher, esteja você no quadro ou dentro da conversa.
+  const stage = $("wsstage");
+  stage.innerHTML = `${stageIcon(state.stages.indexOf(ws.stage), state.stages.length, 14)}<span></span>`;
+  stage.children[1].textContent = ws.stage;
+  stage.onclick = () => {
+    const at = stage.getBoundingClientRect();
+    menu.openAt(
+      { x: at.left, y: at.bottom + 4 },
+      state.stages.map((name, i) => ({
+        label: name,
+        glyph: stageIcon(i, state.stages.length),
+        checked: name === ws.stage,
+        run: () => hooks.setStage(ws.id, name),
+      })),
     );
-  }
-  if (document.activeElement !== sel) sel.value = ws.column;
+  };
 
   $("offpath").textContent = ws.worktree;
   drawTabs(ws);
@@ -155,11 +204,6 @@ function drawWorkspace() {
   // Terminal mudo confunde; a saída fica escrita na tela.
   $("offline").hidden = tab?.status !== "desligada";
 }
-
-$("wscol").addEventListener("change", () => {
-  const ws = current();
-  if (ws) invoke("move_workspace", { id: ws.id, column: ($("wscol") as HTMLSelectElement).value });
-});
 
 /// Abas sublinhadas: uma por conversa, a de Mudanças, depois uma por arquivo
 /// aberto, e o + logo depois da última.
@@ -637,8 +681,10 @@ $("resume").addEventListener("click", async () => {
   if (!tab) return;
   say("retomando…");
   try {
-    await invoke("resume_tab", { tab, ...session.dims() });
-    say("");
+    // Conversa vazia não tem transcript: o back abre uma nova no mesmo lugar, e
+    // dizer isso é melhor do que deixar você procurar o histórico que não existe.
+    const resumed = await invoke<boolean>("resume_tab", { tab, ...session.dims() });
+    say(resumed ? "" : "essa conversa nunca chegou a falar — abrimos uma nova no mesmo lugar");
     await session.attach(tab);
   } catch (err) {
     say(String(err), true);
@@ -654,6 +700,10 @@ document.addEventListener("keydown", (e) => {
   if (cmd && e.key === "t" && openWs) {
     e.preventDefault();
     newTab();
+  }
+  if (cmd && e.shiftKey && e.key.toLowerCase() === "a" && openWs) {
+    e.preventDefault();
+    hooks.archive(openWs, true);
   }
   if (cmd && e.key === "b") {
     e.preventDefault();

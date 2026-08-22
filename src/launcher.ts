@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { avatar, icon } from "./icons";
+import { avatar, icon, stageIcon } from "./icons";
 import type { Board } from "./types";
 
 export type Draft = {
@@ -15,7 +15,7 @@ export type Draft = {
   /// que ele está. Só existe sem worktree — worktree sempre quer a sua branch.
   newBranch: boolean;
   title: string;
-  column: string;
+  stage: string;
   prompt: string;
   inject: string[];
 };
@@ -40,7 +40,7 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
     worktree: localStorage.getItem(WORKTREE_KEY) !== "0",
     newBranch: localStorage.getItem(BRANCH_KEY) !== "0",
     title: "",
-    column: board.columns[1] ?? board.columns[0],
+    stage: board.stages[1] ?? board.stages[0],
     prompt: "",
     inject: [],
   };
@@ -70,7 +70,7 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
     <div class="details" id="d-details" hidden>
       <label class="mini-row"><span>Nome</span><input id="d-title" placeholder="sai da primeira frase" /></label>
       <label class="mini-row"><span>Branch</span><input id="d-branch" spellcheck="false" /></label>
-      <label class="mini-row"><span>Coluna</span><span class="chips" id="d-cols"></span></label>
+      <label class="mini-row"><span>Etapa</span><span class="chips" id="d-cols"></span></label>
       <label class="mini-row"><span>Injetar</span><span class="inj"><span id="d-inj"></span>
         <button id="d-add" class="outline">${icon("plus", 12)} arquivo</button></span></label>
     </div>
@@ -277,12 +277,13 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
   });
 
   const cols = $("d-cols");
-  for (const name of board.columns) {
+  for (const [i, name] of board.stages.entries()) {
     const b = document.createElement("button");
-    b.className = "ghost" + (name === draft.column ? " on" : "");
-    b.textContent = name;
+    b.className = "ghost" + (name === draft.stage ? " on" : "");
+    b.innerHTML = `${stageIcon(i, board.stages.length, 14)}<span></span>`;
+    b.children[1].textContent = name;
     b.addEventListener("click", () => {
-      draft.column = name;
+      draft.stage = name;
       [...cols.children].forEach((c) => c.classList.toggle("on", c === b));
     });
     cols.append(b);

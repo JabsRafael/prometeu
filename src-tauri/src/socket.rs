@@ -122,13 +122,24 @@ pub fn set(app: &AppHandle, session: &str, status: Option<Status>, note: Option<
         return;
     }
     let state = app.state::<AppState>();
+    let looking = state.looking.lock().unwrap().clone();
     let mut board = state.board.lock().unwrap();
-    let Some(tab) = board.tab_mut(session) else { return };
-    if let Some(s) = status {
-        tab.status = s;
-    }
-    if let Some(n) = note {
-        tab.note = Some(n);
+    {
+        let Some(ws) = board.workspace_of_mut(session) else { return };
+        // Novidade é o agente ter parado de trabalhar enquanto você olhava outra
+        // coisa: terminou, ou travou numa pergunta. "Rodando" não é notícia.
+        if matches!(status, Some(Status::Pronta | Status::Querendo))
+            && looking.as_deref() != Some(ws.id.as_str())
+        {
+            ws.unread = true;
+        }
+        let Some(tab) = ws.tabs.iter_mut().find(|t| t.id == session) else { return };
+        if let Some(s) = status {
+            tab.status = s;
+        }
+        if let Some(n) = note {
+            tab.note = Some(n);
+        }
     }
     board.save();
     let _ = app.emit("board", board.clone());

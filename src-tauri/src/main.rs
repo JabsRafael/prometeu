@@ -21,6 +21,9 @@ pub struct AppState {
     /// Hooks bloqueados esperando o clique do usuário, por id.
     pub pending: Mutex<HashMap<u64, UnixStream>>,
     pub seq: AtomicU64,
+    /// Qual workspace está na tela. O que acontece nele não vira novidade —
+    /// você está vendo acontecer.
+    pub looking: Mutex<Option<String>>,
     /// Quando cada sessão mostrou a última pergunta — usado para não mandar a
     /// tecla antes de a TUI ter desenhado o seletor.
     pub asked_at: Mutex<HashMap<String, Instant>>,
@@ -35,6 +38,7 @@ fn main() {
             pending: Mutex::new(HashMap::new()),
             seq: AtomicU64::new(0),
             asked_at: Mutex::new(HashMap::new()),
+            looking: Mutex::new(None),
         })
         .setup(|app| {
             socket::listen(app.handle().clone())?;
@@ -46,7 +50,12 @@ fn main() {
             session::remove_project,
             session::list_branches,
             session::create_workspace,
-            session::move_workspace,
+            session::set_stage,
+            session::archive_workspace,
+            session::pin_workspace,
+            session::set_unread,
+            session::look_at,
+            session::rename_workspace,
             session::remove_workspace,
             session::workspace_diff,
             session::list_dir,
