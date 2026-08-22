@@ -266,7 +266,9 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     toggleRail();
   }
-  if (cmd && e.key === "w" && ws.closeActive()) e.preventDefault();
+  // O dock tem a primeira palavra: ⌘W com o cursor dentro dele fecha o terminal
+  // que está ali, e não a aba do centro, que é o que ele fecharia por baixo.
+  if (cmd && e.key === "w" && (dockbar.closeFocused() || ws.closeActive())) e.preventDefault();
   if (cmd && (e.key === "[" || e.key === "]")) {
     e.preventDefault();
     travel(e.key === "[" ? -1 : 1);
@@ -287,7 +289,6 @@ for (const [id, name] of [
   ["sidetoggle", "panel-right"],
   ["reveal", "external-link"],
   ["collapse", "list-tree"],
-  ["dock-kill", "square"],
   ["dock-again", "rotate"],
   ["run-pick", "chevron-down"],
   ["dfold", "chevron-up"],

@@ -93,21 +93,24 @@
               <div class="tree" id="tree"></div>
               <div class="difflist" id="difflist" hidden></div>
             </div>
-            <!-- Setup prepara o worktree, Run sobe o projeto, Terminal é você.
-                 Os três rodam no mesmo worktree e nenhum é sessão de agente. -->
+            <!-- Setup prepara o worktree, Run sobe o projeto, e o + abre
+                 shells. Todos rodam no mesmo worktree e nenhum é sessão de
+                 agente. -->
             <div class="dock" id="dock">
               <div class="docktabs">
                 <button id="dock-toggle" class="ico" title="Recolher"></button>
-                <button id="dock-setup" class="docktab">Setup</button>
-                <button id="dock-run" class="docktab">Run</button>
-                <button id="dock-term" class="docktab">Terminal</button>
+                <!-- Setup e Run são fixos; as abas de terminal vêm do que está
+                     aberto, e por isso a faixa é montada pelo dockbar. -->
+                <div class="dockstrip" id="dockstrip"></div>
+                <!-- O + fica fora da faixa que rola: é o único caminho para um
+                     terminal novo, e não pode sair da tela junto com as abas. -->
+                <button id="dock-add" class="ico sm" title="Terminal novo"></button>
                 <span class="spacer"></span>
                 <div class="split" id="runsplit" hidden>
                   <button id="run-go" class="md"></button>
                   <button id="run-pick" class="ico sm" title="Escolher o script"></button>
                 </div>
                 <button id="dock-again" class="ico" title="Rodar o setup de novo" hidden></button>
-                <button id="dock-kill" class="ico" title="Encerrar este processo" hidden></button>
               </div>
               <div class="dockbody">
                 <div class="dockwrap" id="dockwrap" hidden><div id="dockterm"></div></div>

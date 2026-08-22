@@ -44,9 +44,19 @@ export type Workspace = {
 };
 
 /// Os terminais do dock. Não são sessão de agente: sem hook, sem card, sem
-/// quadro. `setup` e `run` saem do settings.toml do repositório; `terminal` é
-/// sempre um shell e por isso nunca falta.
-export type DockKind = "setup" | "run" | "terminal";
+/// quadro. `setup` e `run` saem do settings.toml do repositório e são abas
+/// fixas; os shells são `terminal`, `terminal-2`, `terminal-3`… — um por aba
+/// que o + abriu, e nenhum existe antes de você pedir.
+export type DockKind = "setup" | "run" | `terminal${string}`;
+
+/// Aba de shell, e não script do repositório. É o que decide se o ✕ encerra um
+/// processo (setup) ou fecha a aba inteira (terminal).
+export const isTerm = (kind: DockKind) => kind.startsWith("terminal");
+
+/// `terminal` é o número 1; do segundo em diante o sufixo é o número. É o que
+/// ordena a barra e o que vira o rótulo — sem uma tabela para manter.
+export const termNumber = (kind: DockKind) => Number(kind.slice("terminal-".length)) || 1;
+export const termKind = (n: number): DockKind => (n === 1 ? "terminal" : `terminal-${n}`);
 
 /// Um dock que existe: está de pé, ou morreu e deixou a rolagem — com o
 /// `✗ saiu com código` no fim, que é o que a aba mostra.

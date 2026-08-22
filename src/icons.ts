@@ -21,6 +21,12 @@ const PATHS = {
   "chevron-up": '<path d="m18 15-6-6-6 6"/>',
   square: '<rect width="14" height="14" x="5" y="5" rx="2"/>',
   play: '<path d="M6 4.5v15l13-7.5Z"/>',
+  // Seis barras que o CSS faz subir e descer: é o "tem coisa rodando" da aba.
+  // Todas nascem centradas em y≈12, então uma origem só (`12px 12px`) serve
+  // para as seis — sem `transform-box`, que em traço de largura zero é terreno
+  // movediço no WebKit.
+  "audio-lines":
+    '<path d="M2 10v3"/><path d="M6 6v11"/><path d="M10 3v18"/><path d="M14 8v7"/><path d="M18 5v13"/><path d="M22 10v3"/>',
   rotate: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
   "external-link":
     '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
@@ -54,9 +60,15 @@ const PATHS = {
 
 export type IconName = keyof typeof PATHS;
 
-export function icon(name: IconName, size = 16): string {
+/// A onda que diz que tem processo de pé, no lugar do ponto verde que havia.
+/// Cor parada não separa "está rodando" de "parou faz um segundo"; movimento
+/// separa. E ela herda a cor da aba de propósito — o recado é a animação, não
+/// mais um tom a decorar a barra.
+export const wave = (size = 14) => icon("audio-lines", size, "wave");
+
+export function icon(name: IconName, size = 16, extra = ""): string {
   return (
-    `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" ` +
+    `<svg class="ic${extra ? ` ${extra}` : ""}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" ` +
     `stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
     PATHS[name] +
     "</svg>"

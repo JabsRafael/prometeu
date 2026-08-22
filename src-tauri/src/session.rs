@@ -872,7 +872,7 @@ fn cap(patch: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::patch_map;
+    use super::{is_terminal, patch_map};
     use std::process::Command;
 
     /// Saída de `git diff HEAD` com três arquivos: um mexido, um apagado e um
@@ -1010,6 +1010,21 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         assert!(map["src/old.ts"].contains("-export default gone;"));
         assert_eq!(map["docs/com espaco.md"].lines().count(), 3);
     }
+
+    /// O front numera as abas de terminal, mas quem abre pty é o back: chave
+    /// que não seja `terminal` ou `terminal-<número>` não pode virar shell,
+    /// senão qualquer string entra no mapa de ptys com nome próprio.
+    #[test]
+    fn so_terminal_numerado_vira_shell() {
+        assert!(is_terminal("terminal"));
+        assert!(is_terminal("terminal-2"));
+        assert!(is_terminal("terminal-10"));
+        assert!(!is_terminal("terminal-"));
+        assert!(!is_terminal("terminal-2x"));
+        assert!(!is_terminal("terminalzinho"));
+        assert!(!is_terminal("setup"));
+        assert!(!is_terminal("run"));
+    }
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
@@ -1095,12 +1110,24 @@ pub fn read_file(state: State<AppState>, id: String, rel: String) -> Result<Stri
     String::from_utf8(bytes).map_err(|_| "arquivo binário".to_string())
 }
 
+/// Um shell do dock. `terminal` é o primeiro; do segundo em diante o front
+/// numera — `terminal-2`, `terminal-3` —, porque cada aba aberta pelo + precisa
+/// de uma chave própria no mapa de ptys. O número é conferido aqui e não
+/// confiado: chave torta viraria pty com nome arbitrário, e `dock_state`
+/// devolveria aba que o front não sabe desenhar.
+fn is_terminal(kind: &str) -> bool {
+    kind == "terminal"
+        || kind
+            .strip_prefix("terminal-")
+            .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+}
+
 /// Os terminais do workspace que não são conversa: o `setup` que preparou o
-/// worktree, o `run` que sobe o projeto, e um shell para você. Nenhum tem hook,
-/// nenhum aparece como aba do agente, nenhum entra no quadro.
+/// worktree, o `run` que sobe o projeto, e os shells que você abriu. Nenhum tem
+/// hook, nenhum aparece como aba do agente, nenhum entra no quadro.
 ///
-/// Um pty por tipo, com a chave `<workspace>:<tipo>`: reabrir a aba não
-/// reinicia nada, e trocar de workspace não derruba servidor de dev.
+/// Um pty por chave `<workspace>:<tipo>`: reabrir a aba não reinicia nada, e
+/// trocar de workspace não derruba servidor de dev.
 #[tauri::command]
 pub fn open_dock(
     app: AppHandle,
@@ -1122,7 +1149,7 @@ pub fn open_dock(
 
     // O shell também recebe as variáveis do contrato: conferir o que o script
     // vai ver é `echo $PROMETHEUS_PORT`, e não ler o código do Prometheus.
-    if kind == "terminal" {
+    if is_terminal(&kind) {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
         let mut cmd = CommandBuilder::new(shell);
         cmd.cwd(&ws.worktree);
@@ -1280,7 +1307,9 @@ pub struct ScriptsView {
 
 /// Um dock deste workspace: o tipo, e se o processo ainda está vivo. Morto
 /// continua na lista enquanto ninguém sobe outro no lugar — é a rolagem dele,
-/// com o `✗ saiu com código` no fim, que a aba mostra.
+/// com o `✗ saiu com código` no fim, que a aba mostra. É desta lista que o
+/// front tira quais abas de terminal existem: elas não são fixas como Setup e
+/// Run, e trocar de workspace não pode inventar nem perder nenhuma.
 #[derive(serde::Serialize)]
 pub struct DockView {
     pub kind: String,
