@@ -86,24 +86,31 @@
               <div class="tree" id="tree"></div>
               <div class="difflist" id="difflist" hidden></div>
             </div>
+            <!-- Setup prepara o worktree, Run sobe o projeto, Terminal é você.
+                 Os três rodam no mesmo worktree e nenhum é sessão de agente. -->
             <div class="dock" id="dock">
               <div class="docktabs">
                 <button id="dock-toggle" class="ico" title="Recolher"></button>
+                <button id="dock-setup" class="docktab">Setup</button>
                 <button id="dock-run" class="docktab">Run</button>
                 <button id="dock-term" class="docktab">Terminal</button>
                 <span class="spacer"></span>
+                <div class="split" id="runsplit" hidden>
+                  <button id="run-go" class="md"></button>
+                  <button id="run-pick" class="ico sm" title="Escolher o script"></button>
+                </div>
+                <button id="dock-again" class="ico" title="Rodar o setup de novo" hidden></button>
                 <button id="dock-kill" class="ico" title="Encerrar este processo" hidden></button>
               </div>
               <div class="dockbody">
                 <div class="dockwrap" id="dockwrap" hidden><div id="dockterm"></div></div>
+                <!-- Um estado vazio só, montado pelo main: o que falta em cada
+                     aba é diferente, e três caixas fixas envelheceriam juntas. -->
                 <div class="dockempty" id="dockempty">
-                  <h4>Abrir um terminal</h4>
-                  <div class="row">
-                    <button id="empty-term" class="pri lg">Terminal</button>
-                    <button id="empty-run" class="lg">Run</button>
-                  </div>
-                  <p>Um shell neste worktree, ou o script de run do repositório
-                     (<code>[scripts] run</code> no settings.toml).</p>
+                  <div class="glyph" id="empty-glyph" hidden></div>
+                  <h4 id="empty-title"></h4>
+                  <div class="row" id="empty-row"></div>
+                  <p id="empty-sub"></p>
                 </div>
               </div>
             </div>

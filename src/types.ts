@@ -37,8 +37,31 @@ export type Workspace = {
   /// válido para todas as abas: o worktree é o mesmo, e duas conversas nos
   /// mesmos arquivos com regras diferentes seriam uma armadilha.
   skip_permissions: boolean;
+  /// Base das dez portas reservadas a este worktree.
+  port: number | null;
   tabs: Tab[];
   active: string | null;
+};
+
+/// Os terminais do dock. Não são sessão de agente: sem hook, sem card, sem
+/// quadro. `setup` e `run` saem do settings.toml do repositório; `terminal` é
+/// sempre um shell e por isso nunca falta.
+export type DockKind = "setup" | "run" | "terminal";
+
+/// Um dock que existe: está de pé, ou morreu e deixou a rolagem — com o
+/// `✗ saiu com código` no fim, que é o que a aba mostra.
+export type DockState = { kind: DockKind; alive: boolean };
+
+/// O que o repositório declara em `.prometheus/settings.toml` (ou no
+/// `.conductor/settings.toml` que ele já tinha), mais a porta deste worktree.
+export type Scripts = {
+  /// Qual arquivo respondeu. `null` é "este repo não declara nada" — e é o que
+  /// faz a aba desenhar o convite em vez de um terminal mudo.
+  file: string | null;
+  setup: string | null;
+  runs: { name: string; command: string }[];
+  archive: string | null;
+  port: number | null;
 };
 
 export type Board = { stages: string[]; projects: Project[]; workspaces: Workspace[] };

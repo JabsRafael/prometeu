@@ -1,7 +1,7 @@
 /// Back falso para o navegador puro (`npm run dev` e abrir localhost:1420):
 /// a UI inteira roda com dados de amostra, sem subir o Tauri. Só entra quando
 /// `window.__TAURI_INTERNALS__` não existe — dentro do app não é carregado.
-import type { Board, Workspace } from "./types";
+import type { Board, Scripts, Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
@@ -28,6 +28,7 @@ const ws = (
   pinned: false,
   unread: false,
   skip_permissions: true,
+  port: 3100,
   tabs,
   active: tabs[0]?.id ?? null,
 });
@@ -153,6 +154,41 @@ const SAMPLE =
   "\x1b[38;5;209m›\x1b[0m \x1b[7m \x1b[0m\r\n" +
   "───────────────────────────────────────────────────────────────\r\n";
 
+/// Os scripts de cada workspace. Um repo com tudo declarado e dois runs, para a
+/// lista do botão ter o que mostrar; e um sem nada, que é o estado que o convite
+/// de "Adicionar script" existe para cobrir.
+const scripts: Record<string, Scripts> = {
+  "sessao-0929": {
+    file: ".conductor/settings.toml",
+    setup: "bin/setup",
+    runs: [
+      { name: "web", command: "bin/dev --port $PROMETHEUS_PORT" },
+      { name: "worker", command: "bin/jobs" },
+    ],
+    archive: null,
+    port: 3100,
+  },
+  "ui-2231": {
+    file: ".prometheus/settings.toml",
+    setup: "npm install",
+    runs: [{ name: "run", command: "npm run dev -- --port $PROMETHEUS_PORT" }],
+    archive: null,
+    port: 3110,
+  },
+};
+const noScripts: Scripts = { file: null, setup: null, runs: [], archive: null, port: 3120 };
+
+/// Os docks que existem, pela mesma chave do Rust: `<workspace>:<tipo>`, e se
+/// o processo está vivo. O setup "termina" sozinho pouco depois de subir, para
+/// a tela do que já rodou existir no navegador.
+const docks = new Map<string, boolean>();
+const DONE = "\r\n\x1b[32m✓ terminou\x1b[0m\r\n";
+
+const SCRIPT_OUT =
+  "\x1b[2m$ npm run dev -- --port 3110\x1b[0m\r\n\r\n" +
+  "  \x1b[32m➜\x1b[0m  Local:   \x1b[36mhttp://localhost:3110/\x1b[0m\r\n" +
+  "  \x1b[32m➜\x1b[0m  ready in 231 ms\r\n\r\n";
+
 function emit(event: string, payload: unknown) {
   handlers.get(event)?.forEach((h) => h({ event, id: nextId++, payload }));
 }
@@ -166,8 +202,12 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     }
     case "load_board":
       return board;
-    case "pty_buffer":
-      return [...new TextEncoder().encode(SAMPLE)];
+    case "pty_buffer": {
+      // Chave com `:` é dock; sem, é conversa de agente.
+      const s = String(args.session);
+      const text = !s.includes(":") ? SAMPLE : docks.get(s) === false ? SCRIPT_OUT + DONE : SCRIPT_OUT;
+      return [...new TextEncoder().encode(text)];
+    }
     case "workspace_diff":
       return changes;
     case "list_dir":
@@ -234,20 +274,49 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
         ],
         default: "origin/main",
       };
-    case "open_dock":
-      return `${args.id}:${args.kind}`;
+    // O lançador inteiro funciona no navegador, e o workspace novo nasce sem
+    // script nenhum — que é o estado em que a aba Setup tem algo a dizer.
+    case "create_workspace": {
+      const draft = args.draft;
+      const id = `nova-${nextId++}`;
+      const repo = String(draft.project).split("/").pop() ?? "repo";
+      const fresh = ws(id, draft.project, repo, draft.title || draft.branch, draft.stage, [
+        { id: `t-${id}`, title: "conversa", status: "pronta", note: null },
+      ]);
+      fresh.branch = draft.branch || "main";
+      fresh.skip_permissions = draft.skipPermissions;
+      board.workspaces.push(fresh);
+      emit("board", board);
+      return fresh;
+    }
+    case "workspace_scripts":
+      return scripts[args.id] ?? noScripts;
+    case "dock_state":
+      return [...docks]
+        .filter(([k]) => k.startsWith(`${args.id}:`))
+        .map(([k, alive]) => ({ kind: k.split(":")[1], alive }));
+    case "create_scripts_file":
+      return ".prometheus/settings.toml";
+    case "scripts_prompt":
+      return "Descubra como preparar e como rodar este projeto, e escreva isso em `.prometheus/settings.toml`.";
+    case "open_dock": {
+      const key = `${args.id}:${args.kind}`;
+      docks.set(key, true);
+      if (args.kind === "setup") {
+        setTimeout(() => {
+          if (!docks.get(key)) return;
+          docks.set(key, false);
+          emit("pty", [key, [...new TextEncoder().encode(DONE)]]);
+          emit("pty-closed", [key, 0]);
+        }, 1500);
+      }
+      return key;
+    }
+    case "close_dock":
+      docks.delete(`${args.id}:${args.kind}`);
+      return;
     case "new_tab":
       return { id: "t1" };
-    case "create_workspace": {
-      const d = args.draft;
-      const novo = ws("novo", d.project, "njord", d.title || d.branch, d.stage, [
-        { id: "tn", title: "conversa", status: "pronta", note: null },
-      ]);
-      novo.skip_permissions = d.skipPermissions;
-      board.workspaces.push(novo);
-      emit("board", board);
-      return novo;
-    }
     case "resume_tab":
       return true;
     case "plugin:dialog|open":

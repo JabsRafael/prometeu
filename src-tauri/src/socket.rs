@@ -187,14 +187,34 @@ pub fn forget(state: &AppState, session: &str) {
     lock(&state.asked_at).remove(session);
 }
 
-/// Manda a primeira fala montada no lançador, uma vez só.
+/// A sessão avisou que está de pé. A primeira fala montada no lançador vai
+/// agora — a não ser que o setup do worktree ainda esteja rodando: aí fica
+/// guardada, e é o fim dele que a solta (`session::release_prompts`). Agente
+/// que roda teste antes de haver `node_modules` conclui coisa errada.
 fn send_pending_prompt(app: &AppHandle, session: &str) {
+    let state = app.state::<AppState>();
+    lock(&state.ready).insert(session.to_string());
+    // O lock do quadro sai antes do dos PTYs: dois locks aninhados é como
+    // nasce um travamento, e aqui não há motivo para segurar os dois.
+    let key = lock(&state.board)
+        .workspace_of(session)
+        .map(|ws| format!("{}:setup", ws.id));
+    let setup_running = key
+        .is_some_and(|key| lock(&state.ptys).get(&key).is_some_and(|p| p.alive()));
+    if !setup_running {
+        type_prompt(app, session, None);
+    }
+}
+
+/// Digita a primeira fala da aba, uma vez só. `prefix` vai na frente, na mesma
+/// linha: Enter no meio mandaria metade.
+pub fn type_prompt(app: &AppHandle, session: &str, prefix: Option<String>) {
     let state = app.state::<AppState>();
     let prompt = {
         let mut board = lock(&state.board);
         let Some(tab) = board.tab_mut(session) else { return };
         let Some(p) = tab.pending_prompt.take() else { return };
-        p
+        format!("{}{p}", prefix.unwrap_or_default())
     };
     publish(app);
 

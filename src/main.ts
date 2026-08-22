@@ -4,6 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import * as board from "./board";
 import * as dock from "./dock";
+import * as dockbar from "./dockbar";
 import { icon } from "./icons";
 import { openLauncher, type Draft } from "./launcher";
 import * as menu from "./menu";
@@ -126,6 +127,10 @@ listen<Board>("board", ({ payload }) => {
   drawNav();
   draw();
 });
+
+/// Script que morreu sozinho — terminou, ou quebrou. A aba volta para o botão
+/// de começar sem ninguém perguntar de tempos em tempos.
+listen<[string, number | null]>("pty-closed", ({ payload: [key] }) => dockbar.closed(key));
 
 listen<{ session: string; payload: { tool_input?: { questions?: Question[] } } }>(
   "question",
@@ -252,6 +257,10 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     hooks.archive(open, true);
   }
+  if (cmd && e.key === "r" && open) {
+    e.preventDefault();
+    dockbar.toggleRun();
+  }
   if (cmd && e.key === "b") {
     e.preventDefault();
     toggleRail();
@@ -278,6 +287,8 @@ for (const [id, name] of [
   ["reveal", "external-link"],
   ["collapse", "list-tree"],
   ["dock-kill", "square"],
+  ["dock-again", "rotate"],
+  ["run-pick", "chevron-down"],
   ["dfold", "chevron-up"],
 ] as const) {
   $(id).innerHTML = icon(name);

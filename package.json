@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "app": "tauri dev --config src-tauri/tauri.dev.conf.json",
+    "app": "sh scripts/app.sh",
     "build:app": "tauri build",
     "test": "vitest run && cd src-tauri && cargo test --workspace"
   },

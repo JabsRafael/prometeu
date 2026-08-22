@@ -69,6 +69,15 @@ export class Term {
     this.refit(true);
   }
 
+  /// Só a rolagem de um pty, sem se ligar a ele: o que sobrou de um processo
+  /// que já morreu. Não aceita tecla — não há para quem mandar.
+  async show(key: string) {
+    this.detach();
+    const buf = await invoke<number[]>("pty_buffer", { session: key });
+    this.term.write(new TextDecoder("utf-8").decode(new Uint8Array(buf)));
+    this.refit();
+  }
+
   detach() {
     this.key = null;
     this.term.reset();

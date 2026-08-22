@@ -2,61 +2,67 @@ use crate::lock::lock;
 use crate::AppState;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 /// Quanto da saída fica guardado para redesenhar o terminal quando o usuário
 /// volta do quadro para a sessão. 512 KB cobre bastante rolagem e não pesa.
 const SCROLLBACK: usize = 512 * 1024;
 
-/// Quanto se espera o desligamento educado antes de apelar para o SIGKILL.
-const HANGUP: Duration = Duration::from_millis(300);
+/// Do desligamento educado até insistir. Folga de sobra para quem sai sozinho:
+/// o `claude` fecha o transcript no Ctrl-D, um servidor de dev cai no SIGHUP.
+const GRACE: Duration = Duration::from_secs(1);
 
-/// E quanto se espera o SIGKILL fazer efeito. Só para colher o filho: quem
-/// ignora SIGKILL está preso no kernel, e esperar mais não ajudaria.
-const REAP: Duration = Duration::from_millis(200);
+/// E daí até o SIGKILL. Quem ignora SIGTERM não vai mudar de ideia esperando
+/// mais.
+const REAP: Duration = Duration::from_millis(500);
+
+/// O que roda quando o processo sai, com o código dele. É por aqui que o fim
+/// do `setup` solta a primeira fala do agente.
+pub type OnExit = Box<dyn FnOnce(Option<u32>) + Send>;
 
 pub struct Pty {
-    /// `Option` porque os dois fds do master precisam sair no começo do `Drop`,
-    /// antes da espera — e não no fim dele, que é quando um campo cairia
-    /// sozinho.
-    master: Option<Box<dyn MasterPty + Send>>,
-    writer: Option<Box<dyn Write + Send>>,
+    master: Box<dyn MasterPty + Send>,
+    writer: Box<dyn Write + Send>,
     /// Últimos bytes da sessão, para reidratar a tela ao reabrir.
     pub buffer: Arc<Mutex<Vec<u8>>>,
-    child: Box<dyn Child + Send + Sync>,
+    /// O processo ainda está rodando. A entrada continua no mapa depois de ele
+    /// morrer — é a rolagem dela, com o `✗ saiu com código` no fim, que a aba
+    /// mostra amanhã — e é este bit que separa "de pé" de "só a rolagem".
+    alive: Arc<AtomicBool>,
+    /// Este `Pty` foi derrubado: kill, ou outro subiu no lugar com a mesma
+    /// chave. A thread que lê o processo velho vê isto e para de emitir, senão
+    /// os últimos suspiros dele sujariam o terminal do novo.
+    gone: Arc<AtomicBool>,
+    /// Grupo de processos do filho, para o `Drop` derrubar. Zero é "não sei".
+    pid: u32,
+    /// Derrubar começa com SIGHUP no grupo inteiro. Vale para dock: `sh -c` não
+    /// lê o terminal, então o Ctrl-D que o writer manda ao ser largado não chega
+    /// a ninguém, e o servidor de dev ficaria órfão. Não vale para conversa: o
+    /// Claude Code sai limpo no Ctrl-D, e avisa o hook no caminho.
+    hangup: bool,
 }
 
 impl Pty {
     pub fn write(&mut self, data: &str) -> Result<(), String> {
-        let Some(writer) = &mut self.writer else { return Err("sessão encerrada".into()) };
-        writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
-        writer.flush().map_err(|e| e.to_string())
+        self.writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
+        self.writer.flush().map_err(|e| e.to_string())
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> Result<(), String> {
-        let Some(master) = &self.master else { return Err("sessão encerrada".into()) };
-        master
+        self.master
             .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
             .map_err(|e| e.to_string())
     }
 
-    /// Espera o filho morrer, até o teto. `true` se morreu.
-    fn reap(&mut self, until: Duration) -> bool {
-        let deadline = Instant::now() + until;
-        while Instant::now() < deadline {
-            match self.child.try_wait() {
-                Ok(None) => std::thread::sleep(Duration::from_millis(10)),
-                _ => return true,
-            }
-        }
-        false
+    pub fn alive(&self) -> bool {
+        self.alive.load(Ordering::Relaxed)
     }
-
 }
 
-/// Manda um sinal para o **grupo** inteiro, e não só para o filho.
+/// Manda um sinal para o **grupo** do processo, e não só para ele.
 ///
 /// O portable-pty dá `setsid()` no filho antes do exec — e aborta se falhar —,
 /// então o filho é sempre líder da própria sessão e do próprio grupo, e os
@@ -64,75 +70,89 @@ impl Pty {
 /// `npm run dev`, o `npm` é o filho, mas quem segura a porta é o `node` que ele
 /// subiu. Como o pgid é o pid do filho, e o filho é líder de sessão, o sinal
 /// nunca escapa para o grupo do próprio app.
-fn signal_group(pgid: Option<i32>, sig: i32) {
-    let Some(pgid) = pgid else { return };
-    // SAFETY: `killpg` é uma chamada de sistema sem contrato de memória. O pgid
-    // é o pid do filho que este `Pty` criou e ainda não colheu, então continua
-    // reservado; no pior caso o grupo já se esvaziou e volta ESRCH.
-    unsafe { libc::killpg(pgid, sig) };
+///
+/// Só enquanto o filho não foi colhido: pid de morto é reaproveitado, e o sinal
+/// iria parar num estranho. `alive` cai antes do `wait`, então verdadeiro aqui
+/// é filho vivo, e o pid é dele.
+fn signal_group(pid: u32, alive: &AtomicBool, sig: i32) {
+    if pid == 0 || !alive.load(Ordering::Relaxed) {
+        return;
+    }
+    // SAFETY: `killpg` é uma chamada de sistema sem contrato de memória, e o
+    // pgid é o pid de um filho ainda não colhido — logo, ainda reservado.
+    unsafe { libc::killpg(pid as libc::pid_t, sig) };
 }
 
-/// Sair do mapa é morrer. Dropar sozinho não matava: `Child` do Rust não mata
-/// no drop, então fechar o dock deixava vivo o `npm run dev` que o botão dizia
-/// encerrar — segurando a porta, invisível, até o app fechar.
+/// Espera o processo sair, até o teto. `true` se saiu.
+fn wait_exit(alive: &AtomicBool, until: Duration) -> bool {
+    let deadline = Instant::now() + until;
+    while Instant::now() < deadline {
+        if !alive.load(Ordering::Relaxed) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    !alive.load(Ordering::Relaxed)
+}
+
+/// Sair do mapa é morrer, e morrer é em degraus.
 ///
-/// Desliga em três degraus, e nenhum é dispensável:
+/// Dropar sozinho não bastava: `Child` do Rust não mata no drop, então fechar o
+/// dock deixava vivo o `npm run dev` que o botão dizia encerrar, segurando a
+/// porta até o app fechar. Só o SIGHUP também não basta — quem o ignora fica, e
+/// é justamente o caso de um servidor de dev sob `nohup`.
 ///
-///   1. os fds do master saem. Fechado o último, o kernel manda SIGHUP para o
-///      grupo de primeiro plano — o desligamento que a sessão espera, e o que
-///      faz o `claude` fechar o transcript direito. Fechar só o `master` não
-///      basta: o `writer` guarda um fd duplicado, e enquanto ele viver o SIGHUP
-///      não sai;
-///   2. SIGTERM no grupo, com uma folga para quem quiser sair sozinho;
-///   3. SIGKILL no grupo, para o que sobrou.
+/// Então: o desligamento educado que cada tipo entende (Ctrl-D na conversa,
+/// SIGHUP no grupo do dock) e, para quem não sair sozinho, SIGTERM e depois
+/// SIGKILL — sempre no grupo, que é a única forma de alcançar os netos.
 ///
-/// Os dois últimos degraus valem **mesmo que o filho já tenha morrido** — foi
-/// exatamente esse o bug. O filho cai no SIGHUP e o neto fica: `npm` morre,
-/// `node` continua com a porta na mão. Sair cedo por ver o filho morto era
-/// declarar vitória olhando para o processo errado.
+/// A insistência mora numa thread à parte porque é feita de espera, e ninguém
+/// que fecha uma aba tem o que fazer nessa espera.
 impl Drop for Pty {
     fn drop(&mut self) {
-        // O pgid sai antes de qualquer colheita: colhido o filho, o pid volta
-        // para o sistema e pode ser reciclado — e aí o sinal iria para o grupo
-        // de outra pessoa.
-        let group = self.child.process_id().map(|pid| pid as i32);
-
-        self.master.take();
-        self.writer.take();
-
-        signal_group(group, libc::SIGTERM);
-        std::thread::sleep(HANGUP);
-        signal_group(group, libc::SIGKILL);
-
-        // Sem colher o filho ele fica zumbi até o app morrer, e uma aba aberta
-        // e fechada muitas vezes viraria uma fila de zumbis.
-        self.reap(REAP);
+        self.gone.store(true, Ordering::Relaxed);
+        if self.hangup {
+            signal_group(self.pid, &self.alive, libc::SIGHUP);
+        }
+        let (pid, alive) = (self.pid, self.alive.clone());
+        std::thread::spawn(move || {
+            if wait_exit(&alive, GRACE) {
+                return;
+            }
+            signal_group(pid, &alive, libc::SIGTERM);
+            if wait_exit(&alive, REAP) {
+                return;
+            }
+            signal_group(pid, &alive, libc::SIGKILL);
+        });
     }
 }
 
-/// Tira o PTY do mapa e o encerra.
-///
-/// Fora do lock e fora da thread de quem chamou: desligar é esperar morrer, e
-/// nem o mapa nem a tela têm o que fazer nessa espera. Quem fechou a aba já
-/// seguiu em frente.
+/// Tira o PTY do mapa — e, com isso, encerra o processo.
 pub fn kill(state: &AppState, key: &str) {
-    let pty = lock(&state.ptys).remove(key);
-    if let Some(pty) = pty {
-        std::thread::spawn(move || drop(pty));
-    }
+    lock(&state.ptys).remove(key);
 }
 
-/// Abre o pseudo-terminal e sobe o processo. Devolve o `Pty` e o leitor da
-/// saída, ainda sem ninguém escutando.
+/// O que sai de `open`: o `Pty` para o mapa, e o par que a bomba consome.
+type Opened = (Pty, Box<dyn Read + Send>, Box<dyn Child + Send + Sync>);
+
+/// Abre o pseudo-terminal e sobe o processo. Devolve o `Pty`, o leitor da saída
+/// e o filho: quem bombeia é que decide o que fazer com os dois últimos.
 ///
 /// Separado do `spawn` porque é aqui que mora o ciclo de vida do processo — e
 /// esta metade não sabe o que é Tauri, então o teste consegue rodá-la.
-fn open(cmd: CommandBuilder, cols: u16, rows: u16) -> Result<(Pty, Box<dyn Read + Send>), String> {
+fn open(
+    cmd: CommandBuilder,
+    cols: u16,
+    rows: u16,
+    hangup: bool,
+) -> Result<Opened, String> {
     let pair = native_pty_system()
         .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| format!("openpty falhou: {e}"))?;
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| format!("spawn falhou: {e}"))?;
+    let pid = child.process_id().unwrap_or(0);
     drop(pair.slave); // sem isso o EOF nunca chega quando o filho morre
 
     let reader = pair
@@ -142,27 +162,40 @@ fn open(cmd: CommandBuilder, cols: u16, rows: u16) -> Result<(Pty, Box<dyn Read 
     let writer = pair.master.take_writer().map_err(|e| format!("writer falhou: {e}"))?;
 
     let pty = Pty {
-        master: Some(pair.master),
-        writer: Some(writer),
+        master: pair.master,
+        writer,
         buffer: Arc::new(Mutex::new(Vec::new())),
-        child,
+        alive: Arc::new(AtomicBool::new(true)),
+        gone: Arc::new(AtomicBool::new(false)),
+        pid,
+        hangup,
     };
-    Ok((pty, reader))
+    Ok((pty, reader, child))
 }
 
 /// Sobe um processo num pseudo-terminal e bombeia a saída para o front.
 /// Cada pedaço vai carimbado com o id da sessão — o front só desenha o que é
 /// da sessão aberta, mas todas continuam correndo por trás.
+///
+/// `dock` é script ou shell do dock, e não conversa. Muda duas coisas: o fim
+/// vai escrito no próprio buffer — um `setup` que falhou tem que continuar
+/// dizendo isso amanhã, quando você reabrir a aba, e o buffer é a única coisa
+/// que sobrevive a fechar o painel —, e o desligamento começa por SIGHUP no
+/// grupo. Conversa não precisa de nenhum dos dois: aba desligada já tem a tela
+/// de "Retomar conversa" por cima.
 pub fn spawn(
     app: &AppHandle,
     session_id: &str,
     cmd: CommandBuilder,
     cols: u16,
     rows: u16,
+    dock: bool,
+    on_exit: Option<OnExit>,
 ) -> Result<Pty, String> {
-    let (pty, mut reader) = open(cmd, cols, rows)?;
+    let (pty, mut reader, mut child) = open(cmd, cols, rows, dock)?;
 
     let sink = pty.buffer.clone();
+    let (alive_t, gone_t) = (pty.alive.clone(), pty.gone.clone());
     let app = app.clone();
     let id = session_id.to_string();
 
@@ -183,9 +216,30 @@ pub fn spawn(
                     // ponytail: bytes crus viram array JSON. Gordo, mas deixa o
                     // TextDecoder do front juntar UTF-8 partido no meio de graça.
                     // Se pesar, trocar por base64.
-                    let _ = app.emit("pty", (id.clone(), chunk[..n].to_vec()));
+                    if !gone_t.load(Ordering::Relaxed) {
+                        let _ = app.emit("pty", (id.clone(), chunk[..n].to_vec()));
+                    }
                 }
             }
+        }
+        // Já houve EOF, então o filho ou morreu ou está a um suspiro disso —
+        // `wait` aqui é a colheita do código de saída, não uma espera de verdade.
+        // `alive` cai antes dela, para ninguém sinalizar um pid já colhido.
+        alive_t.store(false, Ordering::Relaxed);
+        let code = child.wait().ok().map(|s| s.exit_code());
+        // Esta sessão não está mais de pé para receber fala nenhuma.
+        lock(&app.state::<AppState>().ready).remove(&id);
+        if dock && !gone_t.load(Ordering::Relaxed) {
+            let line = match code {
+                Some(0) => "\r\n\x1b[32m✓ terminou\x1b[0m\r\n".to_string(),
+                Some(n) => format!("\r\n\x1b[31m✗ saiu com código {n}\x1b[0m\r\n"),
+                None => "\r\n\x1b[31m✗ encerrado\x1b[0m\r\n".to_string(),
+            };
+            lock(&sink).extend_from_slice(line.as_bytes());
+            let _ = app.emit("pty", (id.clone(), line.into_bytes()));
+        }
+        if let Some(on_exit) = on_exit {
+            on_exit(code);
         }
         // O processo morreu: o card não some, vira desligado. O transcript
         // continua no disco e o botão de retomar reabre de onde parou.
@@ -195,7 +249,7 @@ pub fn spawn(
             Some(crate::state::Status::Desligada),
             crate::state::Note::Clear,
         );
-        let _ = app.emit("pty-closed", id);
+        let _ = app.emit("pty-closed", (id, code));
     });
 
     Ok(pty)
@@ -241,10 +295,20 @@ mod tests {
         !stat.is_empty() && !stat.starts_with('Z')
     }
 
+    fn parou(pid: i32, until: Duration) -> bool {
+        let deadline = Instant::now() + until;
+        while Instant::now() < deadline {
+            if !running(pid) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        !running(pid)
+    }
+
     /// O bug que este arquivo existe para não ter de novo: fechar o dock
     /// deixava vivo o `npm run dev` que o botão dizia encerrar, segurando a
-    /// porta até o app fechar. Dropar o `Pty` não matava ninguém — `Child` do
-    /// Rust não mata no drop.
+    /// porta até o app fechar.
     ///
     /// A montagem tem os dois que escapavam:
     ///
@@ -253,13 +317,14 @@ mod tests {
     ///     sobe e que não cai quando o terminal fecha.
     ///
     /// Os dois têm de sumir. O neto só é alcançável pelo grupo de processos —
-    /// matar o pid do filho nunca chegaria nele.
+    /// sinalizar o pid do filho nunca chegaria nele —, e só o SIGHUP não o
+    /// tira: é a escalação para SIGTERM que resolve.
     #[test]
     fn encerrar_uma_sessao_leva_filho_e_neto() {
         let mut cmd = CommandBuilder::new("/bin/sh");
         cmd.args(["-c", "nohup sleep 30 >/dev/null 2>&1 & echo NETO=$!; exec sleep 30"]);
-        let (pty, mut reader) = open(cmd, 80, 24).expect("pty não abriu");
-        let filho = pty.child.process_id().expect("filho sem pid") as i32;
+        let (pty, mut reader, _child) = open(cmd, 80, 24, true).expect("pty não abriu");
+        let filho = pty.pid as i32;
 
         // Lê até o neto dizer o pid.
         let mut saida = String::new();
@@ -294,7 +359,9 @@ mod tests {
 
         drop(pty);
 
-        assert!(!running(filho), "o filho {filho} sobreviveu ao fechamento da sessão");
-        assert!(!running(neto), "o neto {neto} sobreviveu ao fechamento da sessão");
+        // A escalação é feita de espera, e roda fora desta thread.
+        let teto = GRACE + REAP + Duration::from_secs(2);
+        assert!(parou(filho, teto), "o filho {filho} sobreviveu ao fechamento da sessão");
+        assert!(parou(neto, teto), "o neto {neto} sobreviveu ao fechamento da sessão");
     }
 }

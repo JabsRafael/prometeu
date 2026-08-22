@@ -35,7 +35,7 @@ export function init(context: Ctx) {
   ctx = context;
 
   tree.init({ openFile, workspace: id });
-  dockbar.init({ workspace: id, say: ctx.say });
+  dockbar.init({ workspace: id, say: ctx.say, openFile, newTab });
 
   $("tab-files").addEventListener("click", () => setSidePane("files"));
   $("tab-diff").addEventListener("click", () => {
@@ -341,13 +341,13 @@ async function selectTab(workspace: string, tab: string) {
   draw();
 }
 
-export async function newTab() {
+export async function newTab(prompt = "") {
   const ws = current();
   if (!ws) return;
   try {
     const tab = await invoke<{ id: string }>("new_tab", {
       workspace: ws.id,
-      prompt: "",
+      prompt,
       ...session.dims(),
     });
     showTerm();
@@ -387,7 +387,7 @@ export function forget(alive: Set<string>) {
   }
 }
 
-async function openFile(path: string) {
+export async function openFile(path: string) {
   const ws = current();
   if (!ws) return;
   const fs = files(ws.id);
