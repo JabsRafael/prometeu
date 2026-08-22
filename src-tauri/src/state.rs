@@ -47,6 +47,19 @@ impl Status {
     }
 }
 
+/// O que a linha de atividade da aba passa a dizer.
+///
+/// É um `Option<String>` com nome, e o nome é o ponto: antes o `None` que
+/// chegava em `set` queria dizer "não mexe", então a aba que terminava
+/// continuava mostrando a última ferramenta que rodou — o card dizia "pronta"
+/// embaixo de uma linha que parecia trabalho acontecendo agora. Agora todo
+/// evento diz explicitamente qual das duas coisas quer.
+pub enum Note {
+    /// Não há mais o que dizer: o trabalho parou.
+    Clear,
+    Set(String),
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Tab {
     /// É o `--session-id` do Claude Code. O transcript pendura nele.

@@ -815,7 +815,7 @@ function launch(projectId?: string) {
   openLauncher(state, projectId, async (draft: Draft) => {
     say("montando worktree…");
     try {
-      const ws = await invoke<Workspace>("create_workspace", { ...draft, ...session.dims() });
+      const ws = await invoke<Workspace>("create_workspace", { draft, ...session.dims() });
       say("");
       openWorkspace(ws);
     } catch (err) {

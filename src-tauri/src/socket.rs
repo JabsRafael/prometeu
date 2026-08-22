@@ -3,7 +3,7 @@
 //! que cada sessão está fazendo.
 
 use crate::lock::lock;
-use crate::state::{publish, Status};
+use crate::state::{publish, Note, Status};
 use crate::{paths, AppState};
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -36,6 +36,7 @@ const GIVE_UP: Duration = Duration::from_secs(3 * 60 * 60);
 pub struct Waiting {
     stream: UnixStream,
     since: Instant,
+    session: String,
 }
 
 pub fn listen(app: AppHandle) -> std::io::Result<()> {
@@ -82,13 +83,16 @@ fn handle(app: &AppHandle, stream: UnixStream) {
             send_pending_prompt(app, &session);
             return;
         }
-        "run" => set(app, &session, Some(Status::Rodando), None),
-        "tool" => set(app, &session, Some(Status::Rodando), Some(activity(&payload))),
-        "idle" => set(app, &session, Some(Status::Pronta), None),
-        "end" => set(app, &session, Some(Status::Desligada), None),
+        // Fala nova: o que o agente estava fazendo antes não vale mais.
+        "run" => set(app, &session, Some(Status::Rodando), Note::Clear),
+        "tool" => set(app, &session, Some(Status::Rodando), Note::Set(activity(&payload))),
+        // Parou. Deixar a última ferramenta escrita aqui fazia o card dizer
+        // "pronta" embaixo de uma linha que parecia trabalho acontecendo agora.
+        "idle" => set(app, &session, Some(Status::Pronta), Note::Clear),
+        "end" => set(app, &session, Some(Status::Desligada), Note::Clear),
         "notif" => {
             let msg = payload["message"].as_str().unwrap_or("").to_string();
-            set(app, &session, Some(Status::Querendo), Some(msg));
+            set(app, &session, Some(Status::Querendo), Note::Set(msg));
         }
         _ => {}
     }
@@ -107,7 +111,7 @@ fn permission(app: &AppHandle, stream: UnixStream, session: String, payload: Val
             .unwrap_or("quer sua resposta")
             .to_string();
         lock(&app.state::<AppState>().asked_at).insert(session.clone(), Instant::now());
-        set(app, &session, Some(Status::Querendo), Some(question));
+        set(app, &session, Some(Status::Querendo), Note::Set(question));
         let _ = app.emit("question", serde_json::json!({ "session": session, "payload": payload }));
         return;
     }
@@ -120,9 +124,9 @@ fn permission(app: &AppHandle, stream: UnixStream, session: String, payload: Val
         // do outro lado o processo desistiu e saiu. Sem esta varrida o mapa só
         // crescia — um stream morto por permissão nunca clicada.
         pending.retain(|_, w| w.since.elapsed() < GIVE_UP);
-        pending.insert(id, Waiting { stream, since: Instant::now() });
+        pending.insert(id, Waiting { stream, since: Instant::now(), session: session.clone() });
     }
-    set(app, &session, Some(Status::Querendo), Some(format!(
+    set(app, &session, Some(Status::Querendo), Note::Set(format!(
         "quer permissão para {}",
         payload["tool_name"].as_str().unwrap_or("uma ferramenta")
     )));
@@ -148,7 +152,7 @@ fn activity(payload: &Value) -> String {
     format!("{tool} {detail}").trim().to_string()
 }
 
-pub fn set(app: &AppHandle, session: &str, status: Option<Status>, note: Option<String>) {
+pub fn set(app: &AppHandle, session: &str, status: Option<Status>, note: Note) {
     if session.is_empty() {
         return;
     }
@@ -168,11 +172,19 @@ pub fn set(app: &AppHandle, session: &str, status: Option<Status>, note: Option<
         if let Some(s) = status {
             tab.status = s;
         }
-        if let Some(n) = note {
-            tab.note = Some(n);
-        }
+        tab.note = match note {
+            Note::Clear => None,
+            Note::Set(n) => Some(n),
+        };
     }
     publish(app);
+}
+
+/// Esquece o que estava pendurado numa sessão que não existe mais. O hook do
+/// outro lado morreu com ela — era filho do `claude` que acabou de sair.
+pub fn forget(state: &AppState, session: &str) {
+    lock(&state.pending).retain(|_, w| w.session != session);
+    lock(&state.asked_at).remove(session);
 }
 
 /// Manda a primeira fala montada no lançador, uma vez só.
@@ -244,7 +256,7 @@ pub struct Answer {
 /// grudadas se perdem no meio do render.
 const KEYSTROKE: Duration = Duration::from_millis(130);
 
-/// Responde um AskUserQuestion inteiro — todas as perguntas e o envio.
+/// A sequência de teclas que responde um AskUserQuestion inteiro.
 ///
 /// A gramática do seletor foi levantada na marra, e as duas metades diferem:
 ///
@@ -257,6 +269,36 @@ const KEYSTROKE: Duration = Duration::from_millis(130);
 /// Dígito e não seta: seta é relativa e erra acumulado se um evento se perder.
 /// Nada é lido da tela; os índices vêm do payload do hook.
 ///
+/// Função pura porque é a única parte do projeto que adivinha o estado de uma
+/// TUI: se a gramática mudar, o teste é quem conta.
+pub fn keystrokes(answers: &[Answer]) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    for answer in answers {
+        for &pick in &answer.picks {
+            if pick >= answer.options {
+                return Err(format!("a opção {} não existe nessa pergunta", pick + 1));
+            }
+            out.push(digit(pick + 1)?);
+        }
+        if let Some(text) = answer.free.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+            // Sem opções não há seletor na tela, e "logo depois da última" não
+            // quer dizer nada — o dígito cairia numa opção que não existe.
+            if answer.options == 0 {
+                return Err("essa pergunta não tem opções: responda no terminal".into());
+            }
+            // "Type something" é sempre a opção logo depois da última.
+            out.push(digit(answer.options + 1)?);
+            out.push(text.to_string());
+            out.push("\r".into());
+        }
+        if answer.multi {
+            out.push("\t".into());
+        }
+    }
+    out.push("\r".into());
+    Ok(out)
+}
+
 /// `async` porque isto dorme: a folga do seletor mais 130ms por tecla. Na
 /// thread principal, era a janela inteira congelada durante a resposta.
 #[tauri::command(async)]
@@ -265,24 +307,14 @@ pub fn answer_questions(
     session: String,
     answers: Vec<Answer>,
 ) -> Result<(), String> {
+    // Antes da folga: pedido malformado tem de falhar na hora, não meio
+    // segundo depois com metade das teclas já escritas.
+    let keys = keystrokes(&answers)?;
     grace(&state, &session);
-
-    for answer in &answers {
-        for &pick in &answer.picks {
-            key(&state, &session, &digit(pick + 1)?)?;
-        }
-        if let Some(text) = answer.free.as_deref().filter(|t| !t.trim().is_empty()) {
-            // "Type something" é sempre a opção logo depois da última.
-            key(&state, &session, &digit(answer.options + 1)?)?;
-            key(&state, &session, text)?;
-            key(&state, &session, "\r")?;
-        }
-        if answer.multi {
-            key(&state, &session, "\t")?;
-        }
+    for k in &keys {
+        key(&state, &session, k)?;
     }
-
-    key(&state, &session, "\r")
+    Ok(())
 }
 
 fn digit(n: usize) -> Result<String, String> {
@@ -298,12 +330,79 @@ fn key(state: &State<AppState>, session: &str, text: &str) -> Result<(), String>
     Ok(())
 }
 
+/// Espera o que falta da folga e consome a marca: ela serviu, e guardar
+/// `Instant` de toda pergunta já respondida é só mapa crescendo.
 fn grace(state: &State<AppState>, session: &str) {
-    let asked = lock(&state.asked_at).get(session).copied();
+    let asked = lock(&state.asked_at).remove(session);
     if let Some(asked) = asked {
         let waited = asked.elapsed();
         if waited < PICKER_GRACE {
             std::thread::sleep(PICKER_GRACE - waited);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{keystrokes, Answer};
+
+    fn answer(picks: &[usize], options: usize, multi: bool, free: Option<&str>) -> Answer {
+        Answer {
+            picks: picks.to_vec(),
+            options,
+            multi,
+            free: free.map(String::from),
+        }
+    }
+
+    /// Uma pergunta, escolha única: o dígito seleciona e avança, o Enter envia.
+    #[test]
+    fn escolha_unica_e_um_digito_e_um_enter() {
+        let keys = keystrokes(&[answer(&[1], 3, false, None)]).unwrap();
+        assert_eq!(keys, vec!["2", "\r"]);
+    }
+
+    /// multiSelect: um dígito por caixa marcada, e o Tab é quem avança. Sem o
+    /// Tab a caixa fica marcada e o agente parado — foi esse o bug.
+    #[test]
+    fn multi_marca_com_digito_e_avanca_com_tab() {
+        let keys = keystrokes(&[answer(&[0, 2], 4, true, None)]).unwrap();
+        assert_eq!(keys, vec!["1", "3", "\t", "\r"]);
+    }
+
+    /// Duas perguntas de escolha única: os dígitos saem na ordem das perguntas,
+    /// sem Tab entre elas, porque cada dígito já avançou sozinho.
+    #[test]
+    fn duas_perguntas_saem_na_ordem() {
+        let keys = keystrokes(&[answer(&[0], 2, false, None), answer(&[1], 2, false, None)]).unwrap();
+        assert_eq!(keys, vec!["1", "2", "\r"]);
+    }
+
+    /// Texto livre entra pela opção logo depois da última, e cada pergunta tem
+    /// o seu. Antes o front mandava tudo em `answers[0]`: as outras perguntas
+    /// iam sem resposta nenhuma e o Enter final enviava o que a TUI tinha.
+    #[test]
+    fn texto_livre_e_por_pergunta() {
+        let keys = keystrokes(&[
+            answer(&[], 2, false, Some("outra coisa")),
+            answer(&[1], 3, false, None),
+        ])
+        .unwrap();
+        assert_eq!(keys, vec!["3", "outra coisa", "\r", "2", "\r"]);
+    }
+
+    /// Texto em branco não é resposta: não vira tecla nenhuma.
+    #[test]
+    fn texto_em_branco_e_ignorado() {
+        let keys = keystrokes(&[answer(&[0], 2, false, Some("   "))]).unwrap();
+        assert_eq!(keys, vec!["1", "\r"]);
+    }
+
+    /// Índice fora da lista é erro, não uma tecla que a TUI vai interpretar
+    /// como outra coisa.
+    #[test]
+    fn opcao_que_nao_existe_e_erro() {
+        assert!(keystrokes(&[answer(&[5], 3, false, None)]).is_err());
+        assert!(keystrokes(&[answer(&[], 0, false, Some("oi"))]).is_err());
     }
 }

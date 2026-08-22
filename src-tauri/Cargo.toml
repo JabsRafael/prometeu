@@ -26,3 +26,6 @@ portable-pty = "0.9"
 uuid = { version = "1", features = ["v4"] }
 dirs = "6"
 tauri-plugin-dialog = "2"
+# Só para `killpg`: encerrar uma sessão precisa alcançar os netos (o `node` que
+# o `npm run dev` subiu), e matar o pid do filho não alcança. Ver `pty.rs`.
+libc = "0.2"

@@ -2425,6 +2425,7 @@ name = "prometheus"
 version = "0.1.1"
 dependencies = [
  "dirs",
+ "libc",
  "portable-pty",
  "serde",
  "serde_json",
