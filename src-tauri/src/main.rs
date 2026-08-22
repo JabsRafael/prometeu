@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod lock;
 mod paths;
 mod pty;
 mod session;
@@ -8,7 +9,6 @@ mod state;
 
 use state::Board;
 use std::collections::HashMap;
-use std::os::unix::net::UnixStream;
 use std::sync::atomic::AtomicU64;
 use std::sync::Mutex;
 use std::time::Instant;
@@ -19,7 +19,7 @@ pub struct AppState {
     /// Chave é o id da sessão, que é o id da aba.
     pub ptys: Mutex<HashMap<String, pty::Pty>>,
     /// Hooks bloqueados esperando o clique do usuário, por id.
-    pub pending: Mutex<HashMap<u64, UnixStream>>,
+    pub pending: Mutex<HashMap<u64, socket::Waiting>>,
     pub seq: AtomicU64,
     /// Qual workspace está na tela. O que acontece nele não vira novidade —
     /// você está vendo acontecer.

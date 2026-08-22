@@ -1,3 +1,4 @@
+use crate::lock::lock;
 use crate::AppState;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::io::{Read, Write};
@@ -65,7 +66,7 @@ pub fn spawn(
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
                     {
-                        let mut buf = sink.lock().unwrap();
+                        let mut buf = lock(&sink);
                         buf.extend_from_slice(&chunk[..n]);
                         if buf.len() > SCROLLBACK {
                             let cut = buf.len() - SCROLLBACK;
@@ -90,24 +91,21 @@ pub fn spawn(
 
 #[tauri::command]
 pub fn pty_write(state: State<AppState>, session: String, data: String) -> Result<(), String> {
-    let mut ptys = state.ptys.lock().unwrap();
+    let mut ptys = lock(&state.ptys);
     ptys.get_mut(&session).ok_or("sessão não está rodando")?.write(&data)
 }
 
 #[tauri::command]
 pub fn pty_resize(state: State<AppState>, session: String, cols: u16, rows: u16) -> Result<(), String> {
-    let ptys = state.ptys.lock().unwrap();
+    let ptys = lock(&state.ptys);
     ptys.get(&session).ok_or("sessão não está rodando")?.resize(cols, rows)
 }
 
 /// Devolve a rolagem guardada, para o terminal voltar como estava.
 #[tauri::command]
 pub fn pty_buffer(state: State<AppState>, session: String) -> Vec<u8> {
-    state
-        .ptys
-        .lock()
-        .unwrap()
+    lock(&state.ptys)
         .get(&session)
-        .map(|p| p.buffer.lock().unwrap().clone())
+        .map(|p| lock(&p.buffer).clone())
         .unwrap_or_default()
 }

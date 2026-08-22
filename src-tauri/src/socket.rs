@@ -2,10 +2,11 @@
 //! mouse volta para dentro do agente, e por aqui que o quadro fica sabendo o
 //! que cada sessão está fazendo.
 
+use crate::lock::lock;
 use crate::state::Status;
 use crate::{paths, AppState};
 use serde_json::Value;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -14,6 +15,28 @@ use tauri::{AppHandle, Emitter, Manager, State};
 /// Folga entre liberar o hook e mandar a tecla. O Claude Code só desenha o
 /// seletor depois que o hook retorna; escrever antes disso perde a tecla.
 const PICKER_GRACE: Duration = Duration::from_millis(400);
+
+/// Quanto o app espera pela linha que o hook manda ao conectar. Sem isto, um
+/// cliente que conecta e não escreve pendurava o loop de accept — e com ele
+/// **todos** os hooks de **todas** as sessões. O hook escreve na hora; 10s é
+/// folga de sobra para o caso de a máquina estar sob carga.
+const READ_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Teto do payload de um hook. `PreToolUse` de um `Write` carrega o arquivo
+/// inteiro, então precisa ser grande — mas não ilimitado, que é o que um
+/// `read_line` sem coleira é.
+const MAX_PAYLOAD: u64 = 8 * 1024 * 1024;
+
+/// Depois disto o hook do outro lado já desistiu por conta própria (o
+/// `MAX_WAIT` dele), e o que sobrou aqui é um stream morto ocupando memória.
+const GIVE_UP: Duration = Duration::from_secs(3 * 60 * 60);
+
+/// Um hook parado esperando o clique. A conexão é a correlação — não há id de
+/// mensagem —, então o que se guarda é o stream.
+pub struct Waiting {
+    stream: UnixStream,
+    since: Instant,
+}
 
 pub fn listen(app: AppHandle) -> std::io::Result<()> {
     let path = paths::socket_path();
@@ -25,15 +48,20 @@ pub fn listen(app: AppHandle) -> std::io::Result<()> {
 
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
-            handle(&app, stream);
+            // Uma thread por conexão. Serial, um hook lento — ou um cliente
+            // calado — parava a fila inteira, e a fila é o app inteiro.
+            let app = app.clone();
+            std::thread::spawn(move || handle(&app, stream));
         }
     });
     Ok(())
 }
 
 fn handle(app: &AppHandle, stream: UnixStream) {
+    let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
+
     let mut line = String::new();
-    if BufReader::new(&stream).read_line(&mut line).is_err() {
+    if BufReader::new((&stream).take(MAX_PAYLOAD)).read_line(&mut line).is_err() {
         return;
     }
     let Ok(envelope) = serde_json::from_str::<Value>(&line) else { return };
@@ -50,7 +78,7 @@ fn handle(app: &AppHandle, stream: UnixStream) {
         // Esperar por este hook em vez de chutar um sleep também cobre o caso de
         // o Claude Code parar antes para perguntar se você confia na pasta.
         "start" => {
-            reply(&stream, "{}");
+            let _ = reply(&stream, "{}");
             send_pending_prompt(app, &session);
             return;
         }
@@ -64,7 +92,7 @@ fn handle(app: &AppHandle, stream: UnixStream) {
         }
         _ => {}
     }
-    reply(&stream, "{}");
+    let _ = reply(&stream, "{}");
 }
 
 fn permission(app: &AppHandle, stream: UnixStream, session: String, payload: Value) {
@@ -73,16 +101,12 @@ fn permission(app: &AppHandle, stream: UnixStream, session: String, payload: Val
     // volta como tecla no PTY. Testado: devolver a escolha em `updatedInput`
     // não funciona — o Claude Code aceita a primeira opção e ignora o resto.
     if payload["tool_name"].as_str() == Some("AskUserQuestion") {
-        reply(&stream, "{}");
+        let _ = reply(&stream, "{}");
         let question = payload["tool_input"]["questions"][0]["question"]
             .as_str()
             .unwrap_or("quer sua resposta")
             .to_string();
-        app.state::<AppState>()
-            .asked_at
-            .lock()
-            .unwrap()
-            .insert(session.clone(), Instant::now());
+        lock(&app.state::<AppState>().asked_at).insert(session.clone(), Instant::now());
         set(app, &session, Some(Status::Querendo), Some(question));
         let _ = app.emit("question", serde_json::json!({ "session": session, "payload": payload }));
         return;
@@ -90,7 +114,14 @@ fn permission(app: &AppHandle, stream: UnixStream, session: String, payload: Val
 
     let state = app.state::<AppState>();
     let id = state.seq.fetch_add(1, Ordering::Relaxed);
-    state.pending.lock().unwrap().insert(id, stream);
+    {
+        let mut pending = lock(&state.pending);
+        // Quem já esperou mais do que o hook aguenta não vai mais responder:
+        // do outro lado o processo desistiu e saiu. Sem esta varrida o mapa só
+        // crescia — um stream morto por permissão nunca clicada.
+        pending.retain(|_, w| w.since.elapsed() < GIVE_UP);
+        pending.insert(id, Waiting { stream, since: Instant::now() });
+    }
     set(app, &session, Some(Status::Querendo), Some(format!(
         "quer permissão para {}",
         payload["tool_name"].as_str().unwrap_or("uma ferramenta")
@@ -122,8 +153,8 @@ pub fn set(app: &AppHandle, session: &str, status: Option<Status>, note: Option<
         return;
     }
     let state = app.state::<AppState>();
-    let looking = state.looking.lock().unwrap().clone();
-    let mut board = state.board.lock().unwrap();
+    let looking = lock(&state.looking).clone();
+    let mut board = lock(&state.board);
     {
         let Some(ws) = board.workspace_of_mut(session) else { return };
         // Novidade é o agente ter parado de trabalhar enquanto você olhava outra
@@ -149,7 +180,7 @@ pub fn set(app: &AppHandle, session: &str, status: Option<Status>, note: Option<
 fn send_pending_prompt(app: &AppHandle, session: &str) {
     let state = app.state::<AppState>();
     let prompt = {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         let Some(tab) = board.tab_mut(session) else { return };
         let Some(p) = tab.pending_prompt.take() else { return };
         board.save();
@@ -163,7 +194,7 @@ fn send_pending_prompt(app: &AppHandle, session: &str) {
         // no meio da colagem e o texto fica parado na caixa.
         let type_in = |text: &str| {
             let state = app.state::<AppState>();
-            let mut ptys = state.ptys.lock().unwrap();
+            let mut ptys = lock(&state.ptys);
             if let Some(pty) = ptys.get_mut(&session) {
                 let _ = pty.write(text);
             }
@@ -175,18 +206,15 @@ fn send_pending_prompt(app: &AppHandle, session: &str) {
     });
 }
 
-fn reply(mut stream: &UnixStream, body: &str) {
-    let _ = writeln!(stream, "{body}");
-    let _ = stream.flush();
+fn reply(mut stream: &UnixStream, body: &str) -> std::io::Result<()> {
+    writeln!(stream, "{body}")?;
+    stream.flush()
 }
 
 /// Responde um pedido de permissão comum (Write, Bash, …).
 #[tauri::command]
 pub fn decide_permission(state: State<AppState>, id: u64, decision: String) -> Result<(), String> {
-    let stream = state
-        .pending
-        .lock()
-        .unwrap()
+    let waiting = lock(&state.pending)
         .remove(&id)
         .ok_or("esse pedido já não está mais esperando")?;
 
@@ -196,8 +224,10 @@ pub fn decide_permission(state: State<AppState>, id: u64, decision: String) -> R
             "permissionDecision": decision
         }
     });
-    reply(&stream, &body.to_string());
-    Ok(())
+    // Escrever num hook que já desistiu falha aqui, e calar isso seria pior: o
+    // agente segue esperando no terminal e você acha que respondeu.
+    reply(&waiting.stream, &body.to_string())
+        .map_err(|_| "esse pedido expirou — o agente voltou a perguntar no terminal".to_string())
 }
 
 /// Uma resposta por pergunta do AskUserQuestion.
@@ -259,7 +289,7 @@ fn digit(n: usize) -> Result<String, String> {
 
 fn key(state: &State<AppState>, session: &str, text: &str) -> Result<(), String> {
     {
-        let mut ptys = state.ptys.lock().unwrap();
+        let mut ptys = lock(&state.ptys);
         ptys.get_mut(session).ok_or("sessão não está rodando")?.write(text)?;
     }
     std::thread::sleep(KEYSTROKE);
@@ -267,7 +297,7 @@ fn key(state: &State<AppState>, session: &str, text: &str) -> Result<(), String>
 }
 
 fn grace(state: &State<AppState>, session: &str) {
-    let asked = state.asked_at.lock().unwrap().get(session).copied();
+    let asked = lock(&state.asked_at).get(session).copied();
     if let Some(asked) = asked {
         let waited = asked.elapsed();
         if waited < PICKER_GRACE {

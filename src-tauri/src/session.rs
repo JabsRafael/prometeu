@@ -1,3 +1,4 @@
+use crate::lock::lock;
 use crate::state::{Board, Project, Status, Tab, Workspace};
 use crate::{paths, pty, AppState};
 use portable_pty::CommandBuilder;
@@ -7,11 +8,11 @@ use tauri::{AppHandle, Emitter, State};
 
 #[tauri::command]
 pub fn load_board(state: State<AppState>) -> Board {
-    state.board.lock().unwrap().clone()
+    lock(&state.board).clone()
 }
 
 fn publish(app: &AppHandle, state: &State<AppState>) {
-    let board = state.board.lock().unwrap();
+    let board = lock(&state.board);
     board.save();
     let _ = app.emit("board", board.clone());
 }
@@ -33,7 +34,7 @@ pub fn add_project(app: AppHandle, state: State<AppState>, path: String) -> Resu
         path: id.clone(),
     };
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if !board.projects.iter().any(|p| p.id == id) {
             board.projects.push(project.clone());
         }
@@ -45,7 +46,7 @@ pub fn add_project(app: AppHandle, state: State<AppState>, path: String) -> Resu
 #[tauri::command]
 pub fn remove_project(app: AppHandle, state: State<AppState>, id: String) {
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         board.projects.retain(|p| p.id != id);
     }
     publish(&app, &state);
@@ -58,7 +59,7 @@ pub fn remove_project(app: AppHandle, state: State<AppState>, id: String) {
 #[tauri::command]
 pub fn set_stage(app: AppHandle, state: State<AppState>, id: String, stage: String) {
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(&id) {
             ws.stage = stage;
         }
@@ -72,7 +73,7 @@ pub fn set_stage(app: AppHandle, state: State<AppState>, id: String, stage: Stri
 #[tauri::command]
 pub fn archive_workspace(app: AppHandle, state: State<AppState>, id: String, archived: bool) {
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(&id) {
             ws.archived = archived;
             if archived {
@@ -81,7 +82,7 @@ pub fn archive_workspace(app: AppHandle, state: State<AppState>, id: String, arc
                     tab.status = Status::Desligada;
                     tab.note = None;
                 }
-                let mut ptys = state.ptys.lock().unwrap();
+                let mut ptys = lock(&state.ptys);
                 for id in ids {
                     ptys.remove(&id);
                 }
@@ -100,7 +101,7 @@ pub fn rename_workspace(app: AppHandle, state: State<AppState>, id: String, titl
         return;
     }
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(&id) {
             ws.title = title.to_string();
         }
@@ -113,7 +114,7 @@ pub fn rename_workspace(app: AppHandle, state: State<AppState>, id: String, titl
 #[tauri::command]
 pub fn pin_workspace(app: AppHandle, state: State<AppState>, id: String, pinned: bool) {
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(&id) {
             ws.pinned = pinned;
         }
@@ -126,7 +127,7 @@ pub fn pin_workspace(app: AppHandle, state: State<AppState>, id: String, pinned:
 #[tauri::command]
 pub fn set_unread(app: AppHandle, state: State<AppState>, id: String, unread: bool) {
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(&id) {
             ws.unread = unread;
         }
@@ -138,10 +139,10 @@ pub fn set_unread(app: AppHandle, state: State<AppState>, id: String, unread: bo
 /// back marcaria como não lido o que você está vendo acontecer na sua frente.
 #[tauri::command]
 pub fn look_at(app: AppHandle, state: State<AppState>, id: Option<String>) {
-    *state.looking.lock().unwrap() = id.clone();
+    *lock(&state.looking) = id.clone();
     let Some(id) = id else { return };
     let had = {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         match board.workspace_mut(&id) {
             Some(ws) => std::mem::replace(&mut ws.unread, false),
             None => false,
@@ -157,10 +158,10 @@ pub fn look_at(app: AppHandle, state: State<AppState>, id: Option<String>) {
 #[tauri::command]
 pub fn remove_workspace(app: AppHandle, state: State<AppState>, id: String) {
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(&id) {
             let ids: Vec<String> = ws.tabs.iter().map(|t| t.id.clone()).collect();
-            let mut ptys = state.ptys.lock().unwrap();
+            let mut ptys = lock(&state.ptys);
             for id in ids {
                 ptys.remove(&id);
             }
@@ -239,7 +240,7 @@ pub fn create_workspace(
         tabs: vec![tab],
     };
 
-    state.board.lock().unwrap().workspaces.push(ws.clone());
+    lock(&state.board).workspaces.push(ws.clone());
     publish(&app, &state);
     Ok(ws)
 }
@@ -258,7 +259,7 @@ pub fn new_tab(
     rows: u16,
 ) -> Result<Tab, String> {
     let (worktree, n) = {
-        let board = state.board.lock().unwrap();
+        let board = lock(&state.board);
         let ws = board.workspaces.iter().find(|w| w.id == workspace).ok_or("workspace sumiu")?;
         (PathBuf::from(&ws.worktree), ws.tabs.len() + 1)
     };
@@ -272,7 +273,7 @@ pub fn new_tab(
     let tab = spawn_tab(&app, &state, &worktree, &title, pending, cols, rows)?;
 
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(&workspace) {
             ws.active = Some(tab.id.clone());
             ws.tabs.push(tab.clone());
@@ -284,9 +285,9 @@ pub fn new_tab(
 
 #[tauri::command]
 pub fn close_tab(app: AppHandle, state: State<AppState>, workspace: String, tab: String) {
-    state.ptys.lock().unwrap().remove(&tab);
+    lock(&state.ptys).remove(&tab);
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(&workspace) {
             ws.tabs.retain(|t| t.id != tab);
             if ws.active.as_deref() == Some(tab.as_str()) {
@@ -300,7 +301,7 @@ pub fn close_tab(app: AppHandle, state: State<AppState>, workspace: String, tab:
 #[tauri::command]
 pub fn focus_tab(app: AppHandle, state: State<AppState>, workspace: String, tab: String) {
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(&workspace) {
             ws.active = Some(tab);
         }
@@ -324,7 +325,7 @@ pub fn rename_tab(
         return;
     }
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(t) = board
             .workspace_mut(&workspace)
             .and_then(|ws| ws.tabs.iter_mut().find(|t| t.id == tab))
@@ -346,10 +347,7 @@ pub fn resume_tab(
     cols: u16,
     rows: u16,
 ) -> Result<bool, String> {
-    let worktree = state
-        .board
-        .lock()
-        .unwrap()
+    let worktree = lock(&state.board)
         .workspace_of(&tab)
         .map(|w| PathBuf::from(&w.worktree))
         .ok_or("aba não encontrada")?;
@@ -362,9 +360,9 @@ pub fn resume_tab(
     // por causa de uma conversa vazia seria pior.
     let resume = paths::transcript(&tab, &worktree).exists();
     let handle = pty::spawn(&app, &tab, claude_cmd(&tab, &worktree, resume)?, cols, rows)?;
-    state.ptys.lock().unwrap().insert(tab.clone(), handle);
+    lock(&state.ptys).insert(tab.clone(), handle);
     {
-        let mut board = state.board.lock().unwrap();
+        let mut board = lock(&state.board);
         if let Some(t) = board.tab_mut(&tab) {
             t.status = Status::Pronta;
             t.note = None;
@@ -385,7 +383,7 @@ fn spawn_tab(
 ) -> Result<Tab, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let handle = pty::spawn(app, &id, claude_cmd(&id, worktree, false)?, cols, rows)?;
-    state.ptys.lock().unwrap().insert(id.clone(), handle);
+    lock(&state.ptys).insert(id.clone(), handle);
     Ok(Tab {
         id,
         title: title.to_string(),
@@ -674,10 +672,7 @@ pub fn workspace_branch(state: State<AppState>, id: String) -> Option<String> {
 /// que é o que o teste consegue rodar contra um worktree de verdade.
 #[tauri::command]
 pub fn workspace_diff(state: State<AppState>, id: String) -> Vec<FileChange> {
-    let Some(worktree) = state
-        .board
-        .lock()
-        .unwrap()
+    let Some(worktree) = lock(&state.board)
         .workspaces
         .iter()
         .find(|w| w.id == id)
@@ -999,7 +994,7 @@ pub fn open_dock(
     let root = worktree_of(&state, &id).ok_or("workspace sumiu")?;
     let key = format!("{id}:{kind}");
 
-    if state.ptys.lock().unwrap().contains_key(&key) {
+    if lock(&state.ptys).contains_key(&key) {
         return Ok(key); // já está de pé; o buffer redesenha
     }
 
@@ -1018,7 +1013,7 @@ pub fn open_dock(
     cmd.env("TERM", "xterm-256color");
 
     let handle = pty::spawn(&app, &key, cmd, cols, rows)?;
-    state.ptys.lock().unwrap().insert(key.clone(), handle);
+    lock(&state.ptys).insert(key.clone(), handle);
     Ok(key)
 }
 
@@ -1032,7 +1027,7 @@ pub fn reveal(state: State<AppState>, id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn close_dock(state: State<AppState>, id: String, kind: String) {
-    state.ptys.lock().unwrap().remove(&format!("{id}:{kind}"));
+    lock(&state.ptys).remove(&format!("{id}:{kind}"));
 }
 
 /// Reaproveita o `.conductor/settings.toml` que o repositório já tem — quem usa
@@ -1075,10 +1070,7 @@ fn toml_scripts_run(text: &str) -> Option<String> {
 }
 
 fn worktree_of(state: &State<AppState>, id: &str) -> Option<PathBuf> {
-    state
-        .board
-        .lock()
-        .unwrap()
+    lock(&state.board)
         .workspaces
         .iter()
         .find(|w| w.id == id)
