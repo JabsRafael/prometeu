@@ -1,4 +1,8 @@
-# Prometheus
+<p align="center">
+  <img src="docs/icon.png" alt="" width="128" height="128">
+</p>
+
+<h1 align="center">Prometheus</h1>
 
 Quadro Kanban global por cima de sessões do Claude Code, cada uma no seu worktree.
 
