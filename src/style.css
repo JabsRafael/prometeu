@@ -143,6 +143,14 @@ body.norail .top { padding-left: 84px; }
 body.norail .top .nav { margin-left: 0; }
 .railbody { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 8px; display: flex; flex-direction: column; }
 
+/* O rodapé fica fora do `railbody`: a lista de workspaces rola, ele não. */
+.railfoot {
+  flex: none; display: flex; align-items: center; gap: 2px;
+  height: 36px; padding: 0 10px;
+  border-top: 1px solid var(--line-side);
+}
+.railfoot .ver { font-size: 11px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+
 .navitem {
   display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
   height: 32px; margin: 1px 0; padding: 0 4px; border-radius: var(--r);

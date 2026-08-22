@@ -1,3 +1,4 @@
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -293,6 +294,9 @@ for (const [id, name] of [
 ] as const) {
   $(id).innerHTML = icon(name);
 }
+
+// A versão vem do bundle, não do package.json: é a do app que você abriu.
+getVersion().then((v) => ($("ver").textContent = `v${v}`));
 
 ws.init({ say, board: () => state, redraw: draw, toBoard: () => showBoard() });
 session.initTerminal((m) => say(m, true));

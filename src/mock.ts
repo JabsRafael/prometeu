@@ -321,6 +321,10 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       return true;
     case "plugin:dialog|open":
       return null;
+    // Fora do Tauri não existe bundle para perguntar a versão. Dizer isso na
+    // tela é melhor que repetir aqui um número que envelhece sozinho.
+    case "plugin:app|version":
+      return "0.0.0-mock";
     default:
       return null;
   }
