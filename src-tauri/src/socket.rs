@@ -145,15 +145,35 @@ pub fn set(app: &AppHandle, session: &str, status: Option<Status>, note: Option<
     let _ = app.emit("board", board.clone());
 }
 
-/// Manda a primeira fala montada no lançador, uma vez só.
+/// A sessão avisou que está de pé. A primeira fala montada no lançador vai
+/// agora — a não ser que o setup do worktree ainda esteja rodando: aí fica
+/// guardada, e é o fim dele que a solta (`session::release_prompts`). Agente
+/// que roda teste antes de haver `node_modules` conclui coisa errada.
 fn send_pending_prompt(app: &AppHandle, session: &str) {
+    let state = app.state::<AppState>();
+    state.ready.lock().unwrap().insert(session.to_string());
+    let setup_running = {
+        let board = state.board.lock().unwrap();
+        board.workspace_of(session).is_some_and(|ws| {
+            let key = format!("{}:setup", ws.id);
+            state.ptys.lock().unwrap().get(&key).is_some_and(|p| p.alive())
+        })
+    };
+    if !setup_running {
+        type_prompt(app, session, None);
+    }
+}
+
+/// Digita a primeira fala da aba, uma vez só. `prefix` vai na frente, na mesma
+/// linha: Enter no meio mandaria metade.
+pub fn type_prompt(app: &AppHandle, session: &str, prefix: Option<String>) {
     let state = app.state::<AppState>();
     let prompt = {
         let mut board = state.board.lock().unwrap();
         let Some(tab) = board.tab_mut(session) else { return };
         let Some(p) = tab.pending_prompt.take() else { return };
         board.save();
-        p
+        format!("{}{p}", prefix.unwrap_or_default())
     };
 
     let app = app.clone();

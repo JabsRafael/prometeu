@@ -1,0 +1,45 @@
+# O Prometheus rodando o Prometheus. Este arquivo é o próprio dogfooding: se
+# testar uma mudança daqui num worktree separado não funcionar, é sinal de que a
+# feature não está pronta.
+#
+# Variáveis disponíveis nos scripts:
+#
+#   $PROMETHEUS_WORKSPACE_PATH  o worktree onde o script roda
+#   $PROMETHEUS_ROOT_PATH       o repositório de onde ele saiu
+#   $PROMETHEUS_WORKSPACE_NAME  o nome deste workspace
+#   $PROMETHEUS_PORT            porta reservada só para ele, mais nove até +9
+
+[scripts]
+# `sidecar.sh` compila o prometheus-hook, e o build script do Tauri recusa a
+# compilação se o binário não estiver lá — worktree novo não tem `binaries/`,
+# que é ignorado pelo git. Sem isto, `npm run app` falha no primeiro `cargo`.
+setup = "npm install && sh scripts/sidecar.sh"
+
+# O app de verdade deste worktree, isolado do que estiver instalado e de qualquer
+# outro worktree: porta, `~/.prometheus-dev-<workspace>` e socket de hook
+# próprios. É o teste honesto — Tauri, PTY, hook e Claude Code de verdade.
+[scripts.run.app]
+command = "sh scripts/app.sh"
+default = true
+
+# A mesma UI no Chrome, sem Tauri. O back é o `src/mock.ts`, então isto testa a
+# tela e não o Rust — em troca, é o único caminho que um Playwright dirige: a
+# webview do Tauri no macOS é WKWebView e não fala CDP.
+#
+# Vite ao fundo e `wait` na frente para o processo não largar o terminal: é o
+# que deixa o botão de parar do dock derrubar o servidor junto.
+#
+# `localhost` e não `127.0.0.1`: o vite escuta só em `::1`, e o curl em IPv4
+# nunca responderia. E o `kill -0` é o que impede o laço de girar para sempre
+# quando o vite nem sobe — porta ocupada, dependência faltando.
+[scripts.run.browser]
+command = """
+PORT=$PROMETHEUS_PORT npx vite &
+VITE=$!
+until curl -sf "http://localhost:$PROMETHEUS_PORT" >/dev/null; do
+  kill -0 "$VITE" 2>/dev/null || exit 1
+  sleep 0.2
+done
+open -a "Google Chrome" "http://localhost:$PROMETHEUS_PORT"
+wait
+"""

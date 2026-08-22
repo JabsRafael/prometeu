@@ -493,9 +493,30 @@ body.noside .side { display: none; }
 .docktab {
   height: 34px; padding: 0 12px; border: none; border-radius: 0; flex: none;
   background: none; font-weight: 400; color: var(--fg-2);
+  position: relative;
 }
 .docktab:hover { color: var(--fg); background: none; }
 .docktab.on { color: var(--fg); box-shadow: inset 0 -2px var(--tab-line); }
+/* Ponto na aba do que está rodando: o run continua de pé com o painel em Setup,
+   e sem isto não haveria como saber que ele está lá.
+   Fora do fluxo de propósito: no fluxo, cada aba que sobe alarga a barra, e com
+   dois processos de pé o botão de encerrar é empurrado para fora da borda. */
+.docktab.live::after {
+  content: ""; position: absolute; right: 4px; top: 50%; margin-top: -3px;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--run);
+}
+
+/* Run e o seletor de script: um botão só, partido no meio pela fresta de 1px. */
+.split { display: flex; align-items: center; gap: 1px; margin-right: 4px; }
+.split #run-go {
+  display: flex; align-items: center; gap: 6px; padding: 0 10px;
+  border-radius: var(--r) 0 0 var(--r);
+}
+/* Um script só: some o seletor, e o botão volta a ser inteiro. */
+.split:not(:has(#run-pick:not([hidden]))) #run-go { border-radius: var(--r); }
+.split #run-pick { height: 28px; width: 22px; border-radius: 0 var(--r) var(--r) 0; background: var(--bg-raised-3); }
+.split #run-pick .ic { width: 14px; height: 14px; }
+.split kbd { font: inherit; font-size: 11px; color: var(--fg-3); letter-spacing: 0.5px; }
 .dockbody { flex: 1; min-height: 0; position: relative; display: flex; }
 .dock.closed .dockbody { display: none; }
 .dockwrap { flex: 1; position: relative; min-height: 0; }
@@ -507,7 +528,9 @@ body.noside .side { display: none; }
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
   padding: 40px 24px; text-align: center; overflow: hidden;
 }
+.dockempty .glyph { color: var(--fg-3); line-height: 0; }
 .dockempty h4 { margin: 0; font-size: 14px; font-weight: 500; line-height: 20px; }
+.dockempty h4[hidden] { display: none; }
 .dockempty .row { display: flex; gap: 8px; }
 .dockempty .row button { min-width: 128px; font-size: 14px; }
 .dockempty p { margin: 0; max-width: 280px; color: var(--fg-2); font-size: 14px; line-height: 20px; }

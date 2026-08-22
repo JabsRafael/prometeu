@@ -2,9 +2,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
+import type { DockKind } from "./types";
 
-/// Segundo terminal do workspace: um shell no worktree, ou o script de run do
-/// repositório. Não é sessão de agente — sem hook, sem card, sem quadro.
+/// Os terminais do workspace que não são conversa: o `setup` que preparou o
+/// worktree, o `run` que sobe o projeto, e um shell para você. Um pty por tipo,
+/// e o mesmo xterm desenha o que estiver na frente.
 const term = new Terminal({
   fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
   fontSize: 12,
@@ -44,17 +46,28 @@ function refit() {
   });
 }
 
-/// Abre (ou reabre) o dock de um workspace. Reabrir não reinicia nada: o
-/// processo continua vivo e a rolagem guardada redesenha a tela.
-export async function open(workspace: string, kind: "terminal" | "run") {
+/// Abre (ou reabre) um dock. Reabrir não reinicia nada: o processo continua
+/// vivo e a rolagem guardada redesenha a tela. `name` escolhe qual
+/// `[scripts.run.<nome>]` subir, e só é lido quando não há um de pé.
+export async function open(workspace: string, kind: DockKind, name?: string) {
   key = await invoke<string>("open_dock", {
     id: workspace,
     kind,
+    name: name ?? null,
     cols: term.cols || 80,
     rows: term.rows || 12,
   });
   term.reset();
   const buf = await invoke<number[]>("pty_buffer", { session: key });
+  term.write(decoder.decode(new Uint8Array(buf)));
+  refit();
+}
+
+/// Só a rolagem de um processo que já morreu: o `✗ saiu com código` do setup
+/// de ontem. Não reinicia nada, e não aceita tecla — não há para quem mandar.
+export async function show(workspace: string, kind: DockKind) {
+  detach();
+  const buf = await invoke<number[]>("pty_buffer", { session: `${workspace}:${kind}` });
   term.write(decoder.decode(new Uint8Array(buf)));
   refit();
 }
@@ -65,10 +78,11 @@ export function detach() {
 }
 
 /// Mata o processo do dock. Só no botão explícito — trocar de aba não derruba
-/// servidor de dev.
-export function kill(workspace: string, kind: "terminal" | "run") {
-  invoke("close_dock", { id: workspace, kind });
+/// servidor de dev. Espera o back: quem sobe outro no lugar logo em seguida
+/// não pode chegar antes e anexar ao que está morrendo.
+export async function kill(workspace: string, kind: DockKind) {
   if (key === `${workspace}:${kind}`) detach();
+  await invoke("close_dock", { id: workspace, kind });
 }
 
 export function focus() {

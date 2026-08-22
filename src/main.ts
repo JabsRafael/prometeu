@@ -16,7 +16,10 @@ import {
   statusOf,
   type Board,
   type Change,
+  type DockKind,
+  type DockState,
   type Question,
+  type Scripts,
   type Status,
   type Tab,
   type Workspace,
@@ -151,8 +154,11 @@ async function openWorkspace(ws: Workspace, push = true) {
   board.setOpen((openWs = ws.id));
   openDirs.clear();
   dockPane = null;
+  runName = undefined;
+  dockInfo = { scripts: NO_SCRIPTS, docks: [] };
   dock.detach();
   drawDock();
+  refreshDock();
   $("boardView").hidden = true;
   $("wsView").hidden = false;
   $("wsctl").hidden = false;
@@ -511,7 +517,7 @@ async function newTab() {
 /* ---------- painel da direita ---------- */
 
 let sidePane: "files" | "diff" = "files";
-let dockPane: "run" | "terminal" | null = null;
+let dockPane: DockKind | null = null;
 let dockOpen = true;
 const openDirs = new Set<string>();
 
@@ -599,52 +605,234 @@ async function fillDir(id: string, rel: string, into: HTMLElement, depth: number
   }
 }
 
-/* ---------- dock: run e terminal ---------- */
+/* ---------- dock: setup, run e terminal ---------- */
 
-async function setDock(pane: "run" | "terminal") {
+const NO_SCRIPTS: Scripts = { file: null, setup: null, runs: [], archive: null, port: null };
+
+/// O que o repositório declara e o que existe no dock agora. Vem do back quando
+/// o workspace abre e sempre que um script sobe ou morre — nada de polling.
+let dockInfo: { scripts: Scripts; docks: DockState[] } = { scripts: NO_SCRIPTS, docks: [] };
+/// Qual `[scripts.run.<nome>]` o botão dispara. Vazio é o padrão do repositório.
+let runName: string | undefined;
+
+const isUp = (pane: DockKind) => dockInfo.docks.some((d) => d.kind === pane && d.alive);
+/// Rodou e morreu: a rolagem ainda está lá, com o `✗ saiu com código` no fim.
+const hasLog = (pane: DockKind) => dockInfo.docks.some((d) => d.kind === pane);
+const declares = (pane: DockKind) =>
+  pane === "setup" ? !!dockInfo.scripts.setup : dockInfo.scripts.runs.length > 0;
+
+async function refreshDock() {
   const ws = current();
   if (!ws) return;
-  const same = dockOpen && dockPane === pane;
-  dockPane = same ? null : pane;
+  const [scripts, docks] = await Promise.all([
+    invoke<Scripts>("workspace_scripts", { id: ws.id }),
+    invoke<DockState[]>("dock_state", { id: ws.id }),
+  ]);
+  // Trocar de workspace no meio da ida ao back deixaria o painel falando do
+  // repositório errado.
+  if (openWs !== ws.id) return;
+  dockInfo = { scripts, docks };
+  drawDock();
+}
+
+/// Escolhe a aba. `start` é o único jeito de um script começar: abrir a aba só
+/// anexa ao que já está de pé, senão olhar o log de ontem viraria subir servidor.
+async function setDock(pane: DockKind | null, start = false) {
+  const ws = current();
+  if (!ws) return;
+  dockPane = pane;
   dockOpen = true;
   drawDock();
-  if (!dockPane) return dock.detach();
+  if (!pane) return dock.detach();
   try {
-    await dock.open(ws.id, pane);
-    dock.focus();
+    if (pane === "terminal" || start || isUp(pane)) {
+      await dock.open(ws.id, pane, pane === "run" ? runName : undefined);
+      dock.focus();
+    } else if (hasLog(pane)) {
+      // Morreu: só a rolagem, sem reiniciar. É aqui que o setup de ontem
+      // continua dizendo que falhou.
+      await dock.show(ws.id, pane);
+    } else {
+      dock.detach();
+    }
   } catch (err) {
-    dockPane = null;
-    drawDock();
     say(String(err), true);
   }
+  await refreshDock();
 }
+
+const DOCK_TABS = [
+  ["dock-setup", "setup"],
+  ["dock-run", "run"],
+  ["dock-term", "terminal"],
+] as const;
 
 function drawDock() {
   $("dock").classList.toggle("closed", !dockOpen);
   $("dock-toggle").innerHTML = icon(dockOpen ? "chevron-down" : "chevron-right");
   $("dock-toggle").title = dockOpen ? "Recolher" : "Expandir";
-  $("dock-run").classList.toggle("on", dockPane === "run");
-  $("dock-term").classList.toggle("on", dockPane === "terminal");
-  $("dockwrap").hidden = dockPane === null;
-  $("dockempty").hidden = dockPane !== null;
-  $("dock-kill").hidden = dockPane === null;
+  for (const [id, pane] of DOCK_TABS) {
+    $(id).classList.toggle("on", dockPane === pane);
+    // Ponto na aba do que está rodando: o run continua de pé com o painel em
+    // Setup, e sem isto não haveria como saber que ele está lá.
+    $(id).classList.toggle("live", isUp(pane));
+  }
+
+  // O botão de Run mora na barra e não na aba: ⌘R é o mesmo esteja qual estiver
+  // na frente, e é a mesma pergunta com as duas respostas.
+  const up = isUp("run");
+  $("runsplit").hidden = !dockInfo.scripts.runs.length;
+  $("run-pick").hidden = dockInfo.scripts.runs.length < 2;
+  $("run-go").innerHTML =
+    `${icon(up ? "square" : "play", 13)}<span>${up ? "Parar" : "Run"}</span><kbd>⌘R</kbd>`;
+
+  const live = dockPane !== null && (dockPane === "terminal" || isUp(dockPane) || hasLog(dockPane));
+  $("dockwrap").hidden = !live;
+  $("dockempty").hidden = live;
+  // No painel de Run quem encerra é o "Parar" ao lado: dois botões para a mesma
+  // coisa, e a barra fica larga demais para caber os três nomes de aba.
+  const alive = dockPane !== null && isUp(dockPane);
+  $("dock-kill").hidden = !alive || dockPane === "run";
+  // Setup que rodou e morreu: a rolagem fica na frente, e rodar de novo é este
+  // botão — o de Run já é o da barra.
+  $("dock-again").hidden = !(dockPane === "setup" && hasLog("setup") && !isUp("setup"));
+  if (!live) drawDockEmpty();
 }
 
-$("dock-run").addEventListener("click", () => setDock("run"));
-$("dock-term").addEventListener("click", () => setDock("terminal"));
-$("empty-run").addEventListener("click", () => setDock("run"));
-$("empty-term").addEventListener("click", () => setDock("terminal"));
+/// A caixa tracejada. O que ela pede muda com o que falta: um repositório que
+/// não declara nada precisa de um script; um que declara precisa de um clique.
+function drawDockEmpty() {
+  const row = $("empty-row");
+  row.replaceChildren();
+  $("empty-glyph").hidden = true;
+  const button = (label: string, cls: string, run: () => void) => {
+    const b = document.createElement("button");
+    b.className = `${cls} lg`;
+    b.textContent = label;
+    b.addEventListener("click", run);
+    row.append(b);
+  };
+  const title = (text: string) => {
+    $("empty-title").textContent = text;
+    $("empty-title").hidden = !text;
+  };
+
+  if (dockPane === null) {
+    title("Terminais deste worktree");
+    button("Setup", "", () => setDock("setup"));
+    button("Run", "", () => setDock("run"));
+    button("Terminal", "pri", () => setDock("terminal"));
+    $("empty-sub").textContent =
+      "Setup prepara o worktree, Run sobe o projeto, Terminal é um shell aqui dentro.";
+    return;
+  }
+
+  if (!declares(dockPane)) {
+    title(`Adicionar script de ${dockPane}`);
+    button("Perguntar ao agente", "pri", askForScripts);
+    button("Escrever à mão", "", writeScriptsFile);
+    $("empty-sub").textContent =
+      dockPane === "setup"
+        ? "Comandos que rodam quando um worktree nasce, para instalar dependências e preparar o ambiente."
+        : "O comando que sobe o projeto, para você testar a mudança sem sair daqui.";
+    return;
+  }
+
+  // Há script e não há processo: falta o clique.
+  const setup = dockPane === "setup";
+  const port = dockInfo.scripts.port;
+  $("empty-glyph").hidden = false;
+  $("empty-glyph").innerHTML = icon(setup ? "rotate" : "play", 44);
+  title("");
+  button(setup ? "Rodar setup" : "Iniciar Run  ⌘R", "outline", () => setDock(dockPane, true));
+  $("empty-sub").textContent = setup
+    ? "O setup já rodou quando este worktree nasceu. Rodar de novo é seguro se ele for idempotente."
+    : `Teste sua mudança aqui.${port ? ` $PROMETHEUS_PORT é ${port}.` : ""}`;
+}
+
+/// Manda o próprio agente ler o repositório e escrever o settings.toml. Conversa
+/// nova, e não a que está aberta: o assunto é outro, e o contexto de agora não
+/// tem que pagar por isto.
+async function askForScripts() {
+  const ws = current();
+  if (!ws) return;
+  try {
+    const prompt = await invoke<string>("scripts_prompt", { id: ws.id });
+    const tab = await invoke<Tab>("new_tab", { workspace: ws.id, prompt, ...session.dims() });
+    showTerm();
+    await session.attach(tab.id);
+    drawWorkspace();
+  } catch (err) {
+    say(String(err), true);
+  }
+}
+
+/// Cria o arquivo com o exemplo comentado e abre no visualizador — que é onde
+/// se vê o que dá para escrever antes de ir para o editor.
+async function writeScriptsFile() {
+  const ws = current();
+  if (!ws) return;
+  try {
+    await openFile(await invoke<string>("create_scripts_file", { id: ws.id }));
+    await refreshDock();
+  } catch (err) {
+    say(String(err), true);
+  }
+}
+
+/// ⌘R. Sem script declarado, leva para a aba que pede um — que é a resposta
+/// certa para "eu quis rodar e não dá".
+async function toggleRun() {
+  const ws = current();
+  if (!ws) return;
+  if (!dockInfo.scripts.runs.length) return setDock("run");
+  if (!isUp("run")) return setDock("run", true);
+  await dock.kill(ws.id, "run");
+  await refreshDock();
+}
+
+for (const [id, pane] of DOCK_TABS) {
+  // Clicar na aba aberta recolhe: é assim que se some com a saída sem matar o
+  // processo que a produziu.
+  $(id).addEventListener("click", () => setDock(dockOpen && dockPane === pane ? null : pane));
+}
+$("run-go").addEventListener("click", toggleRun);
+$("run-pick").addEventListener("click", (e) => {
+  const at = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  const chosen = runName ?? dockInfo.scripts.runs[0]?.name;
+  menu.openAt({ x: at.left - 40, y: at.bottom + 4 }, [
+    ...dockInfo.scripts.runs.map((r) => ({
+      label: r.name,
+      hint: r.command.length > 36 ? `${r.command.slice(0, 35)}…` : r.command,
+      checked: chosen === r.name,
+      run: async () => {
+        runName = r.name;
+        const ws = current();
+        if (ws && isUp("run")) await dock.kill(ws.id, "run");
+        setDock("run", true);
+      },
+    })),
+    "sep",
+    { label: "Abrir o settings.toml", glyph: icon("file", 14), run: writeScriptsFile },
+  ]);
+});
 $("dock-toggle").addEventListener("click", () => {
   dockOpen = !dockOpen;
   drawDock();
 });
-$("dock-kill").addEventListener("click", () => {
+$("dock-kill").addEventListener("click", async () => {
   const ws = current();
   if (ws && dockPane) {
-    dock.kill(ws.id, dockPane);
-    dockPane = null;
-    drawDock();
+    await dock.kill(ws.id, dockPane);
+    refreshDock();
   }
+});
+$("dock-again").addEventListener("click", () => setDock("setup", true));
+
+/// Script que morreu sozinho — terminou, ou quebrou. A aba volta para o botão
+/// de começar sem ninguém perguntar de tempos em tempos.
+listen<[string, number | null]>("pty-closed", ({ payload: [key] }) => {
+  if (openWs && key.startsWith(`${openWs}:`)) refreshDock();
 });
 
 /// Painel da direita. Redesenha junto com o quadro, que já é atualizado a cada
@@ -857,6 +1045,10 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     toggleRail();
   }
+  if (cmd && e.key === "r" && openWs) {
+    e.preventDefault();
+    toggleRun();
+  }
   const fs = openWs ? files(openWs) : null;
   if (cmd && e.key === "w" && fs?.active) {
     e.preventDefault();
@@ -886,6 +1078,8 @@ for (const [id, name] of [
   ["reveal", "external-link"],
   ["collapse", "list-tree"],
   ["dock-kill", "square"],
+  ["dock-again", "rotate"],
+  ["run-pick", "chevron-down"],
   ["dfold", "chevron-up"],
 ] as const) {
   $(id).innerHTML = icon(name);

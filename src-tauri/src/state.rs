@@ -84,6 +84,14 @@ pub struct Workspace {
     /// Aconteceu algo aqui enquanto você olhava outra coisa.
     #[serde(default)]
     pub unread: bool,
+    /// Base das dez portas reservadas a este worktree — `$PROMETHEUS_PORT` até
+    /// `+9`. Guardada e não calculada: o script tem que achar a mesma porta na
+    /// segunda vez que roda, e dois worktrees do mesmo projeto não podem
+    /// disputar a mesma. Nasce vazia em quadro gravado antes disto existir, e é
+    /// preenchida na primeira vez que o workspace é aberto — o painel pede os
+    /// scripts, e a porta vai junto, porque é ela que ele mostra.
+    #[serde(default)]
+    pub port: Option<u16>,
     #[serde(default)]
     pub tabs: Vec<Tab>,
     #[serde(default)]

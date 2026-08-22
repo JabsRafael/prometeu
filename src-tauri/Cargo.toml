@@ -26,3 +26,5 @@ portable-pty = "0.9"
 uuid = { version = "1", features = ["v4"] }
 dirs = "6"
 tauri-plugin-dialog = "2"
+toml = "0.8"
+libc = "0.2"
