@@ -150,6 +150,11 @@ body.norail .top .nav { margin-left: 0; }
   border-top: 1px solid var(--line-side);
 }
 .railfoot .ver { font-size: 11px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+/* Só aparece quando há o que baixar, e some de novo depois do reinício. */
+#update { height: 20px; padding: 0 8px; font-size: 11px; font-weight: 500; color: var(--accent); }
+#update:hover { background: var(--bg-raised-2); }
+#update.ready { color: var(--pri-fg); background: var(--pri); }
+#update:disabled { color: var(--fg-3); background: none; pointer-events: none; }
 
 .navitem {
   display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;

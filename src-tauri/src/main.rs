@@ -70,6 +70,8 @@ fn main() {
     adopt_login_path();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(AppState {
             board: Mutex::new(Board::load()),
             save: state::spawn_saver(),

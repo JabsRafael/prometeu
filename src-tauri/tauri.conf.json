@@ -45,6 +45,18 @@
     ],
     "externalBin": [
       "binaries/prometheus-hook"
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/gbrancaglione/prometheus-releases/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYxMjM3N0I1MDk2NzJFMUYKUldRZkxtY0p0WGNqWWFrVEl5Ujh0MGI4dmpuQk1HeWVNZHlLOEwyRFYzVlJ5VmNVQUE0RzRFY08K",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

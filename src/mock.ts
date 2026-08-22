@@ -325,6 +325,10 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     // tela é melhor que repetir aqui um número que envelhece sozinho.
     case "plugin:app|version":
       return "0.0.0-mock";
+    // O updater também não tem o que fazer aqui: `null` é "nada novo", que é
+    // a resposta honesta para uma aba de navegador.
+    case "plugin:updater|check":
+      return null;
     default:
       return null;
   }

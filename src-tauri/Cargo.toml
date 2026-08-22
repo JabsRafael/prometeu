@@ -26,6 +26,10 @@ portable-pty = "0.9"
 uuid = { version = "1", features = ["v4"] }
 dirs = "6"
 tauri-plugin-dialog = "2"
+# O app se atualiza sozinho: baixa o bundle novo, confere a assinatura minisign
+# e troca o .app no lugar. O `process` é só para reiniciar depois da troca.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 toml = "0.8"
 # Só para sinalizar o grupo de processos: encerrar uma sessão precisa alcançar
 # os netos (o `node` que o `npm run dev` subiu), e o pid do filho não alcança.
