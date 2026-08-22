@@ -22,9 +22,13 @@ fn socket_path() -> PathBuf {
     if let Ok(p) = std::env::var("PROMETHEUS_SOCKET") {
         return PathBuf::from(p);
     }
+    // Mesma conta do app: o hook de debug fala com o app de dev, o hook que
+    // viaja dentro do .app fala com o app instalado.
+    let root = if cfg!(debug_assertions) { ".prometheus-dev" } else { ".prometheus" };
     dirs::home_dir()
         .expect("sem HOME")
-        .join(".prometheus/run/prometheus.sock")
+        .join(root)
+        .join("run/prometheus.sock")
 }
 
 fn main() {

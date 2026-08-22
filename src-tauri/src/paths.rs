@@ -4,9 +4,29 @@ pub fn home() -> PathBuf {
     dirs::home_dir().expect("sem HOME")
 }
 
+/// O que separa o app de dev do app instalado, em todo caminho que o Prometheus
+/// escreve. Sem isto os dois disputam o mesmo socket — `socket::listen` apaga o
+/// socket órfão antes do `bind`, então o último a subir rouba os hooks do outro —
+/// e mexem no mesmo quadro e nos mesmos worktrees.
+///
+/// `cfg!` resolve em tempo de compilação: `tauri dev` compila em debug, `tauri
+/// build` em release. Nada para configurar.
+fn suffix() -> &'static str {
+    if cfg!(debug_assertions) {
+        "-dev"
+    } else {
+        ""
+    }
+}
+
 /// Raiz de tudo que o Prometheus escreve fora do repositório do usuário.
+///
+/// O hook faz a mesma conta, e por isso o hook de debug fala com o app de dev.
 pub fn root() -> PathBuf {
-    home().join(".prometheus")
+    if let Ok(p) = std::env::var("PROMETHEUS_ROOT") {
+        return PathBuf::from(p);
+    }
+    home().join(format!(".prometheus{}", suffix()))
 }
 
 pub fn socket_path() -> PathBuf {
@@ -18,9 +38,14 @@ pub fn session_dir(id: &str) -> PathBuf {
 }
 
 /// Worktrees ficam fora de `.prometheus` porque o usuário abre esses diretórios no editor.
+///
+/// O sufixo também vale aqui: dois apps criando worktree para a mesma branch do
+/// mesmo repo colidiriam no mesmo diretório — e o transcript, que o Claude Code
+/// nomeia pelo caminho do cwd, seria o mesmo arquivo para as duas sessões.
 pub fn worktree_dir(repo_name: &str, branch: &str) -> PathBuf {
     home()
-        .join("prometheus/worktrees")
+        .join("prometheus")
+        .join(format!("worktrees{}", suffix()))
         .join(repo_name)
         .join(branch.replace('/', "-"))
 }
