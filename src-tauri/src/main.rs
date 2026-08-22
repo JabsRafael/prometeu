@@ -29,7 +29,35 @@ pub struct AppState {
     pub asked_at: Mutex<HashMap<String, Instant>>,
 }
 
+/// O app aberto pelo Finder nasce com o PATH mínimo do launchd —
+/// `/usr/bin:/bin:/usr/sbin:/sbin`, sem o `claude` que mora em `~/.local/bin`
+/// e sem nada do Homebrew. Pergunta ao shell de login qual é o PATH de verdade
+/// e adota: toda sessão nasce herdando o ambiente deste processo.
+///
+/// Rodando do terminal o PATH já está certo e isto só confirma o que veio.
+fn adopt_login_path() {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let out = std::process::Command::new(shell)
+            .args(["-ilc", r#"printf %s "$PATH""#])
+            .output();
+        let path = out
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+        let _ = tx.send(path);
+    });
+    // O profile do usuário é código arbitrário: se ele travar, o app não trava com ele.
+    if let Ok(Some(path)) = rx.recv_timeout(std::time::Duration::from_secs(5)) {
+        if !path.is_empty() {
+            std::env::set_var("PATH", path);
+        }
+    }
+}
+
 fn main() {
+    adopt_login_path();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
