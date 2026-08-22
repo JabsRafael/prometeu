@@ -91,7 +91,12 @@ export function reset() {
   info = { scripts: NO_SCRIPTS, docks: [] };
   dock.detach();
   draw();
-  refresh();
+  // Entrar num workspace cai no Setup: é a saída do que rodou quando o worktree
+  // nasceu — inclusive o erro, quando ele falhou. Olhar não sobe processo
+  // nenhum, e abrir sempre numa aba evita a tela que só repetia as três.
+  void refresh().then(() => {
+    if (pane === null) void setDock("setup");
+  });
 }
 
 /// O que o repositório declara e o que está de pé, do back.
@@ -173,16 +178,23 @@ export function draw() {
   if (!live) drawEmpty();
 }
 
-/// A caixa tracejada. O que ela pede muda com o que falta: um repositório que
-/// não declara nada precisa de um script; um que declara precisa de um clique.
+/// O que a aba diz quando não há processo na frente. Muda com o que falta: um
+/// repositório que não declara nada precisa de um script; um que declara
+/// precisa de um clique. Um botão só chama a ação — o outro, quando existe, é
+/// a saída alternativa, e por isso não disputa o olho com ele.
 function drawEmpty() {
   const row = $("empty-row");
   row.replaceChildren();
-  $("empty-glyph").hidden = true;
-  const button = (label: string, cls: string, run: () => void) => {
+  const glyph = $("empty-glyph");
+  glyph.hidden = true;
+  glyph.className = "glyph";
+  $("dockempty").classList.toggle("idle", pane === null);
+
+  const button = (label: string, cls: string, run: () => void, key?: string) => {
     const b = document.createElement("button");
-    b.className = `${cls} lg`;
-    b.textContent = label;
+    b.className = cls;
+    b.innerHTML = `<span></span>${key ? `<kbd>${key}</kbd>` : ""}`;
+    b.firstElementChild!.textContent = label;
     b.addEventListener("click", run);
     row.append(b);
   };
@@ -191,34 +203,36 @@ function drawEmpty() {
     $("empty-title").hidden = !text;
   };
 
+  // Sem aba na frente — só se acontece depois de clicar na aba aberta para
+  // sumir com a saída. As três abas estão logo acima; repetir os nomes aqui
+  // era desenhar o mesmo botão duas vezes na mesma tela.
   if (pane === null) {
-    title("Terminais deste worktree");
-    button("Setup", "", () => setDock("setup"));
-    button("Run", "", () => setDock("run"));
-    button("Terminal", "pri", () => setDock("terminal"));
-    $("empty-sub").textContent =
-      "Setup prepara o worktree, Run sobe o projeto, Terminal é um shell aqui dentro.";
+    title("");
+    $("empty-sub").textContent = "Setup prepara o worktree, Run sobe o projeto, Terminal é um shell aqui dentro.";
     return;
   }
 
   if (!declares(pane)) {
-    title(`Adicionar script de ${pane}`);
-    button("Perguntar ao agente", "pri", askForScripts);
-    button("Escrever à mão", "", writeScriptsFile);
+    title(pane === "setup" ? "Sem script de setup" : "Sem script de run");
     $("empty-sub").textContent =
       pane === "setup"
         ? "Comandos que rodam quando um worktree nasce, para instalar dependências e preparar o ambiente."
         : "O comando que sobe o projeto, para você testar a mudança sem sair daqui.";
+    button("Perguntar ao agente", "outline", askForScripts);
+    button("Escrever à mão", "ghost", writeScriptsFile);
     return;
   }
 
   // Há script e não há processo: falta o clique.
   const setup = pane === "setup";
   const port = info.scripts.port;
-  $("empty-glyph").hidden = false;
-  $("empty-glyph").innerHTML = icon(setup ? "rotate" : "play", 44);
-  title("");
-  button(setup ? "Rodar setup" : "Iniciar Run  ⌘R", "outline", () => setDock(pane, true));
+  glyph.hidden = false;
+  glyph.className = setup ? "glyph" : "glyph solid";
+  glyph.innerHTML = icon(setup ? "rotate" : "play", 56);
+  title(setup ? "Sem saída do setup" : "Nada rodando");
+  // O ⌘R é do Run e só dele: escrevê-lo no botão do setup seria prometer um
+  // atalho que dispara outra coisa.
+  button(setup ? "Rodar setup" : "Iniciar Run", "outline", () => setDock(pane, true), setup ? undefined : "⌘R");
   $("empty-sub").textContent = setup
     ? "O setup já rodou quando este worktree nasceu. Rodar de novo é seguro se ele for idempotente."
     : `Teste sua mudança aqui.${port ? ` $PROMETHEUS_PORT é ${port}.` : ""}`;

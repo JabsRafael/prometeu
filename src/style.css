@@ -519,15 +519,23 @@ body.noside .side { display: none; }
   width: 6px; height: 6px; border-radius: 50%; background: var(--run);
 }
 
-/* Run e o seletor de script: um botão só, partido no meio pela fresta de 1px. */
-.split { display: flex; align-items: center; gap: 1px; margin-right: 4px; }
-.split #run-go {
-  display: flex; align-items: center; gap: 6px; padding: 0 10px;
-  border-radius: var(--r) 0 0 var(--r);
+/* Run e o seletor de script: uma peça só, com a borda por fora e uma linha
+   dividindo as duas metades — em vez de dois botões colados por uma fresta. */
+.split {
+  display: flex; align-items: center; margin-right: 4px; height: 26px;
+  border: 1px solid var(--line-raised); border-radius: var(--r);
+  background: var(--bg-raised); overflow: hidden;
 }
-/* Um script só: some o seletor, e o botão volta a ser inteiro. */
-.split:not(:has(#run-pick:not([hidden]))) #run-go { border-radius: var(--r); }
-.split #run-pick { height: 28px; width: 22px; border-radius: 0 var(--r) var(--r) 0; background: var(--bg-raised-3); }
+.split #run-go {
+  display: flex; align-items: center; gap: 6px; padding: 0 10px; height: 100%;
+  border-radius: 0; background: none;
+}
+.split #run-go:hover { background: var(--bg-raised-2); }
+.split #run-pick {
+  height: 100%; width: 22px; border-radius: 0; background: none;
+  border-left: 1px solid var(--line-raised);
+}
+.split #run-pick:hover { background: var(--bg-raised-2); }
 .split #run-pick .ic { width: 14px; height: 14px; }
 .split kbd { font: inherit; font-size: 11px; color: var(--fg-3); letter-spacing: 0.5px; }
 .dockbody { flex: 1; min-height: 0; position: relative; display: flex; }
@@ -535,18 +543,25 @@ body.noside .side { display: none; }
 .dockwrap { flex: 1; position: relative; min-height: 0; }
 #dockterm { position: absolute; inset: 8px 12px; }
 
-/* Estado vazio: a caixa tracejada do Conductor, com os dois botões. */
+/* Estado vazio: sem moldura. A caixa tracejada parecia área de arrastar, e o
+   que está ali não é um espaço à espera de conteúdo — é a tela inteira dizendo
+   o que falta. Fica centrada nos dois eixos, como o resto dos vazios do app. */
 .dockempty {
-  flex: 1; align-self: flex-start; margin: 32px 16px 16px; border: 1px dashed var(--line); border-radius: var(--r-lg);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
-  padding: 40px 24px; text-align: center; overflow: hidden;
+  position: absolute; inset: 0; padding: 24px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; text-align: center; overflow: hidden;
 }
-.dockempty .glyph { color: var(--fg-3); line-height: 0; }
-.dockempty h4 { margin: 0; font-size: 14px; font-weight: 500; line-height: 20px; }
+/* O ícone é fundo, não conteúdo: grande e apagado, para o olho cair no botão. */
+.dockempty .glyph { color: var(--fg-3); line-height: 0; opacity: 0.5; }
+.dockempty .glyph.solid svg { fill: currentColor; stroke: none; }
+.dockempty h4 { margin: 0; font-size: 17px; font-weight: 500; color: var(--fg); line-height: 22px; }
 .dockempty h4[hidden] { display: none; }
-.dockempty .row { display: flex; gap: 8px; }
-.dockempty .row button { min-width: 128px; font-size: 14px; }
-.dockempty p { margin: 0; max-width: 280px; color: var(--fg-2); font-size: 14px; line-height: 20px; }
+.dockempty .row { display: flex; gap: 8px; margin-top: 2px; }
+.dockempty .row button { height: 30px; padding: 0 14px; font-size: 13px; gap: 8px; }
+.dockempty .row kbd { font: inherit; font-size: 11px; color: var(--fg-3); letter-spacing: 0.5px; }
+.dockempty p { margin: 0; max-width: 330px; color: var(--fg-2); font-size: 13px; line-height: 19px; }
+/* Nenhuma aba na frente: é um lembrete, não um convite — some do caminho. */
+.dockempty.idle p { color: var(--fg-3); }
 
 /* Conversa desligada: em vez de um terminal vazio e mudo, a saída explícita. */
 .offline {
