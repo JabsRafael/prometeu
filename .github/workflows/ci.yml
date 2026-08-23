@@ -1,0 +1,75 @@
+# Roda em todo PR e em todo push na main: type-check do front, testes dos dois
+# lados (vitest + cargo test), clippy, e o formato das mensagens de commit.
+#
+# Tudo em Linux de propósito — o runner macOS custa 10× os minutos, e nada
+# aqui depende de macOS. O build do app de verdade fica no release.yml.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  testes:
+    name: testes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: dependências do Tauri no Linux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libssl-dev libxdo-dev
+
+      - run: npm ci
+
+      # O build script do Tauri recusa compilar sem o sidecar do host, e o
+      # `generate_context!` embute o dist/ — os dois precisam existir antes
+      # do cargo test.
+      - run: sh scripts/sidecar.sh
+      - run: npm run build
+
+      - run: npm test
+
+      - run: cargo clippy --workspace -- -D warnings
+        working-directory: src-tauri
+
+  commits:
+    name: mensagens de commit
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: cada commit do PR passa pelo hook
+        run: |
+          falhou=0
+          for sha in $(git rev-list --no-merges \
+              ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}); do
+            git log -1 --format=%B "$sha" > "$RUNNER_TEMP/msg"
+            if ! sh .githooks/commit-msg "$RUNNER_TEMP/msg"; then
+              echo "::error::commit $sha fora do padrão"
+              falhou=1
+            fi
+          done
+          exit $falhou

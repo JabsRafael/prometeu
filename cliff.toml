@@ -1,0 +1,65 @@
+# git-cliff — gera o CHANGELOG.md e as notas de release a partir dos commits.
+#
+# Os commits seguem Conventional Commits (`feat(escopo): descrição`). Só o que
+# a pessoa que usa o app percebe entra no changelog: feat, fix, perf e revert.
+# O resto (chore, ci, docs, test, refactor, style, build) fica fora de
+# propósito — changelog é para quem usa, não para quem mexe no código.
+#
+# A descrição do commit é a linha que aparece para o usuário. Escreva-a como
+# tal: o que a pessoa vê ou passa a conseguir fazer, em português, sem nome de
+# arquivo ou de função. Ver CLAUDE.md.
+
+[changelog]
+header = """
+# Changelog
+
+O que muda no Prometheus, versão a versão, para quem usa o app.
+As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
+commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
+
+"""
+body = """
+{%- if version -%}
+## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{%- else -%}
+## [Unreleased]
+{%- endif %}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+{% for commit in commits %}
+- {% if commit.breaking %}**Quebra:** {% endif %}{% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | split(pat="
+") | first | trim | upper_first }}
+{%- endfor %}
+{% endfor %}
+"""
+footer = ""
+trim = false
+
+[git]
+conventional_commits = true
+# Commits fora do padrão (os de antes da convenção) caem em "Outros" em vez de
+# sumir — sumir calado é pior que aparecer feio.
+filter_unconventional = false
+split_commits = false
+protect_breaking_commits = true
+filter_commits = false
+tag_pattern = "v[0-9].*"
+sort_commits = "oldest"
+topo_order = false
+commit_parsers = [
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^Marcar a versão", skip = true },
+  { message = "^Merge ", skip = true },
+  { message = "^feat", group = "<!-- 0 -->Novidades" },
+  { message = "^fix", group = "<!-- 1 -->Correções" },
+  { message = "^perf", group = "<!-- 2 -->Desempenho" },
+  { message = "^revert", group = "<!-- 3 -->Revertido" },
+  { message = "^(chore|ci|build|docs|test|style|refactor)(\\(|:|!)", skip = true },
+  { message = ".*", group = "<!-- 4 -->Outros" },
+]
+
+[bump]
+# Enquanto a versão é 0.x: feat e fix sobem o patch, mudança que quebra sobe o
+# minor. Passar de 1.0 é decisão de gente, não de script.
+features_always_bump_minor = false
+breaking_always_bump_major = false

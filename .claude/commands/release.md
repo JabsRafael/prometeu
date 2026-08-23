@@ -1,69 +1,87 @@
 ---
-description: Solta uma versão nova do Prometheus — confere, escreve as notas e roda o script
-argument-hint: [versão]
-allowed-tools: Bash(git:*), Bash(gh release:*), Bash(sh scripts/release.sh:*), Bash(cat:*), Bash(python3:*), Read
+description: Solta uma versão nova do Prometheus — confere os commits, corta a tag, acompanha o CI e publica a draft
+argument-hint: [versão | publish]
+allowed-tools: Bash(git:*), Bash(gh:*), Bash(sh scripts/release.sh:*), Bash(npx git-cliff:*), Bash(npx --no git-cliff:*), Bash(cat:*), Bash(node:*), Read
 ---
 
-Você vai soltar uma versão do Prometheus. O trabalho pesado é do
-`scripts/release.sh`; o seu é decidir a versão, escrever as notas e não deixar
-passar nada quebrado.
+Você vai soltar uma versão do Prometheus. O fluxo tem duas metades, e entre
+elas existe uma pessoa:
 
-Versão pedida: **$1** (vazio = incrementar o último número do `package.json`).
+1. **cortar** — `sh scripts/release.sh [versão]` calcula o número a partir dos
+   commits, gera a seção do `CHANGELOG.md`, commita, tagueia, empurra e
+   acompanha o CI, que constrói assinado e deixa uma release **draft** em
+   `gbrancaglione/prometheus-releases`.
+2. **publicar** — depois que o usuário instalou o `.dmg` da draft e conferiu,
+   `sh scripts/release.sh publish` tira a draft do ar e o updater passa a
+   entregá-la.
 
-## 1. Onde você está
+Argumento: **$1** (vazio = cortar com a versão calculada; `publish` = publicar
+a draft da versão atual do `package.json`; `0.2.0` = cortar com essa versão).
+
+## Se for `publish`
+
+Pergunte ao usuário se ele instalou o `.dmg` da draft e abriu o app. Só com um
+sim rode `sh scripts/release.sh publish`. O script confere sozinho que a draft
+está inteira e que o CI deu verde; se ele recusar, leia o motivo — não há o que
+forçar.
+
+## Se for cortar
+
+### 1. Onde você está
 
 - branch e sujeira: !`git rev-parse --abbrev-ref HEAD; git status --porcelain | head -5`
 - worktrees deste repo: !`git worktree list | head -3`
 
-Release sai do **clone principal, na main, com a árvore limpa**. Se a saída
-acima mostrar outra branch ou um worktree, **pare**: diga em qual pasta o clone
-principal está (é a primeira linha do `git worktree list`) e que o release sai
-de lá, depois que o trabalho estiver mergeado.
+Release sai do **clone principal, na main, com a árvore limpa e igual à
+origin/main**. Se a saída acima mostrar outra branch ou um worktree, **pare**:
+diga em qual pasta o clone principal está (é a primeira linha do `git worktree
+list`) e que o release sai de lá, depois que o trabalho estiver mergeado.
 
-## 2. O que mudou
+### 2. O que vai sair
 
 - versão atual: !`node -p "require('./package.json').version"`
-- commits desde a última tag: !`sh -c 'T=$(git describe --tags --abbrev=0 2>/dev/null); echo "última tag: ${T:-nenhuma}"; git log --reverse --pretty="- %s" ${T:+$T..}HEAD'`
-- tamanho da mudança: !`sh -c 'T=$(git describe --tags --abbrev=0 2>/dev/null); git diff --stat ${T:+$T..}HEAD | tail -1'`
+- versão calculada: !`npx --no git-cliff --bumped-version 2>/dev/null || echo "(git-cliff não instalado — rode npm install)"`
+- as notas, como o git-cliff as gera dos commits: !`npx --no git-cliff --unreleased --bump --strip all 2>/dev/null`
 
-Leia os commits e, quando não estiver claro o que uma mudança faz na tela, abra
-o diff dela antes de escrever qualquer coisa a respeito.
+As notas **são** os commits `feat`, `fix` e `perf` desde a última tag — não há
+etapa de escrever notas. Leia o que saiu com o olho de quem usa o app:
 
-## 3. As notas
+- linha que fala de arquivo, função ou módulo está errada; linha que diz o que
+  a pessoa vê ou passa a conseguir fazer está certa
+- se a lista estiver vazia, o script vai recusar: algum commit que importa
+  entrou como `chore` ou `refactor`, ou não há o que soltar
+- commit já está na main: **não** reescreva histórico para consertar uma
+  linha. Mostre a linha ruim ao usuário e deixe ele decidir entre soltar assim
+  ou fazer um commit `fix`/`feat` que conte a história direito
 
-Escreva de 1 a 5 linhas **para quem usa o app**, em português, começando cada
-uma com `- `. As regras:
+Mostre a versão e as notas ao usuário e **espere ele aprovar**.
 
-- fale do que a pessoa vê ou passa a conseguir fazer, não do código
-- nada de nome de arquivo, de função ou de módulo
-- nada de "refactor", "bump", "fix": diga o que estava ruim e o que ficou bom
-- não prometa o que você não conferiu no diff
+### 3. Cortar
 
-Mostre as notas e a versão para o usuário e **espere ele aprovar**. Se ele
-mudar uma palavra, é a palavra dele que vai.
-
-## 4. Soltar
-
-Com o aval, rode — as notas vão no segundo argumento, senão o script tenta
-abrir um editor que não existe aqui dentro:
+Com o aval:
 
 ```sh
-sh scripts/release.sh <versão> "<as notas aprovadas>"
+sh scripts/release.sh $1
 ```
 
-Ele marca os quatro arquivos de versão, roda os testes, commita, tagueia,
-constrói assinado, escreve o `latest.json` e publica em
-`gbrancaglione/prometheus-releases`. Demora uns dois minutos por causa do cargo.
+Ele marca os quatro arquivos de versão, prepende a seção ao `CHANGELOG.md`,
+roda os testes, commita `chore(release): vX.Y.Z`, tagueia, empurra e fica
+acompanhando o run do `release.yml` (uns dez minutos no runner macOS),
+imprimindo o estado a cada trinta segundos. Deixe rodar.
 
-Se ele parar no meio, **leia o erro antes de tentar de novo**: teste vermelho,
-árvore suja e chave de assinatura ilegível são coisas diferentes, e nenhuma se
-resolve rodando o comando outra vez.
+Se o script parar antes de empurrar, **leia o erro antes de tentar de novo**:
+árvore suja, main atrás da origin, teste vermelho e "nada para contar" são
+coisas diferentes, e nenhuma se resolve rodando o comando outra vez. Se o CI
+ficar vermelho, a tag já está lá: investigue o log do run, conserte na main
+com um commit `fix`/`ci`, e a próxima versão leva o conserto — tag não se
+reaproveita.
 
-## 5. Depois
+### 4. Depois
 
-Diga ao usuário a URL da release e que o Prometheus instalado mostra o aviso no
-rodapé quando ele fechar e abrir de novo — ou em até seis horas, se deixar
-aberto.
+Diga ao usuário a URL da draft e o que falta: baixar o `.dmg`, instalar por
+cima, abrir, e então `/release publish`. Quem já tem o Prometheus instalado só
+fica sabendo depois do publish — no rodapé, ao abrir o app ou em até seis
+horas.
 
 Duas coisas que você **não** faz: republicar um pacote por cima de um nome que
 já existe (o CDN do GitHub serve o antigo por vários minutos — o certo é soltar
