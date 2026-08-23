@@ -4,10 +4,11 @@
 
 use crate::lock::lock;
 use crate::state::{publish, Note, Status};
-use crate::{paths, AppState};
+use crate::{paths, transcript, AppState};
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -88,8 +89,9 @@ fn handle(app: &AppHandle, stream: UnixStream) {
         "tool" => set(app, &session, Some(Status::Rodando), Note::Set(activity(&payload))),
         // Parou. Deixar a última ferramenta escrita aqui fazia o card dizer
         // "pronta" embaixo de uma linha que parecia trabalho acontecendo agora.
-        "idle" => set(app, &session, Some(Status::Pronta), Note::Clear),
-        "end" => set(app, &session, Some(Status::Desligada), Note::Clear),
+        // Parar é também quando a conversa cresceu: é a hora de ler quanto.
+        "idle" => update(app, &session, Some(Status::Pronta), Note::Clear, context(app, &session, &payload)),
+        "end" => update(app, &session, Some(Status::Desligada), Note::Clear, context(app, &session, &payload)),
         "notif" => {
             let msg = payload["message"].as_str().unwrap_or("").to_string();
             set(app, &session, Some(Status::Querendo), Note::Set(msg));
@@ -168,6 +170,25 @@ fn activity(payload: &Value) -> String {
 }
 
 pub fn set(app: &AppHandle, session: &str, status: Option<Status>, note: Note) {
+    update(app, session, status, note, None);
+}
+
+/// Quanto a conversa pesa agora, lido do transcript. O hook diz onde ele está;
+/// hook antigo sem esse campo cai na conta do `paths::transcript`. `None` é
+/// "não mexe": conversa que ainda não respondeu não zera o número que tinha.
+fn context(app: &AppHandle, session: &str, payload: &Value) -> Option<u64> {
+    let path = match payload["transcript_path"].as_str() {
+        Some(p) => PathBuf::from(p),
+        None => {
+            let state = app.state::<AppState>();
+            let worktree = lock(&state.board).workspace_of(session)?.worktree.clone();
+            paths::transcript(session, std::path::Path::new(&worktree))
+        }
+    };
+    transcript::context(&path)
+}
+
+fn update(app: &AppHandle, session: &str, status: Option<Status>, note: Note, tokens: Option<u64>) {
     if session.is_empty() {
         return;
     }
@@ -191,6 +212,9 @@ pub fn set(app: &AppHandle, session: &str, status: Option<Status>, note: Note) {
             Note::Clear => None,
             Note::Set(n) => Some(n),
         };
+        if tokens.is_some() {
+            tab.tokens = tokens;
+        }
     }
     publish(app);
 }

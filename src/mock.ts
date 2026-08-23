@@ -42,16 +42,16 @@ const board: Board = {
   ],
   workspaces: [
     ws("sessao-0929", "p1", "njord", "Ola", "Fazendo", [
-      { id: "t1", title: "conversa 1", status: "pronta", note: null },
-      { id: "t2", title: "conversa 2", status: "pronta", note: null },
+      { id: "t1", title: "conversa 1", status: "pronta", note: null, tokens: 57_000 },
+      { id: "t2", title: "conversa 2", status: "pronta", note: null, tokens: 112_400 },
     ]),
     ws("ui-2231", "p2", "prometheus", "Tela igual ao Conductor", "Fazendo", [
-      { id: "t3", title: "conversa 1", status: "rodando", note: "Edit src/style.css" },
+      { id: "t3", title: "conversa 1", status: "rodando", note: "Edit src/style.css", tokens: 23_800 },
     ]),
     // Uma pergunta esperando você é justamente o que vira novidade.
     Object.assign(
       ws("icone-2140", "p2", "prometheus", "Ícone do app", "Code review", [
-        { id: "t4", title: "conversa 1", status: "querendo", note: "Qual tamanho de ícone você quer gerar?" },
+        { id: "t4", title: "conversa 1", status: "querendo", note: "Qual tamanho de ícone você quer gerar?", tokens: 8_100 },
       ]),
       { unread: true },
     ),
@@ -282,7 +282,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       const id = `nova-${nextId++}`;
       const repo = String(draft.project).split("/").pop() ?? "repo";
       const fresh = ws(id, draft.project, repo, draft.title || draft.branch, draft.stage, [
-        { id: `t-${id}`, title: "conversa", status: "pronta", note: null },
+        { id: `t-${id}`, title: "conversa", status: "pronta", note: null, tokens: null },
       ]);
       fresh.branch = draft.branch || "main";
       fresh.model = draft.model;
