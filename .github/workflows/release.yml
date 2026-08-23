@@ -87,6 +87,7 @@ jobs:
           releaseDraft: true
           includeUpdaterJson: true
           assetNamePattern: '[name]_[version]_[arch][ext]'
+          args: --verbose
 
       - name: build assinado, sem publicar
         if: github.ref_type != 'tag'
@@ -94,6 +95,8 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          args: --verbose
 
       - uses: actions/upload-artifact@v4
         if: github.ref_type != 'tag'
