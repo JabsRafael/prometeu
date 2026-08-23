@@ -66,7 +66,8 @@ sh scripts/release.sh $1
 
 Ele marca os quatro arquivos de versão, prepende a seção ao `CHANGELOG.md`,
 roda os testes, commita `chore(release): vX.Y.Z`, tagueia, empurra e fica
-acompanhando o run do `release.yml` (uns dez minutos no runner macOS),
+acompanhando o run do `release.yml` (roda neste Mac, pelo runner self-hosted;
+primeiro build demora, os seguintes são incrementais),
 imprimindo o estado a cada trinta segundos. Deixe rodar.
 
 Se o script parar antes de empurrar, **leia o erro antes de tentar de novo**:

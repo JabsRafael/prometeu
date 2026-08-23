@@ -1,7 +1,8 @@
 # Dispara na tag `v*` que o scripts/release.sh empurra. Constrói o app no
-# runner macOS, assina com a chave que vive em Secrets e cria uma release
-# **draft** em gbrancaglione/prometheus-releases, com as notas tiradas da
-# seção da versão no CHANGELOG.md.
+# runner self-hosted (o Mac de quem desenvolve — ver ci.yml), assina com a
+# chave que vive em Secrets e cria uma release **draft** em
+# gbrancaglione/prometheus-releases, com as notas tiradas da seção da versão
+# no CHANGELOG.md.
 #
 # Draft é o portão: o updater lê `releases/latest/download/latest.json`, e o
 # GitHub só considera "latest" o que foi publicado. Até alguém instalar o .dmg
@@ -36,7 +37,7 @@ env:
 jobs:
   build:
     name: construir e assinar
-    runs-on: macos-latest
+    runs-on: [self-hosted, macOS]
     outputs:
       version: ${{ steps.notes.outputs.version }}
     steps:
@@ -44,14 +45,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
+          node-version: 24
 
       - run: npm ci
 
@@ -110,22 +104,23 @@ jobs:
             src-tauri/target/release/bundle/macos/*.app.tar.gz
             src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
           if-no-files-found: error
+          retention-days: 7
 
   verify:
     name: conferir a draft
     needs: build
     if: github.ref_type == 'tag'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS]
     env:
       GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
       VERSION: ${{ needs.build.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
-      - run: sudo apt-get install -y minisign
+      - run: command -v minisign >/dev/null || brew install minisign
 
       - name: baixar o que o build publicou
-        run: gh release download "v$VERSION" -R "$REPO" -D pkg && ls -la pkg
+        run: rm -rf pkg && gh release download "v$VERSION" -R "$REPO" -D pkg && ls -la pkg
 
       # O mesmo caminho que o app instalado percorre: lê o latest.json, acha o
       # pacote que ele aponta, confere a assinatura contra a chave pública que

@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "app": "sh scripts/app.sh",
     "build:app": "tauri build",
+    "tauri": "tauri",
     "test": "vitest run && cd src-tauri && cargo test --workspace",
     "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true"
   },
