@@ -26,7 +26,12 @@ cd "$(dirname "$0")/.."
 REPO=gbrancaglione/prometheus-releases
 
 die() { echo "$*" >&2; exit 1; }
-cliff() { npx --no git-cliff "$@"; }
+# O bin direto: `npx --no git-cliff --flag` deixa o npm engolir o --flag como
+# config dele.
+cliff() {
+  [ -x node_modules/.bin/git-cliff ] || die "git-cliff não está instalado — rode npm install"
+  node_modules/.bin/git-cliff "$@"
+}
 
 # ---------- cortar ----------
 
@@ -84,11 +89,15 @@ PY
   cliff --unreleased --tag "v$VERSION" --prepend CHANGELOG.md
   cat -s CHANGELOG.md > CHANGELOG.md.tmp && mv CHANGELOG.md.tmp CHANGELOG.md
 
-  npm test >/dev/null
+  LOG=$(mktemp -t prometheus-test)
+  npm test >"$LOG" 2>&1 || { cat "$LOG"; rm -f "$LOG"; die "testes vermelhos — nada foi commitado"; }
+  rm -f "$LOG"
 
   git add -A
   git commit -qm "chore(release): v$VERSION"
-  git tag -a "v$VERSION" -m "Prometheus $VERSION" -m "$NOTES"
+  # `--cleanup=whitespace`: o padrão apaga linha que começa com #, e os
+  # títulos do markdown começam com #.
+  git tag -a "v$VERSION" --cleanup=whitespace -m "Prometheus $VERSION" -m "$NOTES"
   git push -q origin main "v$VERSION"
 
   echo

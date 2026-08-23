@@ -1,7 +1,7 @@
 ---
 description: Solta uma versão nova do Prometheus — confere os commits, corta a tag, acompanha o CI e publica a draft
 argument-hint: [versão | publish]
-allowed-tools: Bash(git:*), Bash(gh:*), Bash(sh scripts/release.sh:*), Bash(npx git-cliff:*), Bash(npx --no git-cliff:*), Bash(cat:*), Bash(node:*), Read
+allowed-tools: Bash(git:*), Bash(gh:*), Bash(sh scripts/release.sh:*), Bash(node_modules/.bin/git-cliff:*), Bash(cat:*), Bash(node:*), Read
 ---
 
 Você vai soltar uma versão do Prometheus. O fluxo tem duas metades, e entre
@@ -40,8 +40,8 @@ list`) e que o release sai de lá, depois que o trabalho estiver mergeado.
 ### 2. O que vai sair
 
 - versão atual: !`node -p "require('./package.json').version"`
-- versão calculada: !`npx --no git-cliff --bumped-version 2>/dev/null || echo "(git-cliff não instalado — rode npm install)"`
-- as notas, como o git-cliff as gera dos commits: !`npx --no git-cliff --unreleased --bump --strip all 2>/dev/null`
+- versão calculada: !`node_modules/.bin/git-cliff --bumped-version 2>/dev/null || echo "(git-cliff não instalado — rode npm install)"`
+- as notas, como o git-cliff as gera dos commits: !`node_modules/.bin/git-cliff --unreleased --bump --strip all 2>/dev/null`
 
 As notas **são** os commits `feat`, `fix` e `perf` desde a última tag — não há
 etapa de escrever notas. Leia o que saiu com o olho de quem usa o app:
