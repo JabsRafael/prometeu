@@ -34,8 +34,7 @@ type Branches = { all: string[]; default: string };
 
 /// Sempre solto (`--dangerously-skip-permissions`): não há chavinha. Agente
 /// que para a cada `Write` não trabalha enquanto você olha outra coisa, e é
-/// isso que faz o quadro valer a pena. Sem worktree o lançador avisa, porque
-/// aí ele mexe sem pedir no clone em que você trabalha.
+/// isso que faz o quadro valer a pena.
 
 /// Os aliases que o `--model` aceita, com o nome que aparece na tela. Alias e
 /// não id completo de propósito: "opus" é sempre o Opus mais novo, e a lista
@@ -155,15 +154,8 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
         ? `worktree novo · ${branch.value}${from}`
         : `o repo troca para ${branch.value}${from}`;
 
-    // O agente roda sempre solto, e isso é aceitável porque o worktree é
-    // descartável. Sem worktree ele roda sem pedir nada no clone em que você
-    // trabalha — dá para querer isso, mas não dá para não saber.
-    //
-    // O aviso vem na frente porque a linha é cortada no fim: se ele fosse o
-    // rabo da frase, seria justamente ele a virar reticências.
-    hint.classList.toggle("warn", !draft.worktree);
     hint.title = `${projectName()} · ${onde}`;
-    hint.textContent = draft.worktree ? onde : `solto no seu clone, sem pedir · ${onde}`;
+    hint.textContent = onde;
   };
   drawHint();
   branch.addEventListener("input", drawHint);
