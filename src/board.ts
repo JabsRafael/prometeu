@@ -252,23 +252,102 @@ function renderColumns(board: Board, live: Workspace[], hooks: Hooks) {
     col.querySelector(".c")!.textContent = String(mine.length);
 
     const drop = h("div", "drop");
-    drop.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      drop.classList.add("over");
-    });
-    drop.addEventListener("dragleave", () => drop.classList.remove("over"));
-    drop.addEventListener("drop", (e) => {
-      e.preventDefault();
-      drop.classList.remove("over");
-      const id = e.dataTransfer?.getData("text/plain");
-      if (id) hooks.setStage(id, name);
-    });
+    // Quem solta um card aqui lê daqui para onde ele foi (ver `grab`).
+    drop.dataset.stage = name;
 
     if (!mine.length) drop.append(h("div", "empty", "arraste um card para cá"));
     for (const ws of mine) drop.append(card(ws, board, hooks));
 
     col.append(drop);
     cols.append(col);
+  });
+}
+
+/* ---------- arrastar card entre colunas ---------- */
+
+// Com o mouse, e não com o drag and drop do HTML: no macOS o Tauri toma para si
+// o arraste da janela inteira, para entregar os arquivos que vêm do Finder
+// (`onDragDropEvent`, em main.ts) — e com isso `dragover` e `drop` nunca chegam
+// na página. Dava para desligar isso no tauri.conf.json, mas levaria junto o
+// soltar arquivo no terminal.
+
+/// Quanto o mouse anda antes de virar arraste — abaixo disso ainda é clique.
+const SLACK = 6;
+
+let lifted: HTMLElement | null = null;
+
+/// Redesenhar o quadro no meio do arraste tiraria o card de debaixo do mouse.
+export const dragging = () => lifted !== null;
+
+function grab(el: HTMLElement, ws: Workspace, hooks: Hooks) {
+  el.addEventListener("pointerdown", (down) => {
+    // Botão direito é o menu; o x de arquivar e o campo de renomear são deles.
+    if (down.button !== 0 || (down.target as Element).closest(".x, input")) return;
+    const rect = el.getBoundingClientRect();
+    const from = { x: down.clientX, y: down.clientY };
+    let ghost: HTMLElement | null = null;
+    let over: HTMLElement | null = null;
+    let moved = false;
+
+    const lift = () => {
+      moved = true;
+      ghost = el.cloneNode(true) as HTMLElement;
+      ghost.classList.add("ghost");
+      ghost.style.width = `${rect.width}px`;
+      document.body.append(ghost);
+      document.body.classList.add("dragging");
+      el.classList.add("lifted");
+      lifted = el;
+    };
+
+    const settle = () => {
+      ghost?.remove();
+      ghost = null;
+      over?.classList.remove("over");
+      over = null;
+      el.classList.remove("lifted");
+      document.body.classList.remove("dragging");
+      lifted = null;
+    };
+
+    const move = (e: PointerEvent) => {
+      if (!ghost) {
+        if (Math.hypot(e.clientX - from.x, e.clientY - from.y) < SLACK) return;
+        lift();
+      }
+      ghost!.style.transform = `translate(${rect.left + e.clientX - from.x}px, ${rect.top + e.clientY - from.y}px)`;
+      // O fantasma não pega o mouse, então o que está embaixo dele é a coluna.
+      const col = document.elementFromPoint(e.clientX, e.clientY)?.closest(".col");
+      const under = col?.querySelector<HTMLElement>(".drop") ?? null;
+      if (under === over) return;
+      over?.classList.remove("over");
+      over = under;
+      over?.classList.add("over");
+    };
+
+    const end = (e: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      window.removeEventListener("keydown", key);
+      if (!moved) return;
+      const stage = e.type === "pointerup" ? over?.dataset.stage : undefined;
+      settle();
+      // Soltar não é clicar: o click que o navegador dispara logo atrás do
+      // pointerup abriria o workspace que você só queria mudar de coluna.
+      const swallow = (c: Event) => c.stopPropagation();
+      window.addEventListener("click", swallow, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener("click", swallow, true));
+      if (stage && stage !== ws.stage) hooks.setStage(ws.id, stage);
+    };
+
+    // Esc desiste: o card volta, e o soltar que vem depois não faz mais nada.
+    const key = (e: KeyboardEvent) => e.key === "Escape" && settle();
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    window.addEventListener("keydown", key);
   });
 }
 
@@ -279,8 +358,7 @@ function card(ws: Workspace, board: Board, hooks: Hooks): HTMLElement {
   // que o botão dava de graça: chegar no card pelo teclado.
   const el = h("div", "card" + (ws.id === openId ? " here" : "") + (ws.unread ? " unread" : ""));
   el.tabIndex = 0;
-  el.draggable = true;
-  el.addEventListener("dragstart", (e) => e.dataTransfer?.setData("text/plain", ws.id));
+  grab(el, ws, hooks);
   el.addEventListener("click", () => hooks.open(ws));
   el.addEventListener("keydown", (e) => e.key === "Enter" && hooks.open(ws));
 

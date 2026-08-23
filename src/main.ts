@@ -66,10 +66,11 @@ const hooks: board.Hooks = {
 };
 
 function draw() {
-  // Campo de renomear ou menu aberto: o quadro é redesenhado a cada ferramenta
-  // que o agente usa, e refazer a linha debaixo do que você está usando apaga o
-  // que foi digitado, ou tira o menu do lugar no meio do clique.
-  if (rename.editing() || menu.isOpen()) return;
+  // Campo de renomear, menu aberto ou card sendo arrastado: o quadro é
+  // redesenhado a cada ferramenta que o agente usa, e refazer a linha debaixo
+  // do que você está usando apaga o que foi digitado, tira o menu do lugar no
+  // meio do clique, ou some com o card de debaixo do mouse.
+  if (rename.editing() || menu.isOpen() || board.dragging()) return;
   board.render(state, hooks);
   if (ws.id()) ws.draw();
 }
