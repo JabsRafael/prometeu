@@ -396,12 +396,13 @@ function card(ws: Workspace, board: Board, hooks: Hooks): HTMLElement {
     foot.append(here);
   }
 
-  // Por que este card para tanto: aqui cada ferramenta pede para passar.
-  if (!ws.skip_permissions) {
-    const asks = h("span", "chip");
-    asks.textContent = "pede permissão";
-    asks.title = "Cada ferramenta vira um card com Permitir e Negar";
-    foot.append(asks);
+  // Modelo fora do padrão é coisa que se quer saber olhando o quadro: "esse
+  // está no haiku" explica muita resposta.
+  if (ws.model) {
+    const model = h("span", "chip");
+    model.textContent = ws.model;
+    model.title = `As conversas daqui rodam com --model ${ws.model}`;
+    foot.append(model);
   }
 
   if (ws.pinned) {

@@ -116,6 +116,21 @@ fn permission(app: &AppHandle, stream: UnixStream, session: String, payload: Val
         return;
     }
 
+    // ExitPlanMode é o outro: o "Would you like to proceed?" é um seletor da
+    // TUI, e ela o desenha de qualquer jeito — `allow` pelo hook não o pula,
+    // só atrasa (testado). Então o hook solta na hora e o card responde com o
+    // dígito, como na pergunta. A primeira opção é "switch to BYPASS
+    // PERMISSIONS", que é o solto de sempre: é para lá que "Executar" manda.
+    if payload["tool_name"].as_str() == Some("ExitPlanMode") {
+        let _ = reply(&stream, "{}");
+        set(app, &session, Some(Status::Querendo), Note::Set("plano pronto: executar?".into()));
+        let _ = app.emit(
+            "plan",
+            serde_json::json!({ "session": session, "plan": payload["tool_input"]["plan"] }),
+        );
+        return;
+    }
+
     let state = app.state::<AppState>();
     let id = state.seq.fetch_add(1, Ordering::Relaxed);
     {

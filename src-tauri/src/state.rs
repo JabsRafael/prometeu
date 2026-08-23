@@ -102,15 +102,18 @@ pub struct Workspace {
     /// Aconteceu algo aqui enquanto você olhava outra coisa.
     #[serde(default)]
     pub unread: bool,
-    /// O agente roda solto neste workspace, sem parar a cada ferramenta. É
-    /// propriedade do workspace e não da aba porque o worktree é o mesmo: duas
-    /// conversas nos mesmos arquivos com regras diferentes de permissão seriam
-    /// uma armadilha. Vale para as abas que já existem e para as próximas.
-    ///
-    /// Quadro gravado antes desta opção existir vem sem o campo, e o padrão
-    /// reproduz o que o app fazia então.
-    #[serde(default = "yes")]
-    pub skip_permissions: bool,
+    /// O `--model` das conversas deste workspace — um alias (`opus`,
+    /// `sonnet[1m]`) ou o nome inteiro. Vazio é "o que o Claude Code escolheria
+    /// sozinho". É do workspace e não da aba porque ⌘T e retomar nascem com o
+    /// mesmo modelo que as irmãs: trocar de modelo no meio é trocar de worktree.
+    /// Quadro gravado antes disto existir vem sem o campo, e vazio é o que ele
+    /// fazia então.
+    #[serde(default)]
+    pub model: String,
+    /// O `--effort` (`low`…`max`, `ultracode`), pela mesma regra. Vazio é o
+    /// padrão — só de quadro antigo: o lançador sempre escolhe um.
+    #[serde(default)]
+    pub effort: String,
     /// Base das dez portas reservadas a este worktree — `$PROMETHEUS_PORT` até
     /// `+9`. Guardada e não calculada: o script tem que achar a mesma porta na
     /// segunda vez que roda, e dois worktrees do mesmo projeto não podem
@@ -123,10 +126,6 @@ pub struct Workspace {
     pub tabs: Vec<Tab>,
     #[serde(default)]
     pub active: Option<String>,
-}
-
-fn yes() -> bool {
-    true
 }
 
 impl Workspace {

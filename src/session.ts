@@ -204,6 +204,31 @@ export function showPermission(id: number, session: string, tool: string, input:
   el.append(pre, row);
 }
 
+/// O plano está pronto e o "Would you like to proceed?" está na TUI. Executar
+/// é o dígito 1 — "switch to BYPASS PERMISSIONS", o solto de sempre. Ajustar é
+/// o 3: a TUI abre a caixa de texto, e o terminal ganha o foco para você dizer
+/// o que muda. Nada é lido da tela: os dígitos são os do seletor (2.1.240).
+export function showPlan(session: string, plan: string) {
+  if (session !== currentSession()) return;
+  const el = shell("plano pronto", "Executar do jeito que está?");
+
+  const pre = document.createElement("pre");
+  pre.className = "plan";
+  pre.textContent = plan.trim() || "(o plano está no terminal)";
+
+  const row = document.createElement("div");
+  row.className = "row";
+  row.innerHTML = `<button class="ok">Executar</button><button class="outline">Ajustar no terminal</button>`;
+  const key = (digit: string) => {
+    invoke("pty_write", { session, data: digit }).catch((e) => fail(String(e)));
+    dismiss(el);
+  };
+  row.querySelector(".ok")!.addEventListener("click", () => key("1"));
+  row.querySelector(".outline")!.addEventListener("click", () => key("3"));
+
+  el.append(pre, row);
+}
+
 function dismiss(el: HTMLElement) {
   el.remove();
   liveOptions = 0;

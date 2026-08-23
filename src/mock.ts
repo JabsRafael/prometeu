@@ -27,7 +27,8 @@ const ws = (
   archived: false,
   pinned: false,
   unread: false,
-  skip_permissions: true,
+  model: "",
+  effort: "",
   port: 3100,
   tabs,
   active: tabs[0]?.id ?? null,
@@ -284,7 +285,8 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
         { id: `t-${id}`, title: "conversa", status: "pronta", note: null },
       ]);
       fresh.branch = draft.branch || "main";
-      fresh.skip_permissions = draft.skipPermissions;
+      fresh.model = draft.model;
+      fresh.effort = draft.effort;
       board.workspaces.push(fresh);
       emit("board", board);
       return fresh;
@@ -319,8 +321,12 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       return { id: "t1" };
     case "resume_tab":
       return true;
+    // Pasta (projeto novo) não tem o que devolver no navegador. Arquivos, sim:
+    // dois de mentira, para o clipe do lançador ter o que mostrar.
     case "plugin:dialog|open":
-      return null;
+      return args.options?.multiple
+        ? ["/Users/gustavo/dev/njord/docs/spec.md", "/Users/gustavo/Desktop/tela.png"]
+        : null;
     // Fora do Tauri não existe bundle para perguntar a versão. Dizer isso na
     // tela é melhor que repetir aqui um número que envelhece sozinho.
     case "plugin:app|version":
@@ -347,8 +353,24 @@ w.__TAURI_INTERNALS__ = {
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise.resolve(call(cmd, args)),
 };
 
-// Atalhos para testar os cards de resposta pelo console: `mock.ask()` e `mock.perm()`.
+// Atalhos para testar os cards de resposta pelo console: `mock.ask()`,
+// `mock.perm()` e `mock.plan()`.
 w.mock = {
+  plan: () =>
+    emit("plan", {
+      session: "t1",
+      plan: [
+        "# Plano: trocar o ponto verde por uma onda",
+        "",
+        "## Contexto",
+        "O dock mostra um ponto verde quando há processo de pé. Cor parada não separa \"rodando\" de \"parou faz um segundo\".",
+        "",
+        "## Passos",
+        "1. Desenhar `audio-lines` em `icons.ts` e animar as seis barras no CSS.",
+        "2. Trocar o ponto pela onda em `dockbar.ts`, herdando a cor da aba.",
+        "3. Conferir no navegador com `mock.drop` e no app com `npm run app`.",
+      ].join("\n"),
+    }),
   ask: () =>
     emit("question", {
       session: "t1",
