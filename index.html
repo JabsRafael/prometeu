@@ -18,6 +18,7 @@
       <!-- Rodapé da barra: por ora só a versão. É o canto onde ajuda e
            configurações vão morar, e a faixa já reserva o lugar deles. -->
       <div class="railfoot">
+        <button id="settings" class="ico sm" title="Configurações  ⌘,"></button>
         <span class="ver" id="ver"></span>
         <span class="spacer"></span>
         <button id="update" class="ghost sm" hidden></button>
@@ -44,6 +45,10 @@
             <div class="cols" id="cols"></div>
           </div>
         </section>
+
+        <!-- Configurações: a conexão com o Linear, e o que mais vier a ser
+             ajuste do app e não do repositório. Desenhada por `settings.ts`. -->
+        <section id="settingsView" class="view settings" hidden></section>
 
         <section id="wsView" class="view wsview" hidden>
           <div class="center">

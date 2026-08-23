@@ -10,6 +10,7 @@ import { dropFiles, openLauncher, type Draft } from "./launcher";
 import * as menu from "./menu";
 import * as rename from "./rename";
 import * as session from "./session";
+import * as settings from "./settings";
 import "./style.css";
 import type { Board, Question, Workspace } from "./types";
 import * as update from "./update";
@@ -75,7 +76,10 @@ function draw() {
   if (ws.id()) ws.draw();
 }
 
-/* Histórico ← →: quadro e workspaces visitados, como as setas do Conductor. */
+/* Histórico ← →: quadro, configurações e workspaces visitados, como as setas
+   do Conductor. `null` é o quadro; `SETTINGS` é a tela de configurações, que
+   não colide com id de workspace nenhum. */
+const SETTINGS = "@configurações";
 const hist: (string | null)[] = [];
 let at = -1;
 function visit(to: string | null) {
@@ -93,8 +97,12 @@ function travel(dir: -1 | 1) {
   const next = at + dir;
   if (next < 0 || next >= hist.length) return;
   at = next;
-  const target = state.workspaces.find((w) => w.id === hist[at]);
-  target ? openWorkspace(target, false) : showBoard(false);
+  if (hist[at] === SETTINGS) {
+    showSettings(false);
+  } else {
+    const target = state.workspaces.find((w) => w.id === hist[at]);
+    target ? openWorkspace(target, false) : showBoard(false);
+  }
   drawNav();
 }
 $("back").addEventListener("click", () => travel(-1));
@@ -103,14 +111,30 @@ $("fwd").addEventListener("click", () => travel(1));
 function showBoard(push = true) {
   if (push) visit(null);
   ws.leave();
+  $("settingsView").hidden = true;
   $("crumb").replaceChildren(Object.assign(document.createElement("span"), { textContent: "Quadro" }));
   draw();
 }
 
 async function openWorkspace(target: Workspace, push = true) {
   if (push) visit(target.id);
+  $("settingsView").hidden = true;
   await ws.open(target);
 }
+
+/// A terceira tela. Sai do workspace como o quadro sai, mas o quadro fica
+/// escondido embaixo — e nenhum item da barra acende, porque nenhum é ela.
+function showSettings(push = true) {
+  if (push) visit(SETTINGS);
+  ws.leave();
+  board.setOpen(SETTINGS);
+  $("boardView").hidden = true;
+  $("settingsView").hidden = false;
+  $("crumb").replaceChildren(Object.assign(document.createElement("span"), { textContent: "Configurações" }));
+  settings.draw();
+  draw();
+}
+$("settings").addEventListener("click", () => showSettings());
 
 /* ---------- eventos do back ---------- */
 
@@ -278,6 +302,11 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     toggleRail();
   }
+  // ⌘, é onde todo app do Mac guarda as preferências.
+  if (cmd && e.key === ",") {
+    e.preventDefault();
+    showSettings();
+  }
   // O dock tem a primeira palavra: ⌘W com o cursor dentro dele fecha o terminal
   // que está ali, e não a aba do centro, que é o que ele fecharia por baixo.
   if (cmd && e.key === "w" && (dockbar.closeFocused() || ws.closeActive())) e.preventDefault();
@@ -304,11 +333,13 @@ for (const [id, name] of [
   ["dock-again", "rotate"],
   ["run-pick", "chevron-down"],
   ["dfold", "chevron-up"],
+  ["settings", "settings"],
 ] as const) {
   $(id).innerHTML = icon(name);
 }
 
 void update.init(say);
+void settings.init({ say });
 ws.init({ say, board: () => state, redraw: draw, toBoard: () => showBoard() });
 session.initTerminal((m) => say(m, true));
 viewer.init((m) => say(m, true));

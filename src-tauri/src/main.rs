@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod linear;
 mod lock;
 mod paths;
 mod pty;
@@ -121,6 +122,9 @@ fn main() {
             pty::pty_buffer,
             socket::decide_permission,
             socket::answer_questions,
+            linear::linear_status,
+            linear::linear_connect,
+            linear::linear_disconnect,
         ])
         .build(tauri::generate_context!())
         .expect("erro ao subir o Prometheus")

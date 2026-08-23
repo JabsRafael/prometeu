@@ -35,3 +35,11 @@ toml = "0.8"
 # os netos (o `node` que o `npm run dev` subiu), e o pid do filho não alcança.
 # Ver `pty.rs`.
 libc = "0.2"
+# Falar com o Linear (OAuth e GraphQL). `blocking` porque os comandos do app
+# são síncronos, numa thread do pool do Tauri. O TLS é o rustls que o updater
+# já traz, com o provider `ring` dele — não entra dependência nova de verdade,
+# só features. Ver `linear.rs`.
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider"] }
+# PKCE: o `code_challenge` é o SHA-256 do verifier em base64url.
+sha2 = "0.10"
+base64 = "0.22"
