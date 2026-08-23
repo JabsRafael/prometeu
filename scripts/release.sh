@@ -1,71 +1,77 @@
 #!/bin/sh
-# Solta uma versão nova: marca, constrói assinado e publica onde o app procura.
+# Solta uma versão nova do Prometheus.
 #
-#   sh scripts/release.sh 0.1.6
-#   sh scripts/release.sh 0.1.6 "- o que mudou, na sua voz"
+#   sh scripts/release.sh              versão calculada dos commits
+#   sh scripts/release.sh 0.2.0        versão escolhida à mão
+#   sh scripts/release.sh publish      publica a draft que o CI deixou pronta
 #
-# As notas são escritas à mão. Sem o segundo argumento o editor abre com um
-# rascunho, como num commit. Antes elas saíam do `git log`, o que publicava as
-# mensagens de commit de um repositório privado num repositório público — e
-# mensagem de commit é escrita para quem mexe no código, não para quem usa.
+# Daqui sai só o que é decisão de gente: o número, o changelog e a tag. O build
+# assinado é do CI (.github/workflows/release.yml), que deixa uma release
+# **draft** em gbrancaglione/prometheus-releases. Entre a draft e quem usa o
+# app existe uma pessoa: instala o .dmg, abre, confere — e só então `publish`.
+# O updater não tem rollback (só instala versão maior que a atual), então
+# versão ruim publicada se conserta com a seguinte. Por isso o portão.
 #
-# O que sai daqui é o que o Prometheus instalado baixa sozinho. Três peças:
+# As notas saem dos commits: Conventional Commits → git-cliff → CHANGELOG.md →
+# corpo da release. Não existe etapa de "escrever as notas"; existe escrever o
+# commit direito (ver CLAUDE.md). O número também: feat e fix sobem o patch
+# enquanto a versão é 0.x, mudança que quebra sobe o minor (cliff.toml).
 #
-#   Prometheus.app.tar.gz      o bundle novo
-#   Prometheus.app.tar.gz.sig  a assinatura minisign
-#   latest.json                o manifesto que o app consulta ao abrir
-#
-# A chave privada mora em ~/.tauri/prometheus.key e a senha dela no Keychain —
-# nenhuma das duas entra em repositório. Sem elas, o build sai sem assinatura e
-# o app instalado recusa a atualização, que é exatamente o que se espera dele.
-#
-# O código continua no repo privado; só os pacotes vão para o público.
+# A chave de assinatura não passa por aqui. Ela mora em ~/.tauri/prometheus.key
+# (senha no Keychain) e, para o CI, nos Secrets do repositório. Perder as duas
+# cópias significa nunca mais atualizar quem já instalou — guarde num cofre.
 set -eu
 cd "$(dirname "$0")/.."
 
-VERSION=${1:-}
-[ -n "$VERSION" ] || { echo "uso: sh scripts/release.sh <versão> [notas]   (ex.: 0.1.6)" >&2; exit 1; }
-NOTES=${2:-}
 REPO=gbrancaglione/prometheus-releases
 
-[ -z "$(git status --porcelain)" ] || { echo "há mudança não commitada — resolva antes de soltar" >&2; exit 1; }
-[ "$(git rev-parse --abbrev-ref HEAD)" = "main" ] || { echo "release sai da main" >&2; exit 1; }
+die() { echo "$*" >&2; exit 1; }
+# O bin direto: `npx --no git-cliff --flag` deixa o npm engolir o --flag como
+# config dele.
+cliff() {
+  [ -x node_modules/.bin/git-cliff ] || die "git-cliff não está instalado — rode npm install"
+  node_modules/.bin/git-cliff "$@"
+}
 
-PREV=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+# ---------- cortar ----------
 
-# ---------- as notas ----------
+cut() {
+  VERSION=${1:-}
 
-# Escritas antes de construir: um build de dois minutos para descobrir no fim
-# que não havia o que dizer é tempo jogado fora.
-if [ -z "$NOTES" ]; then
-  [ -t 0 ] || { echo "sem terminal para abrir o editor — passe as notas no segundo argumento" >&2; exit 1; }
-  DRAFT=$(mktemp -t prometheus-notas)
-  {
-    echo "- "
-    echo
-    echo "# As notas da $VERSION, para quem usa o app — elas aparecem na release"
-    echo "# e no aviso de atualização dentro do Prometheus."
-    echo "#"
-    echo "# Linhas começando com # somem. Salvar vazio cancela o release."
-    echo "#"
-    echo "# Commits desde ${PREV:-o começo}, só para lembrar o que houve:"
-    git log --reverse --pretty="#   %s" "${PREV:+$PREV..}HEAD" | grep -v "^#   Marcar a versão" || true
-  } > "$DRAFT"
-  "${EDITOR:-vi}" "$DRAFT"
-  NOTES=$(grep -v "^#" "$DRAFT" | sed -e "s/[[:space:]]*$//" | sed -e "/./,\$!d")
-  rm -f "$DRAFT"
-fi
-# Sem "- " sozinho, sem linha em branco: vazio é vazio.
-[ -n "$(printf '%s' "$NOTES" | tr -d '[:space:]-')" ] || { echo "sem notas — release cancelado" >&2; exit 1; }
+  [ -z "$(git status --porcelain)" ] || die "há mudança não commitada — resolva antes de soltar"
+  [ "$(git rev-parse --abbrev-ref HEAD)" = main ] || die "release sai da main"
+  git fetch -q origin main
+  [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] \
+    || die "a main local não é a origin/main — dê pull (ou push) antes"
 
-# ---------- marcar ----------
+  PREV=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "")
+  if [ -n "$PREV" ] && [ "$(git rev-list --count "$PREV..HEAD")" = 0 ]; then
+    die "nada desde $PREV — não há o que soltar"
+  fi
 
-# O npm marca o package.json e o package-lock.json de uma vez — trocar só o
-# primeiro à mão deixava o lock para trás, e o próximo `npm install` ou `npx`
-# o corrigia sozinho, sujando a árvore de quem só queria rodar o app.
-npm version "$VERSION" --no-git-tag-version --allow-same-version >/dev/null
+  [ -n "$VERSION" ] || VERSION=$(cliff --bumped-version | sed 's/^v//')
+  case "$VERSION" in
+    *.*.*) ;;
+    *) die "versão inválida: '$VERSION' (ex.: 0.1.8)" ;;
+  esac
+  ! git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null || die "a tag v$VERSION já existe"
 
-python3 - "$VERSION" <<'PY'
+  # Só chore, ci, docs… desde a última tag: não há nada para contar a quem usa,
+  # e release sem nota é release que não devia existir. Se a mudança importa,
+  # ela merece um fix ou feat no commit.
+  NOTES=$(cliff --unreleased --tag "v$VERSION" --strip all)
+  printf '%s\n' "$NOTES" | grep -q '^- ' \
+    || die "nenhum feat, fix ou perf desde ${PREV:-o começo} — nada para contar na $VERSION"
+
+  echo "== $VERSION  (anterior: ${PREV:-nenhuma})"
+  echo
+  printf '%s\n' "$NOTES"
+
+  # O npm marca o package.json e o package-lock.json de uma vez; os do Tauri
+  # vão à mão, o Cargo.lock inclusive — senão o próximo cargo build o corrige
+  # sozinho e suja a árvore de quem só queria rodar o app.
+  npm version "$VERSION" --no-git-tag-version --allow-same-version >/dev/null
+  python3 - "$VERSION" <<'PY'
 import json, pathlib, re, sys
 v = sys.argv[1]
 
@@ -80,51 +86,84 @@ p = pathlib.Path("src-tauri/Cargo.lock")
 p.write_text(re.sub(r'(name = "prometheus"\nversion = )"[^"]+"', rf'\1"{v}"', p.read_text(), count=1))
 PY
 
-npm test >/dev/null
-git commit -qam "Marcar a versão $VERSION"
-git tag -a "v$VERSION" -m "Prometheus $VERSION"
+  cliff --unreleased --tag "v$VERSION" --prepend CHANGELOG.md
+  cat -s CHANGELOG.md > CHANGELOG.md.tmp && mv CHANGELOG.md.tmp CHANGELOG.md
 
-# ---------- construir assinado ----------
+  LOG=$(mktemp -t prometheus-test)
+  npm test >"$LOG" 2>&1 || { cat "$LOG"; rm -f "$LOG"; die "testes vermelhos — nada foi commitado"; }
+  rm -f "$LOG"
 
-TAURI_SIGNING_PRIVATE_KEY=$(cat "$HOME/.tauri/prometheus.key")
-TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$(security find-generic-password -s prometheus-updater -w)
-export TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+  git add -A
+  git commit -qm "chore(release): v$VERSION"
+  # `--cleanup=whitespace`: o padrão apaga linha que começa com #, e os
+  # títulos do markdown começam com #.
+  git tag -a "v$VERSION" --cleanup=whitespace -m "Prometheus $VERSION" -m "$NOTES"
+  git push -q origin main "v$VERSION"
 
-npm run build:app
+  echo
+  echo "v$VERSION empurrada. O CI constrói, assina e deixa uma draft em $REPO."
+  watch_run "v$VERSION"
+}
 
-OUT=src-tauri/target/release/bundle
-TAR=$OUT/macos/Prometheus.app.tar.gz
-DMG=$OUT/dmg/Prometheus_${VERSION}_aarch64.dmg
-[ -f "$TAR.sig" ] || { echo "o build saiu sem assinatura — a chave não foi lida" >&2; exit 1; }
+# Acompanha o run do release.yml para a tag. Sem `gh run watch`, que redesenha
+# a tela: isto roda dentro de sessão do Claude, sem terminal.
+watch_run() {
+  TAG=$1
+  RUN=""
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    RUN=$(gh run list --workflow=release.yml --branch="$TAG" --json databaseId -q '.[0].databaseId' 2>/dev/null || true)
+    [ -n "$RUN" ] && break
+    sleep 5
+  done
+  [ -n "$RUN" ] || { echo "não achei o run do release para $TAG — veja em $(gh repo view --json url -q .url)/actions"; return 0; }
 
-# ---------- o manifesto ----------
-
-python3 - "$VERSION" "$TAR.sig" "$REPO" "$NOTES" <<'PY' > "$OUT/latest.json"
-import json, subprocess, sys
-version, sig, repo, notes = sys.argv[1:5]
-date = subprocess.run(["date", "-u", "+%Y-%m-%dT%H:%M:%SZ"], capture_output=True, text=True).stdout.strip()
-print(json.dumps({
-    "version": version,
-    "notes": notes,
-    "pub_date": date,
-    "platforms": {
-        "darwin-aarch64": {
-            "signature": open(sig).read().strip(),
-            "url": f"https://github.com/{repo}/releases/download/v{version}/Prometheus.app.tar.gz",
-        }
-    },
-}, indent=2, ensure_ascii=False))
-PY
+  URL=$(gh run view "$RUN" --json url -q .url)
+  echo "acompanhando $URL"
+  while :; do
+    STATUS=$(gh run view "$RUN" --json status,conclusion -q '.status + " " + (.conclusion // "")')
+    case "$STATUS" in
+      "completed success")
+        echo
+        echo "draft pronta: https://github.com/$REPO/releases/tag/$TAG"
+        echo "baixe o .dmg, instale, abra e confira. Depois: sh scripts/release.sh publish"
+        return 0 ;;
+      completed*)
+        die "o run terminou como '${STATUS#completed }' — leia o log em $URL antes de qualquer coisa" ;;
+    esac
+    printf '  %s  %s\n' "$(date +%H:%M:%S)" "$STATUS"
+    sleep 30
+  done
+}
 
 # ---------- publicar ----------
 
-git push -q origin main
-git push -q origin "v$VERSION"
+publish() {
+  VERSION=${1:-$(node -p "require('./package.json').version")}
+  TAG=v$VERSION
 
-printf '%s\n' "$NOTES" | gh release create "v$VERSION" -R "$REPO" \
-  --title "$VERSION" --latest --notes-file - \
-  "$TAR" "$TAR.sig" "$OUT/latest.json" "$DMG"
+  DRAFT=$(gh release view "$TAG" -R "$REPO" --json isDraft -q .isDraft 2>/dev/null) \
+    || die "não existe release $TAG em $REPO — o CI terminou?"
+  [ "$DRAFT" = true ] || die "$TAG já está publicada"
 
-echo
-echo "$VERSION no ar. Quem já tem o Prometheus aberto vê o aviso no rodapé em até seis horas,"
-echo "e na hora se fechar e abrir de novo."
+  ASSETS=$(gh release view "$TAG" -R "$REPO" --json assets -q '.assets[].name')
+  for want in "Prometheus_${VERSION}_aarch64.dmg" \
+              "Prometheus_${VERSION}_aarch64.app.tar.gz" \
+              "Prometheus_${VERSION}_aarch64.app.tar.gz.sig" \
+              latest.json; do
+    printf '%s\n' "$ASSETS" | grep -qx "$want" || die "falta $want na draft — o CI terminou inteiro?"
+  done
+
+  CONCL=$(gh run list --workflow=release.yml --branch="$TAG" --json conclusion -q '.[0].conclusion // "?"')
+  [ "$CONCL" = success ] || die "o run do release para $TAG está '$CONCL' — publique só com verde"
+
+  gh release edit "$TAG" -R "$REPO" --draft=false --latest
+  echo
+  echo "$VERSION no ar. Quem já tem o Prometheus aberto vê o aviso no rodapé em até seis horas,"
+  echo "e na hora se fechar e abrir de novo."
+}
+
+case "${1:-}" in
+  publish) shift; publish "$@" ;;
+  -h|--help|help) sed -n '2,6p' "$0"; exit 0 ;;
+  *) cut "$@" ;;
+esac

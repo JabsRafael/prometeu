@@ -1,0 +1,147 @@
+# Dispara na tag `v*` que o scripts/release.sh empurra. Constrói o app no
+# runner self-hosted (o Mac de quem desenvolve — ver ci.yml), assina com a
+# chave que vive em Secrets e cria uma release **draft** em
+# gbrancaglione/prometheus-releases, com as notas tiradas da seção da versão
+# no CHANGELOG.md.
+#
+# Draft é o portão: o updater lê `releases/latest/download/latest.json`, e o
+# GitHub só considera "latest" o que foi publicado. Até alguém instalar o .dmg
+# da draft, abrir e aprovar, ninguém recebe nada. Publicar é
+# `sh scripts/release.sh publish`.
+#
+# Não existe rollback no updater (ele só instala versão maior que a atual):
+# versão ruim publicada se conserta com a seguinte. Por isso o portão.
+#
+# `workflow_dispatch` constrói sem publicar — serve para conferir que o build
+# de CI está de pé (ou sair com um .dmg de uma branch) sem gastar uma versão.
+#
+# Secrets que este workflow espera (ver CLAUDE.md):
+#   RELEASES_TOKEN                       PAT com Contents: read/write no
+#                                        prometheus-releases — o GITHUB_TOKEN
+#                                        do job não alcança outro repositório
+#   TAURI_SIGNING_PRIVATE_KEY            conteúdo de ~/.tauri/prometheus.key
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD   a senha dela
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REPO: gbrancaglione/prometheus-releases
+
+jobs:
+  build:
+    name: construir e assinar
+    runs-on: [self-hosted, macOS]
+    outputs:
+      version: ${{ steps.notes.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - run: npm ci
+
+      - name: versão e notas
+        id: notes
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          [ "$GITHUB_REF_TYPE" = tag ] || exit 0
+
+          if [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
+            echo "::error::a tag $GITHUB_REF_NAME não bate com a versão $VERSION do package.json"
+            exit 1
+          fi
+          # A seção "## [X.Y.Z]" do CHANGELOG.md, sem o título.
+          NOTES=$(awk -v v="$VERSION" '
+            /^## \[/ { dentro = index($0, "## [" v "]") == 1; next }
+            dentro { print }' CHANGELOG.md)
+          if [ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
+            echo "::error::CHANGELOG.md não tem a seção [$VERSION]"
+            exit 1
+          fi
+          { echo "notes<<FIM_DAS_NOTAS"; printf '%s\n' "$NOTES"; echo "FIM_DAS_NOTAS"; } >> "$GITHUB_OUTPUT"
+
+      - name: build assinado → draft em prometheus-releases
+        if: github.ref_type == 'tag'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          owner: gbrancaglione
+          repo: prometheus-releases
+          releaseCommitish: main
+          tagName: ${{ github.ref_name }}
+          releaseName: ${{ steps.notes.outputs.version }}
+          releaseBody: ${{ steps.notes.outputs.notes }}
+          releaseDraft: true
+          includeUpdaterJson: true
+          assetNamePattern: '[name]_[version]_[arch][ext]'
+
+      - name: build assinado, sem publicar
+        if: github.ref_type != 'tag'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - uses: actions/upload-artifact@v4
+        if: github.ref_type != 'tag'
+        with:
+          name: Prometheus_${{ steps.notes.outputs.version }}_${{ github.sha }}
+          path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
+          if-no-files-found: error
+          retention-days: 7
+
+  verify:
+    name: conferir a draft
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: [self-hosted, macOS]
+    env:
+      GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: command -v minisign >/dev/null || brew install minisign
+
+      - name: baixar o que o build publicou
+        run: rm -rf pkg && gh release download "v$VERSION" -R "$REPO" -D pkg && ls -la pkg
+
+      # O mesmo caminho que o app instalado percorre: lê o latest.json, acha o
+      # pacote que ele aponta, confere a assinatura contra a chave pública que
+      # vai dentro do binário. Se isto passa, o updater aceita.
+      - name: latest.json aponta para esta versão e a assinatura bate
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, sys
+          v = os.environ["VERSION"]
+          m = json.load(open("pkg/latest.json"))
+          assert m["version"] == v, f"latest.json diz {m['version']}, a tag diz {v}"
+          p = m["platforms"]["darwin-aarch64"]
+          name = p["url"].rsplit("/", 1)[1]
+          assert f"/download/v{v}/" in p["url"], p["url"]
+          assert os.path.exists(f"pkg/{name}"), f"latest.json aponta para {name}, que não está na release"
+          assert os.path.exists(f"pkg/{name}.sig"), f"falta {name}.sig"
+          assert any(f.endswith(".dmg") for f in os.listdir("pkg")), "falta o .dmg"
+          conf = json.load(open("src-tauri/tauri.conf.json"))
+          open("pub.key", "wb").write(base64.b64decode(conf["plugins"]["updater"]["pubkey"]))
+          open("pkg.minisig", "wb").write(base64.b64decode(p["signature"]))
+          open("pkg.name", "w").write(name)
+          print("pacote:", name)
+          PY
+          minisign -V -m "pkg/$(cat pkg.name)" -p pub.key -x pkg.minisig

@@ -1,0 +1,33 @@
+#!/bin/sh
+# Recusa commit fora do Conventional Commits.
+#
+# O CHANGELOG.md e o número da versão saem dos commits (git-cliff), então a
+# mensagem é a matéria-prima das notas de release — ver CLAUDE.md. Instalado
+# por `npm install` (o script `prepare` aponta core.hooksPath para cá); o CI
+# roda este mesmo arquivo sobre cada commit do PR.
+set -eu
+
+MSG=$(grep -v '^#' "$1" | sed -n '/./{p;q;}')
+case "$MSG" in
+  "Merge "*|"Revert "*|"fixup! "*|"squash! "*) exit 0 ;;
+esac
+
+TYPES='feat|fix|perf|refactor|docs|test|chore|ci|build|style|revert'
+if printf '%s\n' "$MSG" | grep -Eq "^($TYPES)(\([^)]+\))?!?: [^ ]"; then
+  exit 0
+fi
+
+cat >&2 <<FIM
+commit recusado — a primeira linha precisa ser "tipo(escopo): descrição":
+
+  $MSG
+
+tipos: $(printf '%s' "$TYPES" | tr '|' ' ')
+ex.:   feat(lançador): esforço e modelo no rodapé
+       fix(quadro): arrastar card entre colunas volta a funcionar
+       chore: atualizar dependências
+
+A descrição de feat, fix e perf vira uma linha do changelog para quem usa o
+app: diga o que a pessoa vê, não o que o código faz. Ver CLAUDE.md.
+FIM
+exit 1
