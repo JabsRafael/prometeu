@@ -60,12 +60,14 @@ fi
 
 # ---------- marcar ----------
 
+# O npm marca o package.json e o package-lock.json de uma vez — trocar só o
+# primeiro à mão deixava o lock para trás, e o próximo `npm install` ou `npx`
+# o corrigia sozinho, sujando a árvore de quem só queria rodar o app.
+npm version "$VERSION" --no-git-tag-version --allow-same-version >/dev/null
+
 python3 - "$VERSION" <<'PY'
 import json, pathlib, re, sys
 v = sys.argv[1]
-
-p = pathlib.Path("package.json")
-p.write_text(re.sub(r'("version": )"[^"]+"', rf'\1"{v}"', p.read_text(), count=1))
 
 p = pathlib.Path("src-tauri/tauri.conf.json")
 c = json.loads(p.read_text()); c["version"] = v

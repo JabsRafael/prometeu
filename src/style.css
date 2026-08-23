@@ -306,6 +306,15 @@ main { flex: 1; min-height: 0; position: relative; }
 .card .foot .x:hover { color: var(--err); background: var(--err-bg); }
 .card:has(.s-desligada) { opacity: 0.7; }
 
+/* Card pego com o mouse: o original fica apagado no lugar de onde saiu, e a
+   cópia segue o cursor sem pegar o mouse — o que está embaixo dela é a coluna. */
+.card.lifted { opacity: 0.35; }
+.card.ghost {
+  position: fixed; left: 0; top: 0; z-index: 20; pointer-events: none;
+  border-color: var(--line-ghost); box-shadow: 0 14px 36px rgb(0 0 0 / 0.45);
+}
+body.dragging, body.dragging * { cursor: grabbing !important; }
+
 /* Renomear no lugar: o campo entra na linha do rótulo que ele substituiu, então
    cada lugar dá a sua medida. O lápis aparece no hover da linha, como o x. */
 .rename { background: var(--bg); border-color: var(--line-ghost); }
