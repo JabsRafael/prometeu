@@ -7,6 +7,7 @@ mod scripts;
 mod session;
 mod socket;
 mod state;
+mod transcript;
 
 use state::Board;
 use std::collections::{HashMap, HashSet};

@@ -7,7 +7,7 @@ import * as menu from "./menu";
 import * as rename from "./rename";
 import * as session from "./session";
 import * as tree from "./tree";
-import { LABEL, statusOf, type Board, type Change, type Tab, type Workspace } from "./types";
+import { LABEL, fmtTokens, statusOf, type Board, type Change, type Tab, type Workspace } from "./types";
 import { $, debounce } from "./util";
 import * as viewer from "./viewer";
 
@@ -221,7 +221,10 @@ function drawTabs(ws: Workspace) {
     (b.children[0] as HTMLElement).style.background = `var(--dot-${tab.status})`;
     b.dataset.tab = tab.id;
     b.children[1].textContent = tab.title;
-    b.title = `${LABEL[tab.status]} · duplo clique para renomear`;
+    b.title =
+      LABEL[tab.status] +
+      (tab.tokens ? ` · ${fmtTokens(tab.tokens)} tokens de contexto` : "") +
+      " · duplo clique para renomear";
     b.addEventListener("click", () => selectTab(ws.id, tab.id));
     b.addEventListener("contextmenu", (e) => {
       e.preventDefault();

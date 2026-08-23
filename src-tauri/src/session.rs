@@ -496,6 +496,7 @@ fn spawn_tab(
         status: Status::Pronta,
         note: None,
         pending_prompt,
+        tokens: None,
     })
 }
 

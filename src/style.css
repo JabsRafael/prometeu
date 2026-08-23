@@ -296,7 +296,10 @@ main { flex: 1; min-height: 0; position: relative; }
 .card .act.ask { color: var(--fg); white-space: normal; overflow-wrap: anywhere; }
 .card .foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .card .foot .chip { padding: 0; }
+.card .foot .tok { margin-left: auto; gap: 4px; }
+.card .foot .tok b { font-family: var(--mono); font-weight: 400; font-variant-numeric: tabular-nums; }
 .card .foot .x { margin-left: auto; opacity: 0; }
+.card .foot .tok + .x { margin-left: 0; }
 .card:hover .foot .x { opacity: 1; }
 .card .foot .x:hover { color: var(--err); background: var(--err-bg); }
 .card:has(.s-desligada) { opacity: 0.7; }

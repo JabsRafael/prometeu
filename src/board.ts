@@ -1,7 +1,7 @@
 import { avatar, icon, stageIcon } from "./icons";
 import * as menu from "./menu";
 import * as rename from "./rename";
-import { LABEL, statusOf, worst, type Board, type Status, type Workspace } from "./types";
+import { LABEL, fmtTokens, heaviest, statusOf, worst, type Board, type Status, type Workspace } from "./types";
 import { h } from "./util";
 
 export type Hooks = {
@@ -409,6 +409,19 @@ function card(ws: Workspace, board: Board, hooks: Hooks): HTMLElement {
     const tack = h("span", "chip", icon("pin", 13));
     tack.title = "Fixado no topo da lista";
     foot.append(tack);
+  }
+
+  // Quão cheia está a janela, no canto direito: à esquerda fica o que o agente
+  // está fazendo, à direita o quanto isso já custou de contexto. Explica "por
+  // que ficou lento" e avisa que uma compactação vem aí — o número cai com ela.
+  const heavy = heaviest(ws);
+  if (heavy?.tokens) {
+    const tok = h("span", "chip tok", `Tokens: <b></b>`);
+    tok.children[0].textContent = `~${fmtTokens(heavy.tokens)}`;
+    tok.title =
+      `${heavy.tokens.toLocaleString("pt-BR")} tokens de contexto na última resposta` +
+      (ws.tabs.length > 1 ? ` (${heavy.title})` : "");
+    foot.append(tok);
   }
 
   // Arquivar, e não tirar do quadro: some da frente sem perder o caminho de

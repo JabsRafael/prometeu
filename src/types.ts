@@ -15,6 +15,9 @@ export type Tab = {
   title: string;
   status: Status;
   note: string | null;
+  /// Tokens de contexto na última resposta: quão cheia está a janela. Vazio é
+  /// conversa que ainda não respondeu.
+  tokens: number | null;
 };
 
 export type Project = { id: string; name: string; path: string };
@@ -105,4 +108,16 @@ export function worst(ws: Workspace): Tab | undefined {
 
 export function statusOf(ws: Workspace): Status {
   return worst(ws)?.status ?? "desligada";
+}
+
+/// A conversa mais pesada do workspace — é a que está mais perto de compactar.
+export function heaviest(ws: Workspace): Tab | undefined {
+  return ws.tabs.filter((t) => t.tokens).sort((a, b) => b.tokens! - a.tokens!)[0];
+}
+
+/// `57k`, `1,2M`: o tamanho que cabe numa pastilha. Abaixo de mil é o número.
+export function fmtTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
+  return `${(n / 1_000_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}M`;
 }

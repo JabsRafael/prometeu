@@ -68,6 +68,11 @@ pub struct Tab {
     pub status: Status,
     pub note: Option<String>,
     pub pending_prompt: Option<String>,
+    /// Tokens de contexto na última resposta — quão cheia a janela está.
+    /// Atualizado quando o agente para (`Stop`), que é quando muda. Vazio é
+    /// conversa que ainda não respondeu, ou quadro gravado antes disto existir.
+    #[serde(default)]
+    pub tokens: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -189,6 +194,7 @@ impl Board {
                     status: Status::Desligada,
                     note: None,
                     pending_prompt: None,
+                    tokens: None,
                 });
             }
             // Nenhum PTY sobrevive ao fechamento do app, então qualquer status
