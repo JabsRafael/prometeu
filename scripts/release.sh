@@ -44,6 +44,10 @@ cut() {
   [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] \
     || die "a main local não é a origin/main — dê pull (ou push) antes"
 
+  # Quem constrói é o runner deste Mac; tag empurrada com ele parado fica na
+  # fila sem ninguém avisar.
+  sh scripts/runner.sh
+
   PREV=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "")
   if [ -n "$PREV" ] && [ "$(git rev-list --count "$PREV..HEAD")" = 0 ]; then
     die "nada desde $PREV — não há o que soltar"

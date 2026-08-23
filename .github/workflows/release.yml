@@ -77,6 +77,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Com CI=true o bundler passa --skip-jenkins ao bundle_dmg.sh e o DMG
+          # sai sem o AppleScript que arruma ícones no Finder. O self-hosted
+          # não recebe CI=true sozinho, e o AppleScript depende de uma
+          # permissão de Automation que o macOS dá ao binário do runner — que
+          # não é assinado e troca a cada auto-update. O preço: a janela do
+          # DMG vem sem os ícones posicionados.
+          CI: "true"
         with:
           owner: gbrancaglione
           repo: prometheus-releases
@@ -87,6 +94,7 @@ jobs:
           releaseDraft: true
           includeUpdaterJson: true
           assetNamePattern: '[name]_[version]_[arch][ext]'
+          args: --verbose
 
       - name: build assinado, sem publicar
         if: github.ref_type != 'tag'
@@ -94,6 +102,9 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          CI: "true"
+        with:
+          args: --verbose
 
       - uses: actions/upload-artifact@v4
         if: github.ref_type != 'tag'

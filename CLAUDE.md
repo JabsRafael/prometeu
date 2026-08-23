@@ -42,6 +42,15 @@ A chave de assinatura (`~/.tauri/prometheus.key` + senha no Keychain, e uma
 cópia nos Secrets do repositório) é o que permite atualizar quem já instalou.
 Ela não entra em repositório nenhum.
 
+## PR e CI
+
+Trabalho sai em branch e entra por PR: `/open-pr` empurra, escreve o PR e
+acompanha os checks. O CI (`.github/workflows/ci.yml`) roda no runner
+self-hosted deste Mac — `~/actions-runner`, serviço de login; `sh
+scripts/runner.sh` confere se está online e sobe se não estiver. Runner
+parado = job na fila por até 24h, sem aviso. O repositório precisa continuar
+privado enquanto houver runner self-hosted nele.
+
 ## Rodar
 
 `npm run app` sobe o app de dev isolado por worktree; `npm test` roda vitest e
