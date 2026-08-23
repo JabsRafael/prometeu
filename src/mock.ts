@@ -1,7 +1,7 @@
 /// Back falso para o navegador puro (`npm run dev` e abrir localhost:1420):
 /// a UI inteira roda com dados de amostra, sem subir o Tauri. Só entra quando
 /// `window.__TAURI_INTERNALS__` não existe — dentro do app não é carregado.
-import type { Board, Scripts, Workspace } from "./types";
+import type { Board, LinearStatus, Scripts, Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
@@ -190,6 +190,8 @@ const SCRIPT_OUT =
   "  \x1b[32m➜\x1b[0m  Local:   \x1b[36mhttp://localhost:3110/\x1b[0m\r\n" +
   "  \x1b[32m➜\x1b[0m  ready in 231 ms\r\n\r\n";
 
+let linear: LinearStatus = { connected: false, who: null, busy: false };
+
 function emit(event: string, payload: unknown) {
   handlers.get(event)?.forEach((h) => h({ event, id: nextId++, payload }));
 }
@@ -327,6 +329,28 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       return args.options?.multiple
         ? ["/Users/gustavo/dev/njord/docs/spec.md", "/Users/gustavo/Desktop/tela.png"]
         : null;
+    // O Linear de mentira: conectar demora um pouco, como o navegador demora,
+    // e avisa pelo mesmo evento que o back avisa.
+    case "linear_status":
+      return linear;
+    case "linear_connect":
+      linear = { ...linear, busy: true };
+      emit("linear", linear);
+      return new Promise((done) =>
+        setTimeout(() => {
+          linear = {
+            connected: true,
+            busy: false,
+            who: { name: "Gustavo Brancaglione", email: "gustavo@exemplo.com", org: "Moabi", org_key: "moabi" },
+          };
+          emit("linear", linear);
+          done(linear);
+        }, 1200),
+      );
+    case "linear_disconnect":
+      linear = { connected: false, who: null, busy: false };
+      emit("linear", linear);
+      return linear;
     // Fora do Tauri não existe bundle para perguntar a versão. Dizer isso na
     // tela é melhor que repetir aqui um número que envelhece sozinho.
     case "plugin:app|version":

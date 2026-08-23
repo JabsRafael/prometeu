@@ -80,6 +80,13 @@ export type Scripts = {
 
 export type Board = { stages: string[]; projects: Project[]; workspaces: Workspace[] };
 
+/// Quem está do outro lado da conexão com o Linear: a pessoa e o workspace
+/// (a organização) que ela autorizou.
+export type LinearWho = { name: string; email: string; org: string; org_key: string };
+/// `busy` é um fluxo esperando o navegador — a tela mostra isso mesmo que
+/// você saia e volte no meio.
+export type LinearStatus = { connected: boolean; who: LinearWho | null; busy: boolean };
+
 /// Um arquivo mexido no worktree. `patch` são os trechos `@@` do diff — vazio
 /// quando não há o que desenhar (binário, ou grande demais).
 export type Change = {

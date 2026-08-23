@@ -783,6 +783,33 @@ body.noside .side { display: none; }
 .sheetbar .pri { height: 28px; padding: 0 12px; }
 .sheetbar kbd { font: inherit; font-size: 12px; opacity: 0.6; }
 
+/* ---------- configurações ---------- */
+
+/* Uma coluna centrada, como a página de conta do Conductor: cada ajuste é uma
+   linha com o nome e a explicação à esquerda e a ação à direita. */
+.settings { overflow-y: auto; }
+.setpage { width: min(760px, 100%); margin: 0 auto; padding: 40px 32px 64px; }
+.setpage h1 { font-size: 22px; font-weight: 600; margin: 0 0 28px; }
+.setpage h2 {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--fg-3); margin: 24px 0 4px;
+}
+.setrow {
+  display: flex; align-items: center; gap: 14px; padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.setrow .glyph {
+  width: 32px; height: 32px; flex: none; border-radius: var(--r-lg);
+  background: var(--bg-raised); color: var(--fg); display: grid; place-items: center;
+}
+.setrow .txt { flex: 1; min-width: 0; }
+.setrow .txt > b { display: block; font-weight: 500; }
+.setrow .txt > span { color: var(--fg-2); }
+.setrow .txt > span b { font-weight: 500; color: var(--fg); }
+.setrow .txt .ok { color: var(--done); }
+.setrow .act { display: flex; gap: 8px; flex: none; }
+.setrow .act .md .ic:last-child { color: var(--fg-3); }
+
 /* ---------- menu de contexto ---------- */
 
 /* Flutua acima de tudo, inclusive do lançador: quem abriu o menu está mexendo
