@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { avatar, icon, stageIcon } from "./icons";
+import * as menu from "./menu";
 import type { Board } from "./types";
 
 export type Draft = {
@@ -18,19 +19,67 @@ export type Draft = {
   stage: string;
   prompt: string;
   inject: string[];
-  /// Ligado, o agente roda solto: nenhuma ferramenta para para pedir. É o que
-  /// faz o quadro valer a pena — mas só é aceitável porque o worktree é
-  /// isolado. Desligado, cada permissão vira o card com Permitir e Negar.
-  skipPermissions: boolean;
+  /// `--model`: um alias do Claude Code (`opus`, `sonnet[1m]`…). Vazio é
+  /// deixar ele escolher. Vale para o workspace inteiro.
+  model: string;
+  /// `--effort`, `low`…`max` ou `ultracode`. O lançador sempre escolhe um;
+  /// vazio (quadro antigo) é não passar. Também do workspace.
+  effort: string;
+  /// Nasce em plan mode: o agente lê e planeja, e o card "plano pronto" é o
+  /// que o solta. Só desta primeira conversa.
+  plan: boolean;
 };
 
 type Branches = { all: string[]; default: string };
 
+/// Sempre solto (`--dangerously-skip-permissions`): não há chavinha. Agente
+/// que para a cada `Write` não trabalha enquanto você olha outra coisa, e é
+/// isso que faz o quadro valer a pena. Sem worktree o lançador avisa, porque
+/// aí ele mexe sem pedir no clone em que você trabalha.
+
+/// Os aliases que o `--model` aceita, com o nome que aparece na tela. Alias e
+/// não id completo de propósito: "opus" é sempre o Opus mais novo, e a lista
+/// não envelhece a cada release. `[1m]` é a janela de um milhão.
+const MODELS: [string, string][] = [
+  ["", "Modelo padrão"],
+  ["fable", "Fable"],
+  ["fable[1m]", "Fable · 1M"],
+  ["opus", "Opus"],
+  ["opus[1m]", "Opus · 1M"],
+  ["sonnet", "Sonnet"],
+  ["sonnet[1m]", "Sonnet · 1M"],
+  ["haiku", "Haiku"],
+];
+
+/// A escada do esforço, na ordem em que o clique sobe. É o botão do Conductor:
+/// barras que acendem uma a uma, e depois da última volta ao Baixo — sem
+/// lista, porque são seis degraus e subir um é um clique só. Não há "padrão":
+/// o lançador sempre diz um, e o primeiro é Alto, que é o que o CLI faria
+/// sozinho. `ultracode` o CLI traduz em `xhigh` mais a orquestração de
+/// workflows (subagentes em paralelo); só existe para conta com workflows
+/// liberados.
+const EFFORTS: [string, string][] = [
+  ["low", "Baixo"],
+  ["medium", "Médio"],
+  ["high", "Alto"],
+  ["xhigh", "Muito alto"],
+  ["max", "Máximo"],
+  ["ultracode", "Ultracode"],
+];
+
 /// A escolha do worktree gruda entre lançamentos: quem trabalha de um jeito
-/// trabalha do mesmo jeito amanhã, e refazer o clique toda vez cansa.
+/// trabalha do mesmo jeito amanhã, e refazer o clique toda vez cansa. Modelo e
+/// esforço também; plan mode não — é decisão de uma tarefa, não de um jeito.
 const WORKTREE_KEY = "prometheus:worktree";
 const BRANCH_KEY = "prometheus:branch-nova";
-const SOLTO_KEY = "prometheus:solto";
+const MODEL_KEY = "prometheus:model";
+const EFFORT_KEY = "prometheus:effort";
+
+/// Arquivo solto em cima do lançador aberto entra como anexo. É o `main.ts`
+/// quem vê o drop (o Tauri entrega caminho de verdade só pela webview), e é
+/// aqui que ele cai enquanto a folha estiver na tela.
+let takeFiles: ((paths: string[]) => void) | null = null;
+export const dropFiles = (paths: string[]) => takeFiles?.(paths);
 
 /// O lançador é uma caixa de texto e um seletor de projeto — o "Create" do
 /// Conductor. Tudo que dá para deduzir fica atrás de "detalhes"; criar é Enter.
@@ -48,22 +97,21 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
     stage: board.stages[1] ?? board.stages[0],
     prompt: "",
     inject: [],
-    skipPermissions: localStorage.getItem(SOLTO_KEY) !== "0",
+    model: remembered(MODEL_KEY, MODELS),
+    effort: remembered(EFFORT_KEY, EFFORTS, "high"),
+    plan: false,
   };
 
   const sheet = document.createElement("div");
   sheet.className = "sheet";
   sheet.innerHTML = `
     <div class="sheettop">
-      <span class="who"><span id="d-avatar"></span><select id="d-project" class="pick"></select></span>
+      <span class="who"><span id="d-avatar"></span><button id="d-project" class="ghost pick"><span></span>${icon("chevron-down", 12)}</button></span>
       <button id="d-base" class="ghost base" title="De onde a branch nova sai">
         ${icon("git-branch", 12)}<span id="d-basename">carregando…</span>${icon("chevron-down", 12)}
       </button>
       <button id="d-more" class="ghost">Detalhes ${icon("chevron-down", 12)}</button>
       <span class="spacer"></span>
-      <button id="d-solto" class="ghost sw" role="switch">
-        <span>Solto</span><i class="knob"></i>
-      </button>
       <button id="d-nb" class="ghost sw" role="switch">
         <span>Branch nova</span><i class="knob"></i>
       </button>
@@ -76,56 +124,48 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
       <div class="plist" id="d-list"></div>
     </div>
     <textarea id="d-prompt" rows="6" placeholder="No que você quer trabalhar?"></textarea>
+    <div class="attach" id="d-inj" hidden></div>
     <div class="details" id="d-details" hidden>
       <label class="mini-row"><span>Nome</span><input id="d-title" placeholder="sai da primeira frase" /></label>
       <label class="mini-row"><span>Branch</span><input id="d-branch" spellcheck="false" /></label>
       <label class="mini-row"><span>Etapa</span><span class="chips" id="d-cols"></span></label>
-      <label class="mini-row"><span>Injetar</span><span class="inj"><span id="d-inj"></span>
-        <button id="d-add" class="outline">${icon("plus", 12)} arquivo</button></span></label>
     </div>
     <div class="sheetbar">
+      <button id="d-model" class="ghost pick" title="Modelo das conversas deste workspace">${icon("sparkles", 14)}<span></span>${icon("chevron-down", 12)}</button>
+      <button id="d-effort" class="ghost effort"><span class="bars"><i></i><i></i><i></i><i></i><i></i></span><span class="el"></span></button>
+      <button id="d-plan" class="ghost">${icon("map", 14)}Plan</button>
       <span class="hint" id="d-hint"></span>
-      <span class="spacer"></span>
+      <button id="d-add" class="ico" title="Anexar arquivos ao contexto — ou solte em cima">${icon("paperclip", 16)}</button>
       <button id="d-go" class="pri">Criar <kbd>↵</kbd></button>
     </div>`;
 
   const $ = <T extends HTMLElement>(id: string) => sheet.querySelector(`#${id}`) as T;
-  const projectSel = $<HTMLSelectElement>("d-project");
   const branch = $<HTMLInputElement>("d-branch");
   const prompt = $<HTMLTextAreaElement>("d-prompt");
   const hint = $("d-hint");
-
-  for (const p of board.projects) {
-    const opt = document.createElement("option");
-    opt.value = p.id;
-    opt.textContent = p.name;
-    projectSel.append(opt);
-  }
-  projectSel.value = draft.project;
   branch.value = draft.branch;
 
-  const projectName = () => board.projects.find((p) => p.id === projectSel.value)?.name ?? "";
+  const projectName = () => board.projects.find((p) => p.id === draft.project)?.name ?? "";
   const drawHint = () => {
     $("d-avatar").innerHTML = avatar(projectName());
-    const from = draft.base ? ` · sai de ${draft.base}` : "";
+    const from = draft.base ? ` ← ${draft.base}` : "";
     const onde = !draft.newBranch
-      ? `no próprio repo ${projectName()} · na branch em que ele já está`
+      ? `na branch em que o repo está`
       : draft.worktree
-        ? `worktree novo em ${projectName()} · ${branch.value}${from}`
-        : `no próprio repo ${projectName()} — ele troca de branch · ${branch.value}${from}`;
+        ? `worktree novo · ${branch.value}${from}`
+        : `o repo troca para ${branch.value}${from}`;
 
-    // Solto é aceitável porque o worktree é descartável. Sem worktree o agente
-    // roda sem pedir nada no clone em que você trabalha — dá para querer isso,
-    // mas não dá para não saber.
+    // O agente roda sempre solto, e isso é aceitável porque o worktree é
+    // descartável. Sem worktree ele roda sem pedir nada no clone em que você
+    // trabalha — dá para querer isso, mas não dá para não saber.
     //
     // O aviso vem na frente porque a linha é cortada no fim: se ele fosse o
     // rabo da frase, seria justamente ele a virar reticências.
-    const risky = draft.skipPermissions && !draft.worktree;
-    hint.classList.toggle("warn", risky);
-    hint.textContent = risky ? `solto no seu clone, sem pedir permissão · ${onde}` : onde;
+    hint.classList.toggle("warn", !draft.worktree);
+    hint.title = `${projectName()} · ${onde}`;
+    hint.textContent = draft.worktree ? onde : `solto no seu clone, sem pedir · ${onde}`;
   };
   drawHint();
-  projectSel.addEventListener("change", drawHint);
   branch.addEventListener("input", drawHint);
 
   /* ---------- worktree e branch: as duas chavinhas ---------- */
@@ -135,20 +175,15 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
   // está. A quarta não existe: worktree sem branch própria não é worktree.
   const wt = $<HTMLButtonElement>("d-wt");
   const nb = $<HTMLButtonElement>("d-nb");
-  const solto = $<HTMLButtonElement>("d-solto");
 
   const drawSwitches = () => {
     for (const [el, on] of [
       [wt, draft.worktree],
       [nb, draft.newBranch],
-      [solto, draft.skipPermissions],
     ] as const) {
       el.classList.toggle("on", on);
       el.setAttribute("aria-checked", String(on));
     }
-    solto.title = draft.skipPermissions
-      ? "O agente não para para pedir permissão. Vale porque o worktree é isolado — repare no aviso quando ele não for"
-      : "Cada permissão vira um card com Permitir e Negar, aqui na tela";
     nb.disabled = draft.worktree;
     nb.title = draft.worktree
       ? "Worktree sempre nasce com uma branch só dele"
@@ -175,11 +210,51 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
     localStorage.setItem(BRANCH_KEY, draft.newBranch ? "1" : "0");
     drawSwitches();
   });
-  solto.addEventListener("click", () => {
-    draft.skipPermissions = !draft.skipPermissions;
-    localStorage.setItem(SOLTO_KEY, draft.skipPermissions ? "1" : "0");
-    drawSwitches();
+
+  /* ---------- modelo, esforço e plan mode: o rodapé do Conductor ---------- */
+
+  // Escolher devolve o cursor ao texto: modelo e esforço são acessórios da
+  // frase, e clicar neles não pode tirar você dela.
+  dropdown($("d-model"), MODELS, () => draft.model, (id) => {
+    draft.model = id;
+    localStorage.setItem(MODEL_KEY, id);
+    prompt.focus();
   });
+  // Esforço sobe um degrau por clique e dá a volta: as barras dizem onde está.
+  const effort = $<HTMLButtonElement>("d-effort");
+  const drawEffort = () => {
+    const step = Math.max(0, EFFORTS.findIndex(([id]) => id === draft.effort));
+    const ultra = draft.effort === "ultracode";
+    effort.querySelector(".el")!.textContent = EFFORTS[step][1];
+    effort.querySelectorAll(".bars i").forEach((bar, n) => bar.classList.toggle("lit", n <= step));
+    effort.classList.toggle("ultra", ultra);
+    effort.title = ultra
+      ? "Ultracode: esforço muito alto e orquestração de workflows — o agente abre subagentes em paralelo. Clique para voltar ao Baixo"
+      : "Quanto o modelo pensa antes de responder. Cada clique sobe um degrau; depois do último volta ao Baixo";
+  };
+  effort.addEventListener("click", () => {
+    const step = EFFORTS.findIndex(([id]) => id === draft.effort);
+    draft.effort = EFFORTS[(step + 1) % EFFORTS.length][0];
+    localStorage.setItem(EFFORT_KEY, draft.effort);
+    drawEffort();
+    prompt.focus();
+  });
+  drawEffort();
+
+  const plan = $<HTMLButtonElement>("d-plan");
+  const drawPlan = () => {
+    plan.classList.toggle("on", draft.plan);
+    plan.setAttribute("aria-pressed", String(draft.plan));
+    plan.title = draft.plan
+      ? "Nasce em plan mode: o agente só lê e planeja. Aprovar o plano no card é o que o solta"
+      : "Nasce solto, mexendo desde a primeira fala. Ligue para ele planejar antes";
+  };
+  plan.addEventListener("click", () => {
+    draft.plan = !draft.plan;
+    drawPlan();
+    prompt.focus();
+  });
+  drawPlan();
 
   /* ---------- base da branch ---------- */
 
@@ -204,7 +279,7 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
     baseBtn.disabled = true;
     baseName.textContent = "carregando…";
     try {
-      const got = await invoke<Branches>("list_branches", { project: projectSel.value });
+      const got = await invoke<Branches>("list_branches", { project: draft.project });
       branches = got.all;
       setBase(got.default);
     } catch {
@@ -286,10 +361,20 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
       prompt.focus();
     }
   });
-  projectSel.addEventListener("change", () => {
-    closePicker();
-    loadBranches();
-  });
+  // Trocar de projeto refaz a base (é o repositório quem manda na lista) e o
+  // nome no aviso.
+  dropdown(
+    $("d-project"),
+    board.projects.map((p) => [p.id, p.name]),
+    () => draft.project,
+    (id) => {
+      draft.project = id;
+      closePicker();
+      loadBranches();
+      drawHint();
+      prompt.focus();
+    },
+  );
   drawSwitches();
   loadBranches();
 
@@ -318,8 +403,11 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
     cols.append(b);
   }
 
+  // Anexos ficam à vista, entre o texto e o rodapé — não atrás de "Detalhes":
+  // o que vai junto da primeira fala é parte da primeira fala.
   const injList = $("d-inj");
   const drawInject = () => {
+    injList.hidden = !draft.inject.length;
     injList.replaceChildren(
       ...draft.inject.map((path, i) => {
         const row = document.createElement("span");
@@ -335,18 +423,22 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
       }),
     );
   };
-  $("d-add").addEventListener("click", async () => {
-    const picked = await open({ multiple: true, title: "Arquivos para injetar no contexto" });
-    draft.inject.push(...(Array.isArray(picked) ? picked : picked ? [picked] : []));
+  const addFiles = (paths: string[]) => {
+    draft.inject.push(...paths.filter((p) => p && !draft.inject.includes(p)));
     drawInject();
+  };
+  $("d-add").addEventListener("click", async () => {
+    const picked = await open({ multiple: true, title: "Arquivos para anexar ao contexto" });
+    addFiles(Array.isArray(picked) ? picked : picked ? [picked] : []);
   });
+  takeFiles = addFiles;
 
   const hide = () => {
+    takeFiles = null;
     veil.replaceChildren();
     veil.hidden = true;
   };
   const submit = () => {
-    draft.project = projectSel.value;
     // Vazia é o que o back lê como "não cria branch, abre onde o repo está".
     draft.branch = draft.newBranch ? branch.value.trim() || `prometheus/${stamp()}` : "";
     draft.prompt = prompt.value;
@@ -366,11 +458,50 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
   });
   // Clicar fora fecha, como no Conductor — não tem botão de cancelar. Decide no
   // mousedown: soltar uma seleção de texto em cima do véu não pode fechar.
-  veil.onmousedown = (e) => e.target === veil && hide();
+  // Com chaves de propósito: handler `on*` que retorna `false` é
+  // `preventDefault()`, e aí clique nenhum dentro da folha focaria nada.
+  veil.onmousedown = (e) => {
+    if (e.target === veil) hide();
+  };
 
   veil.replaceChildren(sheet);
   veil.hidden = false;
   prompt.focus();
+}
+
+/// Um seletor com cara de botão, como o do Conductor — e sem `<select>`. O
+/// popup nativo do WKWebView não abre nesta janela (o clique chega no elemento,
+/// o menu não vem), e mesmo quando abre é a lista clara do sistema no meio de
+/// um app escuro. A lista é o menu do próprio app, o mesmo do botão direito no
+/// card, aberto logo abaixo do botão. O botão mostra o rótulo da escolha.
+function dropdown(btn: HTMLButtonElement, list: [string, string][], get: () => string, set: (id: string) => void) {
+  const label = btn.querySelector("span")!;
+  const draw = () => {
+    label.textContent = list.find(([id]) => id === get())?.[1] ?? "";
+  };
+  btn.addEventListener("click", () => {
+    const at = btn.getBoundingClientRect();
+    menu.openAt(
+      { x: at.left, y: at.bottom + 4 },
+      list.map(([id, name]) => ({
+        label: name,
+        checked: id === get(),
+        run: () => {
+          set(id);
+          draw();
+        },
+      })),
+    );
+  });
+  draw();
+}
+
+/// O que ficou gravado da última vez — desde que ainda exista na lista. Um
+/// alias que saiu de circulação não pode virar `--model` inválido por
+/// lembrança.
+function remembered(key: string, list: [string, string][], fallback = "") {
+  const saved = localStorage.getItem(key) ?? "";
+  return list.some(([id]) => id === saved) ? saved : fallback;
 }
 
 function summarize(prompt: string) {

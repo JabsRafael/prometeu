@@ -102,16 +102,11 @@ input, textarea, select {
 }
 input::placeholder, textarea::placeholder { color: var(--fg-3); }
 
-/* Select com cara de botão ghost: seta própria, sem cromo nativo. */
-.pick {
-  appearance: none; -webkit-appearance: none; width: auto; height: 24px;
-  padding: 0 24px 0 8px; border-color: transparent; background: none; color: var(--fg-2);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a4a09d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat; background-size: 12px; background-position: right 7px center;
-  font-weight: 500;
-}
-.pick:hover { background-color: var(--bg-raised-2); color: var(--fg); }
-.pick.outline { border-color: var(--line-ghost); }
+/* Seletor com cara de botão ghost: rótulo da escolha e a seta. A lista é o
+   menu do app, não um `<select>` — ver `dropdown` em `launcher.ts`. */
+.pick { padding: 0 6px 0 8px; gap: 4px; }
+.pick > span { white-space: nowrap; }
+.pick > .ic:last-child { color: var(--fg-3); }
 
 .avatar {
   width: 16px; height: 16px; border-radius: 4px; flex: none;
@@ -622,6 +617,9 @@ body.noside .side { display: none; }
   font-family: var(--mono); font-size: 11.5px; color: var(--fg-2);
   max-height: 150px; overflow: auto; white-space: pre-wrap; word-break: break-word; user-select: text;
 }
+/* O plano é prosa, não um JSON de argumentos: merece mais altura para ser lido
+   antes de aprovar. */
+.ask pre.plan { max-height: 320px; font-family: inherit; font-size: 12.5px; line-height: 1.5; }
 .ask .opts { display: flex; flex-direction: column; gap: 2px; }
 .opt {
   display: flex; align-items: center; gap: 10px; width: 100%; height: auto;
@@ -669,7 +667,7 @@ body.noside .side { display: none; }
   padding: 0 12px; border-bottom: 1px solid var(--line-raised);
 }
 .sheettop .who { display: flex; align-items: center; gap: 0; padding-left: 4px; }
-.sheettop .who .pick { color: var(--fg); font-weight: 500; padding-left: 8px; }
+.sheettop .who .pick { color: var(--fg); }
 /* Chavinha: o rótulo e o trilho no mesmo botão, como o toggle do Conductor. */
 .sw { gap: 8px; padding-right: 6px; }
 .sw .knob {
@@ -730,16 +728,46 @@ body.noside .side { display: none; }
 .mini-row input:disabled { opacity: 0.45; }
 .chips { display: flex; gap: 4px; flex-wrap: wrap; }
 .chips button.on { background: var(--bg-raised-2); color: var(--fg); }
-.inj { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+/* Anexos à vista, entre o texto e o rodapé: vão junto da primeira fala. */
+.attach { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 16px 10px; }
 .injchip {
   display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 4px 0 8px;
   background: var(--bg); border: 1px solid var(--line-raised); border-radius: var(--r);
   font-family: var(--mono); font-size: 11.5px; color: var(--fg-2);
 }
+/* Rodapé do Conductor: modelo, esforço e Plan à esquerda; clipe e Criar à
+   direita. Onde a sessão nasce fica no meio, e é o que encolhe. */
 .sheetbar {
-  flex: none; display: flex; align-items: center; gap: 8px; padding: 12px;
+  flex: none; display: flex; align-items: center; gap: 6px; padding: 12px;
 }
-.sheetbar .hint { font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheetbar .pick > .ic:first-child { color: var(--fg-3); }
+/* Esforço: as barras do Conductor. Cada clique acende mais uma; a última dá a
+   volta. Ultracode é o degrau acima do máximo, e o degradê é o aviso de que
+   aqui o agente vira vários. */
+.effort { padding: 0 8px 0 7px; gap: 7px; }
+.effort .bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
+.effort .bars i { width: 2px; border-radius: 1px; background: var(--line-ghost); transition: background 0.12s; }
+.effort .bars i:nth-child(1) { height: 4px; }
+.effort .bars i:nth-child(2) { height: 6px; }
+.effort .bars i:nth-child(3) { height: 8px; }
+.effort .bars i:nth-child(4) { height: 10px; }
+.effort .bars i:nth-child(5) { height: 12px; }
+.effort .bars i.lit { background: var(--fg-2); }
+.effort:hover .bars i.lit { background: var(--fg); }
+.effort.ultra, .effort.ultra:hover {
+  color: #fff; background: linear-gradient(90deg, #e5484d, #f08a24, #3fb950, #2f81f7, #a371f7);
+}
+.effort.ultra:hover { filter: brightness(1.1); }
+.effort.ultra .bars i { background: rgb(255 255 255 / 0.5); }
+.effort.ultra .bars i.lit { background: #fff; }
+/* Plan ligado é um estado, não um hover: a cor da marca, lavada, para o olho
+   distinguir "vai planejar" de "o mouse está em cima". */
+.sheetbar #d-plan.on { background: rgb(255 107 61 / 0.14); color: var(--accent); }
+.sheetbar #d-plan.on:hover { background: rgb(255 107 61 / 0.22); }
+.sheetbar .hint {
+  flex: 1; min-width: 0; text-align: right; padding: 0 4px;
+  font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 /* Agente solto fora de um worktree mexe no clone de sempre sem pedir nada. */
 .sheetbar .hint.warn { color: var(--wait); }
 .sheetbar .pri { height: 28px; padding: 0 12px; }

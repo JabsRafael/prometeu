@@ -6,7 +6,7 @@ import * as board from "./board";
 import * as dock from "./dock";
 import * as dockbar from "./dockbar";
 import { icon } from "./icons";
-import { openLauncher, type Draft } from "./launcher";
+import { dropFiles, openLauncher, type Draft } from "./launcher";
 import * as menu from "./menu";
 import * as rename from "./rename";
 import * as session from "./session";
@@ -141,6 +141,10 @@ listen<{ session: string; payload: { tool_input?: { questions?: Question[] } } }
   },
 );
 
+listen<{ session: string; plan?: string }>("plan", ({ payload }) => {
+  session.showPlan(payload.session, payload.plan ?? "");
+});
+
 listen<{ id: number; session: string; payload: { tool_name?: string; tool_input?: unknown } }>(
   "permission",
   ({ payload }) => {
@@ -187,6 +191,13 @@ function markDrop(host: HTMLElement | null) {
 getCurrentWebview().onDragDropEvent(({ payload }) => {
   const drag = payload as Drag;
   if (drag.type === "leave") return markDrop(null);
+
+  // Lançador aberto: o arquivo vira anexo da primeira fala, e nada vai ao pty.
+  if (!$("veil").hidden) {
+    markDrop(null);
+    if (drag.type === "drop") dropFiles(drag.paths ?? []);
+    return;
+  }
 
   const target = dropTarget(drag.position);
   if (drag.type !== "drop") return markDrop(target?.pty ? target.host : null);

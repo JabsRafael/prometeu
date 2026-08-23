@@ -40,22 +40,44 @@ Claude Code de verdade rodando ali.
 Uma conexão por invocação de hook, então a conexão já é a correlação: sem ids de
 mensagem, sem multiplexação.
 
-### Solto ou pedindo permissão
+### Sempre solto
 
-A chavinha **Solto** no lançador, por workspace:
+Toda sessão nasce com `--dangerously-skip-permissions`, sem chavinha. Nada
+para para pedir, que é o que faz o quadro valer a pena: agente que trava a
+cada `Write` não trabalha enquanto você olha outra coisa. Vale porque o
+worktree é isolado e descartável — e é por isso que solto **sem** worktree é o
+único par que merece aviso, e o lançador o dá em laranja: aí o agente mexe sem
+pedir no clone em que você trabalha.
 
-- **Ligada** (padrão) a sessão nasce com `--dangerously-skip-permissions`. Nada
-  para para pedir, que é o que faz o quadro valer a pena: agente que trava a
-  cada `Write` não trabalha enquanto você olha outra coisa. Vale porque o
-  worktree é isolado e descartável.
-- **Desligada** cada ferramenta vira o card com Permitir e Negar, e o card do
-  quadro ganha um "pede permissão" dizendo por que aquela sessão para tanto.
+O hook de `PermissionRequest` fica instalado mesmo assim, porque
+`AskUserQuestion` e `ExitPlanMode` passam por ele em bypass.
 
-Solto **sem** worktree é o único par que merece aviso, e o lançador o dá em
-laranja: aí o agente mexe sem pedir no clone em que você trabalha.
+### Modelo, esforço e plan mode
 
-O hook de `PermissionRequest` fica instalado nos dois casos, porque
-`AskUserQuestion` passa por ele mesmo em bypass.
+O rodapé do lançador é o do Conductor: modelo, esforço, **Plan** e o clipe de
+anexar (ou soltar arquivo em cima da folha). Modelo e esforço viram `--model`
+e `--effort` e ficam no workspace — ⌘T e retomar nascem com os mesmos.
+"Modelo padrão" é não passar a flag. Esforço é uma escada de clique, Baixo a
+Máximo e depois **Ultracode** (`--effort ultracode`: `xhigh` mais a
+orquestração de workflows, para conta que a tem), e dá a volta.
+
+Nada ali é `<select>`: o popup nativo do WKWebView não abre nesta janela (o
+clique chega no elemento, o menu não vem), então modelo e projeto abrem o menu
+do próprio app, o mesmo do botão direito no card.
+
+**Plan** liga o plan mode na primeira conversa, e aqui tem uma sutileza
+levantada na marra (Claude Code 2.1.240): `--permission-mode plan` junto de
+`--dangerously-skip-permissions` nasce em bypass, e o plano nunca acontece. O
+que funciona é `--permission-mode plan --allow-dangerously-skip-permissions`:
+a sessão nasce em plan, e o "Would you like to proceed?" do `ExitPlanMode` já
+traz "switch to BYPASS PERMISSIONS" como primeira opção. O card **plano
+pronto** mostra o plano; **Executar** é o dígito `1` escrito no PTY, e daí em
+diante é o solto de sempre. **Ajustar** é o `3`, e o terminal ganha o foco para
+você dizer o que muda.
+
+`ExitPlanMode` passa pelo hook como qualquer ferramenta, mas `allow` por ele
+não pula o seletor — a TUI o desenha do mesmo jeito, só mais tarde. Então o
+hook o solta na hora, como faz com `AskUserQuestion`.
 
 ### O caso do AskUserQuestion
 

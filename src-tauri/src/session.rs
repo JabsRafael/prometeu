@@ -213,8 +213,34 @@ pub struct Draft {
     stage: String,
     prompt: String,
     inject: Vec<String>,
-    /// O agente roda solto, sem parar a cada ferramenta.
-    skip_permissions: bool,
+    /// `--model`, `--effort` e plan mode da primeira conversa. Modelo e
+    /// esforço ficam no workspace; plan mode é só desta primeira fala.
+    #[serde(flatten)]
+    launch: Launch,
+}
+
+/// As chavinhas que viram argumento do `claude`. O que o lançador escolhe e o
+/// que o workspace guarda para as próximas conversas são o mesmo conjunto.
+#[derive(serde::Deserialize, Clone, Default)]
+pub struct Launch {
+    /// Vazio é não passar `--model`: o Claude Code escolhe.
+    #[serde(default)]
+    pub model: String,
+    /// Vazio é não passar `--effort`.
+    #[serde(default)]
+    pub effort: String,
+    /// Nasce em plan mode: o agente lê e planeja, e aprovar o plano é o que o
+    /// solta. Só vale para a conversa que o lançador abre.
+    #[serde(default)]
+    pub plan: bool,
+}
+
+impl Workspace {
+    /// Com o que uma conversa nova ou retomada nasce aqui: o modelo e o
+    /// esforço do workspace, e nunca em plan mode — isso é escolha do lançador.
+    pub fn launch(&self) -> Launch {
+        Launch { model: self.model.clone(), effort: self.effort.clone(), plan: false }
+    }
 }
 
 /// `async` aqui é o threadpool do Tauri, não uma corotina: `git worktree add`
@@ -273,7 +299,7 @@ pub fn create_workspace(
         &root,
         "conversa",
         first_message(&draft.prompt, &draft.inject),
-        draft.skip_permissions,
+        &draft.launch,
         cols,
         rows,
     )?;
@@ -290,7 +316,8 @@ pub fn create_workspace(
         archived: false,
         pinned: false,
         unread: false,
-        skip_permissions: draft.skip_permissions,
+        model: draft.launch.model,
+        effort: draft.launch.effort,
         port,
         active: Some(tab.id.clone()),
         tabs: vec![tab],
@@ -329,12 +356,12 @@ pub fn new_tab(
     cols: u16,
     rows: u16,
 ) -> Result<Tab, String> {
-    // A regra de permissão é do workspace: conversa nova nos mesmos arquivos
-    // nasce com a mesma que as irmãs.
-    let (worktree, n, skip) = {
+    // Modelo e esforço são do workspace: conversa nova nos mesmos arquivos
+    // nasce com os mesmos que as irmãs. Plan mode não — é escolha de uma fala.
+    let (worktree, n, launch) = {
         let board = lock(&state.board);
         let ws = board.workspaces.iter().find(|w| w.id == workspace).ok_or("workspace sumiu")?;
-        (PathBuf::from(&ws.worktree), ws.tabs.len() + 1, ws.skip_permissions)
+        (PathBuf::from(&ws.worktree), ws.tabs.len() + 1, ws.launch())
     };
 
     let title = if prompt.trim().is_empty() {
@@ -343,7 +370,7 @@ pub fn new_tab(
         tab_title(&prompt)
     };
     let pending = (!prompt.trim().is_empty()).then(|| prompt.trim().to_string());
-    let tab = spawn_tab(&app, &state, &worktree, &title, pending, skip, cols, rows)?;
+    let tab = spawn_tab(&app, &state, &worktree, &title, pending, &launch, cols, rows)?;
 
     {
         let mut board = lock(&state.board);
@@ -420,9 +447,9 @@ pub fn resume_tab(
     cols: u16,
     rows: u16,
 ) -> Result<bool, String> {
-    let (worktree, skip) = lock(&state.board)
+    let (worktree, launch) = lock(&state.board)
         .workspace_of(&tab)
-        .map(|w| (PathBuf::from(&w.worktree), w.skip_permissions))
+        .map(|w| (PathBuf::from(&w.worktree), w.launch()))
         .ok_or("aba não encontrada")?;
     if !worktree.exists() {
         return Err(format!("worktree sumiu: {}", worktree.display()));
@@ -436,7 +463,7 @@ pub fn resume_tab(
     // aba renasce com o mesmo id: não há nada perdido, e travar a tela num erro
     // por causa de uma conversa vazia seria pior.
     let resume = paths::transcript(&tab, &worktree).exists();
-    let handle = pty::spawn(&app, &tab, claude_cmd(&tab, &worktree, resume, skip)?, cols, rows, false, None)?;
+    let handle = pty::spawn(&app, &tab, claude_cmd(&tab, &worktree, resume, &launch)?, cols, rows, false, None)?;
     lock(&state.ptys).insert(tab.clone(), handle);
     {
         let mut board = lock(&state.board);
@@ -456,12 +483,12 @@ fn spawn_tab(
     worktree: &Path,
     title: &str,
     pending_prompt: Option<String>,
-    skip_permissions: bool,
+    launch: &Launch,
     cols: u16,
     rows: u16,
 ) -> Result<Tab, String> {
     let id = uuid::Uuid::new_v4().to_string();
-    let handle = pty::spawn(app, &id, claude_cmd(&id, worktree, false, skip_permissions)?, cols, rows, false, None)?;
+    let handle = pty::spawn(app, &id, claude_cmd(&id, worktree, false, launch)?, cols, rows, false, None)?;
     lock(&state.ptys).insert(id.clone(), handle);
     Ok(Tab {
         id,
@@ -477,27 +504,20 @@ fn spawn_tab(
 /// Monta a linha de comando do Claude Code. `resume` decide se a sessão nasce
 /// nova ou continua a que já existe — o id é o mesmo nos dois casos.
 ///
-/// `skip` é a chavinha do lançador. Solta, cada sessão vive no seu worktree
-/// isolado e não para a cada ferramenta — que é o motivo de existir o quadro.
-/// Presa, cada permissão vira o card com Permitir e Negar, que é o motivo de
-/// existir o socket. As duas coisas são verdade, e quem escolhe é quem vai
-/// olhar: worktree descartável pede solta, clone de sempre pede presa.
-///
-/// O hook de PermissionRequest fica instalado nos dois casos, porque
-/// AskUserQuestion passa por ele mesmo em bypass — testado: o seletor aparece e
-/// o dígito acerta.
-fn claude_cmd(id: &str, worktree: &Path, resume: bool, skip: bool) -> Result<CommandBuilder, String> {
+/// O agente roda sempre solto: cada sessão vive no seu worktree e não para a
+/// cada ferramenta — que é o motivo de existir o quadro. O hook de
+/// PermissionRequest fica instalado mesmo assim, porque AskUserQuestion e
+/// ExitPlanMode passam por ele em bypass — testado: o seletor aparece e o
+/// dígito acerta.
+fn claude_cmd(id: &str, worktree: &Path, resume: bool, launch: &Launch) -> Result<CommandBuilder, String> {
     let settings = write_settings(id)?;
     let mut cmd = CommandBuilder::new("claude");
-    cmd.args([
-        "--settings",
-        settings.to_str().ok_or("caminho de settings inválido")?,
-        if resume { "--resume" } else { "--session-id" },
+    cmd.args(cli_args(
         id,
-    ]);
-    if skip {
-        cmd.arg("--dangerously-skip-permissions");
-    }
+        settings.to_str().ok_or("caminho de settings inválido")?,
+        resume,
+        launch,
+    ));
     cmd.cwd(worktree);
     // O CommandBuilder herda o ambiente inteiro por padrão, e `env()` só sobrescreve
     // chave por chave — não remove nada. Sem o env_clear, um `claude` rodando dentro
@@ -511,6 +531,36 @@ fn claude_cmd(id: &str, worktree: &Path, resume: bool, skip: bool) -> Result<Com
     }
     cmd.env("TERM", "xterm-256color");
     Ok(cmd)
+}
+
+/// Os argumentos do `claude`, separados do `CommandBuilder` para dar para
+/// testar — e porque a parte do plan mode foi levantada na marra (2.1.240):
+///
+/// - `--dangerously-skip-permissions` junto de `--permission-mode plan` ganha
+///   do plan: a sessão nasce em bypass e o plano nunca acontece.
+/// - `--allow-dangerously-skip-permissions` com `--permission-mode plan` nasce
+///   em plan, e o "Would you like to proceed?" do ExitPlanMode já vem com
+///   "switch to BYPASS PERMISSIONS" como primeira opção. Aprovar é o dígito 1,
+///   e daí em diante é o mesmo solto de sempre.
+fn cli_args(id: &str, settings: &str, resume: bool, launch: &Launch) -> Vec<String> {
+    let mut args: Vec<String> = vec![
+        "--settings".into(),
+        settings.into(),
+        if resume { "--resume" } else { "--session-id" }.into(),
+        id.into(),
+    ];
+    if launch.plan {
+        args.extend(["--permission-mode", "plan", "--allow-dangerously-skip-permissions"].map(String::from));
+    } else {
+        args.push("--dangerously-skip-permissions".into());
+    }
+    if !launch.model.trim().is_empty() {
+        args.extend(["--model".into(), launch.model.trim().into()]);
+    }
+    if !launch.effort.trim().is_empty() {
+        args.extend(["--effort".into(), launch.effort.trim().into()]);
+    }
+    args
 }
 
 /// Contexto injetado vira menção `@caminho` na primeira fala — que é como o
@@ -872,8 +922,40 @@ fn cap(patch: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_terminal, patch_map};
+    use super::{cli_args, is_terminal, patch_map, Launch};
     use std::process::Command;
+
+    fn launch(model: &str, effort: &str, plan: bool) -> Launch {
+        Launch { model: model.into(), effort: effort.into(), plan }
+    }
+
+    /// Bypass e plan não convivem na mesma linha: `--dangerously-skip-permissions`
+    /// engole o plan. Plan mode é `--allow-…` mais `--permission-mode plan`.
+    #[test]
+    fn plan_mode_nao_leva_o_bypass_junto() {
+        let solto = cli_args("id", "s.json", false, &launch("", "", false));
+        assert!(solto.contains(&"--dangerously-skip-permissions".to_string()));
+        assert!(!solto.contains(&"--permission-mode".to_string()));
+
+        let plano = cli_args("id", "s.json", false, &launch("", "", true));
+        assert!(!plano.contains(&"--dangerously-skip-permissions".to_string()));
+        assert!(plano.contains(&"--allow-dangerously-skip-permissions".to_string()));
+        let at = plano.iter().position(|a| a == "--permission-mode").unwrap();
+        assert_eq!(plano[at + 1], "plan");
+    }
+
+    /// Vazio é não passar a flag — o Claude Code escolhe. Cheio vai como veio.
+    #[test]
+    fn modelo_e_esforco_so_quando_escolhidos() {
+        let padrao = cli_args("id", "s.json", true, &launch("", " ", false));
+        assert!(!padrao.contains(&"--model".to_string()));
+        assert!(!padrao.contains(&"--effort".to_string()));
+        assert_eq!(padrao[2], "--resume");
+
+        let escolhido = cli_args("id", "s.json", false, &launch("opus[1m]", "max", false));
+        assert_eq!(escolhido[escolhido.len() - 4..], ["--model", "opus[1m]", "--effort", "max"]);
+        assert_eq!(escolhido[2], "--session-id");
+    }
 
     /// Saída de `git diff HEAD` com três arquivos: um mexido, um apagado e um
     /// com espaço no nome. O caminho tem de sair certo nos três.

@@ -33,10 +33,11 @@ export type Workspace = {
   archived: boolean;
   pinned: boolean;
   unread: boolean;
-  /// O agente roda solto aqui, sem card de permissão. Escolhido no lançador e
-  /// válido para todas as abas: o worktree é o mesmo, e duas conversas nos
-  /// mesmos arquivos com regras diferentes seriam uma armadilha.
-  skip_permissions: boolean;
+  /// `--model` e `--effort` das conversas daqui, escolhidos no lançador e
+  /// válidos para as abas que vierem (⌘T, retomar). Vazio é o padrão do
+  /// Claude Code.
+  model: string;
+  effort: string;
   /// Base das dez portas reservadas a este worktree.
   port: number | null;
   tabs: Tab[];
