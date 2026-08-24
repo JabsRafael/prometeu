@@ -8,6 +8,7 @@
 #   $PROMETHEUS_ROOT_PATH       o repositório de onde ele saiu
 #   $PROMETHEUS_WORKSPACE_NAME  o nome deste workspace
 #   $PROMETHEUS_PORT            porta reservada só para ele, mais nove até +9
+#   $PORT                       a mesma porta, para o que já respeita a convenção
 
 [scripts]
 # `sidecar.sh` compila o prometheus-hook, e o build script do Tauri recusa a

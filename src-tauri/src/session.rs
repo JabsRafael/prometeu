@@ -78,7 +78,7 @@ pub fn archive_workspace(app: AppHandle, state: State<AppState>, id: String, arc
         // arquivado é processo que ninguém vê.
         kill_docks(&state, &id);
         if let Some(ws) = workspace_copy(&state, &id) {
-            if let Some(command) = scripts::read(Path::new(&ws.worktree)).archive {
+            if let Some(command) = scripts_of(&ws).archive {
                 let mut cmd = Command::new("/bin/sh");
                 cmd.args(["-lc", &command]).current_dir(&ws.worktree);
                 for (key, value) in script_env(&ws) {
@@ -293,7 +293,7 @@ pub fn create_workspace(
     let port = {
         let board = lock(&state.board);
         let taken: Vec<u16> = board.workspaces.iter().filter_map(|w| w.port).collect();
-        scripts::alloc_port(&taken)
+        scripts::alloc_port(&root, &taken)
     };
 
     let tab = spawn_tab(
@@ -339,7 +339,7 @@ pub fn create_workspace(
     // `release_prompts`): agente que roda teste antes de haver `node_modules`
     // conclui coisa errada. Falhar aqui não desfaz o worktree; o erro fica
     // escrito na aba Setup, que é onde se conserta.
-    if let Some(command) = scripts::read(&root).setup {
+    if let Some(command) = scripts_of(&ws).setup {
         let _ = start_script(&app, &state, &ws, "setup", &command, cols, rows);
     }
 
@@ -1266,7 +1266,7 @@ pub fn open_dock(
         return Ok(key);
     }
 
-    let found = scripts::read(Path::new(&ws.worktree));
+    let found = scripts_of(&ws);
     let command = match kind.as_str() {
         "setup" => found.setup.clone(),
         "run" => found.run(name.as_deref()).map(|r| r.command.clone()),
@@ -1351,6 +1351,12 @@ fn release_prompts(app: &AppHandle, workspace: &str, code: Option<u32>) {
     }
 }
 
+/// Os scripts que valem para este workspace: os do worktree, e sem eles os do
+/// clone de origem (ver `scripts::read_for`).
+fn scripts_of(ws: &Workspace) -> scripts::Scripts {
+    scripts::read_for(Path::new(&ws.worktree), Path::new(&ws.repo))
+}
+
 fn script_env(ws: &Workspace) -> Vec<(String, String)> {
     // O nome que o script vê é o da pasta do worktree, e não o título do card: o
     // título muda quando você renomeia, e script que batiza container ou banco
@@ -1367,12 +1373,13 @@ fn script_env(ws: &Workspace) -> Vec<(String, String)> {
 /// scripts, e a porta vai junto, porque é ela que ele mostra.
 fn ensure_port(state: &State<AppState>, id: &str) -> Option<u16> {
     let mut board = lock(&state.board);
-    let current = board.workspaces.iter().find(|w| w.id == id)?.port;
-    if current.is_some() {
-        return current;
+    let ws = board.workspaces.iter().find(|w| w.id == id)?;
+    if ws.port.is_some() {
+        return ws.port;
     }
+    let worktree = ws.worktree.clone();
     let taken: Vec<u16> = board.workspaces.iter().filter_map(|w| w.port).collect();
-    let port = scripts::alloc_port(&taken)?;
+    let port = scripts::alloc_port(Path::new(&worktree), &taken)?;
     board.workspace_mut(id)?.port = Some(port);
     board.save();
     Some(port)
@@ -1447,7 +1454,7 @@ pub fn dock_state(state: State<AppState>, id: String) -> Vec<DockView> {
 #[tauri::command]
 pub fn workspace_scripts(state: State<AppState>, id: String) -> ScriptsView {
     let port = ensure_port(&state, &id);
-    let scripts = worktree_of(&state, &id).map(|root| scripts::read(&root)).unwrap_or_default();
+    let scripts = workspace_copy(&state, &id).map(|ws| scripts_of(&ws)).unwrap_or_default();
     ScriptsView { scripts, port }
 }
 
@@ -1455,17 +1462,28 @@ pub fn workspace_scripts(state: State<AppState>, id: String) -> ScriptsView {
 /// caminho relativo, para o front abrir no visualizador. Nunca sobrescreve:
 /// arquivo que já existe só é apontado — inclusive o do Conductor, que é onde a
 /// pessoa vai querer mexer se é lá que a configuração dela mora.
+///
+/// Worktree que está herdando o do clone ganha uma cópia dele, e não o exemplo:
+/// o que a pessoa quer abrir é o que está valendo, e o visualizador só enxerga
+/// o worktree. A cópia passa a mandar dali em diante — é assim que um worktree
+/// muda o `run` sem mexer no dos outros.
 #[tauri::command]
 pub fn create_scripts_file(state: State<AppState>, id: String) -> Result<String, String> {
-    let root = worktree_of(&state, &id).ok_or("workspace sumiu")?;
-    if let Some(file) = scripts::read(&root).file {
-        return Ok(file);
-    }
-    let rel = scripts::FILES[0];
-    let path = root.join(rel);
+    let ws = workspace_copy(&state, &id).ok_or("workspace sumiu")?;
+    let root = Path::new(&ws.worktree);
+    let found = scripts_of(&ws);
+    let (rel, text) = match found.file {
+        Some(file) if !found.inherited => return Ok(file),
+        Some(file) => {
+            let text = std::fs::read_to_string(Path::new(&ws.repo).join(&file)).map_err(|e| e.to_string())?;
+            (file, text)
+        }
+        None => (scripts::FILES[0].to_string(), scripts::TEMPLATE.to_string()),
+    };
+    let path = root.join(&rel);
     std::fs::create_dir_all(path.parent().ok_or("caminho inválido")?).map_err(|e| e.to_string())?;
-    std::fs::write(&path, scripts::TEMPLATE).map_err(|e| e.to_string())?;
-    Ok(rel.to_string())
+    std::fs::write(&path, text).map_err(|e| e.to_string())?;
+    Ok(rel)
 }
 
 /// O texto que o botão "Perguntar ao agente" manda numa conversa nova. Sai daqui
@@ -1473,8 +1491,8 @@ pub fn create_scripts_file(state: State<AppState>, id: String) -> Result<String,
 /// disco.
 #[tauri::command]
 pub fn scripts_prompt(state: State<AppState>, id: String) -> String {
-    let file = worktree_of(&state, &id)
-        .and_then(|root| scripts::read(&root).file)
+    let file = workspace_copy(&state, &id)
+        .and_then(|ws| scripts_of(&ws).file)
         .unwrap_or_else(|| scripts::FILES[0].to_string());
     scripts::ask_prompt(&file)
 }

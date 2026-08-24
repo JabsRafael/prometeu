@@ -74,6 +74,10 @@ export type Scripts = {
   /// Qual arquivo respondeu. `null` é "este repo não declara nada" — e é o que
   /// faz a aba desenhar o convite em vez de um terminal mudo.
   file: string | null;
+  /// O arquivo é o do clone de origem, porque este worktree não tem o seu. É
+  /// comum `.prometheus/` estar no `.gitignore`: sem herdar, todo worktree
+  /// nascia sem Run. "Abrir o settings.toml" nesse caso copia o herdado para cá.
+  inherited: boolean;
   setup: string | null;
   runs: { name: string; command: string }[];
   archive: string | null;

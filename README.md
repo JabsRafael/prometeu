@@ -136,11 +136,21 @@ default = true
 No ambiente de todo script: `$PROMETHEUS_WORKSPACE_PATH`, `$PROMETHEUS_ROOT_PATH`,
 `$PROMETHEUS_WORKSPACE_NAME` e `$PROMETHEUS_PORT` — mais os mesmos nomes com
 prefixo `CONDUCTOR_`, para um settings.toml copiado de lá funcionar sem edição.
+E `$PORT`, com o mesmo valor: é a convenção que Rails, Next, Express e o
+Procfile do Heroku já leem, então um `npm run dev` digitado no terminal do dock
+sobe na porta do worktree sem script nenhum.
 
 **A porta é o detalhe que faz a coisa toda funcionar.** Cada workspace guarda
 dez portas suas, `$PROMETHEUS_PORT` até `+9`. Porta fixa no script faz o segundo
 worktree não subir — e não subir dois é justamente não conseguir comparar duas
-mudanças.
+mudanças. A porta sai do caminho do worktree, então o mesmo worktree ganha a
+mesma porta em qualquer Prometheus — o instalado e o `tauri dev` de cada
+worktree têm quadros separados, e sem isso cada um entregava 3100 para o seu.
+
+Worktree sem o arquivo usa o do clone de origem. É o que faz um `.prometheus/`
+no `.gitignore` — configuração sua, num repositório de empresa — continuar
+valendo em todo worktree que nasce dele; "Abrir o settings.toml" nesse worktree
+copia o herdado para lá, e a cópia passa a mandar.
 
 Nada disso é descoberto: o repositório declara. O que o Prometheus faz é não
 deixar isso virar trabalho manual — a aba **Setup** de um repo que não declara

@@ -10,7 +10,7 @@ import { $ } from "./util";
 /// `dock`; aqui mora só o que o repositório declara, o que está de pé, e o que
 /// os botões fazem.
 
-const NO_SCRIPTS: Scripts = { file: null, setup: null, runs: [], archive: null, port: null };
+const NO_SCRIPTS: Scripts = { file: null, inherited: false, setup: null, runs: [], archive: null, port: null };
 
 /// O que o repositório declara e o que existe no dock agora. Vem do back quando
 /// o workspace abre e sempre que um script sobe ou morre — nada de polling.
@@ -92,7 +92,14 @@ export function init(context: Ctx) {
         },
       })),
       "sep",
-      { label: "Abrir o settings.toml", glyph: icon("file", 14), run: writeScriptsFile },
+      {
+        // Herdado do clone: não há arquivo aqui para abrir. O que o clique faz
+        // é trazer uma cópia — e o rótulo diz isso, para ninguém achar que
+        // editou o do clone.
+        label: info.scripts.inherited ? "Copiar o settings.toml do clone para cá" : "Abrir o settings.toml",
+        glyph: icon("file", 14),
+        run: writeScriptsFile,
+      },
     ]);
   });
   $("run-open").addEventListener("click", () => {

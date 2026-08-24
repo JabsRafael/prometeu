@@ -162,6 +162,7 @@ const SAMPLE =
 const scripts: Record<string, Scripts> = {
   "sessao-0929": {
     file: ".conductor/settings.toml",
+    inherited: false,
     setup: "bin/setup",
     runs: [
       { name: "web", command: "bin/dev --port $PROMETHEUS_PORT" },
@@ -172,13 +173,14 @@ const scripts: Record<string, Scripts> = {
   },
   "ui-2231": {
     file: ".prometheus/settings.toml",
+    inherited: true,
     setup: "npm install",
     runs: [{ name: "run", command: "npm run dev -- --port $PROMETHEUS_PORT" }],
     archive: null,
     port: 3110,
   },
 };
-const noScripts: Scripts = { file: null, setup: null, runs: [], archive: null, port: 3120 };
+const noScripts: Scripts = { file: null, inherited: false, setup: null, runs: [], archive: null, port: 3120 };
 
 /// Os docks que existem, pela mesma chave do Rust: `<workspace>:<tipo>`, e se
 /// o processo está vivo. O setup "termina" sozinho pouco depois de subir, para
