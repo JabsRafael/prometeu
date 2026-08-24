@@ -1,7 +1,7 @@
 /// Back falso para o navegador puro (`npm run dev` e abrir localhost:1420):
 /// a UI inteira roda com dados de amostra, sem subir o Tauri. Só entra quando
 /// `window.__TAURI_INTERNALS__` não existe — dentro do app não é carregado.
-import type { Board, LinearStatus, Scripts, Workspace } from "./types";
+import type { Board, Issue, LinearStatus, Scripts, Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
@@ -30,6 +30,7 @@ const ws = (
   model: "",
   effort: "",
   port: 3100,
+  issue: null,
   tabs,
   active: tabs[0]?.id ?? null,
 });
@@ -192,6 +193,40 @@ const SCRIPT_OUT =
 
 let linear: LinearStatus = { connected: false, who: null, busy: false };
 
+const issue = (
+  identifier: string,
+  title: string,
+  priority: number,
+  state: [string, string, string],
+  project: string | null,
+  hours: number,
+  description: string | null = null,
+): Issue => ({
+  id: `id-${identifier}`,
+  identifier,
+  title,
+  description,
+  url: `https://linear.app/moabi/issue/${identifier}/${title.toLowerCase().replace(/\W+/g, "-")}`,
+  branch_name: `gustavo/${identifier.toLowerCase()}-${title.toLowerCase().replace(/\W+/g, "-").slice(0, 40)}`,
+  priority,
+  priority_label: ["Sem prioridade", "Urgente", "Alta", "Média", "Baixa"][priority],
+  state: { name: state[0], kind: state[1], color: state[2] },
+  team: identifier.split("-")[0],
+  project,
+  labels: [],
+  updated_at: new Date(Date.now() - hours * 3_600_000).toISOString(),
+});
+const DOING: [string, string, string] = ["In Progress", "started", "#f2c94c"];
+const TODO: [string, string, string] = ["Todo", "unstarted", "#e2e2e2"];
+const BACKLOG: [string, string, string] = ["Backlog", "backlog", "#bec2c8"];
+const ISSUES: Issue[] = [
+  issue("MOA-142", "Conectar o Linear ao Prometheus", 2, DOING, "Integrações", 1, "Aba de issues e criar workspace a partir de uma delas."),
+  issue("MOA-137", "[Quadro] Card arrastado entre colunas perde a etapa quando o mouse solta fora da coluna (drop + reordenar)", 1, DOING, "Quadro", 5),
+  issue("MOA-151", "Mostrar tokens de contexto no card", 3, TODO, "Quadro", 26),
+  issue("MOA-149", "Atalho ⌘, para configurações", 4, TODO, null, 30),
+  issue("MOA-120", "Explorar sync com Notion", 0, BACKLOG, "Integrações", 240),
+];
+
 function emit(event: string, payload: unknown) {
   handlers.get(event)?.forEach((h) => h({ event, id: nextId++, payload }));
 }
@@ -289,6 +324,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       fresh.branch = draft.branch || "main";
       fresh.model = draft.model;
       fresh.effort = draft.effort;
+      fresh.issue = draft.issue ?? null;
       board.workspaces.push(fresh);
       emit("board", board);
       return fresh;
@@ -347,6 +383,12 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
           done(linear);
         }, 1200),
       );
+    case "linear_issues":
+      if (!linear.connected) return Promise.reject("o Linear não está conectado");
+      return new Promise((done) => setTimeout(() => done({ issues: ISSUES, fetched_at: Date.now() / 1000 }), 600));
+    case "linear_open":
+      console.log("abrir no Linear:", args.url);
+      return null;
     case "linear_disconnect":
       linear = { connected: false, who: null, busy: false };
       emit("linear", linear);
