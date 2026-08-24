@@ -2,12 +2,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { icon } from "./icons";
 import type { LinearStatus } from "./types";
+import { settingsRow } from "./update";
 import { $, h } from "./util";
 
 /// Configurações do app — o que não é do repositório (isso é o
-/// `settings.toml`) nem de um workspace. Por ora só a conexão com o Linear;
-/// a página é a terceira tela do app, ao lado do quadro e do workspace, e
-/// entra no histórico ← → como as outras.
+/// `settings.toml`) nem de um workspace: a conexão com o Linear e a linha de
+/// atualização, que é quem mora em `update.ts`. A página é a terceira tela do
+/// app, ao lado do quadro e do workspace, e entra no histórico ← → como as
+/// outras.
 ///
 /// A conexão mora no back: o token nunca chega aqui. O que a tela sabe é o
 /// `LinearStatus`, que chega no `init` e depois pelo evento `linear` toda vez
@@ -40,6 +42,7 @@ export function draw() {
   const view = $("settingsView");
   const page = h("div", "setpage", `<h1>Configurações</h1><h2>Integrações</h2>`);
   page.append(linearRow());
+  page.append(h("h2", "", "Aplicativo"), settingsRow());
   view.replaceChildren(page);
 }
 
