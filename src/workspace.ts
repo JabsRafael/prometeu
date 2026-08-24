@@ -55,6 +55,9 @@ export function init(context: Ctx) {
     drawChanges(openWs);
   });
 
+  $("pr").innerHTML = `${icon("git-pull-request", 14)}<span>Open PR</span>`;
+  $("pr").addEventListener("click", () => void openPr());
+
   // Duplo clique renomeia, como no nome do workspace na migalha. Escuta na barra
   // e não no botão: o primeiro clique troca de aba, a troca refaz a barra, e o
   // botão em que o gesto começou já não existe quando o duplo clique chega.
@@ -163,6 +166,34 @@ export function renameWorkspace(id: string, title: string | null) {
 }
 
 export const setStage = (id: string, stage: string) => invoke("set_stage", { id, stage });
+
+/// Pede o PR à conversa ativa: injeta o prompt que o back monta olhando o git
+/// deste worktree. Vai como paste — entre \x1b[200~ e \x1b[201~ — para as
+/// quebras de linha não virarem Enter no meio do texto; o Enter de verdade vai
+/// sozinho logo depois, quando a TUI já engoliu o paste.
+async function openPr() {
+  const ws = current();
+  if (!ws) return;
+  const tab = ws.tabs.find((t) => t.id === session.currentSession()) ?? ws.tabs[0];
+  if (!tab) return;
+  if (tab.status === "desligada") {
+    return ctx.say("a conversa está desligada — retome antes de pedir o PR", true);
+  }
+  try {
+    const prompt = await invoke<string>("pr_prompt", { id: ws.id });
+    await invoke("pty_write", { session: tab.id, data: `\x1b[200~${prompt}\x1b[201~` });
+    // O pedido foi para a conversa; a tela vai atrás dele.
+    if (tab.id !== session.currentSession()) await session.attach(tab.id);
+    showTerm();
+    drawTabs(ws);
+    session.focus();
+    setTimeout(() => {
+      invoke("pty_write", { session: tab.id, data: "\r" }).catch((e) => ctx.say(String(e), true));
+    }, 150);
+  } catch (err) {
+    ctx.say(String(err), true);
+  }
+}
 
 /* ---------- branch do worktree ---------- */
 

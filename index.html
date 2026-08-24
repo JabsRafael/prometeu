@@ -34,6 +34,9 @@
         <div id="wsctl" class="wsctl" hidden>
           <span id="wsstatus" class="chip"></span>
           <button id="wsstage" class="ghost md" title="Etapa deste trabalho"></button>
+          <!-- Não cria nada sozinho: injeta na conversa ativa o pedido de PR,
+               com o estado do git e os passos. Quem faz é o agente. -->
+          <button id="pr" class="outline md" title="Pedir o PR à conversa ativa"></button>
           <button id="sidetoggle" class="ico" title="Painel lateral"></button>
         </div>
       </header>

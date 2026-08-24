@@ -342,6 +342,12 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     case "open_run":
       console.log("abrir no navegador: http://localhost:" + ((scripts[args.id] ?? noScripts).port ?? 0));
       return null;
+    case "pr_prompt":
+      return [
+        "Quero abrir um PR deste worktree.",
+        "",
+        "Há 2 arquivos com mudanças fora de commit. A branch atual é `mock/ajuste`; o alvo é `origin/main`. Ainda não há branch upstream.",
+      ].join("\n");
     case "open_dock": {
       const key = `${args.id}:${args.kind}`;
       docks.set(key, true);
