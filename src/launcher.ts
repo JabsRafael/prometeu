@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { avatar, icon, stageIcon } from "./icons";
+import { avatar, icon } from "./icons";
+import * as issues from "./issues";
 import * as menu from "./menu";
 import { h } from "./util";
 import type { Board, Issue, IssueRef } from "./types";
@@ -85,20 +86,28 @@ let takeFiles: ((paths: string[]) => void) | null = null;
 export const dropFiles = (paths: string[]) => takeFiles?.(paths);
 
 /// O lançador é uma caixa de texto e um seletor de projeto — o "Create" do
-/// Conductor. Tudo que dá para deduzir fica atrás de "detalhes"; criar é Enter.
+/// Conductor. O que dá para deduzir é deduzido, sem campo para editar: o nome
+/// sai da primeira frase (renomeia-se no card), a branch ganha o horário, a
+/// etapa é a segunda da lista. Criar é Enter.
 ///
 /// Com `seed`, o workspace nasce de uma issue do Linear: a branch é a que o
 /// Linear sugere (é o que faz ele reconhecer o PR), o nome é o identificador
 /// e o título, e a primeira fala começa com a issue inteira — o que você
 /// digitar vem depois, como instrução extra.
-export function openLauncher(
-  board: Board,
-  preset: string | undefined,
-  go: (d: Draft) => void,
-  seed?: Issue,
-) {
+export type Open = {
+  /// O projeto já escolhido — o do workspace aberto, ou o do + na barra.
+  preset?: string;
+  seed?: Issue;
+  go: (d: Draft) => void;
+  /// "Configurar Linear" no seletor de issue: fecha o lançador e vai lá.
+  toSettings: () => void;
+};
+
+export function openLauncher(board: Board, opts: Open) {
   const veil = document.getElementById("veil")!;
   if (!board.projects.length) return;
+  const { preset, go } = opts;
+  let seed = opts.seed;
 
   const draft: Draft = {
     project: preset ?? board.projects[0].id,
@@ -124,7 +133,9 @@ export function openLauncher(
       <button id="d-base" class="ghost base" title="De onde a branch nova sai">
         ${icon("git-branch", 12)}<span id="d-basename">carregando…</span>${icon("chevron-down", 12)}
       </button>
-      <button id="d-more" class="ghost">Detalhes ${icon("chevron-down", 12)}</button>
+      <button id="d-issuebtn" class="ghost base empty" title="Criar a partir de uma issue do Linear">
+        ${icon("linear", 12)}<span>Issue</span>${icon("chevron-down", 12)}
+      </button>
       <span class="spacer"></span>
       <button id="d-nb" class="ghost sw" role="switch">
         <span>Branch nova</span><i class="knob"></i>
@@ -133,18 +144,11 @@ export function openLauncher(
         <span>Worktree</span><i class="knob"></i>
       </button>
     </div>
-    <div class="picker" id="d-picker" hidden>
-      <label class="pfind">${icon("search", 14)}<input id="d-find" placeholder="Escolher a base…" spellcheck="false" /></label>
-      <div class="plist" id="d-list"></div>
-    </div>
+    <div class="picker" id="d-picker" hidden></div>
+    <div class="picker" id="d-ipicker" hidden></div>
     <textarea id="d-prompt" rows="6" placeholder="No que você quer trabalhar?"></textarea>
     <div class="attach" id="d-issue" hidden></div>
     <div class="attach" id="d-inj" hidden></div>
-    <div class="details" id="d-details" hidden>
-      <label class="mini-row"><span>Nome</span><input id="d-title" placeholder="sai da primeira frase" /></label>
-      <label class="mini-row"><span>Branch</span><input id="d-branch" spellcheck="false" /></label>
-      <label class="mini-row"><span>Etapa</span><span class="chips" id="d-cols"></span></label>
-    </div>
     <div class="sheetbar">
       <button id="d-model" class="ghost pick" title="Modelo das conversas deste workspace">${icon("sparkles", 14)}<span></span>${icon("chevron-down", 12)}</button>
       <button id="d-effort" class="ghost effort"><span class="bars"><i></i><i></i><i></i><i></i><i></i></span><span class="el"></span></button>
@@ -155,45 +159,8 @@ export function openLauncher(
     </div>`;
 
   const $ = <T extends HTMLElement>(id: string) => sheet.querySelector(`#${id}`) as T;
-  const branch = $<HTMLInputElement>("d-branch");
   const prompt = $<HTMLTextAreaElement>("d-prompt");
   const hint = $("d-hint");
-  branch.value = draft.branch;
-  $<HTMLInputElement>("d-title").value = draft.title;
-
-  /* ---------- a issue de origem ---------- */
-
-  // Fica à vista, como os anexos: é parte da primeira fala. O ✕ desfaz tudo
-  // que veio dela — nome, branch e o bloco no texto.
-  const issueBox = $("d-issue");
-  const drawIssue = () => {
-    issueBox.hidden = !draft.issue;
-    issueBox.replaceChildren();
-    if (!draft.issue) {
-      prompt.placeholder = "No que você quer trabalhar?";
-      return;
-    }
-    prompt.placeholder = "Alguma instrução além do que está na issue? (opcional)";
-    const chip = h(
-      "span",
-      "injchip issue",
-      `${icon("linear", 12)}<b class="iid"></b><span class="it"></span><button class="ico sm">${icon("x", 12)}</button>`,
-    );
-    chip.children[1].textContent = draft.issue.identifier;
-    chip.children[2].textContent = draft.issue.title;
-    chip.title = `${draft.issue.title}\n${draft.issue.url}`;
-    chip.children[3].addEventListener("click", () => {
-      draft.issue = null;
-      seed = undefined;
-      branch.value = `prometheus/${stamp()}`;
-      $<HTMLInputElement>("d-title").value = "";
-      drawIssue();
-      drawHint();
-      prompt.focus();
-    });
-    issueBox.append(chip);
-  };
-  drawIssue();
 
   const projectName = () => board.projects.find((p) => p.id === draft.project)?.name ?? "";
   const drawHint = () => {
@@ -202,14 +169,13 @@ export function openLauncher(
     const onde = !draft.newBranch
       ? `na branch em que o repo está`
       : draft.worktree
-        ? `worktree novo · ${branch.value}${from}`
-        : `o repo troca para ${branch.value}${from}`;
+        ? `worktree novo · ${draft.branch}${from}`
+        : `o repo troca para ${draft.branch}${from}`;
 
     hint.title = `${projectName()} · ${onde}`;
     hint.textContent = onde;
   };
   drawHint();
-  branch.addEventListener("input", drawHint);
 
   /* ---------- worktree e branch: as duas chavinhas ---------- */
 
@@ -234,10 +200,9 @@ export function openLauncher(
     wt.title = draft.worktree
       ? "A branch ganha um worktree só dela, isolado do seu clone"
       : "A branch nasce no próprio repositório: o seu clone troca de branch";
-    // Sem branch nova não há de onde sair, nem nome para dar.
+    // Sem branch nova não há de onde sair.
     baseBtn.disabled = !draft.newBranch || !branches.length;
-    branch.disabled = !draft.newBranch;
-    if (!draft.newBranch) closePicker();
+    if (!draft.newBranch) basePick.close();
     drawHint();
   };
 
@@ -305,10 +270,7 @@ export function openLauncher(
   // base do anterior quase nunca existe no seguinte.
   const baseBtn = $<HTMLButtonElement>("d-base");
   const baseName = $("d-basename");
-  const picker = $("d-picker");
-  const find = $<HTMLInputElement>("d-find");
   let branches: string[] = [];
-  let marked = 0;
 
   const setBase = (name: string) => {
     draft.base = name;
@@ -316,6 +278,16 @@ export function openLauncher(
     baseBtn.classList.toggle("empty", !name);
     drawHint();
   };
+
+  const basePick = picker({
+    btn: baseBtn,
+    el: $("d-picker"),
+    placeholder: "Escolher a base…",
+    rows: () => branches.map((name) => ({ id: name, label: name, run: () => setBase(name) })),
+    none: () => (branches.length ? "nenhuma branch com esse nome" : "nenhuma branch neste repo"),
+    current: () => draft.base,
+    after: () => prompt.focus(),
+  });
 
   const loadBranches = async () => {
     branches = [];
@@ -332,78 +304,73 @@ export function openLauncher(
     baseBtn.disabled = !draft.newBranch || !branches.length;
   };
 
-  const drawList = () => {
-    const q = find.value.trim().toLowerCase();
-    const hits = branches.filter((b) => b.toLowerCase().includes(q));
-    marked = Math.min(marked, Math.max(hits.length - 1, 0));
-    const list = $("d-list");
-    list.replaceChildren(
-      ...hits.slice(0, 300).map((name, i) => {
-        const row = document.createElement("button");
-        row.className = "prow" + (i === marked ? " on" : "");
-        row.innerHTML = `<span class="pc">${name === draft.base ? icon("check", 14) : ""}</span><span></span>`;
-        row.children[1].textContent = name;
-        row.addEventListener("mousemove", () => {
-          if (marked === i) return;
-          marked = i;
-          [...list.children].forEach((c, ci) => c.classList.toggle("on", ci === i));
-        });
-        row.addEventListener("click", () => {
-          setBase(name);
-          closePicker();
-        });
-        return row;
-      }),
-    );
-    if (!hits.length) {
-      const none = document.createElement("div");
-      none.className = "none";
-      none.textContent = branches.length ? "nenhuma branch com esse nome" : "nenhuma branch neste repo";
-      list.append(none);
+  /* ---------- a issue: "criar de…" ---------- */
+
+  // A issue de origem fica à vista, como os anexos: é parte da primeira
+  // fala. Escolher uma dá nome e branch ao workspace; o ✕ do chip desfaz.
+  const issueBox = $("d-issue");
+  const issueBtn = $<HTMLButtonElement>("d-issuebtn");
+  const setSeed = (issue: Issue | undefined) => {
+    seed = issue;
+    draft.issue = issue ? { id: issue.id, identifier: issue.identifier, title: issue.title, url: issue.url } : null;
+    draft.branch = issue?.branch_name || `prometheus/${stamp()}`;
+    draft.title = issue ? `${issue.identifier} · ${issue.title}` : "";
+    prompt.placeholder = issue ? "Alguma instrução além do que está na issue? (opcional)" : "No que você quer trabalhar?";
+    issueBtn.querySelector("span")!.textContent = issue?.identifier ?? "Issue";
+    issueBtn.classList.toggle("empty", !issue);
+    issueBox.hidden = !issue;
+    issueBox.replaceChildren();
+    if (issue) {
+      const chip = h(
+        "span",
+        "injchip issue",
+        `${icon("linear", 12)}<b class="iid"></b><span class="it"></span><button class="ico sm">${icon("x", 12)}</button>`,
+      );
+      chip.children[1].textContent = issue.identifier;
+      chip.children[2].textContent = issue.title;
+      chip.title = `${issue.title}\n${issue.url}`;
+      chip.children[3].addEventListener("click", () => {
+        setSeed(undefined);
+        prompt.focus();
+      });
+      issueBox.append(chip);
     }
-    list.querySelector(".prow.on")?.scrollIntoView({ block: "nearest" });
+    drawHint();
   };
 
-  const closePicker = () => {
-    picker.hidden = true;
-    baseBtn.classList.remove("open");
-  };
-  const openPicker = () => {
-    if (!branches.length) return;
-    marked = Math.max(branches.indexOf(draft.base), 0);
-    find.value = "";
-    // Ancorada no botão, não na folha: a lista cai de onde ela foi aberta.
-    picker.style.left = `${baseBtn.offsetLeft}px`;
-    picker.hidden = false;
-    baseBtn.classList.add("open");
-    drawList();
-    find.focus();
-  };
+  // O mesmo seletor, com as issues do Linear no seu nome. Sem Linear, a
+  // única linha é o caminho para conectar — o "Set up Linear" do Conductor.
+  const issuePick = picker({
+    btn: issueBtn,
+    el: $("d-ipicker"),
+    placeholder: "Buscar por número, título ou projeto…",
+    rows: () => {
+      const list = issues.list();
+      if (list === null) {
+        return [
+          {
+            id: "@configurar",
+            label: "Configurar Linear",
+            glyph: icon("arrow-right", 14),
+            run: () => {
+              hide();
+              opts.toSettings();
+            },
+          },
+        ];
+      }
+      return list.map((i) => ({ id: i.id, label: i.title, sub: i.identifier, run: () => setSeed(i) }));
+    },
+    none: () =>
+      issues.busy() ? "buscando…" : issues.list()?.length ? "nenhuma issue com esse texto" : "nenhuma issue no seu nome",
+    current: () => draft.issue?.id ?? "",
+    after: () => prompt.focus(),
+  });
+  // Abrir o seletor é o momento de buscar, se a lista está velha ou nunca veio.
+  issueBtn.addEventListener("click", () => {
+    if (issuePick.isOpen()) void issues.load().then(() => issuePick.isOpen() && issuePick.draw());
+  });
 
-  baseBtn.addEventListener("click", () => (picker.hidden ? openPicker() : closePicker()));
-  find.addEventListener("input", () => {
-    marked = 0;
-    drawList();
-  });
-  find.addEventListener("keydown", (e) => {
-    const rows = [...$("d-list").querySelectorAll<HTMLElement>(".prow")];
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      marked = Math.min(Math.max(marked + (e.key === "ArrowDown" ? 1 : -1), 0), rows.length - 1);
-      rows.forEach((r, i) => r.classList.toggle("on", i === marked));
-      rows[marked]?.scrollIntoView({ block: "nearest" });
-    }
-    if (e.key === "Enter") {
-      e.preventDefault();
-      rows[marked]?.click();
-    }
-    // Esc fecha só a lista; o lançador inteiro só some no segundo Esc.
-    if (e.key === "Escape") {
-      e.stopPropagation();
-      closePicker();
-      prompt.focus();
-    }
-  });
   // Trocar de projeto refaz a base (é o repositório quem manda na lista) e o
   // nome no aviso.
   dropdown(
@@ -412,7 +379,7 @@ export function openLauncher(
     () => draft.project,
     (id) => {
       draft.project = id;
-      closePicker();
+      basePick.close();
       loadBranches();
       drawHint();
       prompt.focus();
@@ -420,31 +387,13 @@ export function openLauncher(
   );
   drawSwitches();
   loadBranches();
+  setSeed(seed);
 
   sheet.addEventListener("mousedown", (e) => {
-    if (!picker.hidden && !picker.contains(e.target as Node) && !baseBtn.contains(e.target as Node)) {
-      closePicker();
+    for (const p of [basePick, issuePick]) {
+      if (p.isOpen() && !p.contains(e.target as Node)) p.close();
     }
   });
-
-  $("d-more").addEventListener("click", () => {
-    const box = $("d-details");
-    box.hidden = !box.hidden;
-    $("d-more").innerHTML = `Detalhes ${icon(box.hidden ? "chevron-down" : "chevron-up", 12)}`;
-  });
-
-  const cols = $("d-cols");
-  for (const [i, name] of board.stages.entries()) {
-    const b = document.createElement("button");
-    b.className = "ghost" + (name === draft.stage ? " on" : "");
-    b.innerHTML = `${stageIcon(i, board.stages.length, 14)}<span></span>`;
-    b.children[1].textContent = name;
-    b.addEventListener("click", () => {
-      draft.stage = name;
-      [...cols.children].forEach((c) => c.classList.toggle("on", c === b));
-    });
-    cols.append(b);
-  }
 
   // Anexos ficam à vista, entre o texto e o rodapé — não atrás de "Detalhes":
   // o que vai junto da primeira fala é parte da primeira fala.
@@ -483,10 +432,10 @@ export function openLauncher(
   };
   const submit = () => {
     // Vazia é o que o back lê como "não cria branch, abre onde o repo está".
-    draft.branch = draft.newBranch ? branch.value.trim() || `prometheus/${stamp()}` : "";
+    if (!draft.newBranch) draft.branch = "";
     draft.prompt = seed ? issueBlock(seed, prompt.value) : prompt.value;
-    draft.title =
-      $<HTMLInputElement>("d-title").value.trim() || summarize(prompt.value) || draft.branch || projectName();
+    // O nome sai da issue, senão da primeira frase — e por último da branch.
+    draft.title = draft.title || summarize(prompt.value) || draft.branch || projectName();
     hide();
     go(draft);
   };
@@ -510,6 +459,108 @@ export function openLauncher(
   veil.replaceChildren(sheet);
   veil.hidden = false;
   prompt.focus();
+}
+
+type Row = { id: string; label: string; sub?: string; glyph?: string; run: () => void };
+
+/// Uma lista com busca pendurada num botão: setas, Enter, Esc, e clicar fora
+/// fecha. Serve à base da branch e à issue — o mesmo comportamento, duas
+/// listas. A linha marcada com ✓ é a escolha atual; `sub` é o identificador
+/// em mono, quando há.
+function picker(o: {
+  btn: HTMLButtonElement;
+  el: HTMLElement;
+  placeholder: string;
+  rows: () => Row[];
+  none: () => string;
+  current: () => string;
+  /// Depois de escolher ou desistir: devolve o cursor ao texto.
+  after: () => void;
+}) {
+  const { btn, el } = o;
+  el.innerHTML = `<label class="pfind">${icon("search", 14)}<input spellcheck="false" /></label><div class="plist"></div>`;
+  const find = el.querySelector("input")!;
+  find.placeholder = o.placeholder;
+  const list = el.querySelector<HTMLElement>(".plist")!;
+  let marked = 0;
+
+  const close = () => {
+    el.hidden = true;
+    btn.classList.remove("open");
+  };
+  const choose = (row: Row) => {
+    row.run();
+    close();
+    o.after();
+  };
+  const draw = () => {
+    const q = find.value.trim().toLowerCase();
+    const hits = o.rows().filter((r) => `${r.sub ?? ""} ${r.label}`.toLowerCase().includes(q));
+    marked = Math.min(marked, Math.max(hits.length - 1, 0));
+    list.replaceChildren(
+      ...hits.slice(0, 300).map((row, i) => {
+        const b = document.createElement("button");
+        b.className = "prow" + (i === marked ? " on" : "");
+        b.innerHTML =
+          `<span class="pc">${row.id === o.current() ? icon("check", 14) : (row.glyph ?? "")}</span>` +
+          (row.sub === undefined ? "" : `<span class="iid"></span>`) +
+          `<span></span>`;
+        if (row.sub !== undefined) b.children[1].textContent = row.sub;
+        b.lastElementChild!.textContent = row.label;
+        b.addEventListener("mousemove", () => {
+          if (marked === i) return;
+          marked = i;
+          [...list.children].forEach((c, ci) => c.classList.toggle("on", ci === i));
+        });
+        b.addEventListener("click", () => choose(row));
+        return b;
+      }),
+    );
+    if (!hits.length) {
+      const none = document.createElement("div");
+      none.className = "none";
+      none.textContent = o.none();
+      list.append(none);
+    }
+    list.querySelector(".prow.on")?.scrollIntoView({ block: "nearest" });
+  };
+  const open = () => {
+    marked = Math.max(o.rows().findIndex((r) => r.id === o.current()), 0);
+    find.value = "";
+    // Ancorada no botão, não na folha: a lista cai de onde ela foi aberta.
+    el.style.left = `${btn.offsetLeft}px`;
+    el.hidden = false;
+    btn.classList.add("open");
+    draw();
+    find.focus();
+  };
+
+  btn.addEventListener("click", () => (el.hidden ? open() : close()));
+  find.addEventListener("input", () => {
+    marked = 0;
+    draw();
+  });
+  find.addEventListener("keydown", (e) => {
+    const rows = [...list.querySelectorAll<HTMLElement>(".prow")];
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      marked = Math.min(Math.max(marked + (e.key === "ArrowDown" ? 1 : -1), 0), rows.length - 1);
+      rows.forEach((r, i) => r.classList.toggle("on", i === marked));
+      rows[marked]?.scrollIntoView({ block: "nearest" });
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      rows[marked]?.click();
+    }
+    // Esc fecha só a lista; o lançador inteiro só some no segundo Esc.
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      close();
+      o.after();
+    }
+  });
+
+  return { open, close, draw, isOpen: () => !el.hidden, contains: (n: Node) => el.contains(n) || btn.contains(n) };
 }
 
 /// Um seletor com cara de botão, como o do Conductor — e sem `<select>`. O

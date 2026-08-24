@@ -266,10 +266,11 @@ getCurrentWebview().onDragDropEvent(({ payload }) => {
 
 function launch(projectId?: string, seed?: Issue) {
   if (!state.projects.length) return hooks.addProject();
-  openLauncher(
-    state,
-    projectId,
-    async (draft: Draft) => {
+  openLauncher(state, {
+    preset: projectId,
+    seed,
+    toSettings: () => showSettings(),
+    go: async (draft: Draft) => {
       say("montando worktree…");
       try {
         const created = await invoke<Workspace>("create_workspace", { draft, ...session.dims() });
@@ -279,8 +280,7 @@ function launch(projectId?: string, seed?: Issue) {
         say(String(err), true);
       }
     },
-    seed,
-  );
+  });
 }
 
 $("resume").addEventListener("click", async () => {

@@ -726,6 +726,7 @@ body.noside .side { display: none; }
 .prow.on { background: var(--bg-raised-2); color: var(--fg); }
 .prow > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prow .pc { width: 14px; flex: none; display: flex; color: var(--tab-line); }
+.prow .iid { font-family: var(--mono); font-size: 11.5px; color: var(--fg-3); flex: none; }
 .plist .none { padding: 10px 8px; font-size: 12px; color: var(--fg-3); }
 
 .sheet textarea {
@@ -733,13 +734,6 @@ body.noside .side { display: none; }
   font-size: 14px; line-height: 1.5; resize: none; min-height: 162px;
 }
 .sheet textarea:focus-visible { outline: none; }
-.details { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line-raised); padding-top: 12px; }
-.mini-row { display: grid; grid-template-columns: 72px 1fr; gap: 10px; align-items: center; }
-.mini-row > span:first-child { font-size: 12px; color: var(--fg-2); }
-.mini-row input { background: var(--bg); }
-.mini-row input:disabled { opacity: 0.45; }
-.chips { display: flex; gap: 4px; flex-wrap: wrap; }
-.chips button.on { background: var(--bg-raised-2); color: var(--fg); }
 /* Anexos à vista, entre o texto e o rodapé: vão junto da primeira fala. */
 .attach { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 16px 10px; }
 .injchip {
