@@ -65,10 +65,22 @@ export function init(context: Ctx) {
 /// O número da rail. `null` é "sem Linear", e a rail esconde o número.
 export const count = () => (settings.linear().connected && got ? got.issues.length : null);
 
+/// A lista para o lançador. `null` é "sem Linear"; vazia com `busy()` é
+/// "ainda não chegou".
+export const list = () => (settings.linear().connected ? (got?.issues ?? []) : null);
+export const busy = () => loading;
+
+/// Busca se nunca buscou ou se a lista está velha; senão não faz nada. É o
+/// que o lançador chama ao abrir o seletor.
+export function load(): Promise<void> {
+  if (!settings.linear().connected || loading) return Promise.resolve();
+  const old = !got || Date.now() / 1000 - got.fetched_at > STALE / 1000;
+  return old ? refresh(false) : Promise.resolve();
+}
+
 export function show() {
   visible = true;
-  const old = !got || Date.now() / 1000 - got.fetched_at > STALE / 1000;
-  if (settings.linear().connected && old && !loading) void refresh(false);
+  void load();
   draw();
   find.focus();
 }
