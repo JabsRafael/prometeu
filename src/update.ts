@@ -1,6 +1,6 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { check, type Update } from "@tauri-apps/plugin-updater";
+import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
 import { $ } from "./util";
 
 /// Atualização sem reinstalar nada: o app pergunta a um manifesto público se
@@ -16,65 +16,154 @@ import { $ } from "./util";
 /// checar só no boot faria a atualização esperar o próximo reinício.
 const EVERY = 6 * 60 * 60 * 1000;
 
-let found: Update | null = null;
-let busy = false;
+/// Quanto esperar o app cair depois de pedir o reinício. O comando responde na
+/// hora e o processo morre logo depois; se passou isso e ainda estamos aqui, o
+/// reinício não aconteceu — e a pessoa precisa saber, em vez de clicar de novo.
+const STUCK = 8_000;
 
-export async function init(say: (text: string, isError?: boolean) => void) {
-  $("ver").textContent = `v${await getVersion()}`;
+/// O que o botão precisa saber de uma atualização encontrada. É o `Update` do
+/// plugin, reduzido ao que se usa — e é isto que os testes fingem.
+export type Found = Pick<Update, "version" | "body" | "downloadAndInstall">;
 
-  const btn = $("update") as HTMLButtonElement;
+/// Por onde a atualização anda. Uma fase só, e não um par de booleanos: o
+/// clique faz uma coisa em cada fase, e não existe combinação sem sentido.
+/// Foi um `busy` esquecido em `true` depois do download que deixou o botão de
+/// reiniciar sem fazer nada.
+export type Phase =
+  | { at: "quiet" }
+  | { at: "found"; update: Found }
+  | { at: "downloading"; update: Found; got: number; total: number }
+  | { at: "ready"; version: string }
+  | { at: "restarting"; version: string };
+
+/// O que o botão mostra numa fase. `null` é botão escondido. `ready` é a cor
+/// cheia: a partir daí o clique reinicia o app, e o botão tem que parecer isso.
+export type Face = { text: string; title: string; disabled: boolean; ready: boolean } | null;
+
+export function face(phase: Phase): Face {
+  switch (phase.at) {
+    case "quiet":
+      return null;
+    case "found":
+      return {
+        text: `Atualizar para ${phase.update.version}`,
+        title: phase.update.body?.trim() || `Versão ${phase.update.version} disponível`,
+        disabled: false,
+        ready: false,
+      };
+    case "downloading":
+      return {
+        text: phase.total ? `Baixando ${Math.round((phase.got / phase.total) * 100)}%` : "Baixando…",
+        title: "",
+        disabled: true,
+        ready: false,
+      };
+    case "ready":
+      return {
+        text: "Reiniciar para atualizar",
+        title:
+          `A ${phase.version} já está instalada e entra quando o app reabrir. ` +
+          "As conversas abertas param e voltam de onde pararam.",
+        disabled: false,
+        ready: true,
+      };
+    case "restarting":
+      return { text: "Reiniciando…", title: "", disabled: true, ready: true };
+  }
+}
+
+/// O que a máquina precisa do mundo: perguntar, reiniciar, desenhar e avisar.
+/// Em `init` é o Tauri e o botão; nos testes, é o que o teste quiser.
+export type Io = {
+  check: () => Promise<Found | null>;
+  relaunch: () => Promise<void>;
+  show: (face: Face) => void;
+  say: (text: string, isError?: boolean) => void;
+};
+
+export function updater(io: Io) {
+  let phase: Phase = { at: "quiet" };
+  const go = (next: Phase) => {
+    phase = next;
+    io.show(face(phase));
+  };
 
   const look = async () => {
     // Já achou, ou já está baixando: perguntar de novo só atrapalharia.
-    if (found || busy) return;
+    if (phase.at !== "quiet") return;
+    let update: Found | null;
     try {
-      found = await check();
+      update = await io.check();
     } catch {
       // Sem rede, GitHub fora do ar, manifesto ainda não publicado — nenhum
       // deles é problema seu. Quem quiser atualizar volta aqui em seis horas.
       return;
     }
-    if (!found) return;
-    btn.hidden = false;
-    btn.textContent = `Atualizar para ${found.version}`;
-    btn.title = found.body?.trim() || `Versão ${found.version} disponível`;
+    if (update && phase.at === "quiet") go({ at: "found", update });
   };
 
-  btn.addEventListener("click", async () => {
-    if (!found || busy) return;
-
-    // Segundo clique: o bundle já foi trocado no disco, falta trocar o que
-    // está na memória. Reiniciar derruba as sessões — nenhuma sobrevive ao
-    // fechamento do app de todo modo, mas quem escolhe a hora é você.
-    if (btn.dataset.done) {
-      await relaunch();
-      return;
-    }
-
-    busy = true;
-    btn.disabled = true;
-    let total = 0;
-    let got = 0;
+  const download = async (update: Found) => {
+    go({ at: "downloading", update, got: 0, total: 0 });
+    const progress = (e: DownloadEvent) => {
+      if (phase.at !== "downloading") return;
+      if (e.event === "Started") go({ ...phase, total: e.data.contentLength ?? 0 });
+      if (e.event === "Progress") go({ ...phase, got: phase.got + e.data.chunkLength });
+    };
     try {
-      await found.downloadAndInstall((e) => {
-        if (e.event === "Started") total = e.data.contentLength ?? 0;
-        if (e.event === "Progress") got += e.data.chunkLength;
-        btn.textContent = total ? `Baixando ${Math.round((got / total) * 100)}%` : "Baixando…";
-      });
-      btn.dataset.done = "1";
-      btn.disabled = false;
-      btn.classList.add("ready");
-      btn.textContent = "Reiniciar para aplicar";
-      btn.title = "As conversas abertas param — elas não sobrevivem ao reinício, e voltam de onde pararam";
+      await update.downloadAndInstall(progress);
+      go({ at: "ready", version: update.version });
     } catch (err) {
       // Aqui o silêncio não serve: foi você que clicou.
-      busy = false;
-      btn.disabled = false;
-      btn.textContent = `Atualizar para ${found.version}`;
-      say(`não deu para atualizar: ${err}`, true);
+      go({ at: "found", update });
+      io.say(`não deu para atualizar: ${err}`, true);
     }
+  };
+
+  // O bundle já foi trocado no disco, falta trocar o que está na memória.
+  // Reiniciar derruba as sessões — nenhuma sobrevive ao fechamento do app de
+  // todo modo, mas quem escolhe a hora é você.
+  const restart = async (version: string) => {
+    go({ at: "restarting", version });
+    try {
+      await io.relaunch();
+    } catch (err) {
+      go({ at: "ready", version });
+      io.say(`não deu para reiniciar: ${err}`, true);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, STUCK));
+    if (phase.at !== "restarting") return;
+    go({ at: "ready", version });
+    io.say(`o app não reiniciou sozinho — feche e abra o Prometheus, a ${version} já está instalada`, true);
+  };
+
+  const click = async () => {
+    if (phase.at === "found") await download(phase.update);
+    else if (phase.at === "ready") await restart(phase.version);
+  };
+
+  return { look, click, phase: () => phase };
+}
+
+export async function init(say: Io["say"]) {
+  $("ver").textContent = `v${await getVersion()}`;
+
+  const btn = $("update") as HTMLButtonElement;
+  const up = updater({
+    check,
+    relaunch,
+    say,
+    show: (face) => {
+      btn.hidden = !face;
+      if (!face) return;
+      btn.textContent = face.text;
+      btn.title = face.title;
+      btn.disabled = face.disabled;
+      btn.classList.toggle("ready", face.ready);
+    },
   });
 
-  void look();
-  setInterval(look, EVERY);
+  btn.addEventListener("click", () => void up.click());
+  void up.look();
+  setInterval(() => void up.look(), EVERY);
 }
