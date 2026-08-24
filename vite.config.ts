@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   clearScreen: false,
@@ -13,4 +13,9 @@ export default defineConfig({
     target: "esnext",
     minify: "esbuild",
   },
+  // Só os testes deste repositório. Os worktrees moram dentro da pasta do
+  // clone principal (`~/prometheus/worktrees*/`), e o vitest não lê o
+  // `.gitignore`: sem isto ele roda os testes de todo repo que tem worktree
+  // aqui — e a release do Prometheus parava num teste do repo dos outros.
+  test: { include: ["src/**/*.test.ts"] },
 });
