@@ -927,7 +927,24 @@ fn cap(patch: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{cli_args, is_terminal, patch_map, Launch};
+    use super::{cli_args, is_terminal, patch_map, pr_text, Launch};
+
+    /// O prompt de PR diz o estado e os passos com os nomes certos: a branch
+    /// no push, o alvo sem o remoto no `--base`, e a sujeira contada.
+    #[test]
+    fn pr_text_diz_o_estado_e_os_passos() {
+        let t = pr_text(Some("meu/ajuste"), 3, "origin/main", false);
+        assert!(t.contains("Há 3 arquivos"));
+        assert!(t.contains("git push -u origin HEAD:meu/ajuste"));
+        assert!(t.contains("gh pr create --base main"));
+        assert!(t.contains("Ainda não há branch upstream."));
+
+        let limpo = pr_text(None, 0, "origin/master", true);
+        assert!(limpo.contains("limpo"));
+        assert!(limpo.contains("HEAD solto"));
+        assert!(limpo.contains("--base master"));
+        assert!(limpo.contains("A branch já tem upstream."));
+    }
     use std::process::Command;
 
     fn launch(model: &str, effort: &str, plan: bool) -> Launch {
@@ -1369,6 +1386,16 @@ pub fn reveal(state: State<AppState>, id: String) -> Result<(), String> {
     ok.then_some(()).ok_or_else(|| format!("não abriu {}", root.display()))
 }
 
+/// Abre o navegador na porta do run. A porta sai do estado, e não do front:
+/// URL arbitrária não viaja pelo IPC.
+#[tauri::command]
+pub fn open_run(state: State<AppState>, id: String) -> Result<(), String> {
+    let port = ensure_port(&state, &id).ok_or("workspace sem porta")?;
+    let url = format!("http://localhost:{port}");
+    let ok = Command::new("open").arg(&url).status().map_err(|e| e.to_string())?.success();
+    ok.then_some(()).ok_or_else(|| format!("não abriu {url}"))
+}
+
 #[tauri::command]
 pub fn close_dock(state: State<AppState>, id: String, kind: String) {
     pty::kill(&state, &format!("{id}:{kind}"));
@@ -1450,6 +1477,57 @@ pub fn scripts_prompt(state: State<AppState>, id: String) -> String {
         .and_then(|root| scripts::read(&root).file)
         .unwrap_or_else(|| scripts::FILES[0].to_string());
     scripts::ask_prompt(&file)
+}
+
+/// O texto que o botão "Open PR" injeta na conversa ativa: o estado do git e
+/// os passos até o PR. Sai daqui e não do front porque quem sabe a branch, o
+/// alvo e o que falta commitar é quem tem o worktree. Quem commita, empurra e
+/// cria o PR é o agente — e uma skill de PR do repositório, quando existe,
+/// manda mais que este texto.
+#[tauri::command(async)]
+pub fn pr_prompt(state: State<AppState>, id: String) -> Result<String, String> {
+    let worktree = worktree_of(&state, &id).ok_or("workspace sumiu")?;
+    let branch = head_branch(&worktree);
+    let dirty = changes_in(&worktree).len();
+    // O alvo é o principal do remoto; sem `origin/HEAD` gravado, o de sempre.
+    let head = git(&worktree, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).trim().to_string();
+    let target = if head.is_empty() { "origin/main".to_string() } else { head };
+    let upstream = !git(&worktree, &["rev-parse", "--abbrev-ref", "@{upstream}"]).trim().is_empty();
+    Ok(pr_text(branch.as_deref(), dirty, &target, upstream))
+}
+
+fn pr_text(branch: Option<&str>, dirty: usize, target: &str, upstream: bool) -> String {
+    let estado = match dirty {
+        0 => "O worktree está limpo — nada fora de commit.".to_string(),
+        1 => "Há 1 arquivo com mudanças fora de commit.".to_string(),
+        n => format!("Há {n} arquivos com mudanças fora de commit."),
+    };
+    let onde = match branch {
+        Some(b) => format!("A branch atual é `{b}`"),
+        None => "O worktree está em HEAD solto — crie uma branch antes de commitar".to_string(),
+    };
+    let up = if upstream { "A branch já tem upstream." } else { "Ainda não há branch upstream." };
+    let base = target.split_once('/').map_or(target, |(_, b)| b);
+    let push = match branch {
+        Some(b) => format!("git push -u origin HEAD:{b}"),
+        None => "git push -u origin HEAD:<nome-da-branch>".to_string(),
+    };
+    format!(
+        r#"Quero abrir um PR deste worktree.
+
+{estado} {onde}; o alvo é `{target}`. {up}
+
+Siga estes passos:
+
+1. Se este repositório tiver uma skill ou comando de abrir PR (ex.: /open-pr), invoque-a agora — as instruções dela têm precedência sobre as daqui.
+2. Revise o que está fora de commit com `git status` e `git diff`.
+3. Commite seguindo as convenções de commit do repositório.
+4. Empurre com `{push}`.
+5. Revise o diff inteiro da branch contra `{target}` antes de escrever o PR.
+6. Crie o PR com `gh pr create --base {base}`. Título com menos de 80 caracteres; descrição com até cinco frases, cobrindo todas as mudanças da branch — não só as desta conversa.
+
+Se algum passo falhar, pare e me pergunte."#
+    )
 }
 
 fn workspace_copy(state: &State<AppState>, id: &str) -> Option<Workspace> {

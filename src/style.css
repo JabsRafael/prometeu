@@ -460,7 +460,15 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .side {
   width: var(--side-w); flex: none; border-left: 1px solid var(--line);
   background: var(--bg); display: flex; flex-direction: column; min-height: 0;
+  position: relative;
 }
+/* A alça de redimensionar cavalga a borda do painel. Invisível até a mão
+   chegar: a borda continua sendo a linha de 1px, e não uma faixa nova. */
+.sideresize {
+  position: absolute; left: -3px; top: 0; bottom: 0; width: 7px;
+  cursor: col-resize; z-index: 4;
+}
+.sideresize:hover, .sideresize.dragging { background: var(--bg-raised-3); }
 body.noside .side { display: none; }
 .sidetabs { display: flex; align-items: center; gap: 4px; padding: 8px 8px; flex: none; }
 .sidetab {
@@ -554,6 +562,15 @@ body.noside .side { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .wave path { animation: none; transform: scaleY(0.7); }
 }
+
+/* Abrir o run no navegador. Só existe com processo de pé e porta reservada —
+   sumir quando ele morre também é informação. */
+#run-open {
+  height: 26px; margin-right: 4px; flex: none;
+  border: 1px solid var(--line-raised); background: var(--bg-raised);
+}
+#run-open:hover { background: var(--bg-raised-2); }
+#run-open .port { color: var(--fg-3); }
 
 /* Run e o seletor de script: uma peça só, com a borda por fora e uma linha
    dividindo as duas metades — em vez de dois botões colados por uma fresta. */

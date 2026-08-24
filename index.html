@@ -34,6 +34,9 @@
         <div id="wsctl" class="wsctl" hidden>
           <span id="wsstatus" class="chip"></span>
           <button id="wsstage" class="ghost md" title="Etapa deste trabalho"></button>
+          <!-- Não cria nada sozinho: injeta na conversa ativa o pedido de PR,
+               com o estado do git e os passos. Quem faz é o agente. -->
+          <button id="pr" class="outline md" title="Pedir o PR à conversa ativa"></button>
           <button id="sidetoggle" class="ico" title="Painel lateral"></button>
         </div>
       </header>
@@ -96,6 +99,8 @@
             </div>
           </div>
           <aside class="side" id="side">
+            <!-- A alça na borda esquerda: arrastar muda a largura do painel. -->
+            <div class="sideresize" id="sideresize"></div>
             <div class="sidetabs">
               <button id="tab-files" class="sidetab on">Arquivos</button>
               <button id="tab-diff" class="sidetab">Mudanças <span id="diffcount"></span></button>
@@ -120,6 +125,7 @@
                      terminal novo, e não pode sair da tela junto com as abas. -->
                 <button id="dock-add" class="ico sm" title="Terminal novo"></button>
                 <span class="spacer"></span>
+                <button id="run-open" hidden></button>
                 <div class="split" id="runsplit" hidden>
                   <button id="run-go" class="md"></button>
                   <button id="run-pick" class="ico sm" title="Escolher o script"></button>

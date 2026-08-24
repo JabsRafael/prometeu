@@ -95,6 +95,10 @@ export function init(context: Ctx) {
       { label: "Abrir o settings.toml", glyph: icon("file", 14), run: writeScriptsFile },
     ]);
   });
+  $("run-open").addEventListener("click", () => {
+    const id = ctx.workspace();
+    if (id) invoke("open_run", { id }).catch((e) => ctx.say(String(e), true));
+  });
   $("dock-add").innerHTML = icon("plus", 14);
   $("dock-add").addEventListener("click", () => void setDock(nextTerm(), true));
   $("dock-again").addEventListener("click", () => setDock("setup", true));
@@ -232,6 +236,16 @@ export function draw() {
   $("run-pick").hidden = info.scripts.runs.length < 2;
   $("run-go").innerHTML =
     `${icon(up ? "square" : "play", 13)}<span>${up ? "Parar" : "Run"}</span><kbd>⌘R</kbd>`;
+
+  // Abrir no navegador só existe com o run de pé e porta reservada: é quase
+  // certeza de servidor em localhost — e sumir quando ele morre também é
+  // informação.
+  const goOpen = $("run-open");
+  goOpen.hidden = !up || !info.scripts.port;
+  if (!goOpen.hidden) {
+    goOpen.innerHTML = `${icon("globe", 13)}<span>Open</span><span class="port">:${info.scripts.port}</span>`;
+    goOpen.title = `Abrir http://localhost:${info.scripts.port} no navegador`;
+  }
 
   const filled = pane !== null && (isTerm(pane) || isUp(pane) || hasLog(pane));
   $("dockwrap").hidden = !filled;

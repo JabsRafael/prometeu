@@ -310,6 +310,40 @@ $("railtoggle").addEventListener("click", toggleRail);
 $("railshow").addEventListener("click", toggleRail);
 $("sidetoggle").addEventListener("click", () => document.body.classList.toggle("noside"));
 
+/* A borda esquerda do painel da direita é uma alça: arrastar muda a largura, e
+   ela fica para as próximas aberturas; duplo clique volta ao padrão do CSS. O
+   clamp segura o painel entre o mínimo útil e não engolir o centro. Os
+   terminais se remedem sozinhos — cada um tem um ResizeObserver no host. */
+const SIDE_W = "side-w";
+let sideW = Number(localStorage.getItem(SIDE_W)) || 0;
+const clampSide = (w: number) => Math.round(Math.max(280, Math.min(w, window.innerWidth * 0.6)));
+function paintSide() {
+  if (sideW) document.documentElement.style.setProperty("--side-w", `${sideW}px`);
+  else document.documentElement.style.removeProperty("--side-w");
+}
+paintSide();
+const grip = $("sideresize");
+grip.addEventListener("pointerdown", (e) => {
+  grip.setPointerCapture(e.pointerId);
+  grip.classList.add("dragging");
+});
+grip.addEventListener("pointermove", (e) => {
+  if (!grip.hasPointerCapture(e.pointerId)) return;
+  sideW = clampSide(window.innerWidth - e.clientX);
+  paintSide();
+});
+// O fim do gesto é a perda da captura — soltar o botão, ou o sistema cancelar
+// o ponteiro no meio. Um caminho só para os dois finais.
+grip.addEventListener("lostpointercapture", () => {
+  grip.classList.remove("dragging");
+  if (sideW) localStorage.setItem(SIDE_W, String(sideW));
+});
+grip.addEventListener("dblclick", () => {
+  sideW = 0;
+  paintSide();
+  localStorage.removeItem(SIDE_W);
+});
+
 document.addEventListener("keydown", (e) => {
   const cmd = e.metaKey || e.ctrlKey;
   const open = ws.id();
