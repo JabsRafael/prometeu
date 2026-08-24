@@ -4,6 +4,14 @@ O que muda no Prometheus, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.1.10] - 2026-08-24
+
+### Novidades
+
+- **painel:** Arrastar a borda esquerda muda a largura do painel da direita
+- **dock:** Botão Open abre o run no navegador enquanto ele está de pé
+- **workspace:** Botão Open PR pede o pull request à conversa ativa
+
 ## [0.1.9] - 2026-08-24
 
 ### Novidades
