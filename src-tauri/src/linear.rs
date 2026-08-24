@@ -26,6 +26,7 @@
 //! novo aos olhos do Keychain — e um "Prometheus quer usar sua senha" a cada
 //! versão. O escopo é só leitura.
 
+use crate::lock::lock;
 use crate::paths;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -36,6 +37,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -133,6 +135,8 @@ pub async fn linear_disconnect(app: AppHandle) -> Status {
                 .timeout(Duration::from_secs(10))
                 .send();
         }
+        *lock(&CACHE) = None;
+        let _ = std::fs::remove_file(issues_path());
         std::fs::remove_file(path()).map_err(|e| e.to_string())
     })
     .await;
@@ -317,8 +321,7 @@ fn token_request(fields: &[(&str, &str)]) -> Result<Auth, String> {
 
 /// Um token bom para usar agora: renovado se está para vencer, e gravado de
 /// volta quando renova. É por aqui que toda chamada ao Linear passa — a
-/// lista de issues, que vem a seguir, é quem chama.
-#[allow(dead_code)]
+/// lista de issues é quem chama.
 pub fn token() -> Result<String, String> {
     let auth = load().ok_or("o Linear não está conectado")?;
     if auth.expires_at > now() + SLACK {
@@ -379,10 +382,13 @@ pub fn load() -> Option<Auth> {
     serde_json::from_str(&std::fs::read_to_string(path()).ok()?).ok()
 }
 
+fn save(auth: &Auth) -> Result<(), String> {
+    write_private(&path(), &serde_json::to_string_pretty(auth).map_err(|e| e.to_string())?)
+}
+
 /// Só o dono lê: o arquivo nasce `0600`, e é reescrito inteiro — nunca
 /// truncado e preenchido, para não haver um instante com o arquivo vazio.
-fn save(auth: &Auth) -> Result<(), String> {
-    let target = path();
+fn write_private(target: &std::path::Path, body: &str) -> Result<(), String> {
     if let Some(dir) = target.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
@@ -394,16 +400,228 @@ fn save(auth: &Auth) -> Result<(), String> {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600);
     }
-    let mut file = opts.open(&tmp).map_err(|e| format!("não gravei a conexão: {e}"))?;
-    let body = serde_json::to_string_pretty(auth).map_err(|e| e.to_string())?;
+    let mut file = opts.open(&tmp).map_err(|e| format!("não gravei {}: {e}", target.display()))?;
     file.write_all(body.as_bytes()).map_err(|e| e.to_string())?;
     drop(file);
-    std::fs::rename(&tmp, &target).map_err(|e| format!("não gravei a conexão: {e}"))
+    std::fs::rename(&tmp, target).map_err(|e| format!("não gravei {}: {e}", target.display()))
 }
 
 pub fn status() -> Status {
     let who = load().map(|a| a.who);
     Status { connected: who.is_some(), who, busy: PENDING.load(Ordering::SeqCst) }
+}
+
+/* ---------- issues ---------- */
+
+/// O que da issue o workspace guarda: o bastante para o chip no card, o link
+/// e para a aba saber que "esta já tem workspace". O resto vive no cache.
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
+pub struct IssueRef {
+    pub id: String,
+    pub identifier: String,
+    pub title: String,
+    pub url: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct IssueState {
+    pub name: String,
+    /// `backlog`, `unstarted`, `started`, `triage` — os tipos do Linear. É
+    /// o que agrupa a aba; o `name` é o que o time escolheu chamar.
+    pub kind: String,
+    pub color: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Label {
+    pub name: String,
+    pub color: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Issue {
+    pub id: String,
+    pub identifier: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub url: String,
+    /// O nome de branch que o próprio Linear sugere. Usar esse é o que faz
+    /// o Linear reconhecer o PR como desta issue.
+    pub branch_name: String,
+    /// 0 sem, 1 urgente, 2 alta, 3 média, 4 baixa — a escala do Linear.
+    pub priority: u8,
+    pub priority_label: String,
+    pub state: IssueState,
+    pub team: String,
+    pub project: Option<String>,
+    pub labels: Vec<Label>,
+    pub updated_at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Issues {
+    pub issues: Vec<Issue>,
+    /// Unix, segundos. É o "atualizado há" da aba.
+    pub fetched_at: u64,
+}
+
+/// Quanto tempo a lista vale sem perguntar de novo. Abrir a aba dez vezes
+/// num minuto é uma chamada; o botão de atualizar ignora isto.
+const FRESH: u64 = 120;
+/// Páginas de 50: dez é o teto — 500 issues no seu nome é mais do que
+/// qualquer lista mostra.
+const PAGES: usize = 10;
+
+/// A lista em memória; o arquivo é a cópia que faz o app abrir já com ela.
+static CACHE: Mutex<Option<Issues>> = Mutex::new(None);
+
+const ISSUES_QUERY: &str = r#"query Mine($after: String) {
+  viewer {
+    assignedIssues(first: 50, after: $after, orderBy: updatedAt,
+      filter: { state: { type: { nin: ["completed", "canceled"] } } }) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        id identifier title description url branchName priority priorityLabel updatedAt
+        state { name type color } team { key } project { name } labels { nodes { name color } }
+      }
+    }
+  }
+}"#;
+
+/// As issues no seu nome, fora concluídas e canceladas. `force` é o botão
+/// de atualizar; sem ele, o que foi buscado há menos de dois minutos serve.
+#[tauri::command]
+pub async fn linear_issues(force: bool) -> Result<Issues, String> {
+    blocking(move || issues(force)).await
+}
+
+fn issues(force: bool) -> Result<Issues, String> {
+    let cached = lock(&CACHE).clone().or_else(load_issues);
+    if let Some(c) = &cached {
+        if !force && c.fetched_at + FRESH > now() {
+            *lock(&CACHE) = Some(c.clone());
+            return Ok(c.clone());
+        }
+    }
+    let fresh = fetch_issues()?;
+    *lock(&CACHE) = Some(fresh.clone());
+    // Cache que não grava não é erro: a lista chegou, e é isso que importa.
+    if let Ok(body) = serde_json::to_string(&fresh) {
+        let _ = write_private(&issues_path(), &body);
+    }
+    Ok(fresh)
+}
+
+fn fetch_issues() -> Result<Issues, String> {
+    let token = token()?;
+    let mut all = Vec::new();
+    let mut after: Option<String> = None;
+    for _ in 0..PAGES {
+        let data = graphql(&token, ISSUES_QUERY, serde_json::json!({ "after": after }))?;
+        let page: Page = serde_json::from_value(data["viewer"]["assignedIssues"].clone())
+            .map_err(|e| format!("o Linear respondeu algo que não entendi: {e}"))?;
+        all.extend(page.nodes.into_iter().map(Issue::from));
+        if !page.page_info.has_next_page {
+            break;
+        }
+        after = page.page_info.end_cursor;
+    }
+    Ok(Issues { issues: all, fetched_at: now() })
+}
+
+fn issues_path() -> PathBuf {
+    paths::root().join("linear-issues.json")
+}
+
+fn load_issues() -> Option<Issues> {
+    serde_json::from_str(&std::fs::read_to_string(issues_path()).ok()?).ok()
+}
+
+/// Abrir uma issue no navegador. Só links do Linear: é o único lugar de onde
+/// esta URL vem, e `open` com qualquer coisa é `open` com qualquer coisa.
+#[tauri::command]
+pub fn linear_open(url: String) -> Result<(), String> {
+    if !url.starts_with("https://linear.app/") {
+        return Err("não é um link do Linear".into());
+    }
+    browse(&url)
+}
+
+/* O formato do GraphQL, e a tradução para o nosso. */
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Page {
+    page_info: PageInfo,
+    nodes: Vec<Raw>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PageInfo {
+    has_next_page: bool,
+    end_cursor: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Raw {
+    id: String,
+    identifier: String,
+    title: String,
+    description: Option<String>,
+    url: String,
+    branch_name: String,
+    priority: u8,
+    priority_label: String,
+    updated_at: String,
+    state: RawState,
+    team: Option<RawKey>,
+    project: Option<RawName>,
+    labels: RawLabels,
+}
+
+#[derive(Deserialize)]
+struct RawState {
+    name: String,
+    #[serde(rename = "type")]
+    kind: String,
+    color: String,
+}
+
+#[derive(Deserialize)]
+struct RawKey {
+    key: String,
+}
+
+#[derive(Deserialize)]
+struct RawName {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct RawLabels {
+    nodes: Vec<Label>,
+}
+
+impl From<Raw> for Issue {
+    fn from(r: Raw) -> Issue {
+        Issue {
+            id: r.id,
+            identifier: r.identifier,
+            title: r.title,
+            description: r.description.filter(|d| !d.trim().is_empty()),
+            url: r.url,
+            branch_name: r.branch_name,
+            priority: r.priority,
+            priority_label: r.priority_label,
+            state: IssueState { name: r.state.name, kind: r.state.kind, color: r.state.color },
+            team: r.team.map(|t| t.key).unwrap_or_default(),
+            project: r.project.map(|p| p.name),
+            labels: r.labels.nodes,
+            updated_at: r.updated_at,
+        }
+    }
 }
 
 /* ---------- miudezas ---------- */
@@ -543,6 +761,34 @@ mod tests {
         assert_eq!(q["error_description"], "User denied");
         assert!(request_target("POST /linear HTTP/1.1").is_none());
         assert!(request_target("").is_none());
+    }
+
+    /// Uma página como o Linear manda, com os campos opcionais vazios: sem
+    /// projeto, sem time, descrição em branco — nada disso pode derrubar a
+    /// lista inteira.
+    #[test]
+    fn le_uma_pagina_de_issues() {
+        let json = serde_json::json!({
+            "pageInfo": { "hasNextPage": false, "endCursor": null },
+            "nodes": [{
+                "id": "abc", "identifier": "MES-7", "title": "Conectar o Linear",
+                "description": "  ", "url": "https://linear.app/mesonn/issue/MES-7/x",
+                "branchName": "gustavo/mes-7-conectar-o-linear", "priority": 2,
+                "priorityLabel": "High", "updatedAt": "2026-08-23T20:00:00.000Z",
+                "state": { "name": "In Progress", "type": "started", "color": "#f2c94c" },
+                "team": null, "project": null, "labels": { "nodes": [{ "name": "bug", "color": "#eb5757" }] }
+            }]
+        });
+        let page: Page = serde_json::from_value(json).unwrap();
+        assert!(!page.page_info.has_next_page);
+        let issue = Issue::from(page.nodes.into_iter().next().unwrap());
+        assert_eq!(issue.identifier, "MES-7");
+        assert_eq!(issue.description, None);
+        assert_eq!(issue.state.kind, "started");
+        assert_eq!(issue.team, "");
+        assert_eq!(issue.project, None);
+        assert_eq!(issue.labels[0].name, "bug");
+        assert_eq!(issue.branch_name, "gustavo/mes-7-conectar-o-linear");
     }
 
     #[test]

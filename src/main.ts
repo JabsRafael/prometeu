@@ -6,13 +6,14 @@ import * as board from "./board";
 import * as dock from "./dock";
 import * as dockbar from "./dockbar";
 import { icon } from "./icons";
+import * as issues from "./issues";
 import { dropFiles, openLauncher, type Draft } from "./launcher";
 import * as menu from "./menu";
 import * as rename from "./rename";
 import * as session from "./session";
 import * as settings from "./settings";
 import "./style.css";
-import type { Board, Question, Workspace } from "./types";
+import type { Board, Issue, Question, Workspace } from "./types";
 import * as update from "./update";
 import { $ } from "./util";
 import * as viewer from "./viewer";
@@ -58,6 +59,9 @@ const hooks: board.Hooks = {
     say(`${w.worktree} copiado`);
   },
   toBoard: () => showBoard(),
+  toIssues: () => showIssues(),
+  issues: () => issues.count(),
+  openIssue: (url) => invoke("linear_open", { url }).catch((e) => say(String(e), true)),
   addProject: async () => {
     const dir = await open({ directory: true, title: "Escolha o repositório" });
     if (typeof dir !== "string") return;
@@ -80,6 +84,7 @@ function draw() {
    do Conductor. `null` é o quadro; `SETTINGS` é a tela de configurações, que
    não colide com id de workspace nenhum. */
 const SETTINGS = "@configurações";
+const ISSUES = board.ISSUES;
 const hist: (string | null)[] = [];
 let at = -1;
 function visit(to: string | null) {
@@ -99,6 +104,8 @@ function travel(dir: -1 | 1) {
   at = next;
   if (hist[at] === SETTINGS) {
     showSettings(false);
+  } else if (hist[at] === ISSUES) {
+    showIssues(false);
   } else {
     const target = state.workspaces.find((w) => w.id === hist[at]);
     target ? openWorkspace(target, false) : showBoard(false);
@@ -108,18 +115,38 @@ function travel(dir: -1 | 1) {
 $("back").addEventListener("click", () => travel(-1));
 $("fwd").addEventListener("click", () => travel(1));
 
+/// As telas que não são workspace nem quadro: uma de cada vez, e o quadro
+/// fica escondido embaixo delas.
+function showOnly(view: "settingsView" | "issuesView" | null) {
+  $("boardView").hidden = view !== null;
+  $("settingsView").hidden = view !== "settingsView";
+  $("issuesView").hidden = view !== "issuesView";
+  if (view !== "issuesView") issues.hide();
+}
+
 function showBoard(push = true) {
   if (push) visit(null);
   ws.leave();
-  $("settingsView").hidden = true;
+  showOnly(null);
   $("crumb").replaceChildren(Object.assign(document.createElement("span"), { textContent: "Quadro" }));
   draw();
 }
 
 async function openWorkspace(target: Workspace, push = true) {
   if (push) visit(target.id);
-  $("settingsView").hidden = true;
+  showOnly(null);
   await ws.open(target);
+}
+
+/// As issues do Linear no seu nome — de onde o trabalho sai.
+function showIssues(push = true) {
+  if (push) visit(ISSUES);
+  ws.leave();
+  board.setOpen(ISSUES);
+  showOnly("issuesView");
+  $("crumb").replaceChildren(Object.assign(document.createElement("span"), { textContent: "Issues" }));
+  issues.show();
+  draw();
 }
 
 /// A terceira tela. Sai do workspace como o quadro sai, mas o quadro fica
@@ -128,8 +155,7 @@ function showSettings(push = true) {
   if (push) visit(SETTINGS);
   ws.leave();
   board.setOpen(SETTINGS);
-  $("boardView").hidden = true;
-  $("settingsView").hidden = false;
+  showOnly("settingsView");
   $("crumb").replaceChildren(Object.assign(document.createElement("span"), { textContent: "Configurações" }));
   settings.draw();
   draw();
@@ -238,18 +264,23 @@ getCurrentWebview().onDragDropEvent(({ payload }) => {
 
 /* ---------- ações ---------- */
 
-function launch(projectId?: string) {
+function launch(projectId?: string, seed?: Issue) {
   if (!state.projects.length) return hooks.addProject();
-  openLauncher(state, projectId, async (draft: Draft) => {
-    say("montando worktree…");
-    try {
-      const created = await invoke<Workspace>("create_workspace", { draft, ...session.dims() });
-      say("");
-      openWorkspace(created);
-    } catch (err) {
-      say(String(err), true);
-    }
-  });
+  openLauncher(
+    state,
+    projectId,
+    async (draft: Draft) => {
+      say("montando worktree…");
+      try {
+        const created = await invoke<Workspace>("create_workspace", { draft, ...session.dims() });
+        say("");
+        openWorkspace(created);
+      } catch (err) {
+        say(String(err), true);
+      }
+    },
+    seed,
+  );
 }
 
 $("resume").addEventListener("click", async () => {
@@ -339,7 +370,17 @@ for (const [id, name] of [
 }
 
 void update.init(say);
-void settings.init({ say });
+// A tela de issues pergunta às configurações se há Linear; elas respondem
+// depois de saber, e por isso vêm antes.
+await settings.init({ say });
+issues.init({
+  say,
+  board: () => state,
+  redraw: draw,
+  open: (w) => openWorkspace(w),
+  create: (issue) => launch(state.workspaces.find((w) => w.id === ws.id())?.project, issue),
+  toSettings: () => showSettings(),
+});
 ws.init({ say, board: () => state, redraw: draw, toBoard: () => showBoard() });
 session.initTerminal((m) => say(m, true));
 viewer.init((m) => say(m, true));

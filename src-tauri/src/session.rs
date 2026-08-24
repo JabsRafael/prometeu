@@ -213,6 +213,9 @@ pub struct Draft {
     stage: String,
     prompt: String,
     inject: Vec<String>,
+    /// A issue do Linear que deu origem, quando o lançador saiu de uma.
+    #[serde(default)]
+    issue: Option<crate::linear::IssueRef>,
     /// `--model`, `--effort` e plan mode da primeira conversa. Modelo e
     /// esforço ficam no workspace; plan mode é só desta primeira fala.
     #[serde(flatten)]
@@ -307,6 +310,7 @@ pub fn create_workspace(
     let ws = Workspace {
         id: uuid::Uuid::new_v4().to_string(),
         title: if draft.title.trim().is_empty() { branch.clone() } else { draft.title },
+        issue: draft.issue,
         project: repo_path.display().to_string(),
         repo: repo_path.display().to_string(),
         repo_name,

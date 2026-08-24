@@ -125,6 +125,8 @@ fn main() {
             linear::linear_status,
             linear::linear_connect,
             linear::linear_disconnect,
+            linear::linear_issues,
+            linear::linear_open,
         ])
         .build(tauri::generate_context!())
         .expect("erro ao subir o Prometheus")

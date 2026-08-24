@@ -127,6 +127,10 @@ pub struct Workspace {
     /// scripts, e a porta vai junto, porque é ela que ele mostra.
     #[serde(default)]
     pub port: Option<u16>,
+    /// A issue do Linear de onde este trabalho saiu, se saiu de uma. O card
+    /// mostra o identificador, e a aba de issues sabe que esta já tem dono.
+    #[serde(default)]
+    pub issue: Option<crate::linear::IssueRef>,
     #[serde(default)]
     pub tabs: Vec<Tab>,
     #[serde(default)]

@@ -2,7 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { avatar, icon, stageIcon } from "./icons";
 import * as menu from "./menu";
-import type { Board } from "./types";
+import { h } from "./util";
+import type { Board, Issue, IssueRef } from "./types";
 
 export type Draft = {
   project: string;
@@ -19,6 +20,9 @@ export type Draft = {
   stage: string;
   prompt: string;
   inject: string[];
+  /// A issue do Linear de onde o workspace sai, quando sai de uma: o nome, a
+  /// branch e a primeira fala nascem dela.
+  issue: IssueRef | null;
   /// `--model`: um alias do Claude Code (`opus`, `sonnet[1m]`…). Vazio é
   /// deixar ele escolher. Vale para o workspace inteiro.
   model: string;
@@ -82,20 +86,31 @@ export const dropFiles = (paths: string[]) => takeFiles?.(paths);
 
 /// O lançador é uma caixa de texto e um seletor de projeto — o "Create" do
 /// Conductor. Tudo que dá para deduzir fica atrás de "detalhes"; criar é Enter.
-export function openLauncher(board: Board, preset: string | undefined, go: (d: Draft) => void) {
+///
+/// Com `seed`, o workspace nasce de uma issue do Linear: a branch é a que o
+/// Linear sugere (é o que faz ele reconhecer o PR), o nome é o identificador
+/// e o título, e a primeira fala começa com a issue inteira — o que você
+/// digitar vem depois, como instrução extra.
+export function openLauncher(
+  board: Board,
+  preset: string | undefined,
+  go: (d: Draft) => void,
+  seed?: Issue,
+) {
   const veil = document.getElementById("veil")!;
   if (!board.projects.length) return;
 
   const draft: Draft = {
     project: preset ?? board.projects[0].id,
-    branch: `prometheus/${stamp()}`,
+    branch: seed?.branch_name || `prometheus/${stamp()}`,
     base: "",
     worktree: localStorage.getItem(WORKTREE_KEY) !== "0",
     newBranch: localStorage.getItem(BRANCH_KEY) !== "0",
-    title: "",
+    title: seed ? `${seed.identifier} · ${seed.title}` : "",
     stage: board.stages[1] ?? board.stages[0],
     prompt: "",
     inject: [],
+    issue: seed ? { id: seed.id, identifier: seed.identifier, title: seed.title, url: seed.url } : null,
     model: remembered(MODEL_KEY, MODELS),
     effort: remembered(EFFORT_KEY, EFFORTS, "high"),
     plan: false,
@@ -123,6 +138,7 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
       <div class="plist" id="d-list"></div>
     </div>
     <textarea id="d-prompt" rows="6" placeholder="No que você quer trabalhar?"></textarea>
+    <div class="attach" id="d-issue" hidden></div>
     <div class="attach" id="d-inj" hidden></div>
     <div class="details" id="d-details" hidden>
       <label class="mini-row"><span>Nome</span><input id="d-title" placeholder="sai da primeira frase" /></label>
@@ -143,6 +159,41 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
   const prompt = $<HTMLTextAreaElement>("d-prompt");
   const hint = $("d-hint");
   branch.value = draft.branch;
+  $<HTMLInputElement>("d-title").value = draft.title;
+
+  /* ---------- a issue de origem ---------- */
+
+  // Fica à vista, como os anexos: é parte da primeira fala. O ✕ desfaz tudo
+  // que veio dela — nome, branch e o bloco no texto.
+  const issueBox = $("d-issue");
+  const drawIssue = () => {
+    issueBox.hidden = !draft.issue;
+    issueBox.replaceChildren();
+    if (!draft.issue) {
+      prompt.placeholder = "No que você quer trabalhar?";
+      return;
+    }
+    prompt.placeholder = "Alguma instrução além do que está na issue? (opcional)";
+    const chip = h(
+      "span",
+      "injchip issue",
+      `${icon("linear", 12)}<b class="iid"></b><span class="it"></span><button class="ico sm">${icon("x", 12)}</button>`,
+    );
+    chip.children[1].textContent = draft.issue.identifier;
+    chip.children[2].textContent = draft.issue.title;
+    chip.title = `${draft.issue.title}\n${draft.issue.url}`;
+    chip.children[3].addEventListener("click", () => {
+      draft.issue = null;
+      seed = undefined;
+      branch.value = `prometheus/${stamp()}`;
+      $<HTMLInputElement>("d-title").value = "";
+      drawIssue();
+      drawHint();
+      prompt.focus();
+    });
+    issueBox.append(chip);
+  };
+  drawIssue();
 
   const projectName = () => board.projects.find((p) => p.id === draft.project)?.name ?? "";
   const drawHint = () => {
@@ -433,7 +484,7 @@ export function openLauncher(board: Board, preset: string | undefined, go: (d: D
   const submit = () => {
     // Vazia é o que o back lê como "não cria branch, abre onde o repo está".
     draft.branch = draft.newBranch ? branch.value.trim() || `prometheus/${stamp()}` : "";
-    draft.prompt = prompt.value;
+    draft.prompt = seed ? issueBlock(seed, prompt.value) : prompt.value;
     draft.title =
       $<HTMLInputElement>("d-title").value.trim() || summarize(prompt.value) || draft.branch || projectName();
     hide();
@@ -494,6 +545,16 @@ function dropdown(btn: HTMLButtonElement, list: [string, string][], get: () => s
 function remembered(key: string, list: [string, string][], fallback = "") {
   const saved = localStorage.getItem(key) ?? "";
   return list.some(([id]) => id === saved) ? saved : fallback;
+}
+
+/// A primeira fala de um workspace que nasce de uma issue: a issue inteira,
+/// e depois o que você digitou. O agente lê a descrição como o pedido, e a
+/// sua frase como o jeito de fazer.
+export function issueBlock(issue: Issue, extra: string): string {
+  const head = [`Issue ${issue.identifier} do Linear: ${issue.title}`, issue.url];
+  const body = issue.description?.trim();
+  const parts = [head.join("\n"), body, extra.trim() ? `---\n\n${extra.trim()}` : ""];
+  return parts.filter(Boolean).join("\n\n");
 }
 
 function summarize(prompt: string) {

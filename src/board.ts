@@ -17,9 +17,18 @@ export type Hooks = {
   reveal: (id: string) => void;
   copyPath: (ws: Workspace) => void;
   toBoard: () => void;
+  toIssues: () => void;
+  /// Quantas issues a aba tem para mostrar — `null` é "sem Linear", e o
+  /// número some.
+  issues: () => number | null;
+  openIssue: (url: string) => void;
   addProject: () => void;
   newWorkspace: (projectId?: string) => void;
 };
+
+/// O que fica "aberto" quando a tela é a de issues: nenhum workspace, e o
+/// quadro também não. Não colide com id de workspace nenhum.
+export const ISSUES = "@issues";
 
 let openId: string | null = null;
 export function setOpen(id: string | null) {
@@ -115,6 +124,19 @@ function renderRail(board: Board, hooks: Hooks) {
   create.title = "Novo workspace  ⌘N";
   create.addEventListener("click", () => hooks.newWorkspace());
   rail.append(create);
+
+  // As issues no seu nome, do Linear. Vem antes do quadro: é de onde o
+  // trabalho sai, e o quadro é onde ele está.
+  const issues = h(
+    "button",
+    "navitem" + (openId === ISSUES ? " on" : ""),
+    `${icon("inbox")}<span>Issues</span><span class="n"></span>`,
+  );
+  const n = hooks.issues();
+  issues.querySelector(".n")!.textContent = n === null ? "" : String(n);
+  issues.title = n === null ? "Issues do Linear — conecte em Configurações" : "Issues do Linear no seu nome";
+  issues.addEventListener("click", hooks.toIssues);
+  rail.append(issues);
 
   const quadro = h(
     "button",
@@ -403,6 +425,19 @@ function card(ws: Workspace, board: Board, hooks: Hooks): HTMLElement {
     model.textContent = ws.model;
     model.title = `As conversas daqui rodam com --model ${ws.model}`;
     foot.append(model);
+  }
+
+  // De qual issue este trabalho saiu; clicar abre ela no Linear.
+  if (ws.issue) {
+    const ref = ws.issue;
+    const tag = h("span", "chip issue", `${icon("linear", 12)}<span></span>`);
+    tag.children[1].textContent = ref.identifier;
+    tag.title = `${ref.title} — abrir no Linear`;
+    tag.addEventListener("click", (e) => {
+      e.stopPropagation();
+      hooks.openIssue(ref.url);
+    });
+    foot.append(tag);
   }
 
   if (ws.pinned) {

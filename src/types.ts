@@ -43,6 +43,8 @@ export type Workspace = {
   effort: string;
   /// Base das dez portas reservadas a este worktree.
   port: number | null;
+  /// A issue do Linear de onde este trabalho saiu, se saiu de uma.
+  issue: IssueRef | null;
   tabs: Tab[];
   active: string | null;
 };
@@ -83,6 +85,26 @@ export type Board = { stages: string[]; projects: Project[]; workspaces: Workspa
 /// Quem está do outro lado da conexão com o Linear: a pessoa e o workspace
 /// (a organização) que ela autorizou.
 export type LinearWho = { name: string; email: string; org: string; org_key: string };
+/// O que da issue o workspace guarda: chip no card, link, e "esta já tem
+/// workspace" na aba.
+export type IssueRef = { id: string; identifier: string; title: string; url: string };
+
+/// Uma issue do Linear como a aba mostra. `state.kind` é o tipo do Linear
+/// (`started`, `unstarted`, `backlog`, `triage`) e é o que agrupa; `priority`
+/// vai de 0 (sem) a 4 (baixa), com 1 sendo urgente — a escala deles.
+export type Issue = IssueRef & {
+  description: string | null;
+  branch_name: string;
+  priority: number;
+  priority_label: string;
+  state: { name: string; kind: string; color: string };
+  team: string;
+  project: string | null;
+  labels: { name: string; color: string }[];
+  updated_at: string;
+};
+export type Issues = { issues: Issue[]; fetched_at: number };
+
 /// `busy` é um fluxo esperando o navegador — a tela mostra isso mesmo que
 /// você saia e volte no meio.
 export type LinearStatus = { connected: boolean; who: LinearWho | null; busy: boolean };
