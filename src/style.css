@@ -460,7 +460,15 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .side {
   width: var(--side-w); flex: none; border-left: 1px solid var(--line);
   background: var(--bg); display: flex; flex-direction: column; min-height: 0;
+  position: relative;
 }
+/* A alça de redimensionar cavalga a borda do painel. Invisível até a mão
+   chegar: a borda continua sendo a linha de 1px, e não uma faixa nova. */
+.sideresize {
+  position: absolute; left: -3px; top: 0; bottom: 0; width: 7px;
+  cursor: col-resize; z-index: 4;
+}
+.sideresize:hover, .sideresize.dragging { background: var(--bg-raised-3); }
 body.noside .side { display: none; }
 .sidetabs { display: flex; align-items: center; gap: 4px; padding: 8px 8px; flex: none; }
 .sidetab {
