@@ -339,6 +339,9 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       return ".prometheus/settings.toml";
     case "scripts_prompt":
       return "Descubra como preparar e como rodar este projeto, e escreva isso em `.prometheus/settings.toml`.";
+    case "open_run":
+      console.log("abrir no navegador: http://localhost:" + ((scripts[args.id] ?? noScripts).port ?? 0));
+      return null;
     case "open_dock": {
       const key = `${args.id}:${args.kind}`;
       docks.set(key, true);

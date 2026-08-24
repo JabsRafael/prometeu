@@ -1369,6 +1369,16 @@ pub fn reveal(state: State<AppState>, id: String) -> Result<(), String> {
     ok.then_some(()).ok_or_else(|| format!("não abriu {}", root.display()))
 }
 
+/// Abre o navegador na porta do run. A porta sai do estado, e não do front:
+/// URL arbitrária não viaja pelo IPC.
+#[tauri::command]
+pub fn open_run(state: State<AppState>, id: String) -> Result<(), String> {
+    let port = ensure_port(&state, &id).ok_or("workspace sem porta")?;
+    let url = format!("http://localhost:{port}");
+    let ok = Command::new("open").arg(&url).status().map_err(|e| e.to_string())?.success();
+    ok.then_some(()).ok_or_else(|| format!("não abriu {url}"))
+}
+
 #[tauri::command]
 pub fn close_dock(state: State<AppState>, id: String, kind: String) {
     pty::kill(&state, &format!("{id}:{kind}"));

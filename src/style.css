@@ -563,6 +563,15 @@ body.noside .side { display: none; }
   .wave path { animation: none; transform: scaleY(0.7); }
 }
 
+/* Abrir o run no navegador. Só existe com processo de pé e porta reservada —
+   sumir quando ele morre também é informação. */
+#run-open {
+  height: 26px; margin-right: 4px; flex: none;
+  border: 1px solid var(--line-raised); background: var(--bg-raised);
+}
+#run-open:hover { background: var(--bg-raised-2); }
+#run-open .port { color: var(--fg-3); }
+
 /* Run e o seletor de script: uma peça só, com a borda por fora e uma linha
    dividindo as duas metades — em vez de dois botões colados por uma fresta. */
 .split {

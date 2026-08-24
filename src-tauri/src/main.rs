@@ -112,6 +112,7 @@ fn main() {
             session::dock_state,
             session::create_scripts_file,
             session::scripts_prompt,
+            session::open_run,
             session::new_tab,
             session::close_tab,
             session::focus_tab,
