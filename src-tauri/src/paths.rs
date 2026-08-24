@@ -66,8 +66,9 @@ fn dir_name(branch: &str) -> String {
 }
 
 /// FNV-1a. Não precisa ser criptográfico — precisa ser estável entre execuções
-/// (o caminho fica gravado no quadro) e não valer uma dependência nova.
-fn fnv1a(s: &str) -> u64 {
+/// (o caminho fica gravado no quadro) e não valer uma dependência nova. A
+/// porta do worktree sai da mesma conta (ver `scripts::alloc_port`).
+pub(crate) fn fnv1a(s: &str) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in s.bytes() {
         h ^= byte as u64;
