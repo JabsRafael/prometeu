@@ -4,6 +4,19 @@ O que muda no Prometheus, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.1.9] - 2026-08-24
+
+### Novidades
+
+- **configurações:** Conectar o Linear pela nova tela de configurações
+- **issues:** Aba com as issues do Linear no seu nome, e criar workspace a partir de uma
+- **lançador:** Sem a seção Detalhes — nome, branch e etapa saem sozinhos
+- **lançador:** Escolher uma issue do Linear no próprio lançador
+
+### Correções
+
+- **updater:** Clicar em reiniciar depois de baixar a atualização reinicia o app de verdade
+
 ## [0.1.8] - 2026-08-23
 
 ### Outros
