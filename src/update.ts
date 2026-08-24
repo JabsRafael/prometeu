@@ -1,6 +1,7 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
+import { t } from "./i18n";
 import { $ } from "./util";
 
 /// Atualização sem reinstalar nada: o app pergunta a um manifesto público se
@@ -46,29 +47,29 @@ export function face(phase: Phase): Face {
       return null;
     case "found":
       return {
-        text: `Atualizar para ${phase.update.version}`,
-        title: phase.update.body?.trim() || `Versão ${phase.update.version} disponível`,
+        text: t("update.found", { version: phase.update.version }),
+        title: phase.update.body?.trim() || t("update.found.title", { version: phase.update.version }),
         disabled: false,
         ready: false,
       };
     case "downloading":
       return {
-        text: phase.total ? `Baixando ${Math.round((phase.got / phase.total) * 100)}%` : "Baixando…",
+        text: phase.total
+          ? t("update.downloading", { pct: Math.round((phase.got / phase.total) * 100) })
+          : t("update.downloading.unknown"),
         title: "",
         disabled: true,
         ready: false,
       };
     case "ready":
       return {
-        text: "Reiniciar para atualizar",
-        title:
-          `A ${phase.version} já está instalada e entra quando o app reabrir. ` +
-          "As conversas abertas param e voltam de onde pararam.",
+        text: t("update.ready"),
+        title: t("update.ready.title", { version: phase.version }),
         disabled: false,
         ready: true,
       };
     case "restarting":
-      return { text: "Reiniciando…", title: "", disabled: true, ready: true };
+      return { text: t("update.restarting"), title: "", disabled: true, ready: true };
   }
 }
 
@@ -115,7 +116,7 @@ export function updater(io: Io) {
     } catch (err) {
       // Aqui o silêncio não serve: foi você que clicou.
       go({ at: "found", update });
-      io.say(`não deu para atualizar: ${err}`, true);
+      io.say(t("update.failed", { err: String(err) }), true);
     }
   };
 
@@ -128,13 +129,13 @@ export function updater(io: Io) {
       await io.relaunch();
     } catch (err) {
       go({ at: "ready", version });
-      io.say(`não deu para reiniciar: ${err}`, true);
+      io.say(t("update.restartFailed", { err: String(err) }), true);
       return;
     }
     await new Promise((r) => setTimeout(r, STUCK));
     if (phase.at !== "restarting") return;
     go({ at: "ready", version });
-    io.say(`o app não reiniciou sozinho — feche e abra o Prometheus, a ${version} já está instalada`, true);
+    io.say(t("update.stuck", { version }), true);
   };
 
   const click = async () => {

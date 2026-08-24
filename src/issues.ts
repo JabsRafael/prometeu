@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { icon } from "./icons";
+import { fromBack, paint, t } from "./i18n";
 import * as settings from "./settings";
 import type { Board, Issue, Issues, LinearStatus, Workspace } from "./types";
 import { $, h } from "./util";
@@ -31,10 +32,10 @@ const STALE = 120_000;
 /// A ordem dos grupos, e o nome de cada um em português — o `name` do estado
 /// é o que o time escolheu e vai na linha.
 const KINDS: [string, string][] = [
-  ["started", "Em andamento"],
-  ["unstarted", "A fazer"],
-  ["triage", "Triagem"],
-  ["backlog", "Backlog"],
+  ["started", t("issues.kind.started")],
+  ["unstarted", t("issues.kind.unstarted")],
+  ["triage", t("issues.kind.triage")],
+  ["backlog", t("issues.kind.backlog")],
 ];
 
 let ctx: Ctx;
@@ -96,7 +97,7 @@ async function refresh(force: boolean) {
     got = await invoke<Issues>("linear_issues", { force });
     error = "";
   } catch (e) {
-    error = String(e);
+    error = fromBack(e);
   }
   loading = false;
   ctx.redraw();
@@ -108,11 +109,13 @@ async function refresh(force: boolean) {
 function buildBar() {
   const bar = $("ibar");
   bar.innerHTML = `
-    <label class="ifind">${icon("search", 14)}<input placeholder="Buscar por número, título ou projeto…" spellcheck="false" /></label>
+    <label class="ifind">${icon("search", 14)}<input spellcheck="false" /></label>
     <span class="spacer"></span>
     <span class="imeta" id="imeta"></span>
-    <button class="ico" id="irefresh" title="Buscar de novo no Linear">${icon("rotate")}</button>`;
+    <button class="ico" id="irefresh" data-t-title="issues.refresh">${icon("rotate")}</button>`;
+  paint(bar);
   find = bar.querySelector("input")!;
+  find.placeholder = t("issues.search");
   meta = bar.querySelector("#imeta")!;
   find.addEventListener("input", () => {
     query = find.value.trim().toLowerCase();
@@ -133,11 +136,11 @@ function buildBar() {
 function drawMeta() {
   meta.classList.toggle("err", !!error && !loading);
   meta.textContent = loading
-    ? "buscando…"
+    ? t("issues.busy")
     : error
       ? error
       : got
-        ? `atualizado ${ago(got.fetched_at * 1000)}`
+        ? t("issues.updated", { when: ago(got.fetched_at * 1000) })
         : "";
   ($("irefresh") as HTMLButtonElement).disabled = loading || !settings.linear().connected;
 }
@@ -156,16 +159,14 @@ function drawList() {
 
   if (!settings.linear().connected) {
     list.append(
-      empty(
-        "Sem Linear por aqui",
-        "Conecte o Linear nas configurações para ver as issues no seu nome e criar workspaces a partir delas.",
-        ["Abrir configurações", ctx.toSettings],
-      ),
+      empty(t("issues.off.title"), t("issues.off.body"), [t("issues.off.action"), ctx.toSettings]),
     );
     return;
   }
   if (!got) {
-    if (!loading && error) list.append(empty("Não deu para buscar", error, ["Tentar de novo", () => refresh(true)]));
+    if (!loading && error) {
+      list.append(empty(t("issues.failed.title"), error, [t("issues.failed.action"), () => refresh(true)]));
+    }
     return;
   }
 
@@ -173,8 +174,8 @@ function drawList() {
   if (!hits.length) {
     list.append(
       query
-        ? empty("Nenhuma issue com esse texto", "Tente o número (MES-12), uma palavra do título ou o projeto.")
-        : empty("Nenhuma issue no seu nome", "Quando alguém te atribuir uma no Linear, ela aparece aqui."),
+        ? empty(t("issues.noMatch.title"), t("issues.noMatch.body"))
+        : empty(t("issues.empty.title"), t("issues.empty.body")),
     );
     return;
   }
@@ -234,14 +235,16 @@ function row(issue: Issue): HTMLElement {
   el.querySelector(".iago")!.textContent = ago(Date.parse(issue.updated_at));
 
   // Clicar na linha é abrir no Linear; os botões são o resto.
-  const openLinear = () => invoke("linear_open", { url: issue.url }).catch((e) => ctx.say(String(e), true));
+  const openLinear = () => invoke("linear_open", { url: issue.url }).catch((e) => ctx.say(fromBack(e), true));
   el.addEventListener("click", openLinear);
   el.addEventListener("keydown", (e) => e.key === "Enter" && openLinear());
 
   const act = el.querySelector(".iact")!;
   const owner = ctx.board().workspaces.find((w) => w.issue?.id === issue.id && !w.archived);
-  const btn = h("button", owner ? "ghost sm" : "pri sm", owner ? "Abrir workspace" : "Criar workspace");
-  btn.title = owner ? `${owner.title} · ${owner.branch}` : `Novo workspace na branch ${issue.branch_name}`;
+  const btn = h("button", owner ? "ghost sm" : "pri sm", t(owner ? "issues.open" : "issues.create"));
+  btn.title = owner
+    ? `${owner.title} · ${owner.branch}`
+    : t("issues.create.title", { branch: issue.branch_name });
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
     owner ? ctx.open(owner) : ctx.create(issue);
@@ -266,8 +269,8 @@ function empty(title: string, text: string, action?: [string, () => void]): HTML
 /// está quente.
 function ago(ms: number): string {
   const s = Math.max(0, (Date.now() - ms) / 1000);
-  if (s < 60) return "agora";
-  if (s < 3600) return `há ${Math.round(s / 60)} min`;
-  if (s < 86_400) return `há ${Math.round(s / 3600)} h`;
-  return `há ${Math.round(s / 86_400)} d`;
+  if (s < 60) return t("ago.now");
+  if (s < 3600) return t("ago.min", { n: Math.round(s / 60) });
+  if (s < 86_400) return t("ago.hour", { n: Math.round(s / 3600) });
+  return t("ago.day", { n: Math.round(s / 86_400) });
 }

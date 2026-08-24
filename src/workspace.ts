@@ -3,11 +3,12 @@ import * as board from "./board";
 import * as diff from "./diff";
 import * as dockbar from "./dockbar";
 import { avatar, icon, stageIcon } from "./icons";
+import { fromBack, stage as stageName, t, tn } from "./i18n";
 import * as menu from "./menu";
 import * as rename from "./rename";
 import * as session from "./session";
 import * as tree from "./tree";
-import { LABEL, fmtTokens, statusOf, type Board, type Change, type Tab, type Workspace } from "./types";
+import { fmtTokens, label, statusOf, type Board, type Change, type Tab, type Workspace } from "./types";
 import { $, debounce } from "./util";
 import * as viewer from "./viewer";
 
@@ -47,7 +48,7 @@ export function init(context: Ctx) {
     else setSidePane("diff");
   });
   $("reveal").addEventListener("click", () => {
-    if (openWs) invoke("reveal", { id: openWs }).catch((e) => ctx.say(String(e), true));
+    if (openWs) invoke("reveal", { id: openWs }).catch((e) => ctx.say(fromBack(e), true));
   });
   $("dfold").addEventListener("click", () => {
     if (!openWs) return;
@@ -55,7 +56,8 @@ export function init(context: Ctx) {
     drawChanges(openWs);
   });
 
-  $("pr").innerHTML = `${icon("git-pull-request", 14)}<span>Open PR</span>`;
+  $("pr").innerHTML = `${icon("git-pull-request", 14)}<span></span>`;
+  $("pr").querySelector("span")!.textContent = t("ws.pr");
   $("pr").addEventListener("click", () => void openPr());
 
   // Duplo clique renomeia, como no nome do workspace na migalha. Escuta na barra
@@ -114,7 +116,7 @@ export function draw() {
   const name = crumb.children[3] as HTMLElement;
   name.textContent = ws.title;
   // Na migalha não tem lápis: nada ali é clicável, então o duplo clique é livre.
-  name.title = "Duplo clique para renomear";
+  name.title = t("ws.rename");
   name.addEventListener("dblclick", () =>
     rename.start(name, ws.title, (title) => renameWorkspace(ws.id, title), "crumb"),
   );
@@ -123,23 +125,23 @@ export function draw() {
   const chip = $("wsstatus");
   chip.className = `chip s-${st}`;
   chip.innerHTML = `<i class="dot"></i>`;
-  chip.append(LABEL[st]);
+  chip.append(label(st));
 
   // A etapa é o mesmo submenu do botão direito, ancorado no botão: um lugar só
   // para escolher, esteja você no quadro ou dentro da conversa.
   const stages = ctx.board().stages;
   const stage = $("wsstage");
   stage.innerHTML = `${stageIcon(stages.indexOf(ws.stage), stages.length, 14)}<span></span>`;
-  stage.children[1].textContent = ws.stage;
+  stage.children[1].textContent = stageName(ws.stage);
   stage.onclick = () => {
     const at = stage.getBoundingClientRect();
     menu.openAt(
       { x: at.left, y: at.bottom + 4 },
-      stages.map((label, i) => ({
-        label,
+      stages.map((name, i) => ({
+        label: stageName(name),
         glyph: stageIcon(i, stages.length),
-        checked: label === ws.stage,
-        run: () => setStage(ws.id, label),
+        checked: name === ws.stage,
+        run: () => setStage(ws.id, name),
       })),
     );
   };
@@ -162,7 +164,7 @@ export function draw() {
 
 export function renameWorkspace(id: string, title: string | null) {
   ctx.redraw();
-  if (title) invoke("rename_workspace", { id, title }).catch((e) => ctx.say(String(e), true));
+  if (title) invoke("rename_workspace", { id, title }).catch((e) => ctx.say(fromBack(e), true));
 }
 
 export const setStage = (id: string, stage: string) => invoke("set_stage", { id, stage });
@@ -177,7 +179,7 @@ async function openPr() {
   const tab = ws.tabs.find((t) => t.id === session.currentSession()) ?? ws.tabs[0];
   if (!tab) return;
   if (tab.status === "desligada") {
-    return ctx.say("a conversa está desligada — retome antes de pedir o PR", true);
+    return ctx.say(t("ws.pr.offline"), true);
   }
   try {
     const prompt = await invoke<string>("pr_prompt", { id: ws.id });
@@ -188,10 +190,10 @@ async function openPr() {
     drawTabs(ws);
     session.focus();
     setTimeout(() => {
-      invoke("pty_write", { session: tab.id, data: "\r" }).catch((e) => ctx.say(String(e), true));
+      invoke("pty_write", { session: tab.id, data: "\r" }).catch((e) => ctx.say(fromBack(e), true));
     }, 150);
   } catch (err) {
-    ctx.say(String(err), true);
+    ctx.say(fromBack(err), true);
   }
 }
 
@@ -210,10 +212,10 @@ function paintBranch(id: string) {
   if (!chip || !name) return;
   chip.hidden = false;
   chip.children[1].textContent = name;
-  chip.title = "Branch deste worktree — clique para copiar";
+  chip.title = t("ws.branch.title");
   chip.onclick = () => {
     navigator.clipboard.writeText(name);
-    ctx.say(`${name} copiado`);
+    ctx.say(t("ws.copied", { name }));
   };
 }
 
@@ -227,7 +229,7 @@ function drawBranch(ws: Workspace) {
 const askBranch = debounce(400, async (id: string) => {
   // Nome vazio é HEAD solto, e dizer isso é melhor do que não dizer nada: um
   // worktree em detached HEAD é justamente onde um commit se perde.
-  const name = (await invoke<string | null>("workspace_branch", { id })) ?? "HEAD solto";
+  const name = (await invoke<string | null>("workspace_branch", { id })) ?? t("ws.branch.detached");
   branchOf.set(id, name);
   if (openWs === id) paintBranch(id);
 });
@@ -253,9 +255,9 @@ function drawTabs(ws: Workspace) {
     b.dataset.tab = tab.id;
     b.children[1].textContent = tab.title;
     b.title =
-      LABEL[tab.status] +
-      (tab.tokens ? ` · ${fmtTokens(tab.tokens)} tokens de contexto` : "") +
-      " · duplo clique para renomear";
+      label(tab.status) +
+      (tab.tokens ? t("tab.tokens", { n: fmtTokens(tab.tokens) }) : "") +
+      t("tab.rename");
     b.addEventListener("click", () => selectTab(ws.id, tab.id));
     b.addEventListener("contextmenu", (e) => {
       e.preventDefault();
@@ -266,7 +268,7 @@ function drawTabs(ws: Workspace) {
       const x = document.createElement("span");
       x.className = "tabx ico sm";
       x.innerHTML = icon("x", 12);
-      x.title = "Fechar conversa";
+      x.title = t("tab.close");
       x.addEventListener("click", (e) => {
         e.stopPropagation();
         invoke("close_tab", { workspace: ws.id, tab: tab.id });
@@ -284,14 +286,14 @@ function drawTabs(ws: Workspace) {
     const b = document.createElement("button");
     b.className = "tab file" + (fs.diff ? " on" : "");
     b.innerHTML = `${icon("diff", 14)}<span></span><span class="n"></span>`;
-    b.children[1].textContent = "Mudanças";
+    b.children[1].textContent = t("tab.changes");
     b.children[2].textContent = changes.length ? String(changes.length) : "";
-    b.title = "Diff do worktree inteiro";
+    b.title = t("tab.changes.title");
     b.addEventListener("click", () => showChanges());
     const x = document.createElement("span");
     x.className = "tabx ico sm";
     x.innerHTML = icon("x", 12);
-    x.title = fs.diff ? "Fechar Mudanças  ⌘W" : "Fechar Mudanças";
+    x.title = t(fs.diff ? "tab.changes.closeKey" : "tab.changes.close");
     x.addEventListener("click", (e) => {
       e.stopPropagation();
       closeChanges();
@@ -317,7 +319,7 @@ function drawTabs(ws: Workspace) {
   const add = document.createElement("button");
   add.className = "ico";
   add.innerHTML = icon("plus");
-  add.title = "Conversa nova, mesmos arquivos  ⌘T";
+  add.title = t("tab.new");
   add.addEventListener("click", () => newTab());
   bar.append(add);
 }
@@ -337,7 +339,7 @@ function editTab(tabId: string) {
       ctx.redraw();
       if (title) {
         invoke("rename_tab", { workspace: ws.id, tab: tabId, title }).catch((e) =>
-          ctx.say(String(e), true),
+          ctx.say(fromBack(e), true),
         );
       }
     },
@@ -349,13 +351,13 @@ function editTab(tabId: string) {
 /// moram as ações do workspace, em vez de um botãozinho por ação na aba.
 function tabMenu(ws: Workspace, tab: Tab): menu.Item[] {
   const items: menu.Item[] = [
-    { label: "Renomear", glyph: icon("pencil"), run: () => editTab(tab.id) },
+    { label: t("ws.menu.rename"), glyph: icon("pencil"), run: () => editTab(tab.id) },
   ];
   // A última conversa não fecha: um workspace sem conversa nenhuma é uma tela
   // vazia sem nada para clicar.
   if (ws.tabs.length > 1) {
     items.push("sep", {
-      label: "Fechar conversa",
+      label: t("tab.close"),
       glyph: icon("x"),
       danger: true,
       run: () => invoke("close_tab", { workspace: ws.id, tab: tab.id }),
@@ -388,7 +390,7 @@ export async function newTab(prompt = "") {
     await session.attach(tab.id);
     draw();
   } catch (err) {
-    ctx.say(String(err), true);
+    ctx.say(fromBack(err), true);
   }
 }
 
@@ -546,7 +548,7 @@ async function loadChanges(id: string) {
   if (!changes.length) {
     const none = document.createElement("div");
     none.className = "none";
-    none.textContent = "worktree limpo";
+    none.textContent = t("diff.clean");
     list.replaceChildren(none);
   } else {
     list.replaceChildren(
@@ -557,7 +559,7 @@ async function loadChanges(id: string) {
         row.title = f.path;
         row.innerHTML = `<span class="p"></span><span class="new"></span><span class="a"></span><span class="r"></span>`;
         row.children[0].textContent = f.path;
-        row.children[1].textContent = f.new_file ? "novo" : "";
+        row.children[1].textContent = f.new_file ? t("diff.new") : "";
         row.children[2].textContent = f.added ? `+${f.added}` : "";
         row.children[3].textContent = f.removed ? `−${f.removed}` : "";
         row.addEventListener("click", () => showChanges(f.path));
@@ -581,7 +583,7 @@ function drawChanges(id: string, focus?: string) {
 
   const crumb = $("dcrumb");
   crumb.innerHTML = `${icon("diff", 14)}<span class="nm"></span><span class="a"></span><span class="r"></span>`;
-  crumb.children[1].textContent = `${changes.length} ${changes.length === 1 ? "arquivo" : "arquivos"}`;
+  crumb.children[1].textContent = tn(changes.length, "diff.files");
   crumb.children[2].textContent = added ? `+${added}` : "";
   crumb.children[3].textContent = removed ? `−${removed}` : "";
 

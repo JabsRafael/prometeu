@@ -1,7 +1,8 @@
 import { avatar, icon, stageIcon } from "./icons";
+import { num, stage as stageName, t } from "./i18n";
 import * as menu from "./menu";
 import * as rename from "./rename";
-import { LABEL, fmtTokens, heaviest, statusOf, worst, type Board, type Status, type Workspace } from "./types";
+import { fmtTokens, heaviest, label, statusOf, worst, type Board, type Status, type Workspace } from "./types";
 import { h } from "./util";
 
 export type Hooks = {
@@ -55,44 +56,44 @@ function wsMenu(ws: Workspace, board: Board, hooks: Hooks, label: HTMLElement, k
   const at = board.stages.indexOf(ws.stage);
   return [
     ws.unread
-      ? { label: "Marcar como lido", glyph: icon("mail-open"), run: () => hooks.unread(ws.id, false) }
-      : { label: "Marcar como não lido", glyph: icon("mail"), run: () => hooks.unread(ws.id, true) },
+      ? { label: t("ws.menu.read"), glyph: icon("mail-open"), run: () => hooks.unread(ws.id, false) }
+      : { label: t("ws.menu.unread"), glyph: icon("mail"), run: () => hooks.unread(ws.id, true) },
     ws.pinned
-      ? { label: "Desafixar", glyph: icon("pin-off"), run: () => hooks.pin(ws.id, false) }
-      : { label: "Fixar no topo", glyph: icon("pin"), run: () => hooks.pin(ws.id, true) },
+      ? { label: t("ws.menu.unpin"), glyph: icon("pin-off"), run: () => hooks.pin(ws.id, false) }
+      : { label: t("ws.menu.pin"), glyph: icon("pin"), run: () => hooks.pin(ws.id, true) },
     {
-      label: "Definir etapa",
+      label: t("ws.menu.stage"),
       glyph: stageIcon(at, total),
       sub: board.stages.map((name, i) => ({
-        label: name,
+        label: stageName(name),
         glyph: stageIcon(i, total),
         checked: name === ws.stage,
         run: () => hooks.setStage(ws.id, name),
       })),
     },
     {
-      label: "Renomear",
+      label: t("ws.menu.rename"),
       glyph: icon("pencil"),
       run: () => rename.start(label, ws.title, (title) => hooks.rename(ws.id, title), kind),
     },
-    { label: "Copiar caminho", glyph: icon("copy"), run: () => hooks.copyPath(ws) },
-    { label: "Abrir no Finder", glyph: icon("external-link"), run: () => hooks.reveal(ws.id) },
+    { label: t("ws.menu.copyPath"), glyph: icon("copy"), run: () => hooks.copyPath(ws) },
+    { label: t("ws.menu.reveal"), glyph: icon("external-link"), run: () => hooks.reveal(ws.id) },
     "sep",
     ws.archived
       ? {
-          label: "Desarquivar",
+          label: t("ws.menu.unarchive"),
           glyph: icon("archive-restore"),
           run: () => hooks.archive(ws.id, false),
         }
       : {
-          label: "Arquivar",
+          label: t("ws.menu.archive"),
           glyph: icon("archive"),
           // O atalho só vale para o workspace aberto; escrever nos outros mentiria.
           hint: ws.id === openId ? "⌘⇧A" : undefined,
           run: () => hooks.archive(ws.id, true),
         },
     {
-      label: "Tirar do quadro",
+      label: t("ws.menu.drop"),
       glyph: icon("x"),
       danger: true,
       run: () => hooks.drop(ws.id),
@@ -120,8 +121,9 @@ function renderRail(board: Board, hooks: Hooks) {
 
   rail.append(h("div", "navitem brand", `${icon("flame")}<span>Prometheus</span>`));
 
-  const create = h("button", "navitem", `${icon("plus")}<span>Criar</span>`);
-  create.title = "Novo workspace  ⌘N";
+  const create = h("button", "navitem", `${icon("plus")}<span></span>`);
+  create.children[1].textContent = t("rail.create");
+  create.title = t("rail.create.title");
   create.addEventListener("click", () => hooks.newWorkspace());
   rail.append(create);
 
@@ -130,32 +132,35 @@ function renderRail(board: Board, hooks: Hooks) {
   const issues = h(
     "button",
     "navitem" + (openId === ISSUES ? " on" : ""),
-    `${icon("inbox")}<span>Issues</span><span class="n"></span>`,
+    `${icon("inbox")}<span></span><span class="n"></span>`,
   );
+  issues.children[1].textContent = t("rail.issues");
   const n = hooks.issues();
   issues.querySelector(".n")!.textContent = n === null ? "" : String(n);
-  issues.title = n === null ? "Issues do Linear — conecte em Configurações" : "Issues do Linear no seu nome";
+  issues.title = n === null ? t("rail.issues.off") : t("rail.issues.title");
   issues.addEventListener("click", hooks.toIssues);
   rail.append(issues);
 
   const quadro = h(
     "button",
     "navitem" + (openId === null ? " on" : ""),
-    `${icon("kanban")}<span>Quadro</span><span class="n"></span>`,
+    `${icon("kanban")}<span></span><span class="n"></span>`,
   );
+  quadro.children[1].textContent = t("rail.board");
   quadro.querySelector(".n")!.textContent = String(live.length);
   quadro.addEventListener("click", hooks.toBoard);
   rail.append(quadro, document.createElement("hr"));
 
-  const sect = h("div", "sect", `<span>Projetos</span>`);
+  const sect = h("div", "sect", `<span></span>`);
+  sect.children[0].textContent = t("rail.projects");
   const add = h("button", "ico sm", icon("folder-plus"));
-  add.title = "Registrar um repositório";
+  add.title = t("rail.addProject");
   add.addEventListener("click", hooks.addProject);
   sect.append(add);
   rail.append(sect);
 
   if (!board.projects.length) {
-    rail.append(h("div", "railhint", "Registre um repositório no ícone acima."));
+    rail.append(h("div", "railhint", t("rail.noProjects")));
   }
 
   // Projeto agora é só a porta de entrada — o avatar, a conta e o + para criar
@@ -167,7 +172,7 @@ function renderRail(board: Board, hooks: Hooks) {
     row.children[2].textContent = mine.length ? String(mine.length) : "";
     const plus = h("button", "ico sm", icon("plus"));
     // Criar workspace já dentro do projeto é o que torna começar algo rápido.
-    plus.title = `Novo workspace em ${project.name}`;
+    plus.title = t("rail.newIn", { project: project.name });
     plus.addEventListener("click", () => hooks.newWorkspace(project.id));
     row.append(plus);
     rail.append(row);
@@ -178,18 +183,18 @@ function renderRail(board: Board, hooks: Hooks) {
   // Fixado sobe para o topo e sai do grupo da etapa: aparecer duas vezes na
   // mesma lista não ajuda ninguém.
   const pinned = live.filter((w) => w.pinned);
-  if (pinned.length) renderGroup(rail, board, hooks, "Fixados", icon("pin", 14), pinned);
+  if (pinned.length) renderGroup(rail, board, hooks, t("rail.pinned"), icon("pin", 14), pinned, "@fixados");
 
   // Um grupo por etapa, na ordem da lista. Etapa vazia não vira cabeçalho vazio.
   board.stages.forEach((name, i) => {
     const mine = live.filter((w) => w.stage === name && !w.pinned);
     if (mine.length) {
-      renderGroup(rail, board, hooks, name, stageIcon(i, board.stages.length, 14), mine);
+      renderGroup(rail, board, hooks, stageName(name), stageIcon(i, board.stages.length, 14), mine, name);
     }
   });
 
   const gone = board.workspaces.filter((w) => w.archived);
-  if (gone.length) renderGroup(rail, board, hooks, "Arquivados", icon("archive", 14), gone);
+  if (gone.length) renderGroup(rail, board, hooks, t("rail.archived"), icon("archive", 14), gone, "@arquivados");
 }
 
 function renderGroup(
@@ -199,8 +204,11 @@ function renderGroup(
   name: string,
   glyph: string,
   list: Workspace[],
+  /// O que grava o recolhido. Fica separado do rótulo porque o rótulo muda de
+  /// idioma, e um grupo recolhido não pode se abrir sozinho por causa disso.
+  key = name,
 ) {
-  const shut = folded(name);
+  const shut = folded(key);
   const head = h(
     "button",
     "group",
@@ -210,7 +218,7 @@ function renderGroup(
   head.children[2].textContent = String(list.length);
   head.children[3].innerHTML = icon(shut ? "chevron-right" : "chevron-down", 14);
   head.addEventListener("click", () => {
-    localStorage.setItem(FOLD + name, shut ? "0" : "1");
+    localStorage.setItem(FOLD + key, shut ? "0" : "1");
     renderRail(board, hooks);
   });
   rail.append(head);
@@ -225,7 +233,7 @@ function renderGroup(
     (b.children[0] as HTMLElement).style.background = `var(--dot-${statusOf(ws)})`;
     b.children[1].textContent = ws.title;
     b.children[2].textContent = ws.tabs.length > 1 ? `${ws.tabs.length}` : "";
-    b.title = `${ws.repo_name} · ${ws.branch} · ${LABEL[statusOf(ws)]}`;
+    b.title = `${ws.repo_name} · ${ws.branch} · ${label(statusOf(ws))}`;
     b.addEventListener("click", () => hooks.open(ws));
     // Com dois repositórios na lista, o nome do workspace não diz de qual ele é.
     if (board.projects.length > 1) b.children[0].after(h("span", "av", avatar(ws.repo_name)));
@@ -239,10 +247,10 @@ function renderGroup(
 function renderPulse(list: Workspace[]) {
   const by = (s: Status) => list.filter((w) => statusOf(w) === s).length;
   const stats: [string, number, string][] = [
-    ["querem você", by("querendo"), "var(--wait)"],
-    ["rodando", by("rodando"), "var(--run)"],
-    ["prontas", by("pronta"), "var(--done)"],
-    ["conversas", list.reduce((n, w) => n + w.tabs.length, 0), "var(--fg-3)"],
+    [t("pulse.waiting"), by("querendo"), "var(--wait)"],
+    [t("pulse.running"), by("rodando"), "var(--run)"],
+    [t("pulse.ready"), by("pronta"), "var(--done)"],
+    [t("pulse.tabs"), list.reduce((n, w) => n + w.tabs.length, 0), "var(--fg-3)"],
   ];
   el("pulse").replaceChildren(
     ...stats.map(([k, v, color]) => {
@@ -270,14 +278,14 @@ function renderColumns(board: Board, live: Workspace[], hooks: Hooks) {
       `<div class="head"><span class="gg">${stageIcon(i, board.stages.length, 14)}</span>` +
         `<span class="t"></span><span class="c"></span></div>`,
     );
-    col.querySelector(".t")!.textContent = name;
+    col.querySelector(".t")!.textContent = stageName(name);
     col.querySelector(".c")!.textContent = String(mine.length);
 
     const drop = h("div", "drop");
     // Quem solta um card aqui lê daqui para onde ele foi (ver `grab`).
     drop.dataset.stage = name;
 
-    if (!mine.length) drop.append(h("div", "empty", "arraste um card para cá"));
+    if (!mine.length) drop.append(h("div", "empty", t("col.empty")));
     for (const ws of mine) drop.append(card(ws, board, hooks));
 
     col.append(drop);
@@ -401,20 +409,20 @@ function card(ws: Workspace, board: Board, hooks: Hooks): HTMLElement {
 
   const foot = h("div", "foot");
   const chip = h("span", `chip s-${status}`, `<i class="dot"></i>`);
-  chip.append(LABEL[status]);
+  chip.append(label(status));
   foot.append(chip);
 
   if (ws.tabs.length > 1) {
     const tabs = h("span", "chip");
-    tabs.textContent = `${ws.tabs.length} conversas`;
+    tabs.textContent = t("card.tabs", { n: ws.tabs.length });
     foot.append(tabs);
   }
 
   // Sem worktree o agente mexe no clone de sempre; isso não pode ser invisível.
   if (ws.worktree === ws.repo) {
     const here = h("span", "chip");
-    here.textContent = "no repo";
-    here.title = "Sem worktree: esta conversa mexe no próprio repositório";
+    here.textContent = t("card.norepo");
+    here.title = t("card.norepo.title");
     foot.append(here);
   }
 
@@ -423,7 +431,7 @@ function card(ws: Workspace, board: Board, hooks: Hooks): HTMLElement {
   if (ws.model) {
     const model = h("span", "chip");
     model.textContent = ws.model;
-    model.title = `As conversas daqui rodam com --model ${ws.model}`;
+    model.title = t("card.model.title", { model: ws.model });
     foot.append(model);
   }
 
@@ -432,7 +440,7 @@ function card(ws: Workspace, board: Board, hooks: Hooks): HTMLElement {
     const ref = ws.issue;
     const tag = h("span", "chip issue", `${icon("linear", 12)}<span></span>`);
     tag.children[1].textContent = ref.identifier;
-    tag.title = `${ref.title} — abrir no Linear`;
+    tag.title = t("card.issue.title", { title: ref.title });
     tag.addEventListener("click", (e) => {
       e.stopPropagation();
       hooks.openIssue(ref.url);
@@ -442,7 +450,7 @@ function card(ws: Workspace, board: Board, hooks: Hooks): HTMLElement {
 
   if (ws.pinned) {
     const tack = h("span", "chip", icon("pin", 13));
-    tack.title = "Fixado no topo da lista";
+    tack.title = t("card.pinned.title");
     foot.append(tack);
   }
 
@@ -451,18 +459,20 @@ function card(ws: Workspace, board: Board, hooks: Hooks): HTMLElement {
   // que ficou lento" e avisa que uma compactação vem aí — o número cai com ela.
   const heavy = heaviest(ws);
   if (heavy?.tokens) {
-    const tok = h("span", "chip tok", `Tokens: <b></b>`);
-    tok.children[0].textContent = `~${fmtTokens(heavy.tokens)}`;
+    const tok = h("span", "chip tok", `<span></span> <b></b>`);
+    tok.children[0].textContent = t("card.tokens");
+    tok.children[1].textContent = `~${fmtTokens(heavy.tokens)}`;
     tok.title =
-      `${heavy.tokens.toLocaleString("pt-BR")} tokens de contexto na última resposta` +
-      (ws.tabs.length > 1 ? ` (${heavy.title})` : "");
+      ws.tabs.length > 1
+        ? t("card.tokens.titleTab", { n: num(heavy.tokens), tab: heavy.title })
+        : t("card.tokens.title", { n: num(heavy.tokens) });
     foot.append(tok);
   }
 
   // Arquivar, e não tirar do quadro: some da frente sem perder o caminho de
   // volta. Remover de vez está no menu do botão direito.
   const box = h("span", "x ico sm", icon("archive"));
-  box.title = "Arquivar (worktree e branch ficam)";
+  box.title = t("card.archive.title");
   box.addEventListener("click", (e) => {
     e.stopPropagation();
     hooks.archive(ws.id, true);

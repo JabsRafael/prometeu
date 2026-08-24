@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { use } from "./i18n";
 import { face, updater, type Face, type Found, type Io } from "./update";
+
+// Fora do navegador o app cai no inglês; estes testes conferem o texto, então
+// fixam o idioma em que ele foi escrito.
+use("pt-BR");
 
 /// Uma atualização de mentira: o download dispara os eventos de progresso e
 /// termina quando o teste mandar.

@@ -1,13 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { icon } from "./icons";
+import { LANGS, choose, chosen, fromBack, fromSystem, t, type Lang } from "./i18n";
+import * as menu from "./menu";
 import type { LinearStatus } from "./types";
 import { $, h } from "./util";
 
 /// Configurações do app — o que não é do repositório (isso é o
-/// `settings.toml`) nem de um workspace. Por ora só a conexão com o Linear;
-/// a página é a terceira tela do app, ao lado do quadro e do workspace, e
-/// entra no histórico ← → como as outras.
+/// `settings.toml`) nem de um workspace: a conexão com o Linear e o idioma da
+/// tela. A página é a terceira tela do app, ao lado do quadro e do workspace,
+/// e entra no histórico ← → como as outras.
 ///
 /// A conexão mora no back: o token nunca chega aqui. O que a tela sabe é o
 /// `LinearStatus`, que chega no `init` e depois pelo evento `linear` toda vez
@@ -38,9 +40,50 @@ export const linear = () => status;
 
 export function draw() {
   const view = $("settingsView");
-  const page = h("div", "setpage", `<h1>Configurações</h1><h2>Integrações</h2>`);
+  const page = h("div", "setpage", `<h1></h1><h2></h2>`);
+  page.children[0].textContent = t("settings.title");
+  page.children[1].textContent = t("settings.integrations");
   page.append(linearRow());
+  const app = h("h2", "", "");
+  app.textContent = t("settings.app");
+  page.append(app, langRow());
   view.replaceChildren(page);
+}
+
+/// O idioma da tela. Guardado neste Mac e em mais lugar nenhum; sem escolha, o
+/// app segue o computador — e a linha diz em que isso dá, para "do sistema"
+/// não ser uma resposta que esconde a pergunta.
+function langRow(): HTMLElement {
+  const row = h(
+    "div",
+    "setrow",
+    `<span class="glyph">${icon("globe", 18)}</span><div class="txt"><b></b><span></span></div><div class="act"></div>`,
+  );
+  row.querySelector(".txt b")!.textContent = t("settings.lang");
+  row.querySelector(".txt span")!.textContent = t("settings.lang.body");
+
+  const system = LANGS.find(([id]) => id === fromSystem())?.[1] ?? fromSystem();
+  const options: [Lang | null, string][] = [
+    [null, t("settings.lang.system", { name: system })],
+    ...LANGS.map(([id, name]) => [id, name] as [Lang, string]),
+  ];
+  const picked = chosen();
+
+  const btn = h("button", "ghost md pick", `<span></span>${icon("chevron-down", 12)}`) as HTMLButtonElement;
+  btn.children[0].textContent = options.find(([id]) => id === picked)![1];
+  btn.addEventListener("click", () => {
+    const at = btn.getBoundingClientRect();
+    menu.openAt(
+      { x: at.left, y: at.bottom + 4 },
+      options.map(([id, name]) => ({
+        label: name,
+        checked: id === chosen(),
+        run: () => choose(id),
+      })),
+    );
+  });
+  row.querySelector(".act")!.append(btn);
+  return row;
 }
 
 function linearRow() {
@@ -54,18 +97,20 @@ function linearRow() {
 
   if (status.connected && status.who) {
     const { name, org } = status.who;
-    text.innerHTML = `<span class="ok">Conectado</span> como <b></b> · <b></b>`;
+    text.innerHTML = `<span class="ok"></span> <span class="as"></span> <b></b> · <b></b>`;
+    text.querySelector(".ok")!.textContent = t("linear.connected");
+    text.querySelector(".as")!.textContent = t("linear.asWord");
     text.querySelectorAll("b")[0].textContent = name || status.who.email;
     text.querySelectorAll("b")[1].textContent = org || status.who.org_key;
 
-    const off = h("button", "ghost md", "Desconectar") as HTMLButtonElement;
-    off.title = "Apaga a conexão deste Mac. As issues somem do lançador; nada muda no Linear";
+    const off = h("button", "ghost md", t("linear.disconnect")) as HTMLButtonElement;
+    off.title = t("linear.disconnect.title");
     off.addEventListener("click", async () => {
       off.disabled = true;
       try {
         status = await invoke<LinearStatus>("linear_disconnect");
       } catch (e) {
-        ctx.say(String(e), true);
+        ctx.say(fromBack(e), true);
       }
       draw();
     });
@@ -73,13 +118,12 @@ function linearRow() {
     return row;
   }
 
-  text.textContent = status.busy
-    ? "Esperando você aprovar no navegador…"
-    : "Conecte para criar workspaces a partir das suas issues.";
+  text.textContent = t(status.busy ? "linear.waiting" : "linear.pitch");
 
-  const on = h("button", "outline md", `Conectar Linear ${icon("external-link", 12)}`) as HTMLButtonElement;
+  const on = h("button", "outline md", `<span></span> ${icon("external-link", 12)}`) as HTMLButtonElement;
+  on.children[0].textContent = t("linear.connect");
   on.disabled = status.busy;
-  on.title = "Abre o Linear no navegador para você autorizar o Prometheus. Só leitura, e só neste Mac";
+  on.title = t("linear.connect.title");
   on.addEventListener("click", async () => {
     on.disabled = true;
     status = { ...status, busy: true };
@@ -88,7 +132,7 @@ function linearRow() {
       status = await invoke<LinearStatus>("linear_connect");
     } catch (e) {
       status = { ...status, busy: false };
-      ctx.say(String(e), true);
+      ctx.say(fromBack(e), true);
     }
     draw();
   });

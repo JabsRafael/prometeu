@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR">
+<html>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -9,16 +9,16 @@
     <!-- Navegação nunca some: trocar de workspace não é trocar de modo. -->
     <nav class="rail" id="rail">
       <div class="railtop" data-tauri-drag-region="deep">
-        <button id="railtoggle" class="ico" title="Esconder barra lateral  ⌘B"></button>
+        <button id="railtoggle" class="ico" data-t-title="rail.hide"></button>
         <span class="spacer"></span>
-        <button id="back" class="ico nav" title="Voltar  ⌘[" disabled></button>
-        <button id="fwd" class="ico" title="Avançar  ⌘]" disabled></button>
+        <button id="back" class="ico nav" data-t-title="nav.back" disabled></button>
+        <button id="fwd" class="ico" data-t-title="nav.fwd" disabled></button>
       </div>
       <div class="railbody" id="railbody"></div>
       <!-- Rodapé da barra: por ora só a versão. É o canto onde ajuda e
            configurações vão morar, e a faixa já reserva o lugar deles. -->
       <div class="railfoot">
-        <button id="settings" class="ico sm" title="Configurações  ⌘,"></button>
+        <button id="settings" class="ico sm" data-t-title="top.settings"></button>
         <span class="ver" id="ver"></span>
         <span class="spacer"></span>
         <button id="update" class="ghost sm" hidden></button>
@@ -27,17 +27,17 @@
 
     <div class="stack">
       <header class="top" data-tauri-drag-region="deep">
-        <button id="railshow" class="ico" title="Mostrar barra lateral  ⌘B" hidden></button>
+        <button id="railshow" class="ico" data-t-title="rail.show" hidden></button>
         <div id="crumb" class="crumb"></div>
         <span class="spacer"></span>
         <span id="msg" class="msg"></span>
         <div id="wsctl" class="wsctl" hidden>
           <span id="wsstatus" class="chip"></span>
-          <button id="wsstage" class="ghost md" title="Etapa deste trabalho"></button>
+          <button id="wsstage" class="ghost md" data-t-title="top.stage"></button>
           <!-- Não cria nada sozinho: injeta na conversa ativa o pedido de PR,
                com o estado do git e os passos. Quem faz é o agente. -->
-          <button id="pr" class="outline md" title="Pedir o PR à conversa ativa"></button>
-          <button id="sidetoggle" class="ico" title="Painel lateral"></button>
+          <button id="pr" class="outline md" data-t-title="top.pr"></button>
+          <button id="sidetoggle" class="ico" data-t-title="top.side"></button>
         </div>
       </header>
 
@@ -69,10 +69,9 @@
               <div id="term"></div>
               <div id="cards"></div>
               <div class="offline" id="offline" hidden>
-                <h3>Conversa desligada</h3>
-                <p>O processo não está rodando — nenhum sobrevive ao fechamento do app.
-                   A conversa continua salva; retomar volta de onde parou.</p>
-                <button id="resume" class="pri lg">Retomar conversa</button>
+                <h3 data-t="offline.title"></h3>
+                <p data-t="offline.body"></p>
+                <button id="resume" class="pri lg" data-t="offline.resume"></button>
                 <span class="path" id="offpath"></span>
               </div>
             </div>
@@ -81,7 +80,7 @@
               <div class="vbar">
                 <span class="vcrumb" id="dcrumb"></span>
                 <span class="spacer"></span>
-                <button id="dfold" class="ico" title="Recolher todos"></button>
+                <button id="dfold" class="ico" data-t-title="diff.foldAll"></button>
               </div>
               <div class="dlist" id="dlist"></div>
             </div>
@@ -90,7 +89,7 @@
               <div class="vbar">
                 <span class="vcrumb" id="vcrumb"></span>
                 <span class="spacer"></span>
-                <button id="vcopy" class="ico" title="Copiar caminho"></button>
+                <button id="vcopy" class="ico" data-t-title="viewer.copyPath"></button>
               </div>
               <div class="vcode" id="vcode">
                 <div class="gutter" id="vgutter"></div>
@@ -102,11 +101,11 @@
             <!-- A alça na borda esquerda: arrastar muda a largura do painel. -->
             <div class="sideresize" id="sideresize"></div>
             <div class="sidetabs">
-              <button id="tab-files" class="sidetab on">Arquivos</button>
-              <button id="tab-diff" class="sidetab">Mudanças <span id="diffcount"></span></button>
+              <button id="tab-files" class="sidetab on" data-t="side.files"></button>
+              <button id="tab-diff" class="sidetab"><span data-t="side.changes"></span> <span id="diffcount"></span></button>
               <span class="spacer"></span>
-              <button id="collapse" class="ico" title="Recolher pastas"></button>
-              <button id="reveal" class="ico" title="Abrir o worktree no Finder"></button>
+              <button id="collapse" class="ico" data-t-title="side.collapse"></button>
+              <button id="reveal" class="ico" data-t-title="side.reveal"></button>
             </div>
             <div class="sidebody">
               <div class="tree" id="tree"></div>
@@ -117,20 +116,20 @@
                  agente. -->
             <div class="dock" id="dock">
               <div class="docktabs">
-                <button id="dock-toggle" class="ico" title="Recolher"></button>
+                <button id="dock-toggle" class="ico" data-t-title="dock.collapse"></button>
                 <!-- Setup e Run são fixos; as abas de terminal vêm do que está
                      aberto, e por isso a faixa é montada pelo dockbar. -->
                 <div class="dockstrip" id="dockstrip"></div>
                 <!-- O + fica fora da faixa que rola: é o único caminho para um
                      terminal novo, e não pode sair da tela junto com as abas. -->
-                <button id="dock-add" class="ico sm" title="Terminal novo"></button>
+                <button id="dock-add" class="ico sm" data-t-title="dock.new"></button>
                 <span class="spacer"></span>
                 <button id="run-open" hidden></button>
                 <div class="split" id="runsplit" hidden>
                   <button id="run-go" class="md"></button>
-                  <button id="run-pick" class="ico sm" title="Escolher o script"></button>
+                  <button id="run-pick" class="ico sm" data-t-title="dock.pick"></button>
                 </div>
-                <button id="dock-again" class="ico" title="Rodar o setup de novo" hidden></button>
+                <button id="dock-again" class="ico" data-t-title="dock.again" hidden></button>
               </div>
               <div class="dockbody">
                 <div class="dockwrap" id="dockwrap" hidden><div id="dockterm"></div></div>

@@ -26,6 +26,7 @@
 //! novo aos olhos do Keychain — e um "Prometheus quer usar sua senha" a cada
 //! versão. O escopo é só leitura.
 
+use crate::i18n;
 use crate::lock::lock;
 use crate::paths;
 use base64::Engine;
@@ -106,7 +107,7 @@ pub fn linear_status() -> Status {
 #[tauri::command]
 pub async fn linear_connect(app: AppHandle) -> Result<Status, String> {
     if PENDING.swap(true, Ordering::SeqCst) {
-        return Err("já está esperando você aprovar no navegador".into());
+        return Err(i18n::t("err.linear.waiting"));
     }
     let result = blocking(connect).await;
     PENDING.store(false, Ordering::SeqCst);
@@ -137,7 +138,7 @@ pub async fn linear_disconnect(app: AppHandle) -> Status {
         }
         *lock(&CACHE) = None;
         let _ = std::fs::remove_file(issues_path());
-        std::fs::remove_file(path()).map_err(|e| e.to_string())
+        std::fs::remove_file(path()).map_err(i18n::io)
     })
     .await;
     let now = status();
@@ -153,15 +154,17 @@ pub async fn blocking<T: Send + 'static>(
 ) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(work)
         .await
-        .map_err(|e| format!("a tarefa do Linear morreu: {e}"))?
+        .map_err(|e| i18n::ta("err.linear.taskDied", &[("cause", e.to_string())]))?
 }
 
 /* ---------- o fluxo ---------- */
 
 fn connect() -> Result<Auth, String> {
     let listener = TcpListener::bind(("127.0.0.1", PORT))
-        .map_err(|e| format!("não deu para abrir a porta {PORT} para o Linear responder: {e}"))?;
-    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            i18n::ta("err.linear.port", &[("port", PORT.to_string()), ("cause", e.to_string())])
+        })?;
+    listener.set_nonblocking(true).map_err(i18n::io)?;
 
     let verifier = random();
     let state = random();
@@ -205,28 +208,36 @@ fn wait_for_code(listener: &TcpListener, state: &str, deadline: Instant) -> Resu
                     let why = q.get("error_description").cloned().unwrap_or_default();
                     respond(&mut stream, "200 OK", &page(false, &why));
                     return Err(match err.as_str() {
-                        "access_denied" => "você não autorizou o Prometheus no Linear".into(),
-                        _ => format!("o Linear recusou: {err} {why}").trim().to_string(),
+                        "access_denied" => i18n::t("err.linear.denied"),
+                        _ => i18n::ta(
+                            "err.linear.refused",
+                            &[("why", format!("{err} {why}").trim().to_string())],
+                        ),
                     });
                 }
                 if q.get("state").map(String::as_str) != Some(state) {
-                    respond(&mut stream, "400 Bad Request", &page(false, "resposta de outra tentativa"));
-                    return Err("a resposta do Linear não bate com o pedido — tente de novo".into());
+                    respond(&mut stream, "400 Bad Request", &page(false, ""));
+                    return Err(i18n::t("err.linear.mismatch"));
                 }
                 let Some(code) = q.get("code").filter(|c| !c.is_empty()) else {
-                    respond(&mut stream, "400 Bad Request", &page(false, "sem código"));
-                    return Err("o Linear voltou sem o código de autorização".into());
+                    respond(&mut stream, "400 Bad Request", &page(false, ""));
+                    return Err(i18n::t("err.linear.noCode"));
                 };
                 respond(&mut stream, "200 OK", &page(true, ""));
                 return Ok(code.clone());
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 if Instant::now() > deadline {
-                    return Err("o navegador não voltou em cinco minutos — tente de novo".into());
+                    return Err(i18n::t("err.linear.timeout"));
                 }
                 std::thread::sleep(Duration::from_millis(100));
             }
-            Err(e) => return Err(format!("a porta {PORT} parou de responder: {e}")),
+            Err(e) => {
+                return Err(i18n::ta(
+                    "err.linear.portDied",
+                    &[("port", PORT.to_string()), ("cause", e.to_string())],
+                ))
+            }
         }
     }
 }
@@ -242,14 +253,26 @@ fn respond(stream: &mut TcpStream, status: &str, body: &str) {
 }
 
 /// A única página que o Prometheus serve: a que diz para fechar a aba.
+///
+/// É uma das poucas frases que o back escreve por inteiro: quem lê está no
+/// navegador, longe do catálogo do front. Duas linhas em cada idioma — não
+/// vale um segundo catálogo deste lado.
 fn page(ok: bool, why: &str) -> String {
-    let (title, text) = if ok {
-        ("Linear conectado", "Pode fechar esta aba e voltar ao Prometheus.".to_string())
-    } else {
-        ("Não deu", format!("O Linear não autorizou o Prometheus. {why}").trim().to_string())
+    let lang = i18n::lang();
+    let (title, text) = match (ok, i18n::pt()) {
+        (true, true) => ("Linear conectado", "Pode fechar esta aba e voltar ao Prometheus.".to_string()),
+        (true, false) => {
+            ("Linear connected", "You can close this tab and go back to Prometheus.".to_string())
+        }
+        (false, true) => {
+            ("Não deu", format!("O Linear não autorizou o Prometheus. {why}").trim().to_string())
+        }
+        (false, false) => {
+            ("Did not work", format!("Linear did not authorize Prometheus. {why}").trim().to_string())
+        }
     };
     format!(
-        "<!doctype html><html lang=\"pt-BR\"><meta charset=\"utf-8\"><title>{title}</title>\
+        "<!doctype html><html lang=\"{lang}\"><meta charset=\"utf-8\"><title>{title}</title>\
          <body style=\"margin:0;height:100vh;display:grid;place-items:center;background:#141110;\
          color:#eae8e6;font:16px/1.5 -apple-system,system-ui,sans-serif\">\
          <div style=\"text-align:center\"><div style=\"font-size:22px;font-weight:600\">{title}</div>\
@@ -270,7 +293,7 @@ fn exchange(code: &str, verifier: &str) -> Result<Auth, String> {
 }
 
 fn refresh(auth: &Auth) -> Result<Auth, String> {
-    let rt = auth.refresh_token.as_deref().ok_or("a conexão com o Linear venceu — conecte de novo")?;
+    let rt = auth.refresh_token.as_deref().ok_or_else(|| i18n::t("err.linear.expired"))?;
     let mut got = token_request(&[
         ("grant_type", "refresh_token"),
         ("refresh_token", rt),
@@ -300,15 +323,15 @@ fn token_request(fields: &[(&str, &str)]) -> Result<Auth, String> {
         .body(form(fields))
         .timeout(Duration::from_secs(20))
         .send()
-        .map_err(|e| format!("não alcancei o Linear: {e}"))?
+        .map_err(|e| i18n::ta("err.linear.unreachable", &[("cause", e.to_string())]))?
         .json()
-        .map_err(|e| format!("o Linear respondeu algo que não entendi: {e}"))?;
+        .map_err(|e| i18n::ta("err.linear.garbled", &[("cause", e.to_string())]))?;
     if let Some(err) = reply.error {
         return Err(format!("o Linear recusou: {err} {}", reply.error_description.unwrap_or_default())
             .trim()
             .to_string());
     }
-    let access_token = reply.access_token.ok_or("o Linear não mandou o token")?;
+    let access_token = reply.access_token.ok_or_else(|| i18n::t("err.linear.noToken"))?;
     Ok(Auth {
         access_token,
         refresh_token: reply.refresh_token,
@@ -323,7 +346,7 @@ fn token_request(fields: &[(&str, &str)]) -> Result<Auth, String> {
 /// volta quando renova. É por aqui que toda chamada ao Linear passa — a
 /// lista de issues é quem chama.
 pub fn token() -> Result<String, String> {
-    let auth = load().ok_or("o Linear não está conectado")?;
+    let auth = load().ok_or_else(|| i18n::t("err.linear.off"))?;
     if auth.expires_at > now() + SLACK {
         return Ok(auth.access_token);
     }
@@ -340,24 +363,24 @@ pub fn graphql(token: &str, query: &str, vars: serde_json::Value) -> Result<serd
         .json(&serde_json::json!({ "query": query, "variables": vars }))
         .timeout(Duration::from_secs(30))
         .send()
-        .map_err(|e| format!("não alcancei o Linear: {e}"))?
+        .map_err(|e| i18n::ta("err.linear.unreachable", &[("cause", e.to_string())]))?
         .error_for_status()
         .map_err(|e| match e.status() {
-            Some(reqwest::StatusCode::UNAUTHORIZED) => "o Linear não aceitou a conexão — conecte de novo".to_string(),
-            Some(reqwest::StatusCode::TOO_MANY_REQUESTS) => "o Linear pediu calma: muitas chamadas na última hora".to_string(),
-            _ => format!("o Linear respondeu {e}"),
+            Some(reqwest::StatusCode::UNAUTHORIZED) => i18n::t("err.linear.rejected"),
+            Some(reqwest::StatusCode::TOO_MANY_REQUESTS) => i18n::t("err.linear.slowDown"),
+            _ => i18n::ta("err.linear.http", &[("status", e.to_string())]),
         })?
         .json()
-        .map_err(|e| format!("o Linear respondeu algo que não entendi: {e}"))?;
+        .map_err(|e| i18n::ta("err.linear.garbled", &[("cause", e.to_string())]))?;
     if let Some(errs) = reply.get("errors").and_then(|e| e.as_array()) {
         let msg = errs
             .iter()
             .filter_map(|e| e.get("message").and_then(|m| m.as_str()))
             .collect::<Vec<_>>()
             .join("; ");
-        return Err(format!("o Linear recusou a consulta: {msg}"));
+        return Err(i18n::ta("err.linear.queryRefused", &[("why", msg)]));
     }
-    reply.get("data").cloned().ok_or_else(|| "o Linear respondeu sem dados".into())
+    reply.get("data").cloned().ok_or_else(|| i18n::t("err.linear.noData"))
 }
 
 fn whoami(token: &str) -> Result<Who, String> {
@@ -400,10 +423,14 @@ fn write_private(target: &std::path::Path, body: &str) -> Result<(), String> {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600);
     }
-    let mut file = opts.open(&tmp).map_err(|e| format!("não gravei {}: {e}", target.display()))?;
+    let mut file = opts.open(&tmp).map_err(|e| {
+        i18n::ta("err.linear.write", &[("path", target.display().to_string()), ("cause", e.to_string())])
+    })?;
     file.write_all(body.as_bytes()).map_err(|e| e.to_string())?;
     drop(file);
-    std::fs::rename(&tmp, target).map_err(|e| format!("não gravei {}: {e}", target.display()))
+    std::fs::rename(&tmp, target).map_err(|e| {
+        i18n::ta("err.linear.write", &[("path", target.display().to_string()), ("cause", e.to_string())])
+    })
 }
 
 pub fn status() -> Status {
@@ -519,7 +546,7 @@ fn fetch_issues() -> Result<Issues, String> {
     for _ in 0..PAGES {
         let data = graphql(&token, ISSUES_QUERY, serde_json::json!({ "after": after }))?;
         let page: Page = serde_json::from_value(data["viewer"]["assignedIssues"].clone())
-            .map_err(|e| format!("o Linear respondeu algo que não entendi: {e}"))?;
+            .map_err(|e| i18n::ta("err.linear.garbled", &[("cause", e.to_string())]))?;
         all.extend(page.nodes.into_iter().map(Issue::from));
         if !page.page_info.has_next_page {
             break;
@@ -542,7 +569,7 @@ fn load_issues() -> Option<Issues> {
 #[tauri::command]
 pub fn linear_open(url: String) -> Result<(), String> {
     if !url.starts_with("https://linear.app/") {
-        return Err("não é um link do Linear".into());
+        return Err(i18n::t("err.linear.notALink"));
     }
     browse(&url)
 }
@@ -643,8 +670,8 @@ fn challenge(verifier: &str) -> String {
 }
 
 fn browse(url: &str) -> Result<(), String> {
-    let ok = Command::new("open").arg(url).status().map_err(|e| e.to_string())?.success();
-    ok.then_some(()).ok_or_else(|| "não consegui abrir o navegador".to_string())
+    let ok = Command::new("open").arg(url).status().map_err(i18n::io)?.success();
+    ok.then_some(()).ok_or_else(|| i18n::t("err.linear.noBrowser"))
 }
 
 /// Corpo `application/x-www-form-urlencoded`, que é como o OAuth fala. À mão
@@ -793,7 +820,13 @@ mod tests {
 
     #[test]
     fn a_pagina_diz_o_que_aconteceu() {
+        let _guard = i18n::TEST_LANG.lock().unwrap_or_else(|e| e.into_inner());
+        i18n::set_lang("pt-BR".into());
         assert!(page(true, "").contains("Pode fechar esta aba"));
         assert!(page(false, "sem código").contains("sem código"));
+        i18n::set_lang("en".into());
+        assert!(page(true, "").contains("You can close this tab"));
+        assert!(page(false, "no code").contains("no code"));
+        i18n::set_lang("pt-BR".into());
     }
 }
