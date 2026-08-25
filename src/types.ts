@@ -1,14 +1,12 @@
+import { current as locale, t } from "./i18n";
+
 export type Status = "rodando" | "querendo" | "pronta" | "desligada";
 
 /// Como cada estado se chama na tela. Um lugar só: estava escrito igual no
 /// quadro e no cabeçalho, e duas cópias de um rótulo é uma cópia que um dia
-/// deixa de bater com a outra.
-export const LABEL: Record<Status, string> = {
-  rodando: "rodando",
-  querendo: "quer você",
-  pronta: "pronta",
-  desligada: "desligada",
-};
+/// deixa de bater com a outra. O valor em si é do protocolo — é o que o back
+/// manda e o que o CSS pinta —, e por isso não muda de idioma junto.
+export const label = (status: Status) => t(`status.${status}`);
 
 export type Tab = {
   id: string;
@@ -152,5 +150,5 @@ export function heaviest(ws: Workspace): Tab | undefined {
 export function fmtTokens(n: number): string {
   if (n < 1000) return String(n);
   if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
-  return `${(n / 1_000_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}M`;
+  return `${(n / 1_000_000).toLocaleString(locale(), { maximumFractionDigits: 1 })}M`;
 }

@@ -1,0 +1,380 @@
+/// O português do Brasil, e a fonte do catálogo: é daqui que sai o tipo `Key`,
+/// e é por isso que uma chave sem par no `i18n.en.ts` não compila.
+///
+/// As chaves são o caminho até onde a frase aparece — `card.`, `dock.`,
+/// `launcher.` —, e os códigos que o back manda (`err.`, `note.`) moram no
+/// mesmo lugar, porque quem lê não sabe de que lado do app veio a frase.
+export const PT = {
+  /* ---------- estados de uma conversa ---------- */
+
+  "status.rodando": "rodando",
+  "status.querendo": "quer você",
+  "status.pronta": "pronta",
+  "status.desligada": "desligada",
+
+  /* ---------- etapas que o app cria na primeira vez ---------- */
+
+  "stage.Preparando": "Preparando",
+  "stage.Fazendo": "Fazendo",
+  "stage.Code review": "Code review",
+  "stage.Travado": "Travado",
+  "stage.Feito": "Feito",
+
+  /* ---------- barra lateral e navegação ---------- */
+
+  "rail.hide": "Esconder barra lateral  ⌘B",
+  "rail.show": "Mostrar barra lateral  ⌘B",
+  "nav.back": "Voltar  ⌘[",
+  "nav.fwd": "Avançar  ⌘]",
+  "rail.create": "Criar",
+  "rail.create.title": "Novo workspace  ⌘N",
+  "rail.issues": "Issues",
+  "rail.issues.title": "Issues do Linear no seu nome",
+  "rail.issues.off": "Issues do Linear — conecte em Configurações",
+  "rail.board": "Quadro",
+  "rail.projects": "Projetos",
+  "rail.addProject": "Registrar um repositório",
+  "rail.noProjects": "Registre um repositório no ícone acima.",
+  "rail.newIn": "Novo workspace em {project}",
+  "rail.pinned": "Fixados",
+  "rail.archived": "Arquivados",
+
+  /* ---------- migalha e cabeçalho ---------- */
+
+  "crumb.board": "Quadro",
+  "crumb.issues": "Issues",
+  "crumb.settings": "Configurações",
+  "top.settings": "Configurações  ⌘,",
+  "top.stage": "Etapa deste trabalho",
+  "top.pr": "Pedir o PR à conversa ativa",
+  "top.side": "Painel lateral",
+
+  /* ---------- resumo do quadro ---------- */
+
+  "pulse.waiting": "querem você",
+  "pulse.running": "rodando",
+  "pulse.ready": "prontas",
+  "pulse.tabs": "conversas",
+
+  /* ---------- colunas e cards ---------- */
+
+  "col.empty": "arraste um card para cá",
+  "card.tabs": "{n} conversas",
+  "card.norepo": "no repo",
+  "card.norepo.title": "Sem worktree: esta conversa mexe no próprio repositório",
+  "card.model.title": "As conversas daqui rodam com --model {model}",
+  "card.issue.title": "{title} — abrir no Linear",
+  "card.pinned.title": "Fixado no topo da lista",
+  "card.tokens": "Tokens:",
+  "card.tokens.title": "{n} tokens de contexto na última resposta",
+  "card.tokens.titleTab": "{n} tokens de contexto na última resposta ({tab})",
+  "card.archive.title": "Arquivar (worktree e branch ficam)",
+
+  /* ---------- menu do botão direito num workspace ---------- */
+
+  "ws.menu.read": "Marcar como lido",
+  "ws.menu.unread": "Marcar como não lido",
+  "ws.menu.unpin": "Desafixar",
+  "ws.menu.pin": "Fixar no topo",
+  "ws.menu.stage": "Definir etapa",
+  "ws.menu.rename": "Renomear",
+  "ws.menu.copyPath": "Copiar caminho",
+  "ws.menu.reveal": "Abrir no Finder",
+  "ws.menu.unarchive": "Desarquivar",
+  "ws.menu.archive": "Arquivar",
+  "ws.menu.drop": "Tirar do quadro",
+
+  /* ---------- lançador ---------- */
+
+  "model.default": "Modelo padrão",
+  "effort.low": "Baixo",
+  "effort.medium": "Médio",
+  "effort.high": "Alto",
+  "effort.xhigh": "Muito alto",
+  "effort.max": "Máximo",
+  "effort.ultracode": "Ultracode",
+
+  "launcher.base.title": "De onde a branch nova sai",
+  "launcher.loading": "carregando…",
+  "launcher.issue": "Issue",
+  "launcher.issue.title": "Criar a partir de uma issue do Linear",
+  "launcher.newBranch": "Branch nova",
+  "launcher.worktree": "Worktree",
+  "launcher.prompt": "No que você quer trabalhar?",
+  "launcher.prompt.issue": "Alguma instrução além do que está na issue? (opcional)",
+  "launcher.model.title": "Modelo das conversas deste workspace",
+  "launcher.plan": "Plan",
+  "launcher.attach": "Anexar arquivos ao contexto — ou solte em cima",
+  "launcher.attach.dialog": "Arquivos para anexar ao contexto",
+  "launcher.go": "Criar",
+  "launcher.hint.here": "na branch em que o repo está",
+  "launcher.hint.worktree": "worktree novo · {branch}{from}",
+  "launcher.hint.switch": "o repo troca para {branch}{from}",
+  "launcher.nb.locked": "Worktree sempre nasce com uma branch só dele",
+  "launcher.nb.off": "Desligado, a sessão abre na branch em que o repositório já está",
+  "launcher.wt.on": "A branch ganha um worktree só dela, isolado do seu clone",
+  "launcher.wt.off": "A branch nasce no próprio repositório: o seu clone troca de branch",
+  "launcher.effort.ultra":
+    "Ultracode: esforço muito alto e orquestração de workflows — o agente abre subagentes em paralelo. Clique para voltar ao Baixo",
+  "launcher.effort.title":
+    "Quanto o modelo pensa antes de responder. Cada clique sobe um degrau; depois do último volta ao Baixo",
+  "launcher.plan.on":
+    "Nasce em plan mode: o agente só lê e planeja. Aprovar o plano no card é o que o solta",
+  "launcher.plan.off": "Nasce solto, mexendo desde a primeira fala. Ligue para ele planejar antes",
+  "launcher.base.none": "base indefinida",
+  "launcher.base.pick": "Escolher a base…",
+  "launcher.base.noMatch": "nenhuma branch com esse nome",
+  "launcher.base.empty": "nenhuma branch neste repo",
+  "launcher.issue.pick": "Buscar por número, título ou projeto…",
+  "launcher.issue.setup": "Configurar Linear",
+  "launcher.issue.busy": "buscando…",
+  "launcher.issue.noMatch": "nenhuma issue com esse texto",
+  "launcher.issue.empty": "nenhuma issue no seu nome",
+  "launcher.issueBlock": "Issue {id} do Linear: {title}",
+
+  /* ---------- aba de issues ---------- */
+
+  "issues.kind.started": "Em andamento",
+  "issues.kind.unstarted": "A fazer",
+  "issues.kind.triage": "Triagem",
+  "issues.kind.backlog": "Backlog",
+  "issues.group.show": "Mostrar {group}",
+  "issues.group.fold": "Recolher {group}",
+  "issues.search": "Buscar por número, título ou projeto…",
+  "issues.refresh": "Buscar de novo no Linear",
+  "issues.busy": "buscando…",
+  "issues.updated": "atualizado {when}",
+  "issues.off.title": "Sem Linear por aqui",
+  "issues.off.body":
+    "Conecte o Linear nas configurações para ver as issues no seu nome e criar workspaces a partir delas.",
+  "issues.off.action": "Abrir configurações",
+  "issues.failed.title": "Não deu para buscar",
+  "issues.failed.action": "Tentar de novo",
+  "issues.noMatch.title": "Nenhuma issue com esse texto",
+  "issues.noMatch.body": "Tente o número (MES-12), uma palavra do título ou o projeto.",
+  "issues.empty.title": "Nenhuma issue no seu nome",
+  "issues.empty.body": "Quando alguém te atribuir uma no Linear, ela aparece aqui.",
+  "issues.open": "Abrir workspace",
+  "issues.create": "Criar workspace",
+  "issues.create.title": "Novo workspace na branch {branch}",
+
+  "ago.now": "agora",
+  "ago.min": "há {n} min",
+  "ago.hour": "há {n} h",
+  "ago.day": "há {n} d",
+
+  /* ---------- abas do workspace ---------- */
+
+  "ws.rename": "Duplo clique para renomear",
+  "ws.pr": "Open PR",
+  "ws.pr.offline": "a conversa está desligada — retome antes de pedir o PR",
+  "ws.branch.title": "Branch deste worktree — clique para copiar",
+  "ws.branch.detached": "HEAD solto",
+  "ws.copied": "{name} copiado",
+
+  "tab.tokens": " · {n} tokens de contexto",
+  "tab.rename": " · duplo clique para renomear",
+  "tab.close": "Fechar conversa",
+  "tab.new": "Conversa nova, mesmos arquivos  ⌘T",
+  "tab.changes": "Mudanças",
+  "tab.changes.title": "Diff do worktree inteiro",
+  "tab.changes.close": "Fechar Mudanças",
+  "tab.changes.closeKey": "Fechar Mudanças  ⌘W",
+
+  /* ---------- painel da direita, árvore e mudanças ---------- */
+
+  "side.files": "Arquivos",
+  "side.changes": "Mudanças",
+  "side.collapse": "Recolher pastas",
+  "side.reveal": "Abrir o worktree no Finder",
+  "diff.foldAll": "Recolher todos",
+  "viewer.copyPath": "Copiar caminho",
+  "diff.clean": "worktree limpo",
+  "diff.clean.long": "worktree limpo — nada mudou desde o HEAD",
+  "diff.new": "novo",
+  "diff.binary": "sem diff para mostrar — arquivo binário ou muito grande",
+  "diff.truncated": "… {n} linhas a mais, cortadas para a tela não travar",
+  "diff.files.one": "{n} arquivo",
+  "diff.files.other": "{n} arquivos",
+
+  /* ---------- conversa desligada ---------- */
+
+  "offline.title": "Conversa desligada",
+  "offline.body":
+    "O processo não está rodando — nenhum sobrevive ao fechamento do app. A conversa continua salva; retomar volta de onde parou.",
+  "offline.resume": "Retomar conversa",
+
+  /* ---------- cards do agente ---------- */
+
+  "ask.question": "pergunta",
+  "ask.question.header": "pergunta · {header}",
+  "ask.questions": "{n} perguntas",
+  "ask.free": "Digite ou cole uma resposta…",
+  "ask.send": "Enviar",
+  "ask.permission": "quer permissão",
+  "ask.allow": "Permitir",
+  "ask.deny": "Negar",
+  "ask.tool": "ferramenta",
+  "ask.plan": "plano pronto",
+  "ask.plan.title": "Executar do jeito que está?",
+  "ask.plan.empty": "(o plano está no terminal)",
+  "ask.plan.run": "Executar",
+  "ask.plan.edit": "Ajustar no terminal",
+
+  /* ---------- dock ---------- */
+
+  "dock.setup": "Setup",
+  "dock.run": "Run",
+  "dock.terminal": "Terminal",
+  "dock.terminalN": "Terminal {n}",
+  "dock.new": "Terminal novo",
+  "dock.collapse": "Recolher",
+  "dock.expand": "Expandir",
+  "dock.stop": "Parar",
+  "dock.open": "Open",
+  "dock.open.title": "Abrir http://localhost:{port} no navegador",
+  "dock.pick": "Escolher o script",
+  "dock.again": "Rodar o setup de novo",
+  "dock.settings.copy": "Copiar o settings.toml do clone para cá",
+  "dock.settings.open": "Abrir o settings.toml",
+  "dock.closeTerm": "Fechar terminal  ⌘W",
+  "dock.killSetup": "Encerrar o setup",
+  "dock.idle": "Setup prepara o worktree, Run sobe o projeto, o + abre um shell aqui dentro.",
+  "dock.noSetup.title": "Sem script de setup",
+  "dock.noSetup.body":
+    "Comandos que rodam quando um worktree nasce, para instalar dependências e preparar o ambiente.",
+  "dock.noRun.title": "Sem script de run",
+  "dock.noRun.body": "O comando que sobe o projeto, para você testar a mudança sem sair daqui.",
+  "dock.ask": "Perguntar ao agente",
+  "dock.write": "Escrever à mão",
+  "dock.setup.idle.title": "Sem saída do setup",
+  "dock.setup.idle.body":
+    "O setup já rodou quando este worktree nasceu. Rodar de novo é seguro se ele for idempotente.",
+  "dock.setup.start": "Rodar setup",
+  "dock.run.idle.title": "Nada rodando",
+  "dock.run.idle.body": "Teste sua mudança aqui.",
+  "dock.run.idle.port": "Teste sua mudança aqui. $PROMETHEUS_PORT é {port}.",
+  "dock.run.start": "Iniciar Run",
+
+  /* ---------- configurações ---------- */
+
+  "settings.title": "Configurações",
+  "settings.integrations": "Integrações",
+  "settings.app": "Aplicativo",
+  "settings.lang": "Idioma",
+  "settings.lang.body": "A tela inteira, neste Mac. Trocar recarrega a janela.",
+  "settings.lang.system": "Do sistema ({name})",
+  "linear.connected": "Conectado",
+  "linear.asWord": "como",
+  "linear.disconnect": "Desconectar",
+  "linear.disconnect.title":
+    "Apaga a conexão deste Mac. As issues somem do lançador; nada muda no Linear",
+  "linear.waiting": "Esperando você aprovar no navegador…",
+  "linear.pitch": "Conecte para criar workspaces a partir das suas issues.",
+  "linear.connect": "Conectar Linear",
+  "linear.connect.title":
+    "Abre o Linear no navegador para você autorizar o Prometheus. Só leitura, e só neste Mac",
+
+  /* ---------- atualização ---------- */
+
+  "update.ask": "Buscar atualizações",
+  "update.ask.title": "Pergunta agora se saiu versão nova",
+  "update.checking": "Buscando…",
+  "update.checking.note": "Perguntando se saiu versão nova…",
+  "update.fresh": "Nenhuma novidade — conferido às {when}",
+  "update.failedCheck": "Não deu para buscar: {why}",
+  "update.found": "Atualizar para {version}",
+  "update.found.title": "Versão {version} disponível",
+  "update.found.note": "A {version} saiu. Baixar não interrompe nada do que está aberto.",
+  "update.downloading": "Baixando {pct}%",
+  "update.downloading.unknown": "Baixando…",
+  "update.downloading.note": "Baixando a {version}…",
+  "update.ready": "Reiniciar para atualizar",
+  "update.ready.title":
+    "A {version} já está instalada e entra quando o app reabrir. As conversas abertas param e voltam de onde pararam.",
+  "update.ready.note": "A {version} está instalada e entra quando o app reabrir.",
+  "update.restarting": "Reiniciando…",
+
+  "update.failed": "não deu para atualizar: {err}",
+  "update.restartFailed": "não deu para reiniciar: {err}",
+  "update.stuck":
+    "o app não reiniciou sozinho — feche e abra o Prometheus, a {version} já está instalada",
+
+  /* ---------- recados da barra de cima ---------- */
+
+  "say.creating": "montando worktree…",
+  "say.resuming": "retomando…",
+  "say.resumed": "essa conversa nunca chegou a falar — abrimos uma nova no mesmo lugar",
+  "say.copied": "{path} copiado",
+  "say.pickRepo": "Escolha o repositório",
+
+  /* ---------- o que o back diz: notas de atividade ---------- */
+
+  "note.permission": "quer permissão para {tool}",
+  "note.plan": "plano pronto: executar?",
+  "note.permissionAny": "quer permissão para uma ferramenta",
+
+  /* ---------- o que o back diz: erros ---------- */
+
+  "err.linear.waiting": "já está esperando você aprovar no navegador",
+  "err.linear.taskDied": "a tarefa do Linear morreu: {cause}",
+  "err.linear.port": "não deu para abrir a porta {port} para o Linear responder: {cause}",
+  "err.linear.portDied": "a porta {port} parou de responder: {cause}",
+  "err.linear.denied": "você não autorizou o Prometheus no Linear",
+  "err.linear.refused": "o Linear recusou: {why}",
+  "err.linear.mismatch": "a resposta do Linear não bate com o pedido — tente de novo",
+  "err.linear.noCode": "o Linear voltou sem o código de autorização",
+  "err.linear.timeout": "o navegador não voltou em cinco minutos — tente de novo",
+  "err.linear.expired": "a conexão com o Linear venceu — conecte de novo",
+  "err.linear.unreachable": "não alcancei o Linear: {cause}",
+  "err.linear.garbled": "o Linear respondeu algo que não entendi: {cause}",
+  "err.linear.noToken": "o Linear não mandou o token",
+  "err.linear.off": "o Linear não está conectado",
+  "err.linear.rejected": "o Linear não aceitou a conexão — conecte de novo",
+  "err.linear.slowDown": "o Linear pediu calma: muitas chamadas na última hora",
+  "err.linear.http": "o Linear respondeu {status}",
+  "err.linear.queryRefused": "o Linear recusou a consulta: {why}",
+  "err.linear.noData": "o Linear respondeu sem dados",
+  "err.linear.notALink": "não é um link do Linear",
+  "err.linear.noBrowser": "não consegui abrir o navegador",
+  "err.linear.write": "não gravei {path}: {cause}",
+
+  "err.session.notGit": "{path} não é um repositório git",
+  "err.session.badPath": "caminho inválido",
+  "err.session.badSettings": "caminho de settings inválido",
+  "err.session.badHook": "caminho do hook inválido",
+  "err.session.worktreeNeedsBranch": "um worktree precisa de uma branch própria",
+  "err.session.worktreeElsewhere": "{path} já existe e está na branch '{head}', não em '{branch}'",
+  "err.session.worktreeDetached": "{path} já existe e não é um worktree em branch nenhuma",
+  "err.session.noParent": "worktree sem pasta acima",
+  "err.session.noWorktree": "worktree sumiu: {path}",
+  "err.session.noWorkspace": "workspace sumiu",
+  "err.session.noTab": "aba não encontrada",
+  "err.session.noBase": "a branch base '{base}' não existe em {path}",
+  "err.session.noPort": "workspace sem porta",
+  "err.session.outside": "caminho fora do worktree",
+  "err.session.tooBig": "arquivo grande demais ({kb} KB)",
+  "err.session.binary": "arquivo binário",
+  "err.session.openFailed": "não abriu {path}",
+
+  "err.dock.unknown": "dock desconhecido: {kind}",
+  "err.dock.noScript": "nenhum script de {kind} em {file}",
+
+  "err.ask.gone": "esse pedido já não está mais esperando",
+  "err.ask.expired": "esse pedido expirou — o agente voltou a perguntar no terminal",
+  "err.ask.noOption": "a opção {n} não existe nessa pergunta",
+  "err.ask.freeOnly": "essa pergunta não tem opções: responda no terminal",
+  "err.ask.tooMany": "opções demais",
+
+  "err.pty.gone": "sessão não está rodando",
+  "err.pty.openpty": "openpty falhou: {cause}",
+  "err.pty.spawn": "spawn falhou: {cause}",
+  "err.pty.reader": "clone do reader falhou: {cause}",
+  "err.pty.writer": "writer falhou: {cause}",
+
+  "err.git": "{command}: {cause}",
+  "err.git.spawn": "git não rodou: {cause}",
+  "err.git.fetchSlow": "fetch demorou demais",
+
+  "err.io": "{cause}",
+} as const;

@@ -254,7 +254,10 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       return tree[args.rel ?? ""] ?? [];
     case "read_file":
       if (args.rel in files) return files[args.rel];
-      throw args.rel.endsWith(".lock") ? "arquivo grande demais (2140 KB)" : "arquivo binário";
+      // Como o back de verdade: código, e não frase. O front traduz.
+      throw args.rel.endsWith(".lock")
+        ? `i18n:${JSON.stringify({ code: "err.session.tooBig", args: { kb: 2140 } })}`
+        : `i18n:${JSON.stringify({ code: "err.session.binary" })}`;
     case "rename_workspace": {
       const target = board.workspaces.find((x) => x.id === args.id);
       if (target) target.title = args.title;
@@ -380,6 +383,11 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     // e avisa pelo mesmo evento que o back avisa.
     case "linear_status":
       return linear;
+    // O back de verdade guarda o idioma para as poucas frases que escreve
+    // inteiras; aqui não há nenhuma, mas o comando existe dos dois lados.
+    case "set_lang":
+      return undefined;
+
     case "linear_connect":
       linear = { ...linear, busy: true };
       emit("linear", linear);
@@ -395,7 +403,9 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
         }, 1200),
       );
     case "linear_issues":
-      if (!linear.connected) return Promise.reject("o Linear não está conectado");
+      if (!linear.connected) {
+        return Promise.reject(`i18n:${JSON.stringify({ code: "err.linear.off" })}`);
+      }
       return new Promise((done) => setTimeout(() => done({ issues: ISSUES, fetched_at: Date.now() / 1000 }), 600));
     case "linear_open":
       console.log("abrir no Linear:", args.url);

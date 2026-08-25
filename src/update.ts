@@ -2,6 +2,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
 import { icon } from "./icons";
+import { current as locale, t } from "./i18n";
 import { $, h } from "./util";
 
 /// Atualização sem reinstalar nada: o app pergunta a um manifesto público se
@@ -67,74 +68,76 @@ export type View = {
   tone: "plain" | "ok" | "bad";
 };
 
-const ASK = {
-  text: "Buscar atualizações",
-  title: "Pergunta agora se saiu versão nova",
+/// O botão parado: "pergunte de novo". Vale nas três fases em que não há
+/// download nem reinício a caminho, e é onde o texto é sempre o mesmo.
+const ask = () => ({
+  text: t("update.ask"),
+  title: t("update.ask.title"),
   disabled: false,
   ready: false,
   footer: false,
-};
+});
 
 export function view(phase: Phase): View {
   switch (phase.at) {
     case "quiet":
-      return { ...ASK, note: "", tone: "plain" };
+      return { ...ask(), note: "", tone: "plain" };
     case "checking":
       return {
-        text: "Buscando…",
+        text: t("update.checking"),
         title: "",
         disabled: true,
         ready: false,
         footer: false,
-        note: "Perguntando se saiu versão nova…",
+        note: t("update.checking.note"),
         tone: "plain",
       };
     case "fresh":
       // Sem tom: estar em dia é o normal, e o verde fica valendo para quando
       // alguma coisa de fato aconteceu.
-      return { ...ASK, note: `Nenhuma novidade — conferido às ${phase.when}`, tone: "plain" };
+      return { ...ask(), note: t("update.fresh", { when: phase.when }), tone: "plain" };
     case "failed":
-      return { ...ASK, note: `Não deu para buscar: ${phase.why}`, tone: "bad" };
+      return { ...ask(), note: t("update.failedCheck", { why: phase.why }), tone: "bad" };
     case "found":
       return {
-        text: `Atualizar para ${phase.update.version}`,
-        title: phase.update.body?.trim() || `Versão ${phase.update.version} disponível`,
+        text: t("update.found", { version: phase.update.version }),
+        title: phase.update.body?.trim() || t("update.found.title", { version: phase.update.version }),
         disabled: false,
         ready: false,
         footer: true,
-        note: `A ${phase.update.version} saiu. Baixar não interrompe nada do que está aberto.`,
+        note: t("update.found.note", { version: phase.update.version }),
         tone: "plain",
       };
     case "downloading":
       return {
-        text: phase.total ? `Baixando ${Math.round((phase.got / phase.total) * 100)}%` : "Baixando…",
+        text: phase.total
+          ? t("update.downloading", { pct: Math.round((phase.got / phase.total) * 100) })
+          : t("update.downloading.unknown"),
         title: "",
         disabled: true,
         ready: false,
         footer: true,
-        note: `Baixando a ${phase.update.version}…`,
+        note: t("update.downloading.note", { version: phase.update.version }),
         tone: "plain",
       };
     case "ready":
       return {
-        text: "Reiniciar para atualizar",
-        title:
-          `A ${phase.version} já está instalada e entra quando o app reabrir. ` +
-          "As conversas abertas param e voltam de onde pararam.",
+        text: t("update.ready"),
+        title: t("update.ready.title", { version: phase.version }),
         disabled: false,
         ready: true,
         footer: true,
-        note: `A ${phase.version} está instalada e entra quando o app reabrir.`,
+        note: t("update.ready.note", { version: phase.version }),
         tone: "ok",
       };
     case "restarting":
       return {
-        text: "Reiniciando…",
+        text: t("update.restarting"),
         title: "",
         disabled: true,
         ready: true,
         footer: true,
-        note: "Reiniciando…",
+        note: t("update.restarting"),
         tone: "plain",
       };
   }
@@ -199,7 +202,7 @@ export function updater(io: Io) {
     } catch (err) {
       // Aqui o silêncio não serve: foi você que clicou.
       go({ at: "found", update });
-      io.say(`não deu para atualizar: ${err}`, true);
+      io.say(t("update.failed", { err: String(err) }), true);
     }
   };
 
@@ -212,13 +215,13 @@ export function updater(io: Io) {
       await io.relaunch();
     } catch (err) {
       go({ at: "ready", version });
-      io.say(`não deu para reiniciar: ${err}`, true);
+      io.say(t("update.restartFailed", { err: String(err) }), true);
       return;
     }
     await new Promise((r) => setTimeout(r, STUCK));
     if (phase.at !== "restarting") return;
     go({ at: "ready", version });
-    io.say(`o app não reiniciou sozinho — feche e abra o Prometheus, a ${version} já está instalada`, true);
+    io.say(t("update.stuck", { version }), true);
   };
 
   const click = async () => {
@@ -237,7 +240,7 @@ let ver = "";
 let row: HTMLElement | null = null;
 let click: () => void = () => {};
 
-const clock = () => new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+const clock = () => new Date().toLocaleTimeString(locale(), { hour: "2-digit", minute: "2-digit" });
 
 function dress(btn: HTMLButtonElement) {
   btn.textContent = now.text;

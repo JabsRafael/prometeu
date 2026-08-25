@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { fromBack, t } from "./i18n";
 import { Term } from "./term";
 import type { Question } from "./types";
 import { $ } from "./util";
@@ -70,8 +71,9 @@ type Answer = { picks: number[]; options: number; multi: boolean; free: string |
 function freeField(onSend: (text: string) => void, submits: boolean): HTMLElement {
   const box = document.createElement("div");
   box.className = "free";
-  box.innerHTML = `<input placeholder="Digite ou cole uma resposta…" /><button>↵</button>`;
+  box.innerHTML = `<input /><button>↵</button>`;
   const input = box.querySelector("input")!;
+  input.placeholder = t("ask.free");
   const send = () => {
     if (input.value.trim()) onSend(input.value);
   };
@@ -97,8 +99,8 @@ export function showQuestion(session: string, questions: Question[]) {
   const solo = questions.length === 1 && !questions[0].multiSelect;
   const first = questions[0];
   const el = shell(
-    solo && first.header ? `pergunta · ${first.header}` : "pergunta",
-    solo ? first.question : `${questions.length} perguntas`,
+    solo && first.header ? t("ask.question.header", { header: first.header }) : t("ask.question"),
+    solo ? first.question : t("ask.questions", { n: questions.length }),
   );
 
   const answers: Answer[] = questions.map((q) => ({
@@ -109,7 +111,7 @@ export function showQuestion(session: string, questions: Question[]) {
   }));
 
   const send = () => {
-    invoke("answer_questions", { session, answers }).catch((e) => fail(String(e)));
+    invoke("answer_questions", { session, answers }).catch((e) => fail(fromBack(e)));
     dismiss(el);
   };
 
@@ -172,7 +174,8 @@ export function showQuestion(session: string, questions: Question[]) {
   if (!solo) {
     const row = document.createElement("div");
     row.className = "row";
-    row.innerHTML = `<button class="ok">Enviar</button>`;
+    row.innerHTML = `<button class="ok"></button>`;
+    row.querySelector(".ok")!.textContent = t("ask.send");
     row.querySelector(".ok")!.addEventListener("click", send);
     el.append(row);
   }
@@ -186,16 +189,18 @@ function paint(list: HTMLElement, picks: number[]) {
 
 export function showPermission(id: number, session: string, tool: string, input: unknown) {
   if (session !== currentSession()) return;
-  const el = shell("quer permissão", tool);
+  const el = shell(t("ask.permission"), tool);
 
   const pre = document.createElement("pre");
   pre.textContent = JSON.stringify(input ?? {}, null, 2);
 
   const row = document.createElement("div");
   row.className = "row";
-  row.innerHTML = `<button class="ok">Permitir</button><button class="no">Negar</button>`;
+  row.innerHTML = `<button class="ok"></button><button class="no"></button>`;
+  row.querySelector(".ok")!.textContent = t("ask.allow");
+  row.querySelector(".no")!.textContent = t("ask.deny");
   const decide = (decision: string) => {
-    invoke("decide_permission", { id, decision }).catch((e) => fail(String(e)));
+    invoke("decide_permission", { id, decision }).catch((e) => fail(fromBack(e)));
     dismiss(el);
   };
   row.querySelector(".ok")!.addEventListener("click", () => decide("allow"));
@@ -210,17 +215,19 @@ export function showPermission(id: number, session: string, tool: string, input:
 /// o que muda. Nada é lido da tela: os dígitos são os do seletor (2.1.240).
 export function showPlan(session: string, plan: string) {
   if (session !== currentSession()) return;
-  const el = shell("plano pronto", "Executar do jeito que está?");
+  const el = shell(t("ask.plan"), t("ask.plan.title"));
 
   const pre = document.createElement("pre");
   pre.className = "plan";
-  pre.textContent = plan.trim() || "(o plano está no terminal)";
+  pre.textContent = plan.trim() || t("ask.plan.empty");
 
   const row = document.createElement("div");
   row.className = "row";
-  row.innerHTML = `<button class="ok">Executar</button><button class="outline">Ajustar no terminal</button>`;
+  row.innerHTML = `<button class="ok"></button><button class="outline"></button>`;
+  row.querySelector(".ok")!.textContent = t("ask.plan.run");
+  row.querySelector(".outline")!.textContent = t("ask.plan.edit");
   const key = (digit: string) => {
-    invoke("pty_write", { session, data: digit }).catch((e) => fail(String(e)));
+    invoke("pty_write", { session, data: digit }).catch((e) => fail(fromBack(e)));
     dismiss(el);
   };
   row.querySelector(".ok")!.addEventListener("click", () => key("1"));

@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod i18n;
 mod linear;
 mod lock;
 mod paths;
@@ -89,6 +90,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            i18n::set_lang,
             session::load_board,
             session::add_project,
             session::remove_project,

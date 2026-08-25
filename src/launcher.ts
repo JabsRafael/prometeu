@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { avatar, icon } from "./icons";
+import { paint, t } from "./i18n";
 import * as issues from "./issues";
 import * as menu from "./menu";
 import { h } from "./util";
@@ -45,7 +46,7 @@ type Branches = { all: string[]; default: string };
 /// não id completo de propósito: "opus" é sempre o Opus mais novo, e a lista
 /// não envelhece a cada release. `[1m]` é a janela de um milhão.
 const MODELS: [string, string][] = [
-  ["", "Modelo padrão"],
+  ["", t("model.default")],
   ["fable", "Fable"],
   ["fable[1m]", "Fable · 1M"],
   ["opus", "Opus"],
@@ -63,12 +64,12 @@ const MODELS: [string, string][] = [
 /// workflows (subagentes em paralelo); só existe para conta com workflows
 /// liberados.
 const EFFORTS: [string, string][] = [
-  ["low", "Baixo"],
-  ["medium", "Médio"],
-  ["high", "Alto"],
-  ["xhigh", "Muito alto"],
-  ["max", "Máximo"],
-  ["ultracode", "Ultracode"],
+  ["low", t("effort.low")],
+  ["medium", t("effort.medium")],
+  ["high", t("effort.high")],
+  ["xhigh", t("effort.xhigh")],
+  ["max", t("effort.max")],
+  ["ultracode", t("effort.ultracode")],
 ];
 
 /// A escolha do worktree gruda entre lançamentos: quem trabalha de um jeito
@@ -130,33 +131,34 @@ export function openLauncher(board: Board, opts: Open) {
   sheet.innerHTML = `
     <div class="sheettop">
       <span class="who"><span id="d-avatar"></span><button id="d-project" class="ghost pick"><span></span>${icon("chevron-down", 12)}</button></span>
-      <button id="d-base" class="ghost base" title="De onde a branch nova sai">
-        ${icon("git-branch", 12)}<span id="d-basename">carregando…</span>${icon("chevron-down", 12)}
+      <button id="d-base" class="ghost base" data-t-title="launcher.base.title">
+        ${icon("git-branch", 12)}<span id="d-basename"></span>${icon("chevron-down", 12)}
       </button>
-      <button id="d-issuebtn" class="ghost base empty" title="Criar a partir de uma issue do Linear">
-        ${icon("linear", 12)}<span>Issue</span>${icon("chevron-down", 12)}
+      <button id="d-issuebtn" class="ghost base empty" data-t-title="launcher.issue.title">
+        ${icon("linear", 12)}<span></span>${icon("chevron-down", 12)}
       </button>
       <span class="spacer"></span>
       <button id="d-nb" class="ghost sw" role="switch">
-        <span>Branch nova</span><i class="knob"></i>
+        <span data-t="launcher.newBranch"></span><i class="knob"></i>
       </button>
       <button id="d-wt" class="ghost sw" role="switch">
-        <span>Worktree</span><i class="knob"></i>
+        <span data-t="launcher.worktree"></span><i class="knob"></i>
       </button>
     </div>
     <div class="picker" id="d-picker" hidden></div>
     <div class="picker" id="d-ipicker" hidden></div>
-    <textarea id="d-prompt" rows="6" placeholder="No que você quer trabalhar?"></textarea>
+    <textarea id="d-prompt" rows="6"></textarea>
     <div class="attach" id="d-issue" hidden></div>
     <div class="attach" id="d-inj" hidden></div>
     <div class="sheetbar">
-      <button id="d-model" class="ghost pick" title="Modelo das conversas deste workspace">${icon("sparkles", 14)}<span></span>${icon("chevron-down", 12)}</button>
+      <button id="d-model" class="ghost pick" data-t-title="launcher.model.title">${icon("sparkles", 14)}<span></span>${icon("chevron-down", 12)}</button>
       <button id="d-effort" class="ghost effort"><span class="bars"><i></i><i></i><i></i><i></i><i></i></span><span class="el"></span></button>
-      <button id="d-plan" class="ghost">${icon("map", 14)}Plan</button>
+      <button id="d-plan" class="ghost">${icon("map", 14)}<span data-t="launcher.plan"></span></button>
       <span class="hint" id="d-hint"></span>
-      <button id="d-add" class="ico" title="Anexar arquivos ao contexto — ou solte em cima">${icon("paperclip", 16)}</button>
-      <button id="d-go" class="pri">Criar <kbd>↵</kbd></button>
+      <button id="d-add" class="ico" data-t-title="launcher.attach">${icon("paperclip", 16)}</button>
+      <button id="d-go" class="pri"><span data-t="launcher.go"></span> <kbd>↵</kbd></button>
     </div>`;
+  paint(sheet);
 
   const $ = <T extends HTMLElement>(id: string) => sheet.querySelector(`#${id}`) as T;
   const prompt = $<HTMLTextAreaElement>("d-prompt");
@@ -167,10 +169,11 @@ export function openLauncher(board: Board, opts: Open) {
     $("d-avatar").innerHTML = avatar(projectName());
     const from = draft.base ? ` ← ${draft.base}` : "";
     const onde = !draft.newBranch
-      ? `na branch em que o repo está`
-      : draft.worktree
-        ? `worktree novo · ${draft.branch}${from}`
-        : `o repo troca para ${draft.branch}${from}`;
+      ? t("launcher.hint.here")
+      : t(draft.worktree ? "launcher.hint.worktree" : "launcher.hint.switch", {
+          branch: draft.branch,
+          from,
+        });
 
     hint.title = `${projectName()} · ${onde}`;
     hint.textContent = onde;
@@ -194,12 +197,8 @@ export function openLauncher(board: Board, opts: Open) {
       el.setAttribute("aria-checked", String(on));
     }
     nb.disabled = draft.worktree;
-    nb.title = draft.worktree
-      ? "Worktree sempre nasce com uma branch só dele"
-      : "Desligado, a sessão abre na branch em que o repositório já está";
-    wt.title = draft.worktree
-      ? "A branch ganha um worktree só dela, isolado do seu clone"
-      : "A branch nasce no próprio repositório: o seu clone troca de branch";
+    nb.title = t(draft.worktree ? "launcher.nb.locked" : "launcher.nb.off");
+    wt.title = t(draft.worktree ? "launcher.wt.on" : "launcher.wt.off");
     // Sem branch nova não há de onde sair.
     baseBtn.disabled = !draft.newBranch || !branches.length;
     if (!draft.newBranch) basePick.close();
@@ -236,9 +235,7 @@ export function openLauncher(board: Board, opts: Open) {
     effort.querySelector(".el")!.textContent = EFFORTS[step][1];
     effort.querySelectorAll(".bars i").forEach((bar, n) => bar.classList.toggle("lit", n <= step));
     effort.classList.toggle("ultra", ultra);
-    effort.title = ultra
-      ? "Ultracode: esforço muito alto e orquestração de workflows — o agente abre subagentes em paralelo. Clique para voltar ao Baixo"
-      : "Quanto o modelo pensa antes de responder. Cada clique sobe um degrau; depois do último volta ao Baixo";
+    effort.title = t(ultra ? "launcher.effort.ultra" : "launcher.effort.title");
   };
   effort.addEventListener("click", () => {
     const step = EFFORTS.findIndex(([id]) => id === draft.effort);
@@ -253,9 +250,7 @@ export function openLauncher(board: Board, opts: Open) {
   const drawPlan = () => {
     plan.classList.toggle("on", draft.plan);
     plan.setAttribute("aria-pressed", String(draft.plan));
-    plan.title = draft.plan
-      ? "Nasce em plan mode: o agente só lê e planeja. Aprovar o plano no card é o que o solta"
-      : "Nasce solto, mexendo desde a primeira fala. Ligue para ele planejar antes";
+    plan.title = t(draft.plan ? "launcher.plan.on" : "launcher.plan.off");
   };
   plan.addEventListener("click", () => {
     draft.plan = !draft.plan;
@@ -274,7 +269,7 @@ export function openLauncher(board: Board, opts: Open) {
 
   const setBase = (name: string) => {
     draft.base = name;
-    baseName.textContent = name || "base indefinida";
+    baseName.textContent = name || t("launcher.base.none");
     baseBtn.classList.toggle("empty", !name);
     drawHint();
   };
@@ -282,9 +277,9 @@ export function openLauncher(board: Board, opts: Open) {
   const basePick = picker({
     btn: baseBtn,
     el: $("d-picker"),
-    placeholder: "Escolher a base…",
+    placeholder: t("launcher.base.pick"),
     rows: () => branches.map((name) => ({ id: name, label: name, run: () => setBase(name) })),
-    none: () => (branches.length ? "nenhuma branch com esse nome" : "nenhuma branch neste repo"),
+    none: () => t(branches.length ? "launcher.base.noMatch" : "launcher.base.empty"),
     current: () => draft.base,
     after: () => prompt.focus(),
   });
@@ -292,7 +287,7 @@ export function openLauncher(board: Board, opts: Open) {
   const loadBranches = async () => {
     branches = [];
     baseBtn.disabled = true;
-    baseName.textContent = "carregando…";
+    baseName.textContent = t("launcher.loading");
     try {
       const got = await invoke<Branches>("list_branches", { project: draft.project });
       branches = got.all;
@@ -315,8 +310,8 @@ export function openLauncher(board: Board, opts: Open) {
     draft.issue = issue ? { id: issue.id, identifier: issue.identifier, title: issue.title, url: issue.url } : null;
     draft.branch = issue?.branch_name || `prometheus/${stamp()}`;
     draft.title = issue ? `${issue.identifier} · ${issue.title}` : "";
-    prompt.placeholder = issue ? "Alguma instrução além do que está na issue? (opcional)" : "No que você quer trabalhar?";
-    issueBtn.querySelector("span")!.textContent = issue?.identifier ?? "Issue";
+    prompt.placeholder = t(issue ? "launcher.prompt.issue" : "launcher.prompt");
+    issueBtn.querySelector("span")!.textContent = issue?.identifier ?? t("launcher.issue");
     issueBtn.classList.toggle("empty", !issue);
     issueBox.hidden = !issue;
     issueBox.replaceChildren();
@@ -343,14 +338,14 @@ export function openLauncher(board: Board, opts: Open) {
   const issuePick = picker({
     btn: issueBtn,
     el: $("d-ipicker"),
-    placeholder: "Buscar por número, título ou projeto…",
+    placeholder: t("launcher.issue.pick"),
     rows: () => {
       const list = issues.list();
       if (list === null) {
         return [
           {
             id: "@configurar",
-            label: "Configurar Linear",
+            label: t("launcher.issue.setup"),
             glyph: icon("arrow-right", 14),
             run: () => {
               hide();
@@ -362,7 +357,9 @@ export function openLauncher(board: Board, opts: Open) {
       return list.map((i) => ({ id: i.id, label: i.title, sub: i.identifier, run: () => setSeed(i) }));
     },
     none: () =>
-      issues.busy() ? "buscando…" : issues.list()?.length ? "nenhuma issue com esse texto" : "nenhuma issue no seu nome",
+      issues.busy()
+        ? t("launcher.issue.busy")
+        : t(issues.list()?.length ? "launcher.issue.noMatch" : "launcher.issue.empty"),
     current: () => draft.issue?.id ?? "",
     after: () => prompt.focus(),
   });
@@ -420,7 +417,7 @@ export function openLauncher(board: Board, opts: Open) {
     drawInject();
   };
   $("d-add").addEventListener("click", async () => {
-    const picked = await open({ multiple: true, title: "Arquivos para anexar ao contexto" });
+    const picked = await open({ multiple: true, title: t("launcher.attach.dialog") });
     addFiles(Array.isArray(picked) ? picked : picked ? [picked] : []);
   });
   takeFiles = addFiles;
@@ -602,7 +599,7 @@ function remembered(key: string, list: [string, string][], fallback = "") {
 /// e depois o que você digitou. O agente lê a descrição como o pedido, e a
 /// sua frase como o jeito de fazer.
 export function issueBlock(issue: Issue, extra: string): string {
-  const head = [`Issue ${issue.identifier} do Linear: ${issue.title}`, issue.url];
+  const head = [t("launcher.issueBlock", { id: issue.identifier, title: issue.title }), issue.url];
   const body = issue.description?.trim();
   const parts = [head.join("\n"), body, extra.trim() ? `---\n\n${extra.trim()}` : ""];
   return parts.filter(Boolean).join("\n\n");

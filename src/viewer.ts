@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { fromBack } from "./i18n";
 import { highlight } from "./highlight";
 import { fileIcon, icon } from "./icons";
 import { $ } from "./util";
@@ -14,7 +15,7 @@ export function init(onError: (m: string) => void) {
   $("vcopy").innerHTML = icon("copy");
   $("vcopy").addEventListener("click", () => {
     if (!shown) return;
-    navigator.clipboard.writeText(shown.path).catch((e) => onError(String(e)));
+    navigator.clipboard.writeText(shown.path).catch((e) => onError(fromBack(e)));
   });
 }
 
@@ -30,7 +31,7 @@ export async function show(id: string, path: string) {
     text = await invoke<string>("read_file", { id, rel: path });
   } catch (e) {
     text = "";
-    error = String(e);
+    error = fromBack(e);
   }
   if (currentRequest !== request) return;
   if (same && shown!.text === text && !error) return;

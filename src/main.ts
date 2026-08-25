@@ -6,6 +6,7 @@ import * as board from "./board";
 import * as dock from "./dock";
 import * as dockbar from "./dockbar";
 import { icon } from "./icons";
+import { current, fromBack, paint, t } from "./i18n";
 import * as issues from "./issues";
 import { dropFiles, openLauncher, type Draft } from "./launcher";
 import * as menu from "./menu";
@@ -49,23 +50,23 @@ const hooks: board.Hooks = {
   // sair da lista; o quadro é para onde se volta.
   archive: (id, archived) => {
     if (archived && ws.id() === id) showBoard();
-    invoke("archive_workspace", { id, archived }).catch((e) => say(String(e), true));
+    invoke("archive_workspace", { id, archived }).catch((e) => say(fromBack(e), true));
   },
   pin: (id, pinned) => invoke("pin_workspace", { id, pinned }),
   unread: (id, unread) => invoke("set_unread", { id, unread }),
-  reveal: (id) => invoke("reveal", { id }).catch((e) => say(String(e), true)),
+  reveal: (id) => invoke("reveal", { id }).catch((e) => say(fromBack(e), true)),
   copyPath: (w) => {
     navigator.clipboard.writeText(w.worktree);
-    say(`${w.worktree} copiado`);
+    say(t("say.copied", { path: w.worktree }));
   },
   toBoard: () => showBoard(),
   toIssues: () => showIssues(),
   issues: () => issues.count(),
-  openIssue: (url) => invoke("linear_open", { url }).catch((e) => say(String(e), true)),
+  openIssue: (url) => invoke("linear_open", { url }).catch((e) => say(fromBack(e), true)),
   addProject: async () => {
-    const dir = await open({ directory: true, title: "Escolha o repositório" });
+    const dir = await open({ directory: true, title: t("say.pickRepo") });
     if (typeof dir !== "string") return;
-    invoke("add_project", { path: dir }).catch((e) => say(String(e), true));
+    invoke("add_project", { path: dir }).catch((e) => say(fromBack(e), true));
   },
   newWorkspace: (projectId) => launch(projectId),
 };
@@ -128,9 +129,14 @@ function showBoard(push = true) {
   if (push) visit(null);
   ws.leave();
   showOnly(null);
-  $("crumb").replaceChildren(Object.assign(document.createElement("span"), { textContent: "Quadro" }));
+  $("crumb").replaceChildren(crumbLabel(t("crumb.board")));
   draw();
 }
+
+/// A migalha das telas que não são um workspace: uma palavra só, e é o nome da
+/// tela — a do workspace é montada pelo `ws.draw`.
+const crumbLabel = (text: string) =>
+  Object.assign(document.createElement("span"), { textContent: text });
 
 async function openWorkspace(target: Workspace, push = true) {
   if (push) visit(target.id);
@@ -144,7 +150,7 @@ function showIssues(push = true) {
   ws.leave();
   board.setOpen(ISSUES);
   showOnly("issuesView");
-  $("crumb").replaceChildren(Object.assign(document.createElement("span"), { textContent: "Issues" }));
+  $("crumb").replaceChildren(crumbLabel(t("crumb.issues")));
   issues.show();
   draw();
 }
@@ -156,7 +162,7 @@ function showSettings(push = true) {
   ws.leave();
   board.setOpen(SETTINGS);
   showOnly("settingsView");
-  $("crumb").replaceChildren(Object.assign(document.createElement("span"), { textContent: "Configurações" }));
+  $("crumb").replaceChildren(crumbLabel(t("crumb.settings")));
   settings.draw();
   draw();
 }
@@ -202,7 +208,7 @@ listen<{ id: number; session: string; payload: { tool_name?: string; tool_input?
     session.showPermission(
       payload.id,
       payload.session,
-      payload.payload.tool_name ?? "ferramenta",
+      payload.payload.tool_name ?? t("ask.tool"),
       payload.payload.tool_input,
     );
   },
@@ -259,7 +265,7 @@ getCurrentWebview().onDragDropEvent(({ payload }) => {
   // Espaço no fim: o próximo arquivo, ou o que você for escrever, não cola.
   invoke("pty_write", { session: target.pty, data: paths.map(escapePath).join(" ") + " " })
     .then(() => target.focus())
-    .catch((e) => say(String(e), true));
+    .catch((e) => say(fromBack(e), true));
 });
 
 /* ---------- ações ---------- */
@@ -271,13 +277,13 @@ function launch(projectId?: string, seed?: Issue) {
     seed,
     toSettings: () => showSettings(),
     go: async (draft: Draft) => {
-      say("montando worktree…");
+      say(t("say.creating"));
       try {
         const created = await invoke<Workspace>("create_workspace", { draft, ...session.dims() });
         say("");
         openWorkspace(created);
       } catch (err) {
-        say(String(err), true);
+        say(fromBack(err), true);
       }
     },
   });
@@ -286,15 +292,15 @@ function launch(projectId?: string, seed?: Issue) {
 $("resume").addEventListener("click", async () => {
   const tab = session.currentSession();
   if (!tab) return;
-  say("retomando…");
+  say(t("say.resuming"));
   try {
     // Conversa vazia não tem transcript: o back abre uma nova no mesmo lugar, e
     // dizer isso é melhor do que deixar você procurar o histórico que não existe.
     const resumed = await invoke<boolean>("resume_tab", { tab, ...session.dims() });
-    say(resumed ? "" : "essa conversa nunca chegou a falar — abrimos uma nova no mesmo lugar");
+    say(resumed ? "" : t("say.resumed"));
     await session.attach(tab);
   } catch (err) {
-    say(String(err), true);
+    say(fromBack(err), true);
   }
 });
 
@@ -386,6 +392,15 @@ document.addEventListener("keydown", (e) => {
 });
 
 /* ---------- início ---------- */
+
+// Os rótulos que estão escritos no `index.html`, no idioma da vez. Antes de
+// qualquer desenho: o resto da tela nasce já traduzido, e o que está no HTML
+// não pode ser a única coisa em português.
+paint();
+// O back escreve pouca coisa por inteiro — a linha de saída do dock, o aviso
+// que entra na fala do agente, a página do fim do OAuth —, mas essa pouca
+// coisa precisa saber em que idioma a tela está.
+invoke("set_lang", { lang: current() });
 
 for (const [id, name] of [
   ["railtoggle", "panel-left"],

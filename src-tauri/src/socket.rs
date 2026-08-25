@@ -2,6 +2,7 @@
 //! mouse volta para dentro do agente, e por aqui que o quadro fica sabendo o
 //! que cada sessão está fazendo.
 
+use crate::i18n;
 use crate::lock::lock;
 use crate::state::{publish, Note, Status};
 use crate::{paths, transcript, AppState};
@@ -125,7 +126,7 @@ fn permission(app: &AppHandle, stream: UnixStream, session: String, payload: Val
     // PERMISSIONS", que é o solto de sempre: é para lá que "Executar" manda.
     if payload["tool_name"].as_str() == Some("ExitPlanMode") {
         let _ = reply(&stream, "{}");
-        set(app, &session, Some(Status::Querendo), Note::Set("plano pronto: executar?".into()));
+        set(app, &session, Some(Status::Querendo), Note::Set(i18n::t("note.plan")));
         let _ = app.emit(
             "plan",
             serde_json::json!({ "session": session, "plan": payload["tool_input"]["plan"] }),
@@ -143,10 +144,13 @@ fn permission(app: &AppHandle, stream: UnixStream, session: String, payload: Val
         pending.retain(|_, w| w.since.elapsed() < GIVE_UP);
         pending.insert(id, Waiting { stream, since: Instant::now(), session: session.clone() });
     }
-    set(app, &session, Some(Status::Querendo), Note::Set(format!(
-        "quer permissão para {}",
-        payload["tool_name"].as_str().unwrap_or("uma ferramenta")
-    )));
+    // Sem nome de ferramenta a frase é outra, e não a mesma com um buraco
+    // tapado: código não entra dentro de código.
+    let note = match payload["tool_name"].as_str() {
+        Some(tool) => i18n::ta("note.permission", &[("tool", tool.to_string())]),
+        None => i18n::t("note.permissionAny"),
+    };
+    set(app, &session, Some(Status::Querendo), Note::Set(note));
     let _ = app.emit(
         "permission",
         serde_json::json!({ "id": id, "session": session, "payload": payload }),
@@ -286,7 +290,7 @@ fn reply(mut stream: &UnixStream, body: &str) -> std::io::Result<()> {
 pub fn decide_permission(state: State<AppState>, id: u64, decision: String) -> Result<(), String> {
     let waiting = lock(&state.pending)
         .remove(&id)
-        .ok_or("esse pedido já não está mais esperando")?;
+        .ok_or_else(|| i18n::t("err.ask.gone"))?;
 
     let body = serde_json::json!({
         "hookSpecificOutput": {
@@ -297,7 +301,7 @@ pub fn decide_permission(state: State<AppState>, id: u64, decision: String) -> R
     // Escrever num hook que já desistiu falha aqui, e calar isso seria pior: o
     // agente segue esperando no terminal e você acha que respondeu.
     reply(&waiting.stream, &body.to_string())
-        .map_err(|_| "esse pedido expirou — o agente voltou a perguntar no terminal".to_string())
+        .map_err(|_| i18n::t("err.ask.expired"))
 }
 
 /// Uma resposta por pergunta do AskUserQuestion.
@@ -335,7 +339,7 @@ pub fn keystrokes(answers: &[Answer]) -> Result<Vec<String>, String> {
     for answer in answers {
         for &pick in &answer.picks {
             if pick >= answer.options {
-                return Err(format!("a opção {} não existe nessa pergunta", pick + 1));
+                return Err(i18n::ta("err.ask.noOption", &[("n", (pick + 1).to_string())]));
             }
             out.push(digit(pick + 1)?);
         }
@@ -343,7 +347,7 @@ pub fn keystrokes(answers: &[Answer]) -> Result<Vec<String>, String> {
             // Sem opções não há seletor na tela, e "logo depois da última" não
             // quer dizer nada — o dígito cairia numa opção que não existe.
             if answer.options == 0 {
-                return Err("essa pergunta não tem opções: responda no terminal".into());
+                return Err(i18n::t("err.ask.freeOnly"));
             }
             // "Type something" é sempre a opção logo depois da última.
             out.push(digit(answer.options + 1)?);
@@ -377,13 +381,13 @@ pub fn answer_questions(
 }
 
 fn digit(n: usize) -> Result<String, String> {
-    char::from_digit(n as u32, 10).map(String::from).ok_or("opções demais".into())
+    char::from_digit(n as u32, 10).map(String::from).ok_or_else(|| i18n::t("err.ask.tooMany"))
 }
 
 fn key(state: &State<AppState>, session: &str, text: &str) -> Result<(), String> {
     {
         let mut ptys = lock(&state.ptys);
-        ptys.get_mut(session).ok_or("sessão não está rodando")?.write(text)?;
+        ptys.get_mut(session).ok_or_else(|| i18n::t("err.pty.gone"))?.write(text)?;
     }
     std::thread::sleep(KEYSTROKE);
     Ok(())

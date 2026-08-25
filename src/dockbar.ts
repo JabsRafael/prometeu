@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import * as dock from "./dock";
 import { icon, wave } from "./icons";
+import { fromBack, t } from "./i18n";
 import * as menu from "./menu";
 import { isTerm, termKind, termNumber, type DockKind, type DockState, type Scripts } from "./types";
 import { $ } from "./util";
@@ -56,10 +57,10 @@ function terminals(): DockKind[] {
 const order = (): DockKind[] => ["setup", "run", ...terminals()];
 
 const label = (kind: DockKind) => {
-  if (kind === "setup") return "Setup";
-  if (kind === "run") return "Run";
+  if (kind === "setup") return t("dock.setup");
+  if (kind === "run") return t("dock.run");
   const n = termNumber(kind);
-  return n === 1 ? "Terminal" : `Terminal ${n}`;
+  return n === 1 ? t("dock.terminal") : t("dock.terminalN", { n });
 };
 
 /// O menor número livre, e não o próximo de um contador: fechar o Terminal 2 e
@@ -96,7 +97,7 @@ export function init(context: Ctx) {
         // Herdado do clone: não há arquivo aqui para abrir. O que o clique faz
         // é trazer uma cópia — e o rótulo diz isso, para ninguém achar que
         // editou o do clone.
-        label: info.scripts.inherited ? "Copiar o settings.toml do clone para cá" : "Abrir o settings.toml",
+        label: t(info.scripts.inherited ? "dock.settings.copy" : "dock.settings.open"),
         glyph: icon("file", 14),
         run: writeScriptsFile,
       },
@@ -104,7 +105,7 @@ export function init(context: Ctx) {
   });
   $("run-open").addEventListener("click", () => {
     const id = ctx.workspace();
-    if (id) invoke("open_run", { id }).catch((e) => ctx.say(String(e), true));
+    if (id) invoke("open_run", { id }).catch((e) => ctx.say(fromBack(e), true));
   });
   $("dock-add").innerHTML = icon("plus", 14);
   $("dock-add").addEventListener("click", () => void setDock(nextTerm(), true));
@@ -183,7 +184,7 @@ async function setDock(next: DockKind | null, start = false) {
       dock.detach();
     }
   } catch (err) {
-    ctx.say(String(err), true);
+    ctx.say(fromBack(err), true);
   }
   await refresh();
   // Agora o `dock_state` já conhece esta aba — ou a abertura falhou, e ela não
@@ -233,7 +234,7 @@ async function killPane(kind: DockKind) {
 export function draw() {
   $("dock").classList.toggle("closed", !open);
   $("dock-toggle").innerHTML = icon(open ? "chevron-down" : "chevron-right");
-  $("dock-toggle").title = open ? "Recolher" : "Expandir";
+  $("dock-toggle").title = t(open ? "dock.collapse" : "dock.expand");
   drawTabs();
 
   // O botão de Run mora na barra e não na aba: ⌘R é o mesmo esteja qual estiver
@@ -241,17 +242,19 @@ export function draw() {
   const up = isUp("run");
   $("runsplit").hidden = !info.scripts.runs.length;
   $("run-pick").hidden = info.scripts.runs.length < 2;
-  $("run-go").innerHTML =
-    `${icon(up ? "square" : "play", 13)}<span>${up ? "Parar" : "Run"}</span><kbd>⌘R</kbd>`;
+  $("run-go").innerHTML = `${icon(up ? "square" : "play", 13)}<span></span><kbd>⌘R</kbd>`;
+  $("run-go").querySelector("span")!.textContent = t(up ? "dock.stop" : "dock.run");
 
   // Abrir no navegador só existe com o run de pé e porta reservada: é quase
   // certeza de servidor em localhost — e sumir quando ele morre também é
   // informação.
   const goOpen = $("run-open");
-  goOpen.hidden = !up || !info.scripts.port;
-  if (!goOpen.hidden) {
-    goOpen.innerHTML = `${icon("globe", 13)}<span>Open</span><span class="port">:${info.scripts.port}</span>`;
-    goOpen.title = `Abrir http://localhost:${info.scripts.port} no navegador`;
+  const port = info.scripts.port;
+  goOpen.hidden = !up || !port;
+  if (port && !goOpen.hidden) {
+    goOpen.innerHTML = `${icon("globe", 13)}<span></span><span class="port">:${port}</span>`;
+    goOpen.querySelector("span")!.textContent = t("dock.open");
+    goOpen.title = t("dock.open.title", { port });
   }
 
   const filled = pane !== null && (isTerm(pane) || isUp(pane) || hasLog(pane));
@@ -293,7 +296,7 @@ function drawTabs() {
       const x = document.createElement("span");
       x.className = "tabx ico sm";
       x.innerHTML = icon("x", 12);
-      x.title = term ? "Fechar terminal  ⌘W" : "Encerrar o setup";
+      x.title = t(term ? "dock.closeTerm" : "dock.killSetup");
       x.addEventListener("click", (e) => {
         e.stopPropagation();
         void (term ? closeTerm(kind) : killPane(kind));
@@ -344,18 +347,15 @@ function drawEmpty() {
   // desenhar o mesmo botão duas vezes na mesma tela.
   if (pane === null) {
     title("");
-    $("empty-sub").textContent = "Setup prepara o worktree, Run sobe o projeto, o + abre um shell aqui dentro.";
+    $("empty-sub").textContent = t("dock.idle");
     return;
   }
 
   if (!declares(pane)) {
-    title(pane === "setup" ? "Sem script de setup" : "Sem script de run");
-    $("empty-sub").textContent =
-      pane === "setup"
-        ? "Comandos que rodam quando um worktree nasce, para instalar dependências e preparar o ambiente."
-        : "O comando que sobe o projeto, para você testar a mudança sem sair daqui.";
-    button("Perguntar ao agente", "outline", askForScripts);
-    button("Escrever à mão", "ghost", writeScriptsFile);
+    title(t(pane === "setup" ? "dock.noSetup.title" : "dock.noRun.title"));
+    $("empty-sub").textContent = t(pane === "setup" ? "dock.noSetup.body" : "dock.noRun.body");
+    button(t("dock.ask"), "outline", askForScripts);
+    button(t("dock.write"), "ghost", writeScriptsFile);
     return;
   }
 
@@ -365,13 +365,20 @@ function drawEmpty() {
   glyph.hidden = false;
   glyph.className = setup ? "glyph" : "glyph solid";
   glyph.innerHTML = icon(setup ? "rotate" : "play", 56);
-  title(setup ? "Sem saída do setup" : "Nada rodando");
+  title(t(setup ? "dock.setup.idle.title" : "dock.run.idle.title"));
   // O ⌘R é do Run e só dele: escrevê-lo no botão do setup seria prometer um
   // atalho que dispara outra coisa.
-  button(setup ? "Rodar setup" : "Iniciar Run", "outline", () => setDock(pane, true), setup ? undefined : "⌘R");
+  button(
+    t(setup ? "dock.setup.start" : "dock.run.start"),
+    "outline",
+    () => setDock(pane, true),
+    setup ? undefined : "⌘R",
+  );
   $("empty-sub").textContent = setup
-    ? "O setup já rodou quando este worktree nasceu. Rodar de novo é seguro se ele for idempotente."
-    : `Teste sua mudança aqui.${port ? ` $PROMETHEUS_PORT é ${port}.` : ""}`;
+    ? t("dock.setup.idle.body")
+    : port
+      ? t("dock.run.idle.port", { port })
+      : t("dock.run.idle.body");
 }
 
 /// Manda o próprio agente ler o repositório e escrever o settings.toml. Conversa
@@ -383,7 +390,7 @@ async function askForScripts() {
   try {
     await ctx.newTab(await invoke<string>("scripts_prompt", { id }));
   } catch (err) {
-    ctx.say(String(err), true);
+    ctx.say(fromBack(err), true);
   }
 }
 
@@ -396,7 +403,7 @@ async function writeScriptsFile() {
     await ctx.openFile(await invoke<string>("create_scripts_file", { id }));
     await refresh();
   } catch (err) {
-    ctx.say(String(err), true);
+    ctx.say(fromBack(err), true);
   }
 }
 

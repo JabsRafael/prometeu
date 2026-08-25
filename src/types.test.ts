@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { use } from "./i18n";
 import { fmtTokens, heaviest, type Workspace } from "./types";
+
+// `1,2M` é a vírgula decimal do português: o formato do número segue o idioma.
+use("pt-BR");
 
 describe("fmtTokens", () => {
   it("abaixo de mil é o número; depois k e M arredondados", () => {

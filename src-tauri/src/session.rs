@@ -1,6 +1,6 @@
 use crate::lock::lock;
 use crate::state::{publish, Board, Project, Status, Tab, Workspace};
-use crate::{paths, pty, scripts, socket, AppState};
+use crate::{i18n, paths, pty, scripts, socket, AppState};
 use portable_pty::CommandBuilder;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -20,7 +20,7 @@ pub fn load_board(state: State<AppState>) -> Board {
 pub fn add_project(app: AppHandle, state: State<AppState>, path: String) -> Result<Project, String> {
     let path = PathBuf::from(expand(&path));
     if !path.join(".git").exists() {
-        return Err(format!("{} não é um repositório git", path.display()));
+        return Err(i18n::ta("err.session.notGit", &[("path", path.display().to_string())]));
     }
     let id = path.display().to_string();
     let project = Project {
@@ -259,19 +259,19 @@ pub fn create_workspace(
 ) -> Result<Workspace, String> {
     let repo_path = PathBuf::from(expand(&draft.project));
     if !repo_path.join(".git").exists() {
-        return Err(format!("{} não é um repositório git", repo_path.display()));
+        return Err(i18n::ta("err.session.notGit", &[("path", repo_path.display().to_string())]));
     }
     let repo_name = repo_path
         .file_name()
         .and_then(|s| s.to_str())
-        .ok_or("caminho de repo inválido")?
+        .ok_or_else(|| i18n::t("err.session.badPath"))?
         .to_string();
 
     // Branch vazia é a escolha de não criar branch nenhuma: a sessão abre no
     // repositório onde ele estiver. Worktree, esse, sempre precisa de uma —
     // é a branch que dá nome e destino à pasta.
     let (root, branch) = match (draft.worktree, draft.branch.trim().is_empty()) {
-        (true, true) => return Err("um worktree precisa de uma branch própria".into()),
+        (true, true) => return Err(i18n::t("err.session.worktreeNeedsBranch")),
         (true, false) => {
             let dir = paths::worktree_dir(&repo_name, &draft.branch);
             add_worktree(&repo_path, &draft.branch, &draft.base, &dir)?;
@@ -364,7 +364,7 @@ pub fn new_tab(
     // nasce com os mesmos que as irmãs. Plan mode não — é escolha de uma fala.
     let (worktree, n, launch) = {
         let board = lock(&state.board);
-        let ws = board.workspaces.iter().find(|w| w.id == workspace).ok_or("workspace sumiu")?;
+        let ws = board.workspaces.iter().find(|w| w.id == workspace).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
         (PathBuf::from(&ws.worktree), ws.tabs.len() + 1, ws.launch())
     };
 
@@ -454,9 +454,9 @@ pub fn resume_tab(
     let (worktree, launch) = lock(&state.board)
         .workspace_of(&tab)
         .map(|w| (PathBuf::from(&w.worktree), w.launch()))
-        .ok_or("aba não encontrada")?;
+        .ok_or_else(|| i18n::t("err.session.noTab"))?;
     if !worktree.exists() {
-        return Err(format!("worktree sumiu: {}", worktree.display()));
+        return Err(i18n::ta("err.session.noWorktree", &[("path", worktree.display().to_string())]));
     }
 
     // O que sobrou da sessão anterior sai antes: o processo já morreu, mas o
@@ -519,7 +519,7 @@ fn claude_cmd(id: &str, worktree: &Path, resume: bool, launch: &Launch) -> Resul
     let mut cmd = CommandBuilder::new("claude");
     cmd.args(cli_args(
         id,
-        settings.to_str().ok_or("caminho de settings inválido")?,
+        settings.to_str().ok_or_else(|| i18n::t("err.session.badSettings"))?,
         resume,
         launch,
     ));
@@ -607,17 +607,18 @@ fn add_worktree(repo: &Path, branch: &str, base: &str, dest: &Path) -> Result<()
     if dest.exists() {
         return match head_branch(dest) {
             Some(head) if head == branch => Ok(()),
-            Some(head) => Err(format!(
-                "{} já existe e está na branch '{head}', não em '{branch}'",
-                dest.display()
+            Some(head) => Err(i18n::ta(
+                "err.session.worktreeElsewhere",
+                &[("path", dest.display().to_string()), ("head", head), ("branch", branch.to_string())],
             )),
-            None => Err(format!(
-                "{} já existe e não é um worktree em branch nenhuma",
-                dest.display()
+            None => Err(i18n::ta(
+                "err.session.worktreeDetached",
+                &[("path", dest.display().to_string())],
             )),
         };
     }
-    std::fs::create_dir_all(dest.parent().ok_or("worktree sem pai")?).map_err(|e| e.to_string())?;
+    let parent = dest.parent().ok_or_else(|| i18n::t("err.session.noParent"))?;
+    std::fs::create_dir_all(parent).map_err(i18n::io)?;
 
     let mut cmd = Command::new("git");
     cmd.arg("-C").arg(repo).arg("worktree").arg("add");
@@ -631,9 +632,15 @@ fn add_worktree(repo: &Path, branch: &str, base: &str, dest: &Path) -> Result<()
         }
     }
 
-    let out = cmd.output().map_err(|e| format!("git não rodou: {e}"))?;
+    let out = cmd.output().map_err(|e| i18n::ta("err.git.spawn", &[("cause", e.to_string())]))?;
     if !out.status.success() {
-        return Err(format!("git worktree add: {}", String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(i18n::ta(
+            "err.git",
+            &[
+                ("command", "git worktree add".into()),
+                ("cause", String::from_utf8_lossy(&out.stderr).trim().to_string()),
+            ],
+        ));
     }
     Ok(())
 }
@@ -659,9 +666,15 @@ fn switch_branch(repo: &Path, branch: &str, base: &str) -> Result<(), String> {
         }
     }
 
-    let out = cmd.output().map_err(|e| format!("git não rodou: {e}"))?;
+    let out = cmd.output().map_err(|e| i18n::ta("err.git.spawn", &[("cause", e.to_string())]))?;
     if !out.status.success() {
-        return Err(format!("git switch: {}", String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(i18n::ta(
+            "err.git",
+            &[
+                ("command", "git switch".into()),
+                ("cause", String::from_utf8_lossy(&out.stderr).trim().to_string()),
+            ],
+        ));
     }
     Ok(())
 }
@@ -682,7 +695,10 @@ fn prepare_base(repo: &Path, base: &str) -> Result<(), String> {
     }
     match has_commit(repo, base) {
         true => Ok(()),
-        false => Err(format!("a branch base '{base}' não existe em {}", repo.display())),
+        false => Err(i18n::ta(
+            "err.session.noBase",
+            &[("base", base.to_string()), ("path", repo.display().to_string())],
+        )),
     }
 }
 
@@ -694,16 +710,16 @@ fn fetch(repo: &Path, remote: &str, branch: &str) -> Result<(), String> {
         .args(["fetch", "--quiet", remote, branch])
         .stdin(std::process::Stdio::null())
         .spawn()
-        .map_err(|e| e.to_string())?;
+        .map_err(i18n::io)?;
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {
         match child.try_wait() {
             Ok(Some(_)) => return Ok(()),
-            Err(e) => return Err(e.to_string()),
+            Err(e) => return Err(i18n::io(e)),
             Ok(None) if std::time::Instant::now() >= deadline => {
                 let _ = child.kill();
-                return Err("fetch demorou demais".into());
+                return Err(i18n::t("err.git.fetchSlow"));
             }
             Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
         }
@@ -775,7 +791,7 @@ fn write_settings(id: &str) -> Result<PathBuf, String> {
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
     let bin = paths::hook_bin();
-    let bin = bin.to_str().ok_or("caminho do hook inválido")?;
+    let bin = bin.to_str().ok_or_else(|| i18n::t("err.session.badHook"))?;
     let hook = |kind: &str, timeout: Option<u32>| {
         let mut h = serde_json::json!({ "type": "command", "command": format!("{bin:?} {kind}") });
         if let Some(t) = timeout {
@@ -1162,11 +1178,11 @@ pub struct Entry {
 /// aí bastava um symlink no caminho do worktree — `/tmp` no macOS é um deles —
 /// para o `starts_with` dar falso e a árvore vir vazia sem erro nenhum.
 fn inside(root: &Path, rel: &str) -> Result<PathBuf, String> {
-    let root = root.canonicalize().map_err(|e| e.to_string())?;
-    let real = root.join(rel).canonicalize().map_err(|e| e.to_string())?;
+    let root = root.canonicalize().map_err(i18n::io)?;
+    let real = root.join(rel).canonicalize().map_err(i18n::io)?;
     match real.starts_with(&root) {
         true => Ok(real),
-        false => Err("caminho fora do worktree".into()),
+        false => Err(i18n::t("err.session.outside")),
     }
 }
 
@@ -1204,14 +1220,14 @@ pub fn list_dir(state: State<AppState>, id: String, rel: String) -> Vec<Entry> {
 /// arquivo enorme viram erro legível em vez de travar a webview.
 #[tauri::command]
 pub fn read_file(state: State<AppState>, id: String, rel: String) -> Result<String, String> {
-    let root = worktree_of(&state, &id).ok_or("workspace sumiu")?;
+    let root = worktree_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
     let file = inside(&root, &rel)?;
-    let meta = std::fs::metadata(&file).map_err(|e| e.to_string())?;
+    let meta = std::fs::metadata(&file).map_err(i18n::io)?;
     if meta.len() > 2 * 1024 * 1024 {
-        return Err(format!("arquivo grande demais ({} KB)", meta.len() / 1024));
+        return Err(i18n::ta("err.session.tooBig", &[("kb", (meta.len() / 1024).to_string())]));
     }
-    let bytes = std::fs::read(&file).map_err(|e| e.to_string())?;
-    String::from_utf8(bytes).map_err(|_| "arquivo binário".to_string())
+    let bytes = std::fs::read(&file).map_err(i18n::io)?;
+    String::from_utf8(bytes).map_err(|_| i18n::t("err.session.binary"))
 }
 
 /// Um shell do dock. `terminal` é o primeiro; do segundo em diante o front
@@ -1244,7 +1260,7 @@ pub fn open_dock(
     rows: u16,
 ) -> Result<String, String> {
     ensure_port(&state, &id);
-    let ws = workspace_copy(&state, &id).ok_or("workspace sumiu")?;
+    let ws = workspace_copy(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
     let key = format!("{id}:{kind}");
 
     if lock(&state.ptys).get(&key).is_some_and(|p| p.alive()) {
@@ -1270,9 +1286,11 @@ pub fn open_dock(
     let command = match kind.as_str() {
         "setup" => found.setup.clone(),
         "run" => found.run(name.as_deref()).map(|r| r.command.clone()),
-        other => return Err(format!("dock desconhecido: {other}")),
+        other => return Err(i18n::ta("err.dock.unknown", &[("kind", other.to_string())])),
     }
-    .ok_or_else(|| format!("nenhum script de {kind} em {}", scripts::FILES[0]))?;
+    .ok_or_else(|| {
+        i18n::ta("err.dock.noScript", &[("kind", kind.clone()), ("file", scripts::FILES[0].to_string())])
+    })?;
 
     start_script(&app, &state, &ws, &kind, &command, cols, rows)?;
     Ok(key)
@@ -1338,13 +1356,14 @@ fn release_prompts(app: &AppHandle, workspace: &str, code: Option<u32>) {
     };
     let warning = match code {
         Some(0) => None,
-        Some(n) => Some(format!(
-            "(O setup deste worktree saiu com código {n} — veja a aba Setup; pode faltar dependência.) "
+        Some(n) => Some(i18n::pick(
+            &format!("(O setup deste worktree saiu com código {n} — veja a aba Setup; pode faltar dependência.) "),
+            &format!("(This worktree's setup exited with code {n} — see the Setup tab; a dependency may be missing.) "),
         )),
-        None => Some(
-            "(O setup deste worktree foi encerrado antes de terminar — veja a aba Setup; pode faltar dependência.) "
-                .to_string(),
-        ),
+        None => Some(i18n::pick(
+            "(O setup deste worktree foi encerrado antes de terminar — veja a aba Setup; pode faltar dependência.) ",
+            "(This worktree's setup was stopped before it finished — see the Setup tab; a dependency may be missing.) ",
+        )),
     };
     for tab in &waiting {
         crate::socket::type_prompt(app, tab, warning.clone());
@@ -1388,19 +1407,20 @@ fn ensure_port(state: &State<AppState>, id: &str) -> Option<u16> {
 /// Abre o worktree no Finder.
 #[tauri::command]
 pub fn reveal(state: State<AppState>, id: String) -> Result<(), String> {
-    let root = worktree_of(&state, &id).ok_or("workspace sumiu")?;
-    let ok = Command::new("open").arg(&root).status().map_err(|e| e.to_string())?.success();
-    ok.then_some(()).ok_or_else(|| format!("não abriu {}", root.display()))
+    let root = worktree_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+    let ok = Command::new("open").arg(&root).status().map_err(i18n::io)?.success();
+    ok.then_some(())
+        .ok_or_else(|| i18n::ta("err.session.openFailed", &[("path", root.display().to_string())]))
 }
 
 /// Abre o navegador na porta do run. A porta sai do estado, e não do front:
 /// URL arbitrária não viaja pelo IPC.
 #[tauri::command]
 pub fn open_run(state: State<AppState>, id: String) -> Result<(), String> {
-    let port = ensure_port(&state, &id).ok_or("workspace sem porta")?;
+    let port = ensure_port(&state, &id).ok_or_else(|| i18n::t("err.session.noPort"))?;
     let url = format!("http://localhost:{port}");
-    let ok = Command::new("open").arg(&url).status().map_err(|e| e.to_string())?.success();
-    ok.then_some(()).ok_or_else(|| format!("não abriu {url}"))
+    let ok = Command::new("open").arg(&url).status().map_err(i18n::io)?.success();
+    ok.then_some(()).ok_or_else(|| i18n::ta("err.session.openFailed", &[("path", url)]))
 }
 
 #[tauri::command]
@@ -1469,7 +1489,7 @@ pub fn workspace_scripts(state: State<AppState>, id: String) -> ScriptsView {
 /// muda o `run` sem mexer no dos outros.
 #[tauri::command]
 pub fn create_scripts_file(state: State<AppState>, id: String) -> Result<String, String> {
-    let ws = workspace_copy(&state, &id).ok_or("workspace sumiu")?;
+    let ws = workspace_copy(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
     let root = Path::new(&ws.worktree);
     let found = scripts_of(&ws);
     let (rel, text) = match found.file {
@@ -1481,7 +1501,8 @@ pub fn create_scripts_file(state: State<AppState>, id: String) -> Result<String,
         None => (scripts::FILES[0].to_string(), scripts::TEMPLATE.to_string()),
     };
     let path = root.join(&rel);
-    std::fs::create_dir_all(path.parent().ok_or("caminho inválido")?).map_err(|e| e.to_string())?;
+    let parent = path.parent().ok_or_else(|| i18n::t("err.session.badPath"))?;
+    std::fs::create_dir_all(parent).map_err(i18n::io)?;
     std::fs::write(&path, text).map_err(|e| e.to_string())?;
     Ok(rel)
 }
@@ -1504,7 +1525,7 @@ pub fn scripts_prompt(state: State<AppState>, id: String) -> String {
 /// manda mais que este texto.
 #[tauri::command(async)]
 pub fn pr_prompt(state: State<AppState>, id: String) -> Result<String, String> {
-    let worktree = worktree_of(&state, &id).ok_or("workspace sumiu")?;
+    let worktree = worktree_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
     let branch = head_branch(&worktree);
     let dirty = changes_in(&worktree).len();
     // O alvo é o principal do remoto; sem `origin/HEAD` gravado, o de sempre.

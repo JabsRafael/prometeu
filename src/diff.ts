@@ -1,4 +1,5 @@
 import { fileIcon, icon } from "./icons";
+import { t } from "./i18n";
 import type { Change } from "./types";
 import { highlight } from "./highlight";
 
@@ -41,7 +42,7 @@ function scrollTo(host: HTMLElement, path: string) {
 function none(): HTMLElement {
   const el = document.createElement("div");
   el.className = "none";
-  el.textContent = "worktree limpo — nada mudou desde o HEAD";
+  el.textContent = t("diff.clean.long");
   return el;
 }
 
@@ -66,7 +67,7 @@ function file(change: Change): HTMLElement {
   const path = head.children[2];
   path.children[0].textContent = cut === -1 ? "" : change.path.slice(0, cut + 1);
   path.children[1].textContent = change.path.slice(cut + 1);
-  head.children[3].textContent = change.new_file ? "novo" : "";
+  head.children[3].textContent = change.new_file ? t("diff.new") : "";
   head.children[4].textContent = change.added ? `+${change.added}` : "";
   head.children[5].textContent = change.removed ? `−${change.removed}` : "";
 
@@ -91,7 +92,7 @@ function lines(change: Change): HTMLElement[] {
   if (!change.patch) {
     const el = document.createElement("div");
     el.className = "dnote";
-    el.textContent = "sem diff para mostrar — arquivo binário ou muito grande";
+    el.textContent = t("diff.binary");
     return [el];
   }
 
@@ -100,7 +101,7 @@ function lines(change: Change): HTMLElement[] {
   if (all.length > MAX_ROWS) {
     const el = document.createElement("div");
     el.className = "dnote";
-    el.textContent = `… ${all.length - MAX_ROWS} linhas a mais, cortadas para a tela não travar`;
+    el.textContent = t("diff.truncated", { n: all.length - MAX_ROWS });
     out.push(el);
   }
   return out;

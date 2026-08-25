@@ -51,6 +51,25 @@ scripts/runner.sh` confere se está online e sobe se não estiver. Runner
 parado = job na fila por até 24h, sem aviso. O repositório precisa continuar
 privado enquanto houver runner self-hosted nele.
 
+## Texto na tela
+
+A tela fala português e inglês. Toda frase que alguém lê passa pelo catálogo:
+`src/i18n.pt.ts` é a fonte (é dele que sai o tipo `Key`), e `src/i18n.en.ts` é
+um `Record` sobre as mesmas chaves — chave nova sem tradução não compila.
+
+- No TypeScript: `t("chave")`, `t("chave", { buraco: valor })`, `tn(n, "chave")`
+  para singular/plural. O que está escrito direto no `index.html` ganha
+  `data-t` (texto) ou `data-t-title` (o `title`), e o `paint()` do boot resolve.
+- No Rust: `i18n::t("err.algo")` e `i18n::ta("err.algo", &[("path", …)])`. O back
+  nunca escreve frase — escreve código, e quem traduz é o `fromBack` do front.
+  Erro que chega do back sempre passa por `fromBack(e)`, nunca por `String(e)`.
+- O que o agente escreve (saída do terminal, pergunta dele, plano) e o que a
+  pessoa escreveu (nome do workspace, etapa, branch) não são tela: ficam como
+  estão.
+
+O idioma sai do `navigator.language` e só; escolher outro grava em
+`localStorage` (`prometheus:idioma`) e recarrega a janela.
+
 ## Rodar
 
 `npm run app` sobe o app de dev isolado por worktree; `npm test` roda vitest e

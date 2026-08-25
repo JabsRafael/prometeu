@@ -1,3 +1,4 @@
+use crate::i18n;
 use crate::lock::lock;
 use crate::AppState;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
@@ -47,14 +48,14 @@ pub struct Pty {
 
 impl Pty {
     pub fn write(&mut self, data: &str) -> Result<(), String> {
-        self.writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
-        self.writer.flush().map_err(|e| e.to_string())
+        self.writer.write_all(data.as_bytes()).map_err(i18n::io)?;
+        self.writer.flush().map_err(i18n::io)
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> Result<(), String> {
         self.master
             .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
-            .map_err(|e| e.to_string())
+            .map_err(i18n::io)
     }
 
     pub fn alive(&self) -> bool {
@@ -149,17 +150,23 @@ fn open(
 ) -> Result<Opened, String> {
     let pair = native_pty_system()
         .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
-        .map_err(|e| format!("openpty falhou: {e}"))?;
+        .map_err(|e| i18n::ta("err.pty.openpty", &[("cause", e.to_string())]))?;
 
-    let child = pair.slave.spawn_command(cmd).map_err(|e| format!("spawn falhou: {e}"))?;
+    let child = pair
+        .slave
+        .spawn_command(cmd)
+        .map_err(|e| i18n::ta("err.pty.spawn", &[("cause", e.to_string())]))?;
     let pid = child.process_id().unwrap_or(0);
     drop(pair.slave); // sem isso o EOF nunca chega quando o filho morre
 
     let reader = pair
         .master
         .try_clone_reader()
-        .map_err(|e| format!("clone do reader falhou: {e}"))?;
-    let writer = pair.master.take_writer().map_err(|e| format!("writer falhou: {e}"))?;
+        .map_err(|e| i18n::ta("err.pty.reader", &[("cause", e.to_string())]))?;
+    let writer = pair
+        .master
+        .take_writer()
+        .map_err(|e| i18n::ta("err.pty.writer", &[("cause", e.to_string())]))?;
 
     let pty = Pty {
         master: pair.master,
@@ -231,9 +238,12 @@ pub fn spawn(
         lock(&app.state::<AppState>().ready).remove(&id);
         if dock && !gone_t.load(Ordering::Relaxed) {
             let line = match code {
-                Some(0) => "\r\n\x1b[32m✓ terminou\x1b[0m\r\n".to_string(),
-                Some(n) => format!("\r\n\x1b[31m✗ saiu com código {n}\x1b[0m\r\n"),
-                None => "\r\n\x1b[31m✗ encerrado\x1b[0m\r\n".to_string(),
+                Some(0) => format!("\r\n\x1b[32m✓ {}\x1b[0m\r\n", i18n::pick("terminou", "finished")),
+                Some(n) => format!(
+                    "\r\n\x1b[31m✗ {}\x1b[0m\r\n",
+                    i18n::pick(&format!("saiu com código {n}"), &format!("exited with code {n}")),
+                ),
+                None => format!("\r\n\x1b[31m✗ {}\x1b[0m\r\n", i18n::pick("encerrado", "stopped")),
             };
             lock(&sink).extend_from_slice(line.as_bytes());
             let _ = app.emit("pty", (id.clone(), line.into_bytes()));
@@ -258,13 +268,13 @@ pub fn spawn(
 #[tauri::command]
 pub fn pty_write(state: State<AppState>, session: String, data: String) -> Result<(), String> {
     let mut ptys = lock(&state.ptys);
-    ptys.get_mut(&session).ok_or("sessão não está rodando")?.write(&data)
+    ptys.get_mut(&session).ok_or_else(|| i18n::t("err.pty.gone"))?.write(&data)
 }
 
 #[tauri::command]
 pub fn pty_resize(state: State<AppState>, session: String, cols: u16, rows: u16) -> Result<(), String> {
     let ptys = lock(&state.ptys);
-    ptys.get(&session).ok_or("sessão não está rodando")?.resize(cols, rows)
+    ptys.get(&session).ok_or_else(|| i18n::t("err.pty.gone"))?.resize(cols, rows)
 }
 
 /// Devolve a rolagem guardada, para o terminal voltar como estava.
