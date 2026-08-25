@@ -888,6 +888,7 @@ body.noside .side { display: none; }
 .setrow .txt > span { color: var(--fg-2); }
 .setrow .txt > span b { font-weight: 500; color: var(--fg); }
 .setrow .txt .ok { color: var(--done); }
+.setrow .txt .bad { color: var(--err); }
 .setrow .act { display: flex; gap: 8px; flex: none; }
 .setrow .act .md .ic:last-child { color: var(--fg-3); }
 
