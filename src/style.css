@@ -160,9 +160,9 @@ body.norail .top .nav { margin-left: 0; }
 .navitem:hover { background: var(--bg-raised); }
 .navitem.on { background: var(--bg-raised-2); color: var(--fg); }
 .navitem > span:first-of-type, .navitem .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Com o avatar do projeto na frente, quem estica é o rótulo — e o `first-of-type`
-   acima pegaria o avatar. Mesmo peso, escrito depois: este vence. */
-.navitem > span.av { flex: none; }
+/* Com o avatar e o anel da etapa na frente, quem estica é o rótulo — e o
+   `first-of-type` acima pegaria o glifo. Mesmo peso, escrito depois: este vence. */
+.navitem > span.av, .navitem > span.st { flex: none; }
 .navitem .n { font-size: 12px; color: var(--fg-3); flex: none; }
 .navitem.brand { color: var(--fg); font-weight: 500; }
 .navitem.brand .ic { color: var(--accent); }
@@ -176,36 +176,34 @@ body.norail .top .nav { margin-left: 0; }
 .sect > span { flex: 1; }
 .railhint { font-size: 12px; color: var(--fg-3); padding: 4px 5px 8px; }
 
-.proj {
-  display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 4px;
-  border-radius: var(--r); font-size: 13px; color: var(--fg-2);
-}
-.proj > span:nth-of-type(2) { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.proj .n { font-size: 12px; color: var(--fg-3); }
-.proj .ico { opacity: 0; }
-.proj:hover .ico, .proj .ico:focus-visible { opacity: 1; }
-
 .navitem.sub { font-size: 13px; padding-left: 12px; height: 30px; }
 /* Novidade: o que aconteceu enquanto você olhava outra coisa. Negrito e branco,
    como e-mail não lido — sem mais um glifo na linha. */
 .navitem.sub.unread .lbl { color: var(--fg); font-weight: 600; }
-.navitem.sub .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; margin: 0 5px; }
+.navitem.sub .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; margin: 0 3px 0 5px; }
 .navitem.sub .av { display: flex; margin-right: -2px; }
 .navitem.sub .av .avatar { width: 14px; height: 14px; border-radius: 3px; font-size: 9px; }
+/* A etapa mora na linha, agora que o grupo é o projeto: o anel diz em que pé
+   está sem tirar espaço do título. */
+.navitem.sub .st { display: flex; color: var(--fg-3); margin-right: -2px; }
 
-/* Grupo por etapa: o cabeçalho da lista, com o anel da etapa e a conta. O
-   chevron só aparece no hover — recolher é ação, não enfeite permanente. */
+/* Grupo por projeto: o cabeçalho da lista, com o avatar do repositório, a
+   conta e o + de criar ali dentro. O chevron e o + só aparecem no hover —
+   recolher é ação, não enfeite permanente. */
 .group {
-  display: flex; align-items: center; gap: 8px; width: 100%; height: 30px;
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 32px;
   margin: 6px 0 1px; padding: 0 4px; border-radius: var(--r); background: none;
-  font-size: 12px; font-weight: 500; color: var(--fg-2); justify-content: flex-start;
+  font-size: 13px; font-weight: 500; color: var(--fg-2); justify-content: flex-start;
 }
 .group:hover { background: var(--bg-raised); }
+.group:focus-visible { outline: 2px solid var(--tab-line); outline-offset: 1px; }
 .group > span:nth-of-type(2) { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .group .gg { display: flex; color: var(--fg-2); }
 .group .n { font-size: 12px; font-weight: 400; color: var(--fg-3); }
 .group .gc { display: flex; color: var(--fg-3); opacity: 0; }
 .group:hover .gc { opacity: 1; }
+.group .ico { opacity: 0; }
+.group:hover .ico, .group .ico:focus-visible { opacity: 1; }
 
 /* ---------- barra do topo ---------- */
 

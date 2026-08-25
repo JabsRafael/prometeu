@@ -37,6 +37,7 @@ export const PT = {
   "rail.noProjects": "Registre um repositório no ícone acima.",
   "rail.newIn": "Novo workspace em {project}",
   "rail.pinned": "Fixados",
+  "rail.loose": "Sem projeto",
   "rail.archived": "Arquivados",
 
   /* ---------- migalha e cabeçalho ---------- */
