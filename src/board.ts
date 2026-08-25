@@ -108,7 +108,7 @@ function onMenu(node: HTMLElement, ws: Workspace, board: Board, hooks: Hooks, la
   });
 }
 
-/* ---------- sidebar: Criar · Quadro · Projetos · workspaces por etapa ---------- */
+/* ---------- sidebar: Criar · Quadro · workspaces por projeto ---------- */
 
 /// Grupo recolhido gruda: quem não olha "Feito" hoje não olha amanhã.
 const FOLD = "prometheus:grupo:";
@@ -151,6 +151,13 @@ function renderRail(board: Board, hooks: Hooks) {
   quadro.addEventListener("click", hooks.toBoard);
   rail.append(quadro, document.createElement("hr"));
 
+  // Fixado sobe para o topo e sai do grupo do projeto: aparecer duas vezes na
+  // mesma lista não ajuda ninguém.
+  const pinned = live.filter((w) => w.pinned);
+  if (pinned.length) {
+    renderGroup(rail, board, hooks, t("rail.pinned"), icon("pin", 14), pinned, "@fixados", { avatars: true });
+  }
+
   const sect = h("div", "sect", `<span></span>`);
   sect.children[0].textContent = t("rail.projects");
   const add = h("button", "ico sm", icon("folder-plus"));
@@ -163,38 +170,36 @@ function renderRail(board: Board, hooks: Hooks) {
     rail.append(h("div", "railhint", t("rail.noProjects")));
   }
 
-  // Projeto agora é só a porta de entrada — o avatar, a conta e o + para criar
-  // ali dentro. Quem organiza a lista é a etapa, não o repositório.
+  // Um grupo por projeto: a lista é do repositório, e a etapa vira o anel na
+  // frente da linha. Com vários repos começando com a mesma letra, o avatar
+  // sozinho não dizia de qual workspace era — o cabeçalho diz.
+  const stageAt = (ws: Workspace) => board.stages.indexOf(ws.stage);
   for (const project of board.projects) {
-    const mine = live.filter((w) => w.project === project.id);
-    const row = h("div", "proj", `${avatar(project.name)}<span></span><span class="n"></span>`);
-    row.children[1].textContent = project.name;
-    row.children[2].textContent = mine.length ? String(mine.length) : "";
+    const mine = live.filter((w) => w.project === project.id && !w.pinned);
+    // Dentro do projeto quem ordena é a etapa: o que está andando fica em cima.
+    mine.sort((a, b) => stageAt(a) - stageAt(b));
     const plus = h("button", "ico sm", icon("plus"));
     // Criar workspace já dentro do projeto é o que torna começar algo rápido.
     plus.title = t("rail.newIn", { project: project.name });
-    plus.addEventListener("click", () => hooks.newWorkspace(project.id));
-    row.append(plus);
-    rail.append(row);
+    plus.addEventListener("click", (e) => {
+      e.stopPropagation();
+      hooks.newWorkspace(project.id);
+    });
+    renderGroup(rail, board, hooks, project.name, avatar(project.name), mine, `@proj:${project.id}`, { extra: plus });
   }
 
-  if (live.length || board.workspaces.length) rail.append(document.createElement("hr"));
-
-  // Fixado sobe para o topo e sai do grupo da etapa: aparecer duas vezes na
-  // mesma lista não ajuda ninguém.
-  const pinned = live.filter((w) => w.pinned);
-  if (pinned.length) renderGroup(rail, board, hooks, t("rail.pinned"), icon("pin", 14), pinned, "@fixados");
-
-  // Um grupo por etapa, na ordem da lista. Etapa vazia não vira cabeçalho vazio.
-  board.stages.forEach((name, i) => {
-    const mine = live.filter((w) => w.stage === name && !w.pinned);
-    if (mine.length) {
-      renderGroup(rail, board, hooks, stageName(name), stageIcon(i, board.stages.length, 14), mine, name);
-    }
-  });
+  // Workspace de um projeto que saiu da lista não pode sumir da barra junto.
+  const known = new Set(board.projects.map((p) => p.id));
+  const loose = live.filter((w) => !w.pinned && !known.has(w.project));
+  if (loose.length) {
+    renderGroup(rail, board, hooks, t("rail.loose"), icon("folder", 14), loose, "@soltos", { avatars: true });
+  }
 
   const gone = board.workspaces.filter((w) => w.archived);
-  if (gone.length) renderGroup(rail, board, hooks, t("rail.archived"), icon("archive", 14), gone, "@arquivados");
+  if (gone.length) {
+    rail.append(document.createElement("hr"));
+    renderGroup(rail, board, hooks, t("rail.archived"), icon("archive", 14), gone, "@arquivados", { avatars: true });
+  }
 }
 
 function renderGroup(
@@ -207,23 +212,44 @@ function renderGroup(
   /// O que grava o recolhido. Fica separado do rótulo porque o rótulo muda de
   /// idioma, e um grupo recolhido não pode se abrir sozinho por causa disso.
   key = name,
+  opts: {
+    /// Grupo que mistura repositórios (fixados, soltos, arquivados): ali o
+    /// avatar ainda é o que diz de qual projeto a linha é.
+    avatars?: boolean;
+    /// Botão do cabeçalho — o + do projeto.
+    extra?: HTMLElement;
+  } = {},
 ) {
   const shut = folded(key);
+  // Div, e não botão: o + do projeto mora no cabeçalho, e `button` dentro de
+  // `button` é HTML inválido. O `tabindex` devolve o que o botão dava de graça.
   const head = h(
-    "button",
+    "div",
     "group",
     `<span class="gg">${glyph}</span><span></span><span class="n"></span><span class="gc"></span>`,
   );
+  head.tabIndex = 0;
   head.children[1].textContent = name;
-  head.children[2].textContent = String(list.length);
-  head.children[3].innerHTML = icon(shut ? "chevron-right" : "chevron-down", 14);
-  head.addEventListener("click", () => {
+  head.children[2].textContent = list.length ? String(list.length) : "";
+  // Grupo vazio não recolhe: o cabeçalho está ali só pelo + de criar dentro.
+  head.children[3].innerHTML = list.length ? icon(shut ? "chevron-right" : "chevron-down", 14) : "";
+  const fold = () => {
+    if (!list.length) return;
     localStorage.setItem(FOLD + key, shut ? "0" : "1");
     renderRail(board, hooks);
+  };
+  head.addEventListener("click", fold);
+  head.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      fold();
+    }
   });
+  if (opts.extra) head.append(opts.extra);
   rail.append(head);
   if (shut) return;
 
+  const total = board.stages.length;
   for (const ws of list) {
     const b = h(
       "button",
@@ -233,10 +259,13 @@ function renderGroup(
     (b.children[0] as HTMLElement).style.background = `var(--dot-${statusOf(ws)})`;
     b.children[1].textContent = ws.title;
     b.children[2].textContent = ws.tabs.length > 1 ? `${ws.tabs.length}` : "";
-    b.title = `${ws.repo_name} · ${ws.branch} · ${label(statusOf(ws))}`;
+    b.title = `${ws.repo_name} · ${ws.branch} · ${stageName(ws.stage)} · ${label(statusOf(ws))}`;
     b.addEventListener("click", () => hooks.open(ws));
-    // Com dois repositórios na lista, o nome do workspace não diz de qual ele é.
-    if (board.projects.length > 1) b.children[0].after(h("span", "av", avatar(ws.repo_name)));
+    // A etapa saiu do cabeçalho e virou o anel da linha: o grupo é o projeto,
+    // e continua dando para ler de longe o que está em qual etapa.
+    const at = board.stages.indexOf(ws.stage);
+    b.children[0].after(h("span", "st", stageIcon(at, total, 13)));
+    if (opts.avatars) b.children[0].after(h("span", "av", avatar(ws.repo_name)));
     onMenu(b, ws, board, hooks, b, "sub");
     rail.append(b);
   }
