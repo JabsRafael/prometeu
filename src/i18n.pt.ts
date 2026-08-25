@@ -138,6 +138,8 @@ export const PT = {
   "issues.kind.unstarted": "A fazer",
   "issues.kind.triage": "Triagem",
   "issues.kind.backlog": "Backlog",
+  "issues.group.show": "Mostrar {group}",
+  "issues.group.fold": "Recolher {group}",
   "issues.search": "Buscar por número, título ou projeto…",
   "issues.refresh": "Buscar de novo no Linear",
   "issues.busy": "buscando…",
@@ -275,14 +277,24 @@ export const PT = {
 
   /* ---------- atualização ---------- */
 
+  "update.ask": "Buscar atualizações",
+  "update.ask.title": "Pergunta agora se saiu versão nova",
+  "update.checking": "Buscando…",
+  "update.checking.note": "Perguntando se saiu versão nova…",
+  "update.fresh": "Nenhuma novidade — conferido às {when}",
+  "update.failedCheck": "Não deu para buscar: {why}",
   "update.found": "Atualizar para {version}",
   "update.found.title": "Versão {version} disponível",
+  "update.found.note": "A {version} saiu. Baixar não interrompe nada do que está aberto.",
   "update.downloading": "Baixando {pct}%",
   "update.downloading.unknown": "Baixando…",
+  "update.downloading.note": "Baixando a {version}…",
   "update.ready": "Reiniciar para atualizar",
   "update.ready.title":
     "A {version} já está instalada e entra quando o app reabrir. As conversas abertas param e voltam de onde pararam.",
+  "update.ready.note": "A {version} está instalada e entra quando o app reabrir.",
   "update.restarting": "Reiniciando…",
+
   "update.failed": "não deu para atualizar: {err}",
   "update.restartFailed": "não deu para reiniciar: {err}",
   "update.stuck":

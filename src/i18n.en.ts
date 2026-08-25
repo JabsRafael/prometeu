@@ -119,6 +119,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "issues.kind.unstarted": "To do",
   "issues.kind.triage": "Triage",
   "issues.kind.backlog": "Backlog",
+  "issues.group.show": "Show {group}",
+  "issues.group.fold": "Collapse {group}",
   "issues.search": "Search by number, title or project…",
   "issues.refresh": "Fetch from Linear again",
   "issues.busy": "searching…",
@@ -242,14 +244,24 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "linear.connect.title":
     "Opens Linear in the browser for you to authorize Prometheus. Read-only, and only on this Mac",
 
+  "update.ask": "Check for updates",
+  "update.ask.title": "Asks right now whether a new version is out",
+  "update.checking": "Checking…",
+  "update.checking.note": "Asking whether a new version is out…",
+  "update.fresh": "Nothing new — checked at {when}",
+  "update.failedCheck": "Could not check: {why}",
   "update.found": "Update to {version}",
   "update.found.title": "Version {version} available",
+  "update.found.note": "{version} is out. Downloading interrupts nothing you have open.",
   "update.downloading": "Downloading {pct}%",
   "update.downloading.unknown": "Downloading…",
+  "update.downloading.note": "Downloading {version}…",
   "update.ready": "Restart to update",
   "update.ready.title":
     "{version} is already installed and takes effect when the app reopens. Open conversations stop and come back where they left off.",
+  "update.ready.note": "{version} is installed and takes effect when the app reopens.",
   "update.restarting": "Restarting…",
+
   "update.failed": "could not update: {err}",
   "update.restartFailed": "could not restart: {err}",
   "update.stuck": "the app did not restart on its own — quit and open Prometheus, {version} is already installed",

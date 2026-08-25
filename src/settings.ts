@@ -4,12 +4,14 @@ import { icon } from "./icons";
 import { LANGS, choose, chosen, fromBack, fromSystem, t, type Lang } from "./i18n";
 import * as menu from "./menu";
 import type { LinearStatus } from "./types";
+import { settingsRow } from "./update";
 import { $, h } from "./util";
 
 /// Configurações do app — o que não é do repositório (isso é o
-/// `settings.toml`) nem de um workspace: a conexão com o Linear e o idioma da
-/// tela. A página é a terceira tela do app, ao lado do quadro e do workspace,
-/// e entra no histórico ← → como as outras.
+/// `settings.toml`) nem de um workspace: a conexão com o Linear, a linha de
+/// atualização (que mora em `update.ts`) e o idioma da tela. A página é a
+/// terceira tela do app, ao lado do quadro e do workspace, e entra no
+/// histórico ← → como as outras.
 ///
 /// A conexão mora no back: o token nunca chega aqui. O que a tela sabe é o
 /// `LinearStatus`, que chega no `init` e depois pelo evento `linear` toda vez
@@ -46,7 +48,8 @@ export function draw() {
   page.append(linearRow());
   const app = h("h2", "", "");
   app.textContent = t("settings.app");
-  page.append(app, langRow());
+  // A atualização vem antes do idioma: é o que se procura aqui com pressa.
+  page.append(app, settingsRow(), langRow());
   view.replaceChildren(page);
 }
 

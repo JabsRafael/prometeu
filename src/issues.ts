@@ -38,6 +38,12 @@ const KINDS: [string, string][] = [
   ["backlog", t("issues.kind.backlog")],
 ];
 
+/// Grupo recolhido gruda: quem tem 40 issues em "A fazer" fecha o grupo uma
+/// vez e ele continua fechado amanhã. Buscar ignora isso — quem procura quer
+/// ver o que achou.
+const FOLD = "prometheus:issues:grupo:";
+const folded = (kind: string) => localStorage.getItem(FOLD + kind) === "1";
+
 let ctx: Ctx;
 let got: Issues | null = null;
 let loading = false;
@@ -184,10 +190,22 @@ function drawList() {
   for (const [kind, label] of kinds) {
     const mine = hits.filter((i) => i.state.kind === kind).sort(byUrgency);
     if (!mine.length) continue;
-    const head = h("div", "igroup", `<span class="t"></span><span class="c"></span>`);
-    head.children[0].textContent = label;
-    head.children[1].textContent = String(mine.length);
+    const shut = !query && folded(kind);
+    const head = h(
+      "button",
+      "igroup" + (shut ? " shut" : ""),
+      `<span class="gc"></span><span class="t"></span><span class="c"></span>`,
+    );
+    head.children[0].innerHTML = icon(shut ? "chevron-right" : "chevron-down", 14);
+    head.children[1].textContent = label;
+    head.children[2].textContent = String(mine.length);
+    head.title = t(shut ? "issues.group.show" : "issues.group.fold", { group: label });
+    head.addEventListener("click", () => {
+      localStorage.setItem(FOLD + kind, shut ? "0" : "1");
+      drawList();
+    });
     list.append(head);
+    if (shut) continue;
     for (const issue of mine) list.append(row(issue));
   }
 }
