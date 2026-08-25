@@ -4,6 +4,15 @@ O que muda no Prometheus, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.1.11] - 2026-08-25
+
+### Novidades
+
+- **dock:** Worktree herda o settings.toml do clone, e a porta do Run não se repete entre worktrees
+- **idioma:** O app fala inglês, e começa no idioma do computador
+- **issues:** Recolher grupo de issues, e o grupo fechado continua fechado
+- **updater:** Botão "Buscar atualizações" em Configurações, com a versão e a hora da última busca
+
 ## [0.1.10] - 2026-08-24
 
 ### Novidades
