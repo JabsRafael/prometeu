@@ -110,9 +110,4 @@ export class Term {
       }
     });
   }
-
-  /// Teclas que o app quer antes do terminal. Devolver `false` come a tecla.
-  onKey(handler: (e: KeyboardEvent) => boolean) {
-    this.term.attachCustomKeyEventHandler(handler);
-  }
 }

@@ -17,10 +17,10 @@ Sessão é one-off: nasce, faz, morre. Sem passar artefato de uma sessão para o
 Três camadas. Só a de cima é escrita com carinho.
 
 ```
-overlay (TS)   card da pergunta, quadro, notificação        <- seu
+overlay (TS)   quadro, abas, notificação                    <- seu
    ^  clique                                    v evento
 hooks (socket) prometheus-hook <-> prometheus.sock          <- cola
-   ^  decisão                                   v payload
+                                                v payload
 PTY            o `claude` de verdade, TUI inteira           <- de graça
 ```
 
@@ -31,11 +31,14 @@ Claude Code de verdade rodando ali.
 
 ### O ida-e-volta
 
-1. O Claude Code precisa de permissão e dispara o hook `PermissionRequest`.
+1. O Claude Code dispara um hook — `PreToolUse`, `Stop`, `PermissionRequest`, …
 2. `prometheus-hook` lê o payload no stdin e o entrega pelo socket unix.
-3. O app desenha o card e **o hook fica bloqueado** (`timeout: 86400` no settings).
-4. Você clica. A decisão volta pelo socket, sai no stdout do hook, e o Claude Code
-   a obedece — a TUI mostra `Allowed by PermissionRequest hook`.
+3. O app anota no quadro o que aquela sessão está fazendo, ou que ela parou
+   esperando você, e solta o hook na hora.
+
+O app **não responde** por você: pergunta, plano e permissão são seletores da
+TUI, e é dentro do terminal que se responde. O hook serve para o quadro saber o
+que está acontecendo em cada conversa sem você abrir uma por uma.
 
 Uma conexão por invocação de hook, então a conexão já é a correlação: sem ids de
 mensagem, sem multiplexação.
@@ -49,8 +52,9 @@ worktree é isolado e descartável — e é por isso que solto **sem** worktree 
 único par que merece aviso, e o lançador o dá em laranja: aí o agente mexe sem
 pedir no clone em que você trabalha.
 
-O hook de `PermissionRequest` fica instalado mesmo assim, porque
-`AskUserQuestion` e `ExitPlanMode` passam por ele em bypass.
+O hook de `PermissionRequest` fica instalado mesmo assim: `AskUserQuestion` e
+`ExitPlanMode` passam por ele em bypass, e é dele que sai o **quer você** do
+quadro.
 
 ### Modelo, esforço e plan mode
 
@@ -70,34 +74,19 @@ levantada na marra (Claude Code 2.1.240): `--permission-mode plan` junto de
 `--dangerously-skip-permissions` nasce em bypass, e o plano nunca acontece. O
 que funciona é `--permission-mode plan --allow-dangerously-skip-permissions`:
 a sessão nasce em plan, e o "Would you like to proceed?" do `ExitPlanMode` já
-traz "switch to BYPASS PERMISSIONS" como primeira opção. O card **plano
-pronto** mostra o plano; **Executar** é o dígito `1` escrito no PTY, e daí em
-diante é o solto de sempre. **Ajustar** é o `3`, e o terminal ganha o foco para
-você dizer o que muda.
+traz "switch to BYPASS PERMISSIONS" como primeira opção. Aprovar o plano é
+responder esse seletor no terminal; o quadro só conta que a conversa parou
+esperando você.
 
-`ExitPlanMode` passa pelo hook como qualquer ferramenta, mas `allow` por ele
-não pula o seletor — a TUI o desenha do mesmo jeito, só mais tarde. Então o
-hook o solta na hora, como faz com `AskUserQuestion`.
+### Perguntar é da TUI
 
-### O caso do AskUserQuestion
-
-Verificado empiricamente no Claude Code 2.1.237, e é a única sutileza real do
-projeto:
-
-- O hook **não consegue** escolher a resposta. Devolver `updatedInput` com
-  `answers` preenchido não funciona: `permissionDecision: "allow"` significa
-  "aceita o padrão", e o agente recebe a **primeira** opção.
-- Então, para `AskUserQuestion`, o hook **não decide nada** e retorna na hora. A
-  TUI desenha o seletor numerado, e o clique no card vira **um dígito** escrito no
-  PTY.
-- Dígito e não seta: seta é relativa e erra acumulado se um evento se perder;
-  dígito é absoluto. O esquema da ferramenta limita a 4 opções, então um dígito
-  sempre basta.
-- Nada é lido da tela. O card e a TUI numeram a **mesma lista**, que veio
-  estruturada no payload do hook.
-
-Há uma folga de 400ms entre liberar o hook e escrever o dígito, porque o seletor
-só existe depois que o hook retorna. Sem ela a tecla se perde.
+O app já desenhou card de pergunta, de plano e de permissão por cima do
+terminal. Não desenha mais: a TUI do Claude Code desenha os mesmos seletores
+logo ali embaixo, com o texto inteiro e o teclado que você já conhece, e a
+segunda cópia só disputava atenção com a primeira. O hook solta o agente na
+hora nos três casos, e o que sobra no app é a nota **quer você** no card do
+workspace — que é a parte que o terminal não conta quando você está olhando
+outra conversa.
 
 ### Nunca no settings.json global
 
@@ -201,9 +190,6 @@ Cobre o que erra calado:
 - que **encerrar uma sessão encerra mesmo** — o filho que ignora o desligamento
   educado e o neto que o filho deixou para trás, que é o `node` do servidor de
   dev segurando a porta depois de você mandar fechar;
-- a **gramática do seletor** — quais teclas respondem um `AskUserQuestion`. É a
-  única parte do projeto que adivinha o estado de uma TUI, então é a que mais
-  precisa de um teste dizendo o que era verdade quando funcionou;
 - a leitura do settings.toml, e a base de onde a branch nova sai, contra um git
   de verdade;
 - o corte de um `git diff` em um patch por arquivo, e a conta de número de linha
