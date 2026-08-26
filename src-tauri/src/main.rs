@@ -10,6 +10,7 @@ mod scripts;
 mod session;
 mod socket;
 mod state;
+mod team;
 mod transcript;
 
 use state::Board;
@@ -138,6 +139,8 @@ fn main() {
             linear::linear_disconnect,
             linear::linear_issues,
             linear::linear_open,
+            team::team_config,
+            team::team_config_set,
         ])
         .build(tauri::generate_context!())
         .expect("erro ao subir o Prometheus")

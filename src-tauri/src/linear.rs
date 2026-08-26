@@ -406,31 +406,9 @@ pub fn load() -> Option<Auth> {
 }
 
 fn save(auth: &Auth) -> Result<(), String> {
-    write_private(&path(), &serde_json::to_string_pretty(auth).map_err(|e| e.to_string())?)
-}
-
-/// Só o dono lê: o arquivo nasce `0600`, e é reescrito inteiro — nunca
-/// truncado e preenchido, para não haver um instante com o arquivo vazio.
-fn write_private(target: &std::path::Path, body: &str) -> Result<(), String> {
-    if let Some(dir) = target.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    let tmp = target.with_extension("json.tmp");
-    let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600);
-    }
-    let mut file = opts.open(&tmp).map_err(|e| {
-        i18n::ta("err.linear.write", &[("path", target.display().to_string()), ("cause", e.to_string())])
-    })?;
-    file.write_all(body.as_bytes()).map_err(|e| e.to_string())?;
-    drop(file);
-    std::fs::rename(&tmp, target).map_err(|e| {
-        i18n::ta("err.linear.write", &[("path", target.display().to_string()), ("cause", e.to_string())])
-    })
+    let body = serde_json::to_string_pretty(auth).map_err(|e| e.to_string())?;
+    paths::write_private(&path(), &body)
+        .map_err(|cause| i18n::ta("err.linear.write", &[("path", path().display().to_string()), ("cause", cause)]))
 }
 
 pub fn status() -> Status {
@@ -534,7 +512,7 @@ fn issues(force: bool) -> Result<Issues, String> {
     *lock(&CACHE) = Some(fresh.clone());
     // Cache que não grava não é erro: a lista chegou, e é isso que importa.
     if let Ok(body) = serde_json::to_string(&fresh) {
-        let _ = write_private(&issues_path(), &body);
+        let _ = paths::write_private(&issues_path(), &body);
     }
     Ok(fresh)
 }
