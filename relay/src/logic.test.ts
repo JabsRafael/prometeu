@@ -101,7 +101,7 @@ describe("compartilhar e olhar", () => {
     reduce(s, open("c1", "carol"));
     reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t1" }));
     reduce(s, text("c1", { t: "attach", ws: "ws1", tab: "t2" }));
-    const data = encodeLive("t1", new Uint8Array([1, 2, 3]));
+    const data = encodeLive("t1", [{ seq: 1, bytes: new Uint8Array([1, 2, 3]) }]);
     const fx = reduce(s, binary("a1", data));
     expect(fx).toEqual([{ e: "sendBinary", sock: "b1", data }]);
   });
@@ -111,14 +111,14 @@ describe("compartilhar e olhar", () => {
     reduce(s, open("c1", "carol"));
     reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t1" }));
     reduce(s, text("c1", { t: "attach", ws: "ws1", tab: "t1" }));
-    const data = encodeSnapshot("t1", "carol", new Uint8Array([9]));
+    const data = encodeSnapshot("t1", "carol", 7, new Uint8Array([9]));
     expect(reduce(s, binary("a1", data))).toEqual([{ e: "sendBinary", sock: "c1", data }]);
   });
 
   it("quem não é o dono não transmite nada", () => {
     const s = team();
     reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t1" }));
-    expect(reduce(s, binary("b1", encodeLive("t1", new Uint8Array([1]))))).toEqual([]);
+    expect(reduce(s, binary("b1", encodeLive("t1", [{ seq: 1, bytes: new Uint8Array([1]) }])))).toEqual([]);
   });
 
   it("trocar de aba solta a anterior e o dono ouve as duas", () => {
