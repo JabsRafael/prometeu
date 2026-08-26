@@ -1812,8 +1812,11 @@ fn script_env(ws: &Workspace) -> Vec<(String, String)> {
 fn ensure_port(state: &State<AppState>, id: &str) -> Option<u16> {
     let mut board = lock(&state.board);
     let ws = board.workspaces.iter().find(|w| w.id == id)?;
-    if ws.port.is_some() {
-        return ws.port;
+    // Porta guardada por uma versão que ainda entregava as proibidas (5060,
+    // 6000…) é trocada aqui: o run que já está de pé fica na velha até ser
+    // reiniciado, mas o próximo nasce numa que o navegador abre.
+    if let Some(port) = ws.port.filter(|p| scripts::usable(*p)) {
+        return Some(port);
     }
     let worktree = ws.worktree.clone();
     let taken: Vec<u16> = board.workspaces.iter().filter_map(|w| w.port).collect();
