@@ -11,7 +11,7 @@ import { $ } from "./util";
 /// `dock`; aqui mora só o que o repositório declara, o que está de pé, e o que
 /// os botões fazem.
 
-const NO_SCRIPTS: Scripts = { file: null, inherited: false, setup: null, runs: [], archive: null, port: null };
+const NO_SCRIPTS: Scripts = { file: null, inherited: false, setup: null, runs: [], archive: null, copy: [], port: null };
 
 /// O que o repositório declara e o que existe no dock agora. Vem do back quando
 /// o workspace abre e sempre que um script sobe ou morre — nada de polling.
@@ -41,8 +41,12 @@ let ctx: Ctx;
 const isUp = (kind: DockKind) => info.docks.some((d) => d.kind === kind && d.alive);
 /// Rodou e morreu: a rolagem ainda está lá, com o `✗ saiu com código` no fim.
 const hasLog = (kind: DockKind) => info.docks.some((d) => d.kind === kind);
+/// Setup conta a cópia do clone junto com o script: worktree que só recebe o
+/// `.env` também tem o que mostrar na aba, e é ali que se vê o que veio.
 const declares = (kind: DockKind) =>
-  kind === "setup" ? !!info.scripts.setup : info.scripts.runs.length > 0;
+  kind === "setup"
+    ? !!info.scripts.setup || info.scripts.copy.length > 0
+    : info.scripts.runs.length > 0;
 
 /// As abas de shell abertas, em ordem. Não são fixas como Setup e Run: nascem
 /// no +, somem no ✕, e é o back que sabe quais existem — trocar de workspace

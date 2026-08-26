@@ -332,16 +332,15 @@ pub fn create_workspace(
     lock(&state.board).workspaces.push(ws.clone());
 
     // Worktree recém-nascido não tem nada que o `.gitignore` esconde:
-    // dependências, `.env`, banco, build. O setup é o que faz dele um lugar onde
-    // dá para trabalhar. O processo do agente sobe junto — é agora que ele
-    // pergunta se você confia na pasta, e isso não precisa esperar o `npm
-    // install` —, mas a primeira fala só é digitada quando o setup termina (ver
-    // `release_prompts`): agente que roda teste antes de haver `node_modules`
-    // conclui coisa errada. Falhar aqui não desfaz o worktree; o erro fica
+    // dependências, `.env`, banco, build. O que dá para reconstruir é o setup
+    // que reconstrói; o que não dá — segredo, chave — vem copiado do clone,
+    // antes dele. Os dois são a aba Setup. O processo do agente sobe junto — é
+    // agora que ele pergunta se você confia na pasta, e isso não precisa esperar
+    // o `npm install` —, mas a primeira fala só é digitada quando o setup
+    // termina (ver `release_prompts`): agente que roda teste antes de haver
+    // `node_modules` conclui coisa errada. Falhar aqui não desfaz o worktree; o erro fica
     // escrito na aba Setup, que é onde se conserta.
-    if let Some(command) = scripts_of(&ws).setup {
-        let _ = start_script(&app, &state, &ws, "setup", &command, cols, rows);
-    }
+    let _ = start_setup(&app, &state, &ws, cols, rows);
 
     publish(&app);
     Ok(ws)
@@ -467,7 +466,7 @@ pub fn resume_tab(
     // aba renasce com o mesmo id: não há nada perdido, e travar a tela num erro
     // por causa de uma conversa vazia seria pior.
     let resume = paths::transcript(&tab, &worktree).exists();
-    let handle = pty::spawn(&app, &tab, claude_cmd(&tab, &worktree, resume, &launch)?, cols, rows, false, None)?;
+    let handle = pty::spawn(&app, &tab, claude_cmd(&tab, &worktree, resume, &launch)?, cols, rows, None)?;
     lock(&state.ptys).insert(tab.clone(), handle);
     {
         let mut board = lock(&state.board);
@@ -492,7 +491,7 @@ fn spawn_tab(
     rows: u16,
 ) -> Result<Tab, String> {
     let id = uuid::Uuid::new_v4().to_string();
-    let handle = pty::spawn(app, &id, claude_cmd(&id, worktree, false, launch)?, cols, rows, false, None)?;
+    let handle = pty::spawn(app, &id, claude_cmd(&id, worktree, false, launch)?, cols, rows, None)?;
     lock(&state.ptys).insert(id.clone(), handle);
     Ok(Tab {
         id,
@@ -1277,14 +1276,20 @@ pub fn open_dock(
         for (key, value) in script_env(&ws) {
             cmd.env(key, value);
         }
-        let handle = pty::spawn(&app, &key, cmd, cols, rows, true, None)?;
+        let handle = pty::spawn(&app, &key, cmd, cols, rows, Some(pty::Dock::default()))?;
         lock(&state.ptys).insert(key.clone(), handle);
+        return Ok(key);
+    }
+
+    // Setup tem caminho próprio porque não é só um comando: é a cópia do que vem
+    // do clone, e ela vale mesmo num repositório que não declara `setup` nenhum.
+    if kind == "setup" {
+        start_setup(&app, &state, &ws, cols, rows)?;
         return Ok(key);
     }
 
     let found = scripts_of(&ws);
     let command = match kind.as_str() {
-        "setup" => found.setup.clone(),
         "run" => found.run(name.as_deref()).map(|r| r.command.clone()),
         other => return Err(i18n::ta("err.dock.unknown", &[("kind", other.to_string())])),
     }
@@ -1292,8 +1297,43 @@ pub fn open_dock(
         i18n::ta("err.dock.noScript", &[("kind", kind.clone()), ("file", scripts::FILES[0].to_string())])
     })?;
 
-    start_script(&app, &state, &ws, &kind, &command, cols, rows)?;
+    let script = Script { kind: &kind, command: &command, header: None };
+    start_script(&app, &state, &ws, script, cols, rows)?;
     Ok(key)
+}
+
+/// A aba Setup inteira: primeiro o que este worktree recebe do clone, depois o
+/// `setup` que o repositório declara.
+///
+/// Os dois valem sozinhos. Worktree que só precisa do `.env` também ganha a aba
+/// — é ela que diz o que veio, e cópia calada é mágica. Sem script, o processo é
+/// um `true`: o que importa ali é o cabeçalho, e uma aba que funciona pela
+/// metade seria pior que a mágica.
+fn start_setup(
+    app: &AppHandle,
+    state: &State<AppState>,
+    ws: &Workspace,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    let found = scripts_of(ws);
+    let notes = scripts::hydrate(Path::new(&ws.worktree), Path::new(&ws.repo), &found.copy);
+    let report = scripts::report(&notes);
+    if found.setup.is_none() && report.is_none() {
+        let holes = [("kind", "setup".to_string()), ("file", scripts::FILES[0].to_string())];
+        return Err(i18n::ta("err.dock.noScript", &holes));
+    }
+    let script =
+        Script { kind: "setup", command: found.setup.as_deref().unwrap_or("true"), header: report };
+    start_script(app, state, ws, script, cols, rows)
+}
+
+/// O que subir num pty do dock: qual aba, o que rodar nela, e o que o Prometheus
+/// escreve antes de o processo abrir a boca.
+struct Script<'a> {
+    kind: &'a str,
+    command: &'a str,
+    header: Option<String>,
 }
 
 /// Sobe um script do repositório num pty do dock. Se já houver um de pé com a
@@ -1302,11 +1342,11 @@ fn start_script(
     app: &AppHandle,
     state: &State<AppState>,
     ws: &Workspace,
-    kind: &str,
-    command: &str,
+    script: Script,
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
+    let Script { kind, command, header } = script;
     let key = format!("{}:{kind}", ws.id);
     // Entrada morta não conta: é só a rolagem do que rodou antes, e subir de
     // novo a substitui.
@@ -1329,7 +1369,7 @@ fn start_script(
         let id = ws.id.clone();
         Box::new(move |code| release_prompts(&app, &id, code)) as pty::OnExit
     });
-    let handle = pty::spawn(app, &key, cmd, cols, rows, true, on_exit)?;
+    let handle = pty::spawn(app, &key, cmd, cols, rows, Some(pty::Dock { on_exit, header }))?;
     lock(&state.ptys).insert(key, handle);
     Ok(())
 }
