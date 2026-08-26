@@ -20,7 +20,7 @@ export function initTerminal(onError: (m: string) => void) {
   fail = onError;
   // A tecla vai para o PTY daqui — ou, numa conversa de colega, para o dono.
   term.open($("term"), (key, data) => {
-    if (team.isRemoteTab(key)) team.write(key, data);
+    if (key === team.attachedTab()) team.write(data);
     else invoke("pty_write", { session: key, data }).catch((e) => fail(fromBack(e)));
   });
   term.onResize((key, cols, rows) => team.resized(key, cols, rows));
@@ -46,11 +46,13 @@ export function initTerminal(onError: (m: string) => void) {
   });
 }
 
-export async function attach(id: string) {
+/// Liga o terminal numa conversa. `remote` é o id do workspace de um colega
+/// quando a conversa é dele: aí os bytes vêm do relay, e não de um PTY daqui.
+export async function attach(id: string, remote?: string) {
   cards().replaceChildren();
   liveOptions = 0;
-  if (team.isRemoteTab(id)) {
-    const r = await team.attach(id);
+  if (remote) {
+    const r = await team.attach(remote, id);
     term.attachRemote(id, r.bytes, r.cols, r.rows);
   } else {
     await term.attach(id);

@@ -268,6 +268,34 @@ const ISSUES: Issue[] = [
   issue("MOA-120", "Explorar sync com Notion", 0, BACKLOG, "Integrações", 240),
 ];
 
+/// A rolagem de cada conversa de mentira, numerada como o back numera: o que
+/// `mock.type` escreve entra aqui, sai pelo evento `pty` com o número, e o
+/// `pty_snapshot` devolve o mesmo par — para o compartilhamento poder ser
+/// testado contra um relay de verdade sem subir o Tauri.
+const scrolls = new Map<string, { text: string; seq: number }>();
+const scrollOf = (tab: string) => {
+  let s = scrolls.get(tab);
+  if (!s) {
+    s = { text: SAMPLE, seq: 1 };
+    scrolls.set(tab, s);
+  }
+  return s;
+};
+function typeInto(tab: string, data: string) {
+  const s = scrollOf(tab);
+  const out = data === "\r" ? "\r\n" : data;
+  s.text += out;
+  s.seq += 1;
+  emit("pty", [tab, [...new TextEncoder().encode(out)], s.seq]);
+}
+
+/// Os workspaces compartilhados, entre recargas — o `shared` do board.json.
+const SHARED = "mock:shared";
+for (const id of JSON.parse(localStorage.getItem(SHARED) ?? "[]") as string[]) {
+  const ws = board.workspaces.find((x) => x.id === id);
+  if (ws) ws.shared = true;
+}
+
 function emit(event: string, payload: unknown) {
   handlers.get(event)?.forEach((h) => h({ event, id: nextId++, payload }));
 }
@@ -292,11 +320,18 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     case "pty_buffer": {
       // Chave com `:` é dock; sem, é conversa de agente.
       const s = String(args.session);
-      const text = !s.includes(":") ? SAMPLE : docks.get(s) === false ? SCRIPT_OUT + DONE : SCRIPT_OUT;
+      const text = !s.includes(":") ? scrollOf(s).text : docks.get(s) === false ? SCRIPT_OUT + DONE : SCRIPT_OUT;
       return [...new TextEncoder().encode(text)];
     }
-    case "pty_snapshot":
-      return { bytes: [...new TextEncoder().encode(SAMPLE)], seq: 1 };
+    case "pty_snapshot": {
+      const s = scrollOf(String(args.session));
+      return { bytes: [...new TextEncoder().encode(s.text)], seq: s.seq };
+    }
+    // O terminal de mentira ecoa o que recebe: é o que deixa ver a tecla de um
+    // colega chegar e voltar.
+    case "pty_write":
+      typeInto(String(args.session), String(args.data));
+      return;
     case "workspace_diff":
       return changes;
     case "list_dir":
@@ -334,6 +369,9 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     case "set_shared": {
       const target = board.workspaces.find((x) => x.id === args.id);
       if (target) target.shared = args.shared;
+      // Como o `board.json` do back: recarregar a página não desfaz o que foi
+      // compartilhado, senão o dono que volta volta sem nada compartilhado.
+      localStorage.setItem(SHARED, JSON.stringify(board.workspaces.filter((x) => x.shared).map((x) => x.id)));
       emit("board", board);
       return;
     }
@@ -625,11 +663,16 @@ function fakeSocket(url: string): team.SocketLike {
   }, 500);
   return s;
 }
-team.useTransport({
-  needsRelay: false,
-  socket: fakeSocket,
-  create: async () => ({ team: "timeDeMentira", secret: "segredoDeMentira" }),
-});
+// Com `VITE_RELAY` no ambiente o time é de verdade — o relay local do
+// `wrangler dev` —, e só o back continua de mentira. É como dois navegadores
+// testam o compartilhamento de ponta a ponta sem subir o Tauri.
+if (!(import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_RELAY) {
+  team.useTransport({
+    needsRelay: false,
+    socket: fakeSocket,
+    create: async () => ({ team: "timeDeMentira", secret: "segredoDeMentira" }),
+  });
+}
 
 w.__TAURI_INTERNALS__ = {
   metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
@@ -647,6 +690,10 @@ w.__TAURI_INTERNALS__ = {
 // Atalhos para testar os cards de resposta pelo console: `mock.ask()`,
 // `mock.perm()` e `mock.plan()`.
 w.mock = {
+  /// Escreve na conversa de mentira, como se o processo tivesse escrito.
+  type: (tab: string, text: string) => typeInto(tab, text),
+  /// O que o time diz agora — para dirigir a tela de fora e ver o que ela viu.
+  team: () => ({ status: team.status(), remotes: team.remotes() }),
   presence: (online: boolean) => {
     marcusOnline = online;
     for (const s of fakes) (s as unknown as { presence: () => void }).presence();

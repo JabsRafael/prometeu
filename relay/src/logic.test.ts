@@ -164,10 +164,15 @@ describe("compartilhar e olhar", () => {
     expect(got.share.online).toBe(false);
     expect(puts(gone)).toContain("share:ws1");
 
+    // Voltar já põe o share de pé — e avisa quem estava olhando —, sem
+    // esperar o dono reanunciar: o terminal volta a andar na mesma hora.
     const back = reduce(s, open("a2", "alice"));
     const welcome = one(back, "a2", "welcome")!;
-    expect(welcome.shares[0].online).toBe(false);
+    expect(welcome.shares[0].online).toBe(true);
     expect(welcome.watching).toEqual({ ws1: { t1: ["bob"] } });
+    expect(one(back, "b1", "share")!.share.online).toBe(true);
+    expect(puts(back)).toContain("share:ws1");
+    // Reanunciar depois não repete o aviso à toa.
     const again = reduce(s, text("a2", { t: "share", share: share() }));
     expect(one(again, "b1", "share")!.share.online).toBe(true);
   });
@@ -221,6 +226,21 @@ describe("notas", () => {
     expect(list.items.map((n) => n.text)).toEqual(["@carol olha isso", "vi"]);
     const back = reduce(s, open("c2", "carol"));
     expect(one(back, "c2", "welcome")!.inbox.map((i) => i.id)).toEqual([`${NOW + 2}-n1`]);
+  });
+});
+
+describe("dono que volta", () => {
+  it("só os shares dele acordam — o do colega continua como estava", () => {
+    const s = team();
+    reduce(s, text("b1", { t: "share", share: share("ws2", ["u1"]) }));
+    reduce(s, close("a1"));
+    reduce(s, close("b1"));
+    const back = reduce(s, open("a2", "alice"));
+    const welcome = one(back, "a2", "welcome")!;
+    expect(welcome.shares.map((x) => [x.id, x.online])).toEqual([
+      ["ws1", true],
+      ["ws2", false],
+    ]);
   });
 });
 

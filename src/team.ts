@@ -18,6 +18,7 @@ import {
   type Watching,
 } from "../relay/src/protocol";
 import { t } from "./i18n";
+import { Mirror } from "./mirror";
 import type { Board, Workspace } from "./types";
 
 /// O time: a conexão com o relay e o que ele conta — quem está online, o que
@@ -55,8 +56,6 @@ const RELAY = "";
 /// Quanto da rolagem vai a quem acabou de abrir uma aba. O back guarda 512 KB;
 /// metade chega em menos de um segundo e cobre a tela inteira com folga.
 const SNAPSHOT_MAX = 256 * 1024;
-/// O espelho de cada aba remota, no colega — o mesmo teto do back.
-const MIRROR_MAX = 512 * 1024;
 /// Quanto a saída espera antes de sair num frame só. O relay cobra por
 /// mensagem recebida; a tela do colega não distingue 40 ms.
 const COALESCE = 40;
@@ -311,6 +310,7 @@ function handle(frame: Down) {
       break;
     case "unshare":
       shares.delete(frame.ws);
+      for (const [id, r] of remoteIds) if (r.ws === frame.ws) remoteIds.delete(id);
       if (attached?.ws === frame.ws) attached = null;
       break;
     case "watch":
@@ -359,6 +359,7 @@ function reset() {
   queue.clear();
   attached = null;
   mirror.clear();
+  remoteIds.clear();
 }
 
 const cleanName = (name: string) => {
@@ -567,14 +568,25 @@ function typed(ws: string, tab: string, data: string) {
 
 /* ---------- colega: o que os outros compartilharam ---------- */
 
+/// O id de um workspace de colega na tela deste app. Prefixado porque o
+/// quadro passa a ter os dois, e um id que colidisse com um workspace daqui
+/// faria a tela desenhar um e falar do outro — e mandar ao back um id que não
+/// é dele. O que o relay conhece fica no mapa.
+const PREFIX = "@time:";
+const remoteIds = new Map<string, { ws: string; owner: string }>();
+const remoteId = (owner: string, ws: string) => `${PREFIX}${owner}/${ws}`;
+
 /// A aba de um colega que está na tela, se alguma.
 let attached: { ws: string; tab: string } | null = null;
-/// A rolagem de cada aba remota que já abri: o snapshot mais o que veio ao
-/// vivo, até o teto. É daqui que a tela renasce ao voltar para a aba.
-const mirror = new Map<string, { parts: Uint8Array[]; total: number; seq: number }>();
+/// A rolagem de cada aba remota que já abri: a que o dono mandou mais o que
+/// veio ao vivo. É daqui que a tela renasce ao voltar para a aba. A regra de
+/// juntar as duas está em `mirror.ts`, testada sem rede nem tela.
+const mirror = new Map<string, Mirror>();
 let waiting: { tab: string; resolve: () => void } | null = null;
 
-const shareOfTab = (tab: string) => [...shares.values()].find((s) => s.tabs.some((x) => x.id === tab));
+/// O share de uma aba remota. Só para o que chega do relay já endereçado —
+/// nunca para decidir se uma aba é remota: aba local com o mesmo id existiria.
+const shareOfTab = (tab: string) => (attached?.tab === tab ? shares.get(attached.ws) : undefined);
 
 /// Workspaces dos colegas, como o quadro os desenha. Não são do Rust: só
 /// existem na tela, e o que os distingue é `remote`.
@@ -582,8 +594,10 @@ export function remotes(): Workspace[] {
   const out: Workspace[] = [];
   for (const s of shares.values()) {
     if (s.owner === you) continue;
+    const id = remoteId(s.owner, s.id);
+    remoteIds.set(id, { ws: s.id, owner: s.owner });
     out.push({
-      id: s.id,
+      id,
       title: s.title,
       project: "@time",
       repo: "",
@@ -609,19 +623,19 @@ export function remotes(): Workspace[] {
   return out;
 }
 
-export const isRemote = (ws: string) => {
-  const s = shares.get(ws);
-  return !!s && s.owner !== you;
-};
-export const isRemoteTab = (tab: string) => {
-  const s = shareOfTab(tab);
-  return !!s && s.owner !== you;
-};
+/// Este id de workspace é de um colega? Pelo prefixo, e não por busca: a
+/// resposta não pode mudar porque um share chegou ou saiu no meio.
+export const isRemote = (id: string) => id.startsWith(PREFIX);
+
+/// A aba remota que está na tela, se é uma. É por aqui que a tecla decide
+/// para onde vai — o id da aba sozinho não diz de quem ela é.
+export const attachedTab = () => attached?.tab ?? null;
 
 /// Abrir a aba de um colega: pede ao relay, espera a rolagem chegar e devolve
 /// o que a tela desenha. Uma aba por vez — abrir outra solta a anterior.
-export async function attach(tab: string): Promise<{ bytes: Uint8Array; cols: number; rows: number }> {
-  const s = shareOfTab(tab);
+export async function attach(id: string, tab: string): Promise<{ bytes: Uint8Array; cols: number; rows: number }> {
+  const found = remoteIds.get(id);
+  const s = found && shares.get(found.ws);
   if (!s) throw t("err.team.noShare");
   attached = { ws: s.id, tab };
   const [cols, rows] = s.sizes[tab] ?? [80, 24];
@@ -642,32 +656,30 @@ export function detach() {
   waiting = null;
 }
 
-/// A tecla de quem está olhando vai ao dono — se ele estiver aí.
-export function write(tab: string, data: string) {
-  const s = shareOfTab(tab);
+/// A tecla de quem está olhando vai ao dono — se ele estiver aí. Vale para a
+/// aba na tela, que é a única em que se digita.
+export function write(data: string) {
+  if (!attached) return;
+  const s = shares.get(attached.ws);
   if (!s) return;
   if (!s.online) {
     fail?.(t("err.team.offline"));
     return;
   }
-  send({ t: "write", ws: s.id, tab, data });
+  send({ t: "write", ws: s.id, tab: attached.tab, data });
 }
 
 function mirrorOf(tab: string): Uint8Array {
-  const m = mirror.get(tab);
-  if (!m) return new Uint8Array(0);
-  if (m.parts.length > 1) m.parts = [concat(m.parts)];
-  return m.parts[0] ?? new Uint8Array(0);
+  return mirror.get(tab)?.bytes() ?? new Uint8Array(0);
 }
 
-function concat(parts: Uint8Array[]): Uint8Array {
-  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
-  let at = 0;
-  for (const p of parts) {
-    out.set(p, at);
-    at += p.length;
+function mirrorFor(tab: string): Mirror {
+  let m = mirror.get(tab);
+  if (!m) {
+    m = new Mirror();
+    mirror.set(tab, m);
   }
-  return out;
+  return m;
 }
 
 function binary(data: ArrayBuffer) {
@@ -675,7 +687,7 @@ function binary(data: ArrayBuffer) {
   if (!bin) return;
   if (bin.kind === SNAPSHOT) {
     if (bin.to !== you) return;
-    mirror.set(bin.tab, { parts: [bin.bytes.slice()], total: bin.bytes.length, seq: bin.seq });
+    mirrorFor(bin.tab).seed(bin.bytes, bin.seq);
     if (waiting?.tab === bin.tab) {
       waiting.resolve();
       waiting = null;
@@ -683,25 +695,13 @@ function binary(data: ArrayBuffer) {
       // Ninguém pediu: o dono voltou (ou a conexão), e a tela renasce.
       const s = shareOfTab(bin.tab);
       const [cols, rows] = s?.sizes[bin.tab] ?? [80, 24];
-      guest.reset(bin.tab, bin.bytes, cols, rows);
+      guest.reset(bin.tab, mirrorOf(bin.tab), cols, rows);
     }
     return;
   }
-  // Ao vivo sem snapshot ainda é o que saiu entre o `attach` e a rolagem
-  // chegar: já está dentro dela. E pedaço com número até o do snapshot, idem.
-  const m = mirror.get(bin.tab);
-  if (!m) return;
+  const m = mirrorFor(bin.tab);
   for (const seg of bin.segments) {
-    if (seg.seq <= m.seq) continue;
-    m.seq = seg.seq;
-    const bytes = seg.bytes.slice();
-    m.parts.push(bytes);
-    m.total += bytes.length;
-    if (m.total > MIRROR_MAX) {
-      const all = concat(m.parts);
-      m.parts = [all.subarray(all.length - MIRROR_MAX)];
-      m.total = MIRROR_MAX;
-    }
-    if (attached?.tab === bin.tab) guest.live(bin.tab, bytes);
+    const fresh = m.absorb(seg.seq, seg.bytes);
+    if (fresh && attached?.tab === bin.tab) guest.live(bin.tab, fresh);
   }
 }

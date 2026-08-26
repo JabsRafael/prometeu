@@ -116,6 +116,15 @@ export function reduce(s: State, ev: Event): Effect[] {
       const name = ev.name.trim() || known?.name || ev.member.slice(0, 8);
       s.members.set(ev.member, { name, last_seen: ev.now });
       s.socks.set(ev.sock, { id: ev.sock, member: ev.member, attached: null });
+      // O dono voltou: o que ele compartilhava volta a estar de pé antes de
+      // ele reanunciar nada. Sem isto o card do colega ficava dizendo
+      // "offline" com o terminal andando atrás — e digitar não funcionava.
+      const woke: Effect[] = [];
+      for (const [ws, e] of s.shares) {
+        if (e.owner !== ev.member || e.online) continue;
+        e.online = true;
+        woke.push({ e: "put", key: `share:${ws}`, value: e }, ...broadcast(s, { t: "share", share: shared(e) }));
+      }
       const presence: Down = { t: "presence", members: members(s) };
       return [
         { e: "put", key: `member:${ev.member}`, value: { id: ev.member, name, last_seen: ev.now } },
@@ -131,6 +140,7 @@ export function reduce(s: State, ev: Event): Effect[] {
             watching: watching(s, ev.member),
           },
         },
+        ...woke,
         ...[...s.socks.keys()].filter((k) => k !== ev.sock).map((sock): Effect => ({ e: "send", sock, frame: presence })),
       ];
     }

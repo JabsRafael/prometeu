@@ -96,7 +96,7 @@ export async function open(ws: Workspace) {
   // dock, sem novidade para marcar no back. É a conversa, e só.
   if (ws.remote) {
     showTerm();
-    if (first) await session.attach(first.id);
+    if (first) await session.attach(first.id, ws.id);
     ctx.redraw();
     return;
   }
@@ -531,9 +531,10 @@ async function selectTab(workspace: string, tab: string) {
   // Clicar na aba em que você já está não refaz nada. É o que deixa o duplo
   // clique chegar inteiro no renomear: o rótulo continua sendo o mesmo nó.
   if (tab === session.currentSession() && !fs.diff && !fs.active) return;
-  if (!team.isRemote(workspace)) invoke("focus_tab", { workspace, tab });
+  const remote = team.isRemote(workspace);
+  if (!remote) invoke("focus_tab", { workspace, tab });
   showTerm();
-  await session.attach(tab);
+  await session.attach(tab, remote ? workspace : undefined);
   draw();
 }
 
