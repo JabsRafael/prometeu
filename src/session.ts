@@ -17,7 +17,9 @@ let liveOptions = 0;
 
 export function initTerminal(onError: (m: string) => void) {
   fail = onError;
-  term.open($("term"));
+  term.open($("term"), (key, data) => {
+    invoke("pty_write", { session: key, data }).catch((e) => fail(fromBack(e)));
+  });
   window.addEventListener("resize", () => term.refit());
 
   // Ctrl+1..4 responde a pergunta aberta sem tirar a mão do teclado, como no

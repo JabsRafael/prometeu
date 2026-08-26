@@ -348,6 +348,8 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 
 .termwrap { flex: 1; position: relative; min-height: 0; overflow: hidden; }
 #term { position: absolute; inset: 12px 16px; }
+/* Conversa de um colega: o terminal tem o tamanho do dele, e se não couber rola. */
+#term.fixed { overflow: auto; }
 
 .tab.file .ic { color: var(--fg-2); }
 .tab.file.on .ic { color: var(--fg); }

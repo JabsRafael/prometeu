@@ -8,7 +8,9 @@ import type { DockKind } from "./types";
 const term = new Term({ fontSize: 12, foreground: "#a4a09d", scrollback: 4000 });
 
 export function init(el: HTMLElement) {
-  term.open(el);
+  term.open(el, (key, data) => {
+    invoke("pty_write", { session: key, data });
+  });
 }
 
 /// Abre (ou reabre) um dock. Reabrir não reinicia nada: o processo continua
