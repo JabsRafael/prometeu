@@ -1,7 +1,7 @@
 /// Back falso para o navegador puro (`npm run dev` e abrir localhost:1420):
 /// a UI inteira roda com dados de amostra, sem subir o Tauri. Só entra quando
 /// `window.__TAURI_INTERNALS__` não existe — dentro do app não é carregado.
-import type { Board, Issue, LinearStatus, Scripts, Workspace } from "./types";
+import { hasWorktree, type Board, type Issue, type LinearStatus, type Scripts, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
@@ -405,7 +405,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     }
     case "cleanup_list":
       return board.workspaces
-        .filter((x) => x.archived && !x.cleaned)
+        .filter(hasWorktree)
         .map((x, i) => ({
           id: x.id,
           title: x.title,

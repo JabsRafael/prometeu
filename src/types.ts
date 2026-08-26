@@ -59,6 +59,11 @@ export type Workspace = {
 export type Pr = { number: number; title: string; isDraft: boolean; state: string };
 export const merged = (ws: Workspace) => ws.pr?.state === "MERGED";
 
+/// Arquivado que ainda tem um worktree só dele para devolver ao disco. O que
+/// roda no próprio clone (worktree desligado no lançador) nunca teve: a pasta
+/// é o repositório, e não há o que limpar.
+export const hasWorktree = (ws: Workspace) => ws.archived && !ws.cleaned && ws.worktree !== ws.repo;
+
 /// Um worktree que pode voltar para o disco, e o que ele ocupa. `blocked` é o
 /// erro do back dizendo por que não pode — passa por `fromBack` como qualquer
 /// outro.

@@ -242,30 +242,48 @@ pub struct Cleanable {
 /// sair. Uma varredura só, pedida quando a tela de limpeza abre: cada linha
 /// custa um `git status` e um `du`, e isso não é coisa para o redesenho do
 /// quadro fazer.
+///
+/// Workspace que roda no próprio clone fica de fora: não há pasta para
+/// devolver, e medi-lo seria um `du` do repositório inteiro por linha — era
+/// isso que fazia a lista demorar. As linhas que sobram são medidas em
+/// paralelo: cada `du` anda numa árvore diferente, e o disco aguenta.
 #[tauri::command(async)]
 pub fn cleanup_list(state: State<AppState>) -> Vec<Cleanable> {
     let mine: Vec<Workspace> = lock(&state.board)
         .workspaces
         .iter()
-        .filter(|w| w.archived && !w.cleaned)
+        .filter(|w| has_worktree(w))
         .cloned()
         .collect();
 
-    mine.into_iter()
-        .map(|ws| {
-            let wt = PathBuf::from(&ws.worktree);
-            Cleanable {
-                size_kb: size_of(&wt),
-                blocked: check(&ws).err(),
-                pr: ws.pr.as_ref().map(|p| p.number),
-                id: ws.id,
-                title: ws.title,
-                repo_name: ws.repo_name,
-                branch: ws.branch,
-                worktree: ws.worktree,
-            }
-        })
-        .collect()
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = mine
+            .into_iter()
+            .map(|ws| {
+                scope.spawn(move || {
+                    let wt = PathBuf::from(&ws.worktree);
+                    Cleanable {
+                        size_kb: size_of(&wt),
+                        blocked: check(&ws).err(),
+                        pr: ws.pr.as_ref().map(|p| p.number),
+                        id: ws.id,
+                        title: ws.title,
+                        repo_name: ws.repo_name,
+                        branch: ws.branch,
+                        worktree: ws.worktree,
+                    }
+                })
+            })
+            .collect();
+        handles.into_iter().filter_map(|h| h.join().ok()).collect()
+    })
+}
+
+/// Arquivado que ainda tem um worktree só dele para devolver. O que já foi
+/// devolvido não conta, e o que roda no próprio clone nunca contou: a pasta
+/// é o repositório.
+fn has_worktree(ws: &Workspace) -> bool {
+    ws.archived && !ws.cleaned && ws.worktree != ws.repo
 }
 
 /// Devolve o worktree ao disco: a pasta sai, a branch local sai, o card fica.
