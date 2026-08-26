@@ -1803,11 +1803,14 @@ fn script_env(ws: &Workspace) -> Vec<(String, String)> {
 /// Workspace criado antes de as portas existirem não tem uma. Em vez de pedir
 /// para recriar, ganha a sua na primeira vez que é aberto — o painel pede os
 /// scripts, e a porta vai junto, porque é ela que ele mostra.
-fn ensure_port(state: &State<AppState>, id: &str) -> Option<u16> {
+pub(crate) fn ensure_port(state: &State<AppState>, id: &str) -> Option<u16> {
     let mut board = lock(&state.board);
     let ws = board.workspaces.iter().find(|w| w.id == id)?;
-    if ws.port.is_some() {
-        return ws.port;
+    // Porta guardada por uma versão que ainda entregava as proibidas (5060,
+    // 6000…) é trocada aqui: o run que já está de pé fica na velha até ser
+    // reiniciado, mas o próximo nasce numa que o navegador abre.
+    if let Some(port) = ws.port.filter(|p| scripts::usable(*p)) {
+        return Some(port);
     }
     let worktree = ws.worktree.clone();
     let taken: Vec<u16> = board.workspaces.iter().filter_map(|w| w.port).collect();
@@ -1826,8 +1829,10 @@ pub fn reveal(state: State<AppState>, id: String) -> Result<(), String> {
         .ok_or_else(|| i18n::ta("err.session.openFailed", &[("path", root.display().to_string())]))
 }
 
-/// Abre o navegador na porta do run. A porta sai do estado, e não do front:
-/// URL arbitrária não viaja pelo IPC.
+/// Abre o navegador de fora na porta do run: é lá que o agente enxerga a
+/// página (a extensão do Chrome) e que se confere o que só o Chrome faz. A aba
+/// de dentro é o `browser`. A porta sai do estado, e não do front: URL
+/// arbitrária não viaja pelo IPC.
 #[tauri::command]
 pub fn open_run(state: State<AppState>, id: String) -> Result<(), String> {
     let port = ensure_port(&state, &id).ok_or_else(|| i18n::t("err.session.noPort"))?;

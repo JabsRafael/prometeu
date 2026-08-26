@@ -19,7 +19,9 @@ members = ["hook"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# `unstable` é a webview filha (`Window::add_child`): a aba de navegador é uma
+# webview do sistema por cima do centro da janela. Ver `browser.rs`.
+tauri = { version = "2", features = ["unstable"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 portable-pty = "0.9"

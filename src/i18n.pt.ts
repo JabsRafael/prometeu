@@ -210,6 +210,10 @@ export const PT = {
   "tab.changes.title": "Diff do worktree inteiro",
   "tab.changes.close": "Fechar Mudanças",
   "tab.changes.closeKey": "Fechar Mudanças  ⌘W",
+  "tab.browser": "Navegador",
+  "tab.browser.title": "O Run deste workspace, em http://localhost:{port}",
+  "tab.browser.close": "Fechar o navegador",
+  "tab.browser.closeKey": "Fechar o navegador  ⌘W",
 
   /* ---------- painel da direita, árvore e mudanças ---------- */
 
@@ -219,6 +223,9 @@ export const PT = {
   "side.reveal": "Abrir o worktree no Finder",
   "diff.foldAll": "Recolher todos",
   "viewer.copyPath": "Copiar caminho",
+  "web.reload": "Recarregar",
+  "web.external": "Abrir no navegador de fora",
+  "web.url": "Endereço da página — escreva outro e tecle Enter",
   "diff.clean": "worktree limpo",
   "diff.clean.long": "worktree limpo — nada mudou desde o HEAD",
   "diff.new": "novo",
@@ -283,7 +290,7 @@ export const PT = {
   "dock.expand": "Expandir",
   "dock.stop": "Parar",
   "dock.open": "Open",
-  "dock.open.title": "Abrir http://localhost:{port} no navegador",
+  "dock.open.title": "Abrir http://localhost:{port} numa aba — ⌥ abre no navegador de fora",
   "dock.pick": "Escolher o script",
   "dock.again": "Rodar o setup de novo",
   "dock.settings.copy": "Copiar o settings.toml do clone para cá",
@@ -414,6 +421,7 @@ export const PT = {
   "err.session.binary": "arquivo binário",
   "err.session.openFailed": "não abriu {path}",
 
+  "err.browser.badUrl": "endereço que não dá para abrir: {url}",
   "err.dock.unknown": "dock desconhecido: {kind}",
   "err.dock.noScript": "nenhum script de {kind} em {file}",
 

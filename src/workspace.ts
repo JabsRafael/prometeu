@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import * as board from "./board";
+import * as browser from "./browser";
 import * as diff from "./diff";
 import * as dockbar from "./dockbar";
 import { avatar, icon, stageIcon } from "./icons";
@@ -36,7 +37,8 @@ export function init(context: Ctx) {
   ctx = context;
 
   tree.init({ openFile, workspace: id });
-  dockbar.init({ workspace: id, say: ctx.say, openFile, newTab });
+  dockbar.init({ workspace: id, say: ctx.say, openFile, newTab, openBrowser: showWeb });
+  browser.init((id) => invoke("open_run", { id }).catch((e) => ctx.say(fromBack(e), true)), ctx.say);
 
   $("tab-files").addEventListener("click", () => setSidePane("files"));
   $("tab-diff").addEventListener("click", () => {
@@ -86,6 +88,9 @@ export function init(context: Ctx) {
 /* ---------- entrar e sair ---------- */
 
 export async function open(ws: Workspace) {
+  // Ir de um workspace a outro não passa pelo `leave`: sem isto, a webview do
+  // que ficou para trás continuaria por cima do que você abriu.
+  browser.hide();
   const first = ws.tabs.find((t) => t.id === ws.active) ?? ws.tabs[0];
   // Abrir é ler: a novidade deste workspace morre aqui, e o que acontecer nele
   // enquanto ele estiver na tela não vira novidade nova.
@@ -107,13 +112,15 @@ export async function open(ws: Workspace) {
   if (first) await session.attach(first.id);
   // Volta para onde parou: arquivo aberto continua aberto, diff continua na tela.
   const fs = files(ws.id);
-  if (fs.diff) showChanges();
+  if (fs.web) await showWeb();
+  else if (fs.diff) showChanges();
   else if (fs.active) await showFile();
   else showTerm();
   ctx.redraw();
 }
 
 export function leave() {
+  browser.hide();
   session.detach();
   invoke("look_at", { id: null });
   board.setOpen((openWs = null));
@@ -333,7 +340,7 @@ function drawTabs(ws: Workspace) {
   const bar = $("tabbar");
   bar.replaceChildren();
   const fs = files(ws.id);
-  const elsewhere = fs.diff || fs.active;
+  const elsewhere = fs.diff || fs.active || fs.web;
 
   for (const tab of ws.tabs) {
     const b = document.createElement("button");
@@ -385,6 +392,28 @@ function drawTabs(ws: Workspace) {
     x.addEventListener("click", (e) => {
       e.stopPropagation();
       closeChanges();
+    });
+    b.append(x);
+    bar.append(b);
+  }
+
+  // A aba de navegador existe enquanto você não a fechar: o Run pode cair e
+  // subir por baixo dela, e a página continua a mesma.
+  if (fs.webTab) {
+    const b = document.createElement("button");
+    b.className = "tab file" + (fs.web ? " on" : "");
+    b.innerHTML = `${icon("globe", 14)}<span></span><span class="n"></span>`;
+    b.children[1].textContent = t("tab.browser");
+    b.children[2].textContent = fs.port ? `:${fs.port}` : "";
+    b.title = t("tab.browser.title", { port: fs.port });
+    b.addEventListener("click", () => void showWeb());
+    const x = document.createElement("span");
+    x.className = "tabx ico sm";
+    x.innerHTML = icon("x", 12);
+    x.title = t(fs.web ? "tab.browser.closeKey" : "tab.browser.close");
+    x.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void closeWeb();
     });
     b.append(x);
     bar.append(b);
@@ -458,7 +487,7 @@ async function selectTab(workspace: string, tab: string) {
   const fs = files(workspace);
   // Clicar na aba em que você já está não refaz nada. É o que deixa o duplo
   // clique chegar inteiro no renomear: o rótulo continua sendo o mesmo nó.
-  if (tab === session.currentSession() && !fs.diff && !fs.active) return;
+  if (tab === session.currentSession() && !fs.diff && !fs.active && !fs.web) return;
   invoke("focus_tab", { workspace, tab });
   showTerm();
   await session.attach(tab);
@@ -494,18 +523,23 @@ type Files = {
   /// Você fechou a aba de Mudanças. Sem isto ela renasceria no redesenho
   /// seguinte, porque o worktree continua sujo — e aí fechar não fecharia nada.
   hidDiff: boolean;
+  /// A aba de navegador: `webTab` é ela estar na barra, `web` é estar no centro.
+  web: boolean;
+  webTab: boolean;
+  port: number;
 };
 const filesOf = new Map<string, Files>();
 
 function files(id: string): Files {
   let f = filesOf.get(id);
-  if (!f) filesOf.set(id, (f = { open: [], active: null, diff: false, hidDiff: false }));
+  if (!f) filesOf.set(id, (f = { open: [], active: null, diff: false, hidDiff: false, web: false, webTab: false, port: 0 }));
   return f;
 }
 
 /// Workspace que saiu do quadro leva junto o que era só dele. Sem isto, cada
 /// mapa aqui guardava para sempre o estado de tela de coisas que não existem.
 export function forget(alive: Set<string>) {
+  for (const [id, f] of filesOf) if (!alive.has(id) && f.webTab) browser.close(id);
   for (const map of [filesOf, changesOf, branchOf] as Map<string, unknown>[]) {
     for (const id of map.keys()) if (!alive.has(id)) map.delete(id);
   }
@@ -526,6 +560,7 @@ async function showFile() {
   const path = ws && files(ws.id).active;
   if (!ws || !path) return showTerm();
   files(ws.id).diff = false;
+  leaveWeb(files(ws.id));
   center("viewer");
   await viewer.show(ws.id, path);
 }
@@ -535,8 +570,70 @@ function showTerm() {
   if (ws) {
     files(ws.id).active = null;
     files(ws.id).diff = false;
+    leaveWeb(files(ws.id));
   }
   center("termwrap");
+}
+
+/* ---------- navegador ---------- */
+
+/// Se foi a aba de navegador que recolheu a coluna da direita. Recolhida por
+/// você antes, ela continua recolhida depois.
+let hidSide = false;
+
+/// A aba de navegador no centro. A coluna da direita recolhe sozinha — a página
+/// quer largura — e volta quando você sai da aba, se foi daqui que ela sumiu.
+export async function showWeb() {
+  const ws = current();
+  if (!ws) return;
+  const fs = files(ws.id);
+  fs.active = null;
+  fs.diff = false;
+  fs.web = true;
+  fs.webTab = true;
+  if (!document.body.classList.contains("noside")) {
+    document.body.classList.add("noside");
+    hidSide = true;
+  }
+  center("webview");
+  try {
+    fs.port = await browser.show(ws.id);
+  } catch (err) {
+    ctx.say(fromBack(err), true);
+    fs.webTab = false;
+    showTerm();
+  }
+  drawTabs(ws);
+}
+
+/// A aba de navegador sai do centro: a webview some e a coluna da direita
+/// volta, se foi ela que a recolheu.
+function leaveWeb(fs: Files) {
+  if (!fs.web) return;
+  fs.web = false;
+  browser.hide();
+  if (hidSide) {
+    document.body.classList.remove("noside");
+    hidSide = false;
+  }
+}
+
+/// Fechar a aba é destruir a webview — aba fechada não guarda página. Como na
+/// de Mudanças, `web` fica ligado até o `showTerm` da vez desligar: é ele que
+/// faz o `selectTab` entender que a tela precisa trocar.
+async function closeWeb() {
+  const ws = current();
+  if (!ws) return;
+  const fs = files(ws.id);
+  const wasOpen = fs.web;
+  fs.webTab = false;
+  browser.close(ws.id);
+  if (wasOpen) {
+    const tab = session.currentSession();
+    if (tab) await selectTab(ws.id, tab);
+    else showTerm();
+  }
+  drawTabs(ws);
 }
 
 /// Tela de mudanças. `focus` vem do clique na lista da direita: é a mesma tela,
@@ -548,6 +645,7 @@ function showChanges(focus?: string) {
   fs.active = null;
   fs.diff = true;
   fs.hidDiff = false;
+  leaveWeb(fs);
   center("diffview");
   drawChanges(ws.id, focus);
   drawTabs(ws);
@@ -573,8 +671,8 @@ async function closeChanges() {
   drawTabs(ws);
 }
 
-function center(show: "termwrap" | "viewer" | "diffview") {
-  for (const id of ["termwrap", "viewer", "diffview"] as const) $(id).hidden = id !== show;
+function center(show: "termwrap" | "viewer" | "diffview" | "webview") {
+  for (const id of ["termwrap", "viewer", "diffview", "webview"] as const) $(id).hidden = id !== show;
 }
 
 async function closeFile(path: string) {
@@ -597,6 +695,10 @@ async function closeFile(path: string) {
 export function closeActive(): boolean {
   const fs = openWs && files(openWs);
   if (!fs) return false;
+  if (fs.web) {
+    closeWeb();
+    return true;
+  }
   if (fs.active) {
     closeFile(fs.active);
     return true;

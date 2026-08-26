@@ -35,6 +35,8 @@ type Ctx = {
   openFile: (path: string) => Promise<void>;
   /// Conversa nova já com uma primeira fala.
   newTab: (prompt: string) => Promise<void>;
+  /// A aba de navegador no centro, na porta do Run.
+  openBrowser: () => Promise<void>;
 };
 let ctx: Ctx;
 
@@ -107,9 +109,13 @@ export function init(context: Ctx) {
       },
     ]);
   });
-  $("run-open").addEventListener("click", () => {
+  // Clique abre a aba de navegador; ⌥-clique vai para o navegador de fora,
+  // que é onde o agente enxerga a página e onde se confere o que só o Chrome faz.
+  $("run-open").addEventListener("click", (e) => {
     const id = ctx.workspace();
-    if (id) invoke("open_run", { id }).catch((e) => ctx.say(fromBack(e), true));
+    if (!id) return;
+    if (e.altKey) invoke("open_run", { id }).catch((e) => ctx.say(fromBack(e), true));
+    else void ctx.openBrowser();
   });
   $("dock-add").innerHTML = icon("plus", 14);
   $("dock-add").addEventListener("click", () => void setDock(nextTerm(), true));

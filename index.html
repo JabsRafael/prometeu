@@ -98,6 +98,17 @@
               </div>
               <div class="dlist" id="dlist"></div>
             </div>
+            <!-- Navegador: o Run do workspace numa webview do sistema por cima
+                 deste lugar. O DOM só reserva o buraco; quem desenha é o sistema. -->
+            <div class="webview" id="webview" hidden>
+              <div class="vbar">
+                <input class="wurl" id="wurl" type="text" spellcheck="false" autocomplete="off" data-t-title="web.url" />
+                <span class="spacer"></span>
+                <button id="wreload" class="ico" data-t-title="web.reload"></button>
+                <button id="wext" class="ico" data-t-title="web.external"></button>
+              </div>
+              <div class="webbody" id="webbody"></div>
+            </div>
             <!-- Arquivo aberto pela árvore: toma o lugar do terminal, como no Conductor. -->
             <div class="viewer" id="viewer" hidden>
               <div class="vbar">
