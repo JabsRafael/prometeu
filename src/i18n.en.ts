@@ -32,7 +32,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "rail.pinned": "Pinned",
   "rail.loose": "No project",
   "rail.archived": "Archived",
-  "rail.cleanup": "Release worktrees",
+  "rail.cleanup": "Clean up worktrees",
   "rail.cleanup.title": "Take finished work\u2019s worktrees off the disk",
 
   "crumb.board": "Board",
@@ -63,7 +63,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "card.archive.title": "Archive (worktree and branch stay)",
   "card.finish.title": "Finish: last stage and archive",
   "card.merged.title": "PR #{n} landed — open in the browser",
-  "card.cleaned.title": "Worktree released — it was {path}",
+  "card.cleaned.title": "Worktree removed — it was {path}",
 
   "ws.menu.read": "Mark as read",
   "ws.menu.unread": "Mark as unread",
@@ -76,8 +76,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "ws.menu.unarchive": "Unarchive",
   "ws.menu.archive": "Archive",
   "ws.menu.finish": "Finish",
-  "ws.menu.cleanup": "Release the worktree…",
-  "ws.menu.gone": "worktree released",
+  "ws.menu.cleanup": "Clean up the worktree…",
+  "ws.menu.gone": "worktree removed",
   "ws.menu.drop": "Remove from board",
 
   "model.default": "Default model",
@@ -197,22 +197,22 @@ export const EN: Record<keyof typeof pt.PT, string> = {
 
   /* ---------- worktree released ---------- */
 
-  "gone.title": "Worktree released",
+  "gone.title": "Worktree removed",
   "gone.body":
     "The folder is off the disk and the local branch is gone — the work had already landed. What is left is this card: the name, the stage and the PR.",
 
   /* ---------- releasing the disk ---------- */
 
-  "clean.title": "Release worktrees",
+  "clean.title": "Clean up worktrees",
   "clean.hint": "The folder and the local branch go; the card stays, and the PR stays where it is.",
   "clean.count.one": "{n} archived with a worktree",
   "clean.count.other": "{n} archived with worktrees",
   "clean.cancel": "Cancel",
-  "clean.go": "Release {n} · {size}",
-  "clean.goEmpty": "Release",
-  "clean.doing": "releasing {name}…",
-  "clean.done.one": "worktree released — {size} back",
-  "clean.done.other": "{n} worktrees released — {size} back",
+  "clean.go": "Clean up {n} · {size}",
+  "clean.goEmpty": "Clean up",
+  "clean.doing": "cleaning up {name}…",
+  "clean.done.one": "worktree removed — {size} back",
+  "clean.done.other": "{n} worktrees removed — {size} back",
   "clean.none": "No archived workspace has a worktree on disk.",
   "clean.loading": "Checking what can go…",
 
@@ -350,8 +350,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.session.noBase": "the base branch '{base}' does not exist in {path}",
   "err.session.noPort": "workspace with no port",
   "err.session.noPr": "no open PR for this branch",
-  "err.session.cleaned": "this workspace’s worktree was released",
-  "err.cleanup.notArchived": "archive this work before releasing its worktree",
+  "err.session.cleaned": "this workspace’s worktree was removed",
+  "err.cleanup.notArchived": "archive this work before cleaning up its worktree",
   "err.cleanup.isRepo": "this workspace works in the clone itself, not in a worktree",
   "err.cleanup.dirty": "there are {n} files with uncommitted changes",
   "err.cleanup.unmerged": "'{branch}' has work that did not land on the target",

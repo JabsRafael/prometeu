@@ -39,7 +39,7 @@ export const PT = {
   "rail.pinned": "Fixados",
   "rail.loose": "Sem projeto",
   "rail.archived": "Arquivados",
-  "rail.cleanup": "Devolver worktrees",
+  "rail.cleanup": "Limpar worktrees",
   "rail.cleanup.title": "Tirar do disco os worktrees de trabalho que já acabou",
 
   /* ---------- migalha e cabeçalho ---------- */
@@ -76,7 +76,7 @@ export const PT = {
   "card.archive.title": "Arquivar (worktree e branch ficam)",
   "card.finish.title": "Concluir: última etapa e arquivar",
   "card.merged.title": "O PR #{n} entrou — abrir no navegador",
-  "card.cleaned.title": "Worktree devolvido ao disco — era {path}",
+  "card.cleaned.title": "Worktree removido — era {path}",
 
   /* ---------- menu do botão direito num workspace ---------- */
 
@@ -91,8 +91,8 @@ export const PT = {
   "ws.menu.unarchive": "Desarquivar",
   "ws.menu.archive": "Arquivar",
   "ws.menu.finish": "Concluir",
-  "ws.menu.cleanup": "Devolver o worktree…",
-  "ws.menu.gone": "worktree devolvido",
+  "ws.menu.cleanup": "Limpar o worktree…",
+  "ws.menu.gone": "worktree removido",
   "ws.menu.drop": "Tirar do quadro",
 
   /* ---------- lançador ---------- */
@@ -222,22 +222,22 @@ export const PT = {
 
   /* ---------- worktree devolvido ---------- */
 
-  "gone.title": "Worktree devolvido",
+  "gone.title": "Worktree removido",
   "gone.body":
     "A pasta saiu do disco e a branch local foi apagada — o trabalho já estava no alvo. O que ficou é este card: o nome, a etapa e o PR.",
 
   /* ---------- devolver o disco ---------- */
 
-  "clean.title": "Devolver worktrees ao disco",
+  "clean.title": "Limpar worktrees",
   "clean.hint": "A pasta e a branch local saem; o card fica, e o PR continua onde está.",
   "clean.count.one": "{n} arquivado com worktree",
   "clean.count.other": "{n} arquivados com worktree",
   "clean.cancel": "Cancelar",
-  "clean.go": "Devolver {n} · {size}",
-  "clean.goEmpty": "Devolver",
-  "clean.doing": "devolvendo {name}…",
-  "clean.done.one": "worktree devolvido — {size} de volta",
-  "clean.done.other": "{n} worktrees devolvidos — {size} de volta",
+  "clean.go": "Limpar {n} · {size}",
+  "clean.goEmpty": "Limpar",
+  "clean.doing": "limpando {name}…",
+  "clean.done.one": "worktree removido — {size} de volta",
+  "clean.done.other": "{n} worktrees removidos — {size} de volta",
   "clean.none": "Nenhum arquivado tem worktree no disco.",
   "clean.loading": "Vendo o que dá para devolver…",
 
@@ -390,8 +390,8 @@ export const PT = {
   "err.session.noBase": "a branch base '{base}' não existe em {path}",
   "err.session.noPort": "workspace sem porta",
   "err.session.noPr": "não achei um PR aberto para esta branch",
-  "err.session.cleaned": "o worktree deste workspace foi devolvido ao disco",
-  "err.cleanup.notArchived": "arquive este trabalho antes de devolver o worktree",
+  "err.session.cleaned": "o worktree deste workspace foi removido",
+  "err.cleanup.notArchived": "arquive este trabalho antes de limpar o worktree",
   "err.cleanup.isRepo": "este workspace mexe no próprio clone, e não num worktree",
   "err.cleanup.dirty": "há {n} arquivos com mudanças fora de commit",
   "err.cleanup.unmerged": "'{branch}' tem trabalho que não entrou no alvo",
