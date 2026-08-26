@@ -7,9 +7,10 @@ import { fromBack, stage as stageName, t, tn } from "./i18n";
 import * as menu from "./menu";
 import * as rename from "./rename";
 import * as session from "./session";
+import * as team from "./team";
 import * as tree from "./tree";
 import { fmtTokens, label, merged, statusOf, type Board, type Change, type Tab, type Workspace } from "./types";
-import { $, debounce } from "./util";
+import { $, debounce, h } from "./util";
 import * as viewer from "./viewer";
 
 /// A tela de um workspace: migalha, abas, o que está no centro (conversa,
@@ -79,7 +80,7 @@ export function init(context: Ctx) {
   // botão em que o gesto começou já não existe quando o duplo clique chega.
   $("tabbar").addEventListener("dblclick", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLElement>(".tab[data-tab]");
-    if (b?.dataset.tab) editTab(b.dataset.tab);
+    if (b?.dataset.tab && !current()?.remote) editTab(b.dataset.tab);
   });
 }
 
@@ -87,15 +88,23 @@ export function init(context: Ctx) {
 
 export async function open(ws: Workspace) {
   const first = ws.tabs.find((t) => t.id === ws.active) ?? ws.tabs[0];
-  // Abrir é ler: a novidade deste workspace morre aqui, e o que acontecer nele
-  // enquanto ele estiver na tela não vira novidade nova.
-  invoke("look_at", { id: ws.id });
   board.setOpen((openWs = ws.id));
-  tree.reset();
-  dockbar.reset();
   $("boardView").hidden = true;
   $("wsView").hidden = false;
   $("wsctl").hidden = false;
+  // Workspace de um colega: nada dele está neste disco — sem arquivos, sem
+  // dock, sem novidade para marcar no back. É a conversa, e só.
+  if (ws.remote) {
+    showTerm();
+    if (first) await session.attach(first.id);
+    ctx.redraw();
+    return;
+  }
+  // Abrir é ler: a novidade deste workspace morre aqui, e o que acontecer nele
+  // enquanto ele estiver na tela não vira novidade nova.
+  invoke("look_at", { id: ws.id });
+  tree.reset();
+  dockbar.reset();
   // Worktree devolvido: não há processo para ligar nem arquivo para ler. O que
   // sobrou é o que está escrito, e é isso que a tela mostra.
   if (ws.cleaned) {
@@ -114,6 +123,7 @@ export async function open(ws: Workspace) {
 }
 
 export function leave() {
+  team.detach();
   session.detach();
   invoke("look_at", { id: null });
   board.setOpen((openWs = null));
@@ -129,18 +139,24 @@ export function draw() {
   if (!ws) return ctx.toBoard();
 
   // Migalha como no Conductor: avatar do projeto › nome do workspace › branch.
+  // No workspace de um colega, o primeiro pedaço é ele — é o que diz de quem
+  // é a conversa que está na tela.
+  const remote = ws.remote;
+  const owner = remote ? team.nameOf(remote.owner) : null;
   const crumb = $("crumb");
   crumb.innerHTML =
-    `${avatar(ws.repo_name)}<span></span><span class="sep">${icon("chevron-right", 12)}</span><span></span>` +
+    `${avatar(owner ?? ws.repo_name)}<span></span><span class="sep">${icon("chevron-right", 12)}</span><span></span>` +
     `<button class="branch" hidden>${icon("git-branch", 12)}<span></span></button>`;
-  crumb.children[1].textContent = ws.repo_name;
+  crumb.children[1].textContent = owner ?? ws.repo_name;
   const name = crumb.children[3] as HTMLElement;
   name.textContent = ws.title;
-  // Na migalha não tem lápis: nada ali é clicável, então o duplo clique é livre.
-  name.title = t("ws.rename");
-  name.addEventListener("dblclick", () =>
-    rename.start(name, ws.title, (title) => renameWorkspace(ws.id, title), "crumb"),
-  );
+  if (!remote) {
+    // Na migalha não tem lápis: nada ali é clicável, então o duplo clique é livre.
+    name.title = t("ws.rename");
+    name.addEventListener("dblclick", () =>
+      rename.start(name, ws.title, (title) => renameWorkspace(ws.id, title), "crumb"),
+    );
+  }
 
   const st = statusOf(ws);
   const chip = $("wsstatus");
@@ -167,17 +183,38 @@ export function draw() {
     );
   };
 
+  drawTabs(ws);
+  const tab = ws.tabs.find((t) => t.id === session.currentSession());
+  drawShare(ws, tab);
+
+  if (remote) {
+    // A branch é a que o dono contou; não há git aqui para perguntar. E o PR,
+    // o diff, a árvore e o dock são do disco dele — nada disso existe aqui.
+    paintBranchName(ws.branch);
+    $("pr").hidden = true;
+    $("prlink").hidden = true;
+    $("offline").hidden = remote.online;
+    $("offtitle").textContent = t("offline.owner.title", { name: owner ?? "" });
+    $("offbody").textContent = t("offline.owner.body", { name: owner ?? "" });
+    $("offpath").textContent = "";
+    $("resume").hidden = true;
+    $("tabbar").hidden = false;
+    $("side").hidden = true;
+    $("sidetoggle").hidden = true;
+    $("wsstage").hidden = true;
+    return;
+  }
+
+  $("pr").hidden = false;
   $("offpath").textContent = ws.worktree;
   drawBranch(ws);
   drawPr(ws);
-  drawTabs(ws);
   reloadChanges(ws.id);
   if (sidePane === "files") tree.redrawSoon();
   // O agente edita; o arquivo na tela acompanha, sem polling.
   const file = files(ws.id).active;
   if (file) viewer.show(ws.id, file);
 
-  const tab = ws.tabs.find((t) => t.id === session.currentSession());
   // Terminal mudo confunde; a saída fica escrita na tela. Worktree devolvido é
   // o mesmo painel com a outra história — e sem o botão de retomar, que não
   // teria para onde voltar.
@@ -191,6 +228,31 @@ export function draw() {
   $("side").hidden = ws.cleaned;
   $("sidetoggle").hidden = ws.cleaned;
   $("wsstage").hidden = ws.cleaned;
+}
+
+/// O botão de compartilhar e os chips de quem está olhando a conversa aberta.
+/// Só há botão com time, e só em workspace seu: o de um colega já é dele.
+function drawShare(ws: Workspace, tab?: Tab) {
+  const btn = $("share") as HTMLButtonElement;
+  const chips = $("watchers");
+  chips.replaceChildren();
+  if (ws.remote || ws.cleaned || !team.status().config) {
+    btn.hidden = true;
+    return;
+  }
+  btn.hidden = false;
+  btn.className = "ghost md" + (ws.shared ? " on" : "");
+  btn.innerHTML = `${icon("share-2", 14)}<span></span>`;
+  btn.querySelector("span")!.textContent = t(ws.shared ? "share.off" : "share.on");
+  btn.title = t(ws.shared ? "share.off.title" : "share.on.title");
+  btn.onclick = () => team.share(ws.id, !ws.shared).catch((e) => ctx.say(fromBack(e), true));
+  if (!ws.shared || !tab) return;
+  for (const name of team.watchersOf(tab.id)) {
+    const c = h("span", "chip watcher", `${avatar(name)}<span class="nm"></span>`);
+    c.querySelector(".nm")!.textContent = name;
+    c.title = t("share.watching", { name });
+    chips.append(c);
+  }
 }
 
 /* ---------- ações do workspace ---------- */
@@ -240,8 +302,13 @@ async function openPr() {
 const branchOf = new Map<string, string>();
 
 function paintBranch(id: string) {
+  paintBranchName(branchOf.get(id));
+}
+
+/// O chip da branch na migalha, com o nome que já se sabe — o que o git daqui
+/// respondeu, ou o que o dono de um workspace remoto contou.
+function paintBranchName(name: string | undefined) {
   const chip = $("crumb").querySelector<HTMLElement>(".branch");
-  const name = branchOf.get(id);
   if (!chip || !name) return;
   chip.hidden = false;
   chip.children[1].textContent = name;
@@ -335,6 +402,7 @@ function drawTabs(ws: Workspace) {
   const fs = files(ws.id);
   const elsewhere = fs.diff || fs.active;
 
+  const remote = !!ws.remote;
   for (const tab of ws.tabs) {
     const b = document.createElement("button");
     b.className = "tab" + (!elsewhere && tab.id === session.currentSession() ? " on" : "");
@@ -347,12 +415,14 @@ function drawTabs(ws: Workspace) {
       (tab.tokens ? t("tab.tokens", { n: fmtTokens(tab.tokens) }) : "") +
       t("tab.rename");
     b.addEventListener("click", () => selectTab(ws.id, tab.id));
-    b.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      menu.openAt({ x: e.clientX, y: e.clientY }, tabMenu(ws, tab));
-    });
+    if (!remote) {
+      b.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        menu.openAt({ x: e.clientX, y: e.clientY }, tabMenu(ws, tab));
+      });
+    }
 
-    if (ws.tabs.length > 1) {
+    if (ws.tabs.length > 1 && !remote) {
       const x = document.createElement("span");
       x.className = "tabx ico sm";
       x.innerHTML = icon("x", 12);
@@ -404,6 +474,8 @@ function drawTabs(ws: Workspace) {
     bar.append(b);
   }
 
+  // Conversa nova é no worktree, e o worktree é do dono.
+  if (remote) return;
   const add = document.createElement("button");
   add.className = "ico";
   add.innerHTML = icon("plus");
@@ -459,7 +531,7 @@ async function selectTab(workspace: string, tab: string) {
   // Clicar na aba em que você já está não refaz nada. É o que deixa o duplo
   // clique chegar inteiro no renomear: o rótulo continua sendo o mesmo nó.
   if (tab === session.currentSession() && !fs.diff && !fs.active) return;
-  invoke("focus_tab", { workspace, tab });
+  if (!team.isRemote(workspace)) invoke("focus_tab", { workspace, tab });
   showTerm();
   await session.attach(tab);
   draw();
@@ -467,7 +539,7 @@ async function selectTab(workspace: string, tab: string) {
 
 export async function newTab(prompt = "") {
   const ws = current();
-  if (!ws) return;
+  if (!ws || ws.remote) return;
   try {
     const tab = await invoke<{ id: string }>("new_tab", {
       workspace: ws.id,

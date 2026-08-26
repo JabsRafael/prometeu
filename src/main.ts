@@ -27,6 +27,14 @@ if (!("__TAURI_INTERNALS__" in window)) await import("./mock");
 
 let state: Board = { stages: [], projects: [], workspaces: [] };
 
+/// O quadro como a tela o vê: o do Rust mais os workspaces que os colegas
+/// compartilharam, que só existem aqui. Quem desenha e quem procura um
+/// workspace por id olha para este; o que fala com o back olha para `state`.
+const view = (): Board => {
+  const remotes = team.remotes();
+  return remotes.length ? { ...state, workspaces: [...state.workspaces, ...remotes] } : state;
+};
+
 /// Recado na barra de cima. Some sozinho: recado que fica vira parte do
 /// cabeçalho, e daqui a uma hora você está lendo o aviso de outra coisa. Quem
 /// termina em "…" é progresso e fica até quem começou apagar.
@@ -81,7 +89,7 @@ function draw() {
   // do que você está usando apaga o que foi digitado, tira o menu do lugar no
   // meio do clique, ou some com o card de debaixo do mouse.
   if (rename.editing() || menu.isOpen() || board.dragging()) return;
-  board.render(state, hooks);
+  board.render(view(), hooks);
   if (ws.id()) ws.draw();
 }
 
@@ -112,7 +120,7 @@ function travel(dir: -1 | 1) {
   } else if (hist[at] === ISSUES) {
     showIssues(false);
   } else {
-    const target = state.workspaces.find((w) => w.id === hist[at]);
+    const target = view().workspaces.find((w) => w.id === hist[at]);
     target ? openWorkspace(target, false) : showBoard(false);
   }
   drawNav();
@@ -176,8 +184,15 @@ $("settings").addEventListener("click", () => showSettings());
 
 listen<Board>("board", ({ payload }) => {
   state = payload;
+  team.boardChanged(state);
+  refresh();
+});
+
+/// O quadro mudou — o do Rust, ou o que os colegas compartilham. O histórico
+/// perde o que sumiu, e a tela é refeita.
+function refresh() {
   // Workspace removido sai do histórico; duas paradas iguais seguidas viram uma.
-  const alive = new Set(state.workspaces.map((w) => w.id));
+  const alive = new Set(view().workspaces.map((w) => w.id));
   for (let i = hist.length - 1; i >= 0; i--) {
     const id = hist[i];
     if ((id !== null && !alive.has(id)) || (i > 0 && id === hist[i - 1])) {
@@ -188,7 +203,8 @@ listen<Board>("board", ({ payload }) => {
   ws.forget(alive);
   drawNav();
   draw();
-});
+}
+team.onChange(refresh);
 
 /// Script que morreu sozinho — terminou, ou quebrou. A aba volta para o botão
 /// de começar sem ninguém perguntar de tempos em tempos.
@@ -361,21 +377,24 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     launch(state.workspaces.find((w) => w.id === open)?.project);
   }
-  if (cmd && e.key === "t" && open) {
+  // Num workspace de colega nada disto existe: nem aba nova, nem etapa, nem
+  // dock. O atalho não faz nada, em vez de mandar ao back um id que ele não tem.
+  const own = open && !team.isRemote(open) ? open : null;
+  if (cmd && e.key === "t" && own) {
     e.preventDefault();
     ws.newTab();
   }
-  if (cmd && e.shiftKey && e.key.toLowerCase() === "a" && open) {
+  if (cmd && e.shiftKey && e.key.toLowerCase() === "a" && own) {
     e.preventDefault();
-    hooks.archive(open, true);
+    hooks.archive(own, true);
   }
   // ⌘⇧D é concluir: a última etapa e o arquivo, que é o que se faz quando o PR
   // entrou — e o que se fazia em três passos antes de haver um gesto só.
-  if (cmd && e.shiftKey && e.key.toLowerCase() === "d" && open) {
+  if (cmd && e.shiftKey && e.key.toLowerCase() === "d" && own) {
     e.preventDefault();
-    hooks.finish(open);
+    hooks.finish(own);
   }
-  if (cmd && e.key === "r" && open) {
+  if (cmd && e.key === "r" && own) {
     e.preventDefault();
     dockbar.toggleRun();
   }
@@ -432,7 +451,7 @@ void update.init(say);
 // O time vem antes das configurações, que é onde ele aparece — e antes do
 // quadro, que vai mostrar o que os colegas compartilham.
 team.onError((m) => say(m, true));
-await team.init();
+await team.init({ dims: () => session.dims() });
 // A tela de issues pergunta às configurações se há Linear; elas respondem
 // depois de saber, e por isso vêm antes.
 await settings.init({ say });
@@ -444,7 +463,7 @@ issues.init({
   create: (issue) => launch(state.workspaces.find((w) => w.id === ws.id())?.project, issue),
   toSettings: () => showSettings(),
 });
-ws.init({ say, board: () => state, redraw: draw, toBoard: () => showBoard() });
+ws.init({ say, board: view, redraw: draw, toBoard: () => showBoard() });
 session.initTerminal((m) => say(m, true));
 viewer.init((m) => say(m, true));
 dock.init($("dockterm"));

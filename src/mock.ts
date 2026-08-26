@@ -1,6 +1,7 @@
 /// Back falso para o navegador puro (`npm run dev` e abrir localhost:1420):
 /// a UI inteira roda com dados de amostra, sem subir o Tauri. Só entra quando
 /// `window.__TAURI_INTERNALS__` não existe — dentro do app não é carregado.
+import { encodeLive, encodeSnapshot } from "../relay/src/protocol";
 import * as team from "./team";
 import type { Board, Issue, LinearStatus, Scripts, Workspace } from "./types";
 
@@ -330,6 +331,12 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       emit("board", board);
       return;
     }
+    case "set_shared": {
+      const target = board.workspaces.find((x) => x.id === args.id);
+      if (target) target.shared = args.shared;
+      emit("board", board);
+      return;
+    }
     case "pin_workspace": {
       const target = board.workspaces.find((x) => x.id === args.id);
       if (target) target.pinned = args.pinned;
@@ -526,41 +533,95 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
 /// silêncio. `mock.presence(false)` derruba um colega para ver a lista mudar.
 let marcusOnline = true;
 const fakes: team.SocketLike[] = [];
+const enc = new TextEncoder();
+/// O workspace que o Marcus compartilhou: uma conversa rodando, do tamanho de
+/// um terminal comum. É o que o quadro mostra em "Do time".
+const marcusShare = () => ({
+  id: "ws-marcus",
+  title: "Arquivar todos os concluídos",
+  repo_name: "capim-backend",
+  branch: "fix/archive-completed-todos",
+  stage: "Fazendo",
+  issue: { identifier: "CAP-218", title: "Digest semanal zera concluídos", url: "https://linear.app/x/issue/CAP-218" },
+  active: "mt1",
+  tabs: [
+    { id: "mt1", title: "conversa 1", status: "rodando", note: "Edit src/todos/complete.ts", tokens: 41_200 },
+    { id: "mt2", title: "testes", status: "pronta", note: null, tokens: 8_300 },
+  ],
+  sizes: { mt1: [100, 30], mt2: [100, 30] },
+  owner: "marcus",
+  online: marcusOnline,
+});
 function fakeSocket(url: string): team.SocketLike {
   const u = new URL(url);
   const me = u.searchParams.get("m") ?? "eu";
   let name = u.searchParams.get("n") ?? "Você";
+  let seq = 1;
+  let ticking = 0;
+  let attached: string | null = null;
   const members = () => [
     { id: me, name, online: true },
     { id: "marcus", name: "Marcus Hale", online: marcusOnline },
     { id: "john", name: "John Okafor", online: false },
   ];
+  const text = (frame: unknown) => s.onmessage?.({ data: JSON.stringify(frame) });
+  const bin = (bytes: Uint8Array) => s.onmessage?.({ data: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) });
+  const live = (line: string) => {
+    if (!attached) return;
+    bin(encodeLive(attached, [{ seq: ++seq, bytes: enc.encode(line) }]));
+  };
   const s: team.SocketLike & { presence: () => void } = {
     binaryType: "blob",
     onopen: null,
     onmessage: null,
     onclose: null,
     onerror: null,
-    presence: () => s.onmessage?.({ data: JSON.stringify({ t: "presence", members: members() }) }),
+    presence: () => {
+      text({ t: "presence", members: members() });
+      text({ t: "share", share: marcusShare() });
+    },
     send(data) {
       if (typeof data !== "string" || data === "ping") return;
       const frame = JSON.parse(data);
-      if (frame.t === "me") {
-        name = frame.name;
-        s.presence();
+      switch (frame.t) {
+        case "me":
+          name = frame.name;
+          s.presence();
+          break;
+        // Abrir uma aba do Marcus: a rolagem vem, e depois uma linha de vez
+        // em quando — o suficiente para ver a tela andar sozinha.
+        case "attach":
+          attached = frame.tab;
+          clearInterval(ticking);
+          setTimeout(() => bin(encodeSnapshot(frame.tab, me, seq, enc.encode(SAMPLE))), 200);
+          ticking = setInterval(() => live(`\r\n\x1b[2m${new Date().toLocaleTimeString()}\x1b[0m  ✓ 1 test passed`), 2500);
+          break;
+        case "detach":
+          attached = null;
+          clearInterval(ticking);
+          break;
+        // O que você digita volta como se o terminal dele tivesse ecoado.
+        case "write":
+          live(frame.data === "\r" ? "\r\n" : frame.data);
+          break;
+        // Quem compartilha o seu ganha o Marcus olhando, meio segundo depois.
+        case "share":
+          setTimeout(() => text({ t: "watch", ws: frame.share.id, tab: frame.share.active ?? frame.share.tabs[0]?.id, members: ["marcus"], added: ["marcus"] }), 500);
+          break;
+        case "unshare":
+          break;
       }
     },
     close() {
       fakes.splice(fakes.indexOf(s), 1);
+      clearInterval(ticking);
       setTimeout(() => s.onclose?.());
     },
   };
   fakes.push(s);
   setTimeout(() => {
     s.onopen?.();
-    s.onmessage?.({
-      data: JSON.stringify({ t: "welcome", you: me, members: members(), shares: [], inbox: [], watching: {} }),
-    });
+    text({ t: "welcome", you: me, members: members(), shares: [marcusShare()], inbox: [], watching: {} });
   }, 500);
   return s;
 }

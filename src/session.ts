@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { fromBack, t } from "./i18n";
+import * as team from "./team";
 import { Term } from "./term";
 import type { Question } from "./types";
 import { $ } from "./util";
@@ -17,8 +18,20 @@ let liveOptions = 0;
 
 export function initTerminal(onError: (m: string) => void) {
   fail = onError;
+  // A tecla vai para o PTY daqui — ou, numa conversa de colega, para o dono.
   term.open($("term"), (key, data) => {
-    invoke("pty_write", { session: key, data }).catch((e) => fail(fromBack(e)));
+    if (team.isRemoteTab(key)) team.write(key, data);
+    else invoke("pty_write", { session: key, data }).catch((e) => fail(fromBack(e)));
+  });
+  term.onResize((key, cols, rows) => team.resized(key, cols, rows));
+  team.setSink({
+    live: (tab, bytes) => term.remoteWrite(tab, bytes),
+    size: (tab, cols, rows) => {
+      if (tab === term.current()) term.setSize(cols, rows);
+    },
+    reset: (tab, bytes, cols, rows) => {
+      if (tab === term.current()) term.attachRemote(tab, bytes, cols, rows);
+    },
   });
   window.addEventListener("resize", () => term.refit());
 
@@ -36,7 +49,12 @@ export function initTerminal(onError: (m: string) => void) {
 export async function attach(id: string) {
   cards().replaceChildren();
   liveOptions = 0;
-  await term.attach(id);
+  if (team.isRemoteTab(id)) {
+    const r = await team.attach(id);
+    term.attachRemote(id, r.bytes, r.cols, r.rows);
+  } else {
+    await term.attach(id);
+  }
   term.focus();
 }
 
@@ -48,6 +66,8 @@ export function detach() {
 export const currentSession = () => term.current();
 export const focus = () => term.focus();
 export const dims = () => term.dims();
+export const selection = () => term.selection();
+export const onSelection = (cb: (has: boolean) => void) => term.onSelection(cb);
 
 /* ---------- cards de resposta ---------- */
 

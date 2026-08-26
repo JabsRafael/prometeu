@@ -955,6 +955,25 @@ body.noside .side { display: none; }
 .setrow .mem.off { color: var(--fg-3); }
 .setrow .mem.off .dot { background: var(--line-ghost); }
 
+/* ---------- time: quem olha, compartilhar, cards dos colegas ---------- */
+
+.watchers { display: inline-flex; gap: 4px; align-items: center; }
+.watchers:empty { display: none; }
+.chip.watcher { gap: 5px; }
+.chip.watcher .avatar { width: 16px; height: 16px; border-radius: 3px; font-size: 9px; }
+#share.on { color: var(--done); }
+#share.on .ic { color: var(--done); }
+
+.teamstrip { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; padding: 0 0 12px; }
+.teamstrip .head {
+  width: 100%; display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--fg-3);
+}
+.teamstrip .card { width: 280px; }
+.card .owner { display: inline-flex; align-items: center; gap: 5px; color: var(--fg-2); }
+.card .owner .avatar { width: 16px; height: 16px; border-radius: 3px; font-size: 9px; }
+.card.remote.off { opacity: 0.6; }
+
 /* ---------- menu de contexto ---------- */
 
 /* Flutua acima de tudo, inclusive do lançador: quem abriu o menu está mexendo

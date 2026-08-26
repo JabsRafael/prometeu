@@ -41,6 +41,8 @@ export const PT = {
   "rail.archived": "Arquivados",
   "rail.cleanup": "Limpar worktrees",
   "rail.cleanup.title": "Tirar do disco os worktrees de trabalho que já acabou",
+  "rail.team": "Do time",
+  "board.shared": "Compartilhados com você",
 
   /* ---------- migalha e cabeçalho ---------- */
 
@@ -301,6 +303,17 @@ export const PT = {
   "settings.lang": "Idioma",
   "settings.lang.body": "A tela inteira, neste Mac. Trocar recarrega a janela.",
   "settings.lang.system": "Do sistema ({name})",
+  "share.on": "Compartilhar com o time",
+  "share.on.title": "O workspace aparece no quadro dos colegas, e quem abrir vê e digita nas conversas",
+  "share.off": "Compartilhando",
+  "share.off.title": "Parar de compartilhar com o time",
+  "share.watching": "{name} está olhando esta conversa",
+  "card.remote": "de {name}",
+  "card.remote.title": "Workspace de {name}, compartilhado com o time",
+  "card.live": "ao vivo",
+  "card.ownerOffline": "dono offline",
+  "offline.owner.title": "{name} está offline",
+  "offline.owner.body": "A conversa roda no Mac de {name}. Quando ele voltar, a tela volta sozinha.",
   "settings.team": "Time",
   "team.title": "Time",
   "team.pitch": "Crie um time, ou entre num com o código de quem criou: é com quem você compartilha sessões e troca notas.",

@@ -33,6 +33,11 @@
         <span id="msg" class="msg"></span>
         <div id="wsctl" class="wsctl" hidden>
           <span id="wsstatus" class="chip"></span>
+          <!-- Quem do time está olhando a conversa aberta: um chip por pessoa. -->
+          <span id="watchers" class="watchers"></span>
+          <!-- Compartilhar com o time: o workspace vai para o quadro dos colegas,
+               e a saída das conversas para quem abrir. Só existe com time. -->
+          <button id="share" class="ghost md" hidden></button>
           <button id="wsstage" class="ghost md" data-t-title="top.stage"></button>
           <!-- Não cria nada sozinho: injeta na conversa ativa o pedido de PR,
                com o estado do git e os passos. Quem faz é o agente. -->
@@ -48,6 +53,9 @@
         <section id="boardView" class="view">
           <div class="boardmain">
             <div class="subbar pulse" id="pulse"></div>
+            <!-- O que os colegas compartilharam: não tem etapa sua, então não
+                 cabe em coluna nenhuma. Uma faixa, acima delas. -->
+            <div class="teamstrip" id="teamstrip" hidden></div>
             <div class="cols" id="cols"></div>
           </div>
         </section>
