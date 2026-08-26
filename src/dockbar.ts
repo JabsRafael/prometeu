@@ -107,9 +107,11 @@ export function init(context: Ctx) {
       },
     ]);
   });
-  $("run-open").addEventListener("click", () => {
+  // Clique abre numa janela do app; ⌥-clique vai para o navegador de fora,
+  // que é onde o agente enxerga a página e onde se confere o que só o Chrome faz.
+  $("run-open").addEventListener("click", (e) => {
     const id = ctx.workspace();
-    if (id) invoke("open_run", { id }).catch((e) => ctx.say(fromBack(e), true));
+    if (id) invoke("open_run", { id, external: e.altKey }).catch((e) => ctx.say(fromBack(e), true));
   });
   $("dock-add").innerHTML = icon("plus", 14);
   $("dock-add").addEventListener("click", () => void setDock(nextTerm(), true));

@@ -283,7 +283,7 @@ export const PT = {
   "dock.expand": "Expandir",
   "dock.stop": "Parar",
   "dock.open": "Open",
-  "dock.open.title": "Abrir http://localhost:{port} no navegador",
+  "dock.open.title": "Abrir http://localhost:{port} numa janela — ⌥ abre no navegador",
   "dock.pick": "Escolher o script",
   "dock.again": "Rodar o setup de novo",
   "dock.settings.copy": "Copiar o settings.toml do clone para cá",

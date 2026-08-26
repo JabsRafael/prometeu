@@ -252,7 +252,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "dock.expand": "Expand",
   "dock.stop": "Stop",
   "dock.open": "Open",
-  "dock.open.title": "Open http://localhost:{port} in the browser",
+  "dock.open.title": "Open http://localhost:{port} in a window — ⌥ opens in the browser",
   "dock.pick": "Choose the script",
   "dock.again": "Run setup again",
   "dock.settings.copy": "Copy the clone's settings.toml here",

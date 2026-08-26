@@ -5,7 +5,7 @@ use portable_pty::CommandBuilder;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 #[tauri::command]
 pub fn load_board(state: State<AppState>) -> Board {
@@ -1175,6 +1175,12 @@ fn cap(patch: String) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn run_label_so_com_o_que_o_tauri_aceita() {
+        assert_eq!(super::run_label("dock-1130"), "run-dock-1130");
+        assert_eq!(super::run_label("porta 17.a"), "run-porta-17-a");
+    }
+
     use super::{cli_args, is_terminal, patch_map, pick, pr_text, Launch, Pr};
 
     fn pr(number: u64, branch: &str, state: &str) -> Pr {
@@ -1826,14 +1832,60 @@ pub fn reveal(state: State<AppState>, id: String) -> Result<(), String> {
         .ok_or_else(|| i18n::ta("err.session.openFailed", &[("path", root.display().to_string())]))
 }
 
-/// Abre o navegador na porta do run. A porta sai do estado, e não do front:
-/// URL arbitrária não viaja pelo IPC.
+/// Abre a porta do run numa janela do próprio app: é a webview do sistema, a
+/// mesma que desenha o Prometheus, então não custa navegador nenhum a mais.
+/// `external` é o ⌥-clique, que vai para o navegador padrão — é lá que o
+/// agente enxerga a página (a extensão do Chrome) e que se confere o que só o
+/// Chrome faz. A porta sai do estado, e não do front: URL arbitrária não viaja
+/// pelo IPC.
 #[tauri::command]
-pub fn open_run(state: State<AppState>, id: String) -> Result<(), String> {
+pub fn open_run(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+    external: bool,
+) -> Result<(), String> {
     let port = ensure_port(&state, &id).ok_or_else(|| i18n::t("err.session.noPort"))?;
     let url = format!("http://localhost:{port}");
-    let ok = Command::new("open").arg(&url).status().map_err(i18n::io)?.success();
-    ok.then_some(()).ok_or_else(|| i18n::ta("err.session.openFailed", &[("path", url)]))
+    let fail = || i18n::ta("err.session.openFailed", &[("path", url.clone())]);
+    if external {
+        let ok = Command::new("open").arg(&url).status().map_err(i18n::io)?.success();
+        return ok.then_some(()).ok_or_else(fail);
+    }
+
+    // Uma janela por workspace: clicar de novo traz a que está aberta, sem
+    // recarregar — o dev server já recarrega sozinho quando o código muda.
+    let label = run_label(&id);
+    if let Some(win) = app.get_webview_window(&label) {
+        let _ = win.unminimize();
+        let _ = win.set_focus();
+        return Ok(());
+    }
+    let title = lock(&state.board)
+        .workspaces
+        .iter()
+        .find(|w| w.id == id)
+        .map(|w| w.title.clone())
+        .unwrap_or_default();
+    let parsed = tauri::Url::parse(&url).map_err(|_| fail())?;
+    // Sem tema nem cor de fundo: a página é do projeto, e é ela que decide.
+    WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed))
+        .title(format!("{title} — :{port}"))
+        .inner_size(1100.0, 760.0)
+        .min_inner_size(400.0, 300.0)
+        .build()
+        .map_err(|_| fail())?;
+    Ok(())
+}
+
+/// Rótulo da janela do run. O Tauri só aceita letras, dígitos, `-`, `/`, `:`
+/// e `_` — o id do workspace já é assim, mas custa nada garantir.
+fn run_label(id: &str) -> String {
+    let safe: String = id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || "-/:_".contains(c) { c } else { '-' })
+        .collect();
+    format!("run-{safe}")
 }
 
 #[tauri::command]
