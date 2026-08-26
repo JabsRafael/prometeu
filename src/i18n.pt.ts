@@ -39,6 +39,7 @@ export const PT = {
   "rail.pinned": "Fixados",
   "rail.loose": "Sem projeto",
   "rail.archived": "Arquivados",
+  "rail.archived.title": "O que você tirou da frente",
   "rail.cleanup": "Limpar worktrees",
   "rail.cleanup.title": "Tirar do disco os worktrees de trabalho que já acabou",
 
@@ -47,6 +48,7 @@ export const PT = {
   "crumb.board": "Quadro",
   "crumb.issues": "Issues",
   "crumb.settings": "Configurações",
+  "crumb.archived": "Arquivados",
   "top.settings": "Configurações  ⌘,",
   "top.stage": "Etapa deste trabalho",
   "top.pr": "Pedir o PR à conversa ativa",
@@ -165,6 +167,18 @@ export const PT = {
   "issues.noMatch.body": "Tente o número (MES-12), uma palavra do título ou o projeto.",
   "issues.empty.title": "Nenhuma issue no seu nome",
   "issues.empty.body": "Quando alguém te atribuir uma no Linear, ela aparece aqui.",
+  /* ---------- arquivados ---------- */
+
+  "arch.search": "Buscar por título, branch ou repositório…",
+  "arch.count.one": "{n} arquivado",
+  "arch.count.other": "{n} arquivados",
+  "arch.disk.one": "{n} com worktree no disco",
+  "arch.disk.other": "{n} com worktree no disco",
+  "arch.empty.title": "Nada arquivado",
+  "arch.empty.body": "Concluir ou arquivar um workspace o traz para cá — o worktree, a branch e a conversa ficam onde estão.",
+  "arch.noMatch.title": "Nenhum arquivado com esse texto",
+  "arch.noMatch.body": "Tente uma palavra do título, a branch ou o nome do repositório.",
+
   "issues.open": "Abrir workspace",
   "issues.create": "Criar workspace",
   "issues.create.title": "Novo workspace na branch {branch}",
