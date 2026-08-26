@@ -342,6 +342,14 @@ pub fn create_workspace(
     // escrito na aba Setup, que é onde se conserta.
     let _ = start_setup(&app, &state, &ws, cols, rows);
 
+    // O nome que veio do lançador é a primeira linha do prompt cortada. Ela
+    // serve até o agente ler o pedido inteiro e devolver um título — o que
+    // acontece em paralelo, alguns segundos depois de a tela já estar de pé.
+    // Workspace que saiu de uma issue já tem o nome que a issue deu.
+    if ws.issue.is_none() {
+        crate::naming::rename_later(&app, &ws.id, &draft.prompt, &ws.title);
+    }
+
     publish(&app);
     Ok(ws)
 }

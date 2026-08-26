@@ -3,6 +3,7 @@
 mod i18n;
 mod linear;
 mod lock;
+mod naming;
 mod paths;
 mod pty;
 mod scripts;
