@@ -32,6 +32,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "rail.pinned": "Pinned",
   "rail.loose": "No project",
   "rail.archived": "Archived",
+  "rail.cleanup": "Clean up worktrees",
+  "rail.cleanup.title": "Take finished work\u2019s worktrees off the disk",
 
   "crumb.board": "Board",
   "crumb.issues": "Issues",
@@ -40,6 +42,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "top.stage": "Stage of this work",
   "top.pr": "Ask the active conversation for the PR",
   "top.pr.update": "Ask the active conversation to update the PR",
+  "top.finish": "The PR landed: move to the last stage and archive  ⌘⇧D",
   "top.side": "Side panel",
 
   "pulse.waiting": "need you",
@@ -58,6 +61,9 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "card.tokens.title": "{n} context tokens in the last reply",
   "card.tokens.titleTab": "{n} context tokens in the last reply ({tab})",
   "card.archive.title": "Archive (worktree and branch stay)",
+  "card.finish.title": "Finish: last stage and archive",
+  "card.merged.title": "PR #{n} landed — open in the browser",
+  "card.cleaned.title": "Worktree removed — it was {path}",
 
   "ws.menu.read": "Mark as read",
   "ws.menu.unread": "Mark as unread",
@@ -69,6 +75,9 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "ws.menu.reveal": "Open in Finder",
   "ws.menu.unarchive": "Unarchive",
   "ws.menu.archive": "Archive",
+  "ws.menu.finish": "Finish",
+  "ws.menu.cleanup": "Clean up the worktree…",
+  "ws.menu.gone": "worktree removed",
   "ws.menu.drop": "Remove from board",
 
   "model.default": "Default model",
@@ -152,6 +161,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "ws.pr.update": "Update PR",
   "ws.pr.view": "Open PR #{n} in the browser — {title}",
   "ws.pr.draft": "Open draft PR #{n} in the browser — {title}",
+  "ws.pr.merged": "PR #{n} landed — open in the browser — {title}",
+  "ws.finish": "Finish",
   "ws.branch.title": "Branch of this worktree — click to copy",
   "ws.branch.detached": "detached HEAD",
   "ws.copied": "{name} copied",
@@ -183,6 +194,27 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "offline.body":
     "The process is not running — none survives closing the app. The conversation is still saved; resuming picks up where it left off.",
   "offline.resume": "Resume conversation",
+
+  /* ---------- worktree released ---------- */
+
+  "gone.title": "Worktree removed",
+  "gone.body":
+    "The folder is off the disk and the local branch is gone — the work had already landed. What is left is this card: the name, the stage and the PR.",
+
+  /* ---------- releasing the disk ---------- */
+
+  "clean.title": "Clean up worktrees",
+  "clean.hint": "The folder and the local branch go; the card stays, and the PR stays where it is.",
+  "clean.count.one": "{n} archived with a worktree",
+  "clean.count.other": "{n} archived with worktrees",
+  "clean.cancel": "Cancel",
+  "clean.go": "Clean up {n} · {size}",
+  "clean.goEmpty": "Clean up",
+  "clean.doing": "cleaning up {name}…",
+  "clean.done.one": "worktree removed — {size} back",
+  "clean.done.other": "{n} worktrees removed — {size} back",
+  "clean.none": "No archived workspace has a worktree on disk.",
+  "clean.loading": "Checking what can go…",
 
   "ask.question": "question",
   "ask.question.header": "question · {header}",
@@ -318,6 +350,11 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.session.noBase": "the base branch '{base}' does not exist in {path}",
   "err.session.noPort": "workspace with no port",
   "err.session.noPr": "no open PR for this branch",
+  "err.session.cleaned": "this workspace’s worktree was removed",
+  "err.cleanup.notArchived": "archive this work before cleaning up its worktree",
+  "err.cleanup.isRepo": "this workspace works in the clone itself, not in a worktree",
+  "err.cleanup.dirty": "there are {n} files with uncommitted changes",
+  "err.cleanup.unmerged": "'{branch}' has work that did not land on the target",
   "err.session.outside": "path outside the worktree",
   "err.session.tooBig": "file too large ({kb} KB)",
   "err.session.binary": "binary file",

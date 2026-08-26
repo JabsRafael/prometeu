@@ -43,8 +43,34 @@ export type Workspace = {
   port: number | null;
   /// A issue do Linear de onde este trabalho saiu, se saiu de uma.
   issue: IssueRef | null;
+  /// O PR desta branch como o `gh` respondeu da última vez. `MERGED` é o que
+  /// faz a barra oferecer "Concluir" e o card ganhar o selo — é o sinal de que
+  /// este trabalho acabou.
+  pr: Pr | null;
+  /// O worktree foi devolvido ao disco. O card fica como histórico: sem
+  /// terminal, sem docks, sem arquivos — só o que ficou escrito.
+  cleaned: boolean;
   tabs: Tab[];
   active: string | null;
+};
+
+/// O PR de uma branch, como o `gh` conta. `state` é `OPEN`, `MERGED` ou
+/// `CLOSED`.
+export type Pr = { number: number; title: string; isDraft: boolean; state: string };
+export const merged = (ws: Workspace) => ws.pr?.state === "MERGED";
+
+/// Um worktree que pode voltar para o disco, e o que ele ocupa. `blocked` é o
+/// erro do back dizendo por que não pode — passa por `fromBack` como qualquer
+/// outro.
+export type Cleanable = {
+  id: string;
+  title: string;
+  repoName: string;
+  branch: string;
+  worktree: string;
+  sizeKb: number;
+  pr: number | null;
+  blocked: string | null;
 };
 
 /// Os terminais do dock. Não são sessão de agente: sem hook, sem card, sem

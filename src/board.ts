@@ -13,6 +13,11 @@ export type Hooks = {
   /// `title` nulo é desistência: só devolve a linha ao normal.
   rename: (id: string, title: string | null) => void;
   archive: (id: string, archived: boolean) => void;
+  /// Concluir: a última etapa e o arquivo, num gesto só. É o que se faz quando
+  /// o PR entrou.
+  finish: (id: string) => void;
+  /// Abre a folha que devolve worktrees ao disco.
+  cleanup: () => void;
   pin: (id: string, pinned: boolean) => void;
   unread: (id: string, unread: boolean) => void;
   reveal: (id: string) => void;
@@ -79,10 +84,22 @@ function wsMenu(ws: Workspace, board: Board, hooks: Hooks, label: HTMLElement, k
     { label: t("ws.menu.copyPath"), glyph: icon("copy"), run: () => hooks.copyPath(ws) },
     { label: t("ws.menu.reveal"), glyph: icon("external-link"), run: () => hooks.reveal(ws.id) },
     "sep",
+    // Concluir só existe enquanto há o que concluir: no arquivado o gesto já
+    // aconteceu.
+    ...(ws.archived
+      ? []
+      : [{ label: t("ws.menu.finish"), glyph: icon("check"), run: () => hooks.finish(ws.id) } as menu.Item]),
+    ...(ws.archived && !ws.cleaned
+      ? [{ label: t("ws.menu.cleanup"), glyph: icon("trash"), run: () => hooks.cleanup() } as menu.Item]
+      : []),
     ws.archived
       ? {
           label: t("ws.menu.unarchive"),
           glyph: icon("archive-restore"),
+          // Worktree devolvido: não há para onde desarquivar. O card fica como
+          // histórico, e dizer isso é melhor que um item que não faz nada.
+          disabled: ws.cleaned,
+          hint: ws.cleaned ? t("ws.menu.gone") : undefined,
           run: () => hooks.archive(ws.id, false),
         }
       : {
@@ -199,6 +216,18 @@ function renderRail(board: Board, hooks: Hooks) {
   if (gone.length) {
     rail.append(document.createElement("hr"));
     renderGroup(rail, board, hooks, t("rail.archived"), icon("archive", 14), gone, "@arquivados", { avatars: true });
+    // Devolver o disco mora aqui porque é daqui que sai: worktree de trabalho
+    // que acabou é o que ocupa gigabyte sem ninguém olhar. Como linha da lista,
+    // e não como ícone no cabeçalho: ícone de grupo só aparece com o mouse em
+    // cima, e o que se faz uma vez por mês não pode depender de passar o mouse
+    // num lugar onde não havia motivo para passar.
+    if (gone.some((w) => !w.cleaned) && !folded("@arquivados")) {
+      const sweep = h("button", "navitem sub sweep", `${icon("trash", 14)}<span class="lbl"></span>`);
+      sweep.children[1].textContent = t("rail.cleanup");
+      sweep.title = t("rail.cleanup.title");
+      sweep.addEventListener("click", hooks.cleanup);
+      rail.append(sweep);
+    }
   }
 }
 
@@ -464,6 +493,24 @@ function card(ws: Workspace, board: Board, hooks: Hooks): HTMLElement {
     foot.append(model);
   }
 
+  // O PR entrou: é o sinal de que este trabalho acabou, e o selo é o que faz
+  // isso aparecer no quadro sem precisar abrir o workspace. Clicar leva até o
+  // PR, como o `#42` da barra.
+  if (ws.pr?.state === "MERGED") {
+    const tag = h("span", "chip merged", `${icon("git-merge", 12)}<span></span>`);
+    tag.children[1].textContent = `#${ws.pr.number}`;
+    tag.title = t("card.merged.title", { n: ws.pr.number });
+    foot.append(tag);
+  }
+
+  // Worktree devolvido: o card é histórico, e o quadro não pode fingir que
+  // ainda há uma pasta ali.
+  if (ws.cleaned) {
+    const tag = h("span", "chip", icon("trash", 12));
+    tag.title = t("card.cleaned.title", { path: ws.worktree });
+    foot.append(tag);
+  }
+
   // De qual issue este trabalho saiu; clicar abre ela no Linear.
   if (ws.issue) {
     const ref = ws.issue;
@@ -499,12 +546,15 @@ function card(ws: Workspace, board: Board, hooks: Hooks): HTMLElement {
   }
 
   // Arquivar, e não tirar do quadro: some da frente sem perder o caminho de
-  // volta. Remover de vez está no menu do botão direito.
-  const box = h("span", "x ico sm", icon("archive"));
-  box.title = t("card.archive.title");
+  // volta. Remover de vez está no menu do botão direito. Com o PR mergeado o
+  // mesmo canto conclui — que é arquivar levando a etapa junto, e é o que se
+  // quer fazer ali de qualquer jeito.
+  const done = ws.pr?.state === "MERGED" && !ws.archived;
+  const box = h("span", "x ico sm" + (done ? " done" : ""), icon(done ? "check" : "archive"));
+  box.title = done ? t("card.finish.title") : t("card.archive.title");
   box.addEventListener("click", (e) => {
     e.stopPropagation();
-    hooks.archive(ws.id, true);
+    done ? hooks.finish(ws.id) : hooks.archive(ws.id, true);
   });
   foot.append(box);
 

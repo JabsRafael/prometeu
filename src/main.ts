@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import * as board from "./board";
+import { openCleanup } from "./cleanup";
 import * as dock from "./dock";
 import * as dockbar from "./dockbar";
 import { icon } from "./icons";
@@ -52,6 +53,8 @@ const hooks: board.Hooks = {
     if (archived && ws.id() === id) showBoard();
     invoke("archive_workspace", { id, archived }).catch((e) => say(fromBack(e), true));
   },
+  finish: (id) => ws.finish(id),
+  cleanup: () => openCleanup(say),
   pin: (id, pinned) => invoke("pin_workspace", { id, pinned }),
   unread: (id, unread) => invoke("set_unread", { id, unread }),
   reveal: (id) => invoke("reveal", { id }).catch((e) => say(fromBack(e), true)),
@@ -365,6 +368,12 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     hooks.archive(open, true);
   }
+  // ⌘⇧D é concluir: a última etapa e o arquivo, que é o que se faz quando o PR
+  // entrou — e o que se fazia em três passos antes de haver um gesto só.
+  if (cmd && e.shiftKey && e.key.toLowerCase() === "d" && open) {
+    e.preventDefault();
+    hooks.finish(open);
+  }
   if (cmd && e.key === "r" && open) {
     e.preventDefault();
     dockbar.toggleRun();
@@ -436,3 +445,12 @@ viewer.init((m) => say(m, true));
 dock.init($("dockterm"));
 state = await invoke<Board>("load_board");
 showBoard();
+
+// De onde vem o selo de mergeado: uma pergunta ao `gh` por repositório, e a
+// resposta entra no quadro. De minuto em minuto porque é rede, e porque o que
+// muda ali é o PR de alguém — não algo que este app faça. A primeira vai agora:
+// o app que sobe depois de um merge tem que já nascer sabendo.
+const PR_SCAN = 60_000;
+const scanPrs = () => void invoke("refresh_prs").catch(() => {});
+scanPrs();
+setInterval(scanPrs, PR_SCAN);
