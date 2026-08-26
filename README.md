@@ -157,6 +157,86 @@ deixar isso virar trabalho manual — a aba **Setup** de um repo que não declar
 nada oferece **Perguntar ao agente**, que abre uma conversa com o prompt pronto
 para o Claude Code ler o repositório e escrever o arquivo.
 
+## A dois no mesmo terminal
+
+Um time, e dentro dele sessões compartilhadas: o colega vê **tudo** o que
+está rolando no terminal, ao vivo, digita nele, e deixa nota citando o trecho
+que quer discutir.
+
+```
+Mac do dono                       relay (Worker + 1 DO por time)        Mac do colega
+evento `pty` ──► saída (bin) ──►  presença · shares · quem olha    ──►  xterm ao vivo
+pty_write   ◄──  tecla       ◄──  notas · caixa "para mim"         ◄──  o que ele digita
+```
+
+**A sessão continua rodando só no Mac do dono.** Não há VM, não há sessão na
+nuvem: o `claude` é o mesmo processo de sempre, no worktree de sempre. O relay
+é burro — repassa frames e guarda o pouco que precisa sobreviver a alguém
+estar offline (membros, o que está compartilhado, as notas). Dono fora do ar =
+terminal congelado para os outros, e o card diz isso.
+
+Quem fala com o relay é o **front**: ele já recebe todo byte de todo terminal
+e já sabe escrever neles. O back só guarda `~/.prometheus/team.json` (`0600`)
+e a marca de "compartilhado" no quadro.
+
+### O time
+
+Configurações → **Time**: criar gera o código de convite
+(`pm1.<time>.<segredo>`); entrar é colar o código e dizer seu nome. Quem tem o
+código entra e digita em qualquer sessão compartilhada — é o modelo "pessoas
+de confiança", e trocar o segredo é criar outro time.
+
+### A sessão ao vivo
+
+Na barra de um workspace seu: **Compartilhar com o time**. Ele aparece no
+quadro dos colegas ("Compartilhados com você", e "Do time" na barra lateral),
+com o seu nome no card. Abrir mostra o terminal com a rolagem inteira e a
+saída ao vivo; o teclado está liberado. Você vê quem está olhando cada
+conversa em chips ao lado do estado.
+
+Duas coisas fazem isso funcionar sem coordenação nenhuma:
+
+- **cada pedaço da saída sai numerado** (`Scroll`, em `pty.rs`), e a rolagem
+  que o dono manda a quem acabou de abrir vem com "até o pedaço N" — então o
+  colega descarta o que já estava dentro dela, mesmo quando o dono junta 40 ms
+  de saída num frame só. Sem número, ou o dono não podia juntar, ou o colega
+  via um trecho duas vezes;
+- **o dono só transmite a aba que alguém está olhando.** Sem espectador, o
+  custo é zero — o que importa porque o relay cobra por mensagem recebida.
+
+O tamanho é o do terminal do dono: o colega desenha nele e rola se não couber.
+Fora do que viaja: dock (setup/run/shells) e os cards de pergunta, plano e
+permissão — a TUI do Claude Code já desenha tudo dentro do terminal, e o
+colega responde ali como o dono responderia.
+
+### As notas
+
+Nota não é fala para o agente: é recado entre pessoas **sobre** a sessão, no
+painel do lado. O caso que ela resolve é o agente levantar uma dúvida de
+desenho e você precisar de alguém para responder.
+
+A âncora é a **citação** — o trecho selecionado no terminal (⌘⇧M, ou o botão
+que aparece quando há seleção). `@` abre a lista do time; quem foi marcado
+ganha **Para mim** na barra, com a nota, mesmo que estivesse offline. ⌘↵
+envia; Enter quebra linha.
+
+### O relay
+
+Mora em `relay/`: um Worker que cria times e encaminha cada conexão ao Durable
+Object daquele time. Toda decisão está em `relay/src/logic.ts`, um `reduce`
+puro que o vitest exercita sem miniflare; `room.ts` só converte WebSocket em
+evento e efeito em `send`/`storage`. Sobe uma vez:
+
+```sh
+npm run relay:deploy   # precisa de `wrangler login`
+npm run relay:dev      # ou o relay local, em ws://127.0.0.1:8787
+```
+
+Com o relay local, `VITE_RELAY=ws://127.0.0.1:8787` aponta o app (ou o
+navegador sobre o `src/mock.ts`) para ele, e dois deles testam o
+compartilhamento de ponta a ponta. Sem relay publicado, o app não tem padrão:
+a URL vai à mão em Configurações → Time → Relay.
+
 ## Rodar
 
 ```sh
@@ -207,12 +287,17 @@ Cobre o que erra calado:
 - a leitura do settings.toml, e a base de onde a branch nova sai, contra um git
   de verdade;
 - o corte de um `git diff` em um patch por arquivo, e a conta de número de linha
-  que o front faz em cima dele.
+  que o front faz em cima dele;
+- o **relay** inteiro pela lógica pura (segredo errado recusado, quem recebe o
+  quê, dono que cai e volta, menção que vira caixa), o formato dos frames
+  binários, e a regra de juntar a rolagem do dono com os pedaços ao vivo
+  (`src/mirror.ts`) — que é o que erra calado: trecho repetido, trecho perdido.
 
 ## Estado
 
 Um quadro de workspaces, cada um num worktree, com várias conversas dentro. A
-etapa é sua e o estado é do agente — dois eixos que não se misturam.
+etapa é sua e o estado é do agente — dois eixos que não se misturam. E, com
+time, o quadro de um colega também: a sessão dele ao vivo, e as notas ao lado.
 
 Se o botão da pergunta não fosse bom, nada disso valeria — então ele veio
 primeiro.

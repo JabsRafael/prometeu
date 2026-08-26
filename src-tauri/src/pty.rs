@@ -397,6 +397,41 @@ mod tests {
         !running(pid)
     }
 
+    /// A numeração contra um processo de verdade: o que o snapshot leva, e o
+    /// que sobra para ir ao vivo, é decidido por número — e é isto que faz a
+    /// tela de um colega não repetir nem perder um trecho.
+    ///
+    /// O `Scroll` é o mesmo que a thread de leitura usa; aqui ele é alimentado
+    /// pelos chunks de um pty real, com uma pausa no meio para garantir que a
+    /// leitura acontece em dois pedaços.
+    #[test]
+    fn snapshot_tirado_no_meio_da_saida_sabe_o_que_ja_levou() {
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.args(["-c", "printf primeiro; sleep 0.4; printf segundo"]);
+        let (pty, mut reader, _child) = open(cmd, 80, 24, false).expect("pty não abriu");
+        let scroll = pty.buffer.clone();
+
+        let read_chunk = |reader: &mut Box<dyn Read + Send>| -> u64 {
+            let mut chunk = [0u8; 1024];
+            let n = reader.read(&mut chunk).expect("leitura falhou");
+            lock(&scroll).absorb(&chunk[..n])
+        };
+
+        // Primeiro pedaço, e o snapshot que um colega receberia agora.
+        assert_eq!(read_chunk(&mut reader), 1);
+        let (bytes, seq) = {
+            let s = lock(&scroll);
+            (s.bytes.clone(), s.seq)
+        };
+        assert_eq!(String::from_utf8_lossy(&bytes), "primeiro");
+        assert_eq!(seq, 1, "o snapshot leva o primeiro pedaço, e diz isso");
+
+        // O que vem depois é justamente o que tem de ir ao vivo.
+        assert_eq!(read_chunk(&mut reader), 2);
+        assert!(lock(&scroll).bytes.ends_with(b"segundo"));
+        assert!(seq < lock(&scroll).seq, "o pedaço novo tem número maior que o do snapshot");
+    }
+
     /// O bug que este arquivo existe para não ter de novo: fechar o dock
     /// deixava vivo o `npm run dev` que o botão dizia encerrar, segurando a
     /// porta até o app fechar.
