@@ -3,7 +3,7 @@ import { num, stage as stageName, t } from "./i18n";
 import * as menu from "./menu";
 import * as team from "./team";
 import * as rename from "./rename";
-import { fmtTokens, heaviest, label, statusOf, worst, type Board, type Status, type Workspace } from "./types";
+import { fmtTokens, hasWorktree, heaviest, label, statusOf, worst, type Board, type Status, type Workspace } from "./types";
 import { h } from "./util";
 
 export type Hooks = {
@@ -27,6 +27,7 @@ export type Hooks = {
   copyPath: (ws: Workspace) => void;
   toBoard: () => void;
   toIssues: () => void;
+  toArchived: () => void;
   /// Quantas issues a aba tem para mostrar — `null` é "sem Linear", e o
   /// número some.
   issues: () => number | null;
@@ -38,6 +39,8 @@ export type Hooks = {
 /// O que fica "aberto" quando a tela é a de issues: nenhum workspace, e o
 /// quadro também não. Não colide com id de workspace nenhum.
 export const ISSUES = "@issues";
+/// A tela dos arquivados, pela mesma regra.
+export const ARCHIVED = "@arquivados";
 
 let openId: string | null = null;
 export function setOpen(id: string | null) {
@@ -99,7 +102,7 @@ function wsMenu(ws: Workspace, board: Board, hooks: Hooks, label: HTMLElement, k
     ...(ws.archived
       ? []
       : [{ label: t("ws.menu.finish"), glyph: icon("check"), run: () => hooks.finish(ws.id) } as menu.Item]),
-    ...(ws.archived && !ws.cleaned
+    ...(hasWorktree(ws)
       ? [{ label: t("ws.menu.cleanup"), glyph: icon("trash"), run: () => hooks.cleanup() } as menu.Item]
       : []),
     ws.archived
@@ -128,7 +131,7 @@ function wsMenu(ws: Workspace, board: Board, hooks: Hooks, label: HTMLElement, k
   ];
 }
 
-function onMenu(node: HTMLElement, ws: Workspace, board: Board, hooks: Hooks, label: HTMLElement, kind: string) {
+export function attachMenu(node: HTMLElement, ws: Workspace, board: Board, hooks: Hooks, label: HTMLElement, kind: string) {
   node.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     menu.openAt({ x: e.clientX, y: e.clientY }, wsMenu(ws, board, hooks, label, kind));
@@ -241,22 +244,22 @@ function renderRail(board: Board, hooks: Hooks) {
     renderGroup(rail, board, hooks, t("rail.loose"), icon("folder", 14), loose, "@soltos", { avatars: true });
   }
 
-  const gone = board.workspaces.filter((w) => w.archived);
-  if (gone.length) {
+  // Arquivado não é lista na barra: é uma linha com o número, e a tela é
+  // outra. Trabalho que saiu da frente se consulta de vez em quando, e trinta
+  // deles abertos aqui empurravam os projetos para fora da tela.
+  const gone = board.workspaces.filter((w) => w.archived).length;
+  if (gone) {
     rail.append(document.createElement("hr"));
-    renderGroup(rail, board, hooks, t("rail.archived"), icon("archive", 14), gone, "@arquivados", { avatars: true });
-    // Devolver o disco mora aqui porque é daqui que sai: worktree de trabalho
-    // que acabou é o que ocupa gigabyte sem ninguém olhar. Como linha da lista,
-    // e não como ícone no cabeçalho: ícone de grupo só aparece com o mouse em
-    // cima, e o que se faz uma vez por mês não pode depender de passar o mouse
-    // num lugar onde não havia motivo para passar.
-    if (gone.some((w) => !w.cleaned) && !folded("@arquivados")) {
-      const sweep = h("button", "navitem sub sweep", `${icon("trash", 14)}<span class="lbl"></span>`);
-      sweep.children[1].textContent = t("rail.cleanup");
-      sweep.title = t("rail.cleanup.title");
-      sweep.addEventListener("click", hooks.cleanup);
-      rail.append(sweep);
-    }
+    const arch = h(
+      "button",
+      "navitem" + (openId === ARCHIVED ? " on" : ""),
+      `${icon("archive")}<span></span><span class="n"></span>`,
+    );
+    arch.children[1].textContent = t("rail.archived");
+    arch.querySelector(".n")!.textContent = String(gone);
+    arch.title = t("rail.archived.title");
+    arch.addEventListener("click", hooks.toArchived);
+    rail.append(arch);
   }
 }
 
@@ -334,7 +337,7 @@ function renderGroup(
     const at = board.stages.indexOf(ws.stage);
     b.children[0].after(h("span", "st", stageIcon(at, total, 13)));
     if (opts.avatars) b.children[0].after(h("span", "av", avatar(ws.repo_name)));
-    onMenu(b, ws, board, hooks, b, "sub");
+    attachMenu(b, ws, board, hooks, b, "sub");
     rail.append(b);
   }
 }
@@ -667,6 +670,6 @@ function card(ws: Workspace, board: Board, hooks: Hooks): HTMLElement {
   foot.append(box);
 
   el.append(foot);
-  onMenu(el, ws, board, hooks, title, "ttl");
+  attachMenu(el, ws, board, hooks, title, "ttl");
   return el;
 }

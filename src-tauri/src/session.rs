@@ -256,30 +256,48 @@ pub struct Cleanable {
 /// sair. Uma varredura só, pedida quando a tela de limpeza abre: cada linha
 /// custa um `git status` e um `du`, e isso não é coisa para o redesenho do
 /// quadro fazer.
+///
+/// Workspace que roda no próprio clone fica de fora: não há pasta para
+/// devolver, e medi-lo seria um `du` do repositório inteiro por linha — era
+/// isso que fazia a lista demorar. As linhas que sobram são medidas em
+/// paralelo: cada `du` anda numa árvore diferente, e o disco aguenta.
 #[tauri::command(async)]
 pub fn cleanup_list(state: State<AppState>) -> Vec<Cleanable> {
     let mine: Vec<Workspace> = lock(&state.board)
         .workspaces
         .iter()
-        .filter(|w| w.archived && !w.cleaned)
+        .filter(|w| has_worktree(w))
         .cloned()
         .collect();
 
-    mine.into_iter()
-        .map(|ws| {
-            let wt = PathBuf::from(&ws.worktree);
-            Cleanable {
-                size_kb: size_of(&wt),
-                blocked: check(&ws).err(),
-                pr: ws.pr.as_ref().map(|p| p.number),
-                id: ws.id,
-                title: ws.title,
-                repo_name: ws.repo_name,
-                branch: ws.branch,
-                worktree: ws.worktree,
-            }
-        })
-        .collect()
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = mine
+            .into_iter()
+            .map(|ws| {
+                scope.spawn(move || {
+                    let wt = PathBuf::from(&ws.worktree);
+                    Cleanable {
+                        size_kb: size_of(&wt),
+                        blocked: check(&ws).err(),
+                        pr: ws.pr.as_ref().map(|p| p.number),
+                        id: ws.id,
+                        title: ws.title,
+                        repo_name: ws.repo_name,
+                        branch: ws.branch,
+                        worktree: ws.worktree,
+                    }
+                })
+            })
+            .collect();
+        handles.into_iter().filter_map(|h| h.join().ok()).collect()
+    })
+}
+
+/// Arquivado que ainda tem um worktree só dele para devolver. O que já foi
+/// devolvido não conta, e o que roda no próprio clone nunca contou: a pasta
+/// é o repositório.
+fn has_worktree(ws: &Workspace) -> bool {
+    ws.archived && !ws.cleaned && ws.worktree != ws.repo
 }
 
 /// Devolve o worktree ao disco: a pasta sai, a branch local sai, o card fica.
@@ -1801,11 +1819,14 @@ fn script_env(ws: &Workspace) -> Vec<(String, String)> {
 /// Workspace criado antes de as portas existirem não tem uma. Em vez de pedir
 /// para recriar, ganha a sua na primeira vez que é aberto — o painel pede os
 /// scripts, e a porta vai junto, porque é ela que ele mostra.
-fn ensure_port(state: &State<AppState>, id: &str) -> Option<u16> {
+pub(crate) fn ensure_port(state: &State<AppState>, id: &str) -> Option<u16> {
     let mut board = lock(&state.board);
     let ws = board.workspaces.iter().find(|w| w.id == id)?;
-    if ws.port.is_some() {
-        return ws.port;
+    // Porta guardada por uma versão que ainda entregava as proibidas (5060,
+    // 6000…) é trocada aqui: o run que já está de pé fica na velha até ser
+    // reiniciado, mas o próximo nasce numa que o navegador abre.
+    if let Some(port) = ws.port.filter(|p| scripts::usable(*p)) {
+        return Some(port);
     }
     let worktree = ws.worktree.clone();
     let taken: Vec<u16> = board.workspaces.iter().filter_map(|w| w.port).collect();
@@ -1824,8 +1845,10 @@ pub fn reveal(state: State<AppState>, id: String) -> Result<(), String> {
         .ok_or_else(|| i18n::ta("err.session.openFailed", &[("path", root.display().to_string())]))
 }
 
-/// Abre o navegador na porta do run. A porta sai do estado, e não do front:
-/// URL arbitrária não viaja pelo IPC.
+/// Abre o navegador de fora na porta do run: é lá que o agente enxerga a
+/// página (a extensão do Chrome) e que se confere o que só o Chrome faz. A aba
+/// de dentro é o `browser`. A porta sai do estado, e não do front: URL
+/// arbitrária não viaja pelo IPC.
 #[tauri::command]
 pub fn open_run(state: State<AppState>, id: String) -> Result<(), String> {
     let port = ensure_port(&state, &id).ok_or_else(|| i18n::t("err.session.noPort"))?;

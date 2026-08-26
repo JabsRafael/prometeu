@@ -3,7 +3,7 @@
 /// `window.__TAURI_INTERNALS__` não existe — dentro do app não é carregado.
 import { encodeLive, encodeSnapshot } from "../relay/src/protocol";
 import * as team from "./team";
-import type { Board, Issue, LinearStatus, Scripts, Workspace } from "./types";
+import { hasWorktree, type Board, type Issue, type LinearStatus, type Scripts, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
@@ -443,6 +443,19 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     case "open_run":
       console.log("abrir no navegador: http://localhost:" + ((scripts[args.id] ?? noScripts).port ?? 0));
       return null;
+    // A webview nativa não existe fora do Tauri: a aba abre com o buraco vazio.
+    case "browser_open":
+      return (scripts[args.id] ?? noScripts).port ?? 3100;
+    case "browser_url":
+      return "http://localhost:" + ((scripts[args.id] ?? noScripts).port ?? 3100) + "/";
+    case "browser_navigate":
+      console.log("navegar para:", args.url);
+      return null;
+    case "browser_bounds":
+    case "browser_hide":
+    case "browser_reload":
+    case "browser_close":
+      return null;
     // Só o workspace que já está em code review tem PR — é assim que se vê o
     // botão aparecendo num e não no outro.
     case "pr_open":
@@ -463,7 +476,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     }
     case "cleanup_list":
       return board.workspaces
-        .filter((x) => x.archived && !x.cleaned)
+        .filter(hasWorktree)
         .map((x, i) => ({
           id: x.id,
           title: x.title,

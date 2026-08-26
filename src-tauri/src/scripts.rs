@@ -374,7 +374,18 @@ pub fn alloc_port(worktree: &Path, taken: &[u16]) -> Option<u16> {
     let start = (crate::paths::fnv1a(&worktree.to_string_lossy()) % u64::from(SLOTS)) as u16;
     (0..SLOTS)
         .map(|i| FIRST + ((start + i) % SLOTS) * 10)
-        .find(|base| !taken.contains(base) && (0..10).all(|i| free(base + i)))
+        .find(|base| !taken.contains(base) && (0..10).all(|i| usable(base + i) && free(base + i)))
+}
+
+/// Portas que navegador nenhum abre: a lista de "bad ports" da spec Fetch, que
+/// Chrome (`ERR_UNSAFE_PORT`) e WebKit (`URL::portAllowed`) seguem. Um servidor
+/// na 5060 sobe e responde ao curl, mas a janela fica branca sem dizer por quê.
+/// Só as que cabem na faixa do alocador; as abaixo de 3100 nunca saem dele.
+const BAD: &[u16] = &[3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6697, 10080];
+
+/// Se um navegador aceita abrir `localhost:{port}`.
+pub fn usable(port: u16) -> bool {
+    !BAD.contains(&port)
 }
 
 /// Livre nos dois loopbacks: o vite, por exemplo, escuta só em `::1`, e
@@ -700,6 +711,22 @@ default = true
         write(&repo, ".env", "x");
         let wt = tmp("vazia-wt");
         assert!(read_for(&wt, &repo).copy.is_empty());
+    }
+
+    /// Um worktree cujo caminho cai na faixa da 5060 pula para a seguinte: o
+    /// navegador não abre porta da lista proibida, e a faixa inteira vai junto
+    /// porque `$PORT+1` do mesmo workspace não pode cair numa delas.
+    #[test]
+    fn porta_pula_as_que_o_navegador_recusa() {
+        const SLOTS: u64 = (9990 - 3100) / 10 + 1;
+        let slot = (5060 - 3100) / 10;
+        let path = (0..)
+            .map(|i| format!("/wt/{i}"))
+            .find(|p| crate::paths::fnv1a(p) % SLOTS == slot)
+            .unwrap();
+        let base = alloc_port(Path::new(&path), &[]).unwrap();
+        assert_ne!(base, 5060);
+        assert!((base..base + 10).all(usable), "{base}");
     }
 
     /// O mesmo worktree cai na mesma porta em qualquer quadro; worktrees

@@ -39,6 +39,7 @@ export const PT = {
   "rail.pinned": "Fixados",
   "rail.loose": "Sem projeto",
   "rail.archived": "Arquivados",
+  "rail.archived.title": "O que você tirou da frente",
   "rail.cleanup": "Limpar worktrees",
   "rail.cleanup.title": "Tirar do disco os worktrees de trabalho que já acabou",
   "rail.team": "Do time",
@@ -49,6 +50,7 @@ export const PT = {
   "crumb.board": "Quadro",
   "crumb.issues": "Issues",
   "crumb.settings": "Configurações",
+  "crumb.archived": "Arquivados",
   "top.settings": "Configurações  ⌘,",
   "top.stage": "Etapa deste trabalho",
   "top.pr": "Pedir o PR à conversa ativa",
@@ -167,6 +169,18 @@ export const PT = {
   "issues.noMatch.body": "Tente o número (MES-12), uma palavra do título ou o projeto.",
   "issues.empty.title": "Nenhuma issue no seu nome",
   "issues.empty.body": "Quando alguém te atribuir uma no Linear, ela aparece aqui.",
+  /* ---------- arquivados ---------- */
+
+  "arch.search": "Buscar por título, branch ou repositório…",
+  "arch.count.one": "{n} arquivado",
+  "arch.count.other": "{n} arquivados",
+  "arch.disk.one": "{n} com worktree no disco",
+  "arch.disk.other": "{n} com worktree no disco",
+  "arch.empty.title": "Nada arquivado",
+  "arch.empty.body": "Concluir ou arquivar um workspace o traz para cá — o worktree, a branch e a conversa ficam onde estão.",
+  "arch.noMatch.title": "Nenhum arquivado com esse texto",
+  "arch.noMatch.body": "Tente uma palavra do título, a branch ou o nome do repositório.",
+
   "issues.open": "Abrir workspace",
   "issues.create": "Criar workspace",
   "issues.create.title": "Novo workspace na branch {branch}",
@@ -198,6 +212,10 @@ export const PT = {
   "tab.changes.title": "Diff do worktree inteiro",
   "tab.changes.close": "Fechar Mudanças",
   "tab.changes.closeKey": "Fechar Mudanças  ⌘W",
+  "tab.browser": "Navegador",
+  "tab.browser.title": "O Run deste workspace, em http://localhost:{port}",
+  "tab.browser.close": "Fechar o navegador",
+  "tab.browser.closeKey": "Fechar o navegador  ⌘W",
 
   /* ---------- painel da direita, árvore e mudanças ---------- */
 
@@ -207,6 +225,9 @@ export const PT = {
   "side.reveal": "Abrir o worktree no Finder",
   "diff.foldAll": "Recolher todos",
   "viewer.copyPath": "Copiar caminho",
+  "web.reload": "Recarregar",
+  "web.external": "Abrir no navegador de fora",
+  "web.url": "Endereço da página — escreva outro e tecle Enter",
   "diff.clean": "worktree limpo",
   "diff.clean.long": "worktree limpo — nada mudou desde o HEAD",
   "diff.new": "novo",
@@ -271,7 +292,7 @@ export const PT = {
   "dock.expand": "Expandir",
   "dock.stop": "Parar",
   "dock.open": "Open",
-  "dock.open.title": "Abrir http://localhost:{port} no navegador",
+  "dock.open.title": "Abrir http://localhost:{port} numa aba — ⌥ abre no navegador de fora",
   "dock.pick": "Escolher o script",
   "dock.again": "Rodar o setup de novo",
   "dock.settings.copy": "Copiar o settings.toml do clone para cá",
@@ -473,6 +494,7 @@ export const PT = {
   "err.session.binary": "arquivo binário",
   "err.session.openFailed": "não abriu {path}",
 
+  "err.browser.badUrl": "endereço que não dá para abrir: {url}",
   "err.dock.unknown": "dock desconhecido: {kind}",
   "err.dock.noScript": "nenhum script de {kind} em {file}",
 

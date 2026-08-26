@@ -398,6 +398,15 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
    topo enquanto o corpo passa; fundo verde/vermelho fraco atrás da linha, que
    o texto colorido do highlight ainda tem de ler bem por cima. */
 .diffview { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* Navegador: o DOM reserva o buraco e o sistema desenha a página dentro dele. */
+.webview { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.webbody { flex: 1; min-height: 0; margin: 10px 12px 12px; }
+.wurl {
+  flex: 1; min-width: 0; height: 24px; padding: 0 8px;
+  border: 1px solid var(--line-raised); border-radius: var(--r);
+  background: none; color: var(--fg-2); font: inherit; font-size: 12.5px;
+}
+.wurl:focus { outline: none; border-color: var(--fg-3); color: var(--fg); }
 #dcrumb { gap: 8px; }
 #dcrumb .nm { color: var(--fg); }
 .vcrumb .a { color: var(--done); }
@@ -864,11 +873,30 @@ body.noside .side { display: none; }
 }
 .iempty h3 { margin: 0; font-size: 15px; font-weight: 500; color: var(--fg); }
 .iempty p { margin: 0; max-width: 420px; }
-/* Devolver worktrees: linha da lista, não ícone de cabeçalho. Discreta como as
-   outras, mas presente sem precisar do mouse em cima. */
-.navitem.sweep { color: var(--fg-3); }
-.navitem.sweep:hover { color: var(--fg-2); }
-.navitem.sweep .ic { color: var(--fg-3); }
+/* ---------- arquivados ---------- */
+
+/* A mesma barra e a mesma lista das issues; a linha é outra: repositório,
+   título com a branch embaixo, etapa, PR, e o que o worktree virou. */
+.ibar #aclean { gap: 6px; white-space: nowrap; }
+.arow {
+  display: grid; grid-template-columns: 22px minmax(0, 1fr) 118px 40px 132px auto;
+  align-items: center; gap: 12px; height: 44px; padding: 0 8px; border-radius: var(--r);
+  cursor: default;
+}
+/* Largura fixa nas colunas do meio: cada linha é o próprio grid, e sem isso a
+   etapa e o PR andavam de um lado para o outro conforme o texto. */
+.arow:hover { background: var(--bg-raised); }
+.arow .av { display: flex; }
+.arow .atitle { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.arow .atitle b { font-weight: 400; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arow .abranch { font-family: var(--mono); font-size: 11.5px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arow .astage { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-2); white-space: nowrap; }
+.arow .apr { font-family: var(--mono); font-size: 11.5px; color: var(--fg-3); white-space: nowrap; }
+.arow .apr.merged { color: var(--done); }
+.arow .atag { font-size: 11.5px; color: var(--fg-3); white-space: nowrap; }
+.arow .iact .ghost:disabled { opacity: 0.35; pointer-events: none; }
+.arow.gone .atitle b { color: var(--fg-2); }
+.arow .iact .ghost { gap: 5px; font-size: 12px; height: 24px; padding: 0 8px; }
 
 /* O chip da issue no card: a marca do Linear e o identificador. */
 .card .foot .chip.issue { gap: 4px; font-family: var(--mono); font-size: 11.5px; }
