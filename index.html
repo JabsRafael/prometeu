@@ -37,6 +37,9 @@
           <!-- Não cria nada sozinho: injeta na conversa ativa o pedido de PR,
                com o estado do git e os passos. Quem faz é o agente. -->
           <button id="pr" class="outline md" data-t-title="top.pr"></button>
+          <!-- Só aparece quando a branch já tem PR aberto: leva até ele no
+               navegador, e quem sabe onde ele mora é o `gh`. -->
+          <button id="prlink" class="ghost md" hidden></button>
           <button id="sidetoggle" class="ico" data-t-title="top.side"></button>
         </div>
       </header>

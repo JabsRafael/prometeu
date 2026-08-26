@@ -48,6 +48,7 @@ export const PT = {
   "top.settings": "Configurações  ⌘,",
   "top.stage": "Etapa deste trabalho",
   "top.pr": "Pedir o PR à conversa ativa",
+  "top.pr.update": "Pedir à conversa ativa que atualize o PR",
   "top.side": "Painel lateral",
 
   /* ---------- resumo do quadro ---------- */
@@ -169,6 +170,9 @@ export const PT = {
   "ws.rename": "Duplo clique para renomear",
   "ws.pr": "Open PR",
   "ws.pr.offline": "a conversa está desligada — retome antes de pedir o PR",
+  "ws.pr.update": "Atualizar PR",
+  "ws.pr.view": "Abrir o PR #{n} no navegador — {title}",
+  "ws.pr.draft": "Abrir o rascunho de PR #{n} no navegador — {title}",
   "ws.branch.title": "Branch deste worktree — clique para copiar",
   "ws.branch.detached": "HEAD solto",
   "ws.copied": "{name} copiado",
@@ -353,6 +357,7 @@ export const PT = {
   "err.session.noTab": "aba não encontrada",
   "err.session.noBase": "a branch base '{base}' não existe em {path}",
   "err.session.noPort": "workspace sem porta",
+  "err.session.noPr": "não achei um PR aberto para esta branch",
   "err.session.outside": "caminho fora do worktree",
   "err.session.tooBig": "arquivo grande demais ({kb} KB)",
   "err.session.binary": "arquivo binário",

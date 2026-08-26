@@ -349,6 +349,15 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     case "open_run":
       console.log("abrir no navegador: http://localhost:" + ((scripts[args.id] ?? noScripts).port ?? 0));
       return null;
+    // Só o workspace que já está em code review tem PR — é assim que se vê o
+    // botão aparecendo num e não no outro.
+    case "pr_open":
+      return args.id === "icone-2140"
+        ? { number: 42, title: "feat(quadro): ícone do app em todos os tamanhos", isDraft: false }
+        : null;
+    case "open_pr":
+      console.log("abrir o PR de " + args.id + " no navegador");
+      return null;
     case "pr_prompt":
       return [
         "Quero abrir um PR deste worktree.",

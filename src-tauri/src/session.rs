@@ -948,17 +948,29 @@ mod tests {
     /// no push, o alvo sem o remoto no `--base`, e a sujeira contada.
     #[test]
     fn pr_text_diz_o_estado_e_os_passos() {
-        let t = pr_text(Some("meu/ajuste"), 3, "origin/main", false);
+        let t = pr_text(Some("meu/ajuste"), 3, "origin/main", false, None);
         assert!(t.contains("Há 3 arquivos"));
         assert!(t.contains("git push -u origin HEAD:meu/ajuste"));
         assert!(t.contains("gh pr create --base main"));
         assert!(t.contains("Ainda não há branch upstream."));
 
-        let limpo = pr_text(None, 0, "origin/master", true);
+        let limpo = pr_text(None, 0, "origin/master", true, None);
         assert!(limpo.contains("limpo"));
         assert!(limpo.contains("HEAD solto"));
         assert!(limpo.contains("--base master"));
         assert!(limpo.contains("A branch já tem upstream."));
+    }
+
+    /// Com PR aberto o pedido é outro: atualizar o #42, e não criar um segundo.
+    #[test]
+    fn pr_text_com_pr_aberto_pede_atualizacao() {
+        let t = pr_text(Some("meu/ajuste"), 1, "origin/main", true, Some(42));
+        assert!(t.contains("Quero atualizar o PR #42"));
+        assert!(t.contains("gh pr view 42"));
+        assert!(t.contains("gh pr edit 42"));
+        assert!(!t.contains("gh pr create"));
+        // O caminho até lá é o mesmo: commitar e empurrar continua sendo o miolo.
+        assert!(t.contains("git push -u origin HEAD:meu/ajuste"));
     }
     use std::process::Command;
 
@@ -1572,10 +1584,13 @@ pub fn pr_prompt(state: State<AppState>, id: String) -> Result<String, String> {
     let head = git(&worktree, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).trim().to_string();
     let target = if head.is_empty() { "origin/main".to_string() } else { head };
     let upstream = !git(&worktree, &["rev-parse", "--abbrev-ref", "@{upstream}"]).trim().is_empty();
-    Ok(pr_text(branch.as_deref(), dirty, &target, upstream))
+    // Com PR já aberto o pedido é outro: não criar de novo, e sim empurrar o
+    // que falta e conferir se o que está escrito lá ainda cobre a branch.
+    let open = branch.as_deref().and_then(|b| gh_pr(&worktree, b)).map(|pr| pr.number);
+    Ok(pr_text(branch.as_deref(), dirty, &target, upstream, open))
 }
 
-fn pr_text(branch: Option<&str>, dirty: usize, target: &str, upstream: bool) -> String {
+fn pr_text(branch: Option<&str>, dirty: usize, target: &str, upstream: bool, open: Option<u64>) -> String {
     let estado = match dirty {
         0 => "O worktree está limpo — nada fora de commit.".to_string(),
         1 => "Há 1 arquivo com mudanças fora de commit.".to_string(),
@@ -1591,8 +1606,27 @@ fn pr_text(branch: Option<&str>, dirty: usize, target: &str, upstream: bool) -> 
         Some(b) => format!("git push -u origin HEAD:{b}"),
         None => "git push -u origin HEAD:<nome-da-branch>".to_string(),
     };
+    let (abertura, fim) = match open {
+        Some(n) => (
+            format!("Quero atualizar o PR #{n} desta branch."),
+            format!(
+                "5. Revise o diff inteiro da branch contra `{target}` e confira com `gh pr view {n}` se o título e a \
+                 descrição ainda cobrem tudo.\n6. Se não cobrirem mais, atualize com `gh pr edit {n}`. Título com \
+                 menos de 80 caracteres; descrição com até cinco frases, cobrindo todas as mudanças da branch — não \
+                 só as desta conversa."
+            ),
+        ),
+        None => (
+            "Quero abrir um PR deste worktree.".to_string(),
+            format!(
+                "5. Revise o diff inteiro da branch contra `{target}` antes de escrever o PR.\n6. Crie o PR com \
+                 `gh pr create --base {base}`. Título com menos de 80 caracteres; descrição com até cinco frases, \
+                 cobrindo todas as mudanças da branch — não só as desta conversa."
+            ),
+        ),
+    };
     format!(
-        r#"Quero abrir um PR deste worktree.
+        r#"{abertura}
 
 {estado} {onde}; o alvo é `{target}`. {up}
 
@@ -1602,11 +1636,66 @@ Siga estes passos:
 2. Revise o que está fora de commit com `git status` e `git diff`.
 3. Commite seguindo as convenções de commit do repositório.
 4. Empurre com `{push}`.
-5. Revise o diff inteiro da branch contra `{target}` antes de escrever o PR.
-6. Crie o PR com `gh pr create --base {base}`. Título com menos de 80 caracteres; descrição com até cinco frases, cobrindo todas as mudanças da branch — não só as desta conversa.
+{fim}
 
 Se algum passo falhar, pare e me pergunte."#
     )
+}
+
+/// O PR aberto desta branch, se já houver um. Quem sabe é o `gh`: é ele que
+/// está autenticado no remoto, e o app não guarda credencial de GitHub nenhuma.
+/// Sem `gh` instalado, sem login ou sem PR a resposta é a mesma — `None`, e o
+/// botão nem chega a aparecer na tela.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Pr {
+    pub number: u64,
+    pub title: String,
+    pub is_draft: bool,
+}
+
+#[tauri::command(async)]
+pub fn pr_open(state: State<AppState>, id: String) -> Option<Pr> {
+    let worktree = worktree_of(&state, &id)?;
+    gh_pr(&worktree, &head_branch(&worktree)?)
+}
+
+fn gh_pr(wt: &Path, branch: &str) -> Option<Pr> {
+    let out = Command::new("gh")
+        .current_dir(wt)
+        .args([
+            "pr",
+            "list",
+            "--head",
+            branch,
+            "--state",
+            "open",
+            "--limit",
+            "1",
+            "--json",
+            "number,title,isDraft",
+        ])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    serde_json::from_slice::<Vec<Pr>>(&out.stdout).ok()?.into_iter().next()
+}
+
+/// Abre no navegador o PR desta branch. Quem descobre a URL é o `gh`, e é ele
+/// mesmo quem abre — assim nenhuma URL atravessa o IPC, em direção nenhuma.
+#[tauri::command(async)]
+pub fn open_pr(state: State<AppState>, id: String) -> Result<(), String> {
+    let worktree = worktree_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+    let branch = head_branch(&worktree).ok_or_else(|| i18n::t("err.session.noPr"))?;
+    let ok = Command::new("gh")
+        .current_dir(&worktree)
+        .args(["pr", "view", branch.as_str(), "--web"])
+        .status()
+        .map_err(i18n::io)?
+        .success();
+    ok.then_some(()).ok_or_else(|| i18n::t("err.session.noPr"))
 }
 
 fn workspace_copy(state: &State<AppState>, id: &str) -> Option<Workspace> {

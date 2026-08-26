@@ -60,6 +60,13 @@ export function init(context: Ctx) {
   $("pr").querySelector("span")!.textContent = t("ws.pr");
   $("pr").addEventListener("click", () => void openPr());
 
+  // Só o número e a seta: quem diz "PR" é o botão ao lado, e dois botões com o
+  // mesmo rótulo na mesma barra é o que fazia a barra ficar ambígua.
+  $("prlink").innerHTML = `<span></span>${icon("external-link", 12)}`;
+  $("prlink").addEventListener("click", () => {
+    if (openWs) invoke("open_pr", { id: openWs }).catch((e) => ctx.say(fromBack(e), true));
+  });
+
   // Duplo clique renomeia, como no nome do workspace na migalha. Escuta na barra
   // e não no botão: o primeiro clique troca de aba, a troca refaz a barra, e o
   // botão em que o gesto começou já não existe quando o duplo clique chega.
@@ -148,6 +155,7 @@ export function draw() {
 
   $("offpath").textContent = ws.worktree;
   drawBranch(ws);
+  drawPr(ws);
   drawTabs(ws);
   reloadChanges(ws.id);
   if (sidePane === "files") tree.redrawSoon();
@@ -233,6 +241,46 @@ const askBranch = debounce(400, async (id: string) => {
   branchOf.set(id, name);
   if (openWs === id) paintBranch(id);
 });
+
+/* ---------- PR da branch ---------- */
+
+/// Se esta branch já tem PR aberto, e é isso que governa os dois botões da
+/// barra: sem PR, um "Open PR" que pede o PR ao agente; com PR, o mesmo botão
+/// vira "Atualizar PR" — commitar e empurrar continua sendo o que mais se faz
+/// depois que o PR existe — e ao lado aparece o `#42` que leva até ele no
+/// navegador. A resposta é do `gh`, que fala com a rede: guarda-se por
+/// workspace e só se pergunta de novo depois de `PR_EVERY`. `draw()` acontece a
+/// cada ferramenta que o agente usa; abrir um PR, não.
+type Pr = { number: number; title: string; isDraft: boolean };
+const prOf = new Map<string, Pr | null>();
+const prAt = new Map<string, number>();
+const PR_EVERY = 20_000;
+
+function paintPr(id: string) {
+  const pr = prOf.get(id);
+  const ask = $("pr");
+  ask.querySelector("span")!.textContent = pr ? t("ws.pr.update") : t("ws.pr");
+  ask.title = pr ? t("top.pr.update") : t("top.pr");
+
+  const link = $("prlink");
+  link.hidden = !pr;
+  if (!pr) return;
+  link.querySelector("span")!.textContent = `#${pr.number}`;
+  link.title = t(pr.isDraft ? "ws.pr.draft" : "ws.pr.view", { n: pr.number, title: pr.title });
+}
+
+function drawPr(ws: Workspace) {
+  paintPr(ws.id);
+  askPr(ws.id);
+}
+
+async function askPr(id: string) {
+  const now = Date.now();
+  if (now - (prAt.get(id) ?? 0) < PR_EVERY) return;
+  prAt.set(id, now);
+  prOf.set(id, await invoke<Pr | null>("pr_open", { id }));
+  if (openWs === id) paintPr(id);
+}
 
 /* ---------- abas ---------- */
 
