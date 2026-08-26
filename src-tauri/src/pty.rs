@@ -24,6 +24,18 @@ const REAP: Duration = Duration::from_millis(500);
 /// do `setup` solta a primeira fala do agente.
 pub type OnExit = Box<dyn FnOnce(Option<u32>) + Send>;
 
+/// O que só existe em pty de dock — script ou shell —, e nunca em conversa.
+/// `Some(Dock::default())` é o dock sem nada de especial; `None` é conversa.
+#[derive(Default)]
+pub struct Dock {
+    pub on_exit: Option<OnExit>,
+    /// Texto que o Prometheus escreveu, e não o processo: o que a aba Setup diz
+    /// ter copiado do clone. Entra antes de a thread de leitura começar, e não
+    /// depois de `spawn` voltar, para não se intercalar com os primeiros bytes
+    /// do comando.
+    pub header: Option<String>,
+}
+
 pub struct Pty {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
@@ -184,28 +196,23 @@ fn open(
 /// Cada pedaço vai carimbado com o id da sessão — o front só desenha o que é
 /// da sessão aberta, mas todas continuam correndo por trás.
 ///
-/// `dock` é script ou shell do dock, e não conversa. Muda duas coisas: o fim
-/// vai escrito no próprio buffer — um `setup` que falhou tem que continuar
+/// `Some(Dock)` é script ou shell do dock, e não conversa. Muda duas coisas: o
+/// fim vai escrito no próprio buffer — um `setup` que falhou tem que continuar
 /// dizendo isso amanhã, quando você reabrir a aba, e o buffer é a única coisa
 /// que sobrevive a fechar o painel —, e o desligamento começa por SIGHUP no
 /// grupo. Conversa não precisa de nenhum dos dois: aba desligada já tem a tela
 /// de "Retomar conversa" por cima.
-///
-/// `header` é texto que o Prometheus escreveu, e não o processo: o que a aba
-/// Setup diz ter copiado do clone. Entra antes de a thread de leitura começar, e
-/// não depois de `spawn` voltar, para não se intercalar com os primeiros bytes
-/// do comando.
 pub fn spawn(
     app: &AppHandle,
     session_id: &str,
     cmd: CommandBuilder,
     cols: u16,
     rows: u16,
-    dock: bool,
-    on_exit: Option<OnExit>,
-    header: Option<String>,
+    dock: Option<Dock>,
 ) -> Result<Pty, String> {
-    let (pty, mut reader, mut child) = open(cmd, cols, rows, dock)?;
+    let is_dock = dock.is_some();
+    let Dock { on_exit, header } = dock.unwrap_or_default();
+    let (pty, mut reader, mut child) = open(cmd, cols, rows, is_dock)?;
 
     if let Some(text) = header {
         lock(&pty.buffer).extend_from_slice(text.as_bytes());
@@ -247,7 +254,7 @@ pub fn spawn(
         let code = child.wait().ok().map(|s| s.exit_code());
         // Esta sessão não está mais de pé para receber fala nenhuma.
         lock(&app.state::<AppState>().ready).remove(&id);
-        if dock && !gone_t.load(Ordering::Relaxed) {
+        if is_dock && !gone_t.load(Ordering::Relaxed) {
             let line = match code {
                 Some(0) => format!("\r\n\x1b[32m✓ {}\x1b[0m\r\n", i18n::pick("terminou", "finished")),
                 Some(n) => format!(
