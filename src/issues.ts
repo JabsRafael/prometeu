@@ -4,7 +4,7 @@ import { icon } from "./icons";
 import { fromBack, paint, t } from "./i18n";
 import * as settings from "./settings";
 import type { Board, Issue, Issues, LinearStatus, Workspace } from "./types";
-import { $, h } from "./util";
+import { $, empty, h } from "./util";
 
 /// As issues do Linear no seu nome — a porta de entrada que não é um
 /// repositório. Cada linha é uma issue; "Criar workspace" abre o lançador já
@@ -269,18 +269,6 @@ function row(issue: Issue): HTMLElement {
   });
   act.append(btn);
   return el;
-}
-
-function empty(title: string, text: string, action?: [string, () => void]): HTMLElement {
-  const box = h("div", "iempty", `<h3></h3><p></p>`);
-  box.children[0].textContent = title;
-  box.children[1].textContent = text;
-  if (action) {
-    const b = h("button", "outline md", action[0]);
-    b.addEventListener("click", action[1]);
-    box.append(b);
-  }
-  return box;
 }
 
 /// "agora", "há 5 min", "há 3 h", "há 2 d": o bastante para saber se a issue

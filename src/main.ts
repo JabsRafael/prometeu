@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
+import * as archived from "./archived";
 import * as board from "./board";
 import { openCleanup } from "./cleanup";
 import * as dock from "./dock";
@@ -64,6 +65,7 @@ const hooks: board.Hooks = {
   },
   toBoard: () => showBoard(),
   toIssues: () => showIssues(),
+  toArchived: () => showArchived(),
   issues: () => issues.count(),
   openIssue: (url) => invoke("linear_open", { url }).catch((e) => say(fromBack(e), true)),
   addProject: async () => {
@@ -81,6 +83,7 @@ function draw() {
   // meio do clique, ou some com o card de debaixo do mouse.
   if (rename.editing() || menu.isOpen() || board.dragging()) return;
   board.render(state, hooks);
+  archived.draw();
   if (ws.id()) ws.draw();
 }
 
@@ -89,6 +92,7 @@ function draw() {
    não colide com id de workspace nenhum. */
 const SETTINGS = "@configurações";
 const ISSUES = board.ISSUES;
+const ARCHIVED = board.ARCHIVED;
 const hist: (string | null)[] = [];
 let at = -1;
 function visit(to: string | null) {
@@ -110,6 +114,8 @@ function travel(dir: -1 | 1) {
     showSettings(false);
   } else if (hist[at] === ISSUES) {
     showIssues(false);
+  } else if (hist[at] === ARCHIVED) {
+    showArchived(false);
   } else {
     const target = state.workspaces.find((w) => w.id === hist[at]);
     target ? openWorkspace(target, false) : showBoard(false);
@@ -121,11 +127,13 @@ $("fwd").addEventListener("click", () => travel(1));
 
 /// As telas que não são workspace nem quadro: uma de cada vez, e o quadro
 /// fica escondido embaixo delas.
-function showOnly(view: "settingsView" | "issuesView" | null) {
+function showOnly(view: "settingsView" | "issuesView" | "archivedView" | null) {
   $("boardView").hidden = view !== null;
   $("settingsView").hidden = view !== "settingsView";
   $("issuesView").hidden = view !== "issuesView";
+  $("archivedView").hidden = view !== "archivedView";
   if (view !== "issuesView") issues.hide();
+  if (view !== "archivedView") archived.hide();
 }
 
 function showBoard(push = true) {
@@ -155,6 +163,18 @@ function showIssues(push = true) {
   showOnly("issuesView");
   $("crumb").replaceChildren(crumbLabel(t("crumb.issues")));
   issues.show();
+  draw();
+}
+
+/// Os arquivados: o que saiu da frente, com busca, e de onde se devolve o
+/// disco.
+function showArchived(push = true) {
+  if (push) visit(ARCHIVED);
+  ws.leave();
+  board.setOpen(ARCHIVED);
+  showOnly("archivedView");
+  $("crumb").replaceChildren(crumbLabel(t("crumb.archived")));
+  archived.show();
   draw();
 }
 
@@ -439,6 +459,7 @@ issues.init({
   create: (issue) => launch(state.workspaces.find((w) => w.id === ws.id())?.project, issue),
   toSettings: () => showSettings(),
 });
+archived.init({ board: () => state, hooks: () => hooks });
 ws.init({ say, board: () => state, redraw: draw, toBoard: () => showBoard() });
 session.initTerminal((m) => say(m, true));
 viewer.init((m) => say(m, true));
