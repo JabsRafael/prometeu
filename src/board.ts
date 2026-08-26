@@ -2,7 +2,7 @@ import { avatar, icon, stageIcon } from "./icons";
 import { num, stage as stageName, t } from "./i18n";
 import * as menu from "./menu";
 import * as rename from "./rename";
-import { fmtTokens, heaviest, label, statusOf, worst, type Board, type Status, type Workspace } from "./types";
+import { fmtTokens, hasWorktree, heaviest, label, statusOf, worst, type Board, type Status, type Workspace } from "./types";
 import { h } from "./util";
 
 export type Hooks = {
@@ -89,7 +89,7 @@ function wsMenu(ws: Workspace, board: Board, hooks: Hooks, label: HTMLElement, k
     ...(ws.archived
       ? []
       : [{ label: t("ws.menu.finish"), glyph: icon("check"), run: () => hooks.finish(ws.id) } as menu.Item]),
-    ...(ws.archived && !ws.cleaned
+    ...(hasWorktree(ws)
       ? [{ label: t("ws.menu.cleanup"), glyph: icon("trash"), run: () => hooks.cleanup() } as menu.Item]
       : []),
     ws.archived
@@ -221,7 +221,7 @@ function renderRail(board: Board, hooks: Hooks) {
     // e não como ícone no cabeçalho: ícone de grupo só aparece com o mouse em
     // cima, e o que se faz uma vez por mês não pode depender de passar o mouse
     // num lugar onde não havia motivo para passar.
-    if (gone.some((w) => !w.cleaned) && !folded("@arquivados")) {
+    if (gone.some(hasWorktree) && !folded("@arquivados")) {
       const sweep = h("button", "navitem sub sweep", `${icon("trash", 14)}<span class="lbl"></span>`);
       sweep.children[1].textContent = t("rail.cleanup");
       sweep.title = t("rail.cleanup.title");
