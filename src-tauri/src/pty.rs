@@ -190,6 +190,11 @@ fn open(
 /// que sobrevive a fechar o painel —, e o desligamento começa por SIGHUP no
 /// grupo. Conversa não precisa de nenhum dos dois: aba desligada já tem a tela
 /// de "Retomar conversa" por cima.
+///
+/// `header` é texto que o Prometheus escreveu, e não o processo: o que a aba
+/// Setup diz ter copiado do clone. Entra antes de a thread de leitura começar, e
+/// não depois de `spawn` voltar, para não se intercalar com os primeiros bytes
+/// do comando.
 pub fn spawn(
     app: &AppHandle,
     session_id: &str,
@@ -198,8 +203,14 @@ pub fn spawn(
     rows: u16,
     dock: bool,
     on_exit: Option<OnExit>,
+    header: Option<String>,
 ) -> Result<Pty, String> {
     let (pty, mut reader, mut child) = open(cmd, cols, rows, dock)?;
+
+    if let Some(text) = header {
+        lock(&pty.buffer).extend_from_slice(text.as_bytes());
+        let _ = app.emit("pty", (session_id.to_string(), text.into_bytes()));
+    }
 
     let sink = pty.buffer.clone();
     let (alive_t, gone_t) = (pty.alive.clone(), pty.gone.clone());

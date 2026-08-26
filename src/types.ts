@@ -79,6 +79,11 @@ export type Scripts = {
   setup: string | null;
   runs: { name: string; command: string }[];
   archive: string | null;
+  /// O que este worktree recebe do clone de origem antes do setup: `.env` e o
+  /// resto que o `.gitignore` esconde e nenhum comando reconstrói. É a lista do
+  /// clone, não o que falta aqui — por isso não encolhe depois da cópia, e a
+  /// aba Setup continua existindo num repositório que não declara `setup`.
+  copy: string[];
   port: number | null;
 };
 

@@ -20,9 +20,15 @@
 //! de empresa —, e aí todo worktree nascia sem setup e sem Run, e quem queria
 //! subir o projeto digitava `npm run dev` à mão: porta fixa, e o segundo
 //! worktree derrubava o primeiro.
+//!
+//! O outro que o `.gitignore` esconde é o `.env`. Esse nenhum `setup` reconstrói
+//! — não dá para derivar segredo de lugar nenhum —, então ele é copiado do clone
+//! antes do setup rodar: `[worktree] copy`, e sem declaração o `.env` da raiz e
+//! os irmãos dele. Ver `copies` e `hydrate`.
 
+use crate::i18n;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 /// Na ordem em que são procurados. O do Prometheus vem primeiro para quem quiser
 /// um comando diferente aqui sem mexer no que o Conductor lê.
@@ -49,6 +55,13 @@ pub const TEMPLATE: &str = r#"# Scripts que o Prometheus roda neste repositório
 [scripts]
 setup = "npm install"
 run = "npm run dev -- --port $PROMETHEUS_PORT"
+
+# O que cada worktree novo recebe do clone de origem, antes do setup: o que o
+# `.gitignore` esconde e nenhum script reconstrói. Sem esta lista vai o `.env` da
+# raiz e os irmãos dele; `copy = []` desliga. Nunca sobrescreve o que já está aqui.
+#
+# [worktree]
+# copy = [".env", "config/master.key"]
 "#;
 
 #[derive(Deserialize, Default)]
@@ -62,10 +75,21 @@ struct Table {
     archive: Option<String>,
 }
 
+/// `[worktree]` do settings.toml. Separado de `[scripts]` porque não é script:
+/// é o que o Prometheus faz *antes* de qualquer um deles rodar.
+#[derive(Deserialize, Default)]
+struct WorktreeTable {
+    /// `None` é "não declarou", e vale o automático de `auto`. `Some(vec![])` é
+    /// a escolha explícita de não copiar nada — os dois precisam existir.
+    copy: Option<Vec<String>>,
+}
+
 #[derive(Deserialize, Default)]
 struct File {
     #[serde(default)]
     scripts: Table,
+    #[serde(default)]
+    worktree: WorktreeTable,
 }
 
 #[derive(Serialize, Clone)]
@@ -87,6 +111,14 @@ pub struct Scripts {
     pub setup: Option<String>,
     pub runs: Vec<Run>,
     pub archive: Option<String>,
+    /// O que este worktree recebe do clone, já resolvido: o `[worktree] copy`
+    /// declarado, ou o automático. É o que a aba Setup mostra, e é o que faz ela
+    /// existir mesmo num repositório sem `setup` nenhum.
+    pub copy: Vec<String>,
+    /// Cru, como o arquivo escreveu — `None` é "não declarou". Só o `read_for`
+    /// usa, para resolver o `copy`; o front lê a lista pronta.
+    #[serde(skip)]
+    declared: Option<Vec<String>>,
 }
 
 impl Scripts {
@@ -103,13 +135,15 @@ impl Scripts {
 /// de origem. O worktree ganha inteiro — um `setup` daqui e um `run` de lá seria
 /// pior que qualquer um dos dois. Workspace solto no clone lê uma vez só.
 pub fn read_for(worktree: &Path, repo: &Path) -> Scripts {
-    let own = read(worktree);
-    if own.file.is_some() || worktree == repo {
-        return own;
+    let mut found = read(worktree);
+    if found.file.is_none() && worktree != repo {
+        found = read(repo);
+        found.inherited = found.file.is_some();
     }
-    let mut inherited = read(repo);
-    inherited.inherited = inherited.file.is_some();
-    inherited
+    // Depois de escolher o arquivo, e não antes: a lista que vale é a de quem
+    // mandou — inclusive quando quem mandou foi o clone de origem.
+    found.copy = copies(worktree, repo, found.declared.as_deref());
+    found
 }
 
 pub fn read(root: &Path) -> Scripts {
@@ -124,6 +158,8 @@ pub fn read(root: &Path) -> Scripts {
             setup: trimmed(parsed.scripts.setup),
             runs: runs(parsed.scripts.run),
             archive: trimmed(parsed.scripts.archive),
+            copy: Vec::new(),
+            declared: parsed.worktree.copy,
         };
     }
     Scripts::default()
@@ -157,6 +193,134 @@ fn runs(spec: Option<toml::Value>) -> Vec<Run> {
         }
         _ => Vec::new(),
     }
+}
+
+/* ---------- o que o worktree recebe do clone ---------- */
+
+/// O que aconteceu com um arquivo da lista. Vira as linhas que a aba Setup
+/// mostra antes da saída do script: cópia calada é mágica, e mágica que falha
+/// não tem onde ser vista.
+pub enum Copied {
+    Made(String),
+    /// O worktree já tinha. Aparece na tela mesmo assim — é o que explica por
+    /// que o `.env` daqui não é o do clone depois de alguém editar um dos dois.
+    Kept(String),
+    Failed(String, String),
+}
+
+/// Os arquivos que este worktree recebe do clone de origem, resolvidos.
+///
+/// A lista é o que existe **no clone**, e não o que falta aqui: se encolhesse a
+/// cada cópia, a aba Setup sumiria da barra no segundo em que passou a ter
+/// motivo para existir.
+///
+/// Workspace que roda no próprio clone não recebe nada — não há de onde copiar.
+pub fn copies(worktree: &Path, repo: &Path, declared: Option<&[String]>) -> Vec<String> {
+    if worktree == repo {
+        return Vec::new();
+    }
+    match declared {
+        Some(list) => list
+            .iter()
+            .map(|rel| rel.trim().to_string())
+            .filter(|rel| safe(rel).is_some_and(|path| repo.join(path).exists()))
+            .collect(),
+        None => auto(repo),
+    }
+}
+
+/// Sem declaração, o `.env` da raiz do clone e os irmãos dele — `.env.local`,
+/// `.env.development` —, que é como o mesmo segredo costuma estar partido.
+///
+/// Os exemplos ficam de fora porque vêm no commit: já estão em todo worktree, e
+/// listá-los seria prometer uma cópia que nunca acontece. O resto do que o
+/// `.gitignore` esconde não precisa de teste nenhum: a cópia não sobrescreve, e
+/// arquivo versionado já está aqui.
+fn auto(repo: &Path) -> Vec<String> {
+    const SAMPLES: [&str; 4] = [".env.example", ".env.sample", ".env.template", ".env.dist"];
+    let Ok(dir) = std::fs::read_dir(repo) else { return Vec::new() };
+    let mut out: Vec<String> = dir
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let name = entry.file_name().into_string().ok()?;
+            let keep = name.starts_with(".env") && !SAMPLES.contains(&name.as_str()) && entry.path().is_file();
+            keep.then_some(name)
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+/// Relativo e para dentro do worktree. Absoluto ou com `..` sai do repositório,
+/// e ler ou escrever fora dele não é o que este campo promete.
+fn safe(rel: &str) -> Option<PathBuf> {
+    let path = Path::new(rel.trim());
+    let inside = path.components().all(|c| matches!(c, Component::Normal(_)));
+    (inside && path.components().next().is_some()).then(|| path.to_path_buf())
+}
+
+/// Copia do clone o que falta aqui, antes de o setup rodar.
+///
+/// Nunca sobrescreve: arquivo que já está no worktree é o que veio no commit ou
+/// o que alguém editou de propósito, e os dois valem mais que a cópia. Por isso
+/// também é seguro rodar de novo — "Rodar o setup de novo" busca o que faltar
+/// sem desfazer nada.
+pub fn hydrate(worktree: &Path, repo: &Path, list: &[String]) -> Vec<Copied> {
+    if worktree == repo {
+        return Vec::new();
+    }
+    list.iter()
+        .filter_map(|rel| {
+            let path = safe(rel)?;
+            let to = worktree.join(&path);
+            if to.exists() {
+                return Some(Copied::Kept(rel.clone()));
+            }
+            Some(match copy_into(&repo.join(&path), &to) {
+                Ok(()) => Copied::Made(rel.clone()),
+                Err(e) => Copied::Failed(rel.clone(), e),
+            })
+        })
+        .collect()
+}
+
+/// Arquivo ou diretório inteiro. O `fs::copy` leva os bits de permissão junto, e
+/// é disso que uma chave privada depende para continuar sendo aceita.
+fn copy_into(from: &Path, to: &Path) -> Result<(), String> {
+    if let Some(parent) = to.parent() {
+        std::fs::create_dir_all(parent).map_err(i18n::io)?;
+    }
+    if !from.is_dir() {
+        return std::fs::copy(from, to).map(|_| ()).map_err(i18n::io);
+    }
+    std::fs::create_dir_all(to).map_err(i18n::io)?;
+    for entry in std::fs::read_dir(from).map_err(i18n::io)? {
+        let entry = entry.map_err(i18n::io)?;
+        copy_into(&entry.path(), &to.join(entry.file_name()))?;
+    }
+    Ok(())
+}
+
+/// O cabeçalho da aba Setup. `None` quando não há lista nenhuma: worktree que
+/// não recebe nada não ganha linha em branco no começo do log.
+pub fn report(notes: &[Copied]) -> Option<String> {
+    if notes.is_empty() {
+        return None;
+    }
+    let mut out = String::new();
+    for note in notes {
+        out.push_str(&match note {
+            Copied::Made(path) => {
+                format!("\x1b[32m→\x1b[0m {path} {}\r\n", i18n::pick("veio do clone", "copied from the clone"))
+            }
+            Copied::Kept(path) => {
+                format!("\x1b[2m· {path} {}\x1b[0m\r\n", i18n::pick("já estava aqui", "already here"))
+            }
+            Copied::Failed(path, why) => format!("\x1b[31m✗\x1b[0m {path}: {why}\r\n"),
+        });
+    }
+    out.push_str("\r\n");
+    Some(out)
 }
 
 /// O contrato com o script. Os nomes do Conductor vão junto com os do Prometheus
@@ -236,7 +400,9 @@ pub fn ask_prompt(file: &str) -> String {
 O Prometheus roda cada trabalho num worktree git separado. Worktree novo vem sem
 nada que o `.gitignore` esconde: dependências, `.env`, banco, build. O `setup` é
 o que transforma o worktree num lugar onde dá para trabalhar; o `run` é o que
-sobe o projeto para eu ver a mudança funcionando.
+sobe o projeto para eu ver a mudança funcionando. O que nenhum comando
+reconstrói — segredo, chave — vai em `[worktree] copy`, e o Prometheus copia do
+clone de origem antes do setup.
 
 Leia o README, os manifestos de pacote e os scripts do repositório antes de
 responder. Não chute.
@@ -247,12 +413,19 @@ Formato:
 [scripts]
 setup = "..."
 run = "..."
+
+[worktree]
+copy = [".env"]
 ```
 
 Regras:
 
 - Rodam com `/bin/sh -lc`, com o worktree como diretório atual.
 - `setup` precisa ser idempotente: roda inteiro em cada worktree novo.
+- `copy` são caminhos relativos à raiz do repositório, e só o que o `.gitignore`
+  esconde e nenhum comando refaz. Não escreva `cp` no `setup` para isso: a cópia
+  acontece antes dele, nunca sobrescreve, e aparece na aba Setup. Omita a seção
+  inteira se o `.env` da raiz é o único caso — esse já vai sozinho.
 - `run` precisa ficar em primeiro plano — sem `&`, sem `--daemon`. O Prometheus
   mostra a saída num terminal e mata o processo quando eu peço.
 - Se o projeto abre porta, use `$PROMETHEUS_PORT`. Ela é reservada só para este
@@ -417,6 +590,116 @@ default = true
         assert_ne!(second, first);
         assert_eq!(second % 10, 0);
         assert!((3100..=9990).contains(&second));
+    }
+
+    /// Sem `[worktree] copy`, o `.env` da raiz e os irmãos dele. Exemplo fica
+    /// de fora: vem no commit, então já está no worktree.
+    #[test]
+    fn copia_automatica_pega_os_env_e_deixa_o_exemplo() {
+        let repo = tmp("auto-repo");
+        for name in [".env", ".env.local", ".env.example", "package.json"] {
+            write(&repo, name, "x");
+        }
+        std::fs::create_dir_all(repo.join(".env.d")).unwrap();
+        let wt = tmp("auto-wt");
+        assert_eq!(copies(&wt, &repo, None), vec![".env".to_string(), ".env.local".to_string()]);
+    }
+
+    /// Declarado manda: só o que existe no clone, e nada que aponte para fora.
+    #[test]
+    fn copia_declarada_filtra_o_que_nao_existe_e_o_que_escapa() {
+        let repo = tmp("decl-repo");
+        write(&repo, ".env", "x");
+        write(&repo, "config/master.key", "x");
+        let wt = tmp("decl-wt");
+        let declared = [
+            ".env".to_string(),
+            "config/master.key".to_string(),
+            "nao-existe".to_string(),
+            "../fora".to_string(),
+            "/etc/passwd".to_string(),
+        ];
+        assert_eq!(
+            copies(&wt, &repo, Some(&declared)),
+            vec![".env".to_string(), "config/master.key".to_string()]
+        );
+        // Workspace no próprio clone não recebe nada: não há de onde copiar.
+        assert!(copies(&repo, &repo, Some(&declared)).is_empty());
+    }
+
+    /// A lista é o que existe no clone, e não o que falta aqui: se encolhesse
+    /// depois da cópia, a aba Setup sumiria assim que passasse a ter conteúdo.
+    #[test]
+    fn copia_declarada_nao_encolhe_depois_de_copiar() {
+        let repo = tmp("estavel-repo");
+        write(&repo, ".env", "PORT=3000");
+        let wt = tmp("estavel-wt");
+        let list = copies(&wt, &repo, None);
+        hydrate(&wt, &repo, &list);
+        assert_eq!(copies(&wt, &repo, None), list);
+    }
+
+    #[test]
+    fn hydrate_copia_o_que_falta_e_nao_sobrescreve() {
+        let repo = tmp("hyd-repo");
+        write(&repo, ".env", "do clone");
+        write(&repo, "config/master.key", "chave");
+        let wt = tmp("hyd-wt");
+        write(&wt, ".env", "meu");
+
+        let list = vec![".env".to_string(), "config/master.key".to_string()];
+        let notes = hydrate(&wt, &repo, &list);
+        assert!(matches!(notes[0], Copied::Kept(_)));
+        assert!(matches!(notes[1], Copied::Made(_)));
+        // O que já estava aqui continua sendo o daqui.
+        assert_eq!(std::fs::read_to_string(wt.join(".env")).unwrap(), "meu");
+        assert_eq!(std::fs::read_to_string(wt.join("config/master.key")).unwrap(), "chave");
+
+        // Rodar de novo não desfaz nem duplica nada.
+        let de_novo = hydrate(&wt, &repo, &list);
+        assert!(de_novo.iter().all(|n| matches!(n, Copied::Kept(_))));
+        assert!(report(&de_novo).is_some());
+        assert!(report(&[]).is_none());
+    }
+
+    /// Diretório inteiro, porque é assim que uma credencial do Rails costuma
+    /// estar guardada.
+    #[test]
+    fn hydrate_copia_diretorio() {
+        let repo = tmp("dir-repo");
+        write(&repo, "config/credentials/production.key", "chave");
+        let wt = tmp("dir-wt");
+        hydrate(&wt, &repo, &["config/credentials".to_string()]);
+        assert_eq!(
+            std::fs::read_to_string(wt.join("config/credentials/production.key")).unwrap(),
+            "chave"
+        );
+    }
+
+    /// A lista do clone vale no worktree que herda o arquivo dele — é o caso
+    /// inteiro: `.prometheus/` no `.gitignore` e `.env` também.
+    #[test]
+    fn copia_vem_junto_com_o_arquivo_herdado() {
+        let repo = tmp("copia-herda-repo");
+        write(&repo, ".prometheus/settings.toml", "[scripts]\nrun = \"x\"\n\n[worktree]\ncopy = [\"segredo\"]\n");
+        write(&repo, "segredo", "s");
+        write(&repo, ".env", "nao-declarado");
+        let wt = tmp("copia-herda-wt");
+
+        let s = read_for(&wt, &repo);
+        assert!(s.inherited);
+        // Declarou: vale a lista dela, e o `.env` não entra de contrabando.
+        assert_eq!(s.copy, vec!["segredo".to_string()]);
+    }
+
+    /// `copy = []` é a escolha de não copiar nada, e não "não declarou".
+    #[test]
+    fn copia_vazia_desliga_o_automatico() {
+        let repo = tmp("vazia-repo");
+        write(&repo, ".prometheus/settings.toml", "[worktree]\ncopy = []\n");
+        write(&repo, ".env", "x");
+        let wt = tmp("vazia-wt");
+        assert!(read_for(&wt, &repo).copy.is_empty());
     }
 
     /// O mesmo worktree cai na mesma porta em qualquer quadro; worktrees
