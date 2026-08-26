@@ -1,5 +1,9 @@
 import { current as locale, t } from "./i18n";
 
+/// Quem está no time, como o relay conta. O formato é do protocolo do relay,
+/// que é a única fonte dos tipos que atravessam a rede.
+export type { Member } from "../relay/src/protocol";
+
 export type Status = "rodando" | "querendo" | "pronta" | "desligada";
 
 /// Como cada estado se chama na tela. Um lugar só: estava escrito igual no

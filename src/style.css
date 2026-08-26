@@ -937,6 +937,21 @@ body.noside .side { display: none; }
 .setrow .txt .bad { color: var(--err); }
 .setrow .act { display: flex; gap: 8px; flex: none; }
 .setrow .act .md .ic:last-child { color: var(--fg-3); }
+/* As linhas de dentro do time: sem ícone, alinhadas ao texto da de cima. */
+.setrow.sub { padding: 10px 0 10px 46px; }
+.setrow.sub .txt > b { white-space: nowrap; }
+/* O formulário de criar/entrar: rótulo em cima, campos embaixo — lado a lado
+   não cabe com dois campos e dois botões. */
+.setrow.sub.form { flex-direction: column; align-items: stretch; gap: 10px; }
+.setrow .act.form { flex-wrap: wrap; align-items: center; justify-content: flex-start; }
+.setrow input.field { width: 200px; height: 28px; }
+.setrow input.field.wide { width: 300px; }
+.setrow .members { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; color: var(--fg); }
+.setrow .mem { display: inline-flex; align-items: center; gap: 6px; }
+.setrow .mem .avatar { width: 18px; height: 18px; border-radius: 4px; font-size: 10px; }
+.setrow .mem .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--done); }
+.setrow .mem.off { color: var(--fg-3); }
+.setrow .mem.off .dot { background: var(--line-ghost); }
 
 /* ---------- menu de contexto ---------- */
 

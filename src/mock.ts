@@ -1,6 +1,7 @@
 /// Back falso para o navegador puro (`npm run dev` e abrir localhost:1420):
 /// a UI inteira roda com dados de amostra, sem subir o Tauri. Só entra quando
 /// `window.__TAURI_INTERNALS__` não existe — dentro do app não é carregado.
+import * as team from "./team";
 import type { Board, Issue, LinearStatus, Scripts, Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
@@ -277,6 +278,14 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     }
     case "load_board":
       return board;
+    // O time fica no localStorage aqui, para sobreviver a recarregar a aba —
+    // no app é o `team.json` do back.
+    case "team_config":
+      return { config: JSON.parse(localStorage.getItem("mock:team") ?? "null"), default_name: "Você" };
+    case "team_config_set":
+      if (args.config) localStorage.setItem("mock:team", JSON.stringify(args.config));
+      else localStorage.removeItem("mock:team");
+      return;
     case "pty_buffer": {
       // Chave com `:` é dock; sem, é conversa de agente.
       const s = String(args.session);
@@ -506,6 +515,57 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
   }
 }
 
+/* ---------- o relay de mentira ---------- */
+
+/// Um time com dois colegas fixos, para mexer na tela sem relay: o `welcome`
+/// chega meio segundo depois de conectar, `me` troca o nome, e o resto é
+/// silêncio. `mock.presence(false)` derruba um colega para ver a lista mudar.
+let marcusOnline = true;
+const fakes: team.SocketLike[] = [];
+function fakeSocket(url: string): team.SocketLike {
+  const u = new URL(url);
+  const me = u.searchParams.get("m") ?? "eu";
+  let name = u.searchParams.get("n") ?? "Você";
+  const members = () => [
+    { id: me, name, online: true },
+    { id: "marcus", name: "Marcus Hale", online: marcusOnline },
+    { id: "john", name: "John Okafor", online: false },
+  ];
+  const s: team.SocketLike & { presence: () => void } = {
+    binaryType: "blob",
+    onopen: null,
+    onmessage: null,
+    onclose: null,
+    onerror: null,
+    presence: () => s.onmessage?.({ data: JSON.stringify({ t: "presence", members: members() }) }),
+    send(data) {
+      if (typeof data !== "string" || data === "ping") return;
+      const frame = JSON.parse(data);
+      if (frame.t === "me") {
+        name = frame.name;
+        s.presence();
+      }
+    },
+    close() {
+      fakes.splice(fakes.indexOf(s), 1);
+      setTimeout(() => s.onclose?.());
+    },
+  };
+  fakes.push(s);
+  setTimeout(() => {
+    s.onopen?.();
+    s.onmessage?.({
+      data: JSON.stringify({ t: "welcome", you: me, members: members(), shares: [], inbox: [], watching: {} }),
+    });
+  }, 500);
+  return s;
+}
+team.useTransport({
+  needsRelay: false,
+  socket: fakeSocket,
+  create: async () => ({ team: "timeDeMentira", secret: "segredoDeMentira" }),
+});
+
 w.__TAURI_INTERNALS__ = {
   metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
   transformCallback(cb: Handler) {
@@ -522,6 +582,10 @@ w.__TAURI_INTERNALS__ = {
 // Atalhos para testar os cards de resposta pelo console: `mock.ask()`,
 // `mock.perm()` e `mock.plan()`.
 w.mock = {
+  presence: (online: boolean) => {
+    marcusOnline = online;
+    for (const s of fakes) (s as unknown as { presence: () => void }).presence();
+  },
   plan: () =>
     emit("plan", {
       session: "t1",

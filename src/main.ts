@@ -14,6 +14,7 @@ import * as menu from "./menu";
 import * as rename from "./rename";
 import * as session from "./session";
 import * as settings from "./settings";
+import * as team from "./team";
 import "./style.css";
 import type { Board, Issue, Question, Workspace } from "./types";
 import * as update from "./update";
@@ -428,6 +429,10 @@ for (const [id, name] of [
 }
 
 void update.init(say);
+// O time vem antes das configurações, que é onde ele aparece — e antes do
+// quadro, que vai mostrar o que os colegas compartilham.
+team.onError((m) => say(m, true));
+await team.init();
 // A tela de issues pergunta às configurações se há Linear; elas respondem
 // depois de saber, e por isso vêm antes.
 await settings.init({ say });
