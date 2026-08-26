@@ -89,6 +89,9 @@ function wsMenu(ws: Workspace, board: Board, hooks: Hooks, label: HTMLElement, k
     ...(ws.archived
       ? []
       : [{ label: t("ws.menu.finish"), glyph: icon("check"), run: () => hooks.finish(ws.id) } as menu.Item]),
+    ...(ws.archived && !ws.cleaned
+      ? [{ label: t("ws.menu.cleanup"), glyph: icon("trash"), run: () => hooks.cleanup() } as menu.Item]
+      : []),
     ws.archived
       ? {
           label: t("ws.menu.unarchive"),
@@ -212,16 +215,19 @@ function renderRail(board: Board, hooks: Hooks) {
   const gone = board.workspaces.filter((w) => w.archived);
   if (gone.length) {
     rail.append(document.createElement("hr"));
+    renderGroup(rail, board, hooks, t("rail.archived"), icon("archive", 14), gone, "@arquivados", { avatars: true });
     // Devolver o disco mora aqui porque é daqui que sai: worktree de trabalho
-    // que acabou é o que ocupa gigabyte sem ninguém olhar.
-    const sweep = h("button", "ico sm", icon("trash"));
-    sweep.title = t("rail.cleanup");
-    sweep.addEventListener("click", (e) => {
-      e.stopPropagation();
-      hooks.cleanup();
-    });
-    const opts = { avatars: true, extra: gone.some((w) => !w.cleaned) ? sweep : undefined };
-    renderGroup(rail, board, hooks, t("rail.archived"), icon("archive", 14), gone, "@arquivados", opts);
+    // que acabou é o que ocupa gigabyte sem ninguém olhar. Como linha da lista,
+    // e não como ícone no cabeçalho: ícone de grupo só aparece com o mouse em
+    // cima, e o que se faz uma vez por mês não pode depender de passar o mouse
+    // num lugar onde não havia motivo para passar.
+    if (gone.some((w) => !w.cleaned) && !folded("@arquivados")) {
+      const sweep = h("button", "navitem sub sweep", `${icon("trash", 14)}<span class="lbl"></span>`);
+      sweep.children[1].textContent = t("rail.cleanup");
+      sweep.title = t("rail.cleanup.title");
+      sweep.addEventListener("click", hooks.cleanup);
+      rail.append(sweep);
+    }
   }
 }
 

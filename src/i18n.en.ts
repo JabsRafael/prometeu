@@ -33,6 +33,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "rail.loose": "No project",
   "rail.archived": "Archived",
   "rail.cleanup": "Release worktrees",
+  "rail.cleanup.title": "Take finished work\u2019s worktrees off the disk",
 
   "crumb.board": "Board",
   "crumb.issues": "Issues",
@@ -75,6 +76,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "ws.menu.unarchive": "Unarchive",
   "ws.menu.archive": "Archive",
   "ws.menu.finish": "Finish",
+  "ws.menu.cleanup": "Release the worktree…",
   "ws.menu.gone": "worktree released",
   "ws.menu.drop": "Remove from board",
 

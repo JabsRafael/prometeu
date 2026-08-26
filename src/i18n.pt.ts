@@ -39,7 +39,8 @@ export const PT = {
   "rail.pinned": "Fixados",
   "rail.loose": "Sem projeto",
   "rail.archived": "Arquivados",
-  "rail.cleanup": "Devolver worktrees ao disco",
+  "rail.cleanup": "Devolver worktrees",
+  "rail.cleanup.title": "Tirar do disco os worktrees de trabalho que já acabou",
 
   /* ---------- migalha e cabeçalho ---------- */
 
@@ -90,6 +91,7 @@ export const PT = {
   "ws.menu.unarchive": "Desarquivar",
   "ws.menu.archive": "Arquivar",
   "ws.menu.finish": "Concluir",
+  "ws.menu.cleanup": "Devolver o worktree…",
   "ws.menu.gone": "worktree devolvido",
   "ws.menu.drop": "Tirar do quadro",
 
