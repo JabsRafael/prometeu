@@ -116,6 +116,8 @@ fn main() {
             session::scripts_prompt,
             session::open_run,
             session::pr_prompt,
+            session::pr_open,
+            session::open_pr,
             session::new_tab,
             session::close_tab,
             session::focus_tab,
