@@ -225,6 +225,7 @@ export const PT = {
   "viewer.copyPath": "Copiar caminho",
   "web.reload": "Recarregar",
   "web.external": "Abrir no navegador de fora",
+  "web.url": "Endereço da página — escreva outro e tecle Enter",
   "diff.clean": "worktree limpo",
   "diff.clean.long": "worktree limpo — nada mudou desde o HEAD",
   "diff.new": "novo",
@@ -420,6 +421,7 @@ export const PT = {
   "err.session.binary": "arquivo binário",
   "err.session.openFailed": "não abriu {path}",
 
+  "err.browser.badUrl": "endereço que não dá para abrir: {url}",
   "err.dock.unknown": "dock desconhecido: {kind}",
   "err.dock.noScript": "nenhum script de {kind} em {file}",
 

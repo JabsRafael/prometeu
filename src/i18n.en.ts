@@ -200,6 +200,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "viewer.copyPath": "Copy path",
   "web.reload": "Reload",
   "web.external": "Open in the external browser",
+  "web.url": "Page address — type another one and press Enter",
   "diff.clean": "clean worktree",
   "diff.clean.long": "clean worktree — nothing changed since HEAD",
   "diff.new": "new",
@@ -378,6 +379,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.session.binary": "binary file",
   "err.session.openFailed": "could not open {path}",
 
+  "err.browser.badUrl": "address that cannot be opened: {url}",
   "err.dock.unknown": "unknown dock: {kind}",
   "err.dock.noScript": "no {kind} script in {file}",
 

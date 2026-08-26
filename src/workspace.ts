@@ -38,7 +38,7 @@ export function init(context: Ctx) {
 
   tree.init({ openFile, workspace: id });
   dockbar.init({ workspace: id, say: ctx.say, openFile, newTab, openBrowser: showWeb });
-  browser.init((id) => invoke("open_run", { id }).catch((e) => ctx.say(fromBack(e), true)));
+  browser.init((id) => invoke("open_run", { id }).catch((e) => ctx.say(fromBack(e), true)), ctx.say);
 
   $("tab-files").addEventListener("click", () => setSidePane("files"));
   $("tab-diff").addEventListener("click", () => {

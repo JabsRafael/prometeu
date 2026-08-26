@@ -10,7 +10,10 @@
 /// só esconde, e voltar mostra a mesma página onde estava.
 use crate::session::ensure_port;
 use crate::{i18n, AppState};
-use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, Rect, State, WebviewBuilder, WebviewUrl};
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Rect, State, Url, WebviewBuilder,
+    WebviewUrl,
+};
 
 /// Rótulo da webview. O Tauri só aceita letras, dígitos, `-`, `/`, `:` e `_` —
 /// o id do workspace já é assim, mas custa nada garantir.
@@ -35,15 +38,49 @@ pub fn browser_open(app: AppHandle, state: State<AppState>, id: String) -> Resul
         return Ok(port);
     }
     let window = app.get_window("main").ok_or_else(fail)?;
-    let parsed = tauri::Url::parse(&url).map_err(|_| fail())?;
+    let parsed = Url::parse(&url).map_err(|_| fail())?;
+    // A barra de endereço tem que acompanhar quem navega dentro da página — um
+    // link clicado, um redirecionamento de login. `on_navigation` conta cada
+    // uma; o resto (rota de SPA, que troca a URL sem carregar página) o front
+    // pega perguntando `browser_url` de vez em quando.
+    let to = app.clone();
+    let of = id.clone();
     window
         .add_child(
-            WebviewBuilder::new(label(&id), WebviewUrl::External(parsed)),
+            WebviewBuilder::new(label(&id), WebviewUrl::External(parsed)).on_navigation(
+                move |url| {
+                    let _ = to.emit("browser:url", (of.clone(), url.to_string()));
+                    true
+                },
+            ),
             LogicalPosition::new(0.0, 0.0),
             LogicalSize::new(0.0, 0.0),
         )
         .map_err(|_| fail())?;
     Ok(port)
+}
+
+/// Onde a página está agora. É daqui que a barra de endereço se corrige quando
+/// a navegação não passou por `on_navigation` — rota de SPA, `history.pushState`.
+#[tauri::command]
+pub fn browser_url(app: AppHandle, id: String) -> Option<String> {
+    let view = app.get_webview(&label(&id))?;
+    view.url().ok().map(|u| u.to_string())
+}
+
+/// Vai para o que você digitou na barra. Só `http` e `https`: o resto é que a
+/// barra é um campo de texto dentro do app, e `file://` leria o seu disco.
+/// Aqui a URL vem do front porque foi você que escreveu — o `browser_open`, que
+/// não vem, continua tirando a porta do estado.
+#[tauri::command]
+pub fn browser_navigate(app: AppHandle, id: String, url: String) -> Result<(), String> {
+    let bad = || i18n::ta("err.browser.badUrl", &[("url", url.clone())]);
+    let parsed = Url::parse(&url).map_err(|_| bad())?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(bad());
+    }
+    let view = app.get_webview(&label(&id)).ok_or_else(bad)?;
+    view.navigate(parsed).map_err(|_| bad())
 }
 
 /// Onde a webview fica, em pixels lógicos a partir do canto da janela — o

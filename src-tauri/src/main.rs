@@ -121,6 +121,8 @@ fn main() {
             session::scripts_prompt,
             session::open_run,
             browser::browser_open,
+            browser::browser_url,
+            browser::browser_navigate,
             browser::browser_bounds,
             browser::browser_hide,
             browser::browser_reload,

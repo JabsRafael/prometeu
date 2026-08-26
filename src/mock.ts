@@ -388,6 +388,11 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     // A webview nativa não existe fora do Tauri: a aba abre com o buraco vazio.
     case "browser_open":
       return (scripts[args.id] ?? noScripts).port ?? 3100;
+    case "browser_url":
+      return "http://localhost:" + ((scripts[args.id] ?? noScripts).port ?? 3100) + "/";
+    case "browser_navigate":
+      console.log("navegar para:", args.url);
+      return null;
     case "browser_bounds":
     case "browser_hide":
     case "browser_reload":
