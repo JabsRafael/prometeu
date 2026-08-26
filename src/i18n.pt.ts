@@ -262,23 +262,6 @@ export const PT = {
   "clean.none": "Nenhum arquivado tem worktree no disco.",
   "clean.loading": "Vendo o que dá para devolver…",
 
-  /* ---------- cards do agente ---------- */
-
-  "ask.question": "pergunta",
-  "ask.question.header": "pergunta · {header}",
-  "ask.questions": "{n} perguntas",
-  "ask.free": "Digite ou cole uma resposta…",
-  "ask.send": "Enviar",
-  "ask.permission": "quer permissão",
-  "ask.allow": "Permitir",
-  "ask.deny": "Negar",
-  "ask.tool": "ferramenta",
-  "ask.plan": "plano pronto",
-  "ask.plan.title": "Executar do jeito que está?",
-  "ask.plan.empty": "(o plano está no terminal)",
-  "ask.plan.run": "Executar",
-  "ask.plan.edit": "Ajustar no terminal",
-
   /* ---------- dock ---------- */
 
   "dock.setup": "Setup",
@@ -371,6 +354,7 @@ export const PT = {
   "note.permission": "quer permissão para {tool}",
   "note.plan": "plano pronto: executar?",
   "note.permissionAny": "quer permissão para uma ferramenta",
+  "note.question": "quer sua resposta",
 
   /* ---------- o que o back diz: erros ---------- */
 
@@ -424,12 +408,6 @@ export const PT = {
   "err.browser.badUrl": "endereço que não dá para abrir: {url}",
   "err.dock.unknown": "dock desconhecido: {kind}",
   "err.dock.noScript": "nenhum script de {kind} em {file}",
-
-  "err.ask.gone": "esse pedido já não está mais esperando",
-  "err.ask.expired": "esse pedido expirou — o agente voltou a perguntar no terminal",
-  "err.ask.noOption": "a opção {n} não existe nessa pergunta",
-  "err.ask.freeOnly": "essa pergunta não tem opções: responda no terminal",
-  "err.ask.tooMany": "opções demais",
 
   "err.pty.gone": "sessão não está rodando",
   "err.pty.openpty": "openpty falhou: {cause}",

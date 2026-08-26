@@ -532,43 +532,8 @@ w.__TAURI_INTERNALS__ = {
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise.resolve(call(cmd, args)),
 };
 
-// Atalhos para testar os cards de resposta pelo console: `mock.ask()`,
-// `mock.perm()` e `mock.plan()`.
+// Atalho para testar o arrastar-e-soltar pelo console: `mock.drop([...])`.
 w.mock = {
-  plan: () =>
-    emit("plan", {
-      session: "t1",
-      plan: [
-        "# Plano: trocar o ponto verde por uma onda",
-        "",
-        "## Contexto",
-        "O dock mostra um ponto verde quando há processo de pé. Cor parada não separa \"rodando\" de \"parou faz um segundo\".",
-        "",
-        "## Passos",
-        "1. Desenhar `audio-lines` em `icons.ts` e animar as seis barras no CSS.",
-        "2. Trocar o ponto pela onda em `dockbar.ts`, herdando a cor da aba.",
-        "3. Conferir no navegador com `mock.drop` e no app com `npm run app`.",
-      ].join("\n"),
-    }),
-  ask: () =>
-    emit("question", {
-      session: "t1",
-      payload: {
-        tool_input: {
-          questions: [
-            {
-              question: "Qual é a sua cor preferida?",
-              header: "Cor",
-              options: [
-                { label: "Azul", description: "Calmo e frio" },
-                { label: "Verde", description: "Natureza" },
-                { label: "Vermelho" },
-              ],
-            },
-          ],
-        },
-      },
-    }),
   /// Simula soltar arquivos num ponto da tela — o mesmo evento que o Tauri
   /// manda quando você arrasta de fora para dentro da janela.
   drop: (paths: string[], x = innerWidth / 2, y = innerHeight / 2) => {
@@ -577,10 +542,4 @@ w.mock = {
     emit("tauri://drag-drop", { paths, position });
   },
   over: (position: { x: number; y: number }) => emit("tauri://drag-over", { position }),
-  perm: () =>
-    emit("permission", {
-      id: 1,
-      session: "t1",
-      payload: { tool_name: "Bash", tool_input: { command: "npm run build" } },
-    }),
 };
