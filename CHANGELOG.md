@@ -4,6 +4,20 @@ O que muda no Prometheus, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.1.13] - 2026-08-26
+
+### Novidades
+
+- **workspace:** Worktree novo já nasce com o .env do projeto
+- **workspace:** PR aberto da branch aparece na barra e leva até ele no navegador
+- **lançador:** Workspace novo ganha nome escrito pelo agente
+- **quadro:** O PR que entrou vira "Concluir", e a barra devolve os worktrees ao disco
+
+### Correções
+
+- **quadro:** "Devolver worktrees" vira linha da barra, em vez de ícone que só o mouse achava
+- **quadro:** A limpeza de worktree se chama "Limpar worktrees" na tela inteira
+
 ## [0.1.12] - 2026-08-25
 
 ### Novidades
