@@ -438,6 +438,8 @@ for (const [id, name] of [
   ["fwd", "arrow-right"],
   ["sidetoggle", "panel-right"],
   ["reveal", "external-link"],
+  ["wreload", "rotate"],
+  ["wext", "external-link"],
   ["collapse", "list-tree"],
   ["dock-again", "rotate"],
   ["run-pick", "chevron-down"],

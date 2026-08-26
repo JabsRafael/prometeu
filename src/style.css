@@ -392,6 +392,9 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
    topo enquanto o corpo passa; fundo verde/vermelho fraco atrás da linha, que
    o texto colorido do highlight ainda tem de ler bem por cima. */
 .diffview { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* Navegador: o DOM reserva o buraco e o sistema desenha a página dentro dele. */
+.webview { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.webbody { flex: 1; min-height: 0; margin: 10px 12px 12px; }
 #dcrumb { gap: 8px; }
 #dcrumb .nm { color: var(--fg); }
 .vcrumb .a { color: var(--done); }

@@ -383,10 +383,15 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     case "scripts_prompt":
       return "Descubra como preparar e como rodar este projeto, e escreva isso em `.prometheus/settings.toml`.";
     case "open_run":
-      console.log(
-        (args.external ? "abrir no navegador: " : "abrir numa janela: ") +
-          "http://localhost:" + ((scripts[args.id] ?? noScripts).port ?? 0),
-      );
+      console.log("abrir no navegador: http://localhost:" + ((scripts[args.id] ?? noScripts).port ?? 0));
+      return null;
+    // A webview nativa não existe fora do Tauri: a aba abre com o buraco vazio.
+    case "browser_open":
+      return (scripts[args.id] ?? noScripts).port ?? 3100;
+    case "browser_bounds":
+    case "browser_hide":
+    case "browser_reload":
+    case "browser_close":
       return null;
     // Só o workspace que já está em code review tem PR — é assim que se vê o
     // botão aparecendo num e não no outro.

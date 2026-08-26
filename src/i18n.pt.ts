@@ -210,6 +210,10 @@ export const PT = {
   "tab.changes.title": "Diff do worktree inteiro",
   "tab.changes.close": "Fechar Mudanças",
   "tab.changes.closeKey": "Fechar Mudanças  ⌘W",
+  "tab.browser": "Navegador",
+  "tab.browser.title": "O Run deste workspace, em http://localhost:{port}",
+  "tab.browser.close": "Fechar o navegador",
+  "tab.browser.closeKey": "Fechar o navegador  ⌘W",
 
   /* ---------- painel da direita, árvore e mudanças ---------- */
 
@@ -219,6 +223,8 @@ export const PT = {
   "side.reveal": "Abrir o worktree no Finder",
   "diff.foldAll": "Recolher todos",
   "viewer.copyPath": "Copiar caminho",
+  "web.reload": "Recarregar",
+  "web.external": "Abrir no navegador de fora",
   "diff.clean": "worktree limpo",
   "diff.clean.long": "worktree limpo — nada mudou desde o HEAD",
   "diff.new": "novo",
@@ -283,7 +289,7 @@ export const PT = {
   "dock.expand": "Expandir",
   "dock.stop": "Parar",
   "dock.open": "Open",
-  "dock.open.title": "Abrir http://localhost:{port} numa janela — ⌥ abre no navegador",
+  "dock.open.title": "Abrir http://localhost:{port} numa aba — ⌥ abre no navegador de fora",
   "dock.pick": "Escolher o script",
   "dock.again": "Rodar o setup de novo",
   "dock.settings.copy": "Copiar o settings.toml do clone para cá",

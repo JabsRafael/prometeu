@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod browser;
 mod i18n;
 mod linear;
 mod lock;
@@ -119,6 +120,11 @@ fn main() {
             session::create_scripts_file,
             session::scripts_prompt,
             session::open_run,
+            browser::browser_open,
+            browser::browser_bounds,
+            browser::browser_hide,
+            browser::browser_reload,
+            browser::browser_close,
             session::pr_prompt,
             session::pr_open,
             session::refresh_prs,
