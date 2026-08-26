@@ -11,6 +11,7 @@ import {
   type Down,
   type Inbox,
   type Member,
+  type Note,
   type Segment,
   type Share,
   type Shared,
@@ -135,6 +136,9 @@ let you: string | null = null;
 let members: Member[] = [];
 let shares = new Map<string, Shared>();
 let inbox: Inbox[] = [];
+/// As notas de cada workspace, como o relay as contou. Só o que já foi pedido
+/// (`notes`) está aqui; o resto chega quando alguém abre o painel.
+const notes = new Map<string, Note[]>();
 let attempt = 0;
 let retry = 0;
 let pinger = 0;
@@ -294,6 +298,10 @@ function handle(frame: Down) {
       shares = new Map(frame.shares.map((s) => [s.id, s]));
       inbox = frame.inbox;
       phase = "online";
+      // O que eu tinha em cache pode ter envelhecido enquanto eu estava fora.
+      const asked = [...notes.keys()];
+      notes.clear();
+      for (const ws of asked) send({ t: "notes", ws });
       // A verdade veio; o que é meu vai de novo, e quem já olhava minhas abas
       // ganha a rolagem inteira — o que saiu enquanto eu estava fora não
       // chegou a ninguém.
@@ -328,9 +336,25 @@ function handle(frame: Down) {
     case "inbox":
       inbox = frame.items;
       break;
-    case "error":
-      fail?.(t(`err.team.${frame.code}` as Parameters<typeof t>[0]));
+    case "note": {
+      const list = notes.get(frame.note.ws) ?? [];
+      // Chega para todos, inclusive para quem escreveu — é assim que a nota
+      // ganha o id que o relay deu. Duas vezes a mesma, não.
+      if (!list.some((n) => n.id === frame.note.id)) list.push(frame.note);
+      notes.set(frame.note.ws, list);
+      break;
+    }
+    case "notes":
+      notes.set(frame.ws, frame.items);
+      break;
+    case "error": {
+      // Relay mais novo que o app pode mandar um código que este catálogo não
+      // tem; dizer a chave crua é pior que dizer que algo não passou.
+      const key = `err.team.${frame.code}` as Parameters<typeof t>[0];
+      const text = t(key);
+      fail?.(text === key ? t("err.team.bad") : text);
       return;
+    }
     default:
       return;
   }
@@ -360,6 +384,7 @@ function reset() {
   attached = null;
   mirror.clear();
   remoteIds.clear();
+  notes.clear();
 }
 
 const cleanName = (name: string) => {
@@ -704,4 +729,59 @@ function binary(data: ArrayBuffer) {
     const fresh = m.absorb(seg.seq, seg.bytes);
     if (fresh && attached?.tab === bin.tab) guest.live(bin.tab, fresh);
   }
+}
+
+/* ---------- notas ---------- */
+
+/// O id que o relay conhece: o de um colega vem prefixado na tela, o seu é
+/// ele mesmo.
+const relayId = (id: string) => remoteIds.get(id)?.ws ?? id;
+
+/// As notas de um workspace, e o pedido ao relay se ainda não vieram. Devolve
+/// o que já se sabe; o resto chega pelo `onChange`.
+export function notesOf(id: string): Note[] {
+  const ws = relayId(id);
+  const have = notes.get(ws);
+  if (have) return have;
+  // Guardar a lista vazia é dizer "já pedi": só vale se o pedido saiu. Sem
+  // conexão, o painel fica vazio e pede de novo quando ela voltar.
+  if (send({ t: "notes", ws })) notes.set(ws, []);
+  return [];
+}
+
+/// Escreve uma nota. `quote` é o trecho do terminal que ela cita, se cita, e
+/// `mentions` são ids de membros — o relay descarta quem não existe.
+export function addNote(id: string, text: string, mentions: string[], quote: string | null) {
+  send({ t: "note", ws: relayId(id), text, mentions, quote });
+}
+
+/// Quantas notas mencionam você e você ainda não abriu.
+export const inboxCount = () => inbox.length;
+
+/// Abrir a nota da caixa: sai da caixa e diz onde ela está, para a tela levar
+/// até lá. O id do workspace é o da tela, não o do relay.
+export function readInbox(id: string): { workspace: string; note: string } | null {
+  const item = inbox.find((i) => i.id === id);
+  if (!item) return null;
+  send({ t: "inbox_read", id });
+  inbox = inbox.filter((i) => i.id !== id);
+  const owned = [...remoteIds].find(([, r]) => r.ws === item.ws);
+  changed();
+  return { workspace: owned?.[0] ?? item.ws, note: item.id };
+}
+
+/// O que a caixa mostra: a nota, de quem é, e onde está.
+export function inboxList(): { id: string; ws: string; author: string; ts: number; title: string; text: string }[] {
+  return inbox.map((i) => {
+    const note = notes.get(i.ws)?.find((n) => n.id === i.id);
+    const share = shares.get(i.ws);
+    return {
+      id: i.id,
+      ws: i.ws,
+      author: nameOf(i.author),
+      ts: i.ts,
+      title: share?.title ?? "",
+      text: note?.text ?? "",
+    };
+  });
 }

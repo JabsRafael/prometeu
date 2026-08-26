@@ -4,6 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import * as board from "./board";
 import { openCleanup } from "./cleanup";
+import { openInbox } from "./inbox";
 import * as dock from "./dock";
 import * as dockbar from "./dockbar";
 import { icon } from "./icons";
@@ -64,6 +65,12 @@ const hooks: board.Hooks = {
   },
   finish: (id) => ws.finish(id),
   cleanup: () => openCleanup(say),
+  inbox: () =>
+    openInbox((workspace, note) => {
+      const target = view().workspaces.find((w) => w.id === workspace);
+      if (!target) return say(t("err.team.noShare"), true);
+      void openWorkspace(target).then(() => ws.showNote(note));
+    }),
   pin: (id, pinned) => invoke("pin_workspace", { id, pinned }),
   unread: (id, unread) => invoke("set_unread", { id, unread }),
   reveal: (id) => invoke("reveal", { id }).catch((e) => say(fromBack(e), true)),
@@ -401,6 +408,11 @@ document.addEventListener("keydown", (e) => {
   if (cmd && e.key === "b") {
     e.preventDefault();
     toggleRail();
+  }
+  // ⌘⇧M é a nota citando o que está selecionado no terminal: a mão já está no
+  // mouse, tendo acabado de selecionar.
+  if (cmd && e.shiftKey && e.key.toLowerCase() === "m" && open) {
+    if (ws.quoteSelection()) e.preventDefault();
   }
   // ⌘, é onde todo app do Mac guarda as preferências.
   if (cmd && e.key === ",") {

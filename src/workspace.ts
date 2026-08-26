@@ -5,6 +5,7 @@ import * as dockbar from "./dockbar";
 import { avatar, icon, stageIcon } from "./icons";
 import { fromBack, stage as stageName, t, tn } from "./i18n";
 import * as menu from "./menu";
+import * as notes from "./notes";
 import * as rename from "./rename";
 import * as session from "./session";
 import * as team from "./team";
@@ -40,6 +41,8 @@ export function init(context: Ctx) {
   dockbar.init({ workspace: id, say: ctx.say, openFile, newTab });
 
   $("tab-files").addEventListener("click", () => setSidePane("files"));
+  notes.init({ workspace: id, say: ctx.say });
+  $("tab-notes").addEventListener("click", () => setSidePane("notes"));
   $("tab-diff").addEventListener("click", () => {
     // Já no painel de Mudanças, clicar de novo traz o diff para o centro. É o
     // caminho de volta depois de fechar a aba — sem ele, quem fechou só voltaria
@@ -98,6 +101,7 @@ export async function open(ws: Workspace) {
     showTerm();
     if (first) await session.attach(first.id, ws.id);
     ctx.redraw();
+    notes.draw();
     return;
   }
   // Abrir é ler: a novidade deste workspace morre aqui, e o que acontecer nele
@@ -186,6 +190,8 @@ export function draw() {
   drawTabs(ws);
   const tab = ws.tabs.find((t) => t.id === session.currentSession());
   drawShare(ws, tab);
+  if (sidePane === "notes") notes.draw();
+  else notes.paintCount();
 
   if (remote) {
     // A branch é a que o dono contou; não há git aqui para perguntar. E o PR,
@@ -199,13 +205,26 @@ export function draw() {
     $("offpath").textContent = "";
     $("resume").hidden = true;
     $("tabbar").hidden = false;
-    $("side").hidden = true;
-    $("sidetoggle").hidden = true;
+    // O painel existe, com uma aba só: notas. Arquivos, diff e dock são do
+    // disco dele.
+    $("side").hidden = false;
+    $("sidetoggle").hidden = false;
     $("wsstage").hidden = true;
+    $("tab-files").hidden = true;
+    $("tab-diff").hidden = true;
+    $("tab-notes").hidden = false;
+    $("dock").hidden = true;
+    setSidePane("notes");
     return;
   }
 
   $("pr").hidden = false;
+  $("tab-files").hidden = false;
+  $("tab-diff").hidden = false;
+  // Sem time não há com quem trocar nota; a aba não fica ali por nada.
+  $("tab-notes").hidden = !team.status().config;
+  if (sidePane === "notes" && $("tab-notes").hidden) setSidePane("files");
+  $("dock").hidden = false;
   $("offpath").textContent = ws.worktree;
   drawBranch(ws);
   drawPr(ws);
@@ -753,13 +772,33 @@ function drawChanges(id: string, focus?: string) {
 
 /* ---------- painel da direita ---------- */
 
-let sidePane: "files" | "diff" = "files";
+type Pane = "files" | "diff" | "notes";
+let sidePane: Pane = "files";
 
-function setSidePane(pane: "files" | "diff") {
+function setSidePane(pane: Pane) {
   sidePane = pane;
   $("tab-files").classList.toggle("on", pane === "files");
   $("tab-diff").classList.toggle("on", pane === "diff");
+  $("tab-notes").classList.toggle("on", pane === "notes");
   $("tree").hidden = pane !== "files";
   $("difflist").hidden = pane !== "diff";
+  $("notes").hidden = pane !== "notes";
   if (pane === "files") tree.redraw();
+  if (pane === "notes") notes.draw();
+}
+
+/// ⌘⇧M: nota citando o que está selecionado no terminal. Abre o painel de
+/// notas e põe a citação no que está sendo escrito.
+export function quoteSelection(): boolean {
+  if (!openWs) return false;
+  if ($("tab-notes").hidden) return false;
+  setSidePane("notes");
+  return notes.quoteSelection();
+}
+
+/// Levar até uma nota — de onde a caixa "Para mim" leva.
+export function showNote(id: string) {
+  if (!openWs) return;
+  setSidePane("notes");
+  notes.focusNote(id);
 }

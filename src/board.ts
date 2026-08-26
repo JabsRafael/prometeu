@@ -7,6 +7,8 @@ import { fmtTokens, heaviest, label, statusOf, worst, type Board, type Status, t
 import { h } from "./util";
 
 export type Hooks = {
+  /// A caixa "Para mim": as notas do time que marcaram você.
+  inbox: () => void;
   open: (ws: Workspace) => void;
   setStage: (id: string, stage: string) => void;
   /// Tira do quadro de vez — o worktree e a branch ficam, a referência não.
@@ -174,7 +176,19 @@ function renderRail(board: Board, hooks: Hooks) {
   quadro.children[1].textContent = t("rail.board");
   quadro.querySelector(".n")!.textContent = String(live.length);
   quadro.addEventListener("click", hooks.toBoard);
-  rail.append(quadro, document.createElement("hr"));
+  rail.append(quadro);
+
+  // Alguém do time te marcou numa nota: é o único lugar da tela que espera
+  // resposta sua e não está dentro de uma sessão.
+  const waiting = team.inboxCount();
+  if (waiting) {
+    const mine = h("button", "navitem mentions", `${icon("at-sign")}<span></span><span class="n"></span>`);
+    mine.children[1].textContent = t("inbox.title");
+    mine.querySelector(".n")!.textContent = String(waiting);
+    mine.addEventListener("click", hooks.inbox);
+    rail.append(mine);
+  }
+  rail.append(document.createElement("hr"));
 
   // Fixado sobe para o topo e sai do grupo do projeto: aparecer duas vezes na
   // mesma lista não ajuda ninguém.

@@ -116,6 +116,9 @@
             <div class="sidetabs">
               <button id="tab-files" class="sidetab on" data-t="side.files"></button>
               <button id="tab-diff" class="sidetab"><span data-t="side.changes"></span> <span id="diffcount"></span></button>
+              <!-- Notas da sessão: o que alguém do time precisa que você veja,
+                   e o que você quer perguntar a alguém. Desenhada por notes.ts. -->
+              <button id="tab-notes" class="sidetab" hidden><span data-t="side.notes"></span> <span id="notecount"></span></button>
               <span class="spacer"></span>
               <button id="collapse" class="ico" data-t-title="side.collapse"></button>
               <button id="reveal" class="ico" data-t-title="side.reveal"></button>
@@ -123,6 +126,7 @@
             <div class="sidebody">
               <div class="tree" id="tree"></div>
               <div class="difflist" id="difflist" hidden></div>
+              <div class="notes" id="notes" hidden></div>
             </div>
             <!-- Setup prepara o worktree, Run sobe o projeto, e o + abre
                  shells. Todos rodam no mesmo worktree e nenhum é sessão de

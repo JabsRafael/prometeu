@@ -597,6 +597,24 @@ function fakeSocket(url: string): team.SocketLike {
   let seq = 1;
   let ticking = 0;
   let attached: string | null = null;
+  /// As notas de mentira, por workspace. Nascem com uma do Marcus no que ele
+  /// compartilhou, para o painel ter o que mostrar de cara.
+  const notes = new Map<string, unknown[]>([
+    [
+      "ws-marcus",
+      [
+        {
+          id: "1-a",
+          ws: "ws-marcus",
+          author: "marcus",
+          text: `Completar um todo agora carimba \`completed_at\` em vez de apagar a linha. @${name} a chamada que sobrou é sua: manter o histórico na tabela de todos, ou mover para uma tabela só delas?`,
+          mentions: [me],
+          quote: "edit migrations/0007_todo_completed_at.sql · +11",
+          ts: Date.now() - 9 * 60_000,
+        },
+      ],
+    ],
+  ]);
   const members = () => [
     { id: me, name, online: true },
     { id: "marcus", name: "Marcus Hale", online: marcusOnline },
@@ -648,6 +666,45 @@ function fakeSocket(url: string): team.SocketLike {
           break;
         case "unshare":
           break;
+        case "notes":
+          text({ t: "notes", ws: frame.ws, items: notes.get(frame.ws) ?? [] });
+          break;
+        // Nota nova: o relay dá o id e devolve a todos — inclusive a quem
+        // escreveu, que é como ela ganha o id.
+        case "note": {
+          const note = {
+            id: `${Date.now()}-m`,
+            ws: frame.ws,
+            author: me,
+            text: frame.text,
+            mentions: frame.mentions,
+            quote: frame.quote,
+            ts: Date.now(),
+          };
+          notes.set(frame.ws, [...(notes.get(frame.ws) ?? []), note]);
+          text({ t: "note", note });
+          // E o Marcus responde, se foi ele quem você marcou.
+          if (frame.mentions.includes("marcus")) {
+            setTimeout(() => {
+              const reply = {
+                id: `${Date.now()}-r`,
+                ws: frame.ws,
+                author: "marcus",
+                text: "Vi. Coluna, então — uma migração contra um join em toda leitura não se paga.",
+                mentions: [me],
+                quote: null,
+                ts: Date.now(),
+              };
+              notes.set(frame.ws, [...(notes.get(frame.ws) ?? []), reply]);
+              text({ t: "note", note: reply });
+              text({ t: "inbox", items: [{ id: reply.id, ws: frame.ws, author: "marcus", ts: reply.ts }] });
+            }, 1200);
+          }
+          break;
+        }
+        case "inbox_read":
+          text({ t: "inbox", items: [] });
+          break;
       }
     },
     close() {
@@ -659,7 +716,14 @@ function fakeSocket(url: string): team.SocketLike {
   fakes.push(s);
   setTimeout(() => {
     s.onopen?.();
-    text({ t: "welcome", you: me, members: members(), shares: [marcusShare()], inbox: [], watching: {} });
+    text({
+      t: "welcome",
+      you: me,
+      members: members(),
+      shares: [marcusShare()],
+      inbox: [{ id: "1-a", ws: "ws-marcus", author: "marcus", ts: Date.now() - 9 * 60_000 }],
+      watching: {},
+    });
   }, 500);
   return s;
 }
