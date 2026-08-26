@@ -4,6 +4,21 @@ O que muda no Prometheus, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.1.14] - 2026-08-26
+
+### Novidades
+
+- **quadro:** Os arquivados saem da barra e ganham uma tela com busca
+- **dock:** Open abre o run numa janela do próprio app, e ⌥-clique no navegador
+- **quadro:** O Run abre numa aba de navegador, ao lado da conversa
+- **quadro:** A aba de navegador ganha barra de endereço
+- **quadro:** Pergunta, plano e permissão ficam no terminal, sem card por cima
+
+### Correções
+
+- **quadro:** Limpar worktrees abre na hora e deixa de listar quem roda no próprio clone
+- **dock:** A porta reservada nunca cai numa que o navegador recusa
+
 ## [0.1.13] - 2026-08-26
 
 ### Novidades
