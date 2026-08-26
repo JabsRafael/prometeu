@@ -182,6 +182,20 @@ pub fn set_unread(app: AppHandle, state: State<AppState>, id: String, unread: bo
     publish(&app);
 }
 
+/// Compartilhar com o time é uma marca no workspace: quem anuncia ao relay e
+/// repassa a saída é o front, que é quem tem os bytes. Fica gravada para o
+/// dono que fecha o app voltar compartilhando sozinho.
+#[tauri::command]
+pub fn set_shared(app: AppHandle, state: State<AppState>, id: String, shared: bool) {
+    {
+        let mut board = lock(&state.board);
+        if let Some(ws) = board.workspace_mut(&id) {
+            ws.shared = shared;
+        }
+    }
+    publish(&app);
+}
+
 /// Qual workspace está na tela — e, por isso, deixa de ter novidade. Sem isto o
 /// back marcaria como não lido o que você está vendo acontecer na sua frente.
 #[tauri::command]
@@ -521,6 +535,7 @@ pub fn create_workspace(
         unread: false,
         pr: None,
         cleaned: false,
+        shared: false,
         model: draft.launch.model,
         effort: draft.launch.effort,
         port,
@@ -1225,6 +1240,7 @@ mod tests {
             unread: false,
             pr: None,
             cleaned: false,
+            shared: false,
             model: String::new(),
             effort: String::new(),
             port: None,

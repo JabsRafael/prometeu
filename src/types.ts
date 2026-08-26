@@ -54,9 +54,17 @@ export type Workspace = {
   /// O worktree foi devolvido ao disco. O card fica como histórico: sem
   /// terminal, sem docks, sem arquivos — só o que ficou escrito.
   cleaned: boolean;
+  /// Compartilhado com o time: o `team.ts` anuncia e repassa a saída.
+  shared: boolean;
+  /// De um colega, e não seu: o que o relay contou do workspace dele. Só
+  /// existe na tela — o Rust nunca vê um destes. `online` é o dono estar aí:
+  /// sem ele o terminal congela, e nada aqui aceita tecla.
+  remote: Remote | null;
   tabs: Tab[];
   active: string | null;
 };
+
+export type Remote = { owner: string; online: boolean };
 
 /// O PR de uma branch, como o `gh` conta. `state` é `OPEN`, `MERGED` ou
 /// `CLOSED`.

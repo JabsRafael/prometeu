@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 /// Comandos cujo retorno o front joga fora — manda e segue. Para esses, o
 /// `default: return null` do mock é a resposta certa, e exigir um `case` seria
 /// pedir código que não faz nada.
-const VOID: [&str; 13] = [
+const VOID: [&str; 14] = [
     "add_project",
     "remove_project",
     "remove_workspace",
@@ -32,6 +32,7 @@ const VOID: [&str; 13] = [
     "close_dock",
     "look_at",
     "team_config_set",
+    "set_shared",
 ];
 
 fn repo() -> PathBuf {

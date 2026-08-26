@@ -34,6 +34,8 @@ const ws = (
   issue: null,
   pr: null,
   cleaned: false,
+  shared: false,
+  remote: null,
   tabs,
   active: tabs[0]?.id ?? null,
 });
@@ -292,6 +294,8 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       const text = !s.includes(":") ? SAMPLE : docks.get(s) === false ? SCRIPT_OUT + DONE : SCRIPT_OUT;
       return [...new TextEncoder().encode(text)];
     }
+    case "pty_snapshot":
+      return { bytes: [...new TextEncoder().encode(SAMPLE)], seq: 1 };
     case "workspace_diff":
       return changes;
     case "list_dir":
