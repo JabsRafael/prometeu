@@ -31,6 +31,8 @@ const ws = (
   effort: "",
   port: 3100,
   issue: null,
+  pr: null,
+  cleaned: false,
   tabs,
   active: tabs[0]?.id ?? null,
 });
@@ -54,7 +56,38 @@ const board: Board = {
       ws("icone-2140", "p2", "prometheus", "Ícone do app", "Code review", [
         { id: "t4", title: "conversa 1", status: "querendo", note: "Qual tamanho de ícone você quer gerar?", tokens: 8_100 },
       ]),
-      { unread: true },
+      { unread: true, pr: { number: 42, title: "feat(quadro): ícone do app", isDraft: false, state: "OPEN" } },
+    ),
+    // PR mergeado: é este que mostra o selo no card e o "Concluir" na barra.
+    Object.assign(
+      ws("dock-1130", "p2", "prometheus", "Porta do dock por worktree", "Code review", [
+        { id: "t5", title: "conversa 1", status: "pronta", note: null, tokens: 44_200 },
+      ]),
+      { pr: { number: 40, title: "feat(dock): porta por worktree", isDraft: false, state: "MERGED" } },
+    ),
+    // Arquivado que ainda ocupa disco: é ele que a folha de limpeza lista.
+    Object.assign(
+      ws("linear-0912", "p1", "njord", "Conectar o Linear", "Feito", [
+        { id: "t7", title: "conversa 1", status: "desligada", note: null, tokens: 66_000 },
+      ]),
+      { archived: true, pr: { number: 8, title: "feat: conectar o Linear", isDraft: false, state: "MERGED" } },
+    ),
+    Object.assign(
+      ws("porta-1751", "p1", "njord", "Porta ocupada no setup", "Travado", [
+        { id: "t8", title: "conversa 1", status: "desligada", note: null, tokens: 12_000 },
+      ]),
+      { archived: true },
+    ),
+    // Worktree devolvido: o card que sobrou de um trabalho que acabou.
+    Object.assign(
+      ws("idioma-1348", "p2", "prometheus", "O app fala inglês", "Feito", [
+        { id: "t6", title: "conversa 1", status: "desligada", note: null, tokens: 91_000 },
+      ]),
+      {
+        archived: true,
+        cleaned: true,
+        pr: { number: 17, title: "feat(idioma): o app fala inglês", isDraft: false, state: "MERGED" },
+      },
     ),
   ],
 };
@@ -273,8 +306,11 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       emit("board", board);
       return;
     }
-    case "workspace_branch":
-      return board.workspaces.find((x) => x.id === args.id)?.branch ?? null;
+    // Como no Rust: worktree devolvido não tem branch para ler.
+    case "workspace_branch": {
+      const target = board.workspaces.find((x) => x.id === args.id);
+      return target && !target.cleaned ? target.branch : null;
+    }
     case "set_stage": {
       const target = board.workspaces.find((x) => x.id === args.id);
       if (target) target.stage = args.stage;
@@ -352,9 +388,41 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     // Só o workspace que já está em code review tem PR — é assim que se vê o
     // botão aparecendo num e não no outro.
     case "pr_open":
-      return args.id === "icone-2140"
-        ? { number: 42, title: "feat(quadro): ícone do app em todos os tamanhos", isDraft: false }
-        : null;
+      return board.workspaces.find((x) => x.id === args.id)?.pr ?? null;
+    // No navegador não há `gh`: o que o quadro já sabe é o que ele continua
+    // sabendo.
+    case "refresh_prs":
+      return null;
+    case "finish_workspace": {
+      const target = board.workspaces.find((x) => x.id === args.id);
+      if (target) {
+        target.stage = board.stages[board.stages.length - 1];
+        target.archived = true;
+        target.tabs.forEach((t) => (t.status = "desligada"));
+      }
+      emit("board", board);
+      return;
+    }
+    case "cleanup_list":
+      return board.workspaces
+        .filter((x) => x.archived && !x.cleaned)
+        .map((x, i) => ({
+          id: x.id,
+          title: x.title,
+          repoName: x.repo_name,
+          branch: x.branch,
+          worktree: x.worktree,
+          sizeKb: 2_900_000 - i * 700_000,
+          pr: x.pr?.number ?? null,
+          // Um bloqueado na lista é o que mostra a linha apagada com o motivo.
+          blocked: i === 1 ? 'i18n:{"args":{"n":"3"},"code":"err.cleanup.dirty"}' : null,
+        }));
+    case "cleanup_worktree": {
+      const target = board.workspaces.find((x) => x.id === args.id);
+      if (target) target.cleaned = true;
+      emit("board", board);
+      return;
+    }
     case "open_pr":
       console.log("abrir o PR de " + args.id + " no navegador");
       return null;

@@ -14,6 +14,9 @@ export type Item =
       hint?: string;
       checked?: boolean;
       danger?: boolean;
+      /// Continua na lista, mas apagado e sem clique: item que some quando não
+      /// pode ser usado deixa quem procurava por ele achando que enlouqueceu.
+      disabled?: boolean;
       sub?: Item[];
       run?: () => void;
     };
@@ -75,7 +78,8 @@ function panel(items: Item[]): HTMLElement {
       continue;
     }
     const row = document.createElement("button");
-    row.className = "mrow" + (item.danger ? " danger" : "");
+    row.className = "mrow" + (item.danger ? " danger" : "") + (item.disabled ? " off" : "");
+    row.disabled = item.disabled ?? false;
     row.innerHTML =
       `<span class="mg">${item.glyph ?? ""}</span><span class="ml"></span>` +
       `<span class="mh"></span>${item.sub ? icon("chevron-right", 14) : ""}` +

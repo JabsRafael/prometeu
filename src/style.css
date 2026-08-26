@@ -861,6 +861,48 @@ body.noside .side { display: none; }
 /* O chip da issue no card: a marca do Linear e o identificador. */
 .card .foot .chip.issue { gap: 4px; font-family: var(--mono); font-size: 11.5px; }
 .card .foot .chip.issue:hover { color: var(--fg); }
+/* O PR entrou: verde, que é a cor de pronto no resto da tela. É o selo que
+   diz, olhando o quadro de longe, que este aqui acabou. */
+.card .foot .chip.merged { gap: 4px; font-family: var(--mono); font-size: 11.5px; color: var(--done); }
+.card .foot .chip.merged:hover { filter: brightness(1.15); }
+/* O canto do card que conclui, quando é de concluir que se trata. */
+.card .foot .x.done { color: var(--done); }
+
+/* ---------- devolver worktrees ao disco ---------- */
+
+.sheet.clean { width: min(620px, 100%); }
+.sheet.clean .sheettop b { font-weight: 500; }
+.sheet.clean .sheettop .sub { font-size: 12px; color: var(--fg-3); }
+.cleanlist { max-height: min(52vh, 460px); overflow: auto; padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+.cleanempty { padding: 28px 12px; text-align: center; color: var(--fg-3); font-size: 13px; }
+/* A dica em linha própria: no rodapé ela dividia espaço com os botões e vinha
+   cortada, e o que ela diz é o que a pessoa precisa saber antes de clicar. */
+.cleanhint {
+  padding: 10px 16px 0; font-size: 12px; color: var(--fg-3); line-height: 1.45;
+  border-top: 1px solid var(--line-raised);
+}
+.cleanrow {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border-radius: var(--r); cursor: pointer;
+}
+.cleanrow:hover { background: var(--bg-raised-2); }
+.cleanrow .box {
+  width: 16px; height: 16px; flex: none; display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line-ghost); border-radius: 4px; color: var(--pri-fg);
+}
+.cleanrow.on .box { background: var(--tab-line); border-color: var(--tab-line); }
+.cleanrow .txt { flex: 1; min-width: 0; }
+.cleanrow .txt b { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cleanrow .where {
+  display: block; font-size: 12px; color: var(--fg-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cleanrow .pr { font-family: var(--mono); font-size: 11.5px; color: var(--done); flex: none; }
+.cleanrow .sz { font-family: var(--mono); font-size: 12px; color: var(--fg-2); flex: none; font-variant-numeric: tabular-nums; }
+/* Bloqueado continua na lista: é ali que se lê por que ele não pode sair. */
+.cleanrow.off, .cleanrow.off:hover { cursor: default; background: none; opacity: 0.55; }
+.cleanrow.off .box { opacity: 0.4; }
+.cleanrow.off .where { color: var(--err); }
 
 /* ---------- configurações ---------- */
 
@@ -913,6 +955,10 @@ body.noside .side { display: none; }
 .mrow .mh { font-size: 12px; color: var(--fg-3); }
 .mrow .mc { display: flex; color: var(--tab-line); width: 14px; flex: none; }
 .mrow .ic { flex: none; }
+/* Item que continua na lista mas não pode ser usado: apagado, e o porquê na
+   ponta onde mora o atalho. */
+.mrow.off, .mrow.off:hover { color: var(--fg-3); background: none; cursor: default; }
+.mrow.off .mg { opacity: 0.5; }
 .mrow.danger { color: var(--err); }
 .mrow.danger:hover { background: var(--err-bg); }
 .mrow.danger .mg { color: var(--err); }

@@ -39,6 +39,7 @@ export const PT = {
   "rail.pinned": "Fixados",
   "rail.loose": "Sem projeto",
   "rail.archived": "Arquivados",
+  "rail.cleanup": "Devolver worktrees ao disco",
 
   /* ---------- migalha e cabeçalho ---------- */
 
@@ -49,6 +50,7 @@ export const PT = {
   "top.stage": "Etapa deste trabalho",
   "top.pr": "Pedir o PR à conversa ativa",
   "top.pr.update": "Pedir à conversa ativa que atualize o PR",
+  "top.finish": "O PR entrou: pôr na última etapa e arquivar  ⌘⇧D",
   "top.side": "Painel lateral",
 
   /* ---------- resumo do quadro ---------- */
@@ -71,6 +73,9 @@ export const PT = {
   "card.tokens.title": "{n} tokens de contexto na última resposta",
   "card.tokens.titleTab": "{n} tokens de contexto na última resposta ({tab})",
   "card.archive.title": "Arquivar (worktree e branch ficam)",
+  "card.finish.title": "Concluir: última etapa e arquivar",
+  "card.merged.title": "O PR #{n} entrou — abrir no navegador",
+  "card.cleaned.title": "Worktree devolvido ao disco — era {path}",
 
   /* ---------- menu do botão direito num workspace ---------- */
 
@@ -84,6 +89,8 @@ export const PT = {
   "ws.menu.reveal": "Abrir no Finder",
   "ws.menu.unarchive": "Desarquivar",
   "ws.menu.archive": "Arquivar",
+  "ws.menu.finish": "Concluir",
+  "ws.menu.gone": "worktree devolvido",
   "ws.menu.drop": "Tirar do quadro",
 
   /* ---------- lançador ---------- */
@@ -173,6 +180,8 @@ export const PT = {
   "ws.pr.update": "Atualizar PR",
   "ws.pr.view": "Abrir o PR #{n} no navegador — {title}",
   "ws.pr.draft": "Abrir o rascunho de PR #{n} no navegador — {title}",
+  "ws.pr.merged": "O PR #{n} entrou — abrir no navegador — {title}",
+  "ws.finish": "Concluir",
   "ws.branch.title": "Branch deste worktree — clique para copiar",
   "ws.branch.detached": "HEAD solto",
   "ws.copied": "{name} copiado",
@@ -208,6 +217,27 @@ export const PT = {
   "offline.body":
     "O processo não está rodando — nenhum sobrevive ao fechamento do app. A conversa continua salva; retomar volta de onde parou.",
   "offline.resume": "Retomar conversa",
+
+  /* ---------- worktree devolvido ---------- */
+
+  "gone.title": "Worktree devolvido",
+  "gone.body":
+    "A pasta saiu do disco e a branch local foi apagada — o trabalho já estava no alvo. O que ficou é este card: o nome, a etapa e o PR.",
+
+  /* ---------- devolver o disco ---------- */
+
+  "clean.title": "Devolver worktrees ao disco",
+  "clean.hint": "A pasta e a branch local saem; o card fica, e o PR continua onde está.",
+  "clean.count.one": "{n} arquivado com worktree",
+  "clean.count.other": "{n} arquivados com worktree",
+  "clean.cancel": "Cancelar",
+  "clean.go": "Devolver {n} · {size}",
+  "clean.goEmpty": "Devolver",
+  "clean.doing": "devolvendo {name}…",
+  "clean.done.one": "worktree devolvido — {size} de volta",
+  "clean.done.other": "{n} worktrees devolvidos — {size} de volta",
+  "clean.none": "Nenhum arquivado tem worktree no disco.",
+  "clean.loading": "Vendo o que dá para devolver…",
 
   /* ---------- cards do agente ---------- */
 
@@ -358,6 +388,11 @@ export const PT = {
   "err.session.noBase": "a branch base '{base}' não existe em {path}",
   "err.session.noPort": "workspace sem porta",
   "err.session.noPr": "não achei um PR aberto para esta branch",
+  "err.session.cleaned": "o worktree deste workspace foi devolvido ao disco",
+  "err.cleanup.notArchived": "arquive este trabalho antes de devolver o worktree",
+  "err.cleanup.isRepo": "este workspace mexe no próprio clone, e não num worktree",
+  "err.cleanup.dirty": "há {n} arquivos com mudanças fora de commit",
+  "err.cleanup.unmerged": "'{branch}' tem trabalho que não entrou no alvo",
   "err.session.outside": "caminho fora do worktree",
   "err.session.tooBig": "arquivo grande demais ({kb} KB)",
   "err.session.binary": "arquivo binário",

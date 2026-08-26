@@ -2,6 +2,7 @@ use crate::lock::lock;
 use crate::state::{publish, Board, Project, Status, Tab, Workspace};
 use crate::{i18n, paths, pty, scripts, socket, AppState};
 use portable_pty::CommandBuilder;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{AppHandle, Manager, State};
@@ -67,6 +68,29 @@ pub fn set_stage(app: AppHandle, state: State<AppState>, id: String, stage: Stri
 /// workspace que ninguém vê é pergunta esperando resposta que ninguém lê.
 #[tauri::command]
 pub fn archive_workspace(app: AppHandle, state: State<AppState>, id: String, archived: bool) {
+    archive(&state, &id, archived);
+    publish(&app);
+}
+
+/// Concluir: a etapa vai para a última da lista e o workspace sai da frente,
+/// num gesto só. São os dois que sempre andavam juntos quando o PR entrava —
+/// e arquivar já derruba o agente, os docks e o que o script `archive` tiver
+/// para derrubar. O worktree fica: devolver o disco é outra decisão, tomada
+/// depois e com o diff ainda ao alcance.
+#[tauri::command]
+pub fn finish_workspace(app: AppHandle, state: State<AppState>, id: String) {
+    {
+        let mut board = lock(&state.board);
+        let last = board.stages.last().cloned();
+        if let (Some(stage), Some(ws)) = (last, board.workspace_mut(&id)) {
+            ws.stage = stage;
+        }
+    }
+    archive(&state, &id, true);
+    publish(&app);
+}
+
+fn archive(state: &State<AppState>, id: &str, archived: bool) {
     let mut dead: Vec<String> = Vec::new();
     // O `archive` derruba o que o workspace deixou fora do worktree — container,
     // banco, túnel. Roda antes de arquivar, enquanto o que ele precisa apagar
@@ -76,8 +100,8 @@ pub fn archive_workspace(app: AppHandle, state: State<AppState>, id: String, arc
         // Os docks caem primeiro: o `archive` não pode derrubar o banco com o
         // servidor de dev ainda de pé em cima dele — e servidor de workspace
         // arquivado é processo que ninguém vê.
-        kill_docks(&state, &id);
-        if let Some(ws) = workspace_copy(&state, &id) {
+        kill_docks(state, id);
+        if let Some(ws) = workspace_copy(state, id) {
             if let Some(command) = scripts_of(&ws).archive {
                 let mut cmd = Command::new("/bin/sh");
                 cmd.args(["-lc", &command]).current_dir(&ws.worktree);
@@ -90,7 +114,7 @@ pub fn archive_workspace(app: AppHandle, state: State<AppState>, id: String, arc
     }
     {
         let mut board = lock(&state.board);
-        if let Some(ws) = board.workspace_mut(&id) {
+        if let Some(ws) = board.workspace_mut(id) {
             ws.archived = archived;
             if archived {
                 dead = ws.tabs.iter().map(|t| t.id.clone()).collect();
@@ -103,8 +127,7 @@ pub fn archive_workspace(app: AppHandle, state: State<AppState>, id: String, arc
     }
     // Fora do lock do quadro: encerrar é sinalizar e esperar, e isso com o
     // quadro trancado pararia as outras sessões.
-    stop(&state, &dead);
-    publish(&app);
+    stop(state, &dead);
 }
 
 /// Encerra as sessões destas abas: o processo morre, o que estava pendurado no
@@ -193,6 +216,182 @@ pub fn remove_workspace(app: AppHandle, state: State<AppState>, id: String) {
     };
     stop(&state, &dead);
     publish(&app);
+}
+
+/* ---------- devolver o disco ---------- */
+
+/// Um worktree que já pode sair do disco, e o que ele ocupa. `blocked` é o
+/// motivo de não poder — mudança fora de commit, trabalho que não entrou no
+/// alvo — e vem como código para a tela traduzir.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Cleanable {
+    pub id: String,
+    pub title: String,
+    pub repo_name: String,
+    pub branch: String,
+    pub worktree: String,
+    /// Quanto o worktree ocupa, em kilobytes. `node_modules` e `target` são a
+    /// maior parte disso, e é por eles que a limpeza vale a pena.
+    pub size_kb: u64,
+    pub pr: Option<u64>,
+    pub blocked: Option<String>,
+}
+
+/// Os arquivados que ainda têm worktree, com o motivo de cada um poder ou não
+/// sair. Uma varredura só, pedida quando a tela de limpeza abre: cada linha
+/// custa um `git status` e um `du`, e isso não é coisa para o redesenho do
+/// quadro fazer.
+#[tauri::command(async)]
+pub fn cleanup_list(state: State<AppState>) -> Vec<Cleanable> {
+    let mine: Vec<Workspace> = lock(&state.board)
+        .workspaces
+        .iter()
+        .filter(|w| w.archived && !w.cleaned)
+        .cloned()
+        .collect();
+
+    mine.into_iter()
+        .map(|ws| {
+            let wt = PathBuf::from(&ws.worktree);
+            Cleanable {
+                size_kb: size_of(&wt),
+                blocked: check(&ws).err(),
+                pr: ws.pr.as_ref().map(|p| p.number),
+                id: ws.id,
+                title: ws.title,
+                repo_name: ws.repo_name,
+                branch: ws.branch,
+                worktree: ws.worktree,
+            }
+        })
+        .collect()
+}
+
+/// Devolve o worktree ao disco: a pasta sai, a branch local sai, o card fica.
+/// Destrutivo e sem volta — por isso as guardas moram aqui e não na tela: nada
+/// sai enquanto houver mudança fora de commit, e nada sai antes de o trabalho
+/// estar no alvo (ou no PR que mergeou).
+#[tauri::command(async)]
+pub fn cleanup_worktree(app: AppHandle, state: State<AppState>, id: String) -> Result<(), String> {
+    let ws = workspace_copy(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+    if ws.cleaned {
+        return Ok(());
+    }
+    check(&ws)?;
+
+    // O agente e os docks caem antes de a pasta sumir debaixo deles. O script
+    // `archive` do repositório não roda aqui: ele já rodou quando este
+    // workspace foi arquivado, e ele sobe solto — dispará-lo agora seria soltar
+    // um processo no worktree ao mesmo tempo que o git o apaga.
+    kill_docks(&state, &id);
+    let dead: Vec<String> = lock(&state.board)
+        .workspace_mut(&id)
+        .map(|ws| ws.tabs.iter().map(|t| t.id.clone()).collect())
+        .unwrap_or_default();
+    stop(&state, &dead);
+
+    let repo = PathBuf::from(&ws.repo);
+    let wt = PathBuf::from(&ws.worktree);
+    if wt.exists() {
+        // `--force` porque o que sobrou é o que o `.gitignore` esconde:
+        // `node_modules`, `target`, `.env`. Mudança de verdade não chega aqui —
+        // o `check` recusa antes.
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(["worktree", "remove", "--force"])
+            .arg(&wt)
+            .output()
+            .map_err(|e| i18n::ta("err.git.spawn", &[("cause", e.to_string())]))?;
+        if !out.status.success() {
+            return Err(i18n::ta(
+                "err.git",
+                &[
+                    ("command", "git worktree remove".into()),
+                    ("cause", String::from_utf8_lossy(&out.stderr).trim().to_string()),
+                ],
+            ));
+        }
+    }
+    // A branch local já não tem nada que o alvo não tenha. Se o git recusar —
+    // ela está em check-out em outro lugar —, o worktree já foi e o trabalho
+    // aqui está feito: uma branch a mais no repositório não é motivo para
+    // devolver erro a quem só queria o disco de volta.
+    if !ws.branch.is_empty() {
+        let _ = git(&repo, &["branch", "-D", &ws.branch]);
+    }
+    let _ = git(&repo, &["worktree", "prune"]);
+
+    {
+        let mut board = lock(&state.board);
+        if let Some(ws) = board.workspace_mut(&id) {
+            ws.cleaned = true;
+            for tab in &mut ws.tabs {
+                tab.status = Status::Desligada;
+                tab.note = None;
+            }
+        }
+    }
+    publish(&app);
+    Ok(())
+}
+
+/// Este worktree pode sair? O erro é o motivo, como código para a tela dizer a
+/// frase. Worktree que já sumiu do disco passa: limpar o que não existe mais é
+/// só acertar o quadro.
+fn check(ws: &Workspace) -> Result<(), String> {
+    // Arquivar primeiro é o que faz o `archive` do repositório rodar com o
+    // worktree ainda de pé. Devolver o disco é o passo depois dele, nunca no
+    // lugar dele.
+    if !ws.archived {
+        return Err(i18n::t("err.cleanup.notArchived"));
+    }
+    if ws.worktree == ws.repo {
+        return Err(i18n::t("err.cleanup.isRepo"));
+    }
+    let wt = PathBuf::from(&ws.worktree);
+    if !wt.exists() {
+        return Ok(());
+    }
+    let dirty = git(&wt, &["status", "--porcelain"]).lines().count();
+    if dirty > 0 {
+        return Err(i18n::ta("err.cleanup.dirty", &[("n", dirty.to_string())]));
+    }
+    if merged(ws, &wt) {
+        return Ok(());
+    }
+    Err(i18n::ta("err.cleanup.unmerged", &[("branch", ws.branch.clone())]))
+}
+
+/// O trabalho já está em outro lugar? Duas respostas servem: o `gh` dizendo que
+/// o PR mergeou, ou o git dizendo que o que está aqui já é ancestral do alvo —
+/// que é o que sobra quando o merge foi por fora do GitHub, ou o `gh` não
+/// existe nesta máquina.
+fn merged(ws: &Workspace, wt: &Path) -> bool {
+    if ws.pr.as_ref().is_some_and(|pr| pr.merged()) {
+        return true;
+    }
+    let head = git(wt, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).trim().to_string();
+    let target = if head.is_empty() { "origin/main".to_string() } else { head };
+    has_commit(wt, &target) && git_ok(wt, &["merge-base", "--is-ancestor", "HEAD", &target])
+}
+
+/// Quanto a pasta ocupa, em kilobytes — o `du` do sistema, que é quem já sabe
+/// andar em árvore grande. Sem resposta, zero: o número é para você decidir se
+/// vale a pena, e não saber o tamanho não impede a limpeza.
+fn size_of(wt: &Path) -> u64 {
+    if !wt.exists() {
+        return 0;
+    }
+    let out = Command::new("du").arg("-sk").arg(wt).output().ok();
+    out.and_then(|o| {
+        String::from_utf8_lossy(&o.stdout)
+            .split_whitespace()
+            .next()
+            .and_then(|n| n.parse().ok())
+    })
+    .unwrap_or(0)
 }
 
 /// O que o lançador montou. Um struct, e não doze parâmetros soltos: o front já
@@ -320,6 +519,8 @@ pub fn create_workspace(
         archived: false,
         pinned: false,
         unread: false,
+        pr: None,
+        cleaned: false,
         model: draft.launch.model,
         effort: draft.launch.effort,
         port,
@@ -372,6 +573,9 @@ pub fn new_tab(
     let (worktree, n, launch) = {
         let board = lock(&state.board);
         let ws = board.workspaces.iter().find(|w| w.id == workspace).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+        if ws.cleaned {
+            return Err(i18n::t("err.session.cleaned"));
+        }
         (PathBuf::from(&ws.worktree), ws.tabs.len() + 1, ws.launch())
     };
 
@@ -458,10 +662,13 @@ pub fn resume_tab(
     cols: u16,
     rows: u16,
 ) -> Result<bool, String> {
-    let (worktree, launch) = lock(&state.board)
+    let (worktree, launch, cleaned) = lock(&state.board)
         .workspace_of(&tab)
-        .map(|w| (PathBuf::from(&w.worktree), w.launch()))
+        .map(|w| (PathBuf::from(&w.worktree), w.launch(), w.cleaned))
         .ok_or_else(|| i18n::t("err.session.noTab"))?;
+    if cleaned {
+        return Err(i18n::t("err.session.cleaned"));
+    }
     if !worktree.exists() {
         return Err(i18n::ta("err.session.noWorktree", &[("path", worktree.display().to_string())]));
     }
@@ -950,7 +1157,120 @@ fn cap(patch: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{cli_args, is_terminal, patch_map, pr_text, Launch};
+    use super::{cli_args, is_terminal, patch_map, pick, pr_text, Launch, Pr};
+
+    fn pr(number: u64, branch: &str, state: &str) -> Pr {
+        Pr {
+            number,
+            title: format!("PR {number}"),
+            is_draft: false,
+            state: state.into(),
+            head_ref_name: branch.into(),
+        }
+    }
+
+    /// Entre os PRs do repositório, o desta branch — e, na mesma branch, o
+    /// aberto manda mais que o fechado, que é o que reaproveitar uma branch
+    /// deixa para trás.
+    #[test]
+    fn pick_prefere_o_aberto_da_branch() {
+        let all = vec![
+            pr(9, "outra/coisa", "OPEN"),
+            pr(8, "meu/ajuste", "CLOSED"),
+            pr(7, "meu/ajuste", "OPEN"),
+        ];
+        assert_eq!(pick(&all, "meu/ajuste").unwrap().number, 7);
+        assert!(pick(&all, "nao/existe").is_none());
+    }
+
+    /// As guardas de devolver o disco, contra um git de verdade: nada sai antes
+    /// de o trabalho ter entrado no alvo, nada sai com mudança fora de commit, e
+    /// nada sai antes de o workspace estar arquivado — que é quando o `archive`
+    /// do repositório rodou.
+    #[test]
+    fn check_so_deixa_sair_o_que_ja_entrou_e_esta_limpo() {
+        let root = std::env::temp_dir().join(format!("prometheus-clean-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (origin, local) = (root.join("origin"), root.join("clone"));
+        std::fs::create_dir_all(&origin).unwrap();
+
+        let run = |dir: &std::path::Path, args: &[&str]| {
+            let out = Command::new("git").arg("-C").arg(dir).args(args).output().unwrap();
+            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        };
+        run(&origin, &["init", "-q", "-b", "main"]);
+        run(&origin, &["config", "user.email", "t@t"]);
+        run(&origin, &["config", "user.name", "t"]);
+        std::fs::write(origin.join("a.txt"), "a").unwrap();
+        run(&origin, &["add", "-A"]);
+        run(&origin, &["commit", "-qm", "a"]);
+
+        let out = Command::new("git").args(["clone", "-q"]).arg(&origin).arg(&local).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+
+        let dest = root.join("wt");
+        super::add_worktree(&local, "trabalho", "origin/main", &dest).unwrap();
+
+        let mut ws = super::Workspace {
+            id: "w".into(),
+            title: "trabalho".into(),
+            project: local.display().to_string(),
+            repo: local.display().to_string(),
+            repo_name: "clone".into(),
+            branch: "trabalho".into(),
+            worktree: dest.display().to_string(),
+            stage: "Feito".into(),
+            archived: true,
+            pinned: false,
+            unread: false,
+            pr: None,
+            cleaned: false,
+            model: String::new(),
+            effort: String::new(),
+            port: None,
+            issue: None,
+            tabs: Vec::new(),
+            active: None,
+        };
+
+        // Branch nova sem commit próprio já é o alvo: pode sair.
+        super::check(&ws).unwrap();
+
+        // Um commit que não está no alvo segura o worktree.
+        std::fs::write(dest.join("b.txt"), "b").unwrap();
+        run(&dest, &["config", "user.email", "t@t"]);
+        run(&dest, &["config", "user.name", "t"]);
+        run(&dest, &["add", "-A"]);
+        run(&dest, &["commit", "-qm", "b"]);
+        assert!(super::check(&ws).unwrap_err().contains("unmerged"));
+
+        // Mas o `gh` dizendo que o PR entrou é a outra resposta que serve — o
+        // merge por squash não deixa a branch ancestral de nada.
+        ws.pr = Some(pr(3, "trabalho", "MERGED"));
+        super::check(&ws).unwrap();
+
+        // Mudança fora de commit segura de qualquer jeito.
+        std::fs::write(dest.join("c.txt"), "c").unwrap();
+        assert!(super::check(&ws).unwrap_err().contains("dirty"));
+        std::fs::remove_file(dest.join("c.txt")).unwrap();
+        super::check(&ws).unwrap();
+
+        // Ainda na frente de todo mundo: arquivar é o passo de antes.
+        ws.archived = false;
+        assert!(super::check(&ws).unwrap_err().contains("notArchived"));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Sem nenhum aberto, vale o mais novo — que é a ordem em que o `gh`
+    /// responde. Mergeado é justamente o que faz a barra oferecer "Concluir".
+    #[test]
+    fn pick_sem_aberto_pega_o_mais_novo() {
+        let all = vec![pr(12, "meu/ajuste", "MERGED"), pr(4, "meu/ajuste", "CLOSED")];
+        let got = pick(&all, "meu/ajuste").unwrap();
+        assert_eq!(got.number, 12);
+        assert!(got.merged());
+    }
 
     /// O prompt de PR diz o estado e os passos com os nomes certos: a branch
     /// no push, o alvo sem o remoto no `--base`, e a sujeira contada.
@@ -1166,6 +1486,18 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
     }
 }
 
+/// O git só pelo sim ou não da saída — `merge-base --is-ancestor` e afins, que
+/// não escrevem nada e respondem no código de saída.
+fn git_ok(dir: &Path, args: &[&str]) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
 fn git(dir: &Path, args: &[&str]) -> String {
     Command::new("git")
         .arg("-C")
@@ -1366,6 +1698,9 @@ fn start_script(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
+    if ws.cleaned {
+        return Err(i18n::t("err.session.cleaned"));
+    }
     let Script { kind, command, header } = script;
     let key = format!("{}:{kind}", ws.id);
     // Entrada morta não conta: é só a rolagem do que rodou antes, e subir de
@@ -1594,7 +1929,11 @@ pub fn pr_prompt(state: State<AppState>, id: String) -> Result<String, String> {
     let upstream = !git(&worktree, &["rev-parse", "--abbrev-ref", "@{upstream}"]).trim().is_empty();
     // Com PR já aberto o pedido é outro: não criar de novo, e sim empurrar o
     // que falta e conferir se o que está escrito lá ainda cobre a branch.
-    let open = branch.as_deref().and_then(|b| gh_pr(&worktree, b)).map(|pr| pr.number);
+    let open = branch
+        .as_deref()
+        .and_then(|b| gh_pr(&worktree, b))
+        .filter(|pr| pr.open())
+        .map(|pr| pr.number);
     Ok(pr_text(branch.as_deref(), dirty, &target, upstream, open))
 }
 
@@ -1650,56 +1989,173 @@ Se algum passo falhar, pare e me pergunte."#
     )
 }
 
-/// O PR aberto desta branch, se já houver um. Quem sabe é o `gh`: é ele que
-/// está autenticado no remoto, e o app não guarda credencial de GitHub nenhuma.
-/// Sem `gh` instalado, sem login ou sem PR a resposta é a mesma — `None`, e o
-/// botão nem chega a aparecer na tela.
-#[derive(serde::Serialize, serde::Deserialize)]
+/// O PR desta branch, se houver um. Quem sabe é o `gh`: é ele que está
+/// autenticado no remoto, e o app não guarda credencial de GitHub nenhuma. Sem
+/// `gh` instalado, sem login ou sem PR a resposta é a mesma — `None`, e a barra
+/// volta a oferecer o "Open PR" de sempre.
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Pr {
     pub number: u64,
     pub title: String,
+    #[serde(default)]
     pub is_draft: bool,
+    /// `OPEN`, `MERGED` ou `CLOSED`, como o `gh` escreve. É o que faz a barra
+    /// oferecer "Concluir" em vez de "Atualizar PR" — mergeado é trabalho que
+    /// acabou, e o que vem depois é sair da frente, não empurrar mais commit.
+    #[serde(default)]
+    pub state: String,
+    /// A branch de origem. Só serve para casar o PR com o workspace quando a
+    /// pergunta foi feita para o repositório inteiro, e não para uma branch.
+    #[serde(default, skip_serializing)]
+    pub head_ref_name: String,
 }
 
+impl Pr {
+    pub fn merged(&self) -> bool {
+        self.state == "MERGED"
+    }
+    pub fn open(&self) -> bool {
+        self.state == "OPEN"
+    }
+}
+
+/// Pergunta o PR desta branch e grava no quadro. É o caminho rápido de quem
+/// abriu o workspace: `refresh_prs` varre tudo de minuto em minuto, e voltar do
+/// navegador de mergear não precisa esperar a próxima varredura.
 #[tauri::command(async)]
-pub fn pr_open(state: State<AppState>, id: String) -> Option<Pr> {
+pub fn pr_open(app: AppHandle, state: State<AppState>, id: String) -> Option<Pr> {
     let worktree = worktree_of(&state, &id)?;
-    gh_pr(&worktree, &head_branch(&worktree)?)
+    let pr = gh_pr(&worktree, &head_branch(&worktree)?);
+    remember_pr(&app, &state, &id, pr.clone());
+    pr
+}
+
+/// O PR de cada workspace vivo, numa pergunta por repositório em vez de uma por
+/// branch: quem responde é o `gh`, que fala com a rede, e são as branches do
+/// mesmo repo que cabem na mesma resposta. O front chama de tempos em tempos —
+/// é assim que o selo de mergeado aparece no card de um workspace que ninguém
+/// abriu desde que o PR entrou.
+#[tauri::command(async)]
+pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
+    // Arquivado limpo não tem mais branch para perguntar por; arquivado que
+    // ainda tem worktree, sim — é dele que sai a limpeza, e ela quer saber se
+    // mergeou.
+    let alive: Vec<Workspace> = lock(&state.board)
+        .workspaces
+        .iter()
+        .filter(|w| !w.cleaned && !w.branch.is_empty())
+        .cloned()
+        .collect();
+
+    let mut by_repo: BTreeMap<String, Vec<Workspace>> = BTreeMap::new();
+    for ws in alive {
+        by_repo.entry(ws.repo.clone()).or_default().push(ws);
+    }
+
+    let mut found: Vec<(String, Option<Pr>)> = Vec::new();
+    for (repo, list) in by_repo {
+        let prs = gh_prs(Path::new(&repo));
+        // Sem `gh`, sem login ou sem rede a resposta é vazia — e aí não se
+        // apaga o que já se sabia: PR que existia não deixou de existir porque
+        // o wifi caiu.
+        if prs.is_empty() {
+            continue;
+        }
+        for ws in list {
+            found.push((ws.id, pick(&prs, &ws.branch)));
+        }
+    }
+
+    // Publicar é gravar o quadro e redesenhar a tela. De minuto em minuto, sem
+    // nada ter mudado, isso é escrita em disco por nada.
+    let mut moved = false;
+    {
+        let mut board = lock(&state.board);
+        for (id, pr) in found {
+            if let Some(ws) = board.workspace_mut(&id) {
+                if same(ws.pr.as_ref(), pr.as_ref()) {
+                    continue;
+                }
+                ws.pr = pr;
+                moved = true;
+            }
+        }
+    }
+    if moved {
+        publish(&app);
+    }
+}
+
+fn same(a: Option<&Pr>, b: Option<&Pr>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => a.number == b.number && a.state == b.state && a.is_draft == b.is_draft,
+        _ => false,
+    }
+}
+
+/// Guarda no quadro o que o `gh` respondeu. Resposta vazia com PR já conhecido
+/// é `gh` mudo — sem rede, sem login —, e esquecer o PR por causa disso faria o
+/// botão da barra piscar entre "Atualizar PR" e "Open PR".
+fn remember_pr(app: &AppHandle, state: &State<AppState>, id: &str, pr: Option<Pr>) {
+    {
+        let mut board = lock(&state.board);
+        let Some(ws) = board.workspace_mut(id) else { return };
+        if pr.is_none() && ws.pr.is_some() {
+            return;
+        }
+        ws.pr = pr;
+    }
+    publish(app);
+}
+
+/// Entre os PRs do repositório, o desta branch: um aberto manda mais que um
+/// fechado, e entre iguais vale o mais novo — que é a ordem em que o `gh`
+/// responde.
+fn pick(prs: &[Pr], branch: &str) -> Option<Pr> {
+    let mine = || prs.iter().filter(|p| p.head_ref_name == branch);
+    mine().find(|p| p.open()).or_else(|| mine().next()).cloned()
 }
 
 fn gh_pr(wt: &Path, branch: &str) -> Option<Pr> {
+    pick(&gh_list(wt, &["--head", branch, "--limit", "5"]), branch)
+}
+
+fn gh_prs(repo: &Path) -> Vec<Pr> {
+    gh_list(repo, &["--limit", "60"])
+}
+
+/// `--state all` porque mergeado é a resposta que mais importa: é ela que
+/// transforma o botão da barra em "Concluir" e libera a limpeza do worktree.
+fn gh_list(dir: &Path, extra: &[&str]) -> Vec<Pr> {
     let out = Command::new("gh")
-        .current_dir(wt)
-        .args([
-            "pr",
-            "list",
-            "--head",
-            branch,
-            "--state",
-            "open",
-            "--limit",
-            "1",
-            "--json",
-            "number,title,isDraft",
-        ])
-        .output()
-        .ok()?;
+        .current_dir(dir)
+        .args(["pr", "list", "--state", "all", "--json", "number,title,isDraft,state,headRefName"])
+        .args(extra)
+        .output();
+    let Ok(out) = out else { return Vec::new() };
     if !out.status.success() {
-        return None;
+        return Vec::new();
     }
-    serde_json::from_slice::<Vec<Pr>>(&out.stdout).ok()?.into_iter().next()
+    serde_json::from_slice::<Vec<Pr>>(&out.stdout).unwrap_or_default()
 }
 
 /// Abre no navegador o PR desta branch. Quem descobre a URL é o `gh`, e é ele
 /// mesmo quem abre — assim nenhuma URL atravessa o IPC, em direção nenhuma.
 #[tauri::command(async)]
 pub fn open_pr(state: State<AppState>, id: String) -> Result<(), String> {
-    let worktree = worktree_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
-    let branch = head_branch(&worktree).ok_or_else(|| i18n::t("err.session.noPr"))?;
+    let ws = workspace_copy(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+    // Com o worktree devolvido, quem tem o número é o quadro e quem abre é o
+    // `gh` de dentro do clone: PR mergeado continua sendo lugar aonde se volta.
+    let (dir, what) = match (ws.cleaned, ws.pr.as_ref()) {
+        (false, _) => (ws.worktree.clone(), head_branch(Path::new(&ws.worktree)).ok_or_else(|| i18n::t("err.session.noPr"))?),
+        (true, Some(pr)) => (ws.repo.clone(), pr.number.to_string()),
+        (true, None) => return Err(i18n::t("err.session.noPr")),
+    };
     let ok = Command::new("gh")
-        .current_dir(&worktree)
-        .args(["pr", "view", branch.as_str(), "--web"])
+        .current_dir(&dir)
+        .args(["pr", "view", what.as_str(), "--web"])
         .status()
         .map_err(i18n::io)?
         .success();
@@ -1710,10 +2166,13 @@ fn workspace_copy(state: &State<AppState>, id: &str) -> Option<Workspace> {
     lock(&state.board).workspaces.iter().find(|w| w.id == id).cloned()
 }
 
+/// O worktree deste workspace, se ainda houver um. Devolvido ao disco é o mesmo
+/// que não existir: quem lê arquivo, diff ou branch daqui recebe o vazio, e não
+/// um caminho que já não é de ninguém.
 fn worktree_of(state: &State<AppState>, id: &str) -> Option<PathBuf> {
     lock(&state.board)
         .workspaces
         .iter()
-        .find(|w| w.id == id)
+        .find(|w| w.id == id && !w.cleaned)
         .map(|w| PathBuf::from(&w.worktree))
 }

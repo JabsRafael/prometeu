@@ -8,7 +8,7 @@ import * as menu from "./menu";
 import * as rename from "./rename";
 import * as session from "./session";
 import * as tree from "./tree";
-import { fmtTokens, label, statusOf, type Board, type Change, type Tab, type Workspace } from "./types";
+import { fmtTokens, label, merged, statusOf, type Board, type Change, type Tab, type Workspace } from "./types";
 import { $, debounce } from "./util";
 import * as viewer from "./viewer";
 
@@ -58,7 +58,14 @@ export function init(context: Ctx) {
 
   $("pr").innerHTML = `${icon("git-pull-request", 14)}<span></span>`;
   $("pr").querySelector("span")!.textContent = t("ws.pr");
-  $("pr").addEventListener("click", () => void openPr());
+  // Um botão só, três estados: com o PR mergeado ele conclui em vez de pedir
+  // mais commit. Quem decide é o que o quadro sabe do PR na hora do clique.
+  $("pr").addEventListener("click", () => {
+    const ws = current();
+    if (!ws) return;
+    if (merged(ws)) finish(ws.id);
+    else void openPr();
+  });
 
   // Só o número e a seta: quem diz "PR" é o botão ao lado, e dois botões com o
   // mesmo rótulo na mesma barra é o que fazia a barra ficar ambígua.
@@ -89,6 +96,13 @@ export async function open(ws: Workspace) {
   $("boardView").hidden = true;
   $("wsView").hidden = false;
   $("wsctl").hidden = false;
+  // Worktree devolvido: não há processo para ligar nem arquivo para ler. O que
+  // sobrou é o que está escrito, e é isso que a tela mostra.
+  if (ws.cleaned) {
+    session.detach();
+    draw();
+    return;
+  }
   // attach primeiro: é ele quem define a sessão corrente que as abas marcam.
   if (first) await session.attach(first.id);
   // Volta para onde parou: arquivo aberto continua aberto, diff continua na tela.
@@ -164,8 +178,19 @@ export function draw() {
   if (file) viewer.show(ws.id, file);
 
   const tab = ws.tabs.find((t) => t.id === session.currentSession());
-  // Terminal mudo confunde; a saída fica escrita na tela.
-  $("offline").hidden = tab?.status !== "desligada";
+  // Terminal mudo confunde; a saída fica escrita na tela. Worktree devolvido é
+  // o mesmo painel com a outra história — e sem o botão de retomar, que não
+  // teria para onde voltar.
+  $("offline").hidden = !ws.cleaned && tab?.status !== "desligada";
+  $("offtitle").textContent = t(ws.cleaned ? "gone.title" : "offline.title");
+  $("offbody").textContent = t(ws.cleaned ? "gone.body" : "offline.body");
+  $("resume").hidden = ws.cleaned;
+  // Sem worktree não há aba para trocar, arquivo para abrir nem script para
+  // rodar: o que sobra na tela é o que ainda quer dizer alguma coisa.
+  $("tabbar").hidden = ws.cleaned;
+  $("side").hidden = ws.cleaned;
+  $("sidetoggle").hidden = ws.cleaned;
+  $("wsstage").hidden = ws.cleaned;
 }
 
 /* ---------- ações do workspace ---------- */
@@ -244,42 +269,57 @@ const askBranch = debounce(400, async (id: string) => {
 
 /* ---------- PR da branch ---------- */
 
-/// Se esta branch já tem PR aberto, e é isso que governa os dois botões da
-/// barra: sem PR, um "Open PR" que pede o PR ao agente; com PR, o mesmo botão
-/// vira "Atualizar PR" — commitar e empurrar continua sendo o que mais se faz
-/// depois que o PR existe — e ao lado aparece o `#42` que leva até ele no
-/// navegador. A resposta é do `gh`, que fala com a rede: guarda-se por
-/// workspace e só se pergunta de novo depois de `PR_EVERY`. `draw()` acontece a
-/// cada ferramenta que o agente usa; abrir um PR, não.
-type Pr = { number: number; title: string; isDraft: boolean };
-const prOf = new Map<string, Pr | null>();
+/// O PR governa o botão da esquerda, e são três estados: sem PR, "Open PR", que
+/// pede o PR ao agente; com PR aberto, "Atualizar PR" — commitar e empurrar
+/// continua sendo o que mais se faz depois que o PR existe; com PR mergeado,
+/// "Concluir", porque o que vem depois de mergear não é mais um commit, é sair
+/// da frente. Ao lado, o `#42` leva até ele no navegador.
+///
+/// Quem guarda a resposta é o quadro (`ws.pr`), e não esta tela: é o mesmo dado
+/// que pinta o selo do card. Daqui só sai o pedido de perguntar de novo, e não
+/// mais que uma vez a cada `PR_EVERY` — `draw()` acontece a cada ferramenta que
+/// o agente usa, e a resposta é de quem fala com a rede.
 const prAt = new Map<string, number>();
 const PR_EVERY = 20_000;
 
-function paintPr(id: string) {
-  const pr = prOf.get(id);
+function paintPr(ws: Workspace) {
+  const done = merged(ws);
   const ask = $("pr");
-  ask.querySelector("span")!.textContent = pr ? t("ws.pr.update") : t("ws.pr");
-  ask.title = pr ? t("top.pr.update") : t("top.pr");
+  ask.hidden = ws.cleaned;
+  ask.querySelector("span")!.textContent = done ? t("ws.finish") : ws.pr ? t("ws.pr.update") : t("ws.pr");
+  ask.title = done ? t("top.finish") : ws.pr ? t("top.pr.update") : t("top.pr");
+  ask.classList.toggle("done", done);
+  ask.firstElementChild!.outerHTML = icon(done ? "check" : "git-pull-request", 14);
 
   const link = $("prlink");
-  link.hidden = !pr;
-  if (!pr) return;
-  link.querySelector("span")!.textContent = `#${pr.number}`;
-  link.title = t(pr.isDraft ? "ws.pr.draft" : "ws.pr.view", { n: pr.number, title: pr.title });
+  link.hidden = !ws.pr;
+  if (!ws.pr) return;
+  const { number: n, title, isDraft, state } = ws.pr;
+  link.querySelector("span")!.textContent = `#${n}`;
+  link.title = t(state === "MERGED" ? "ws.pr.merged" : isDraft ? "ws.pr.draft" : "ws.pr.view", { n, title });
 }
 
 function drawPr(ws: Workspace) {
-  paintPr(ws.id);
-  askPr(ws.id);
+  paintPr(ws);
+  askPr(ws);
 }
 
-async function askPr(id: string) {
+/// Worktree devolvido não tem branch para perguntar por: o que se sabe do PR é
+/// o que ficou gravado.
+function askPr(ws: Workspace) {
   const now = Date.now();
-  if (now - (prAt.get(id) ?? 0) < PR_EVERY) return;
-  prAt.set(id, now);
-  prOf.set(id, await invoke<Pr | null>("pr_open", { id }));
-  if (openWs === id) paintPr(id);
+  if (ws.cleaned || now - (prAt.get(ws.id) ?? 0) < PR_EVERY) return;
+  prAt.set(ws.id, now);
+  // A resposta entra no quadro pelo back, e é o redesenho que a mostra.
+  invoke("pr_open", { id: ws.id }).catch(() => {});
+}
+
+/// Concluir do jeito curto: a etapa vai para a última e o workspace é
+/// arquivado, com o agente e os docks caindo junto. É o botão da barra quando
+/// o PR mergeou, e o item de menu em qualquer outra hora.
+export function finish(id: string) {
+  if (openWs === id) ctx.toBoard();
+  invoke("finish_workspace", { id }).catch((e) => ctx.say(fromBack(e), true));
 }
 
 /* ---------- abas ---------- */

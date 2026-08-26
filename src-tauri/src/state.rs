@@ -131,6 +131,18 @@ pub struct Workspace {
     /// mostra o identificador, e a aba de issues sabe que esta já tem dono.
     #[serde(default)]
     pub issue: Option<crate::linear::IssueRef>,
+    /// O PR desta branch, como o `gh` respondeu da última vez. É o quadro que
+    /// guarda porque é o quadro que desenha: o selo de mergeado no card e os
+    /// botões da barra saem daqui, e uma resposta de minutos atrás vale mais
+    /// que uma consulta à rede a cada redesenho. Vazio é "não perguntei ainda"
+    /// e "esta branch não tem PR" — para a tela dá no mesmo.
+    #[serde(default)]
+    pub pr: Option<crate::session::Pr>,
+    /// O worktree foi devolvido ao disco: a pasta não existe mais e a branch
+    /// local foi apagada. O card fica como histórico — transcript, o número do
+    /// PR, o caminho que era —, mas nada aqui abre terminal de novo.
+    #[serde(default)]
+    pub cleaned: bool,
     #[serde(default)]
     pub tabs: Vec<Tab>,
     #[serde(default)]
