@@ -4,6 +4,19 @@ O que muda no Prometheus, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.2.0] - 2026-08-27
+
+### Novidades
+
+- **time:** Criar um time, entrar com o código e ver quem está online, em Configurações
+- **quadro:** Compartilhar um workspace com o time, e ver quem está olhando
+- **terminal:** Abrir a conversa de um colega ao vivo, com a rolagem inteira e o teclado liberado
+- **notas:** Comentar uma sessão — a sua ou a de um colega — citando o trecho do terminal
+
+### Correções
+
+- **time:** Dono que volta acorda o que compartilhou, e id de colega não colide com o seu
+
 ## [0.1.14] - 2026-08-26
 
 ### Novidades
