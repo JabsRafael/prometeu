@@ -148,6 +148,18 @@ pub struct Workspace {
     /// dono que fecha o app voltar compartilhando, sem ninguém pedir de novo.
     #[serde(default)]
     pub shared: bool,
+    /// O worktree ainda está sendo montado. O card entra no quadro assim que o
+    /// lançador fecha e o `git worktree add` — segundos, num repositório
+    /// grande — acontece atrás. Enquanto isto for verdade não há aba nenhuma:
+    /// o agente só nasce depois de existir pasta onde rodar.
+    #[serde(default)]
+    pub preparing: bool,
+    /// Por que a montagem não deu, no formato do `i18n` — quem monta a frase é
+    /// o `fromBack`. O card fica, com o erro escrito, em vez de sumir: a branch
+    /// pedida pode estar viva em outro worktree, e é olhando o card que se
+    /// decide o que fazer com ela.
+    #[serde(default)]
+    pub failed: Option<String>,
     #[serde(default)]
     pub tabs: Vec<Tab>,
     #[serde(default)]
@@ -204,11 +216,31 @@ impl Board {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
+        board.revive();
+        board
+    }
 
-        for ws in &mut board.workspaces {
+    /// O que um quadro gravado precisa antes de virar o quadro de hoje: nada
+    /// que estava vivo continua vivo, quadro velho ganha o que passou a
+    /// existir, e o que ficou pela metade é dito em voz alta.
+    ///
+    /// Separado do `load` para poder ser testado: `load` lê de `paths::root()`,
+    /// que sai de uma variável de ambiente — e ambiente é global, enquanto o
+    /// cargo roda cada teste numa thread.
+    fn revive(&mut self) {
+        for ws in &mut self.workspaces {
+            // O app fechou no meio da montagem. A thread que montava morreu com
+            // o processo, então continuar dizendo "montando" seria esperar por
+            // quem não vai voltar — e o worktree pode ter ficado pela metade.
+            if ws.preparing {
+                ws.preparing = false;
+                ws.failed = Some(crate::i18n::t("err.session.interrupted"));
+            }
             // Quadro gravado antes das abas existirem: o id do card era o id da
-            // sessão, então ele vira a primeira aba e nada se perde.
-            if ws.tabs.is_empty() {
+            // sessão, então ele vira a primeira aba e nada se perde. Workspace
+            // que nunca chegou a montar não é disso: ele não tem aba porque
+            // nenhuma nasceu, e inventar uma daria um "Retomar" que não retoma.
+            if ws.tabs.is_empty() && ws.failed.is_none() {
                 ws.tabs.push(Tab {
                     id: ws.id.clone(),
                     title: "conversa".into(),
@@ -233,25 +265,25 @@ impl Board {
 
         // Etapa gravada que não está mais na lista deixaria o workspace fora de
         // todo grupo — invisível. Volta para a primeira.
-        let first = board.stages.first().cloned().unwrap_or_default();
-        for ws in &mut board.workspaces {
-            if !board.stages.contains(&ws.stage) {
+        let first = self.stages.first().cloned().unwrap_or_default();
+        let stages = self.stages.clone();
+        for ws in &mut self.workspaces {
+            if !stages.contains(&ws.stage) {
                 ws.stage = first.clone();
             }
         }
 
         // Repositório que já tem workspace é projeto, mesmo que nunca tenha sido
         // registrado à mão.
-        for ws in board.workspaces.clone() {
-            if !board.projects.iter().any(|p| p.path == ws.repo) {
-                board.projects.push(Project {
+        for ws in self.workspaces.clone() {
+            if !self.projects.iter().any(|p| p.path == ws.repo) {
+                self.projects.push(Project {
                     id: ws.repo.clone(),
                     name: ws.repo_name.clone(),
                     path: ws.repo.clone(),
                 });
             }
         }
-        board
     }
 
     /// Grava num arquivo ao lado e renomeia por cima. `rename` é atômico no
@@ -339,4 +371,65 @@ pub fn spawn_saver() -> Sender<Arc<Board>> {
         }
     });
     tx
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// O mínimo que um workspace precisa no `board.json`: todo o resto tem
+    /// `serde(default)`, e é justamente isso que um quadro velho aproveita.
+    fn board_json(extra: &str) -> Board {
+        let json = format!(
+            r#"{{"stages":["Fazendo"],"projects":[],"workspaces":[
+                 {{"id":"w","title":"t","repo":"/r","repo_name":"r",
+                   "branch":"b","worktree":"/wt","stage":"Fazendo"{extra}}}]}}"#
+        );
+        serde_json::from_str(&json).expect("board não desserializou")
+    }
+
+    /// O app fechou no meio de montar um worktree. Voltar dizendo "montando"
+    /// seria esperar por uma thread que morreu junto com o processo.
+    #[test]
+    fn montagem_interrompida_vira_erro_escrito_no_card() {
+        let mut board = board_json(r#","preparing":true"#);
+        board.revive();
+        let ws = &board.workspaces[0];
+        assert!(!ws.preparing, "não pode voltar montando");
+        assert_eq!(ws.failed.as_deref(), Some(crate::i18n::t("err.session.interrupted")).as_deref());
+    }
+
+    /// E não inventa aba para ele: a migração que dá uma aba a quadro antigo é
+    /// para quem teve sessão, não para quem nunca chegou a ter pasta. Uma aba
+    /// aqui daria um "Retomar conversa" que não retoma nada.
+    #[test]
+    fn montagem_interrompida_nao_ganha_aba() {
+        let mut board = board_json(r#","preparing":true"#);
+        board.revive();
+        assert!(board.workspaces[0].tabs.is_empty());
+        assert!(board.workspaces[0].active.is_none());
+    }
+
+    /// O quadro que já existia continua ganhando a aba de migração — o campo
+    /// novo não pode mudar o que acontece com quem foi gravado sem ele.
+    #[test]
+    fn quadro_antigo_sem_aba_continua_ganhando_a_sua() {
+        let mut board = board_json("");
+        board.revive();
+        let ws = &board.workspaces[0];
+        assert_eq!(ws.tabs.len(), 1);
+        assert_eq!(ws.tabs[0].id, "w");
+        assert_eq!(ws.active.as_deref(), Some("w"));
+        assert!(ws.failed.is_none());
+    }
+
+    /// Nenhum PTY sobrevive ao app: aba gravada rodando volta desligada.
+    #[test]
+    fn aba_gravada_viva_volta_desligada() {
+        let mut board = board_json(
+            r#","tabs":[{"id":"t1","title":"conversa","status":"rodando","note":null,"pending_prompt":null}]"#,
+        );
+        board.revive();
+        assert!(matches!(board.workspaces[0].tabs[0].status, Status::Desligada));
+    }
 }

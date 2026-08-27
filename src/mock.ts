@@ -36,6 +36,8 @@ const ws = (
   pr: null,
   cleaned: false,
   shared: false,
+  preparing: false,
+  failed: null,
   remote: null,
   tabs,
   active: tabs[0]?.id ?? null,
@@ -415,19 +417,42 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       };
     // O lançador inteiro funciona no navegador, e o workspace novo nasce sem
     // script nenhum — que é o estado em que a aba Setup tem algo a dizer.
+    // Criar é otimista no back de verdade: o card volta na hora, sem aba, e o
+    // worktree monta atrás. O mock imita isso — com um relógio no lugar do
+    // `git worktree add` — porque é o único jeito de a tela de montagem existir
+    // fora do Tauri, que é onde ela é desenhada.
     case "create_workspace": {
       const draft = args.draft;
       const id = `nova-${nextId++}`;
       const repo = String(draft.project).split("/").pop() ?? "repo";
-      const fresh = ws(id, draft.project, repo, draft.title || draft.branch, draft.stage, [
-        { id: `t-${id}`, title: "conversa", status: "pronta", note: null, tokens: null },
-      ]);
+      const fresh = ws(id, draft.project, repo, draft.title || draft.branch, draft.stage, []);
       fresh.branch = draft.branch || "main";
       fresh.model = draft.model;
       fresh.effort = draft.effort;
       fresh.issue = draft.issue ?? null;
+      fresh.preparing = true;
       board.workspaces.push(fresh);
       emit("board", board);
+      // O tempo de um `git worktree add` num repositório grande. Pedido com
+      // "falha" escrito não monta: é como se olha a outra metade desta tela
+      // sem precisar de um repositório em que o `git` realmente recuse.
+      setTimeout(() => {
+        fresh.preparing = false;
+        if (String(draft.prompt).includes("falha")) {
+          fresh.failed = JSON.stringify({
+            code: "err.git",
+            args: {
+              command: "git worktree add",
+              cause: `fatal: '${fresh.branch}' is already checked out at '/Users/g/wt/outro'`,
+            },
+          }).replace(/^/, "i18n:");
+          emit("board", board);
+          return;
+        }
+        fresh.tabs = [{ id: `t-${id}`, title: "conversa", status: "pronta", note: null, tokens: null }];
+        fresh.active = fresh.tabs[0].id;
+        emit("board", board);
+      }, 1400);
       return fresh;
     }
     case "workspace_scripts":

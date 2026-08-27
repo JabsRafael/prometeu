@@ -496,9 +496,20 @@ impl Workspace {
     }
 }
 
-/// `async` aqui é o threadpool do Tauri, não uma corotina: `git worktree add`
-/// e o `fetch` da base levam segundos, e na thread principal isso é a janela
-/// inteira congelada enquanto o worktree monta.
+/// Criar é otimista: o card entra no quadro agora, e o que demora acontece
+/// atrás.
+///
+/// O que demora é o disco — `git worktree add` de um repositório com milhares
+/// de arquivos passa de um segundo, e o `fetch` da base soma rede a isso. Antes
+/// tudo isso ficava entre o clique e a resposta, e o lançador fechava para uma
+/// tela parada. Aqui só fica o que dá para saber sem tocar em disco: se o
+/// caminho é um repositório, onde o worktree vai ficar, qual é a branch, qual é
+/// a porta. Com isso o `Workspace` já é inteiro o bastante para desenhar, entra
+/// no quadro marcado como `preparing`, e a resposta volta em milissegundos.
+///
+/// A montagem de verdade é `prepare`, numa thread, e cada etapa dela chega à
+/// tela pelo `publish` — que é o mesmo caminho por onde toda mudança do quadro
+/// já chegava.
 #[tauri::command(async)]
 pub fn create_workspace(
     app: AppHandle,
@@ -520,34 +531,101 @@ pub fn create_workspace(
     // Branch vazia é a escolha de não criar branch nenhuma: a sessão abre no
     // repositório onde ele estiver. Worktree, esse, sempre precisa de uma —
     // é a branch que dá nome e destino à pasta.
+    //
+    // Os dois saem de conta, não de disco: o destino é função do nome do repo e
+    // da branch, e a branch ou veio digitada ou é o HEAD do clone. Dá para
+    // saber os dois antes de existir pasta nenhuma, e é isso que deixa o card
+    // nascer já com o nome e o caminho certos.
     let (root, branch) = match (draft.worktree, draft.branch.trim().is_empty()) {
         (true, true) => return Err(i18n::t("err.session.worktreeNeedsBranch")),
-        (true, false) => {
-            let dir = paths::worktree_dir(&repo_name, &draft.branch);
-            add_worktree(&repo_path, &draft.branch, &draft.base, &dir)?;
-            (dir, draft.branch)
-        }
-        (false, false) => {
-            switch_branch(&repo_path, &draft.branch, &draft.base)?;
-            (repo_path.clone(), draft.branch)
-        }
-        (false, true) => {
-            let head = head_branch(&repo_path).unwrap_or_else(|| "HEAD".into());
-            (repo_path.clone(), head)
-        }
+        (true, false) => (paths::worktree_dir(&repo_name, &draft.branch), draft.branch.clone()),
+        (false, false) => (repo_path.clone(), draft.branch.clone()),
+        (false, true) => (repo_path.clone(), head_branch(&repo_path).unwrap_or_else(|| "HEAD".into())),
     };
 
     // A porta sai antes de qualquer script, porque é ela que o `setup` e o `run`
     // recebem no ambiente — e é o que deixa dois worktrees do mesmo projeto
     // subirem o servidor ao mesmo tempo sem um matar o outro.
-    let port = {
-        let board = lock(&state.board);
-        let taken: Vec<u16> = board.workspaces.iter().filter_map(|w| w.port).collect();
-        scripts::alloc_port(&root, &taken)
+    //
+    // O lock sai antes dos binds: `alloc_port` é syscall, e é neste mesmo lock
+    // que todo `publish` de toda sessão espera.
+    let taken: Vec<u16> = lock(&state.board).workspaces.iter().filter_map(|w| w.port).collect();
+    let port = scripts::alloc_port(&root, &taken);
+
+    let ws = Workspace {
+        id: uuid::Uuid::new_v4().to_string(),
+        title: if draft.title.trim().is_empty() { branch.clone() } else { draft.title.clone() },
+        issue: draft.issue.clone(),
+        project: repo_path.display().to_string(),
+        repo: repo_path.display().to_string(),
+        repo_name,
+        branch,
+        worktree: root.display().to_string(),
+        stage: draft.stage.clone(),
+        archived: false,
+        pinned: false,
+        unread: false,
+        pr: None,
+        cleaned: false,
+        shared: false,
+        preparing: true,
+        failed: None,
+        model: draft.launch.model.clone(),
+        effort: draft.launch.effort.clone(),
+        port,
+        active: None,
+        tabs: Vec::new(),
     };
 
+    // O workspace entra no quadro antes de qualquer coisa subir: é no quadro
+    // que o fim do setup vai procurar as abas com fala guardada — e é ele que a
+    // tela abre enquanto o resto não chega.
+    lock(&state.board).workspaces.push(ws.clone());
+    publish(&app);
+
+    let (bg, id) = (app.clone(), ws.id.clone());
+    std::thread::spawn(move || prepare(&bg, &id, draft, cols, rows));
+
+    Ok(ws)
+}
+
+/// A parte demorada de criar um workspace, fora da thread que respondeu ao
+/// lançador: montar a pasta, subir o agente, subir o setup.
+///
+/// Falhar aqui não desfaz nada e não apaga o card. Quem falha é quase sempre o
+/// `git worktree add`, e quase sempre porque a branch pedida está viva em outro
+/// worktree — desfazer sozinho apagaria a única pista disso. O erro fica
+/// escrito no card, que é de onde se decide o que fazer com a branch.
+fn prepare(app: &AppHandle, id: &str, draft: Draft, cols: u16, rows: u16) {
+    let Err(err) = build(app, id, &draft, cols, rows) else { return };
+    let state = app.state::<AppState>();
+    {
+        let mut board = lock(&state.board);
+        let Some(ws) = board.workspace_mut(id) else { return };
+        ws.preparing = false;
+        ws.failed = Some(err);
+    }
+    publish(app);
+}
+
+fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let (repo, root, branch) = {
+        let board = lock(&state.board);
+        let ws = board.workspaces.iter().find(|w| w.id == id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+        (PathBuf::from(&ws.repo), PathBuf::from(&ws.worktree), ws.branch.clone())
+    };
+
+    // A pasta. É o segundo que se sentia ao criar, e é por isso que ele mora
+    // aqui atrás e não entre o clique e a resposta.
+    if draft.worktree {
+        add_worktree(&repo, &branch, &draft.base, &root)?;
+    } else if !draft.branch.trim().is_empty() {
+        switch_branch(&repo, &branch, &draft.base)?;
+    }
+
     let tab = spawn_tab(
-        &app,
+        app,
         &state,
         &root,
         "conversa",
@@ -557,32 +635,22 @@ pub fn create_workspace(
         rows,
     )?;
 
-    let ws = Workspace {
-        id: uuid::Uuid::new_v4().to_string(),
-        title: if draft.title.trim().is_empty() { branch.clone() } else { draft.title },
-        issue: draft.issue,
-        project: repo_path.display().to_string(),
-        repo: repo_path.display().to_string(),
-        repo_name,
-        branch,
-        worktree: root.display().to_string(),
-        stage: draft.stage,
-        archived: false,
-        pinned: false,
-        unread: false,
-        pr: None,
-        cleaned: false,
-        shared: false,
-        model: draft.launch.model,
-        effort: draft.launch.effort,
-        port,
-        active: Some(tab.id.clone()),
-        tabs: vec![tab],
+    // Tirado do quadro no meio da montagem: o agente que acabou de subir não
+    // tem mais card nenhum a que pertencer, e deixá-lo vivo seria um `claude`
+    // rodando num worktree que ninguém vê.
+    let ws = {
+        let mut board = lock(&state.board);
+        let Some(ws) = board.workspace_mut(id) else {
+            drop(board);
+            pty::kill(&state, &tab.id);
+            return Ok(());
+        };
+        ws.preparing = false;
+        ws.active = Some(tab.id.clone());
+        ws.tabs.push(tab);
+        ws.clone()
     };
-
-    // O workspace entra no quadro antes de o setup subir: é no quadro que o fim
-    // dele vai procurar as abas com fala guardada.
-    lock(&state.board).workspaces.push(ws.clone());
+    publish(app);
 
     // Worktree recém-nascido não tem nada que o `.gitignore` esconde:
     // dependências, `.env`, banco, build. O que dá para reconstruir é o setup
@@ -591,20 +659,18 @@ pub fn create_workspace(
     // agora que ele pergunta se você confia na pasta, e isso não precisa esperar
     // o `npm install` —, mas a primeira fala só é digitada quando o setup
     // termina (ver `release_prompts`): agente que roda teste antes de haver
-    // `node_modules` conclui coisa errada. Falhar aqui não desfaz o worktree; o erro fica
-    // escrito na aba Setup, que é onde se conserta.
-    let _ = start_setup(&app, &state, &ws, cols, rows);
+    // `node_modules` conclui coisa errada. Falhar aqui não desfaz o worktree; o
+    // erro fica escrito na aba Setup, que é onde se conserta.
+    let _ = start_setup(app, &state, &ws, cols, rows);
 
     // O nome que veio do lançador é a primeira linha do prompt cortada. Ela
     // serve até o agente ler o pedido inteiro e devolver um título — o que
     // acontece em paralelo, alguns segundos depois de a tela já estar de pé.
     // Workspace que saiu de uma issue já tem o nome que a issue deu.
     if ws.issue.is_none() {
-        crate::naming::rename_later(&app, &ws.id, &draft.prompt, &ws.title);
+        crate::naming::rename_later(app, &ws.id, &draft.prompt, &ws.title);
     }
-
-    publish(&app);
-    Ok(ws)
+    Ok(())
 }
 
 /* ---------- abas ---------- */
@@ -1279,6 +1345,8 @@ mod tests {
             pr: None,
             cleaned: false,
             shared: false,
+            preparing: false,
+            failed: None,
             model: String::new(),
             effort: String::new(),
             port: None,

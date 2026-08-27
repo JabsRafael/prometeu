@@ -81,6 +81,8 @@ export const PT = {
   "card.finish.title": "Concluir: última etapa e arquivar",
   "card.merged.title": "O PR #{n} entrou — abrir no navegador",
   "card.cleaned.title": "Worktree removido — era {path}",
+  "card.building": "preparando",
+  "card.failed": "falhou",
 
   /* ---------- menu do botão direito num workspace ---------- */
 
@@ -242,6 +244,11 @@ export const PT = {
   "offline.body":
     "O processo não está rodando — nenhum sobrevive ao fechamento do app. A conversa continua salva; retomar volta de onde parou.",
   "offline.resume": "Retomar conversa",
+
+  /* ---------- worktree montando ---------- */
+
+  "build.title": "Preparando o worktree",
+  "build.failed.title": "Não deu para preparar o worktree",
 
   /* ---------- worktree devolvido ---------- */
 
@@ -471,6 +478,8 @@ export const PT = {
   "err.session.noPort": "workspace sem porta",
   "err.session.noPr": "não achei um PR aberto para esta branch",
   "err.session.cleaned": "o worktree deste workspace foi removido",
+  "err.session.interrupted":
+    "o app fechou enquanto o worktree montava; a pasta pode ter ficado pela metade",
   "err.cleanup.notArchived": "arquive este trabalho antes de limpar o worktree",
   "err.cleanup.isRepo": "este workspace mexe no próprio clone, e não num worktree",
   "err.cleanup.dirty": "há {n} arquivos com mudanças fora de commit",
