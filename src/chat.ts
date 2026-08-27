@@ -1,0 +1,707 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { icon, type IconName } from "./icons";
+import { fromBack, t } from "./i18n";
+import { md } from "./markdown";
+import * as notes from "./notes";
+import * as team from "./team";
+import { summary, Timeline, type Ask, type Block, type Item } from "./timeline";
+import type { Status } from "./types";
+import { h } from "./util";
+
+/// A conversa na tela: a timeline desenhada, e a caixa de escrever embaixo.
+///
+/// Não é um terminal. O que chega é uma linha de JSON por vez (`chat.rs`), o
+/// `Timeline` diz o que ela mudou, e só isso é redesenhado. O que sai é uma
+/// fala, uma resposta a um card (permissão, pergunta, plano) ou uma
+/// interrupção — pelo mesmo cano, na mesma forma.
+///
+/// A conversa de um colega é a mesma tela: as linhas vêm do relay em vez do
+/// back, e o que se escreve vai para o Mac dele em vez do processo daqui.
+///
+/// As notas do time moram aqui dentro, na hora em que foram escritas — entre
+/// a fala e a resposta a que se referem.
+
+/// O que a tela precisa saber da aba aberta, e que não está nas linhas.
+export type Info = {
+  /// O id do workspace na tela (o de um colega vem prefixado).
+  workspace: string | null;
+  status: Status | null;
+  /// A conversa é de um colega: o nome dele, e se ele está aí.
+  remote: { name: string; online: boolean } | null;
+  /// Há time — e, portanto, notas.
+  team: boolean;
+};
+
+export type Ctx = {
+  say: (text: string, isError?: boolean) => void;
+  info: () => Info;
+};
+
+/// Quanto de resultado de ferramenta o card mostra aberto. O resto está no
+/// transcript; a tela não é o lugar de ler um arquivo de 4 mil linhas.
+const RESULT_LINES = 120;
+
+export class ChatView {
+  private feed!: HTMLElement;
+  private box!: HTMLElement;
+  private area!: HTMLTextAreaElement;
+  private ctx!: Ctx;
+  private key: string | null = null;
+  private remote = false;
+  private tl = new Timeline();
+  /// O nó de cada item, pelo índice no `Timeline`.
+  private nodes: HTMLElement[] = [];
+  /// O que ainda não fechou uma linha, na conversa de um colega: os bytes
+  /// chegam em pedaços, e um pedaço pode cortar um JSON no meio.
+  private partial = "";
+  private decoder = new TextDecoder("utf-8");
+  private mode: "agent" | "note" = "agent";
+  private feedback: string | null = null;
+
+  open(host: HTMLElement, ctx: Ctx) {
+    this.ctx = ctx;
+    this.feed = h("div", "feed");
+    this.box = h("div", "composer");
+    host.append(this.feed, this.box);
+    this.buildComposer();
+
+    listen<[string, string, number]>("chat", ({ payload: [session, line] }) => {
+      if (session !== this.key || this.remote) return;
+      this.absorb(line);
+    });
+    team.onChange(() => {
+      if (this.key) this.paintNotes();
+      this.paintComposer();
+    });
+    // Link no texto do agente não navega: a janela é o app.
+    this.feed.addEventListener("click", (e) => {
+      const a = (e.target as HTMLElement).closest("a");
+      if (a) e.preventDefault();
+    });
+    document.addEventListener("selectionchange", () => this.paintQuoteButton());
+  }
+
+  /* ---------- ligar e desligar ---------- */
+
+  /// Uma conversa daqui: a rolagem que o back guardou, e daí em diante as
+  /// linhas ao vivo.
+  async attach(key: string) {
+    this.key = key;
+    this.remote = false;
+    this.reset();
+    const text = await invoke<string>("chat_buffer", { session: key });
+    if (this.key !== key) return;
+    this.tl.load(text);
+    this.renderAll();
+  }
+
+  /// A conversa de um colega: as linhas que vieram dele. Daqui em diante os
+  /// bytes chegam por `remoteWrite`.
+  attachRemote(key: string, bytes: Uint8Array) {
+    this.key = key;
+    this.remote = true;
+    this.reset();
+    this.tl.load(new TextDecoder("utf-8").decode(bytes));
+    this.renderAll();
+  }
+
+  /// Saída ao vivo de uma conversa remota. O que não é da chave na tela é
+  /// descartado — o link guarda o espelho de cada aba, e é dele que a tela
+  /// renasce ao trocar.
+  remoteWrite(key: string, bytes: Uint8Array) {
+    if (key !== this.key || !this.remote) return;
+    this.partial += this.decoder.decode(bytes, { stream: true });
+    const lines = this.partial.split("\n");
+    this.partial = lines.pop() ?? "";
+    for (const line of lines) if (line.trim()) this.absorb(line);
+  }
+
+  detach() {
+    this.key = null;
+    this.remote = false;
+    this.reset();
+    this.paintComposer();
+  }
+
+  private reset() {
+    this.tl = new Timeline();
+    this.nodes = [];
+    this.partial = "";
+    this.decoder = new TextDecoder("utf-8");
+    this.feedback = null;
+    this.feed.replaceChildren();
+  }
+
+  current() {
+    return this.key;
+  }
+
+  focus() {
+    this.area.focus();
+  }
+
+  /// O estado da aba mudou fora daqui (o quadro redesenhou): a caixa acompanha.
+  refresh() {
+    this.paintComposer();
+  }
+
+  /// O texto selecionado dentro da conversa — é o que uma nota cita.
+  selection(): string {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.anchorNode || !this.feed.contains(sel.anchorNode)) return "";
+    return sel.toString();
+  }
+
+  /// Caminhos soltos em cima da conversa entram na caixa, como o Terminal faz.
+  insert(text: string) {
+    const a = this.area;
+    const cut = a.selectionStart;
+    a.value = `${a.value.slice(0, cut)}${text}${a.value.slice(cut)}`;
+    a.selectionStart = a.selectionEnd = cut + text.length;
+    this.grow();
+    a.focus();
+  }
+
+  /* ---------- as linhas ---------- */
+
+  private absorb(line: string) {
+    const stick = this.stuck();
+    const touched = this.tl.push(line);
+    for (const i of touched) this.renderOne(i);
+    if (touched.length) this.paintNotes();
+    this.paintComposer();
+    if (stick) this.feed.scrollTop = this.feed.scrollHeight;
+  }
+
+  private stuck() {
+    return this.feed.scrollTop + this.feed.clientHeight >= this.feed.scrollHeight - 48;
+  }
+
+  private renderAll() {
+    this.nodes = [];
+    this.feed.replaceChildren();
+    if (!this.tl.items.length) this.feed.append(h("div", "nohint", t("chat.empty")));
+    for (let i = 0; i < this.tl.items.length; i++) this.renderOne(i);
+    this.paintNotes();
+    this.paintComposer();
+    this.feed.scrollTop = this.feed.scrollHeight;
+  }
+
+  private renderOne(i: number) {
+    const item = this.tl.items[i];
+    const node = this.render(item, i);
+    node.dataset.i = String(i);
+    const old = this.nodes[i];
+    if (old) {
+      // Card de ferramenta aberto continua aberto depois do redesenho.
+      for (const open of old.querySelectorAll<HTMLElement>(".tool.open")) {
+        const id = open.dataset.tool;
+        node.querySelector<HTMLElement>(`.tool[data-tool="${CSS.escape(id ?? "")}"]`)?.classList.add("open");
+      }
+      old.replaceWith(node);
+    } else {
+      this.feed.querySelector(".nohint")?.remove();
+      this.feed.append(node);
+    }
+    this.nodes[i] = node;
+  }
+
+  private render(item: Item, i: number): HTMLElement {
+    switch (item.kind) {
+      case "user": {
+        const el = h("div", "msg user", `<div class="bubble"></div>`);
+        (el.firstElementChild as HTMLElement).textContent = item.text;
+        return el;
+      }
+      case "assistant": {
+        const el = h("div", "msg bot" + (item.streaming ? " live" : ""));
+        const last = item.blocks.length - 1;
+        item.blocks.forEach((block, k) => {
+          if (block) el.append(this.block(block, item.streaming && k === last));
+        });
+        return el;
+      }
+      case "ask":
+        return this.askCard(item, i);
+      case "result": {
+        const el = h("div", "sys err");
+        el.textContent = item.text || t("chat.result.error");
+        return el;
+      }
+      case "system": {
+        const el = h("div", "sys" + (item.error ? " err" : ""));
+        el.textContent = item.text === "compacted" ? t("chat.compacted") : item.text;
+        return el;
+      }
+    }
+  }
+
+  /// `live` é o bloco que ainda está chegando: o último de uma mensagem em
+  /// streaming. É o que separa "Pensando…" de "Pensou".
+  private block(block: Block, live: boolean): HTMLElement {
+    if (block.kind === "text") {
+      const el = h("div", "md");
+      el.innerHTML = md(block.text);
+      return el;
+    }
+    if (block.kind === "thinking") {
+      const el = h("details", "think", `<summary></summary><div></div>`);
+      el.querySelector("summary")!.textContent = t(live ? "chat.thinking" : "chat.thought");
+      (el.lastElementChild as HTMLElement).textContent = block.text;
+      return el;
+    }
+    // Ferramenta: uma linha fechada, e o que entrou e saiu quando aberta.
+    const el = h("div", "tool" + (block.done ? (block.error ? " bad" : " ok") : " run"));
+    el.dataset.tool = block.id;
+    const head = h("button", "thead", `<span class="tic">${icon(toolIcon(block.name), 14)}</span><b></b><span class="sum"></span><span class="st"></span>`);
+    head.querySelector("b")!.textContent = toolLabel(block.name);
+    head.querySelector(".sum")!.textContent = block.name === "ExitPlanMode" ? "" : summary(block.name, block.input);
+    head.querySelector(".st")!.innerHTML = block.done ? icon(block.error ? "x" : "check", 12) : `<span class="spin"></span>`;
+    head.addEventListener("click", () => el.classList.toggle("open"));
+    el.append(head);
+    const body = h("div", "tbody");
+    if (block.name === "ExitPlanMode") {
+      // O plano é para ler, não para abrir: fica na tela, em markdown.
+      el.classList.add("open", "plan");
+      const plan = h("div", "md");
+      plan.innerHTML = md(String((block.input as { plan?: string })?.plan ?? ""));
+      body.append(plan);
+    } else {
+      body.append(inputView(block.name, block.input));
+      if (block.result !== null) {
+        const out = h("pre", "tout" + (block.error ? " bad" : ""));
+        out.textContent = capLines(block.result);
+        body.append(out);
+      }
+    }
+    el.append(body);
+    return el;
+  }
+
+  /* ---------- cards que esperam resposta ---------- */
+
+  private askCard(ask: Ask, i: number): HTMLElement {
+    if (ask.answered) {
+      const el = h("div", "sys done", `${icon("check", 12)}<span></span>`);
+      el.querySelector("span")!.textContent = t("chat.answered", { what: toolLabel(ask.tool) });
+      return el;
+    }
+    const el = h("div", "ask");
+    if (ask.tool === "ExitPlanMode") return this.planCard(el, ask);
+    if (ask.tool === "AskUserQuestion") return this.questionCard(el, ask);
+    return this.permCard(el, ask, i);
+  }
+
+  private planCard(el: HTMLElement, ask: Ask): HTMLElement {
+    el.classList.add("plan");
+    el.append(h("h4", "", t("chat.plan.title")));
+    const row = h("div", "row");
+    const go = h("button", "pri md", t("chat.plan.go"));
+    go.title = t("chat.plan.go.title");
+    go.addEventListener("click", () => {
+      // O "sim" solta o agente: vira bypass antes de responder, senão a
+      // primeira ferramenta do plano já pergunta de novo.
+      this.control({
+        type: "control_request",
+        request_id: crypto.randomUUID(),
+        request: { subtype: "set_permission_mode", mode: "bypassPermissions" },
+      });
+      this.respond(ask, { behavior: "allow", updatedInput: ask.input });
+    });
+    const asking = h("button", "outline md", t("chat.plan.ask"));
+    asking.title = t("chat.plan.ask.title");
+    asking.addEventListener("click", () => this.respond(ask, { behavior: "allow", updatedInput: ask.input }));
+    const no = h("button", "ghost md", t("chat.plan.no"));
+    row.append(go, asking, no);
+    el.append(row);
+    // Pedir mudanças abre o campo: o que você escrever volta ao agente como a
+    // recusa — é assim que o plano muda.
+    const fb = h("div", "fb", `<textarea rows="3"></textarea><div class="row"><span class="spacer"></span><button class="pri md"></button></div>`);
+    const area = fb.querySelector("textarea")!;
+    area.placeholder = t("chat.plan.feedback");
+    fb.querySelector("button")!.textContent = t("chat.plan.send");
+    fb.hidden = this.feedback !== ask.id;
+    no.addEventListener("click", () => {
+      this.feedback = ask.id;
+      fb.hidden = false;
+      area.focus();
+    });
+    const send = () => {
+      const text = area.value.trim();
+      if (!text) return;
+      this.feedback = null;
+      this.respond(ask, { behavior: "deny", message: text });
+    };
+    fb.querySelector("button")!.addEventListener("click", send);
+    area.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        send();
+      }
+    });
+    el.append(fb);
+    return el;
+  }
+
+  private questionCard(el: HTMLElement, ask: Ask): HTMLElement {
+    el.classList.add("question");
+    const questions = (ask.input.questions as { question: string; header?: string; multiSelect?: boolean; options: { label: string; description?: string }[] }[]) ?? [];
+    const answers: Record<string, string[]> = {};
+    const other: Record<string, string> = {};
+    const paintGo = () => {
+      go.disabled = !questions.every((q) => (answers[q.question]?.length ?? 0) > 0 || other[q.question]?.trim());
+    };
+    for (const q of questions) {
+      const block = h("div", "q");
+      if (q.header) block.append(h("span", "chip", q.header));
+      block.append(h("p", "", q.question));
+      const opts = h("div", "opts");
+      for (const o of q.options ?? []) {
+        const b = h("button", "opt", `<b></b><span></span>`);
+        b.querySelector("b")!.textContent = o.label;
+        b.querySelector("span")!.textContent = o.description ?? "";
+        b.addEventListener("click", () => {
+          const list = answers[q.question] ?? [];
+          if (q.multiSelect) {
+            answers[q.question] = list.includes(o.label) ? list.filter((x) => x !== o.label) : [...list, o.label];
+          } else {
+            answers[q.question] = [o.label];
+          }
+          for (const x of opts.children) x.classList.toggle("on", answers[q.question].includes((x as HTMLElement).querySelector("b")!.textContent ?? ""));
+          paintGo();
+        });
+        opts.append(b);
+      }
+      block.append(opts);
+      const free = document.createElement("input");
+      free.className = "field";
+      free.placeholder = t("chat.ask.other");
+      free.addEventListener("input", () => {
+        other[q.question] = free.value;
+        paintGo();
+      });
+      block.append(free);
+      el.append(block);
+    }
+    const row = h("div", "row");
+    const go = h("button", "pri md", t("chat.ask.go")) as HTMLButtonElement;
+    go.addEventListener("click", () => {
+      const out: Record<string, string> = {};
+      for (const q of questions) {
+        const typed = other[q.question]?.trim();
+        const picked = answers[q.question] ?? [];
+        out[q.question] = [...picked, ...(typed ? [typed] : [])].join(", ");
+      }
+      this.respond(ask, { behavior: "allow", updatedInput: { ...ask.input, answers: out } });
+    });
+    row.append(h("span", "spacer"), go);
+    el.append(row);
+    paintGo();
+    return el;
+  }
+
+  private permCard(el: HTMLElement, ask: Ask, _i: number): HTMLElement {
+    el.append(h("h4", "", t("chat.perm.title", { tool: toolLabel(ask.tool) })));
+    el.append(inputView(ask.tool, ask.input));
+    const row = h("div", "row");
+    const yes = h("button", "pri md", t("chat.perm.yes"));
+    yes.addEventListener("click", () => this.respond(ask, { behavior: "allow", updatedInput: ask.input }));
+    const always = h("button", "outline md", t("chat.perm.always"));
+    always.addEventListener("click", () => {
+      this.control({
+        type: "control_request",
+        request_id: crypto.randomUUID(),
+        request: { subtype: "set_permission_mode", mode: "bypassPermissions" },
+      });
+      this.respond(ask, { behavior: "allow", updatedInput: ask.input });
+    });
+    const no = h("button", "ghost md", t("chat.perm.no"));
+    no.addEventListener("click", () => this.respond(ask, { behavior: "deny", message: t("chat.perm.denied") }));
+    row.append(yes, always, no);
+    el.append(row);
+    return el;
+  }
+
+  private respond(ask: Ask, response: unknown) {
+    this.control({ type: "control_response", response: { subtype: "success", request_id: ask.id, response } });
+    for (const i of this.tl.answer(ask.id)) this.renderOne(i);
+    this.paintComposer();
+  }
+
+  /// Uma linha de controle para o processo — daqui, ou pelo relay até o Mac
+  /// do dono, que a repassa (ver `team.ts`).
+  private control(frame: unknown) {
+    if (!this.key) return;
+    if (this.remote) team.write(JSON.stringify(frame));
+    else invoke("chat_control", { session: this.key, frame }).catch((e) => this.ctx.say(fromBack(e), true));
+  }
+
+  private interrupt() {
+    this.control({ type: "control_request", request_id: crypto.randomUUID(), request: { subtype: "interrupt" } });
+  }
+
+  /* ---------- a caixa ---------- */
+
+  private buildComposer() {
+    this.box.innerHTML = `
+      <div class="cquote" hidden></div>
+      <textarea rows="1" spellcheck="true"></textarea>
+      <div class="crow">
+        <div class="modes" hidden>
+          <button class="mode on" data-mode="agent"></button>
+          <button class="mode" data-mode="note"></button>
+        </div>
+        <button class="ico sm at" hidden></button>
+        <button class="outline md quotesel" hidden></button>
+        <span class="hint"></span>
+        <span class="spacer"></span>
+        <button class="ghost md stop" hidden></button>
+        <button class="pri md send"></button>
+      </div>`;
+    this.area = this.box.querySelector("textarea")!;
+    const q = (sel: string) => this.box.querySelector<HTMLElement>(sel)!;
+    q(".mode[data-mode=agent]").textContent = t("chat.mode.agent");
+    q(".mode[data-mode=note]").textContent = t("chat.mode.note");
+    q(".at").innerHTML = icon("at-sign", 13);
+    q(".at").title = t("notes.mention");
+    q(".quotesel").innerHTML = `${icon("message-square", 12)}<span></span>`;
+    q(".quotesel span").textContent = t("notes.quoteSelection");
+    q(".quotesel").title = t("notes.quoteSelection.title");
+    q(".stop").innerHTML = `${icon("square", 12)}<span></span>`;
+    q(".stop span").textContent = t("chat.stop");
+    q(".send").textContent = t("chat.send");
+
+    for (const b of this.box.querySelectorAll<HTMLElement>(".mode")) {
+      b.addEventListener("click", () => this.setMode(b.dataset.mode as "agent" | "note"));
+    }
+    q(".at").addEventListener("click", () => notes.pickMention(this.area, () => this.keep()));
+    q(".quotesel").addEventListener("click", () => this.quoteSelection());
+    q(".stop").addEventListener("click", () => this.interrupt());
+    q(".send").addEventListener("click", () => this.send());
+
+    this.area.addEventListener("input", () => {
+      this.keep();
+      this.grow();
+    });
+    this.area.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        this.send();
+      } else if (e.key === "Escape" && this.tl.busy && !this.area.value) {
+        e.preventDefault();
+        this.interrupt();
+      } else if (e.key === "@" && this.mode === "note") {
+        e.preventDefault();
+        notes.pickMention(this.area, () => this.keep());
+      }
+    });
+  }
+
+  /// O rascunho da nota sobrevive a trocar de aba; o da fala, não — a fala é
+  /// da aba, e a aba é o processo.
+  private keep() {
+    const ws = this.ctx.info().workspace;
+    if (this.mode === "note" && ws) notes.draftOf(ws).text = this.area.value;
+  }
+
+  private grow() {
+    const a = this.area;
+    a.style.height = "0";
+    a.style.height = `${Math.min(a.scrollHeight, window.innerHeight * 0.4)}px`;
+  }
+
+  private setMode(mode: "agent" | "note") {
+    if (mode === this.mode) return;
+    const ws = this.ctx.info().workspace;
+    if (this.mode === "note" && ws) notes.draftOf(ws).text = this.area.value;
+    this.mode = mode;
+    this.area.value = mode === "note" && ws ? notes.draftOf(ws).text : "";
+    this.grow();
+    this.paintComposer();
+    this.area.focus();
+  }
+
+  /// ⌘⇧M, ou o botão: a nota nasce citando o que está selecionado.
+  quoteSelection(): boolean {
+    const ws = this.ctx.info().workspace;
+    const sel = this.selection().trim();
+    if (!ws || !sel || !this.ctx.info().team) return false;
+    notes.draftOf(ws).quote = sel;
+    this.setMode("note");
+    this.paintComposer();
+    this.area.focus();
+    return true;
+  }
+
+  private send() {
+    const text = this.area.value.trim();
+    if (!text || !this.key) return;
+    const info = this.ctx.info();
+    if (this.mode === "note") {
+      if (!info.workspace) return;
+      const draft = notes.draftOf(info.workspace);
+      try {
+        team.addNote(info.workspace, text, notes.mentionsIn(text), draft.quote);
+      } catch (e) {
+        return this.ctx.say(fromBack(e), true);
+      }
+      notes.dropDraft(info.workspace);
+      this.area.value = "";
+      this.grow();
+      this.paintComposer();
+      return;
+    }
+    if (info.remote && !info.remote.online) return this.ctx.say(t("err.team.offline"), true);
+    if (this.remote) team.write(text);
+    else invoke("chat_send", { session: this.key, text }).catch((e) => this.ctx.say(fromBack(e), true));
+    this.area.value = "";
+    this.grow();
+  }
+
+  private paintComposer() {
+    const info = this.ctx.info();
+    const q = (sel: string) => this.box.querySelector<HTMLElement>(sel)!;
+    const hasKey = !!this.key;
+    this.box.hidden = !hasKey;
+    if (!hasKey) return;
+    if (!info.team && this.mode === "note") this.setMode("agent");
+    q(".modes").hidden = !info.team;
+    for (const b of this.box.querySelectorAll<HTMLElement>(".mode")) b.classList.toggle("on", b.dataset.mode === this.mode);
+    const note = this.mode === "note";
+    q(".at").hidden = !note;
+    q(".stop").hidden = note || !this.tl.busy;
+    this.box.classList.toggle("note", note);
+    this.box.classList.toggle("busy", !note && this.tl.busy);
+
+    const off = info.remote ? !info.remote.online : false;
+    this.area.disabled = !note && off;
+    this.area.placeholder = note
+      ? t("notes.write")
+      : off
+        ? t("chat.placeholder.remoteOff", { name: info.remote?.name ?? "" })
+        : info.remote
+          ? t("chat.placeholder.remote", { name: info.remote.name })
+          : info.status === "desligada"
+            ? t("chat.placeholder.off")
+            : t("chat.placeholder");
+    q(".hint").textContent = note ? "" : this.tl.compacting ? t("chat.compacting") : this.tl.busy ? t("chat.busy") : "";
+    q(".send").textContent = t(note ? "notes.send" : "chat.send");
+
+    const quote = note && info.workspace ? notes.draftOf(info.workspace).quote : null;
+    const chip = q(".cquote");
+    chip.hidden = !quote;
+    chip.replaceChildren();
+    if (quote && info.workspace) {
+      chip.append(
+        notes.quoteChip(quote, () => {
+          notes.draftOf(info.workspace!).quote = null;
+          this.paintComposer();
+        }),
+      );
+    }
+    this.paintQuoteButton();
+  }
+
+  /// O botão "Comentar a seleção", que só existe com time e seleção.
+  private paintQuoteButton() {
+    if (!this.key) return;
+    const b = this.box.querySelector<HTMLElement>(".quotesel");
+    if (b) b.hidden = !this.ctx.info().team || !this.selection().trim();
+  }
+
+  /* ---------- notas do time, no meio da conversa ---------- */
+
+  /// Cada nota entra antes do primeiro item mais novo que ela — é a hora em
+  /// que foi escrita que diz de que pedaço da conversa ela fala.
+  private paintNotes() {
+    const ws = this.ctx.info().workspace;
+    for (const old of this.feed.querySelectorAll(".note")) old.remove();
+    if (!ws || !this.ctx.info().team) return;
+    const list = team.notesOf(ws);
+    if (!list.length) return;
+    const items = this.tl.items;
+    for (const note of [...list].sort((a, b) => a.ts - b.ts)) {
+      const at = items.findIndex((it) => it.ts > note.ts);
+      const card = notes.card(note);
+      if (at === -1 || !this.nodes[at]) this.feed.append(card);
+      else this.nodes[at].before(card);
+    }
+  }
+
+  /// Leva até uma nota — de onde a caixa "Para mim" leva.
+  focusNote(id: string) {
+    this.paintNotes();
+    const el = this.feed.querySelector<HTMLElement>(`.note[data-note="${CSS.escape(id)}"]`);
+    if (!el) return;
+    el.classList.add("lit");
+    el.scrollIntoView({ block: "center" });
+  }
+}
+
+/* ---------- pedaços ---------- */
+
+/// O input de uma ferramenta, legível: chave por chave, strings como vieram
+/// (é o comando, o caminho, o texto), o resto em JSON.
+function inputView(name: string, input: unknown): HTMLElement {
+  const box = h("div", "tin");
+  const i = (input ?? {}) as Record<string, unknown>;
+  const keys = Object.keys(i).filter((k) => k !== "description");
+  if (name === "Edit" && typeof i.old_string === "string" && typeof i.new_string === "string") {
+    const diff = h("pre", "tdiff");
+    diff.append(
+      ...i.old_string.split("\n").map((l) => Object.assign(h("span", "del"), { textContent: `- ${l}\n` })),
+      ...i.new_string.split("\n").map((l) => Object.assign(h("span", "add"), { textContent: `+ ${l}\n` })),
+    );
+    box.append(Object.assign(h("div", "tk"), { textContent: String(i.file_path ?? "") }), diff);
+    return box;
+  }
+  for (const k of keys) {
+    const v = i[k];
+    const row = h("div", "trow", `<span class="tk"></span><pre></pre>`);
+    row.querySelector(".tk")!.textContent = k;
+    row.querySelector("pre")!.textContent = capLines(typeof v === "string" ? v : JSON.stringify(v, null, 2));
+    box.append(row);
+  }
+  return box;
+}
+
+function capLines(text: string): string {
+  const lines = text.split("\n");
+  if (lines.length <= RESULT_LINES) return text;
+  return lines.slice(0, RESULT_LINES).join("\n") + "\n" + t("chat.more", { n: lines.length - RESULT_LINES });
+}
+
+function toolIcon(name: string): IconName {
+  switch (name) {
+    case "Read":
+    case "Glob":
+    case "Grep":
+      return "search";
+    case "Write":
+    case "Edit":
+    case "NotebookEdit":
+      return "pencil";
+    case "Bash":
+      return "terminal";
+    case "Task":
+    case "Agent":
+      return "users";
+    case "ExitPlanMode":
+    case "EnterPlanMode":
+      return "map";
+    case "AskUserQuestion":
+      return "message-square";
+    case "WebFetch":
+    case "WebSearch":
+      return "globe";
+    default:
+      return "sparkles";
+  }
+}
+
+/// O nome da ferramenta como a pessoa a lê. MCP vem `mcp__servidor__tool`.
+function toolLabel(name: string): string {
+  if (name.startsWith("mcp__")) return name.split("__").slice(1).join(" · ");
+  return name;
+}

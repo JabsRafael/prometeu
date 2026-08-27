@@ -4,7 +4,8 @@ import type { DockKind } from "./types";
 
 /// Os terminais do workspace que não são conversa: o `setup` que preparou o
 /// worktree, o `run` que sobe o projeto, e um shell para você. Um pty por tipo,
-/// e o mesmo xterm desenha o que estiver na frente.
+/// e o mesmo xterm desenha o que estiver na frente. É o único terminal do app:
+/// a conversa com o agente não é um (ver `chat.ts`).
 const term = new Term({ fontSize: 12, foreground: "#a4a09d", scrollback: 4000 });
 
 export function init(el: HTMLElement) {
@@ -13,18 +14,18 @@ export function init(el: HTMLElement) {
   });
 }
 
+/// O tamanho do terminal do dock — é com ele que o `setup` de um worktree
+/// novo nasce, e a aba reajusta quando abre.
+export function dims() {
+  const { cols, rows } = term.dims();
+  return { cols: cols || 80, rows: rows || 12 };
+}
+
 /// Abre (ou reabre) um dock. Reabrir não reinicia nada: o processo continua
 /// vivo e a rolagem guardada redesenha a tela. `name` escolhe qual
 /// `[scripts.run.<nome>]` subir, e só é lido quando não há um de pé.
 export async function open(workspace: string, kind: DockKind, name?: string) {
-  const { cols, rows } = term.dims();
-  const key = await invoke<string>("open_dock", {
-    id: workspace,
-    kind,
-    name: name ?? null,
-    cols: cols || 80,
-    rows: rows || 12,
-  });
+  const key = await invoke<string>("open_dock", { id: workspace, kind, name: name ?? null, ...dims() });
   await term.attach(key);
 }
 

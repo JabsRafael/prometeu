@@ -1,6 +1,6 @@
 use crate::lock::lock;
 use crate::state::{publish, Board, Project, Status, Tab, Workspace};
-use crate::{agents, i18n, paths, pty, scripts, AppState};
+use crate::{chat, i18n, paths, pty, scripts, AppState};
 use portable_pty::CommandBuilder;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -132,10 +132,10 @@ fn archive(state: &State<AppState>, id: &str, archived: bool) {
 }
 
 /// Encerra as sessões destas abas: o processo morre. Transcript e worktree
-/// ficam — retomar é outro caminho.
+/// ficam — a próxima fala retoma.
 fn stop(state: &State<AppState>, tabs: &[String]) {
     for tab in tabs {
-        pty::kill(state, tab);
+        chat::kill(state, tab);
     }
 }
 
@@ -646,26 +646,7 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
         switch_branch(&repo, &branch, &draft.base)?;
     }
 
-    // O worktree recém-nascido pode ter setup para rodar, e a primeira fala
-    // espera por ele (ver `start_setup`, logo abaixo). Saber isso *antes* de
-    // subir o agente é o que permite ao Codex receber a fala como argumento
-    // quando não há nada a esperar.
-    let waits_setup = {
-        let found = scripts::read_for(&root, &repo);
-        found.setup.is_some() || !found.copy.is_empty()
-    };
-
-    let tab = spawn_tab(
-        app,
-        &state,
-        &root,
-        "conversa",
-        first_message(&draft.prompt, &draft.inject),
-        &draft.launch,
-        cols,
-        rows,
-        !waits_setup,
-    )?;
+    let tab = spawn_tab(app, &state, &root, "conversa", first_message(&draft.prompt, &draft.inject), &draft.launch)?;
 
     // Tirado do quadro no meio da montagem: o agente que acabou de subir não
     // tem mais card nenhum a que pertencer, e deixá-lo vivo seria um `claude`
@@ -674,7 +655,7 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
         let mut board = lock(&state.board);
         let Some(ws) = board.workspace_mut(id) else {
             drop(board);
-            pty::kill(&state, &tab.id);
+            chat::kill(&state, &tab.id);
             return Ok(());
         };
         ws.preparing = false;
@@ -687,12 +668,11 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
     // Worktree recém-nascido não tem nada que o `.gitignore` esconde:
     // dependências, `.env`, banco, build. O que dá para reconstruir é o setup
     // que reconstrói; o que não dá — segredo, chave — vem copiado do clone,
-    // antes dele. Os dois são a aba Setup. O processo do agente sobe junto — é
-    // agora que ele pergunta se você confia na pasta, e isso não precisa esperar
-    // o `npm install` —, mas a primeira fala só é digitada quando o setup
-    // termina (ver `release_prompts`): agente que roda teste antes de haver
-    // `node_modules` conclui coisa errada. Falhar aqui não desfaz o worktree; o
-    // erro fica escrito na aba Setup, que é onde se conserta.
+    // antes dele. Os dois são a aba Setup. O processo do agente sobe junto,
+    // mas a primeira fala só vai quando o setup termina (ver
+    // `release_prompts`): agente que roda teste antes de haver `node_modules`
+    // conclui coisa errada. Falhar aqui não desfaz o worktree; o erro fica
+    // escrito na aba Setup, que é onde se conserta.
     let _ = start_setup(app, &state, &ws, cols, rows);
 
     Ok(())
@@ -703,14 +683,7 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
 /// Conversa nova nos mesmos arquivos. É o ⌘T: quando o contexto encheu, ou
 /// quando o assunto virou outro, mas o worktree é o mesmo.
 #[tauri::command]
-pub fn new_tab(
-    app: AppHandle,
-    state: State<AppState>,
-    workspace: String,
-    prompt: String,
-    cols: u16,
-    rows: u16,
-) -> Result<Tab, String> {
+pub fn new_tab(app: AppHandle, state: State<AppState>, workspace: String, prompt: String) -> Result<Tab, String> {
     // Modelo e esforço são do workspace: conversa nova nos mesmos arquivos
     // nasce com os mesmos que as irmãs. Plan mode não — é escolha de uma fala.
     let (worktree, n, launch) = {
@@ -728,9 +701,7 @@ pub fn new_tab(
         tab_title(&prompt)
     };
     let pending = (!prompt.trim().is_empty()).then(|| prompt.trim().to_string());
-    // ⌘T num worktree que já existe: o setup dele, se havia, terminou muito
-    // antes — não há por que guardar a fala.
-    let tab = spawn_tab(&app, &state, &worktree, &title, pending, &launch, cols, rows, true)?;
+    let tab = spawn_tab(&app, &state, &worktree, &title, pending, &launch)?;
 
     {
         let mut board = lock(&state.board);
@@ -798,21 +769,19 @@ pub fn rename_tab(
 
 /// Retoma uma aba desligada. O transcript vive em
 /// `~/.claude/projects/<slug>/<id>.jsonl` e sobrevive ao app, ao worktree e ao
-/// reboot — então `--resume` devolve a conversa inteira de onde parou.
+/// reboot — então `--resume` devolve a conversa inteira de onde parou. `true`
+/// é retomou; `false` é conversa que nunca falou, reaberta nova no mesmo lugar.
 #[tauri::command]
-pub fn resume_tab(
-    app: AppHandle,
-    state: State<AppState>,
-    tab: String,
-    cols: u16,
-    rows: u16,
-) -> Result<bool, String> {
-    let (worktree, launch, cleaned, agent_session) = lock(&state.board)
-        .workspace_of(&tab)
-        .map(|w| {
-            let previous = w.tabs.iter().find(|t| t.id == tab).and_then(|t| t.agent_session.clone());
-            (PathBuf::from(&w.worktree), w.launch(), w.cleaned, previous)
-        })
+pub fn resume_tab(app: AppHandle, state: State<AppState>, tab: String) -> Result<bool, String> {
+    revive(&app, &state, &tab)
+}
+
+/// Sobe de novo o processo de uma aba. É o `resume_tab`, e é o que a primeira
+/// fala numa aba desligada faz por conta própria (`chat::chat_send`).
+pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<bool, String> {
+    let (worktree, launch, cleaned) = lock(&state.board)
+        .workspace_of(tab)
+        .map(|w| (PathBuf::from(&w.worktree), w.launch(), w.cleaned))
         .ok_or_else(|| i18n::t("err.session.noTab"))?;
     if cleaned {
         return Err(i18n::t("err.session.cleaned"));
@@ -822,40 +791,26 @@ pub fn resume_tab(
     }
 
     // O que sobrou da sessão anterior sai antes: o processo já morreu, mas o
-    // `Pty` continua no mapa até alguém tirar.
-    pty::kill(&state, &tab);
+    // `Chat` continua no mapa até alguém tirar.
+    chat::kill(state, tab);
 
     // Conversa que nunca falou não tem transcript, e retomar morre nela. Aí a
     // aba renasce com o mesmo id: não há nada perdido, e travar a tela num erro
-    // por causa de uma conversa vazia seria pior. No Codex a pergunta é outra —
-    // se o hook já contou qual sessão ele abriu —, porque o transcript dele não
-    // mora num caminho que dê para adivinhar.
-    let previous = match launch.agent.as_str() {
-        "codex" => agent_session,
-        _ => paths::transcript(&tab, &worktree).exists().then(|| tab.clone()),
-    };
-    let resume = previous.is_some();
-    let handle = pty::spawn(
-        &app,
-        &tab,
-        agent_cmd(&tab, &worktree, previous.as_deref(), &launch, None)?,
-        cols,
-        rows,
-        None,
-    )?;
-    lock(&state.ptys).insert(tab.clone(), handle);
+    // por causa de uma conversa vazia seria pior.
+    let resume = paths::transcript(tab, &worktree).exists();
+    let handle = chat::spawn(app, tab, &worktree, claude_args(tab, resume, &launch))?;
+    lock(&state.chats).insert(tab.to_string(), handle);
     {
         let mut board = lock(&state.board);
-        if let Some(t) = board.tab_mut(&tab) {
+        if let Some(t) = board.tab_mut(tab) {
             t.status = Status::Pronta;
             t.note = None;
         }
     }
-    publish(&app);
+    publish(app);
     Ok(resume)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn spawn_tab(
     app: &AppHandle,
     state: &State<AppState>,
@@ -863,41 +818,10 @@ fn spawn_tab(
     title: &str,
     pending_prompt: Option<String>,
     launch: &Launch,
-    cols: u16,
-    rows: u16,
-    speak_now: bool,
 ) -> Result<Tab, String> {
     let id = uuid::Uuid::new_v4().to_string();
-
-    // Como a primeira fala chega ao agente depende de quem ele é.
-    //
-    // No Claude Code ela é digitada no terminal quando o hook `SessionStart`
-    // avisa que a TUI está de pé. O Codex não tem esse aviso: o `SessionStart`
-    // dele sai quando a conversa começa, e a conversa começa com a fala — logo
-    // esperar o hook é esperar a si mesmo. Digitar por relógio é chutar: numa
-    // máquina que ainda está subindo servidor MCP, o texto cai numa TUI que
-    // ainda não desenhou a caixa e se perde.
-    //
-    // Então quando dá para falar agora a fala vai no argumento do `codex`, que
-    // é onde ele mesmo espera receber o pedido. Quando não dá — o `setup` do
-    // worktree vai rodar, e agente que roda teste antes de haver
-    // `node_modules` conclui coisa errada —, ela fica guardada como no Claude
-    // Code, e é o fim do setup que digita (`release_prompts`).
-    let by_arg = launch.agent == "codex" && speak_now;
-    let (first, pending_prompt) = match by_arg {
-        true => (pending_prompt, None),
-        false => (None, pending_prompt),
-    };
-
-    let cmd = agent_cmd(&id, worktree, None, launch, first.as_deref())?;
-    let handle = pty::spawn(app, &id, cmd, cols, rows, None)?;
-    lock(&state.ptys).insert(id.clone(), handle);
-
-    // A aba do Codex entra na fila de quem já pode ouvir uma fala sem passar
-    // pelo hook, que é o que faz o fim do setup achá-la.
-    if launch.agent == "codex" && pending_prompt.is_some() {
-        lock(&state.ready).insert(id.clone());
-    }
+    let handle = chat::spawn(app, &id, worktree, claude_args(&id, false, launch))?;
+    lock(&state.chats).insert(id.clone(), handle);
     Ok(Tab {
         id,
         agent_session: None,
@@ -911,103 +835,37 @@ fn spawn_tab(
 
 /* ---------- plumbing ---------- */
 
-/// O CLI que sobe na aba, com a conversa que ela já tinha.
+/// Os argumentos do `claude`. `resume` decide se a sessão nasce nova ou
+/// continua a que já existe — o id é o mesmo nos dois casos.
 ///
-/// `previous` é a sessão a retomar do lado do agente — o próprio id da aba no
-/// Claude Code, o id que o Codex escolheu quando é ele. `None` é conversa nova.
-fn agent_cmd(
-    id: &str,
-    worktree: &Path,
-    previous: Option<&str>,
-    launch: &Launch,
-    first: Option<&str>,
-) -> Result<CommandBuilder, String> {
-    match launch.agent.as_str() {
-        "codex" => codex_cmd(id, worktree, previous, launch, first),
-        _ => claude_cmd(id, worktree, previous.is_some(), launch),
-    }
-}
-
-/// Monta a linha de comando do Codex. O que muda em relação ao Claude Code está
-/// explicado no cabeçalho do `agents.rs`; aqui só sobra o que é do processo: o
-/// worktree e a variável que conta ao hook de qual aba esta sessão é.
-fn codex_cmd(
-    id: &str,
-    worktree: &Path,
-    previous: Option<&str>,
-    launch: &Launch,
-    first: Option<&str>,
-) -> Result<CommandBuilder, String> {
-    let bin = paths::hook_bin();
-    let bin = bin.to_str().ok_or_else(|| i18n::t("err.session.badHook"))?;
-    agents::install_codex_hooks(bin).map_err(|e| i18n::ta("err.codex.hooks", &[("err", e)]))?;
-
-    let mut cmd = CommandBuilder::new("codex");
-    cmd.args(agents::codex_args(worktree, previous, &launch.model, &launch.effort, first));
-    cmd.cwd(worktree);
-    cmd.env_clear();
-    for (k, v) in std::env::vars() {
-        if !k.starts_with("CLAUDE") {
-            cmd.env(k, v);
-        }
-    }
-    cmd.env("TERM", "xterm-256color");
-    // Sem isto o hook não sabe de quem está falando: o Codex escolhe o id da
-    // sessão sozinho, e o `hooks.json` é o do usuário — o mesmo `codex` do
-    // terminal dispara os mesmos hooks. Esta variável é o que separa uma aba do
-    // quadro de uma sessão que não é nossa.
-    cmd.env("PROMETHEUS_TAB", id);
-    Ok(cmd)
-}
-
-/// Monta a linha de comando do Claude Code. `resume` decide se a sessão nasce
-/// nova ou continua a que já existe — o id é o mesmo nos dois casos.
+/// O modo é o headless com JSON dos dois lados: cada coisa que o agente faz
+/// sai como uma linha, cada fala entra como uma linha, e o processo fica de pé
+/// entre um turno e outro (`chat.rs`). `--permission-prompt-tool stdio` é o
+/// que faz pergunta, plano e pedido de permissão chegarem pelo mesmo cano, em
+/// vez de a sessão morrer sem ninguém para responder.
 ///
-/// O agente roda sempre solto: cada sessão vive no seu worktree e não para a
-/// cada ferramenta — que é o motivo de existir o quadro. O hook de
-/// PermissionRequest fica instalado mesmo assim, porque AskUserQuestion e
-/// ExitPlanMode passam por ele em bypass — e é dele que sai a nota "quer você"
-/// no quadro. Ele não decide nada: quem pergunta é a TUI, no terminal.
-fn claude_cmd(id: &str, worktree: &Path, resume: bool, launch: &Launch) -> Result<CommandBuilder, String> {
-    let settings = write_settings(id)?;
-    let mut cmd = CommandBuilder::new("claude");
-    cmd.args(cli_args(
+/// O agente roda solto: cada sessão vive no seu worktree e não para a cada
+/// ferramenta — que é o motivo de existir o quadro. Em plan mode nasce
+/// perguntando, e é a aprovação do plano que o solta: a tela manda um
+/// `set_permission_mode` para bypass junto com o "sim" (ver `chat.ts`). Aqui
+/// vai o `--allow-…`, sem o qual o `claude` recusa a troca — e sem o
+/// `--dangerously-…`, que junto do `--permission-mode plan` ganha do plan.
+fn claude_args(id: &str, resume: bool, launch: &Launch) -> Vec<String> {
+    let mut args: Vec<String> = [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--include-partial-messages",
+        "--verbose",
+        "--permission-prompt-tool",
+        "stdio",
+        if resume { "--resume" } else { "--session-id" },
         id,
-        settings.to_str().ok_or_else(|| i18n::t("err.session.badSettings"))?,
-        resume,
-        launch,
-    ));
-    cmd.cwd(worktree);
-    // O CommandBuilder herda o ambiente inteiro por padrão, e `env()` só sobrescreve
-    // chave por chave — não remove nada. Sem o env_clear, um `claude` rodando dentro
-    // de outro herda CLAUDE_CODE_CHILD_SESSION e desliga o salvamento do transcript,
-    // que é justamente o que a aba guarda como ponteiro.
-    cmd.env_clear();
-    for (k, v) in std::env::vars() {
-        if !k.starts_with("CLAUDE") {
-            cmd.env(k, v);
-        }
-    }
-    cmd.env("TERM", "xterm-256color");
-    Ok(cmd)
-}
-
-/// Os argumentos do `claude`, separados do `CommandBuilder` para dar para
-/// testar — e porque a parte do plan mode foi levantada na marra (2.1.240):
-///
-/// - `--dangerously-skip-permissions` junto de `--permission-mode plan` ganha
-///   do plan: a sessão nasce em bypass e o plano nunca acontece.
-/// - `--allow-dangerously-skip-permissions` com `--permission-mode plan` nasce
-///   em plan, e o "Would you like to proceed?" do ExitPlanMode já vem com
-///   "switch to BYPASS PERMISSIONS" como primeira opção. Aprovar é o dígito 1,
-///   e daí em diante é o mesmo solto de sempre.
-fn cli_args(id: &str, settings: &str, resume: bool, launch: &Launch) -> Vec<String> {
-    let mut args: Vec<String> = vec![
-        "--settings".into(),
-        settings.into(),
-        if resume { "--resume" } else { "--session-id" }.into(),
-        id.into(),
-    ];
+    ]
+    .map(String::from)
+    .to_vec();
     if launch.plan {
         args.extend(["--permission-mode", "plan", "--allow-dangerously-skip-permissions"].map(String::from));
     } else {
@@ -1238,42 +1096,6 @@ pub fn list_branches(project: String) -> Branches {
     Branches { all, default }
 }
 
-/// Um settings por sessão, nunca o global — senão o Prometheus briga com qualquer
-/// outra ferramenta que também instale hooks (Vibe Island, por exemplo).
-fn write_settings(id: &str) -> Result<PathBuf, String> {
-    let dir = paths::session_dir(id);
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-
-    let bin = paths::hook_bin();
-    let bin = bin.to_str().ok_or_else(|| i18n::t("err.session.badHook"))?;
-    let hook = |kind: &str, timeout: Option<u32>| {
-        let mut h = serde_json::json!({ "type": "command", "command": format!("{bin:?} {kind}") });
-        if let Some(t) = timeout {
-            h["timeout"] = t.into();
-        }
-        serde_json::json!([{ "matcher": "*", "hooks": [h] }])
-    };
-
-    let cfg = serde_json::json!({
-        "hooks": {
-            // Solta o agente na hora: só serve para o quadro saber que a
-            // sessão parou esperando resposta.
-            "PermissionRequest": hook("perm", None),
-            "Notification":      hook("notif", None),
-            "SessionStart":      hook("start", None),
-            // PreToolUse é o que dá a linha "o que ele está fazendo agora".
-            "PreToolUse":        hook("tool", None),
-            "UserPromptSubmit":  hook("run", None),
-            "Stop":              hook("idle", None),
-            "SessionEnd":        hook("end", None),
-        }
-    });
-
-    let path = dir.join("settings.json");
-    std::fs::write(&path, serde_json::to_vec_pretty(&cfg).unwrap()).map_err(|e| e.to_string())?;
-    Ok(path)
-}
-
 #[derive(serde::Serialize)]
 pub struct FileChange {
     pub path: String,
@@ -1398,7 +1220,7 @@ fn cap(patch: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{cli_args, is_terminal, patch_map, pick, pr_text, Launch, Pr};
+    use super::{claude_args, is_terminal, patch_map, pick, pr_text, Launch, Pr};
 
     fn pr(number: u64, branch: &str, state: &str) -> Pr {
         Pr {
@@ -1565,11 +1387,11 @@ mod tests {
     /// engole o plan. Plan mode é `--allow-…` mais `--permission-mode plan`.
     #[test]
     fn plan_mode_nao_leva_o_bypass_junto() {
-        let solto = cli_args("id", "s.json", false, &launch("", "", false));
+        let solto = claude_args("id", false, &launch("", "", false));
         assert!(solto.contains(&"--dangerously-skip-permissions".to_string()));
         assert!(!solto.contains(&"--permission-mode".to_string()));
 
-        let plano = cli_args("id", "s.json", false, &launch("", "", true));
+        let plano = claude_args("id", false, &launch("", "", true));
         assert!(!plano.contains(&"--dangerously-skip-permissions".to_string()));
         assert!(plano.contains(&"--allow-dangerously-skip-permissions".to_string()));
         let at = plano.iter().position(|a| a == "--permission-mode").unwrap();
@@ -1579,14 +1401,29 @@ mod tests {
     /// Vazio é não passar a flag — o Claude Code escolhe. Cheio vai como veio.
     #[test]
     fn modelo_e_esforco_so_quando_escolhidos() {
-        let padrao = cli_args("id", "s.json", true, &launch("", " ", false));
+        let padrao = claude_args("id", true, &launch("", " ", false));
         assert!(!padrao.contains(&"--model".to_string()));
         assert!(!padrao.contains(&"--effort".to_string()));
-        assert_eq!(padrao[2], "--resume");
+        let at = padrao.iter().position(|a| a == "--resume").unwrap();
+        assert_eq!(padrao[at + 1], "id");
 
-        let escolhido = cli_args("id", "s.json", false, &launch("opus[1m]", "max", false));
+        let escolhido = claude_args("id", false, &launch("opus[1m]", "max", false));
         assert_eq!(escolhido[escolhido.len() - 4..], ["--model", "opus[1m]", "--effort", "max"]);
-        assert_eq!(escolhido[2], "--session-id");
+        let at = escolhido.iter().position(|a| a == "--session-id").unwrap();
+        assert_eq!(escolhido[at + 1], "id");
+    }
+
+    /// O que faz a conversa ser JSON dos dois lados, e o pedido de permissão
+    /// chegar pelo mesmo cano em vez de matar a sessão.
+    #[test]
+    fn a_conversa_e_stream_json_com_permissao_por_stdio() {
+        let args = claude_args("id", false, &launch("", "", false));
+        let has = |pair: [&str; 2]| args.windows(2).any(|w| w[0] == pair[0] && w[1] == pair[1]);
+        assert_eq!(args[0], "-p");
+        assert!(has(["--input-format", "stream-json"]));
+        assert!(has(["--output-format", "stream-json"]));
+        assert!(has(["--permission-prompt-tool", "stdio"]));
+        assert!(args.contains(&"--include-partial-messages".to_string()));
     }
 
     /// Saída de `git diff HEAD` com três arquivos: um mexido, um apagado e um
@@ -1883,7 +1720,7 @@ pub fn open_dock(
         for (key, value) in script_env(&ws) {
             cmd.env(key, value);
         }
-        let handle = pty::spawn(&app, &key, cmd, cols, rows, Some(pty::Dock::default()))?;
+        let handle = pty::spawn(&app, &key, cmd, cols, rows, pty::Dock::default())?;
         lock(&state.ptys).insert(key.clone(), handle);
         return Ok(key);
     }
@@ -1979,7 +1816,7 @@ fn start_script(
         let id = ws.id.clone();
         Box::new(move |code| release_prompts(&app, &id, code)) as pty::OnExit
     });
-    let handle = pty::spawn(app, &key, cmd, cols, rows, Some(pty::Dock { on_exit, header }))?;
+    let handle = pty::spawn(app, &key, cmd, cols, rows, pty::Dock { on_exit, header })?;
     lock(&state.ptys).insert(key, handle);
     Ok(())
 }
@@ -2016,9 +1853,7 @@ fn release_prompts(app: &AppHandle, workspace: &str, code: Option<u32>) {
         )),
     };
     for tab in &waiting {
-        // Sem espera de arranque: quem estava guardado aqui esperou o setup
-        // inteiro, e a TUI está de pé desde antes dele começar.
-        crate::socket::type_prompt_after(app, tab, warning.clone(), Duration::from_millis(0));
+        chat::send_prompt(app, tab, warning.clone());
     }
 }
 

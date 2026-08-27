@@ -6,7 +6,6 @@ import * as dockbar from "./dockbar";
 import { avatar, icon, stageIcon, wave } from "./icons";
 import { fromBack, stage as stageName, t, tn } from "./i18n";
 import * as menu from "./menu";
-import * as notes from "./notes";
 import * as rename from "./rename";
 import * as session from "./session";
 import * as team from "./team";
@@ -54,8 +53,6 @@ export function init(context: Ctx) {
   browser.init((id) => invoke("open_run", { id }).catch((e) => ctx.say(fromBack(e), true)), ctx.say);
 
   $("tab-files").addEventListener("click", () => setSidePane("files"));
-  notes.init({ workspace: id, say: ctx.say });
-  $("tab-notes").addEventListener("click", () => setSidePane("notes"));
   $("tab-diff").addEventListener("click", () => {
     // Já no painel de Mudanças, clicar de novo traz o diff para o centro. É o
     // caminho de volta depois de fechar a aba — sem ele, quem fechou só voltaria
@@ -116,12 +113,12 @@ export async function open(ws: Workspace) {
   $("wsView").hidden = false;
   $("wsctl").hidden = false;
   // Workspace de um colega: nada dele está neste disco — sem arquivos, sem
-  // dock, sem novidade para marcar no back. É a conversa, e só.
+  // dock, sem novidade para marcar no back. É a conversa, e só — com as notas
+  // dentro dela.
   if (ws.remote) {
     showTerm();
     if (first) await session.attach(first.id, ws.id);
     ctx.redraw();
-    notes.draw();
     return;
   }
   // Abrir é ler: a novidade deste workspace morre aqui, e o que acontecer nele
@@ -236,33 +233,23 @@ export function draw() {
   drawTabs(ws);
   const tab = ws.tabs.find((t) => t.id === session.currentSession());
   drawShare(ws, tab);
-  if (sidePane === "notes") notes.draw();
-  else notes.paintCount();
+  // A caixa de escrever diz o estado da aba: desligada, de um colega offline.
+  session.refresh();
 
   if (remote) {
     // A branch é a que o dono contou; não há git aqui para perguntar. E o PR,
     // o diff, a árvore e o dock são do disco dele — nada disso existe aqui.
+    // Sobra a conversa, e as notas dentro dela; quem diz que ele está offline
+    // é a caixa de escrever.
     paintBranchName(ws.branch);
     $("pr").hidden = true;
     $("prlink").hidden = true;
-    $("offline").hidden = remote.online;
-    $("offwave").hidden = true;
-    $("offbody").hidden = false;
-    $("offtitle").textContent = t("offline.owner.title", { name: owner ?? "" });
-    $("offbody").textContent = t("offline.owner.body", { name: owner ?? "" });
-    $("offpath").textContent = "";
-    $("resume").hidden = true;
+    $("offline").hidden = true;
     $("tabbar").hidden = false;
-    // O painel existe, com uma aba só: notas. Arquivos, diff e dock são do
-    // disco dele.
-    $("side").hidden = false;
-    $("sidetoggle").hidden = false;
+    $("side").hidden = true;
+    $("sidetoggle").hidden = true;
     $("wsstage").hidden = true;
-    $("tab-files").hidden = true;
-    $("tab-diff").hidden = true;
-    $("tab-notes").hidden = false;
     $("dock").hidden = true;
-    setSidePane("notes");
     return;
   }
 
@@ -286,7 +273,6 @@ export function draw() {
     // sim — e vem do back no formato do `i18n`, como qualquer outro erro.
     $("offbody").hidden = !ws.failed;
     if (ws.failed) $("offbody").textContent = fromBack(ws.failed);
-    $("resume").hidden = true;
     $("offpath").textContent = ws.worktree;
     return;
   }
@@ -294,9 +280,6 @@ export function draw() {
   $("pr").hidden = false;
   $("tab-files").hidden = false;
   $("tab-diff").hidden = false;
-  // Sem time não há com quem trocar nota; a aba não fica ali por nada.
-  $("tab-notes").hidden = !team.status().config;
-  if (sidePane === "notes" && $("tab-notes").hidden) setSidePane("files");
   $("dock").hidden = false;
   $("offpath").textContent = ws.worktree;
   drawBranch(ws);
@@ -307,15 +290,14 @@ export function draw() {
   const file = files(ws.id).active;
   if (file) viewer.show(ws.id, file);
 
-  // Terminal mudo confunde; a saída fica escrita na tela. Worktree devolvido é
-  // o mesmo painel com a outra história — e sem o botão de retomar, que não
-  // teria para onde voltar.
-  $("offline").hidden = !ws.cleaned && tab?.status !== "desligada";
+  // Conversa desligada não é parede: a conversa fica na tela e escrever
+  // retoma. Worktree devolvido, sim — não há para onde voltar, e o painel
+  // conta o que ficou.
+  $("offline").hidden = !ws.cleaned;
   $("offwave").hidden = true;
   $("offbody").hidden = false;
-  $("offtitle").textContent = t(ws.cleaned ? "gone.title" : "offline.title");
-  $("offbody").textContent = t(ws.cleaned ? "gone.body" : "offline.body");
-  $("resume").hidden = ws.cleaned;
+  $("offtitle").textContent = t("gone.title");
+  $("offbody").textContent = t("gone.body");
   // Sem worktree não há aba para trocar, arquivo para abrir nem script para
   // rodar: o que sobra na tela é o que ainda quer dizer alguma coisa.
   $("tabbar").hidden = ws.cleaned;
@@ -358,29 +340,21 @@ export function renameWorkspace(id: string, title: string | null) {
 
 export const setStage = (id: string, stage: string) => invoke("set_stage", { id, stage });
 
-/// Pede o PR à conversa ativa: injeta o prompt que o back monta olhando o git
-/// deste worktree. Vai como paste — entre \x1b[200~ e \x1b[201~ — para as
-/// quebras de linha não virarem Enter no meio do texto; o Enter de verdade vai
-/// sozinho logo depois, quando a TUI já engoliu o paste.
+/// Pede o PR à conversa ativa: manda o prompt que o back monta olhando o git
+/// deste worktree. Conversa desligada retoma sozinha com a fala.
 async function openPr() {
   const ws = current();
   if (!ws) return;
   const tab = ws.tabs.find((t) => t.id === session.currentSession()) ?? ws.tabs[0];
   if (!tab) return;
-  if (tab.status === "desligada") {
-    return ctx.say(t("ws.pr.offline"), true);
-  }
   try {
     const prompt = await invoke<string>("pr_prompt", { id: ws.id });
-    await invoke("pty_write", { session: tab.id, data: `\x1b[200~${prompt}\x1b[201~` });
+    await invoke("chat_send", { session: tab.id, text: prompt });
     // O pedido foi para a conversa; a tela vai atrás dele.
     if (tab.id !== session.currentSession()) await session.attach(tab.id);
     showTerm();
     drawTabs(ws);
     session.focus();
-    setTimeout(() => {
-      invoke("pty_write", { session: tab.id, data: "\r" }).catch((e) => ctx.say(fromBack(e), true));
-    }, 150);
   } catch (err) {
     ctx.say(fromBack(err), true);
   }
@@ -658,11 +632,7 @@ export async function newTab(prompt = "") {
   const ws = current();
   if (!ws || ws.remote) return;
   try {
-    const tab = await invoke<{ id: string }>("new_tab", {
-      workspace: ws.id,
-      prompt,
-      ...session.dims(),
-    });
+    const tab = await invoke<{ id: string }>("new_tab", { workspace: ws.id, prompt });
     showTerm();
     await session.attach(tab.id);
     draw();
@@ -732,7 +702,7 @@ function showTerm() {
     files(ws.id).diff = false;
     leaveWeb(files(ws.id));
   }
-  center("termwrap");
+  center("chatwrap");
 }
 
 /* ---------- navegador ---------- */
@@ -831,8 +801,8 @@ async function closeChanges() {
   drawTabs(ws);
 }
 
-function center(show: "termwrap" | "viewer" | "diffview" | "webview") {
-  for (const id of ["termwrap", "viewer", "diffview", "webview"] as const) $(id).hidden = id !== show;
+function center(show: "chatwrap" | "viewer" | "diffview" | "webview") {
+  for (const id of ["chatwrap", "viewer", "diffview", "webview"] as const) $(id).hidden = id !== show;
 }
 
 async function closeFile(path: string) {
@@ -942,33 +912,28 @@ function drawChanges(id: string, focus?: string) {
 
 /* ---------- painel da direita ---------- */
 
-type Pane = "files" | "diff" | "notes";
+type Pane = "files" | "diff";
 let sidePane: Pane = "files";
 
 function setSidePane(pane: Pane) {
   sidePane = pane;
   $("tab-files").classList.toggle("on", pane === "files");
   $("tab-diff").classList.toggle("on", pane === "diff");
-  $("tab-notes").classList.toggle("on", pane === "notes");
   $("tree").hidden = pane !== "files";
   $("difflist").hidden = pane !== "diff";
-  $("notes").hidden = pane !== "notes";
   if (pane === "files") tree.redraw();
-  if (pane === "notes") notes.draw();
 }
 
-/// ⌘⇧M: nota citando o que está selecionado no terminal. Abre o painel de
-/// notas e põe a citação no que está sendo escrito.
+/// ⌘⇧M: nota citando o que está selecionado na conversa. A caixa de escrever
+/// vira nota, já com a citação.
 export function quoteSelection(): boolean {
   if (!openWs) return false;
-  if ($("tab-notes").hidden) return false;
-  setSidePane("notes");
-  return notes.quoteSelection();
+  return session.quoteSelection();
 }
 
 /// Levar até uma nota — de onde a caixa "Para mim" leva.
 export function showNote(id: string) {
   if (!openWs) return;
-  setSidePane("notes");
-  notes.focusNote(id);
+  showTerm();
+  session.focusNote(id);
 }
