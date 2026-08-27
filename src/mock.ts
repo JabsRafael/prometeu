@@ -485,7 +485,8 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
           worktree: x.worktree,
           sizeKb: 2_900_000 - i * 700_000,
           pr: x.pr?.number ?? null,
-          // Um bloqueado na lista é o que mostra a linha apagada com o motivo.
+          // Um bloqueado na lista é o que mostra a linha em vermelho com o
+          // motivo — e ela dá para marcar assim mesmo.
           blocked: i === 1 ? 'i18n:{"args":{"n":"3"},"code":"err.cleanup.dirty"}' : null,
         }));
     case "cleanup_worktree": {

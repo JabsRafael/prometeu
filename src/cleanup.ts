@@ -8,9 +8,11 @@ import { h } from "./util";
 /// ocupam espaço, com o tamanho de cada um, e apaga os que você marcar.
 ///
 /// É a única coisa no app que apaga trabalho do disco, então é em lote e à
-/// vista: quem decide são as guardas do back — nada com mudança fora de commit
-/// e nada que não tenha entrado no alvo aparece marcável —, e a lista mostra o
-/// motivo de cada um que não pode. A branch local vai junto; o card fica.
+/// vista: o back diz de cada um se há mudança fora de commit ou trabalho que
+/// não entrou no alvo, e a lista mostra esse motivo em vermelho. Quem tem
+/// motivo não vem marcado, mas dá para marcar — a decisão de perder o que está
+/// ali é sua, e o back só a executa se a tela pedir `force`. A branch local vai
+/// junto; o card fica.
 
 /// Kilobytes como quem lê: é o número que decide se vale a pena, e 2,9 GB
 /// decide melhor que 3 048 576.
@@ -30,7 +32,7 @@ export function openCleanup(say: (text: string, isError?: boolean) => void) {
       <span class="sub" id="c-sum"></span>
     </div>
     <div class="cleanlist" id="c-list"></div>
-    <div class="cleanhint" data-t="clean.hint"></div>
+    <div class="cleanhint" id="c-hint"></div>
     <div class="sheetbar">
       <span class="spacer"></span>
       <button id="c-cancel" class="ghost md" data-t="clean.cancel"></button>
@@ -58,9 +60,16 @@ export function openCleanup(say: (text: string, isError?: boolean) => void) {
   };
 
   function drawFoot() {
-    const total = rows.filter((r) => marked.has(r.id)).reduce((n, r) => n + r.sizeKb, 0);
+    const chosen = rows.filter((r) => marked.has(r.id));
+    const total = chosen.reduce((n, r) => n + r.sizeKb, 0);
+    // Um marcado em vermelho muda o rodapé inteiro: a dica passa a dizer o que
+    // se perde, e o botão fica com a cor de quem apaga.
+    const risky = chosen.some((r) => r.blocked);
     go.textContent = marked.size ? t("clean.go", { n: marked.size, size: size(total) }) : t("clean.goEmpty");
     go.disabled = !marked.size || running;
+    go.classList.toggle("risk", risky);
+    pick("c-hint").textContent = t(risky ? "clean.hint.force" : "clean.hint");
+    pick("c-hint").classList.toggle("risk", risky);
     pick("c-sum").textContent = tn(rows.length, "clean.count");
   }
 
@@ -74,7 +83,7 @@ export function openCleanup(say: (text: string, isError?: boolean) => void) {
     for (const r of rows) {
       const row = h(
         "div",
-        "cleanrow" + (r.blocked ? " off" : ""),
+        "cleanrow" + (r.blocked ? " risk" : ""),
         `<i class="box"></i><div class="txt"><b></b><span class="where"></span></div>` +
           `<span class="pr"></span><span class="sz"></span>`,
       );
@@ -87,15 +96,12 @@ export function openCleanup(say: (text: string, isError?: boolean) => void) {
       const box = row.querySelector(".box") as HTMLElement;
       box.innerHTML = marked.has(r.id) ? icon("check", 12) : "";
       row.classList.toggle("on", marked.has(r.id));
-      if (r.blocked) {
-        row.title = fromBack(r.blocked);
-      } else {
-        row.addEventListener("click", () => {
-          if (running) return;
-          marked.has(r.id) ? marked.delete(r.id) : marked.add(r.id);
-          draw();
-        });
-      }
+      if (r.blocked) row.title = fromBack(r.blocked);
+      row.addEventListener("click", () => {
+        if (running) return;
+        marked.has(r.id) ? marked.delete(r.id) : marked.add(r.id);
+        draw();
+      });
       list.append(row);
     }
     drawFoot();
@@ -114,7 +120,9 @@ export function openCleanup(say: (text: string, isError?: boolean) => void) {
     for (const r of rows.filter((x) => marked.has(x.id))) {
       go.textContent = t("clean.doing", { name: r.title });
       try {
-        await invoke("cleanup_worktree", { id: r.id });
+        // `force` só para quem a lista mostrou em vermelho e você marcou
+        // assim mesmo: o back não pergunta de novo, ele obedece.
+        await invoke("cleanup_worktree", { id: r.id, force: !!r.blocked });
         done++;
         freed += r.sizeKb;
       } catch (e) {
