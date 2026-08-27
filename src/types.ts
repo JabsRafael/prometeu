@@ -12,6 +12,12 @@ export type Status = "rodando" | "querendo" | "pronta" | "desligada";
 /// manda e o que o CSS pinta —, e por isso não muda de idioma junto.
 export const label = (status: Status) => t(`status.${status}`);
 
+/// O mesmo rótulo, para um workspace inteiro — e pela mesma regra de um lugar
+/// só. Montando não é status de aba (não há aba), mas é o que está acontecendo
+/// ali, e é isso que o card e a barra têm para dizer.
+export const stateLabel = (ws: Workspace) =>
+  pending(ws) ? t(ws.failed ? "card.failed" : "card.building") : label(statusOf(ws));
+
 export type Tab = {
   id: string;
   title: string;
@@ -56,6 +62,13 @@ export type Workspace = {
   cleaned: boolean;
   /// Compartilhado com o time: o `team.ts` anuncia e repassa a saída.
   shared: boolean;
+  /// O worktree ainda está sendo montado. O card nasce assim que o lançador
+  /// fecha, e a pasta — que num repositório grande leva segundos — chega
+  /// depois. Enquanto isto for verdade não há aba nenhuma.
+  preparing: boolean;
+  /// A montagem não deu, e por quê. Vem do back no formato do `i18n`: quem
+  /// monta a frase é o `fromBack`, como em qualquer outro erro.
+  failed: string | null;
   /// De um colega, e não seu: o que o relay contou do workspace dele. Só
   /// existe na tela — o Rust nunca vê um destes. `online` é o dono estar aí:
   /// sem ele o terminal congela, e nada aqui aceita tecla.
@@ -75,6 +88,11 @@ export const merged = (ws: Workspace) => ws.pr?.state === "MERGED";
 /// roda no próprio clone (worktree desligado no lançador) nunca teve: a pasta
 /// é o repositório, e não há o que limpar.
 export const hasWorktree = (ws: Workspace) => ws.archived && !ws.cleaned && ws.worktree !== ws.repo;
+
+/// Ainda não dá para trabalhar aqui: a pasta está sendo montada, ou a montagem
+/// não deu. Nos dois casos não há aba, terminal, arquivo, diff nem dock — o
+/// card existe, e é ele que conta o que está acontecendo.
+export const pending = (ws: Workspace) => ws.preparing || !!ws.failed;
 
 /// Um worktree que pode voltar para o disco, e o que ele ocupa. `blocked` é o
 /// erro do back dizendo por que não pode — passa por `fromBack` como qualquer

@@ -640,6 +640,9 @@ export function remotes(): Workspace[] {
       pr: null,
       cleaned: false,
       shared: false,
+      // O colega só anuncia o que já montou: nada aqui nasce montando.
+      preparing: false,
+      failed: null,
       remote: { owner: s.owner, online: s.online },
       tabs: s.tabs.map((tab) => ({ ...tab })),
       active: s.active,

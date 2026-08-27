@@ -299,11 +299,19 @@ function launch(projectId?: string, seed?: Issue) {
     preset: projectId,
     seed,
     toSettings: () => showSettings(),
+    // Criar volta em milissegundos: o card entra no quadro na hora e o worktree
+    // monta atrás (ver `create_workspace`). Sem recado na barra, então — quem
+    // conta que está montando é a tela que abriu, e estado que a tela já mostra
+    // não vira narração aqui em cima.
     go: async (draft: Draft) => {
-      say(t("say.creating"));
       try {
         const created = await invoke<Workspace>("create_workspace", { draft, ...session.dims() });
-        say("");
+        // O back já publicou o quadro com ele dentro, mas a resposta do comando
+        // e o evento são duas mensagens, e nada garante qual chega primeiro.
+        // Quem desenha procura o workspace aberto no quadro que a tela tem: sem
+        // isto, entrar nele podia cair no `toBoard` do `draw` e voltar sozinho.
+        // O próximo evento troca o quadro inteiro e leva esta cópia junto.
+        if (!state.workspaces.some((w) => w.id === created.id)) state.workspaces.push(created);
         openWorkspace(created);
       } catch (err) {
         say(fromBack(err), true);

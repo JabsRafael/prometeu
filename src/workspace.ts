@@ -3,7 +3,7 @@ import * as board from "./board";
 import * as browser from "./browser";
 import * as diff from "./diff";
 import * as dockbar from "./dockbar";
-import { avatar, icon, stageIcon } from "./icons";
+import { avatar, icon, stageIcon, wave } from "./icons";
 import { fromBack, stage as stageName, t, tn } from "./i18n";
 import * as menu from "./menu";
 import * as notes from "./notes";
@@ -11,7 +11,18 @@ import * as rename from "./rename";
 import * as session from "./session";
 import * as team from "./team";
 import * as tree from "./tree";
-import { fmtTokens, label, merged, statusOf, type Board, type Change, type Tab, type Workspace } from "./types";
+import {
+  fmtTokens,
+  label,
+  merged,
+  pending,
+  stateLabel,
+  statusOf,
+  type Board,
+  type Change,
+  type Tab,
+  type Workspace,
+} from "./types";
 import { $, debounce, h } from "./util";
 import * as viewer from "./viewer";
 
@@ -61,6 +72,10 @@ export function init(context: Ctx) {
     diff.foldAll((changesOf.get(openWs) ?? []).map((c) => c.path));
     drawChanges(openWs);
   });
+
+  // A onda do painel de "montando" é desenhada uma vez: ela não muda, e o
+  // `draw` roda a cada evento do quadro.
+  $("offwave").innerHTML = wave(22);
 
   $("pr").innerHTML = `${icon("git-pull-request", 14)}<span></span>`;
   $("pr").querySelector("span")!.textContent = t("ws.pr");
@@ -114,6 +129,15 @@ export async function open(ws: Workspace) {
   invoke("look_at", { id: ws.id });
   tree.reset();
   dockbar.reset();
+  // A pasta ainda está sendo montada — ou a montagem não deu. Não há aba a que
+  // ligar o terminal, arquivo para ler nem diff para pedir: o que a tela mostra
+  // é o painel. Quando a aba nascer, é o `catchUp` do `draw` que liga.
+  if (pending(ws)) {
+    session.detach();
+    showTerm();
+    draw();
+    return;
+  }
   // Worktree devolvido: não há processo para ligar nem arquivo para ler. O que
   // sobrou é o que está escrito, e é isso que a tela mostra.
   if (ws.cleaned) {
@@ -132,6 +156,19 @@ export async function open(ws: Workspace) {
   ctx.redraw();
 }
 
+/// O terminal liga na aba assim que ela existir.
+///
+/// Quem abre um workspace pronto liga no `open`. Isto é para quem entrou
+/// enquanto o worktree montava: a aba nasce alguns segundos depois, num
+/// `publish` que só chama `draw`, e a tela não pode depender de você sair e
+/// voltar para ver a conversa. `term.attach` marca a sessão corrente antes do
+/// primeiro `await`, então dois `draw` seguidos não ligam duas vezes.
+function catchUp(ws: Workspace) {
+  if (ws.remote || ws.cleaned || pending(ws) || session.currentSession()) return;
+  const first = ws.tabs.find((t) => t.id === ws.active) ?? ws.tabs[0];
+  if (first) void session.attach(first.id).then(() => ctx.redraw());
+}
+
 export function leave() {
   team.detach();
   browser.hide();
@@ -148,6 +185,7 @@ export function leave() {
 export function draw() {
   const ws = current();
   if (!ws) return ctx.toBoard();
+  catchUp(ws);
 
   // Migalha como no Conductor: avatar do projeto › nome do workspace › branch.
   // No workspace de um colega, o primeiro pedaço é ele — é o que diz de quem
@@ -169,11 +207,12 @@ export function draw() {
     );
   }
 
-  const st = statusOf(ws);
+  // O cabeçalho diz o mesmo que o card, pelo mesmo `stateLabel`: montando não
+  // tem ponto de status porque não tem aba de onde ele sairia.
   const chip = $("wsstatus");
-  chip.className = `chip s-${st}`;
-  chip.innerHTML = `<i class="dot"></i>`;
-  chip.append(label(st));
+  chip.className = "chip" + (pending(ws) ? (ws.failed ? " failed" : "") : ` s-${statusOf(ws)}`);
+  chip.innerHTML = pending(ws) ? (ws.failed ? "" : wave(12)) : `<i class="dot"></i>`;
+  chip.append(stateLabel(ws));
 
   // A etapa é o mesmo submenu do botão direito, ancorado no botão: um lugar só
   // para escolher, esteja você no quadro ou dentro da conversa.
@@ -207,6 +246,8 @@ export function draw() {
     $("pr").hidden = true;
     $("prlink").hidden = true;
     $("offline").hidden = remote.online;
+    $("offwave").hidden = true;
+    $("offbody").hidden = false;
     $("offtitle").textContent = t("offline.owner.title", { name: owner ?? "" });
     $("offbody").textContent = t("offline.owner.body", { name: owner ?? "" });
     $("offpath").textContent = "";
@@ -222,6 +263,31 @@ export function draw() {
     $("tab-notes").hidden = false;
     $("dock").hidden = true;
     setSidePane("notes");
+    return;
+  }
+
+  // Montando, ou montagem que não deu. Não existe pasta, então não existe
+  // arquivo, diff, dock nem aba — e oferecer qualquer um deles seria oferecer
+  // um caminho que erra. Sobra o painel, que é o que há para dizer.
+  if (pending(ws)) {
+    paintBranchName(ws.branch);
+    $("pr").hidden = true;
+    $("prlink").hidden = true;
+    $("dock").hidden = true;
+    $("tabbar").hidden = true;
+    $("side").hidden = true;
+    $("sidetoggle").hidden = true;
+    $("wsstage").hidden = true;
+    $("offline").hidden = false;
+    $("offwave").hidden = !!ws.failed;
+    $("offtitle").textContent = t(ws.failed ? "build.failed.title" : "build.title");
+    // Preparando não tem corpo: a onda e o título dizem o que há para dizer, e
+    // um parágrafo explicando o que dura dois segundos é ruído. O que falhou,
+    // sim — e vem do back no formato do `i18n`, como qualquer outro erro.
+    $("offbody").hidden = !ws.failed;
+    if (ws.failed) $("offbody").textContent = fromBack(ws.failed);
+    $("resume").hidden = true;
+    $("offpath").textContent = ws.worktree;
     return;
   }
 
@@ -245,6 +311,8 @@ export function draw() {
   // o mesmo painel com a outra história — e sem o botão de retomar, que não
   // teria para onde voltar.
   $("offline").hidden = !ws.cleaned && tab?.status !== "desligada";
+  $("offwave").hidden = true;
+  $("offbody").hidden = false;
   $("offtitle").textContent = t(ws.cleaned ? "gone.title" : "offline.title");
   $("offbody").textContent = t(ws.cleaned ? "gone.body" : "offline.body");
   $("resume").hidden = ws.cleaned;

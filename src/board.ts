@@ -1,9 +1,21 @@
-import { avatar, icon, stageIcon } from "./icons";
-import { num, stage as stageName, t } from "./i18n";
+import { avatar, icon, stageIcon, wave } from "./icons";
+import { fromBack, num, stage as stageName, t } from "./i18n";
 import * as menu from "./menu";
 import * as team from "./team";
 import * as rename from "./rename";
-import { fmtTokens, hasWorktree, heaviest, label, statusOf, worst, type Board, type Status, type Workspace } from "./types";
+import {
+  fmtTokens,
+  hasWorktree,
+  heaviest,
+  label,
+  pending,
+  stateLabel,
+  statusOf,
+  worst,
+  type Board,
+  type Status,
+  type Workspace,
+} from "./types";
 import { h } from "./util";
 
 export type Hooks = {
@@ -325,13 +337,13 @@ function renderGroup(
     // porque o anel é a posição na sua lista de etapas.
     if (ws.remote) {
       const owner = team.nameOf(ws.remote.owner);
-      b.title = `${owner} · ${ws.repo_name} · ${ws.branch} · ${label(statusOf(ws))}`;
+      b.title = `${owner} · ${ws.repo_name} · ${ws.branch} · ${stateLabel(ws)}`;
       b.children[0].after(h("span", "av", avatar(owner)));
       if (!ws.remote.online) b.classList.add("off");
       rail.append(b);
       continue;
     }
-    b.title = `${ws.repo_name} · ${ws.branch} · ${stageName(ws.stage)} · ${label(statusOf(ws))}`;
+    b.title = `${ws.repo_name} · ${ws.branch} · ${stageName(ws.stage)} · ${stateLabel(ws)}`;
     // A etapa saiu do cabeçalho e virou o anel da linha: o grupo é o projeto,
     // e continua dando para ler de longe o que está em qual etapa.
     const at = board.stages.indexOf(ws.stage);
@@ -570,9 +582,20 @@ function card(ws: Workspace, board: Board, hooks: Hooks): HTMLElement {
   }
 
   const foot = h("div", "foot");
-  const chip = h("span", `chip s-${status}`, `<i class="dot"></i>`);
-  chip.append(label(status));
-  foot.append(chip);
+  // Workspace que ainda está montando não tem aba, e "desligada" — que é o que
+  // a falta de aba significa em todo o resto do quadro — diria a coisa errada
+  // sobre um card que acabou de nascer. A onda é a mesma do dock: alguma coisa
+  // está acontecendo ali.
+  if (pending(ws)) {
+    const chip = h("span", "chip" + (ws.failed ? " failed" : ""), ws.failed ? "" : wave(12));
+    chip.append(stateLabel(ws));
+    if (ws.failed) chip.title = fromBack(ws.failed);
+    foot.append(chip);
+  } else {
+    const chip = h("span", `chip s-${status}`, `<i class="dot"></i>`);
+    chip.append(label(status));
+    foot.append(chip);
+  }
 
   if (ws.tabs.length > 1) {
     const tabs = h("span", "chip");

@@ -68,6 +68,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "card.finish.title": "Finish: last stage and archive",
   "card.merged.title": "PR #{n} landed — open in the browser",
   "card.cleaned.title": "Worktree removed — it was {path}",
+  "card.building": "preparing",
+  "card.failed": "failed",
 
   "ws.menu.read": "Mark as read",
   "ws.menu.unread": "Mark as unread",
@@ -217,6 +219,9 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "offline.resume": "Resume conversation",
 
   /* ---------- worktree released ---------- */
+
+  "build.title": "Preparing the worktree",
+  "build.failed.title": "Could not prepare the worktree",
 
   "gone.title": "Worktree removed",
   "gone.body":
@@ -429,6 +434,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.session.noPort": "workspace with no port",
   "err.session.noPr": "no open PR for this branch",
   "err.session.cleaned": "this workspace’s worktree was removed",
+  "err.session.interrupted":
+    "the app closed while the worktree was being built; the folder may be half-made",
   "err.cleanup.notArchived": "archive this work before cleaning up its worktree",
   "err.cleanup.isRepo": "this workspace works in the clone itself, not in a worktree",
   "err.cleanup.dirty": "there are {n} files with uncommitted changes",

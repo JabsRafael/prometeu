@@ -87,9 +87,11 @@
             <div class="subbar tabbar" id="tabbar"></div>
             <div class="termwrap" id="termwrap">
               <div id="term"></div>
-              <!-- Conversa desligada — e, com o worktree devolvido ao disco,
-                   o mesmo painel conta a outra história: o que ficou. -->
+              <!-- Conversa desligada — e, com o worktree devolvido ao disco ou
+                   ainda sendo montado, o mesmo painel conta as outras
+                   histórias: o que ficou, e o que está acontecendo. -->
               <div class="offline" id="offline" hidden>
+                <span class="offwave" id="offwave" hidden></span>
                 <h3 id="offtitle" data-t="offline.title"></h3>
                 <p id="offbody" data-t="offline.body"></p>
                 <button id="resume" class="pri lg" data-t="offline.resume"></button>
