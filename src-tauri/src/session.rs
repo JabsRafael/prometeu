@@ -1,10 +1,11 @@
 use crate::lock::lock;
 use crate::state::{publish, Board, Project, Status, Tab, Workspace};
-use crate::{i18n, paths, pty, scripts, AppState};
+use crate::{agents, i18n, paths, pty, scripts, AppState};
 use portable_pty::CommandBuilder;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 
 #[tauri::command]
@@ -476,6 +477,11 @@ pub struct Draft {
 /// que o workspace guarda para as próximas conversas são o mesmo conjunto.
 #[derive(serde::Deserialize, Clone, Default)]
 pub struct Launch {
+    /// Qual CLI sobe na aba: vazio (ou `claude`) é o Claude Code, `codex` é o
+    /// Codex. Sai do modelo escolhido no lançador, e não de um botão à parte —
+    /// escolher um GPT é escolher o Codex.
+    #[serde(default)]
+    pub agent: String,
     /// Vazio é não passar `--model`: o Claude Code escolhe.
     #[serde(default)]
     pub model: String,
@@ -492,7 +498,12 @@ impl Workspace {
     /// Com o que uma conversa nova ou retomada nasce aqui: o modelo e o
     /// esforço do workspace, e nunca em plan mode — isso é escolha do lançador.
     pub fn launch(&self) -> Launch {
-        Launch { model: self.model.clone(), effort: self.effort.clone(), plan: false }
+        Launch {
+            agent: self.agent.clone(),
+            model: self.model.clone(),
+            effort: self.effort.clone(),
+            plan: false,
+        }
     }
 }
 
@@ -570,6 +581,7 @@ pub fn create_workspace(
         shared: false,
         preparing: true,
         failed: None,
+        agent: draft.launch.agent.clone(),
         model: draft.launch.model.clone(),
         effort: draft.launch.effort.clone(),
         port,
@@ -582,6 +594,16 @@ pub fn create_workspace(
     // tela abre enquanto o resto não chega.
     lock(&state.board).workspaces.push(ws.clone());
     publish(&app);
+
+    // O nome que veio do lançador é a primeira linha do prompt cortada; o bom
+    // vem de um agente lendo o pedido inteiro, em paralelo. Ele começa aqui, e
+    // não depois de montar a pasta: nomear não depende do worktree, e esperar o
+    // `git worktree add` de um repositório grande só para *começar* a pensar num
+    // título é somar segundos que ninguém precisava esperar.
+    // Workspace que saiu de uma issue já tem o nome que a issue deu.
+    if ws.issue.is_none() {
+        crate::naming::rename_later(&app, &ws.id, &draft.prompt, &ws.title, &draft.launch);
+    }
 
     let (bg, id) = (app.clone(), ws.id.clone());
     std::thread::spawn(move || prepare(&bg, &id, draft, cols, rows));
@@ -624,6 +646,15 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
         switch_branch(&repo, &branch, &draft.base)?;
     }
 
+    // O worktree recém-nascido pode ter setup para rodar, e a primeira fala
+    // espera por ele (ver `start_setup`, logo abaixo). Saber isso *antes* de
+    // subir o agente é o que permite ao Codex receber a fala como argumento
+    // quando não há nada a esperar.
+    let waits_setup = {
+        let found = scripts::read_for(&root, &repo);
+        found.setup.is_some() || !found.copy.is_empty()
+    };
+
     let tab = spawn_tab(
         app,
         &state,
@@ -633,6 +664,7 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
         &draft.launch,
         cols,
         rows,
+        !waits_setup,
     )?;
 
     // Tirado do quadro no meio da montagem: o agente que acabou de subir não
@@ -663,13 +695,6 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
     // erro fica escrito na aba Setup, que é onde se conserta.
     let _ = start_setup(app, &state, &ws, cols, rows);
 
-    // O nome que veio do lançador é a primeira linha do prompt cortada. Ela
-    // serve até o agente ler o pedido inteiro e devolver um título — o que
-    // acontece em paralelo, alguns segundos depois de a tela já estar de pé.
-    // Workspace que saiu de uma issue já tem o nome que a issue deu.
-    if ws.issue.is_none() {
-        crate::naming::rename_later(app, &ws.id, &draft.prompt, &ws.title);
-    }
     Ok(())
 }
 
@@ -703,7 +728,9 @@ pub fn new_tab(
         tab_title(&prompt)
     };
     let pending = (!prompt.trim().is_empty()).then(|| prompt.trim().to_string());
-    let tab = spawn_tab(&app, &state, &worktree, &title, pending, &launch, cols, rows)?;
+    // ⌘T num worktree que já existe: o setup dele, se havia, terminou muito
+    // antes — não há por que guardar a fala.
+    let tab = spawn_tab(&app, &state, &worktree, &title, pending, &launch, cols, rows, true)?;
 
     {
         let mut board = lock(&state.board);
@@ -780,9 +807,12 @@ pub fn resume_tab(
     cols: u16,
     rows: u16,
 ) -> Result<bool, String> {
-    let (worktree, launch, cleaned) = lock(&state.board)
+    let (worktree, launch, cleaned, agent_session) = lock(&state.board)
         .workspace_of(&tab)
-        .map(|w| (PathBuf::from(&w.worktree), w.launch(), w.cleaned))
+        .map(|w| {
+            let previous = w.tabs.iter().find(|t| t.id == tab).and_then(|t| t.agent_session.clone());
+            (PathBuf::from(&w.worktree), w.launch(), w.cleaned, previous)
+        })
         .ok_or_else(|| i18n::t("err.session.noTab"))?;
     if cleaned {
         return Err(i18n::t("err.session.cleaned"));
@@ -795,11 +825,24 @@ pub fn resume_tab(
     // `Pty` continua no mapa até alguém tirar.
     pty::kill(&state, &tab);
 
-    // Conversa que nunca falou não tem transcript, e `--resume` morre nela. Aí a
+    // Conversa que nunca falou não tem transcript, e retomar morre nela. Aí a
     // aba renasce com o mesmo id: não há nada perdido, e travar a tela num erro
-    // por causa de uma conversa vazia seria pior.
-    let resume = paths::transcript(&tab, &worktree).exists();
-    let handle = pty::spawn(&app, &tab, claude_cmd(&tab, &worktree, resume, &launch)?, cols, rows, None)?;
+    // por causa de uma conversa vazia seria pior. No Codex a pergunta é outra —
+    // se o hook já contou qual sessão ele abriu —, porque o transcript dele não
+    // mora num caminho que dê para adivinhar.
+    let previous = match launch.agent.as_str() {
+        "codex" => agent_session,
+        _ => paths::transcript(&tab, &worktree).exists().then(|| tab.clone()),
+    };
+    let resume = previous.is_some();
+    let handle = pty::spawn(
+        &app,
+        &tab,
+        agent_cmd(&tab, &worktree, previous.as_deref(), &launch, None)?,
+        cols,
+        rows,
+        None,
+    )?;
     lock(&state.ptys).insert(tab.clone(), handle);
     {
         let mut board = lock(&state.board);
@@ -822,12 +865,42 @@ fn spawn_tab(
     launch: &Launch,
     cols: u16,
     rows: u16,
+    speak_now: bool,
 ) -> Result<Tab, String> {
     let id = uuid::Uuid::new_v4().to_string();
-    let handle = pty::spawn(app, &id, claude_cmd(&id, worktree, false, launch)?, cols, rows, None)?;
+
+    // Como a primeira fala chega ao agente depende de quem ele é.
+    //
+    // No Claude Code ela é digitada no terminal quando o hook `SessionStart`
+    // avisa que a TUI está de pé. O Codex não tem esse aviso: o `SessionStart`
+    // dele sai quando a conversa começa, e a conversa começa com a fala — logo
+    // esperar o hook é esperar a si mesmo. Digitar por relógio é chutar: numa
+    // máquina que ainda está subindo servidor MCP, o texto cai numa TUI que
+    // ainda não desenhou a caixa e se perde.
+    //
+    // Então quando dá para falar agora a fala vai no argumento do `codex`, que
+    // é onde ele mesmo espera receber o pedido. Quando não dá — o `setup` do
+    // worktree vai rodar, e agente que roda teste antes de haver
+    // `node_modules` conclui coisa errada —, ela fica guardada como no Claude
+    // Code, e é o fim do setup que digita (`release_prompts`).
+    let by_arg = launch.agent == "codex" && speak_now;
+    let (first, pending_prompt) = match by_arg {
+        true => (pending_prompt, None),
+        false => (None, pending_prompt),
+    };
+
+    let cmd = agent_cmd(&id, worktree, None, launch, first.as_deref())?;
+    let handle = pty::spawn(app, &id, cmd, cols, rows, None)?;
     lock(&state.ptys).insert(id.clone(), handle);
+
+    // A aba do Codex entra na fila de quem já pode ouvir uma fala sem passar
+    // pelo hook, que é o que faz o fim do setup achá-la.
+    if launch.agent == "codex" && pending_prompt.is_some() {
+        lock(&state.ready).insert(id.clone());
+    }
     Ok(Tab {
         id,
+        agent_session: None,
         title: title.to_string(),
         status: Status::Pronta,
         note: None,
@@ -837,6 +910,55 @@ fn spawn_tab(
 }
 
 /* ---------- plumbing ---------- */
+
+/// O CLI que sobe na aba, com a conversa que ela já tinha.
+///
+/// `previous` é a sessão a retomar do lado do agente — o próprio id da aba no
+/// Claude Code, o id que o Codex escolheu quando é ele. `None` é conversa nova.
+fn agent_cmd(
+    id: &str,
+    worktree: &Path,
+    previous: Option<&str>,
+    launch: &Launch,
+    first: Option<&str>,
+) -> Result<CommandBuilder, String> {
+    match launch.agent.as_str() {
+        "codex" => codex_cmd(id, worktree, previous, launch, first),
+        _ => claude_cmd(id, worktree, previous.is_some(), launch),
+    }
+}
+
+/// Monta a linha de comando do Codex. O que muda em relação ao Claude Code está
+/// explicado no cabeçalho do `agents.rs`; aqui só sobra o que é do processo: o
+/// worktree e a variável que conta ao hook de qual aba esta sessão é.
+fn codex_cmd(
+    id: &str,
+    worktree: &Path,
+    previous: Option<&str>,
+    launch: &Launch,
+    first: Option<&str>,
+) -> Result<CommandBuilder, String> {
+    let bin = paths::hook_bin();
+    let bin = bin.to_str().ok_or_else(|| i18n::t("err.session.badHook"))?;
+    agents::install_codex_hooks(bin).map_err(|e| i18n::ta("err.codex.hooks", &[("err", e)]))?;
+
+    let mut cmd = CommandBuilder::new("codex");
+    cmd.args(agents::codex_args(worktree, previous, &launch.model, &launch.effort, first));
+    cmd.cwd(worktree);
+    cmd.env_clear();
+    for (k, v) in std::env::vars() {
+        if !k.starts_with("CLAUDE") {
+            cmd.env(k, v);
+        }
+    }
+    cmd.env("TERM", "xterm-256color");
+    // Sem isto o hook não sabe de quem está falando: o Codex escolhe o id da
+    // sessão sozinho, e o `hooks.json` é o do usuário — o mesmo `codex` do
+    // terminal dispara os mesmos hooks. Esta variável é o que separa uma aba do
+    // quadro de uma sessão que não é nossa.
+    cmd.env("PROMETHEUS_TAB", id);
+    Ok(cmd)
+}
 
 /// Monta a linha de comando do Claude Code. `resume` decide se a sessão nasce
 /// nova ou continua a que já existe — o id é o mesmo nos dois casos.
@@ -1339,6 +1461,7 @@ mod tests {
             branch: "trabalho".into(),
             worktree: dest.display().to_string(),
             stage: "Feito".into(),
+            agent: String::new(),
             archived: true,
             pinned: false,
             unread: false,
@@ -1435,7 +1558,7 @@ mod tests {
     use std::process::Command;
 
     fn launch(model: &str, effort: &str, plan: bool) -> Launch {
-        Launch { model: model.into(), effort: effort.into(), plan }
+        Launch { agent: String::new(), model: model.into(), effort: effort.into(), plan }
     }
 
     /// Bypass e plan não convivem na mesma linha: `--dangerously-skip-permissions`
@@ -1893,7 +2016,9 @@ fn release_prompts(app: &AppHandle, workspace: &str, code: Option<u32>) {
         )),
     };
     for tab in &waiting {
-        crate::socket::type_prompt(app, tab, warning.clone());
+        // Sem espera de arranque: quem estava guardado aqui esperou o setup
+        // inteiro, e a TUI está de pé desde antes dele começar.
+        crate::socket::type_prompt_after(app, tab, warning.clone(), Duration::from_millis(0));
     }
 }
 

@@ -2,7 +2,8 @@
 //!
 //!   Projeto    um repositório registrado uma vez
 //!     └ Workspace   um worktree numa branch — é o card do quadro
-//!         └ Aba     uma sessão do Claude Code; várias dividem os mesmos arquivos
+//!         └ Aba     uma sessão de agente (Claude Code ou Codex); várias dividem
+//!                   os mesmos arquivos
 //!
 //! A separação existe porque perder uma conversa não pode custar o worktree, e
 //! começar conversa nova sobre os arquivos que você já mexeu tem que ser ⌘T.
@@ -64,6 +65,12 @@ pub enum Note {
 pub struct Tab {
     /// É o `--session-id` do Claude Code. O transcript pendura nele.
     pub id: String,
+    /// A sessão do lado do agente, quando ela não é este id. O Codex não aceita
+    /// `--session-id`: escolhe o dele, conta qual foi no hook `SessionStart`, e é
+    /// este número que volta como `codex resume <id>`. Vazio é aba do Claude
+    /// Code (onde os dois ids são o mesmo) ou aba do Codex que ainda não subiu.
+    #[serde(default)]
+    pub agent_session: Option<String>,
     pub title: String,
     pub status: Status,
     pub note: Option<String>,
@@ -119,6 +126,12 @@ pub struct Workspace {
     /// padrão — só de quadro antigo: o lançador sempre escolhe um.
     #[serde(default)]
     pub effort: String,
+    /// Qual CLI roda nas abas daqui: vazio (ou `claude`) é o Claude Code,
+    /// `codex` é o Codex da OpenAI. Sai do modelo escolhido no lançador — quem
+    /// escolhe um GPT escolheu o Codex —, e é do workspace pelo mesmo motivo do
+    /// modelo: ⌘T e retomar nascem com o agente das irmãs.
+    #[serde(default)]
+    pub agent: String,
     /// Base das dez portas reservadas a este worktree — `$PROMETHEUS_PORT` até
     /// `+9`. Guardada e não calculada: o script tem que achar a mesma porta na
     /// segunda vez que roda, e dois worktrees do mesmo projeto não podem
@@ -243,6 +256,7 @@ impl Board {
             if ws.tabs.is_empty() && ws.failed.is_none() {
                 ws.tabs.push(Tab {
                     id: ws.id.clone(),
+                    agent_session: None,
                     title: "conversa".into(),
                     status: Status::Desligada,
                     note: None,

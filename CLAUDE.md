@@ -1,9 +1,11 @@
 # Prometheus
 
-App de desktop (Tauri 2 + Vite/TypeScript) que organiza sessões do Claude Code
-por workspace. O código fica neste repositório privado; os pacotes vão para o
-público `gbrancaglione/prometheus-releases`, de onde o app instalado se
-atualiza sozinho.
+App de desktop (Tauri 2 + Vite/TypeScript) que organiza sessões de agente por
+workspace — Claude Code, ou o Codex quando o modelo escolhido é um GPT (é o
+modelo do lançador que decide qual CLI sobe; ver `src-tauri/src/agents.rs`).
+O código fica neste repositório privado; os pacotes vão para o público
+`gbrancaglione/prometheus-releases`, de onde o app instalado se atualiza
+sozinho.
 
 ## Commits: Conventional Commits, em português
 

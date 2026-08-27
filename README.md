@@ -4,7 +4,8 @@
 
 <h1 align="center">Prometheus</h1>
 
-Quadro Kanban global por cima de sessões do Claude Code, cada uma no seu worktree.
+Quadro Kanban global por cima de sessões de agente — Claude Code ou Codex —,
+cada uma no seu worktree.
 
 Junta o que é bom no Conductor (worktree isolado por sessão, script de setup por
 repo) com o que é bom no Vibe Island (você fica sabendo na hora que o agente
@@ -28,6 +29,12 @@ O app **não reimplementa nada** do Claude Code. Roda o CLI de verdade num
 pseudo-terminal e intercepta só os momentos que merecem UI nativa. Todo comando,
 autocomplete, plan mode, skill e release novo continuam funcionando porque é o
 Claude Code de verdade rodando ali.
+
+Escolher um modelo GPT no lançador troca o CLI da aba pelo `codex`, e nada disso
+muda: os hooks do Codex mandam os mesmos eventos, com os mesmos campos, pelo
+mesmo socket. O que muda está no `src-tauri/src/agents.rs` — as flags de modelo e
+esforço, o id de sessão que ele não deixa impor, e o `hooks.json` que não é por
+sessão.
 
 ### O ida-e-volta
 

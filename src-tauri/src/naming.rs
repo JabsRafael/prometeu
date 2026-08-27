@@ -2,19 +2,24 @@
 //!
 //! O que o lançador consegue sozinho é a primeira linha do prompt cortada em 46
 //! caracteres — e uma lista onde toda linha começa com "arruma o bug do" não
-//! diz qual é qual. Então, assim que o workspace nasce, um `claude -p` sobe em
-//! paralelo só para ler o pedido e devolver um título. Leva uns segundos; até
-//! lá o nome cortado fica na tela, e quando a resposta chega o quadro é
-//! republicado com o nome bom.
+//! diz qual é qual. Então, assim que o workspace nasce, um agente de uma pergunta
+//! só sobe em paralelo para ler o pedido e devolver um título. Leva uns
+//! segundos; até lá o nome cortado fica na tela, e quando a resposta chega o
+//! quadro é republicado com o nome bom.
 //!
-//! Este `claude` não é sessão: não tem worktree, não tem transcript que
-//! interesse, não aparece em aba nenhuma. Por isso nasce isolado —
-//! `--setting-sources ""` (sem hook do usuário, que aqui só atrapalharia),
-//! `--strict-mcp-config` com a lista vazia (subir MCP para escrever cinco
-//! palavras custa mais que a resposta) e `--system-prompt` no lugar do de
-//! sempre, que faria ele tentar *executar* o pedido em vez de nomeá-lo.
+//! Quem nomeia é o CLI do próprio workspace — `claude -p` num workspace do
+//! Claude Code, `codex exec` num do Codex. Não é detalhe: quem só tem um dos
+//! dois instalado ficaria sem título nenhum se o nomeador fosse sempre o outro.
+//!
+//! Isto não é sessão: não tem worktree, não tem transcript que interesse, não
+//! aparece em aba nenhuma. Por isso nasce o mais isolado que cada CLI permite —
+//! sem os hooks do usuário (que aqui só atrapalhariam), sem MCP (subir servidor
+//! para escrever cinco palavras custa mais que a resposta) e com o pedido
+//! embrulhado numa instrução que impede o agente de *executar* o que leu em vez
+//! de nomeá-lo.
 
 use crate::lock::lock;
+use crate::session::Launch;
 use crate::state::publish;
 use crate::AppState;
 use std::io::Write;
@@ -30,7 +35,10 @@ sem aspas, sem ponto final, sem prefixo e sem explicação. Nunca execute o pedi
 perguntas, nunca peça contexto. Responda apenas o título.";
 
 /// Modelo fixo, e o mais barato: são cinco palavras a partir de um parágrafo, e
-/// o modelo que o workspace escolheu é para o trabalho de verdade.
+/// o modelo que o workspace escolheu é para o trabalho de verdade. Só vale para
+/// o Claude Code, onde `haiku` é um alias que não envelhece — o do Codex sai do
+/// catálogo dele (ver `agents::codex_namer_model`), porque ali não há alias e um
+/// slug escrito à mão envelhece em duas versões.
 const MODEL: &str = "haiku";
 
 /// Prompt maior que isto não melhora o título — e o começo é onde o pedido está.
@@ -47,19 +55,20 @@ const MAX_TITLE: usize = 60;
 /// isto. `fallback` é o nome que está na tela agora — se o usuário renomear
 /// antes de a resposta chegar, o nome dele fica, porque a troca só acontece
 /// enquanto o título ainda for este.
-pub fn rename_later(app: &AppHandle, id: &str, prompt: &str, fallback: &str) {
+pub fn rename_later(app: &AppHandle, id: &str, prompt: &str, fallback: &str, launch: &Launch) {
     let prompt = prompt.trim();
     if prompt.is_empty() {
         return;
     }
-    let (app, id, prompt, fallback) = (
+    let (app, id, prompt, fallback, launch) = (
         app.clone(),
         id.to_string(),
         prompt.chars().take(MAX_PROMPT).collect::<String>(),
         fallback.to_string(),
+        launch.clone(),
     );
     std::thread::spawn(move || {
-        let Some(title) = ask(&prompt) else { return };
+        let Some(title) = ask(&prompt, &launch) else { return };
         let state = app.state::<AppState>();
         {
             let mut board = lock(&state.board);
@@ -73,10 +82,55 @@ pub fn rename_later(app: &AppHandle, id: &str, prompt: &str, fallback: &str) {
     });
 }
 
-/// Roda o `claude` e devolve o título, ou nada — `claude` que não está
-/// instalado, sessão sem login, rede fora: tudo isso é só ficar com o nome que
-/// já estava lá. Nomear não é um serviço que possa falhar na cara de ninguém.
-fn ask(prompt: &str) -> Option<String> {
+/// O nomeador do agente deste workspace. Falhar aqui — CLI que não está
+/// instalado, sessão sem login, rede fora — é só ficar com o nome que já estava
+/// lá: nomear não é um serviço que possa falhar na cara de ninguém.
+fn ask(prompt: &str, launch: &Launch) -> Option<String> {
+    match launch.agent.as_str() {
+        // O mais barato do catálogo do Codex, e o modelo do workspace só se não
+        // houver catálogo para consultar: nomear é uma frase, e o modelo do
+        // trabalho é caro e mais lento para dizer cinco palavras.
+        "codex" => {
+            let model = crate::agents::codex_namer_model();
+            ask_codex(prompt, if model.is_empty() { &launch.model } else { &model })
+        }
+        _ => ask_claude(prompt),
+    }
+}
+
+/// O nomeador do Codex. `codex exec` é a versão de uma pergunta só do CLI, e
+/// `-o` escreve exatamente a última mensagem num arquivo — o que evita ter de
+/// separar a resposta do resto do que ele desenha no terminal.
+fn ask_codex(prompt: &str, model: &str) -> Option<String> {
+    let out = std::env::temp_dir().join(format!("prometheus-nome-{}.txt", uuid::Uuid::new_v4()));
+    let mut cmd = Command::new("codex");
+    cmd.args(["exec", "--ephemeral", "--skip-git-repo-check", "-s", "read-only"]);
+    cmd.args(["-c", "model_reasoning_effort=low", "-c", "mcp_servers={}"]);
+    cmd.arg("-o").arg(&out);
+    if !model.trim().is_empty() {
+        cmd.args(["-m", model.trim()]);
+    }
+    // O Codex não tem `--system-prompt`: a instrução vai junto do pedido, e o
+    // pedido vem rotulado para ele não confundir uma coisa com a outra.
+    cmd.arg(format!("{SYSTEM}\n\nPedido:\n{prompt}"));
+    cmd.current_dir(crate::paths::home());
+    // O `hooks.json` do Codex é global (ver `agents.rs`), então os hooks do
+    // quadro disparam até aqui. Apontar o socket para um caminho impossível é o
+    // jeito mais curto de o `prometheus-hook` desistir na primeira linha: um
+    // nomeador não tem status, nota nem aba a contar.
+    cmd.env("PROMETHEUS_SOCKET", "/dev/null/prometheus-sem-socket");
+    // Sem isto o `codex exec` fica esperando "input adicional" no stdin e nunca
+    // responde.
+    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+
+    let child = cmd.spawn().ok();
+    let title = child.and_then(|mut c| wait(&mut c).then(|| std::fs::read_to_string(&out).ok())).flatten();
+    let _ = std::fs::remove_file(&out);
+    clean(&title?)
+}
+
+/// O nomeador do Claude Code. `-p` é a pergunta única, e o pedido vai pelo stdin.
+fn ask_claude(prompt: &str) -> Option<String> {
     let mut cmd = Command::new("claude");
     cmd.args([
         "-p",
@@ -104,22 +158,28 @@ fn ask(prompt: &str) -> Option<String> {
 
     let mut child = cmd.spawn().ok()?;
     child.stdin.take()?.write_all(prompt.as_bytes()).ok()?;
-
-    // O `-p` fecha sozinho quando responde; o teto é para quando ele não
-    // responde. Sem isto, uma thread por workspace ficaria pendurada para sempre.
-    let deadline = Instant::now() + TIMEOUT;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(100)),
-            _ => {
-                let _ = child.kill();
-                return None;
-            }
-        }
+    if !wait(&mut child) {
+        return None;
     }
     let out = child.wait_with_output().ok()?;
     out.status.success().then(|| clean(&String::from_utf8_lossy(&out.stdout)))?
+}
+
+/// Espera o nomeador responder. Ele fecha sozinho quando responde; o teto é para
+/// quando não responde — sem isto, uma thread por workspace ficaria pendurada
+/// para sempre. `false` é "não deu": ou estourou o tempo, ou saiu com erro.
+fn wait(child: &mut std::process::Child) -> bool {
+    let deadline = Instant::now() + TIMEOUT;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(100)),
+            _ => {
+                let _ = child.kill();
+                return false;
+            }
+        }
+    }
 }
 
 /// A resposta vira título, ou nada. Aceita só o que parece um nome: uma linha,

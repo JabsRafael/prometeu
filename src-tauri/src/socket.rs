@@ -56,7 +56,15 @@ fn handle(app: &AppHandle, stream: UnixStream) {
         .as_str()
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or(Value::Null);
-    let session = payload["session_id"].as_str().unwrap_or("").to_string();
+    // Quem é a aba. O Claude Code roda com o id dela como `--session-id`, então o
+    // payload já responde. O Codex escolhe o id dele, e é o `tab` do envelope —
+    // que sai do `PROMETHEUS_TAB` do processo — que amarra a sessão à aba.
+    // Envelope sem `tab` e sem aba conhecida é sessão que não é do quadro
+    // (o `codex` do terminal, que dispara o mesmo `hooks.json`): nada a fazer.
+    let session = envelope["tab"]
+        .as_str()
+        .unwrap_or_else(|| payload["session_id"].as_str().unwrap_or(""))
+        .to_string();
 
     match kind.as_str() {
         "perm" => return permission(app, stream, session, payload),
@@ -65,6 +73,11 @@ fn handle(app: &AppHandle, stream: UnixStream) {
         // o Claude Code parar antes para perguntar se você confia na pasta.
         "start" => {
             let _ = reply(&stream, "{}");
+            // A sessão do agente, quando ela não é o id da aba: é este número
+            // que o "Retomar" vai passar ao `codex resume`. Chega aqui e em
+            // nenhum outro lugar — depois do `SessionStart` o Codex não repete
+            // quem ele é para quem não perguntou.
+            remember_session(app, &session, payload["session_id"].as_str());
             send_pending_prompt(app, &session);
             return;
         }
@@ -172,11 +185,27 @@ fn update(app: &AppHandle, session: &str, status: Option<Status>, note: Note, to
     publish(app);
 }
 
+/// Guarda o id que o agente escolheu para a conversa desta aba. Igual ao da aba
+/// é o Claude Code, onde o app impõe o id: não há nada a guardar.
+fn remember_session(app: &AppHandle, tab: &str, agent_session: Option<&str>) {
+    let Some(agent_session) = agent_session.filter(|s| !s.is_empty() && *s != tab) else { return };
+    let state = app.state::<AppState>();
+    {
+        let mut board = lock(&state.board);
+        let Some(t) = board.tab_mut(tab) else { return };
+        if t.agent_session.as_deref() == Some(agent_session) {
+            return;
+        }
+        t.agent_session = Some(agent_session.to_string());
+    }
+    publish(app);
+}
+
 /// A sessão avisou que está de pé. A primeira fala montada no lançador vai
 /// agora — a não ser que o setup do worktree ainda esteja rodando: aí fica
 /// guardada, e é o fim dele que a solta (`session::release_prompts`). Agente
 /// que roda teste antes de haver `node_modules` conclui coisa errada.
-fn send_pending_prompt(app: &AppHandle, session: &str) {
+pub fn send_pending_prompt(app: &AppHandle, session: &str) {
     let state = app.state::<AppState>();
     lock(&state.ready).insert(session.to_string());
     // O lock do quadro sai antes do dos PTYs: dois locks aninhados é como
@@ -191,9 +220,26 @@ fn send_pending_prompt(app: &AppHandle, session: &str) {
     }
 }
 
+/// Quanto esperar antes de escrever na TUI que acabou de subir. É o tempo de ela
+/// desenhar a caixa: texto que chega antes disso não cai em lugar nenhum.
+const WARMUP: Duration = Duration::from_millis(800);
+
 /// Digita a primeira fala da aba, uma vez só. `prefix` vai na frente, na mesma
 /// linha: Enter no meio mandaria metade.
 pub fn type_prompt(app: &AppHandle, session: &str, prefix: Option<String>) {
+    type_prompt_after(app, session, prefix, WARMUP);
+}
+
+/// A mesma coisa, dizendo quanto esperar antes de escrever. Fala que estava
+/// guardada esperando o setup não espera de novo: quando ele termina, a TUI já
+/// está de pé há um `npm install` inteiro, e mais oito décimos de segundo ali é
+/// só tempo que a pessoa olha para uma caixa vazia.
+pub fn type_prompt_after(
+    app: &AppHandle,
+    session: &str,
+    prefix: Option<String>,
+    warmup: Duration,
+) {
     let state = app.state::<AppState>();
     let prompt = {
         let mut board = lock(&state.board);
@@ -215,7 +261,7 @@ pub fn type_prompt(app: &AppHandle, session: &str, prefix: Option<String>) {
                 let _ = pty.write(text);
             }
         };
-        std::thread::sleep(Duration::from_millis(800));
+        std::thread::sleep(warmup);
         type_in(&prompt);
         std::thread::sleep(Duration::from_millis(300));
         type_in("\r");

@@ -72,6 +72,7 @@ export const PT = {
   "card.norepo": "no repo",
   "card.norepo.title": "Sem worktree: esta conversa mexe no próprio repositório",
   "card.model.title": "As conversas daqui rodam com --model {model}",
+  "card.codex.title": "As conversas daqui rodam no Codex, com o modelo {model}",
   "card.issue.title": "{title} — abrir no Linear",
   "card.pinned.title": "Fixado no topo da lista",
   "card.tokens": "Tokens:",
@@ -104,12 +105,15 @@ export const PT = {
   /* ---------- lançador ---------- */
 
   "model.default": "Modelo padrão",
+  "model.claude": "Claude Code",
+  "model.codex": "Codex",
   "effort.low": "Baixo",
   "effort.medium": "Médio",
   "effort.high": "Alto",
   "effort.xhigh": "Muito alto",
   "effort.max": "Máximo",
   "effort.ultracode": "Ultracode",
+  "effort.ultra": "Ultra",
 
   "launcher.base.title": "De onde a branch nova sai",
   "launcher.loading": "carregando…",
@@ -467,6 +471,7 @@ export const PT = {
   "err.session.badPath": "caminho inválido",
   "err.session.badSettings": "caminho de settings inválido",
   "err.session.badHook": "caminho do hook inválido",
+  "err.codex.hooks": "não deu para instalar os hooks do Codex em ~/.codex/hooks.json: {err}",
   "err.session.worktreeNeedsBranch": "um worktree precisa de uma branch própria",
   "err.session.worktreeElsewhere": "{path} já existe e está na branch '{head}', não em '{branch}'",
   "err.session.worktreeDetached": "{path} já existe e não é um worktree em branch nenhuma",

@@ -29,6 +29,7 @@ const ws = (
   archived: false,
   pinned: false,
   unread: false,
+  agent: "",
   model: "",
   effort: "",
   port: 3100,
@@ -405,6 +406,18 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       emit("board", board);
       return;
     }
+    // O catálogo do Codex, como o CLI o entrega. Fixo aqui: no navegador não há
+    // `codex` para perguntar, e o dropdown com os dois agentes é justamente o
+    // que se quer ver.
+    case "agents":
+      return {
+        claude: true,
+        codex: [
+          { slug: "gpt-5.6-sol", name: "GPT-5.6-Sol", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+          { slug: "gpt-5.6-terra", name: "GPT-5.6-Terra", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+          { slug: "gpt-5.4", name: "GPT-5.4", efforts: ["low", "medium", "high", "xhigh"] },
+        ],
+      };
     case "list_branches":
       return {
         all: [
@@ -427,6 +440,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       const repo = String(draft.project).split("/").pop() ?? "repo";
       const fresh = ws(id, draft.project, repo, draft.title || draft.branch, draft.stage, []);
       fresh.branch = draft.branch || "main";
+      fresh.agent = draft.agent;
       fresh.model = draft.model;
       fresh.effort = draft.effort;
       fresh.issue = draft.issue ?? null;

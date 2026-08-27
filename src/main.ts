@@ -11,7 +11,7 @@ import * as dockbar from "./dockbar";
 import { icon } from "./icons";
 import { current, fromBack, paint, t } from "./i18n";
 import * as issues from "./issues";
-import { dropFiles, openLauncher, type Draft } from "./launcher";
+import { dropFiles, loadAgents, openLauncher, type Draft } from "./launcher";
 import * as menu from "./menu";
 import * as rename from "./rename";
 import * as session from "./session";
@@ -466,6 +466,10 @@ for (const [id, name] of [
 }
 
 void update.init(say);
+// Quais agentes existem nesta máquina: é o que o lançador oferece no rodapé.
+// Ninguém espera por isso para a tela aparecer — até a resposta chegar, o
+// lançador mostra só o Claude Code, que é o que o app era.
+void loadAgents();
 // O time vem antes das configurações, que é onde ele aparece — e antes do
 // quadro, que vai mostrar o que os colegas compartilham.
 team.onError((m) => say(m, true));
