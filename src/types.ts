@@ -44,9 +44,10 @@ export type Workspace = {
   archived: boolean;
   pinned: boolean;
   unread: boolean;
-  /// `--model` e `--effort` das conversas daqui, escolhidos no lançador e
-  /// válidos para as abas que vierem (⌘T, retomar). Vazio é o padrão do
-  /// Claude Code.
+  /// Qual CLI roda nas abas daqui: vazio é o Claude Code, `codex` é o Codex.
+  agent: string;
+  /// Modelo e esforço das conversas daqui, escolhidos no lançador e válidos
+  /// para as abas que vierem (⌘T, retomar). Vazio é o padrão do CLI.
   model: string;
   effort: string;
   /// Base das dez portas reservadas a este worktree.

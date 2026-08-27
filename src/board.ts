@@ -616,7 +616,7 @@ function card(ws: Workspace, board: Board, hooks: Hooks): HTMLElement {
   if (ws.model) {
     const model = h("span", "chip");
     model.textContent = ws.model;
-    model.title = t("card.model.title", { model: ws.model });
+    model.title = t(ws.agent === "codex" ? "card.codex.title" : "card.model.title", { model: ws.model });
     foot.append(model);
   }
 

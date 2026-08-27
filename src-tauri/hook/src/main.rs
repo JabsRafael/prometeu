@@ -1,4 +1,4 @@
-//! prometheus-hook — o único ponto de contato entre o Claude Code e o app.
+//! prometheus-hook — o único ponto de contato entre o agente e o app.
 //!
 //! Roda como comando de hook: lê o payload JSON no stdin, entrega ao app pelo
 //! socket unix, e bloqueia até o app responder. O que o app responder vai para o
@@ -48,11 +48,19 @@ fn main() {
 
 /// Uma conexão por invocação: manda uma linha, espera uma linha. Sem ids de
 /// correlação, porque a própria conexão já é a correlação.
+///
+/// `tab` só viaja quando o processo do agente foi aberto por uma aba do quadro e
+/// não é o dono do próprio id — hoje, o Codex. O `hooks.json` dele é o do
+/// usuário, então este mesmo binário roda também no `codex` do terminal: sem
+/// `tab`, o app não acha aba nenhuma e a sessão passa sem eco.
 fn ask_app(kind: &str, payload: &str) -> Option<String> {
     let mut stream = UnixStream::connect(socket_path()).ok()?;
     stream.set_read_timeout(Some(MAX_WAIT)).ok()?;
 
-    let envelope = serde_json::json!({ "kind": kind, "payload": payload });
+    let mut envelope = serde_json::json!({ "kind": kind, "payload": payload });
+    if let Ok(tab) = std::env::var("PROMETHEUS_TAB") {
+        envelope["tab"] = tab.into();
+    }
     writeln!(stream, "{envelope}").ok()?;
     stream.flush().ok()?;
 

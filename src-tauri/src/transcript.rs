@@ -1,10 +1,16 @@
-//! O que o transcript do Claude Code conta sobre uma conversa.
+//! O que o transcript de uma conversa conta sobre ela.
 //!
-//! Cada resposta do assistente vai para o `.jsonl` com o `usage` da chamada:
-//! quanto entrou, quanto veio do cache, quanto saiu. A soma do que entrou na
-//! última chamada é o tamanho da conversa agora — é o número que diz "essa
-//! sessão está pesada" olhando o quadro, e que despenca quando o Claude Code
+//! No Claude Code, cada resposta do assistente vai para o `.jsonl` com o `usage`
+//! da chamada: quanto entrou, quanto veio do cache, quanto saiu. A soma do que
+//! entrou na última chamada é o tamanho da conversa agora — é o número que diz
+//! "essa sessão está pesada" olhando o quadro, e que despenca quando o agente
 //! compacta.
+//!
+//! O Codex grava outro arquivo (o `rollout-….jsonl`) e diz a mesma coisa de
+//! outro jeito: um evento `token_count` por resposta, com o total já somado em
+//! `last_token_usage.input_tokens`. As duas formas são lidas na mesma passada —
+//! quem chama tem um caminho de transcript nas mãos e nada mais, e não precisa
+//! saber qual CLI o escreveu.
 
 use serde_json::Value;
 use std::fs::File;
@@ -40,21 +46,37 @@ pub fn context(path: &Path) -> Option<u64> {
     last_context(&whole)
 }
 
-/// A última linha com `usage` que conte alguma coisa. Resposta que deu erro na
-/// API vem com tudo zerado, e zero não é "a conversa esvaziou".
+/// A última linha que conte alguma coisa, no formato que ela estiver. Resposta
+/// que deu erro na API vem com tudo zerado, e zero não é "a conversa esvaziou".
 fn last_context(jsonl: &str) -> Option<u64> {
     jsonl.lines().rev().find_map(|line| {
         let v: Value = serde_json::from_str(line).ok()?;
-        if v["isSidechain"].as_bool() == Some(true) {
-            return None;
-        }
-        let usage = &v["message"]["usage"];
-        let n = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]
-            .iter()
-            .filter_map(|k| usage[k].as_u64())
-            .sum::<u64>();
-        (n > 0).then_some(n)
+        claude(&v).or_else(|| codex(&v)).filter(|n| *n > 0)
     })
+}
+
+/// O `usage` de uma resposta do Claude Code. Subagente não conta: o contexto que
+/// interessa é o da conversa que está na tela.
+fn claude(v: &Value) -> Option<u64> {
+    if v["isSidechain"].as_bool() == Some(true) {
+        return None;
+    }
+    let usage = &v["message"]["usage"];
+    let n = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]
+        .iter()
+        .filter_map(|k| usage[k].as_u64())
+        .sum::<u64>();
+    (n > 0).then_some(n)
+}
+
+/// O `token_count` do Codex. `input_tokens` do último turno já é a conversa
+/// inteira — o que veio do cache está dentro dele, e por isso não se soma nada.
+fn codex(v: &Value) -> Option<u64> {
+    let payload = &v["payload"];
+    if payload["type"].as_str() != Some("token_count") {
+        return None;
+    }
+    payload["info"]["last_token_usage"]["input_tokens"].as_u64()
 }
 
 #[cfg(test)]
@@ -88,6 +110,25 @@ mod tests {
         ]
         .join("\n");
         assert_eq!(last_context(&jsonl), Some(5_001));
+    }
+
+    /// O rollout do Codex, no formato que ele grava.
+    #[test]
+    fn le_o_token_count_do_codex() {
+        let count = |input: u64| {
+            format!(
+                r#"{{"type":"event_msg","payload":{{"type":"token_count","info":{{"last_token_usage":{{"input_tokens":{input},"cached_input_tokens":{},"total_tokens":{input}}},"model_context_window":258400}}}}}}"#,
+                input / 2
+            )
+        };
+        let jsonl = [
+            r#"{"type":"session_meta","payload":{"id":"abc"}}"#.to_string(),
+            count(14_835),
+            r#"{"type":"response_item","payload":{"type":"message","role":"assistant"}}"#.to_string(),
+            count(30_180),
+        ]
+        .join("\n");
+        assert_eq!(last_context(&jsonl), Some(30_180));
     }
 
     #[test]

@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod agents;
 mod browser;
 mod i18n;
 mod linear;
@@ -83,6 +84,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             i18n::set_lang,
+            agents::agents,
             session::load_board,
             session::add_project,
             session::remove_project,
