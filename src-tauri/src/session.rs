@@ -674,6 +674,10 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
     // conclui coisa errada. Falhar aqui não desfaz o worktree; o erro fica
     // escrito na aba Setup, que é onde se conserta.
     let _ = start_setup(app, &state, &ws, cols, rows);
+    // Com o setup de pé a fala espera por ele; sem setup, vai agora.
+    if let Some(tab) = ws.tabs.last() {
+        chat::ready_now(app, &tab.id);
+    }
 
     Ok(())
 }
@@ -711,6 +715,7 @@ pub fn new_tab(app: AppHandle, state: State<AppState>, workspace: String, prompt
         }
     }
     publish(&app);
+    chat::ready_now(&app, &tab.id);
     Ok(tab)
 }
 
@@ -800,6 +805,7 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
     let resume = paths::transcript(tab, &worktree).exists();
     let handle = chat::spawn(app, tab, &worktree, claude_args(tab, resume, &launch))?;
     lock(&state.chats).insert(tab.to_string(), handle);
+    chat::ready_now(app, tab);
     {
         let mut board = lock(&state.board);
         if let Some(t) = board.tab_mut(tab) {
@@ -822,6 +828,8 @@ fn spawn_tab(
     let id = uuid::Uuid::new_v4().to_string();
     let handle = chat::spawn(app, &id, worktree, claude_args(&id, false, launch))?;
     lock(&state.chats).insert(id.clone(), handle);
+    // Quem chama põe a aba no quadro e só então libera a fala
+    // (`chat::ready_now`): a fala guardada mora na aba, e a aba nasce aqui.
     Ok(Tab {
         id,
         agent_session: None,

@@ -272,11 +272,13 @@ fn keep(frame: &Value) -> bool {
 /// sessão, o fim do turno.
 fn react(app: &AppHandle, id: &str, frame: &Value, ready: &mut bool) {
     match frame["type"].as_str() {
-        // A sessão está de pé: é agora que a primeira fala pode ir. O `init`
-        // volta a cada turno; só o primeiro é o aviso.
+        // O `init` só sai depois de a primeira fala entrar — não serve de
+        // aviso de "pode falar". Quem libera a fala é `ready`, no spawn. Aqui
+        // é só a confirmação, uma vez, para o caso de a fala ter ficado presa
+        // no setup e o setup já ter acabado.
         Some("system") if frame["subtype"] == "init" && !*ready => {
             *ready = true;
-            on_ready(app, id);
+            ready_now(app, id);
         }
         Some("assistant") => {
             let blocks = frame["message"]["content"].as_array();
@@ -360,11 +362,16 @@ fn update(app: &AppHandle, session: &str, status: Option<Status>, note: Note, to
     publish(app);
 }
 
-/// A sessão avisou que está de pé. A primeira fala montada no lançador vai
+/// A conversa está no mapa e aceita fala. A primeira, montada no lançador, vai
 /// agora — a não ser que o setup do worktree ainda esteja rodando: aí fica
 /// guardada, e é o fim dele que a solta (`session::release_prompts`). Agente
 /// que roda teste antes de haver `node_modules` conclui coisa errada.
-fn on_ready(app: &AppHandle, session: &str) {
+///
+/// Chamado por quem pôs o `Chat` no mapa, logo depois de pôr: o processo
+/// ainda está subindo, mas o stdin é um cano — o que entrar agora ele lê
+/// quando estiver de pé. Esperar um sinal dele não dá: o `init` do stream só
+/// sai depois da primeira fala.
+pub fn ready_now(app: &AppHandle, session: &str) {
     let state = app.state::<AppState>();
     lock(&state.ready).insert(session.to_string());
     // O lock do quadro sai antes do dos PTYs: dois locks aninhados é como
