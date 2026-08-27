@@ -30,10 +30,8 @@ jobs:
 
       - run: npm ci
 
-      # O build script do Tauri recusa compilar sem o sidecar do host, e o
-      # `generate_context!` embute o dist/ — os dois precisam existir antes
-      # do cargo test.
-      - run: sh scripts/sidecar.sh
+      # O `generate_context!` embute o dist/ — precisa existir antes do
+      # cargo test.
       - run: npm run build
 
       - run: npm test

@@ -5,9 +5,9 @@
   "version": "0.2.0",
   "identifier": "dev.prometheus.app",
   "build": {
-    "beforeDevCommand": "sh scripts/sidecar.sh && npm run dev",
+    "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "sh scripts/sidecar.sh && npm run build",
+    "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -42,9 +42,6 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ],
-    "externalBin": [
-      "binaries/prometheus-hook"
     ],
     "createUpdaterArtifacts": true
   },

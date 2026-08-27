@@ -12,9 +12,6 @@ default-run = "Prometheus"
 name = "Prometheus"
 path = "src/main.rs"
 
-[workspace]
-members = ["hook"]
-
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
