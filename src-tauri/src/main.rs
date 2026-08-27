@@ -16,10 +16,8 @@ mod transcript;
 
 use state::Board;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::AtomicU64;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
 pub struct AppState {
     pub board: Mutex<Board>,
@@ -29,15 +27,9 @@ pub struct AppState {
     /// Toda aba de todo workspace continua rodando com o quadro na frente.
     /// Chave é o id da sessão, que é o id da aba.
     pub ptys: Mutex<HashMap<String, pty::Pty>>,
-    /// Hooks bloqueados esperando o clique do usuário, por id.
-    pub pending: Mutex<HashMap<u64, socket::Waiting>>,
-    pub seq: AtomicU64,
     /// Qual workspace está na tela. O que acontece nele não vira novidade —
     /// você está vendo acontecer.
     pub looking: Mutex<Option<String>>,
-    /// Quando cada sessão mostrou a última pergunta — usado para não mandar a
-    /// tecla antes de a TUI ter desenhado o seletor.
-    pub asked_at: Mutex<HashMap<String, Instant>>,
     /// Sessões cujo Claude Code já avisou que está de pé — só nessas a primeira
     /// fala pode ser digitada. Importa quando a fala espera o `setup` acabar:
     /// o fim dele não pode digitar numa TUI que ainda está perguntando se você
@@ -82,9 +74,6 @@ fn main() {
             board: Mutex::new(Board::load()),
             save: state::spawn_saver(),
             ptys: Mutex::new(HashMap::new()),
-            pending: Mutex::new(HashMap::new()),
-            seq: AtomicU64::new(0),
-            asked_at: Mutex::new(HashMap::new()),
             looking: Mutex::new(None),
             ready: Mutex::new(HashSet::new()),
         })
@@ -142,8 +131,6 @@ fn main() {
             pty::pty_resize,
             pty::pty_buffer,
             pty::pty_snapshot,
-            socket::decide_permission,
-            socket::answer_questions,
             linear::linear_status,
             linear::linear_connect,
             linear::linear_disconnect,

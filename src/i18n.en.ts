@@ -237,21 +237,6 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "clean.none": "No archived workspace has a worktree on disk.",
   "clean.loading": "Checking what can go…",
 
-  "ask.question": "question",
-  "ask.question.header": "question · {header}",
-  "ask.questions": "{n} questions",
-  "ask.free": "Type or paste an answer…",
-  "ask.send": "Send",
-  "ask.permission": "wants permission",
-  "ask.allow": "Allow",
-  "ask.deny": "Deny",
-  "ask.tool": "tool",
-  "ask.plan": "plan ready",
-  "ask.plan.title": "Run it as it is?",
-  "ask.plan.empty": "(the plan is in the terminal)",
-  "ask.plan.run": "Run",
-  "ask.plan.edit": "Adjust in the terminal",
-
   "dock.setup": "Setup",
   "dock.run": "Run",
   "dock.terminal": "Terminal",
@@ -392,6 +377,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "note.permission": "wants permission for {tool}",
   "note.plan": "plan ready: run it?",
   "note.permissionAny": "wants permission for a tool",
+  "note.question": "wants your answer",
 
   "err.team.write": "couldn't write {path}: {cause}",
   "err.team.name": "say your name first",
@@ -455,12 +441,6 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.browser.badUrl": "address that cannot be opened: {url}",
   "err.dock.unknown": "unknown dock: {kind}",
   "err.dock.noScript": "no {kind} script in {file}",
-
-  "err.ask.gone": "that request is not waiting any more",
-  "err.ask.expired": "that request expired — the agent went back to asking in the terminal",
-  "err.ask.noOption": "option {n} does not exist in that question",
-  "err.ask.freeOnly": "that question has no options: answer in the terminal",
-  "err.ask.tooMany": "too many options",
 
   "err.pty.gone": "session is not running",
   "err.pty.openpty": "openpty failed: {cause}",

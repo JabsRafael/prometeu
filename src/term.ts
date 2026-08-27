@@ -163,11 +163,6 @@ export class Term {
     this.resized = cb;
   }
 
-  /// Teclas que o app quer antes do terminal. Devolver `false` come a tecla.
-  onKey(handler: (e: KeyboardEvent) => boolean) {
-    this.term.attachCustomKeyEventHandler(handler);
-  }
-
   /// O texto selecionado com o mouse, como o xterm o vê — é o que uma nota
   /// cita.
   selection() {

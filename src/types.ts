@@ -169,14 +169,6 @@ export type Change = {
   patch: string;
 };
 
-export type Option = { label: string; description?: string };
-export type Question = {
-  question: string;
-  header?: string;
-  options?: Option[];
-  multiSelect?: boolean;
-};
-
 const RANK: Record<Status, number> = { querendo: 3, rodando: 2, pronta: 1, desligada: 0 };
 
 /// O estado do workspace é o da aba mais urgente: uma aba travada numa pergunta

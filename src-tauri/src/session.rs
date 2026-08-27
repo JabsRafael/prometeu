@@ -1,6 +1,6 @@
 use crate::lock::lock;
 use crate::state::{publish, Board, Project, Status, Tab, Workspace};
-use crate::{i18n, paths, pty, scripts, socket, AppState};
+use crate::{i18n, paths, pty, scripts, AppState};
 use portable_pty::CommandBuilder;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -130,12 +130,11 @@ fn archive(state: &State<AppState>, id: &str, archived: bool) {
     stop(state, &dead);
 }
 
-/// Encerra as sessões destas abas: o processo morre, o que estava pendurado no
-/// socket é esquecido. Transcript e worktree ficam — retomar é outro caminho.
+/// Encerra as sessões destas abas: o processo morre. Transcript e worktree
+/// ficam — retomar é outro caminho.
 fn stop(state: &State<AppState>, tabs: &[String]) {
     for tab in tabs {
         pty::kill(state, tab);
-        socket::forget(state, tab);
     }
 }
 
@@ -759,8 +758,8 @@ fn spawn_tab(
 /// O agente roda sempre solto: cada sessão vive no seu worktree e não para a
 /// cada ferramenta — que é o motivo de existir o quadro. O hook de
 /// PermissionRequest fica instalado mesmo assim, porque AskUserQuestion e
-/// ExitPlanMode passam por ele em bypass — testado: o seletor aparece e o
-/// dígito acerta.
+/// ExitPlanMode passam por ele em bypass — e é dele que sai a nota "quer você"
+/// no quadro. Ele não decide nada: quem pergunta é a TUI, no terminal.
 fn claude_cmd(id: &str, worktree: &Path, resume: bool, launch: &Launch) -> Result<CommandBuilder, String> {
     let settings = write_settings(id)?;
     let mut cmd = CommandBuilder::new("claude");
@@ -1049,8 +1048,9 @@ fn write_settings(id: &str) -> Result<PathBuf, String> {
 
     let cfg = serde_json::json!({
         "hooks": {
-            // 24h: o hook fica parado de propósito enquanto o card espera clique.
-            "PermissionRequest": hook("perm", Some(86400)),
+            // Solta o agente na hora: só serve para o quadro saber que a
+            // sessão parou esperando resposta.
+            "PermissionRequest": hook("perm", None),
             "Notification":      hook("notif", None),
             "SessionStart":      hook("start", None),
             // PreToolUse é o que dá a linha "o que ele está fazendo agora".

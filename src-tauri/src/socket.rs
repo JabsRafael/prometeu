@@ -10,13 +10,8 @@ use serde_json::Value;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
-use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager, State};
-
-/// Folga entre liberar o hook e mandar a tecla. O Claude Code só desenha o
-/// seletor depois que o hook retorna; escrever antes disso perde a tecla.
-const PICKER_GRACE: Duration = Duration::from_millis(400);
+use std::time::Duration;
+use tauri::{AppHandle, Manager};
 
 /// Quanto o app espera pela linha que o hook manda ao conectar. Sem isto, um
 /// cliente que conecta e não escreve pendurava o loop de accept — e com ele
@@ -28,18 +23,6 @@ const READ_TIMEOUT: Duration = Duration::from_secs(10);
 /// inteiro, então precisa ser grande — mas não ilimitado, que é o que um
 /// `read_line` sem coleira é.
 const MAX_PAYLOAD: u64 = 8 * 1024 * 1024;
-
-/// Depois disto o hook do outro lado já desistiu por conta própria (o
-/// `MAX_WAIT` dele), e o que sobrou aqui é um stream morto ocupando memória.
-const GIVE_UP: Duration = Duration::from_secs(3 * 60 * 60);
-
-/// Um hook parado esperando o clique. A conexão é a correlação — não há id de
-/// mensagem —, então o que se guarda é o stream.
-pub struct Waiting {
-    stream: UnixStream,
-    since: Instant,
-    session: String,
-}
 
 pub fn listen(app: AppHandle) -> std::io::Result<()> {
     let path = paths::socket_path();
@@ -102,59 +85,25 @@ fn handle(app: &AppHandle, stream: UnixStream) {
     let _ = reply(&stream, "{}");
 }
 
+/// Um pedido de permissão — e AskUserQuestion e ExitPlanMode, que passam por
+/// aqui mesmo em bypass. O hook não decide nada: solta o agente na hora e a TUI
+/// desenha o seletor dentro do terminal, que é onde a pessoa responde. O que o
+/// app faz com isso é uma coisa só: contar ao quadro que a sessão parou
+/// esperando alguém.
 fn permission(app: &AppHandle, stream: UnixStream, session: String, payload: Value) {
-    // AskUserQuestion é o caso especial: o hook NÃO decide nada. Ele solta o
-    // agente na hora para a TUI desenhar o seletor, e a resposta do usuário
-    // volta como tecla no PTY. Testado: devolver a escolha em `updatedInput`
-    // não funciona — o Claude Code aceita a primeira opção e ignora o resto.
-    if payload["tool_name"].as_str() == Some("AskUserQuestion") {
-        let _ = reply(&stream, "{}");
-        let question = payload["tool_input"]["questions"][0]["question"]
-            .as_str()
-            .unwrap_or("quer sua resposta")
-            .to_string();
-        lock(&app.state::<AppState>().asked_at).insert(session.clone(), Instant::now());
-        set(app, &session, Some(Status::Querendo), Note::Set(question));
-        let _ = app.emit("question", serde_json::json!({ "session": session, "payload": payload }));
-        return;
-    }
-
-    // ExitPlanMode é o outro: o "Would you like to proceed?" é um seletor da
-    // TUI, e ela o desenha de qualquer jeito — `allow` pelo hook não o pula,
-    // só atrasa (testado). Então o hook solta na hora e o card responde com o
-    // dígito, como na pergunta. A primeira opção é "switch to BYPASS
-    // PERMISSIONS", que é o solto de sempre: é para lá que "Executar" manda.
-    if payload["tool_name"].as_str() == Some("ExitPlanMode") {
-        let _ = reply(&stream, "{}");
-        set(app, &session, Some(Status::Querendo), Note::Set(i18n::t("note.plan")));
-        let _ = app.emit(
-            "plan",
-            serde_json::json!({ "session": session, "plan": payload["tool_input"]["plan"] }),
-        );
-        return;
-    }
-
-    let state = app.state::<AppState>();
-    let id = state.seq.fetch_add(1, Ordering::Relaxed);
-    {
-        let mut pending = lock(&state.pending);
-        // Quem já esperou mais do que o hook aguenta não vai mais responder:
-        // do outro lado o processo desistiu e saiu. Sem esta varrida o mapa só
-        // crescia — um stream morto por permissão nunca clicada.
-        pending.retain(|_, w| w.since.elapsed() < GIVE_UP);
-        pending.insert(id, Waiting { stream, since: Instant::now(), session: session.clone() });
-    }
+    let _ = reply(&stream, "{}");
     // Sem nome de ferramenta a frase é outra, e não a mesma com um buraco
     // tapado: código não entra dentro de código.
     let note = match payload["tool_name"].as_str() {
+        Some("AskUserQuestion") => payload["tool_input"]["questions"][0]["question"]
+            .as_str()
+            .map(str::to_string)
+            .unwrap_or_else(|| i18n::t("note.question")),
+        Some("ExitPlanMode") => i18n::t("note.plan"),
         Some(tool) => i18n::ta("note.permission", &[("tool", tool.to_string())]),
         None => i18n::t("note.permissionAny"),
     };
     set(app, &session, Some(Status::Querendo), Note::Set(note));
-    let _ = app.emit(
-        "permission",
-        serde_json::json!({ "id": id, "session": session, "payload": payload }),
-    );
 }
 
 /// Uma linha do tipo "Bash cd /Users/…", que é o que faz o card parecer vivo.
@@ -223,13 +172,6 @@ fn update(app: &AppHandle, session: &str, status: Option<Status>, note: Note, to
     publish(app);
 }
 
-/// Esquece o que estava pendurado numa sessão que não existe mais. O hook do
-/// outro lado morreu com ela — era filho do `claude` que acabou de sair.
-pub fn forget(state: &AppState, session: &str) {
-    lock(&state.pending).retain(|_, w| w.session != session);
-    lock(&state.asked_at).remove(session);
-}
-
 /// A sessão avisou que está de pé. A primeira fala montada no lançador vai
 /// agora — a não ser que o setup do worktree ainda esteja rodando: aí fica
 /// guardada, e é o fim dele que a solta (`session::release_prompts`). Agente
@@ -283,189 +225,4 @@ pub fn type_prompt(app: &AppHandle, session: &str, prefix: Option<String>) {
 fn reply(mut stream: &UnixStream, body: &str) -> std::io::Result<()> {
     writeln!(stream, "{body}")?;
     stream.flush()
-}
-
-/// Responde um pedido de permissão comum (Write, Bash, …).
-#[tauri::command]
-pub fn decide_permission(state: State<AppState>, id: u64, decision: String) -> Result<(), String> {
-    let waiting = lock(&state.pending)
-        .remove(&id)
-        .ok_or_else(|| i18n::t("err.ask.gone"))?;
-
-    let body = serde_json::json!({
-        "hookSpecificOutput": {
-            "hookEventName": "PermissionRequest",
-            "permissionDecision": decision
-        }
-    });
-    // Escrever num hook que já desistiu falha aqui, e calar isso seria pior: o
-    // agente segue esperando no terminal e você acha que respondeu.
-    reply(&waiting.stream, &body.to_string())
-        .map_err(|_| i18n::t("err.ask.expired"))
-}
-
-/// Uma resposta por pergunta do AskUserQuestion.
-#[derive(serde::Deserialize)]
-pub struct Answer {
-    /// Índices das opções escolhidas, na ordem em que vieram no payload.
-    pub picks: Vec<usize>,
-    /// Quantas opções a pergunta tem — o texto livre entra logo depois da última.
-    pub options: usize,
-    pub multi: bool,
-    pub free: Option<String>,
-}
-
-/// Intervalo entre teclas. O seletor redesenha entre uma e outra; teclas
-/// grudadas se perdem no meio do render.
-const KEYSTROKE: Duration = Duration::from_millis(130);
-
-/// A sequência de teclas que responde um AskUserQuestion inteiro.
-///
-/// A gramática do seletor foi levantada na marra, e as duas metades diferem:
-///
-///   escolha única   o dígito seleciona **e avança** sozinho para a próxima
-///   multiSelect     o dígito só marca a caixa; avançar exige Tab
-///
-/// Nos dois casos o Enter final é quem envia. Mandar só o dígito num
-/// multiSelect deixa a caixa marcada e o agente parado — foi esse o bug.
-///
-/// Dígito e não seta: seta é relativa e erra acumulado se um evento se perder.
-/// Nada é lido da tela; os índices vêm do payload do hook.
-///
-/// Função pura porque é a única parte do projeto que adivinha o estado de uma
-/// TUI: se a gramática mudar, o teste é quem conta.
-pub fn keystrokes(answers: &[Answer]) -> Result<Vec<String>, String> {
-    let mut out = Vec::new();
-    for answer in answers {
-        for &pick in &answer.picks {
-            if pick >= answer.options {
-                return Err(i18n::ta("err.ask.noOption", &[("n", (pick + 1).to_string())]));
-            }
-            out.push(digit(pick + 1)?);
-        }
-        if let Some(text) = answer.free.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
-            // Sem opções não há seletor na tela, e "logo depois da última" não
-            // quer dizer nada — o dígito cairia numa opção que não existe.
-            if answer.options == 0 {
-                return Err(i18n::t("err.ask.freeOnly"));
-            }
-            // "Type something" é sempre a opção logo depois da última.
-            out.push(digit(answer.options + 1)?);
-            out.push(text.to_string());
-            out.push("\r".into());
-        }
-        if answer.multi {
-            out.push("\t".into());
-        }
-    }
-    out.push("\r".into());
-    Ok(out)
-}
-
-/// `async` porque isto dorme: a folga do seletor mais 130ms por tecla. Na
-/// thread principal, era a janela inteira congelada durante a resposta.
-#[tauri::command(async)]
-pub fn answer_questions(
-    state: State<AppState>,
-    session: String,
-    answers: Vec<Answer>,
-) -> Result<(), String> {
-    // Antes da folga: pedido malformado tem de falhar na hora, não meio
-    // segundo depois com metade das teclas já escritas.
-    let keys = keystrokes(&answers)?;
-    grace(&state, &session);
-    for k in &keys {
-        key(&state, &session, k)?;
-    }
-    Ok(())
-}
-
-fn digit(n: usize) -> Result<String, String> {
-    char::from_digit(n as u32, 10).map(String::from).ok_or_else(|| i18n::t("err.ask.tooMany"))
-}
-
-fn key(state: &State<AppState>, session: &str, text: &str) -> Result<(), String> {
-    {
-        let mut ptys = lock(&state.ptys);
-        ptys.get_mut(session).ok_or_else(|| i18n::t("err.pty.gone"))?.write(text)?;
-    }
-    std::thread::sleep(KEYSTROKE);
-    Ok(())
-}
-
-/// Espera o que falta da folga e consome a marca: ela serviu, e guardar
-/// `Instant` de toda pergunta já respondida é só mapa crescendo.
-fn grace(state: &State<AppState>, session: &str) {
-    let asked = lock(&state.asked_at).remove(session);
-    if let Some(asked) = asked {
-        let waited = asked.elapsed();
-        if waited < PICKER_GRACE {
-            std::thread::sleep(PICKER_GRACE - waited);
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{keystrokes, Answer};
-
-    fn answer(picks: &[usize], options: usize, multi: bool, free: Option<&str>) -> Answer {
-        Answer {
-            picks: picks.to_vec(),
-            options,
-            multi,
-            free: free.map(String::from),
-        }
-    }
-
-    /// Uma pergunta, escolha única: o dígito seleciona e avança, o Enter envia.
-    #[test]
-    fn escolha_unica_e_um_digito_e_um_enter() {
-        let keys = keystrokes(&[answer(&[1], 3, false, None)]).unwrap();
-        assert_eq!(keys, vec!["2", "\r"]);
-    }
-
-    /// multiSelect: um dígito por caixa marcada, e o Tab é quem avança. Sem o
-    /// Tab a caixa fica marcada e o agente parado — foi esse o bug.
-    #[test]
-    fn multi_marca_com_digito_e_avanca_com_tab() {
-        let keys = keystrokes(&[answer(&[0, 2], 4, true, None)]).unwrap();
-        assert_eq!(keys, vec!["1", "3", "\t", "\r"]);
-    }
-
-    /// Duas perguntas de escolha única: os dígitos saem na ordem das perguntas,
-    /// sem Tab entre elas, porque cada dígito já avançou sozinho.
-    #[test]
-    fn duas_perguntas_saem_na_ordem() {
-        let keys = keystrokes(&[answer(&[0], 2, false, None), answer(&[1], 2, false, None)]).unwrap();
-        assert_eq!(keys, vec!["1", "2", "\r"]);
-    }
-
-    /// Texto livre entra pela opção logo depois da última, e cada pergunta tem
-    /// o seu. Antes o front mandava tudo em `answers[0]`: as outras perguntas
-    /// iam sem resposta nenhuma e o Enter final enviava o que a TUI tinha.
-    #[test]
-    fn texto_livre_e_por_pergunta() {
-        let keys = keystrokes(&[
-            answer(&[], 2, false, Some("outra coisa")),
-            answer(&[1], 3, false, None),
-        ])
-        .unwrap();
-        assert_eq!(keys, vec!["3", "outra coisa", "\r", "2", "\r"]);
-    }
-
-    /// Texto em branco não é resposta: não vira tecla nenhuma.
-    #[test]
-    fn texto_em_branco_e_ignorado() {
-        let keys = keystrokes(&[answer(&[0], 2, false, Some("   "))]).unwrap();
-        assert_eq!(keys, vec!["1", "\r"]);
-    }
-
-    /// Índice fora da lista é erro, não uma tecla que a TUI vai interpretar
-    /// como outra coisa.
-    #[test]
-    fn opcao_que_nao_existe_e_erro() {
-        assert!(keystrokes(&[answer(&[5], 3, false, None)]).is_err());
-        assert!(keystrokes(&[answer(&[], 0, false, Some("oi"))]).is_err());
-    }
 }

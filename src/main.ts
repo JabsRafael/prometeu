@@ -18,7 +18,7 @@ import * as session from "./session";
 import * as settings from "./settings";
 import * as team from "./team";
 import "./style.css";
-import type { Board, Issue, Question, Workspace } from "./types";
+import type { Board, Issue, Workspace } from "./types";
 import * as update from "./update";
 import { $ } from "./util";
 import * as viewer from "./viewer";
@@ -236,30 +236,6 @@ team.onChange(refresh);
 /// Script que morreu sozinho — terminou, ou quebrou. A aba volta para o botão
 /// de começar sem ninguém perguntar de tempos em tempos.
 listen<[string, number | null]>("pty-closed", ({ payload: [key] }) => dockbar.closed(key));
-
-listen<{ session: string; payload: { tool_input?: { questions?: Question[] } } }>(
-  "question",
-  ({ payload }) => {
-    const qs = payload.payload.tool_input?.questions;
-    if (qs?.length) session.showQuestion(payload.session, qs);
-  },
-);
-
-listen<{ session: string; plan?: string }>("plan", ({ payload }) => {
-  session.showPlan(payload.session, payload.plan ?? "");
-});
-
-listen<{ id: number; session: string; payload: { tool_name?: string; tool_input?: unknown } }>(
-  "permission",
-  ({ payload }) => {
-    session.showPermission(
-      payload.id,
-      payload.session,
-      payload.payload.tool_name ?? t("ask.tool"),
-      payload.payload.tool_input,
-    );
-  },
-);
 
 /* ---------- arrastar arquivo para dentro do terminal ---------- */
 
