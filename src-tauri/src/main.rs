@@ -11,6 +11,7 @@ mod scripts;
 mod session;
 mod socket;
 mod state;
+mod team;
 mod transcript;
 
 use state::Board;
@@ -94,6 +95,7 @@ fn main() {
             session::cleanup_list,
             session::pin_workspace,
             session::set_unread,
+            session::set_shared,
             session::look_at,
             session::rename_workspace,
             session::remove_workspace,
@@ -128,11 +130,14 @@ fn main() {
             pty::pty_write,
             pty::pty_resize,
             pty::pty_buffer,
+            pty::pty_snapshot,
             linear::linear_status,
             linear::linear_connect,
             linear::linear_disconnect,
             linear::linear_issues,
             linear::linear_open,
+            team::team_config,
+            team::team_config_set,
         ])
         .build(tauri::generate_context!())
         .expect("erro ao subir o Prometheus")

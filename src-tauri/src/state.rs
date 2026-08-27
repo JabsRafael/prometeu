@@ -143,6 +143,11 @@ pub struct Workspace {
     /// PR, o caminho que era —, mas nada aqui abre terminal de novo.
     #[serde(default)]
     pub cleaned: bool,
+    /// Compartilhado com o time: o front anuncia este workspace ao relay e
+    /// repassa a saída das conversas a quem estiver olhando. Persistido para o
+    /// dono que fecha o app voltar compartilhando, sem ninguém pedir de novo.
+    #[serde(default)]
+    pub shared: bool,
     #[serde(default)]
     pub tabs: Vec<Tab>,
     #[serde(default)]

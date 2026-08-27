@@ -36,11 +36,42 @@ pub struct Dock {
     pub header: Option<String>,
 }
 
+/// A rolagem guardada e o número do último pedaço que entrou nela. Os dois
+/// vivem sob o mesmo lock de propósito: um snapshot é "estes bytes, até o
+/// pedaço N", e quem recebe os pedaços numerados sabe exatamente quais já
+/// estavam dentro — é o que deixa o front compartilhar a tela sem duplicar
+/// nem perder um chunk que cruzou com o snapshot no caminho.
+#[derive(Default)]
+pub struct Scroll {
+    pub bytes: Vec<u8>,
+    pub seq: u64,
+}
+
+impl Scroll {
+    /// Guarda um pedaço, corta o que passou do teto, e devolve o número dele.
+    pub fn absorb(&mut self, chunk: &[u8]) -> u64 {
+        self.bytes.extend_from_slice(chunk);
+        if self.bytes.len() > SCROLLBACK {
+            let cut = self.bytes.len() - SCROLLBACK;
+            self.bytes.drain(..cut);
+        }
+        self.seq += 1;
+        self.seq
+    }
+}
+
+/// O que `pty_snapshot` devolve: a rolagem e até que pedaço ela vai.
+#[derive(serde::Serialize)]
+pub struct Snapshot {
+    pub bytes: Vec<u8>,
+    pub seq: u64,
+}
+
 pub struct Pty {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     /// Últimos bytes da sessão, para reidratar a tela ao reabrir.
-    pub buffer: Arc<Mutex<Vec<u8>>>,
+    pub buffer: Arc<Mutex<Scroll>>,
     /// O processo ainda está rodando. A entrada continua no mapa depois de ele
     /// morrer — é a rolagem dela, com o `✗ saiu com código` no fim, que a aba
     /// mostra amanhã — e é este bit que separa "de pé" de "só a rolagem".
@@ -183,7 +214,7 @@ fn open(
     let pty = Pty {
         master: pair.master,
         writer,
-        buffer: Arc::new(Mutex::new(Vec::new())),
+        buffer: Arc::new(Mutex::new(Scroll::default())),
         alive: Arc::new(AtomicBool::new(true)),
         gone: Arc::new(AtomicBool::new(false)),
         pid,
@@ -215,8 +246,8 @@ pub fn spawn(
     let (pty, mut reader, mut child) = open(cmd, cols, rows, is_dock)?;
 
     if let Some(text) = header {
-        lock(&pty.buffer).extend_from_slice(text.as_bytes());
-        let _ = app.emit("pty", (session_id.to_string(), text.into_bytes()));
+        let seq = lock(&pty.buffer).absorb(text.as_bytes());
+        let _ = app.emit("pty", (session_id.to_string(), text.into_bytes(), seq));
     }
 
     let sink = pty.buffer.clone();
@@ -230,19 +261,13 @@ pub fn spawn(
             match reader.read(&mut chunk) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    {
-                        let mut buf = lock(&sink);
-                        buf.extend_from_slice(&chunk[..n]);
-                        if buf.len() > SCROLLBACK {
-                            let cut = buf.len() - SCROLLBACK;
-                            buf.drain(..cut);
-                        }
-                    }
+                    let seq = lock(&sink).absorb(&chunk[..n]);
                     // ponytail: bytes crus viram array JSON. Gordo, mas deixa o
                     // TextDecoder do front juntar UTF-8 partido no meio de graça.
-                    // Se pesar, trocar por base64.
+                    // Se pesar, trocar por base64. O número vai junto: é o que o
+                    // compartilhamento usa para casar pedaço com snapshot.
                     if !gone_t.load(Ordering::Relaxed) {
-                        let _ = app.emit("pty", (id.clone(), chunk[..n].to_vec()));
+                        let _ = app.emit("pty", (id.clone(), chunk[..n].to_vec(), seq));
                     }
                 }
             }
@@ -263,8 +288,8 @@ pub fn spawn(
                 ),
                 None => format!("\r\n\x1b[31m✗ {}\x1b[0m\r\n", i18n::pick("encerrado", "stopped")),
             };
-            lock(&sink).extend_from_slice(line.as_bytes());
-            let _ = app.emit("pty", (id.clone(), line.into_bytes()));
+            let seq = lock(&sink).absorb(line.as_bytes());
+            let _ = app.emit("pty", (id.clone(), line.into_bytes(), seq));
         }
         if let Some(on_exit) = on_exit {
             on_exit(code);
@@ -300,13 +325,51 @@ pub fn pty_resize(state: State<AppState>, session: String, cols: u16, rows: u16)
 pub fn pty_buffer(state: State<AppState>, session: String) -> Vec<u8> {
     lock(&state.ptys)
         .get(&session)
-        .map(|p| lock(&p.buffer).clone())
+        .map(|p| lock(&p.buffer).bytes.clone())
         .unwrap_or_default()
+}
+
+/// A rolagem e o número do último pedaço nela — para mandar a um colega que
+/// acabou de abrir a conversa. Tirado sob o mesmo lock que numera os pedaços,
+/// então "até o N" é exato.
+#[tauri::command]
+pub fn pty_snapshot(state: State<AppState>, session: String) -> Snapshot {
+    lock(&state.ptys)
+        .get(&session)
+        .map(|p| {
+            let s = lock(&p.buffer);
+            Snapshot { bytes: s.bytes.clone(), seq: s.seq }
+        })
+        .unwrap_or(Snapshot { bytes: Vec::new(), seq: 0 })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Cada pedaço ganha o número seguinte, e o snapshot diz até qual foi:
+    /// quem tirou o snapshot depois do segundo sabe que o terceiro não está
+    /// nele — sem olhar byte nenhum.
+    #[test]
+    fn pedacos_numerados_e_o_snapshot_diz_ate_qual() {
+        let mut s = Scroll::default();
+        assert_eq!(s.absorb(b"a"), 1);
+        assert_eq!(s.absorb(b"b"), 2);
+        assert_eq!((s.bytes.as_slice(), s.seq), (&b"ab"[..], 2));
+        assert_eq!(s.absorb(b"c"), 3);
+        assert_eq!(s.bytes, b"abc");
+    }
+
+    /// O teto corta o começo, e o número continua subindo: cortar não é
+    /// esquecer que houve pedaço.
+    #[test]
+    fn o_teto_corta_o_comeco_sem_mexer_no_numero() {
+        let mut s = Scroll::default();
+        s.absorb(&vec![b'x'; SCROLLBACK]);
+        assert_eq!(s.absorb(b"fim"), 2);
+        assert_eq!(s.bytes.len(), SCROLLBACK);
+        assert!(s.bytes.ends_with(b"fim"));
+    }
 
     /// O processo ainda está rodando?
     ///
@@ -332,6 +395,41 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
         }
         !running(pid)
+    }
+
+    /// A numeração contra um processo de verdade: o que o snapshot leva, e o
+    /// que sobra para ir ao vivo, é decidido por número — e é isto que faz a
+    /// tela de um colega não repetir nem perder um trecho.
+    ///
+    /// O `Scroll` é o mesmo que a thread de leitura usa; aqui ele é alimentado
+    /// pelos chunks de um pty real, com uma pausa no meio para garantir que a
+    /// leitura acontece em dois pedaços.
+    #[test]
+    fn snapshot_tirado_no_meio_da_saida_sabe_o_que_ja_levou() {
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.args(["-c", "printf primeiro; sleep 0.4; printf segundo"]);
+        let (pty, mut reader, _child) = open(cmd, 80, 24, false).expect("pty não abriu");
+        let scroll = pty.buffer.clone();
+
+        let read_chunk = |reader: &mut Box<dyn Read + Send>| -> u64 {
+            let mut chunk = [0u8; 1024];
+            let n = reader.read(&mut chunk).expect("leitura falhou");
+            lock(&scroll).absorb(&chunk[..n])
+        };
+
+        // Primeiro pedaço, e o snapshot que um colega receberia agora.
+        assert_eq!(read_chunk(&mut reader), 1);
+        let (bytes, seq) = {
+            let s = lock(&scroll);
+            (s.bytes.clone(), s.seq)
+        };
+        assert_eq!(String::from_utf8_lossy(&bytes), "primeiro");
+        assert_eq!(seq, 1, "o snapshot leva o primeiro pedaço, e diz isso");
+
+        // O que vem depois é justamente o que tem de ir ao vivo.
+        assert_eq!(read_chunk(&mut reader), 2);
+        assert!(lock(&scroll).bytes.ends_with(b"segundo"));
+        assert!(seq < lock(&scroll).seq, "o pedaço novo tem número maior que o do snapshot");
     }
 
     /// O bug que este arquivo existe para não ter de novo: fechar o dock

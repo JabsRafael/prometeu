@@ -37,6 +37,34 @@ pub fn session_dir(id: &str) -> PathBuf {
     root().join("sessions").join(id)
 }
 
+/// O time de que este app faz parte, com o segredo — só o dono lê. Quem fala
+/// com o relay é o front; o back só guarda isto fora do `localStorage`.
+pub fn team_path() -> PathBuf {
+    root().join("team.json")
+}
+
+/// Grava um arquivo que só o dono lê: nasce `0600`, e é reescrito inteiro —
+/// nunca truncado e preenchido, para não haver um instante com ele vazio. O
+/// erro é a causa crua; quem chama embrulha no código da sua tela.
+pub fn write_private(target: &Path, body: &str) -> Result<(), String> {
+    use std::io::Write;
+    if let Some(dir) = target.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let tmp = target.with_extension("json.tmp");
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut file = opts.open(&tmp).map_err(|e| e.to_string())?;
+    file.write_all(body.as_bytes()).map_err(|e| e.to_string())?;
+    drop(file);
+    std::fs::rename(&tmp, target).map_err(|e| e.to_string())
+}
+
 /// Worktrees ficam fora de `.prometheus` porque o usuário abre esses diretórios no editor.
 ///
 /// O sufixo também vale aqui: dois apps criando worktree para a mesma branch do

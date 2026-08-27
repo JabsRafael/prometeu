@@ -1,0 +1,787 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import {
+  PROTO,
+  SNAPSHOT,
+  decodeBinary,
+  encodeLive,
+  encodeSnapshot,
+  formatInvite,
+  parseInvite,
+  type Down,
+  type Inbox,
+  type Member,
+  type Note,
+  type Segment,
+  type Share,
+  type Shared,
+  type Up,
+  type Watching,
+} from "../relay/src/protocol";
+import { t } from "./i18n";
+import { Mirror } from "./mirror";
+import type { Board, Workspace } from "./types";
+
+/// O time: a conexão com o relay e o que ele conta — quem está online, o que
+/// está compartilhado, a caixa de notas. Vive aqui, no front, e não no Rust,
+/// porque tudo de que o compartilhamento precisa já passa por aqui: os bytes
+/// de todo terminal chegam pelo evento `pty`, e escrever num terminal é um
+/// `invoke`. O back só guarda o `team.json`.
+///
+/// Uma conexão por app, sempre de pé enquanto houver time: cai, volta sozinha
+/// com espera crescente; o `welcome` que o relay manda ao conectar é a verdade
+/// e refaz o estado inteiro.
+///
+/// Dois papéis, no mesmo módulo, porque o mesmo app faz os dois ao mesmo
+/// tempo: **dono** do que compartilhou (anuncia o workspace, repassa a saída
+/// das abas que alguém está olhando, recebe as teclas) e **colega** do que os
+/// outros compartilharam (workspaces remotos no quadro, uma aba aberta por
+/// vez, o espelho da rolagem de cada uma).
+
+export type TeamConfig = {
+  /// URL do relay quando não é a padrão do app.
+  relay: string | null;
+  team: string;
+  secret: string;
+  /// Quem você é para o time — nasce com o time e não muda.
+  member: string;
+  name: string;
+};
+
+export type Phase = "off" | "connecting" | "online";
+
+/// O relay que `npm run relay:deploy` publicou. Vazio enquanto não há um: aí
+/// só entra quem informar o seu em Configurações (ou `VITE_RELAY` no dev).
+const RELAY = "";
+
+/// Quanto da rolagem vai a quem acabou de abrir uma aba. O back guarda 512 KB;
+/// metade chega em menos de um segundo e cobre a tela inteira com folga.
+const SNAPSHOT_MAX = 256 * 1024;
+/// Quanto a saída espera antes de sair num frame só. O relay cobra por
+/// mensagem recebida; a tela do colega não distingue 40 ms.
+const COALESCE = 40;
+const FRAME_MAX = 32 * 1024;
+/// Quanto o colega espera pelo snapshot ao abrir uma aba. Passou disso, abre
+/// com o espelho que tiver — o dono sumiu no meio.
+const SNAPSHOT_WAIT = 4000;
+
+const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
+
+/* ---------- o que fala com o mundo ---------- */
+
+/// O suficiente de um WebSocket para o mock do navegador fingir um.
+export type SocketLike = {
+  binaryType: string;
+  send(data: string | ArrayBuffer | Uint8Array): void;
+  close(): void;
+  onopen: (() => void) | null;
+  onmessage: ((ev: { data: unknown }) => void) | null;
+  onclose: (() => void) | null;
+  onerror: (() => void) | null;
+};
+
+export type Transport = {
+  socket: (url: string) => SocketLike;
+  create: (relay: string) => Promise<{ team: string; secret: string }>;
+  /// O mock não tem relay nenhum e não precisa de URL.
+  needsRelay: boolean;
+};
+
+let transport: Transport = {
+  socket: (url) => new WebSocket(url) as unknown as SocketLike,
+  create: async (relay) => {
+    let r: Response;
+    try {
+      r = await fetch(`${httpUrl(relay)}/teams`, { method: "POST" });
+    } catch (e) {
+      throw t("err.team.relay", { cause: String(e) });
+    }
+    if (!r.ok) throw t("err.team.relay", { cause: `HTTP ${r.status}` });
+    return (await r.json()) as { team: string; secret: string };
+  },
+  needsRelay: true,
+};
+
+export function useTransport(next: Transport) {
+  transport = next;
+}
+
+/// O que o resto do app dá a este módulo: o tamanho do terminal (para o
+/// tamanho das abas que ninguém redimensionou ainda) e para onde vão os bytes
+/// e o tamanho da conversa remota que está na tela.
+export type Deps = {
+  dims: () => { cols: number; rows: number };
+};
+export type GuestSink = {
+  live: (tab: string, bytes: Uint8Array) => void;
+  size: (tab: string, cols: number, rows: number) => void;
+  /// A rolagem chegou de novo (o dono voltou, ou a conexão caiu e voltou): a
+  /// tela renasce dela.
+  reset: (tab: string, bytes: Uint8Array, cols: number, rows: number) => void;
+};
+
+let deps: Deps = { dims: () => ({ cols: 80, rows: 24 }) };
+let guest: GuestSink = { live: () => {}, size: () => {}, reset: () => {} };
+export const setSink = (sink: GuestSink) => void (guest = sink);
+
+/* ---------- estado ---------- */
+
+let cfg: TeamConfig | null = null;
+let defaultName = "";
+/// Relay digitado antes de haver time — vai para o `team.json` quando houver.
+let relayDraft = "";
+let phase: Phase = "off";
+let sock: SocketLike | null = null;
+let you: string | null = null;
+let members: Member[] = [];
+let shares = new Map<string, Shared>();
+let inbox: Inbox[] = [];
+/// As notas de cada workspace, como o relay as contou. Só o que já foi pedido
+/// (`notes`) está aqui; o resto chega quando alguém abre o painel.
+const notes = new Map<string, Note[]>();
+let attempt = 0;
+let retry = 0;
+let pinger = 0;
+
+const listeners = new Set<() => void>();
+export const onChange = (cb: () => void) => void listeners.add(cb);
+const changed = () => listeners.forEach((cb) => cb());
+
+let fail: ((text: string) => void) | null = null;
+export const onError = (cb: (text: string) => void) => void (fail = cb);
+
+export type TeamStatus = {
+  config: TeamConfig | null;
+  phase: Phase;
+  you: string | null;
+  members: Member[];
+  defaultName: string;
+  /// O que está escrito como relay (vazio é "o padrão"), o padrão, e o que
+  /// vale de fato.
+  relay: string;
+  relayDefault: string;
+  relayEffective: string;
+};
+
+export const status = (): TeamStatus => ({
+  config: cfg,
+  phase,
+  you,
+  members,
+  defaultName,
+  relay: cfg ? (cfg.relay ?? "") : relayDraft,
+  relayDefault: env?.VITE_RELAY || RELAY,
+  relayEffective: relayOf(cfg),
+});
+
+export const nameOf = (member: string) => members.find((m) => m.id === member)?.name ?? member.slice(0, 8);
+export const invite = () => (cfg ? formatInvite(cfg.team, cfg.secret) : null);
+export const inboxItems = () => inbox;
+
+/* ---------- ciclo de vida ---------- */
+
+export async function init(d?: Partial<Deps>) {
+  Object.assign(deps, d);
+  try {
+    const file = await invoke<{ config: TeamConfig | null; default_name: string }>("team_config");
+    cfg = file.config;
+    defaultName = file.default_name;
+  } catch {
+    // Sem back (ou back velho) não há time; a tela segue de pé.
+  }
+  // Todo byte de todo PTY passa aqui; o que é de aba que alguém está olhando
+  // vai para o relay.
+  listen<[string, number[], number]>("pty", ({ payload: [key, bytes, seq] }) => output(key, bytes, seq));
+  if (cfg) connect();
+}
+
+/// O relay que vale para uma configuração: o dela, o do ambiente de dev, o
+/// padrão do app — e, no mock do navegador, um endereço qualquer, porque lá
+/// não há relay e o socket é fingido.
+const relayOf = (c: TeamConfig | null) =>
+  (c ? c.relay || "" : relayDraft) || env?.VITE_RELAY || RELAY || (transport.needsRelay ? "" : "ws://mock");
+
+/// `https://x` vira `wss://x`, `http://x` vira `ws://x`; `ws(s)://` fica.
+function wsUrl(relay: string): string {
+  return relay.replace(/^http/, "ws").replace(/\/+$/, "");
+}
+function httpUrl(relay: string): string {
+  return relay.replace(/^ws/, "http").replace(/\/+$/, "");
+}
+
+function connect() {
+  if (!cfg) return;
+  const base = relayOf(cfg);
+  if (!base) {
+    phase = "off";
+    changed();
+    return;
+  }
+  const c = cfg;
+  phase = "connecting";
+  changed();
+  const url = `${wsUrl(base)}/team/${c.team}?s=${c.secret}&m=${c.member}&n=${encodeURIComponent(c.name)}&p=${PROTO}`;
+  const s = transport.socket(url);
+  s.binaryType = "arraybuffer";
+  sock = s;
+  s.onopen = () => {
+    attempt = 0;
+    // O edge derruba socket parado; o relay responde sem acordar.
+    pinger = setInterval(() => s.send("ping"), 30_000);
+  };
+  s.onmessage = (ev) => {
+    if (typeof ev.data === "string") {
+      if (ev.data === "pong") return;
+      let frame: Down;
+      try {
+        frame = JSON.parse(ev.data);
+      } catch {
+        return;
+      }
+      handle(frame);
+    } else if (ev.data instanceof ArrayBuffer) {
+      binary(ev.data);
+    }
+  };
+  s.onclose = () => {
+    if (sock !== s) return;
+    sock = null;
+    clearInterval(pinger);
+    members = members.map((m) => ({ ...m, online: false }));
+    for (const sh of shares.values()) sh.online = false;
+    announced.clear();
+    watchers.clear();
+    phase = cfg ? "connecting" : "off";
+    changed();
+    if (cfg) retry = setTimeout(connect, backoff());
+  };
+  s.onerror = () => {
+    // O `close` vem logo atrás, e é ele que remarca.
+  };
+}
+
+/// 1 s, 2 s, 4 s… até 30 s, com um pouco de acaso para dois apps do mesmo
+/// time não baterem no relay no mesmo instante.
+function backoff(): number {
+  const base = Math.min(30_000, 1000 * 2 ** attempt++);
+  return Math.round(base * (0.8 + Math.random() * 0.4));
+}
+
+function disconnect() {
+  clearTimeout(retry);
+  clearInterval(pinger);
+  const s = sock;
+  sock = null;
+  s?.close();
+  phase = "off";
+}
+
+function send(frame: Up): boolean {
+  if (!sock || phase !== "online") return false;
+  sock.send(JSON.stringify(frame));
+  return true;
+}
+
+function sendBinary(data: Uint8Array): boolean {
+  if (!sock || phase !== "online") return false;
+  sock.send(data);
+  return true;
+}
+
+/* ---------- o que chega ---------- */
+
+function handle(frame: Down) {
+  switch (frame.t) {
+    case "welcome":
+      you = frame.you;
+      members = frame.members;
+      shares = new Map(frame.shares.map((s) => [s.id, s]));
+      inbox = frame.inbox;
+      phase = "online";
+      // O que eu tinha em cache pode ter envelhecido enquanto eu estava fora.
+      const asked = [...notes.keys()];
+      notes.clear();
+      for (const ws of asked) send({ t: "notes", ws });
+      // A verdade veio; o que é meu vai de novo, e quem já olhava minhas abas
+      // ganha a rolagem inteira — o que saiu enquanto eu estava fora não
+      // chegou a ninguém.
+      announced.clear();
+      if (lastBoard) boardChanged(lastBoard);
+      rewatch(frame.watching);
+      if (attached) send({ t: "attach", ws: attached.ws, tab: attached.tab });
+      break;
+    case "presence":
+      members = frame.members;
+      break;
+    case "share":
+      shares.set(frame.share.id, frame.share);
+      break;
+    case "unshare":
+      shares.delete(frame.ws);
+      for (const [id, r] of remoteIds) if (r.ws === frame.ws) remoteIds.delete(id);
+      if (attached?.ws === frame.ws) attached = null;
+      break;
+    case "watch":
+      watched(frame.tab, frame.members, frame.added);
+      break;
+    case "write":
+      typed(frame.ws, frame.tab, frame.data);
+      return;
+    case "size": {
+      const share = shares.get(frame.ws);
+      if (share) share.sizes[frame.tab] = [frame.cols, frame.rows];
+      if (attached?.tab === frame.tab) guest.size(frame.tab, frame.cols, frame.rows);
+      return;
+    }
+    case "inbox":
+      inbox = frame.items;
+      break;
+    case "note": {
+      const list = notes.get(frame.note.ws) ?? [];
+      // Chega para todos, inclusive para quem escreveu — é assim que a nota
+      // ganha o id que o relay deu. Duas vezes a mesma, não.
+      if (!list.some((n) => n.id === frame.note.id)) list.push(frame.note);
+      notes.set(frame.note.ws, list);
+      break;
+    }
+    case "notes":
+      notes.set(frame.ws, frame.items);
+      break;
+    case "error": {
+      // Relay mais novo que o app pode mandar um código que este catálogo não
+      // tem; dizer a chave crua é pior que dizer que algo não passou.
+      const key = `err.team.${frame.code}` as Parameters<typeof t>[0];
+      const text = t(key);
+      fail?.(text === key ? t("err.team.bad") : text);
+      return;
+    }
+    default:
+      return;
+  }
+  changed();
+}
+
+/* ---------- ações do time ---------- */
+
+async function adopt(next: TeamConfig) {
+  await invoke("team_config_set", { config: next });
+  disconnect();
+  reset();
+  cfg = next;
+  attempt = 0;
+  connect();
+  changed();
+}
+
+function reset() {
+  you = null;
+  members = [];
+  shares = new Map();
+  inbox = [];
+  announced.clear();
+  watchers.clear();
+  queue.clear();
+  attached = null;
+  mirror.clear();
+  remoteIds.clear();
+  notes.clear();
+}
+
+const cleanName = (name: string) => {
+  const n = name.trim();
+  if (!n) throw t("err.team.name");
+  return n;
+};
+
+export async function create(name: string) {
+  const n = cleanName(name);
+  const base = relayOf(null);
+  if (!base) throw t("err.team.noRelay");
+  const { team, secret } = await transport.create(base);
+  await adopt({ relay: relayDraft || null, team, secret, member: crypto.randomUUID(), name: n });
+}
+
+export async function join(code: string, name: string) {
+  const n = cleanName(name);
+  const parsed = parseInvite(code);
+  if (!parsed) throw t("err.team.badCode");
+  await adopt({ relay: relayDraft || null, team: parsed.team, secret: parsed.secret, member: crypto.randomUUID(), name: n });
+}
+
+export async function leave() {
+  disconnect();
+  reset();
+  cfg = null;
+  await invoke("team_config_set", { config: null });
+  changed();
+}
+
+export async function setName(name: string) {
+  if (!cfg) return;
+  const n = cleanName(name);
+  cfg = { ...cfg, name: n };
+  await invoke("team_config_set", { config: cfg });
+  send({ t: "me", name: n });
+  changed();
+}
+
+export async function setRelay(url: string) {
+  const u = url.trim().replace(/\/+$/, "");
+  relayDraft = u;
+  if (cfg) {
+    cfg = { ...cfg, relay: u || null };
+    await invoke("team_config_set", { config: cfg });
+    disconnect();
+    attempt = 0;
+    connect();
+  }
+  changed();
+}
+
+/* ---------- dono: anunciar e repassar ---------- */
+
+/// O último quadro que o app viu — é dele que sai o anúncio, e é ele que se
+/// reanuncia quando a conexão volta.
+let lastBoard: Board | null = null;
+/// O que anunciei de cada workspace meu, serializado: só vai de novo se mudou.
+const announced = new Map<string, string>();
+/// O tamanho que cada aba minha ganhou (`Term.onResize`) — vai no anúncio.
+const sizes = new Map<string, [number, number]>();
+/// Quem está olhando cada aba minha, pelo que o relay contou.
+const watchers = new Map<string, string[]>();
+/// Saída esperando para sair num frame só, por aba.
+const queue = new Map<string, Segment[]>();
+let queued = 0;
+let flushTimer = 0;
+/// Abas com snapshot a caminho: a saída delas espera, para nenhum pedaço
+/// sair na frente do snapshot que já o contém.
+const holding = new Map<string, number>();
+
+function toShare(w: Workspace): Share {
+  const dims = deps.dims();
+  return {
+    id: w.id,
+    title: w.title,
+    repo_name: w.repo_name,
+    branch: w.branch,
+    stage: w.stage,
+    issue: w.issue ? { identifier: w.issue.identifier, title: w.issue.title, url: w.issue.url } : null,
+    active: w.active,
+    tabs: w.tabs.map((tab) => ({ id: tab.id, title: tab.title, status: tab.status, note: tab.note, tokens: tab.tokens })),
+    sizes: Object.fromEntries(w.tabs.map((tab) => [tab.id, sizes.get(tab.id) ?? [dims.cols, dims.rows]])),
+  };
+}
+
+/// O quadro mudou: o que é meu e está marcado vai ao relay se mudou; o que
+/// deixou de estar (arquivado, devolvido, tirado do quadro) sai de lá.
+export function boardChanged(board: Board) {
+  lastBoard = board;
+  if (!cfg) return;
+  const seen = new Set<string>();
+  for (const w of board.workspaces) {
+    if (!w.shared || w.remote) continue;
+    if (w.archived || w.cleaned) {
+      void invoke("set_shared", { id: w.id, shared: false });
+      continue;
+    }
+    seen.add(w.id);
+    const share = toShare(w);
+    const json = JSON.stringify(share);
+    if (announced.get(w.id) === json) continue;
+    if (send({ t: "share", share })) announced.set(w.id, json);
+  }
+  for (const id of [...announced.keys()]) {
+    if (seen.has(id)) continue;
+    announced.delete(id);
+    send({ t: "unshare", ws: id });
+    for (const tab of [...watchers.keys()]) if (!tabOwnedBy(tab, seen)) watchers.delete(tab);
+  }
+}
+
+const tabOwnedBy = (tab: string, ids: Set<string>) =>
+  !!lastBoard?.workspaces.some((w) => ids.has(w.id) && w.tabs.some((t) => t.id === tab));
+
+/// A aba pertence a um workspace meu, anunciado agora.
+const mine = (tab: string) => tabOwnedBy(tab, new Set(announced.keys()));
+
+export async function share(id: string, on: boolean) {
+  await invoke("set_shared", { id, shared: on });
+}
+
+export const isShared = (id: string) => announced.has(id);
+export const watchersOf = (tab: string): string[] => (watchers.get(tab) ?? []).map(nameOf);
+
+/// O terminal de uma aba minha mudou de tamanho: quem olha acompanha, e o
+/// anúncio passa a dizer o tamanho novo.
+export function resized(tab: string, cols: number, rows: number) {
+  sizes.set(tab, [cols, rows]);
+  if (!mine(tab)) return;
+  const ws = lastBoard?.workspaces.find((w) => w.tabs.some((t) => t.id === tab));
+  if (ws) send({ t: "size", ws: ws.id, tab, cols, rows });
+  if (lastBoard) boardChanged(lastBoard);
+}
+
+function watched(tab: string, who: string[], added: string[]) {
+  if (who.length) watchers.set(tab, who);
+  else watchers.delete(tab);
+  for (const member of added) void snapshot(tab, member);
+}
+
+/// O dono voltou: quem já olhava ganha a rolagem inteira de novo.
+function rewatch(watching: Watching) {
+  watchers.clear();
+  for (const tabs of Object.values(watching)) {
+    for (const [tab, who] of Object.entries(tabs)) {
+      if (!who.length) continue;
+      watchers.set(tab, who);
+      for (const member of who) void snapshot(tab, member);
+    }
+  }
+}
+
+/// A rolagem de uma aba minha para um colega. Enquanto ela não sai, a saída
+/// ao vivo da aba fica presa: um pedaço que saísse na frente e não estivesse
+/// no snapshot seria ignorado do outro lado — e perdido.
+async function snapshot(tab: string, member: string) {
+  holding.set(tab, (holding.get(tab) ?? 0) + 1);
+  try {
+    const s = await invoke<{ bytes: number[]; seq: number }>("pty_snapshot", { session: tab });
+    const all = Uint8Array.from(s.bytes);
+    const bytes = all.length > SNAPSHOT_MAX ? all.subarray(all.length - SNAPSHOT_MAX) : all;
+    sendBinary(encodeSnapshot(tab, member, s.seq, bytes));
+  } catch {
+    // Sessão que já não existe: o colega abre com o que tiver.
+  } finally {
+    const left = (holding.get(tab) ?? 1) - 1;
+    if (left > 0) holding.set(tab, left);
+    else holding.delete(tab);
+    flush();
+  }
+}
+
+/// Um pedaço de saída de algum PTY. Só interessa se alguém está olhando a
+/// aba — o resto do tempo isto custa uma busca num mapa vazio.
+function output(key: string, bytes: number[], seq: number) {
+  if (!watchers.has(key)) return;
+  const list = queue.get(key) ?? [];
+  list.push({ seq, bytes: Uint8Array.from(bytes) });
+  queue.set(key, list);
+  queued += bytes.length;
+  if (queued >= FRAME_MAX) flush();
+  else if (!flushTimer) flushTimer = setTimeout(flush, COALESCE);
+}
+
+function flush() {
+  clearTimeout(flushTimer);
+  flushTimer = 0;
+  for (const [tab, segments] of queue) {
+    if (holding.has(tab)) continue;
+    queue.delete(tab);
+    queued -= segments.reduce((n, s) => n + s.bytes.length, 0);
+    if (!watchers.has(tab)) continue;
+    sendBinary(encodeLive(tab, segments));
+  }
+  if (queue.size && !flushTimer) flushTimer = setTimeout(flush, COALESCE);
+}
+
+/// Um colega digitou numa aba minha. Só vale para aba de workspace que eu
+/// anunciei: o relay já filtra, mas a tecla vai para um processo de verdade.
+function typed(ws: string, tab: string, data: string) {
+  if (!announced.has(ws) || !mine(tab)) return;
+  void invoke("pty_write", { session: tab, data }).catch(() => {});
+}
+
+/* ---------- colega: o que os outros compartilharam ---------- */
+
+/// O id de um workspace de colega na tela deste app. Prefixado porque o
+/// quadro passa a ter os dois, e um id que colidisse com um workspace daqui
+/// faria a tela desenhar um e falar do outro — e mandar ao back um id que não
+/// é dele. O que o relay conhece fica no mapa.
+const PREFIX = "@time:";
+const remoteIds = new Map<string, { ws: string; owner: string }>();
+const remoteId = (owner: string, ws: string) => `${PREFIX}${owner}/${ws}`;
+
+/// A aba de um colega que está na tela, se alguma.
+let attached: { ws: string; tab: string } | null = null;
+/// A rolagem de cada aba remota que já abri: a que o dono mandou mais o que
+/// veio ao vivo. É daqui que a tela renasce ao voltar para a aba. A regra de
+/// juntar as duas está em `mirror.ts`, testada sem rede nem tela.
+const mirror = new Map<string, Mirror>();
+let waiting: { tab: string; resolve: () => void } | null = null;
+
+/// O share de uma aba remota. Só para o que chega do relay já endereçado —
+/// nunca para decidir se uma aba é remota: aba local com o mesmo id existiria.
+const shareOfTab = (tab: string) => (attached?.tab === tab ? shares.get(attached.ws) : undefined);
+
+/// Workspaces dos colegas, como o quadro os desenha. Não são do Rust: só
+/// existem na tela, e o que os distingue é `remote`.
+export function remotes(): Workspace[] {
+  const out: Workspace[] = [];
+  for (const s of shares.values()) {
+    if (s.owner === you) continue;
+    const id = remoteId(s.owner, s.id);
+    remoteIds.set(id, { ws: s.id, owner: s.owner });
+    out.push({
+      id,
+      title: s.title,
+      project: "@time",
+      repo: "",
+      repo_name: s.repo_name,
+      branch: s.branch,
+      worktree: "",
+      stage: s.stage,
+      archived: false,
+      pinned: false,
+      unread: false,
+      model: "",
+      effort: "",
+      port: null,
+      issue: s.issue ? { id: "", identifier: s.issue.identifier, title: s.issue.title, url: s.issue.url } : null,
+      pr: null,
+      cleaned: false,
+      shared: false,
+      remote: { owner: s.owner, online: s.online },
+      tabs: s.tabs.map((tab) => ({ ...tab })),
+      active: s.active,
+    });
+  }
+  return out;
+}
+
+/// Este id de workspace é de um colega? Pelo prefixo, e não por busca: a
+/// resposta não pode mudar porque um share chegou ou saiu no meio.
+export const isRemote = (id: string) => id.startsWith(PREFIX);
+
+/// A aba remota que está na tela, se é uma. É por aqui que a tecla decide
+/// para onde vai — o id da aba sozinho não diz de quem ela é.
+export const attachedTab = () => attached?.tab ?? null;
+
+/// Abrir a aba de um colega: pede ao relay, espera a rolagem chegar e devolve
+/// o que a tela desenha. Uma aba por vez — abrir outra solta a anterior.
+export async function attach(id: string, tab: string): Promise<{ bytes: Uint8Array; cols: number; rows: number }> {
+  const found = remoteIds.get(id);
+  const s = found && shares.get(found.ws);
+  if (!s) throw t("err.team.noShare");
+  attached = { ws: s.id, tab };
+  const [cols, rows] = s.sizes[tab] ?? [80, 24];
+  if (s.online && send({ t: "attach", ws: s.id, tab })) {
+    await new Promise<void>((resolve) => {
+      waiting = { tab, resolve };
+      setTimeout(resolve, SNAPSHOT_WAIT);
+    });
+    if (waiting?.tab === tab) waiting = null;
+  }
+  return { bytes: mirrorOf(tab), cols, rows };
+}
+
+export function detach() {
+  if (!attached) return;
+  send({ t: "detach" });
+  attached = null;
+  waiting = null;
+}
+
+/// A tecla de quem está olhando vai ao dono — se ele estiver aí. Vale para a
+/// aba na tela, que é a única em que se digita.
+export function write(data: string) {
+  if (!attached) return;
+  const s = shares.get(attached.ws);
+  if (!s) return;
+  if (!s.online) {
+    fail?.(t("err.team.offline"));
+    return;
+  }
+  send({ t: "write", ws: s.id, tab: attached.tab, data });
+}
+
+function mirrorOf(tab: string): Uint8Array {
+  return mirror.get(tab)?.bytes() ?? new Uint8Array(0);
+}
+
+function mirrorFor(tab: string): Mirror {
+  let m = mirror.get(tab);
+  if (!m) {
+    m = new Mirror();
+    mirror.set(tab, m);
+  }
+  return m;
+}
+
+function binary(data: ArrayBuffer) {
+  const bin = decodeBinary(data);
+  if (!bin) return;
+  if (bin.kind === SNAPSHOT) {
+    if (bin.to !== you) return;
+    mirrorFor(bin.tab).seed(bin.bytes, bin.seq);
+    if (waiting?.tab === bin.tab) {
+      waiting.resolve();
+      waiting = null;
+    } else if (attached?.tab === bin.tab) {
+      // Ninguém pediu: o dono voltou (ou a conexão), e a tela renasce.
+      const s = shareOfTab(bin.tab);
+      const [cols, rows] = s?.sizes[bin.tab] ?? [80, 24];
+      guest.reset(bin.tab, mirrorOf(bin.tab), cols, rows);
+    }
+    return;
+  }
+  const m = mirrorFor(bin.tab);
+  for (const seg of bin.segments) {
+    const fresh = m.absorb(seg.seq, seg.bytes);
+    if (fresh && attached?.tab === bin.tab) guest.live(bin.tab, fresh);
+  }
+}
+
+/* ---------- notas ---------- */
+
+/// O id que o relay conhece: o de um colega vem prefixado na tela, o seu é
+/// ele mesmo.
+const relayId = (id: string) => remoteIds.get(id)?.ws ?? id;
+
+/// As notas de um workspace, e o pedido ao relay se ainda não vieram. Devolve
+/// o que já se sabe; o resto chega pelo `onChange`.
+export function notesOf(id: string): Note[] {
+  const ws = relayId(id);
+  const have = notes.get(ws);
+  if (have) return have;
+  // Guardar a lista vazia é dizer "já pedi": só vale se o pedido saiu. Sem
+  // conexão, o painel fica vazio e pede de novo quando ela voltar.
+  if (send({ t: "notes", ws })) notes.set(ws, []);
+  return [];
+}
+
+/// Escreve uma nota. `quote` é o trecho do terminal que ela cita, se cita, e
+/// `mentions` são ids de membros — o relay descarta quem não existe.
+export function addNote(id: string, text: string, mentions: string[], quote: string | null) {
+  send({ t: "note", ws: relayId(id), text, mentions, quote });
+}
+
+/// Quantas notas mencionam você e você ainda não abriu.
+export const inboxCount = () => inbox.length;
+
+/// Abrir a nota da caixa: sai da caixa e diz onde ela está, para a tela levar
+/// até lá. O id do workspace é o da tela, não o do relay.
+export function readInbox(id: string): { workspace: string; note: string } | null {
+  const item = inbox.find((i) => i.id === id);
+  if (!item) return null;
+  send({ t: "inbox_read", id });
+  inbox = inbox.filter((i) => i.id !== id);
+  const owned = [...remoteIds].find(([, r]) => r.ws === item.ws);
+  changed();
+  return { workspace: owned?.[0] ?? item.ws, note: item.id };
+}
+
+/// O que a caixa mostra: a nota, de quem é, e onde está.
+export function inboxList(): { id: string; ws: string; author: string; ts: number; title: string; text: string }[] {
+  return inbox.map((i) => {
+    const note = notes.get(i.ws)?.find((n) => n.id === i.id);
+    const share = shares.get(i.ws);
+    return {
+      id: i.id,
+      ws: i.ws,
+      author: nameOf(i.author),
+      ts: i.ts,
+      title: share?.title ?? "",
+      text: note?.text ?? "",
+    };
+  });
+}

@@ -33,6 +33,11 @@
         <span id="msg" class="msg"></span>
         <div id="wsctl" class="wsctl" hidden>
           <span id="wsstatus" class="chip"></span>
+          <!-- Quem do time está olhando a conversa aberta: um chip por pessoa. -->
+          <span id="watchers" class="watchers"></span>
+          <!-- Compartilhar com o time: o workspace vai para o quadro dos colegas,
+               e a saída das conversas para quem abrir. Só existe com time. -->
+          <button id="share" class="ghost md" hidden></button>
           <button id="wsstage" class="ghost md" data-t-title="top.stage"></button>
           <!-- Não cria nada sozinho: injeta na conversa ativa o pedido de PR,
                com o estado do git e os passos. Quem faz é o agente. -->
@@ -48,6 +53,9 @@
         <section id="boardView" class="view">
           <div class="boardmain">
             <div class="subbar pulse" id="pulse"></div>
+            <!-- O que os colegas compartilharam: não tem etapa sua, então não
+                 cabe em coluna nenhuma. Uma faixa, acima delas. -->
+            <div class="teamstrip" id="teamstrip" hidden></div>
             <div class="cols" id="cols"></div>
           </div>
         </section>
@@ -127,6 +135,9 @@
             <div class="sidetabs">
               <button id="tab-files" class="sidetab on" data-t="side.files"></button>
               <button id="tab-diff" class="sidetab"><span data-t="side.changes"></span> <span id="diffcount"></span></button>
+              <!-- Notas da sessão: o que alguém do time precisa que você veja,
+                   e o que você quer perguntar a alguém. Desenhada por notes.ts. -->
+              <button id="tab-notes" class="sidetab" hidden><span data-t="side.notes"></span> <span id="notecount"></span></button>
               <span class="spacer"></span>
               <button id="collapse" class="ico" data-t-title="side.collapse"></button>
               <button id="reveal" class="ico" data-t-title="side.reveal"></button>
@@ -134,6 +145,7 @@
             <div class="sidebody">
               <div class="tree" id="tree"></div>
               <div class="difflist" id="difflist" hidden></div>
+              <div class="notes" id="notes" hidden></div>
             </div>
             <!-- Setup prepara o worktree, Run sobe o projeto, e o + abre
                  shells. Todos rodam no mesmo worktree e nenhum é sessão de

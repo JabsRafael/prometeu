@@ -1,0 +1,15 @@
+# O relay do time: um Worker que cria times e encaminha cada conexão ao
+# Durable Object do time. Sobe uma vez com `npm run relay:deploy`; para testar
+# sem deploy, `npm run relay:dev` escuta em ws://127.0.0.1:8787.
+name = "prometheus-relay"
+main = "src/worker.ts"
+compatibility_date = "2026-08-01"
+
+[[durable_objects.bindings]]
+name = "TEAM"
+class_name = "TeamRoom"
+
+# SQLite é o que o plano gratuito aceita — e é o único storage que o objeto usa.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TeamRoom"]

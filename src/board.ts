@@ -1,11 +1,14 @@
 import { avatar, icon, stageIcon } from "./icons";
 import { num, stage as stageName, t } from "./i18n";
 import * as menu from "./menu";
+import * as team from "./team";
 import * as rename from "./rename";
 import { fmtTokens, hasWorktree, heaviest, label, statusOf, worst, type Board, type Status, type Workspace } from "./types";
 import { h } from "./util";
 
 export type Hooks = {
+  /// A caixa "Para mim": as notas do time que marcaram você.
+  inbox: () => void;
   open: (ws: Workspace) => void;
   setStage: (id: string, stage: string) => void;
   /// Tira do quadro de vez — o worktree e a branch ficam, a referência não.
@@ -47,8 +50,15 @@ export function setOpen(id: string | null) {
 export function render(board: Board, hooks: Hooks) {
   renderRail(board, hooks);
   // Arquivado não conta em lugar nenhum: é trabalho que você tirou da frente.
-  const live = board.workspaces.filter((w) => !w.archived);
+  // O dos colegas também fica fora das contas e das colunas: não tem etapa
+  // sua, e o que ele faz não é o seu pulso.
+  const live = board.workspaces.filter((w) => !w.archived && !w.remote);
   renderPulse(live);
+  renderShared(
+    board.workspaces.filter((w) => w.remote),
+    board,
+    hooks,
+  );
   renderColumns(board, live, hooks);
 }
 
@@ -137,7 +147,7 @@ const folded = (name: string) => localStorage.getItem(FOLD + name) === "1";
 function renderRail(board: Board, hooks: Hooks) {
   const rail = el("railbody");
   rail.replaceChildren();
-  const live = board.workspaces.filter((w) => !w.archived);
+  const live = board.workspaces.filter((w) => !w.archived && !w.remote);
 
   rail.append(h("div", "navitem brand", `${icon("flame")}<span>Prometheus</span>`));
 
@@ -169,13 +179,32 @@ function renderRail(board: Board, hooks: Hooks) {
   quadro.children[1].textContent = t("rail.board");
   quadro.querySelector(".n")!.textContent = String(live.length);
   quadro.addEventListener("click", hooks.toBoard);
-  rail.append(quadro, document.createElement("hr"));
+  rail.append(quadro);
+
+  // Alguém do time te marcou numa nota: é o único lugar da tela que espera
+  // resposta sua e não está dentro de uma sessão.
+  const waiting = team.inboxCount();
+  if (waiting) {
+    const mine = h("button", "navitem mentions", `${icon("at-sign")}<span></span><span class="n"></span>`);
+    mine.children[1].textContent = t("inbox.title");
+    mine.querySelector(".n")!.textContent = String(waiting);
+    mine.addEventListener("click", hooks.inbox);
+    rail.append(mine);
+  }
+  rail.append(document.createElement("hr"));
 
   // Fixado sobe para o topo e sai do grupo do projeto: aparecer duas vezes na
   // mesma lista não ajuda ninguém.
   const pinned = live.filter((w) => w.pinned);
   if (pinned.length) {
     renderGroup(rail, board, hooks, t("rail.pinned"), icon("pin", 14), pinned, "@fixados", { avatars: true });
+  }
+
+  // O que os colegas compartilharam. Antes dos projetos: não é de projeto
+  // nenhum daqui, e é o que muda sem você fazer nada.
+  const shared = board.workspaces.filter((w) => w.remote);
+  if (shared.length) {
+    renderGroup(rail, board, hooks, t("rail.team"), icon("users", 14), shared, "@time", { avatars: true });
   }
 
   const sect = h("div", "sect", `<span></span>`);
@@ -291,8 +320,18 @@ function renderGroup(
     (b.children[0] as HTMLElement).style.background = `var(--dot-${statusOf(ws)})`;
     b.children[1].textContent = ws.title;
     b.children[2].textContent = ws.tabs.length > 1 ? `${ws.tabs.length}` : "";
-    b.title = `${ws.repo_name} · ${ws.branch} · ${stageName(ws.stage)} · ${label(statusOf(ws))}`;
     b.addEventListener("click", () => hooks.open(ws));
+    // Workspace de colega: o avatar é dele, e a etapa é a dele — não vira anel,
+    // porque o anel é a posição na sua lista de etapas.
+    if (ws.remote) {
+      const owner = team.nameOf(ws.remote.owner);
+      b.title = `${owner} · ${ws.repo_name} · ${ws.branch} · ${label(statusOf(ws))}`;
+      b.children[0].after(h("span", "av", avatar(owner)));
+      if (!ws.remote.online) b.classList.add("off");
+      rail.append(b);
+      continue;
+    }
+    b.title = `${ws.repo_name} · ${ws.branch} · ${stageName(ws.stage)} · ${label(statusOf(ws))}`;
     // A etapa saiu do cabeçalho e virou o anel da linha: o grupo é o projeto,
     // e continua dando para ler de longe o que está em qual etapa.
     const at = board.stages.indexOf(ws.stage);
@@ -322,6 +361,21 @@ function renderPulse(list: Workspace[]) {
       return d;
     }),
   );
+}
+
+/* ---------- compartilhados com você ---------- */
+
+/// Os workspaces dos colegas, acima das colunas: não têm etapa sua, então não
+/// cabem em coluna nenhuma. Some quando não há nenhum.
+function renderShared(list: Workspace[], board: Board, hooks: Hooks) {
+  const strip = el("teamstrip");
+  strip.replaceChildren();
+  strip.hidden = !list.length;
+  if (!list.length) return;
+  const head = h("div", "head", `${icon("users", 13)}<span></span>`);
+  head.children[1].textContent = t("board.shared");
+  strip.append(head);
+  for (const ws of list) strip.append(card(ws, board, hooks));
 }
 
 /* ---------- colunas ---------- */
@@ -442,7 +496,54 @@ function grab(el: HTMLElement, ws: Workspace, hooks: Hooks) {
   });
 }
 
+/// O card de um workspace de colega: o que ele contou, e de quem é. Não
+/// arrasta (a etapa é dele), não arquiva, não tem menu — abre, e só.
+function remoteCard(ws: Workspace, hooks: Hooks): HTMLElement {
+  const status = statusOf(ws);
+  const owner = team.nameOf(ws.remote!.owner);
+  const el = h("div", "card remote" + (ws.id === openId ? " here" : "") + (ws.remote!.online ? "" : " off"));
+  el.tabIndex = 0;
+  el.addEventListener("click", () => hooks.open(ws));
+  el.addEventListener("keydown", (e) => e.key === "Enter" && hooks.open(ws));
+
+  const repo = h("div", "repo");
+  repo.textContent = `${ws.repo_name} · ${ws.branch}`;
+  const title = h("div", "ttl");
+  title.textContent = ws.title;
+  el.append(repo, title);
+
+  const note = worst(ws)?.note;
+  if (note) {
+    const line = h("div", "act" + (status === "querendo" ? " ask" : ""));
+    line.textContent = note;
+    el.append(line);
+  }
+
+  const foot = h("div", "foot");
+  const who = h("span", "chip owner", `${avatar(owner)}<span class="nm"></span>`);
+  who.querySelector(".nm")!.textContent = t("card.remote", { name: owner });
+  who.title = t("card.remote.title", { name: owner });
+  foot.append(who);
+  if (ws.remote!.online) {
+    const chip = h("span", `chip s-${status}`, `<i class="dot"></i>`);
+    chip.append(label(status));
+    foot.append(chip);
+  } else {
+    const chip = h("span", "chip", `${icon("wifi-off", 12)}<span></span>`);
+    chip.children[1].textContent = t("card.ownerOffline");
+    foot.append(chip);
+  }
+  if (ws.tabs.length > 1) {
+    const tabs = h("span", "chip");
+    tabs.textContent = t("card.tabs", { n: ws.tabs.length });
+    foot.append(tabs);
+  }
+  el.append(foot);
+  return el;
+}
+
 function card(ws: Workspace, board: Board, hooks: Hooks): HTMLElement {
+  if (ws.remote) return remoteCard(ws, hooks);
   const status = statusOf(ws);
   // Div, e não botão: o campo de renomear nasce no lugar do título, dentro do
   // card — e `input` dentro de `button` é HTML inválido. O `tabindex` devolve o
@@ -531,6 +632,13 @@ function card(ws: Workspace, board: Board, hooks: Hooks): HTMLElement {
     const tack = h("span", "chip", icon("pin", 13));
     tack.title = t("card.pinned.title");
     foot.append(tack);
+  }
+
+  // Compartilhado com o time: dá para ver do quadro, sem abrir.
+  if (ws.shared) {
+    const tag = h("span", "chip shared", icon("share-2", 12));
+    tag.title = t("share.off.title");
+    foot.append(tag);
   }
 
   // Quão cheia está a janela, no canto direito: à esquerda fica o que o agente

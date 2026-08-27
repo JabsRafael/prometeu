@@ -1,6 +1,8 @@
 /// Back falso para o navegador puro (`npm run dev` e abrir localhost:1420):
 /// a UI inteira roda com dados de amostra, sem subir o Tauri. Só entra quando
 /// `window.__TAURI_INTERNALS__` não existe — dentro do app não é carregado.
+import { encodeLive, encodeSnapshot } from "../relay/src/protocol";
+import * as team from "./team";
 import { hasWorktree, type Board, type Issue, type LinearStatus, type Scripts, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
@@ -33,6 +35,8 @@ const ws = (
   issue: null,
   pr: null,
   cleaned: false,
+  shared: false,
+  remote: null,
   tabs,
   active: tabs[0]?.id ?? null,
 });
@@ -264,6 +268,34 @@ const ISSUES: Issue[] = [
   issue("MOA-120", "Explorar sync com Notion", 0, BACKLOG, "Integrações", 240),
 ];
 
+/// A rolagem de cada conversa de mentira, numerada como o back numera: o que
+/// `mock.type` escreve entra aqui, sai pelo evento `pty` com o número, e o
+/// `pty_snapshot` devolve o mesmo par — para o compartilhamento poder ser
+/// testado contra um relay de verdade sem subir o Tauri.
+const scrolls = new Map<string, { text: string; seq: number }>();
+const scrollOf = (tab: string) => {
+  let s = scrolls.get(tab);
+  if (!s) {
+    s = { text: SAMPLE, seq: 1 };
+    scrolls.set(tab, s);
+  }
+  return s;
+};
+function typeInto(tab: string, data: string) {
+  const s = scrollOf(tab);
+  const out = data === "\r" ? "\r\n" : data;
+  s.text += out;
+  s.seq += 1;
+  emit("pty", [tab, [...new TextEncoder().encode(out)], s.seq]);
+}
+
+/// Os workspaces compartilhados, entre recargas — o `shared` do board.json.
+const SHARED = "mock:shared";
+for (const id of JSON.parse(localStorage.getItem(SHARED) ?? "[]") as string[]) {
+  const ws = board.workspaces.find((x) => x.id === id);
+  if (ws) ws.shared = true;
+}
+
 function emit(event: string, payload: unknown) {
   handlers.get(event)?.forEach((h) => h({ event, id: nextId++, payload }));
 }
@@ -277,12 +309,29 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     }
     case "load_board":
       return board;
+    // O time fica no localStorage aqui, para sobreviver a recarregar a aba —
+    // no app é o `team.json` do back.
+    case "team_config":
+      return { config: JSON.parse(localStorage.getItem("mock:team") ?? "null"), default_name: "Você" };
+    case "team_config_set":
+      if (args.config) localStorage.setItem("mock:team", JSON.stringify(args.config));
+      else localStorage.removeItem("mock:team");
+      return;
     case "pty_buffer": {
       // Chave com `:` é dock; sem, é conversa de agente.
       const s = String(args.session);
-      const text = !s.includes(":") ? SAMPLE : docks.get(s) === false ? SCRIPT_OUT + DONE : SCRIPT_OUT;
+      const text = !s.includes(":") ? scrollOf(s).text : docks.get(s) === false ? SCRIPT_OUT + DONE : SCRIPT_OUT;
       return [...new TextEncoder().encode(text)];
     }
+    case "pty_snapshot": {
+      const s = scrollOf(String(args.session));
+      return { bytes: [...new TextEncoder().encode(s.text)], seq: s.seq };
+    }
+    // O terminal de mentira ecoa o que recebe: é o que deixa ver a tecla de um
+    // colega chegar e voltar.
+    case "pty_write":
+      typeInto(String(args.session), String(args.data));
+      return;
     case "workspace_diff":
       return changes;
     case "list_dir":
@@ -314,6 +363,15 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     case "set_stage": {
       const target = board.workspaces.find((x) => x.id === args.id);
       if (target) target.stage = args.stage;
+      emit("board", board);
+      return;
+    }
+    case "set_shared": {
+      const target = board.workspaces.find((x) => x.id === args.id);
+      if (target) target.shared = args.shared;
+      // Como o `board.json` do back: recarregar a página não desfaz o que foi
+      // compartilhado, senão o dono que volta volta sem nada compartilhado.
+      localStorage.setItem(SHARED, JSON.stringify(board.workspaces.filter((x) => x.shared).map((x) => x.id)));
       emit("board", board);
       return;
     }
@@ -519,6 +577,180 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
   }
 }
 
+/* ---------- o relay de mentira ---------- */
+
+/// Um time com dois colegas fixos, para mexer na tela sem relay: o `welcome`
+/// chega meio segundo depois de conectar, `me` troca o nome, e o resto é
+/// silêncio. `mock.presence(false)` derruba um colega para ver a lista mudar.
+let marcusOnline = true;
+const fakes: team.SocketLike[] = [];
+const enc = new TextEncoder();
+/// O workspace que o Marcus compartilhou: uma conversa rodando, do tamanho de
+/// um terminal comum. É o que o quadro mostra em "Do time".
+const marcusShare = () => ({
+  id: "ws-marcus",
+  title: "Arquivar todos os concluídos",
+  repo_name: "capim-backend",
+  branch: "fix/archive-completed-todos",
+  stage: "Fazendo",
+  issue: { identifier: "CAP-218", title: "Digest semanal zera concluídos", url: "https://linear.app/x/issue/CAP-218" },
+  active: "mt1",
+  tabs: [
+    { id: "mt1", title: "conversa 1", status: "rodando", note: "Edit src/todos/complete.ts", tokens: 41_200 },
+    { id: "mt2", title: "testes", status: "pronta", note: null, tokens: 8_300 },
+  ],
+  sizes: { mt1: [100, 30], mt2: [100, 30] },
+  owner: "marcus",
+  online: marcusOnline,
+});
+function fakeSocket(url: string): team.SocketLike {
+  const u = new URL(url);
+  const me = u.searchParams.get("m") ?? "eu";
+  let name = u.searchParams.get("n") ?? "Você";
+  let seq = 1;
+  let ticking = 0;
+  let attached: string | null = null;
+  /// As notas de mentira, por workspace. Nascem com uma do Marcus no que ele
+  /// compartilhou, para o painel ter o que mostrar de cara.
+  const notes = new Map<string, unknown[]>([
+    [
+      "ws-marcus",
+      [
+        {
+          id: "1-a",
+          ws: "ws-marcus",
+          author: "marcus",
+          text: `Completar um todo agora carimba \`completed_at\` em vez de apagar a linha. @${name} a chamada que sobrou é sua: manter o histórico na tabela de todos, ou mover para uma tabela só delas?`,
+          mentions: [me],
+          quote: "edit migrations/0007_todo_completed_at.sql · +11",
+          ts: Date.now() - 9 * 60_000,
+        },
+      ],
+    ],
+  ]);
+  const members = () => [
+    { id: me, name, online: true },
+    { id: "marcus", name: "Marcus Hale", online: marcusOnline },
+    { id: "john", name: "John Okafor", online: false },
+  ];
+  const text = (frame: unknown) => s.onmessage?.({ data: JSON.stringify(frame) });
+  const bin = (bytes: Uint8Array) => s.onmessage?.({ data: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) });
+  const live = (line: string) => {
+    if (!attached) return;
+    bin(encodeLive(attached, [{ seq: ++seq, bytes: enc.encode(line) }]));
+  };
+  const s: team.SocketLike & { presence: () => void } = {
+    binaryType: "blob",
+    onopen: null,
+    onmessage: null,
+    onclose: null,
+    onerror: null,
+    presence: () => {
+      text({ t: "presence", members: members() });
+      text({ t: "share", share: marcusShare() });
+    },
+    send(data) {
+      if (typeof data !== "string" || data === "ping") return;
+      const frame = JSON.parse(data);
+      switch (frame.t) {
+        case "me":
+          name = frame.name;
+          s.presence();
+          break;
+        // Abrir uma aba do Marcus: a rolagem vem, e depois uma linha de vez
+        // em quando — o suficiente para ver a tela andar sozinha.
+        case "attach":
+          attached = frame.tab;
+          clearInterval(ticking);
+          setTimeout(() => bin(encodeSnapshot(frame.tab, me, seq, enc.encode(SAMPLE))), 200);
+          ticking = setInterval(() => live(`\r\n\x1b[2m${new Date().toLocaleTimeString()}\x1b[0m  ✓ 1 test passed`), 2500);
+          break;
+        case "detach":
+          attached = null;
+          clearInterval(ticking);
+          break;
+        // O que você digita volta como se o terminal dele tivesse ecoado.
+        case "write":
+          live(frame.data === "\r" ? "\r\n" : frame.data);
+          break;
+        // Quem compartilha o seu ganha o Marcus olhando, meio segundo depois.
+        case "share":
+          setTimeout(() => text({ t: "watch", ws: frame.share.id, tab: frame.share.active ?? frame.share.tabs[0]?.id, members: ["marcus"], added: ["marcus"] }), 500);
+          break;
+        case "unshare":
+          break;
+        case "notes":
+          text({ t: "notes", ws: frame.ws, items: notes.get(frame.ws) ?? [] });
+          break;
+        // Nota nova: o relay dá o id e devolve a todos — inclusive a quem
+        // escreveu, que é como ela ganha o id.
+        case "note": {
+          const note = {
+            id: `${Date.now()}-m`,
+            ws: frame.ws,
+            author: me,
+            text: frame.text,
+            mentions: frame.mentions,
+            quote: frame.quote,
+            ts: Date.now(),
+          };
+          notes.set(frame.ws, [...(notes.get(frame.ws) ?? []), note]);
+          text({ t: "note", note });
+          // E o Marcus responde, se foi ele quem você marcou.
+          if (frame.mentions.includes("marcus")) {
+            setTimeout(() => {
+              const reply = {
+                id: `${Date.now()}-r`,
+                ws: frame.ws,
+                author: "marcus",
+                text: "Vi. Coluna, então — uma migração contra um join em toda leitura não se paga.",
+                mentions: [me],
+                quote: null,
+                ts: Date.now(),
+              };
+              notes.set(frame.ws, [...(notes.get(frame.ws) ?? []), reply]);
+              text({ t: "note", note: reply });
+              text({ t: "inbox", items: [{ id: reply.id, ws: frame.ws, author: "marcus", ts: reply.ts }] });
+            }, 1200);
+          }
+          break;
+        }
+        case "inbox_read":
+          text({ t: "inbox", items: [] });
+          break;
+      }
+    },
+    close() {
+      fakes.splice(fakes.indexOf(s), 1);
+      clearInterval(ticking);
+      setTimeout(() => s.onclose?.());
+    },
+  };
+  fakes.push(s);
+  setTimeout(() => {
+    s.onopen?.();
+    text({
+      t: "welcome",
+      you: me,
+      members: members(),
+      shares: [marcusShare()],
+      inbox: [{ id: "1-a", ws: "ws-marcus", author: "marcus", ts: Date.now() - 9 * 60_000 }],
+      watching: {},
+    });
+  }, 500);
+  return s;
+}
+// Com `VITE_RELAY` no ambiente o time é de verdade — o relay local do
+// `wrangler dev` —, e só o back continua de mentira. É como dois navegadores
+// testam o compartilhamento de ponta a ponta sem subir o Tauri.
+if (!(import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_RELAY) {
+  team.useTransport({
+    needsRelay: false,
+    socket: fakeSocket,
+    create: async () => ({ team: "timeDeMentira", secret: "segredoDeMentira" }),
+  });
+}
+
 w.__TAURI_INTERNALS__ = {
   metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
   transformCallback(cb: Handler) {
@@ -534,6 +766,14 @@ w.__TAURI_INTERNALS__ = {
 
 // Atalho para testar o arrastar-e-soltar pelo console: `mock.drop([...])`.
 w.mock = {
+  /// Escreve na conversa de mentira, como se o processo tivesse escrito.
+  type: (tab: string, text: string) => typeInto(tab, text),
+  /// O que o time diz agora — para dirigir a tela de fora e ver o que ela viu.
+  team: () => ({ status: team.status(), remotes: team.remotes() }),
+  presence: (online: boolean) => {
+    marcusOnline = online;
+    for (const s of fakes) (s as unknown as { presence: () => void }).presence();
+  },
   /// Simula soltar arquivos num ponto da tela — o mesmo evento que o Tauri
   /// manda quando você arrasta de fora para dentro da janela.
   drop: (paths: string[], x = innerWidth / 2, y = innerHeight / 2) => {
