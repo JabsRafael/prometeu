@@ -58,6 +58,11 @@ export class ChatView {
   private decoder = new TextDecoder("utf-8");
   private mode: "agent" | "note" = "agent";
   private feedback: string | null = null;
+  /// Itens que mudaram desde o último quadro. O stream manda uma linha por
+  /// token; redesenhar a cada uma trava a tela — um quadro por vez basta.
+  private dirty = new Set<number>();
+  private raf = 0;
+  private working = h("div", "working", "<i></i><i></i><i></i>");
 
   open(host: HTMLElement, ctx: Ctx) {
     this.ctx = ctx;
@@ -130,6 +135,9 @@ export class ChatView {
     this.partial = "";
     this.decoder = new TextDecoder("utf-8");
     this.feedback = null;
+    this.dirty.clear();
+    cancelAnimationFrame(this.raf);
+    this.raf = 0;
     this.feed.replaceChildren();
   }
 
@@ -166,12 +174,32 @@ export class ChatView {
   /* ---------- as linhas ---------- */
 
   private absorb(line: string) {
+    for (const i of this.tl.push(line)) this.dirty.add(i);
+    if (!this.raf) this.raf = requestAnimationFrame(() => this.flush());
+  }
+
+  /// Um quadro: o que mudou desde o último, de uma vez. A rolagem só segue se
+  /// já estava no fim — quem subiu para ler não é puxado de volta.
+  private flush() {
+    this.raf = 0;
     const stick = this.stuck();
-    const touched = this.tl.push(line);
-    for (const i of touched) this.renderOne(i);
-    if (touched.length) this.paintNotes();
+    const changed = this.dirty.size > 0;
+    for (const i of [...this.dirty].sort((a, b) => a - b)) this.renderOne(i);
+    this.dirty.clear();
+    if (changed) this.paintNotes();
+    this.paintWorking();
     this.paintComposer();
     if (stick) this.feed.scrollTop = this.feed.scrollHeight;
+  }
+
+  /// Os três pontos no fim: o agente está trabalhando e nada está chegando
+  /// letra a letra agora (entre uma ferramenta e a próxima fala, por exemplo).
+  private paintWorking() {
+    const last = this.tl.items[this.tl.items.length - 1];
+    const typing = last?.kind === "assistant" && last.streaming && last.blocks[last.blocks.length - 1]?.kind === "text";
+    const show = this.tl.busy && !typing && !this.tl.pending.length;
+    if (show) this.feed.append(this.working);
+    else this.working.remove();
   }
 
   private stuck() {
@@ -184,15 +212,20 @@ export class ChatView {
     if (!this.tl.items.length) this.feed.append(h("div", "nohint", t("chat.empty")));
     for (let i = 0; i < this.tl.items.length; i++) this.renderOne(i);
     this.paintNotes();
+    this.paintWorking();
     this.paintComposer();
     this.feed.scrollTop = this.feed.scrollHeight;
   }
 
   private renderOne(i: number) {
     const item = this.tl.items[i];
+    const old = this.nodes[i];
+    // Mensagem chegando letra a letra: mexe no nó que está lá, em vez de
+    // trocá-lo. Trocar o nó a cada quadro é o que dava o tremor — e apagava a
+    // seleção de quem estava lendo.
+    if (old && item.kind === "assistant" && old.classList.contains("bot") && this.patch(old, item)) return;
     const node = this.render(item, i);
     node.dataset.i = String(i);
-    const old = this.nodes[i];
     if (old) {
       // Card de ferramenta aberto continua aberto depois do redesenho.
       for (const open of old.querySelectorAll<HTMLElement>(".tool.open")) {
@@ -210,12 +243,12 @@ export class ChatView {
   private render(item: Item, i: number): HTMLElement {
     switch (item.kind) {
       case "user": {
-        const el = h("div", "msg user", `<div class="bubble"></div>`);
+        const el = h("div", "turn user", `<div class="bubble"></div>`);
         (el.firstElementChild as HTMLElement).textContent = item.text;
         return el;
       }
       case "assistant": {
-        const el = h("div", "msg bot" + (item.streaming ? " live" : ""));
+        const el = h("div", "turn bot" + (item.streaming ? " live" : ""));
         const last = item.blocks.length - 1;
         item.blocks.forEach((block, k) => {
           if (block) el.append(this.block(block, item.streaming && k === last));
@@ -237,22 +270,59 @@ export class ChatView {
     }
   }
 
+  /// Uma mensagem já na tela mudou. Bloco por bloco: o que é do mesmo tipo é
+  /// atualizado no lugar, o que é novo entra no fim. `false` é "não deu, troca
+  /// o nó inteiro" — um bloco mudou de tipo, o que não acontece no stream.
+  private patch(el: HTMLElement, item: Extract<Item, { kind: "assistant" }>): boolean {
+    const last = item.blocks.length - 1;
+    for (let k = 0; k <= last; k++) {
+      const block = item.blocks[k];
+      if (!block) continue;
+      const live = item.streaming && k === last;
+      const node = el.children[k] as HTMLElement | undefined;
+      if (!node) {
+        el.append(this.block(block, live));
+        continue;
+      }
+      if (node.dataset.kind !== block.kind) return false;
+      if (block.kind === "text") {
+        node.innerHTML = md(block.text);
+        node.classList.toggle("typing", live);
+      } else if (block.kind === "thinking") {
+        node.querySelector("summary")!.textContent = t(live ? "chat.thinking" : "chat.thought");
+        (node.lastElementChild as HTMLElement).textContent = block.text;
+        node.classList.toggle("live", live);
+      } else {
+        // Ferramenta: o card muda de estado (rodou, deu erro) — refeito, mas
+        // aberto continua aberto.
+        const fresh = this.block(block, live);
+        if (node.classList.contains("open")) fresh.classList.add("open");
+        node.replaceWith(fresh);
+      }
+    }
+    el.classList.toggle("live", item.streaming);
+    return true;
+  }
+
   /// `live` é o bloco que ainda está chegando: o último de uma mensagem em
   /// streaming. É o que separa "Pensando…" de "Pensou".
   private block(block: Block, live: boolean): HTMLElement {
     if (block.kind === "text") {
-      const el = h("div", "md");
+      const el = h("div", "md" + (live ? " typing" : ""));
+      el.dataset.kind = "text";
       el.innerHTML = md(block.text);
       return el;
     }
     if (block.kind === "thinking") {
-      const el = h("details", "think", `<summary></summary><div></div>`);
+      const el = h("details", "think" + (live ? " live" : ""), `<summary></summary><div></div>`);
+      el.dataset.kind = "thinking";
       el.querySelector("summary")!.textContent = t(live ? "chat.thinking" : "chat.thought");
       (el.lastElementChild as HTMLElement).textContent = block.text;
       return el;
     }
     // Ferramenta: uma linha fechada, e o que entrou e saiu quando aberta.
     const el = h("div", "tool" + (block.done ? (block.error ? " bad" : " ok") : " run"));
+    el.dataset.kind = "tool";
     el.dataset.tool = block.id;
     const head = h("button", "thead", `<span class="tic">${icon(toolIcon(block.name), 14)}</span><b></b><span class="sum"></span><span class="st"></span>`);
     head.querySelector("b")!.textContent = toolLabel(block.name);

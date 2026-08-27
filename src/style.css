@@ -362,12 +362,28 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .feed > * { width: 100%; max-width: 860px; margin: 0 auto; flex: none; }
 .feed .nohint { margin-top: 20vh; }
 
-.msg.user { display: flex; justify-content: flex-end; }
-.msg.user .bubble {
+.turn.user { display: flex; justify-content: flex-end; }
+.turn.user .bubble {
   max-width: 82%; padding: 8px 12px; border-radius: var(--r-xl); background: var(--bg-raised-2);
   white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5;
 }
-.msg.bot { display: flex; flex-direction: column; gap: 8px; }
+.turn.bot { display: flex; flex-direction: column; gap: 8px; }
+
+/* Sinais de vida. Texto chegando ganha um caret no fim; pensamento em curso
+   pulsa; entre uma coisa e outra, três pontos no fim da conversa. */
+.md.typing > :last-child::after {
+  content: ""; display: inline-block; width: 7px; height: 13px; margin-left: 2px;
+  vertical-align: -2px; background: var(--fg-2); border-radius: 1px;
+  animation: blink 1s steps(2, start) infinite;
+}
+@keyframes blink { to { visibility: hidden; } }
+.think.live summary { color: var(--fg-2); animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+.working { display: flex; gap: 5px; padding: 4px 2px; }
+.working i { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-3); animation: bounce 1.2s ease-in-out infinite; }
+.working i:nth-child(2) { animation-delay: 0.15s; }
+.working i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes bounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.5; } 30% { transform: translateY(-4px); opacity: 1; } }
 
 /* O markdown do agente: tipografia de leitura, código no mesmo colorizador do viewer. */
 .md { font-size: 13.5px; line-height: 1.6; overflow-wrap: anywhere; }
