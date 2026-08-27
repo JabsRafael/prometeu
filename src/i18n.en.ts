@@ -226,6 +226,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
 
   "clean.title": "Clean up worktrees",
   "clean.hint": "The folder and the local branch go; the card stays, and the PR stays where it is.",
+  "clean.hint.force":
+    "A red one you tick goes anyway: the uncommitted changes and the work that never landed go with it, for good.",
   "clean.count.one": "{n} archived with a worktree",
   "clean.count.other": "{n} archived with worktrees",
   "clean.cancel": "Cancel",

@@ -300,16 +300,28 @@ fn has_worktree(ws: &Workspace) -> bool {
 }
 
 /// Devolve o worktree ao disco: a pasta sai, a branch local sai, o card fica.
-/// Destrutivo e sem volta — por isso as guardas moram aqui e não na tela: nada
-/// sai enquanto houver mudança fora de commit, e nada sai antes de o trabalho
-/// estar no alvo (ou no PR que mergeou).
+/// Destrutivo e sem volta.
+///
+/// `force` é a tela dizendo que a pessoa leu o motivo em vermelho e marcou
+/// assim mesmo — mudança fora de commit e trabalho que não entrou no alvo vão
+/// junto. O que `force` não desliga é o que nem a pessoa quer: arquivar antes,
+/// e nunca apagar o próprio clone.
 #[tauri::command(async)]
-pub fn cleanup_worktree(app: AppHandle, state: State<AppState>, id: String) -> Result<(), String> {
+pub fn cleanup_worktree(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+    force: bool,
+) -> Result<(), String> {
     let ws = workspace_copy(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
     if ws.cleaned {
         return Ok(());
     }
-    check(&ws)?;
+    if force {
+        hard(&ws)?;
+    } else {
+        check(&ws)?;
+    }
 
     // O agente e os docks caem antes de a pasta sumir debaixo deles. O script
     // `archive` do repositório não roda aqui: ele já rodou quando este
@@ -326,8 +338,8 @@ pub fn cleanup_worktree(app: AppHandle, state: State<AppState>, id: String) -> R
     let wt = PathBuf::from(&ws.worktree);
     if wt.exists() {
         // `--force` porque o que sobrou é o que o `.gitignore` esconde:
-        // `node_modules`, `target`, `.env`. Mudança de verdade não chega aqui —
-        // o `check` recusa antes.
+        // `node_modules`, `target`, `.env` — e, quando a pessoa marcou o
+        // vermelho, também a mudança fora de commit que ela decidiu perder.
         let out = Command::new("git")
             .arg("-C")
             .arg(&repo)
@@ -345,10 +357,11 @@ pub fn cleanup_worktree(app: AppHandle, state: State<AppState>, id: String) -> R
             ));
         }
     }
-    // A branch local já não tem nada que o alvo não tenha. Se o git recusar —
-    // ela está em check-out em outro lugar —, o worktree já foi e o trabalho
-    // aqui está feito: uma branch a mais no repositório não é motivo para
-    // devolver erro a quem só queria o disco de volta.
+    // `-D` e não `-d`: sem `force` a branch já não tem nada que o alvo não
+    // tenha, e com `force` perdê-la é justamente o que foi marcado. Se o git
+    // recusar — ela está em check-out em outro lugar —, o worktree já foi e o
+    // trabalho aqui está feito: uma branch a mais no repositório não é motivo
+    // para devolver erro a quem só queria o disco de volta.
     if !ws.branch.is_empty() {
         let _ = git(&repo, &["branch", "-D", &ws.branch]);
     }
@@ -372,15 +385,7 @@ pub fn cleanup_worktree(app: AppHandle, state: State<AppState>, id: String) -> R
 /// frase. Worktree que já sumiu do disco passa: limpar o que não existe mais é
 /// só acertar o quadro.
 fn check(ws: &Workspace) -> Result<(), String> {
-    // Arquivar primeiro é o que faz o `archive` do repositório rodar com o
-    // worktree ainda de pé. Devolver o disco é o passo depois dele, nunca no
-    // lugar dele.
-    if !ws.archived {
-        return Err(i18n::t("err.cleanup.notArchived"));
-    }
-    if ws.worktree == ws.repo {
-        return Err(i18n::t("err.cleanup.isRepo"));
-    }
+    hard(ws)?;
     let wt = PathBuf::from(&ws.worktree);
     if !wt.exists() {
         return Ok(());
@@ -393,6 +398,21 @@ fn check(ws: &Workspace) -> Result<(), String> {
         return Ok(());
     }
     Err(i18n::ta("err.cleanup.unmerged", &[("branch", ws.branch.clone())]))
+}
+
+/// As duas guardas que `force` não levanta: nem a pessoa mais decidida quer
+/// apagar um worktree que ainda está em uso, nem o clone dela.
+fn hard(ws: &Workspace) -> Result<(), String> {
+    // Arquivar primeiro é o que faz o `archive` do repositório rodar com o
+    // worktree ainda de pé. Devolver o disco é o passo depois dele, nunca no
+    // lugar dele.
+    if !ws.archived {
+        return Err(i18n::t("err.cleanup.notArchived"));
+    }
+    if ws.worktree == ws.repo {
+        return Err(i18n::t("err.cleanup.isRepo"));
+    }
+    Ok(())
 }
 
 /// O trabalho já está em outro lugar? Duas respostas servem: o `gh` dizendo que
@@ -1286,12 +1306,22 @@ mod tests {
         // Mudança fora de commit segura de qualquer jeito.
         std::fs::write(dest.join("c.txt"), "c").unwrap();
         assert!(super::check(&ws).unwrap_err().contains("dirty"));
+        // Mas é justamente o que `force` atravessa: quem marcou o vermelho na
+        // tela sabe que essa mudança vai junto.
+        super::hard(&ws).unwrap();
         std::fs::remove_file(dest.join("c.txt")).unwrap();
         super::check(&ws).unwrap();
 
-        // Ainda na frente de todo mundo: arquivar é o passo de antes.
+        // Ainda na frente de todo mundo: arquivar é o passo de antes, e nem
+        // `force` pula ele.
         ws.archived = false;
         assert!(super::check(&ws).unwrap_err().contains("notArchived"));
+        assert!(super::hard(&ws).unwrap_err().contains("notArchived"));
+        ws.archived = true;
+
+        // O próprio clone também não sai por `force` nenhum.
+        ws.worktree = ws.repo.clone();
+        assert!(super::hard(&ws).unwrap_err().contains("isRepo"));
 
         let _ = std::fs::remove_dir_all(&root);
     }

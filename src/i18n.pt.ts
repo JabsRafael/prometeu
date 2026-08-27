@@ -253,6 +253,8 @@ export const PT = {
 
   "clean.title": "Limpar worktrees",
   "clean.hint": "A pasta e a branch local saem; o card fica, e o PR continua onde está.",
+  "clean.hint.force":
+    "Vermelho marcado sai do mesmo jeito: a mudança fora de commit e o que não entrou no alvo vão junto, e não voltam.",
   "clean.count.one": "{n} arquivado com worktree",
   "clean.count.other": "{n} arquivados com worktree",
   "clean.cancel": "Cancelar",
