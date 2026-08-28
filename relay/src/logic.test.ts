@@ -9,7 +9,7 @@ const close = (sock: string): Event => ({ k: "close", sock, now: NOW + 1 });
 const text = (sock: string, frame: Up, rand = "r"): Event => ({ k: "text", sock, frame, now: NOW + 2, rand });
 const binary = (sock: string, data: Uint8Array): Event => ({ k: "binary", sock, data });
 
-const share = (id = "ws1", tabs = ["t1", "t2"]): Share => ({
+const share = (id = "ws1", tabs = ["t1", "t2"], audience: string[] | null = null): Share => ({
   id,
   title: "Ícone do app",
   repo_name: "prometheus",
@@ -19,6 +19,7 @@ const share = (id = "ws1", tabs = ["t1", "t2"]): Share => ({
   active: tabs[0] ?? null,
   tabs: tabs.map((t) => ({ id: t, title: t, status: "rodando", note: null, tokens: null })),
   sizes: {},
+  audience,
 });
 
 const sent = (fx: Effect[], sock: string) =>
@@ -191,6 +192,91 @@ describe("compartilhar e olhar", () => {
     const s = team();
     expect(one(reduce(s, text("b1", { t: "share", share: share() })), "b1", "error")!.code).toBe("owner");
     expect(one(reduce(s, text("b1", { t: "unshare", ws: "ws1" })), "b1", "error")!.code).toBe("owner");
+  });
+});
+
+describe("audiência", () => {
+  /// Alice, Bob e Carol conectados; Alice compartilha `ws1` só com Bob.
+  function trio(): State {
+    const s = empty();
+    reduce(s, open("a1", "alice"));
+    reduce(s, open("b1", "bob"));
+    reduce(s, open("c1", "carol"));
+    reduce(s, text("a1", { t: "share", share: share("ws1", ["t1", "t2"], ["bob"]) }));
+    return s;
+  }
+
+  it("share só chega a quem está na lista; para o resto o workspace não existe", () => {
+    const s = empty();
+    reduce(s, open("a1", "alice"));
+    reduce(s, open("b1", "bob"));
+    reduce(s, open("c1", "carol"));
+    const fx = reduce(s, text("a1", { t: "share", share: share("ws1", ["t1"], ["bob"]) }));
+    expect(kinds(fx, "a1")).toEqual(["share"]);
+    expect(kinds(fx, "b1")).toEqual(["share"]);
+    expect(kinds(fx, "c1")).toEqual([]);
+    expect(one(reduce(s, text("c1", { t: "attach", ws: "ws1", tab: "t1" })), "c1", "error")!.code).toBe("noShare");
+    expect(one(reduce(s, text("c1", { t: "write", ws: "ws1", tab: "t1", data: "x" })), "c1", "error")!.code).toBe("noShare");
+    expect(one(reduce(s, text("c1", { t: "notes", ws: "ws1" })), "c1", "error")!.code).toBe("noShare");
+    expect(kinds(reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t1" })), "b1")).toEqual([]);
+  });
+
+  it("welcome só traz o que quem chega vê; dono sempre vê o seu", () => {
+    const s = trio();
+    reduce(s, close("c1"));
+    expect(one(reduce(s, open("c2", "carol")), "c2", "welcome")!.shares).toEqual([]);
+    reduce(s, close("a1"));
+    expect(one(reduce(s, open("a2", "alice")), "a2", "welcome")!.shares.map((x) => x.id)).toEqual(["ws1"]);
+  });
+
+  it("dono cai e volta: só a audiência ouve o offline e o online", () => {
+    const s = trio();
+    const down = reduce(s, close("a1"));
+    expect(kinds(down, "b1")).toEqual(["share", "presence"]);
+    expect(kinds(down, "c1")).toEqual(["presence"]);
+    const up = reduce(s, open("a2", "alice"));
+    expect(kinds(up, "b1")).toEqual(["share", "presence"]);
+    expect(kinds(up, "c1")).toEqual(["presence"]);
+  });
+
+  it("tirar alguém da lista: ele recebe unshare e solta a aba; entrar na lista: recebe share", () => {
+    const s = trio();
+    reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t1" }));
+    const fx = reduce(s, text("a1", { t: "share", share: share("ws1", ["t1", "t2"], ["carol"]) }));
+    expect(kinds(fx, "b1")).toEqual(["unshare"]);
+    expect(fx).toContainEqual({ e: "attachment", sock: "b1", member: "bob", attached: null });
+    expect(kinds(fx, "c1")).toEqual(["share"]);
+    expect(one(fx, "a1", "watch")).toEqual({ t: "watch", ws: "ws1", tab: "t1", members: [], added: [] });
+    expect(s.socks.get("b1")!.attached).toBeNull();
+  });
+
+  it("abrir para o time inteiro: todos recebem share; unshare vai só a quem via", () => {
+    const s = trio();
+    const all = reduce(s, text("a1", { t: "share", share: share("ws1", ["t1"], null) }));
+    expect(kinds(all, "c1")).toEqual(["share"]);
+    reduce(s, text("a1", { t: "share", share: share("ws1", ["t1"], ["bob"]) }));
+    const off = reduce(s, text("a1", { t: "unshare", ws: "ws1" }));
+    expect(kinds(off, "b1")).toEqual(["unshare"]);
+    expect(kinds(off, "c1")).toEqual([]);
+  });
+
+  it("nota fica na audiência, e menção a quem está fora é descartada", () => {
+    const s = trio();
+    const fx = reduce(s, text("b1", { t: "note", ws: "ws1", text: "@carol @alice", mentions: ["carol", "alice"], quote: null }));
+    expect(kinds(fx, "a1")).toEqual(["note", "inbox"]);
+    expect(kinds(fx, "b1")).toEqual(["note"]);
+    expect(kinds(fx, "c1")).toEqual([]);
+    expect(one(fx, "a1", "note")!.note.mentions).toEqual(["alice"]);
+    expect(one(reduce(s, text("c1", { t: "note", ws: "ws1", text: "oi", mentions: [], quote: null })), "c1", "error")!.code).toBe("noShare");
+  });
+
+  it("share de cliente sem o campo é para o time inteiro, como era", () => {
+    const s = empty();
+    reduce(s, open("a1", "alice"));
+    reduce(s, open("c1", "carol"));
+    const { audience: _, ...old } = share("ws1", ["t1"]);
+    const fx = reduce(s, text("a1", { t: "share", share: old as Share }));
+    expect(one(fx, "c1", "share")!.share.audience).toBeNull();
   });
 });
 
