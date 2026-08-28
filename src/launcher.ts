@@ -33,7 +33,7 @@ export type Draft = {
   /// workspace inteiro.
   model: string;
   /// `--effort`, `low`…`max` ou `ultracode`. O lançador sempre escolhe um;
-  /// vazio (quadro antigo) é não passar. Também do workspace.
+  /// vazio (workspace antigo) é não passar. Também do workspace.
   effort: string;
   /// Nasce em plan mode: o agente lê e planeja, e o card "plano pronto" é o
   /// que o solta. Só desta primeira conversa.
@@ -44,7 +44,7 @@ type Branches = { all: string[]; default: string };
 
 /// Sempre solto (`--dangerously-skip-permissions`): não há chavinha. Agente
 /// que para a cada `Write` não trabalha enquanto você olha outra coisa, e é
-/// isso que faz o quadro valer a pena.
+/// isso que permite acompanhar outras sessões enquanto ele trabalha.
 
 /// Os aliases que o `--model` aceita, com o nome que aparece na tela. Alias e
 /// não id completo de propósito: "opus" é sempre o Opus mais novo, e a lista

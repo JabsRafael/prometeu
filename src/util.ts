@@ -11,7 +11,7 @@ export function h(tag: string, className: string, html = ""): HTMLElement {
 
 /// Junta rajadas numa chamada só, com o último argumento que chegou.
 ///
-/// O quadro é redesenhado a cada ferramenta que o agente usa, e havia trabalho
+/// A interface é redesenhada a cada ferramenta que o agente usa, e havia trabalho
 /// caro pendurado nesse redesenho — um `git diff` do worktree inteiro, uma
 /// listagem por pasta aberta na árvore. Com três sessões rodando isso vira
 /// dezenas de chamadas por segundo para desenhar a mesma tela.

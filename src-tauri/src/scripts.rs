@@ -573,7 +573,7 @@ default = true
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         let s = read(root);
         assert_eq!(s.file.as_deref(), Some(".prometheus/settings.toml"));
-        assert!(s.setup.as_deref().is_some_and(|c| c.contains("npm install")));
+        assert_eq!(s.setup.as_deref(), Some("npm install"));
         assert_eq!(s.run(None).unwrap().name, "app");
         assert!(s.run(Some("browser")).unwrap().command.contains("Google Chrome"));
     }

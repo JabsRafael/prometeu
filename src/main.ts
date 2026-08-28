@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import * as archived from "./archived";
-import * as board from "./board";
+import * as sidebar from "./sidebar";
 import { openCleanup } from "./cleanup";
 import { openInbox } from "./inbox";
 import * as dock from "./dock";
@@ -29,7 +29,7 @@ if (!("__TAURI_INTERNALS__" in window)) await import("./mock");
 
 let state: Board = { stages: [], projects: [], workspaces: [] };
 
-/// O quadro como a tela o vê: o do Rust mais os workspaces que os colegas
+/// O estado como a tela o vê: o do Rust mais os workspaces que os colegas
 /// compartilharam, que só existem aqui. Quem desenha e quem procura um
 /// workspace por id olha para este; o que fala com o back olha para `state`.
 const view = (): Board => {
@@ -50,18 +50,18 @@ function say(text: string, isError = false) {
 
 /* ---------- navegação ---------- */
 
-const hooks: board.Hooks = {
+const hooks: sidebar.Hooks = {
   open: (w) => openWorkspace(w),
   setStage: ws.setStage,
   drop: (id) => {
-    if (ws.id() === id) showBoard();
+    if (ws.id() === id) showIssues();
     invoke("remove_workspace", { id });
   },
   rename: ws.renameWorkspace,
   // Arquivar o que está aberto na tela deixaria você dentro do que acabou de
-  // sair da lista; o quadro é para onde se volta.
+  // sair da lista; Issues é a tela inicial para onde se volta.
   archive: (id, archived) => {
-    if (archived && ws.id() === id) showBoard();
+    if (archived && ws.id() === id) showIssues();
     invoke("archive_workspace", { id, archived }).catch((e) => say(fromBack(e), true));
   },
   finish: (id) => ws.finish(id),
@@ -79,11 +79,9 @@ const hooks: board.Hooks = {
     navigator.clipboard.writeText(w.worktree);
     say(t("say.copied", { path: w.worktree }));
   },
-  toBoard: () => showBoard(),
   toIssues: () => showIssues(),
   toArchived: () => showArchived(),
   issues: () => issues.count(),
-  openIssue: (url) => invoke("linear_open", { url }).catch((e) => say(fromBack(e), true)),
   addProject: async () => {
     const dir = await open({ directory: true, title: t("say.pickRepo") });
     if (typeof dir !== "string") return;
@@ -93,25 +91,24 @@ const hooks: board.Hooks = {
 };
 
 function draw() {
-  // Campo de renomear, menu aberto ou card sendo arrastado: o quadro é
-  // redesenhado a cada ferramenta que o agente usa, e refazer a linha debaixo
-  // do que você está usando apaga o que foi digitado, tira o menu do lugar no
-  // meio do clique, ou some com o card de debaixo do mouse.
-  if (rename.editing() || menu.isOpen() || board.dragging()) return;
-  board.render(view(), hooks);
+  // A barra é redesenhada a cada ferramenta que o agente usa. Refazer a linha
+  // com um campo de renomear ou menu aberto apaga o texto ou tira o menu do
+  // lugar no meio do clique.
+  if (rename.editing() || menu.isOpen()) return;
+  sidebar.render(view(), hooks);
   archived.draw();
   if (ws.id()) ws.draw();
 }
 
-/* Histórico ← →: quadro, configurações e workspaces visitados, como as setas
-   do Conductor. `null` é o quadro; `SETTINGS` é a tela de configurações, que
-   não colide com id de workspace nenhum. */
+/* Histórico ← →: telas e workspaces visitados, como as setas do Conductor. Os
+   ids das telas não colidem com id de workspace nenhum. */
 const SETTINGS = "@configurações";
-const ISSUES = board.ISSUES;
-const ARCHIVED = board.ARCHIVED;
-const hist: (string | null)[] = [];
+const ISSUES = sidebar.ISSUES;
+const ARCHIVED = sidebar.ARCHIVED;
+const pages = new Set([SETTINGS, ISSUES, ARCHIVED]);
+const hist: string[] = [];
 let at = -1;
-function visit(to: string | null) {
+function visit(to: string) {
   if (hist[at] === to) return;
   hist.splice(at + 1);
   hist.push(to);
@@ -134,30 +131,20 @@ function travel(dir: -1 | 1) {
     showArchived(false);
   } else {
     const target = view().workspaces.find((w) => w.id === hist[at]);
-    target ? openWorkspace(target, false) : showBoard(false);
+    target ? openWorkspace(target, false) : showIssues(false);
   }
   drawNav();
 }
 $("back").addEventListener("click", () => travel(-1));
 $("fwd").addEventListener("click", () => travel(1));
 
-/// As telas que não são workspace nem quadro: uma de cada vez, e o quadro
-/// fica escondido embaixo delas.
+/// As telas que não são workspace: uma de cada vez.
 function showOnly(view: "settingsView" | "issuesView" | "archivedView" | null) {
-  $("boardView").hidden = view !== null;
   $("settingsView").hidden = view !== "settingsView";
   $("issuesView").hidden = view !== "issuesView";
   $("archivedView").hidden = view !== "archivedView";
   if (view !== "issuesView") issues.hide();
   if (view !== "archivedView") archived.hide();
-}
-
-function showBoard(push = true) {
-  if (push) visit(null);
-  ws.leave();
-  showOnly(null);
-  $("crumb").replaceChildren(crumbLabel(t("crumb.board")));
-  draw();
 }
 
 /// A migalha das telas que não são um workspace: uma palavra só, e é o nome da
@@ -175,7 +162,7 @@ async function openWorkspace(target: Workspace, push = true) {
 function showIssues(push = true) {
   if (push) visit(ISSUES);
   ws.leave();
-  board.setOpen(ISSUES);
+  sidebar.setOpen(ISSUES);
   showOnly("issuesView");
   $("crumb").replaceChildren(crumbLabel(t("crumb.issues")));
   issues.show();
@@ -187,19 +174,18 @@ function showIssues(push = true) {
 function showArchived(push = true) {
   if (push) visit(ARCHIVED);
   ws.leave();
-  board.setOpen(ARCHIVED);
+  sidebar.setOpen(ARCHIVED);
   showOnly("archivedView");
   $("crumb").replaceChildren(crumbLabel(t("crumb.archived")));
   archived.show();
   draw();
 }
 
-/// A terceira tela. Sai do workspace como o quadro sai, mas o quadro fica
-/// escondido embaixo — e nenhum item da barra acende, porque nenhum é ela.
+/// Configurações não acende nenhum item da barra lateral.
 function showSettings(push = true) {
   if (push) visit(SETTINGS);
   ws.leave();
-  board.setOpen(SETTINGS);
+  sidebar.setOpen(SETTINGS);
   showOnly("settingsView");
   $("crumb").replaceChildren(crumbLabel(t("crumb.settings")));
   settings.draw();
@@ -215,14 +201,14 @@ listen<Board>("board", ({ payload }) => {
   refresh();
 });
 
-/// O quadro mudou — o do Rust, ou o que os colegas compartilham. O histórico
+/// Os workspaces mudaram — os do Rust ou os que os colegas compartilham. O histórico
 /// perde o que sumiu, e a tela é refeita.
 function refresh() {
   // Workspace removido sai do histórico; duas paradas iguais seguidas viram uma.
   const alive = new Set(view().workspaces.map((w) => w.id));
   for (let i = hist.length - 1; i >= 0; i--) {
     const id = hist[i];
-    if ((id !== null && !alive.has(id)) || (i > 0 && id === hist[i - 1])) {
+    if ((!pages.has(id) && !alive.has(id)) || (i > 0 && id === hist[i - 1])) {
       hist.splice(i, 1);
       if (i <= at) at--;
     }
@@ -306,18 +292,18 @@ function launch(projectId?: string, seed?: Issue) {
     preset: projectId,
     seed,
     toSettings: () => showSettings(),
-    // Criar volta em milissegundos: o card entra no quadro na hora e o worktree
+    // Criar volta em milissegundos: o workspace entra na lista na hora e o worktree
     // monta atrás (ver `create_workspace`). Sem recado na barra, então — quem
     // conta que está montando é a tela que abriu, e estado que a tela já mostra
     // não vira narração aqui em cima.
     go: async (draft: Draft) => {
       try {
         const created = await invoke<Workspace>("create_workspace", { draft, ...dock.dims() });
-        // O back já publicou o quadro com ele dentro, mas a resposta do comando
+        // O back já publicou o estado com ele dentro, mas a resposta do comando
         // e o evento são duas mensagens, e nada garante qual chega primeiro.
-        // Quem desenha procura o workspace aberto no quadro que a tela tem: sem
-        // isto, entrar nele podia cair no `toBoard` do `draw` e voltar sozinho.
-        // O próximo evento troca o quadro inteiro e leva esta cópia junto.
+        // Quem desenha procura o workspace aberto no estado que a tela tem: sem
+        // isto, entrar nele podia cair no retorno a Issues do `draw` e voltar sozinho.
+        // O próximo evento troca o estado inteiro e leva esta cópia junto.
         if (!state.workspaces.some((w) => w.id === created.id)) state.workspaces.push(created);
         openWorkspace(created);
       } catch (err) {
@@ -462,8 +448,8 @@ void update.init(say);
 // Ninguém espera por isso para a tela aparecer — até a resposta chegar, o
 // lançador mostra só o Claude Code, que é o que o app era.
 void loadAgents();
-// O time vem antes das configurações, que é onde ele aparece — e antes do
-// quadro, que vai mostrar o que os colegas compartilham.
+// O time vem antes das configurações, que é onde ele aparece, e antes da barra
+// lateral, que vai mostrar o que os colegas compartilham.
 team.onError((m) => say(m, true));
 await team.init();
 // A tela de issues pergunta às configurações se há Linear; elas respondem
@@ -478,7 +464,7 @@ issues.init({
   toSettings: () => showSettings(),
 });
 archived.init({ board: () => state, hooks: () => hooks });
-ws.init({ say, board: view, redraw: draw, toBoard: () => showBoard() });
+ws.init({ say, board: view, redraw: draw, home: () => showIssues() });
 // O que a caixa de escrever precisa saber da aba aberta: de quem é, se está
 // desligada, se há time para deixar nota.
 session.init(
@@ -501,10 +487,10 @@ session.init(
 viewer.init((m) => say(m, true));
 dock.init($("dockterm"));
 state = await invoke<Board>("load_board");
-showBoard();
+showIssues();
 
 // De onde vem o selo de mergeado: uma pergunta ao `gh` por repositório, e a
-// resposta entra no quadro. De minuto em minuto porque é rede, e porque o que
+// resposta entra no estado. De minuto em minuto porque é rede, e porque o que
 // muda ali é o PR de alguém — não algo que este app faça. A primeira vai agora:
 // o app que sobe depois de um merge tem que já nascer sabendo.
 const PR_SCAN = 60_000;

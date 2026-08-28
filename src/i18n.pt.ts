@@ -31,7 +31,6 @@ export const PT = {
   "rail.issues": "Issues",
   "rail.issues.title": "Issues do Linear no seu nome",
   "rail.issues.off": "Issues do Linear — conecte em Configurações",
-  "rail.board": "Quadro",
   "rail.projects": "Projetos",
   "rail.addProject": "Registrar um repositório",
   "rail.noProjects": "Registre um repositório no ícone acima.",
@@ -43,11 +42,9 @@ export const PT = {
   "rail.cleanup": "Limpar worktrees",
   "rail.cleanup.title": "Tirar do disco os worktrees de trabalho que já acabou",
   "rail.team": "Do time",
-  "board.shared": "Compartilhados com você",
 
   /* ---------- migalha e cabeçalho ---------- */
 
-  "crumb.board": "Quadro",
   "crumb.issues": "Issues",
   "crumb.settings": "Configurações",
   "crumb.archived": "Arquivados",
@@ -58,29 +55,8 @@ export const PT = {
   "top.finish": "O PR entrou: pôr na última etapa e arquivar  ⌘⇧D",
   "top.side": "Painel lateral",
 
-  /* ---------- resumo do quadro ---------- */
+  /* ---------- estado de preparação e histórico ---------- */
 
-  "pulse.waiting": "querem você",
-  "pulse.running": "rodando",
-  "pulse.ready": "prontas",
-  "pulse.tabs": "conversas",
-
-  /* ---------- colunas e cards ---------- */
-
-  "col.empty": "arraste um card para cá",
-  "card.tabs": "{n} conversas",
-  "card.norepo": "no repo",
-  "card.norepo.title": "Sem worktree: esta conversa mexe no próprio repositório",
-  "card.model.title": "As conversas daqui rodam com --model {model}",
-  "card.codex.title": "As conversas daqui rodam no Codex, com o modelo {model}",
-  "card.issue.title": "{title} — abrir no Linear",
-  "card.pinned.title": "Fixado no topo da lista",
-  "card.tokens": "Tokens:",
-  "card.tokens.title": "{n} tokens de contexto na última resposta",
-  "card.tokens.titleTab": "{n} tokens de contexto na última resposta ({tab})",
-  "card.archive.title": "Arquivar (worktree e branch ficam)",
-  "card.finish.title": "Concluir: última etapa e arquivar",
-  "card.merged.title": "O PR #{n} entrou — abrir no navegador",
   "card.cleaned.title": "Worktree removido — era {path}",
   "card.building": "preparando",
   "card.failed": "falhou",
@@ -100,7 +76,7 @@ export const PT = {
   "ws.menu.finish": "Concluir",
   "ws.menu.cleanup": "Limpar o worktree…",
   "ws.menu.gone": "worktree removido",
-  "ws.menu.drop": "Tirar do quadro",
+  "ws.menu.drop": "Remover workspace",
 
   /* ---------- lançador ---------- */
 
@@ -379,14 +355,10 @@ export const PT = {
   "inbox.from": "{name} marcou você",
   "inbox.open": "Abrir a sessão na nota",
   "share.on": "Compartilhar com o time",
-  "share.on.title": "O workspace aparece no quadro dos colegas, e quem abrir vê e digita nas conversas",
+  "share.on.title": "O workspace aparece na lista dos colegas, e quem abrir vê e digita nas conversas",
   "share.off": "Compartilhando",
   "share.off.title": "Parar de compartilhar com o time",
   "share.watching": "{name} está olhando esta conversa",
-  "card.remote": "de {name}",
-  "card.remote.title": "Workspace de {name}, compartilhado com o time",
-  "card.live": "ao vivo",
-  "card.ownerOffline": "dono offline",
   "settings.team": "Time",
   "team.title": "Time",
   "team.pitch": "Crie um time, ou entre num com o código de quem criou: é com quem você compartilha sessões e troca notas.",

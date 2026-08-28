@@ -4,12 +4,12 @@
 
 <h1 align="center">Prometheus</h1>
 
-Quadro Kanban global por cima de sessões de agente — Claude Code ou Codex —,
-cada uma no seu worktree.
+Sessões de agente — Claude Code ou Codex — organizadas por workspace, cada uma
+no seu worktree.
 
 Junta o que é bom no Conductor (worktree isolado por sessão, script de setup por
 repo) com o que é bom no Vibe Island (você fica sabendo na hora que o agente
-precisa de você), e adiciona a etapa que **você** arrasta.
+precisa de você), numa lista lateral que mantém cada trabalho à mão.
 
 Sessão é one-off: nasce, faz, morre. Sem passar artefato de uma sessão para outra.
 
@@ -18,7 +18,7 @@ Sessão é one-off: nasce, faz, morre. Sem passar artefato de uma sessão para o
 Três camadas. Só a de cima é escrita com carinho.
 
 ```
-tela (TS)      quadro, abas, a conversa desenhada           <- seu
+tela (TS)      lista, abas, a conversa desenhada            <- seu
    ^  linha JSON                              v linha JSON
 back (Rust)    guarda as linhas, numera, repassa            <- cola
                                               v stdin/stdout
@@ -52,22 +52,22 @@ explicado no cabeçalho desse arquivo. O catálogo de modelos sai do
    disco, e a próxima fala numa aba desligada o sobe de novo com `--resume`.
 2. O que ele escreve no stdout vai para a tela e para o buffer da aba, cada
    linha com um número.
-3. O quadro lê o estado da mesma linha: ferramenta rodando é **rodando**,
+3. A lista lê o estado da mesma linha: ferramenta rodando é **rodando**,
    pedido de permissão é **quer você**, `result` é **pronta**, fim do processo
    é **desligada**. Não há hook nem socket: o stream já conta tudo.
 
 ### Sempre solto
 
 Toda sessão nasce com `--dangerously-skip-permissions`, sem chavinha. Nada
-para para pedir, que é o que faz o quadro valer a pena: agente que trava a
-cada `Write` não trabalha enquanto você olha outra coisa. Vale porque o
+para para pedir, que é o que permite acompanhar várias sessões: agente que
+trava a cada `Write` não trabalha enquanto você olha outra coisa. Vale porque o
 worktree é isolado e descartável — e é por isso que solto **sem** worktree é o
 único par que merece aviso, e o lançador o dá em laranja: aí o agente mexe sem
 pedir no clone em que você trabalha.
 
 Mesmo solto, `AskUserQuestion` e `ExitPlanMode` continuam chegando — pelo
 `--permission-prompt-tool stdio`, como `control_request` — e viram cards na
-conversa. É deles que sai o **quer você** do quadro.
+conversa. É deles que sai o **quer você** da lista.
 
 ### Modelo, esforço e plan mode
 
@@ -80,7 +80,7 @@ orquestração de workflows, para conta que a tem), e dá a volta.
 
 Nada ali é `<select>`: o popup nativo do WKWebView não abre nesta janela (o
 clique chega no elemento, o menu não vem), então modelo e projeto abrem o menu
-do próprio app, o mesmo do botão direito no card.
+do próprio app, o mesmo do botão direito no workspace da barra lateral.
 
 **Plan** liga o plan mode na primeira conversa, e aqui tem uma sutileza
 levantada na marra (Claude Code 2.1.240): `--permission-mode plan` junto de
@@ -105,7 +105,7 @@ A do Claude Code é o transcript dele, `~/.claude/projects/<slug>/<id>.jsonl`
 — o app não escreve nele, só lê para reabrir a aba e para contar quanto o
 contexto pesa. A do Codex o app grava, em `~/.prometheus/chats/<aba>.jsonl`,
 nas mesmas linhas que a tela desenhou: o rollout do Codex tem outra forma, e o
-id da thread dele fica no quadro para o `thread/resume`.
+id da thread dele fica no estado do workspace para o `thread/resume`.
 
 ### Os scripts do repositório
 
@@ -147,7 +147,7 @@ dez portas suas, `$PROMETHEUS_PORT` até `+9`. Porta fixa no script faz o segund
 worktree não subir — e não subir dois é justamente não conseguir comparar duas
 mudanças. A porta sai do caminho do worktree, então o mesmo worktree ganha a
 mesma porta em qualquer Prometheus — o instalado e o `tauri dev` de cada
-worktree têm quadros separados, e sem isso cada um entregava 3100 para o seu.
+worktree têm estados separados, e sem isso cada um entregava 3100 para o seu.
 
 Worktree sem o arquivo usa o do clone de origem. É o que faz um `.prometheus/`
 no `.gitignore` — configuração sua, num repositório de empresa — continuar
@@ -179,7 +179,7 @@ conversa congelada para os outros, e o card diz isso.
 
 Quem fala com o relay é o **front**: ele já recebe toda linha de toda
 conversa e já sabe falar nelas. O back só guarda `~/.prometheus/team.json`
-(`0600`) e a marca de "compartilhado" no quadro.
+(`0600`) e a marca de "compartilhado" no workspace.
 
 ### O time
 
@@ -190,11 +190,10 @@ de confiança", e trocar o segredo é criar outro time.
 
 ### A sessão ao vivo
 
-Na barra de um workspace seu: **Compartilhar com o time**. Ele aparece no
-quadro dos colegas ("Compartilhados com você", e "Do time" na barra lateral),
-com o seu nome no card. Abrir mostra a conversa inteira e o que chega ao
-vivo; a caixa de escrever está liberada. Você vê quem está olhando cada
-conversa em chips ao lado do estado.
+Na barra de um workspace seu: **Compartilhar com o time**. Ele aparece em
+"Do time" na barra lateral dos colegas, com o seu nome. Abrir mostra a conversa
+inteira e o que chega ao vivo; a caixa de escrever está liberada. Você vê quem
+está olhando cada conversa em chips ao lado do estado.
 
 Duas coisas fazem isso funcionar sem coordenação nenhuma:
 
@@ -295,10 +294,10 @@ Cobre o que erra calado:
 
 ## Estado
 
-Um quadro de workspaces, cada um num worktree, com várias conversas dentro. A
-etapa é sua e o estado é do agente — dois eixos que não se misturam. E, com
-time, o quadro de um colega também: a conversa dele ao vivo, e as notas dentro
-dela.
+Uma lista de workspaces, cada um num worktree, com várias conversas dentro. A
+etapa é sua e o estado é do agente — dois eixos que não se misturam. Com time,
+a lista também traz o workspace de um colega: a conversa dele ao vivo e as
+notas dentro dela.
 
 Se o botão da pergunta não fosse bom, nada disso valeria — então ele veio
 primeiro.

@@ -17,7 +17,7 @@ setup = "npm install"
 
 # O app de verdade deste worktree, isolado do que estiver instalado e de qualquer
 # outro worktree: porta e `~/.prometheus-dev-<workspace>` próprios. É o teste
-# honesto — Tauri, PTY e Claude Code de verdade.
+# honesto — Tauri, PTY e agentes de verdade.
 [scripts.run.app]
 command = "sh scripts/app.sh"
 default = true

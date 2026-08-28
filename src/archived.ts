@@ -1,4 +1,4 @@
-import { attachMenu, type Hooks } from "./board";
+import { attachMenu, type Hooks } from "./sidebar";
 import { avatar, icon, stageIcon } from "./icons";
 import { paint, stage as stageName, t, tn } from "./i18n";
 import { hasWorktree, type Board, type Workspace } from "./types";

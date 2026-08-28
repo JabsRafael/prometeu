@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import * as board from "./board";
+import * as sidebar from "./sidebar";
 import * as browser from "./browser";
 import * as diff from "./diff";
 import * as dockbar from "./dockbar";
@@ -26,17 +26,16 @@ import { $, debounce, h } from "./util";
 import * as viewer from "./viewer";
 
 /// A tela de um workspace: migalha, abas, o que está no centro (conversa,
-/// arquivo ou diff) e o painel da direita. O quadro é o outro lado do app e
-/// mora no `board`.
+/// arquivo ou diff) e o painel da direita.
 
 export type Ctx = {
   say: (text: string, isError?: boolean) => void;
   board: () => Board;
-  /// Redesenha o app inteiro — quadro e workspace.
+  /// Redesenha o app inteiro — barra lateral e workspace.
   redraw: () => void;
-  /// Sai para o quadro. Workspace que some debaixo de você não pode deixar a
+  /// Sai para a tela inicial. Workspace que some debaixo de você não pode deixar a
   /// tela num lugar que não existe mais.
-  toBoard: () => void;
+  home: () => void;
 };
 
 let ctx: Ctx;
@@ -79,13 +78,13 @@ export function init(context: Ctx) {
   });
 
   // A onda do painel de "montando" é desenhada uma vez: ela não muda, e o
-  // `draw` roda a cada evento do quadro.
+  // `draw` roda a cada atualização dos workspaces.
   $("offwave").innerHTML = wave(22);
 
   $("pr").innerHTML = `${icon("git-pull-request", 14)}<span></span>`;
   $("pr").querySelector("span")!.textContent = t("ws.pr");
   // Um botão só, três estados: com o PR mergeado ele conclui em vez de pedir
-  // mais commit. Quem decide é o que o quadro sabe do PR na hora do clique.
+  // mais commit. Quem decide é o estado do PR na hora do clique.
   $("pr").addEventListener("click", () => {
     const ws = current();
     if (!ws) return;
@@ -116,8 +115,7 @@ export async function open(ws: Workspace) {
   // que ficou para trás continuaria por cima do que você abriu.
   browser.hide();
   const first = ws.tabs.find((t) => t.id === ws.active) ?? ws.tabs[0];
-  board.setOpen((openWs = ws.id));
-  $("boardView").hidden = true;
+  sidebar.setOpen((openWs = ws.id));
   $("wsView").hidden = false;
   $("wsctl").hidden = false;
   // Workspace de um colega: nada dele está neste disco — sem arquivos, sem
@@ -179,8 +177,7 @@ export function leave() {
   browser.hide();
   session.detach();
   invoke("look_at", { id: null });
-  board.setOpen((openWs = null));
-  $("boardView").hidden = false;
+  sidebar.setOpen((openWs = null));
   $("wsView").hidden = true;
   $("wsctl").hidden = true;
 }
@@ -189,7 +186,7 @@ export function leave() {
 
 export function draw() {
   const ws = current();
-  if (!ws) return ctx.toBoard();
+  if (!ws) return ctx.home();
   catchUp(ws);
 
   // Migalha como no Conductor: avatar do projeto › nome do workspace › branch.
@@ -212,7 +209,7 @@ export function draw() {
     );
   }
 
-  // O cabeçalho diz o mesmo que o card, pelo mesmo `stateLabel`: montando não
+  // O cabeçalho usa o mesmo `stateLabel` da barra lateral: montando não
   // tem ponto de status porque não tem aba de onde ele sairia.
   const chip = $("wsstatus");
   chip.className = "chip" + (pending(ws) ? (ws.failed ? " failed" : "") : ` s-${statusOf(ws)}`);
@@ -220,7 +217,7 @@ export function draw() {
   chip.append(stateLabel(ws));
 
   // A etapa é o mesmo submenu do botão direito, ancorado no botão: um lugar só
-  // para escolher, esteja você no quadro ou dentro da conversa.
+  // para escolher, esteja você na lista lateral ou dentro da conversa.
   const stages = ctx.board().stages;
   const stage = $("wsstage");
   stage.innerHTML = `${stageIcon(stages.indexOf(ws.stage), stages.length, 14)}<span></span>`;
@@ -418,8 +415,8 @@ const askBranch = debounce(400, async (id: string) => {
 /// "Concluir", porque o que vem depois de mergear não é mais um commit, é sair
 /// da frente. Ao lado, o `#42` leva até ele no navegador.
 ///
-/// Quem guarda a resposta é o quadro (`ws.pr`), e não esta tela: é o mesmo dado
-/// que pinta o selo do card. Daqui só sai o pedido de perguntar de novo, e não
+/// Quem guarda a resposta é o workspace (`ws.pr`), e não esta tela. Daqui só
+/// sai o pedido de perguntar de novo, e não
 /// mais que uma vez a cada `PR_EVERY` — `draw()` acontece a cada ferramenta que
 /// o agente usa, e a resposta é de quem fala com a rede.
 const prAt = new Map<string, number>();
@@ -453,7 +450,7 @@ function askPr(ws: Workspace) {
   const now = Date.now();
   if (ws.cleaned || now - (prAt.get(ws.id) ?? 0) < PR_EVERY) return;
   prAt.set(ws.id, now);
-  // A resposta entra no quadro pelo back, e é o redesenho que a mostra.
+  // A resposta entra no estado pelo back, e é o redesenho que a mostra.
   invoke("pr_open", { id: ws.id }).catch(() => {});
 }
 
@@ -461,7 +458,7 @@ function askPr(ws: Workspace) {
 /// arquivado, com o agente e os docks caindo junto. É o botão da barra quando
 /// o PR mergeou, e o item de menu em qualquer outra hora.
 export function finish(id: string) {
-  if (openWs === id) ctx.toBoard();
+  if (openWs === id) ctx.home();
   invoke("finish_workspace", { id }).catch((e) => ctx.say(fromBack(e), true));
 }
 
@@ -674,7 +671,7 @@ function files(id: string): Files {
   return f;
 }
 
-/// Workspace que saiu do quadro leva junto o que era só dele. Sem isto, cada
+/// Workspace removido leva junto o que era só dele. Sem isto, cada
 /// mapa aqui guardava para sempre o estado de tela de coisas que não existem.
 export function forget(alive: Set<string>) {
   for (const [id, f] of filesOf) if (!alive.has(id) && f.webTab) browser.close(id);
