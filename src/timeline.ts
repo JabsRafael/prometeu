@@ -74,6 +74,9 @@ export class Timeline {
   tasks = new Map<string, Task>();
   /// A ferramenta de cada `tool_use_id`, para o resultado achar o bloco.
   private tools = new Map<string, { item: number; block: number }>();
+  /// A skill que acabou de ser chamada: o corpo dela vem na linha seguinte, e
+  /// vai para dentro do card em vez de virar uma fala.
+  private skill: { id: string; item: number; block: number } | null = null;
   private lastTs = 0;
   /// Mensagens que deixaram de estar chegando por causa da linha de agora —
   /// mudaram, e a tela precisa saber, mesmo não sendo o item da linha.
@@ -185,6 +188,11 @@ export class Timeline {
   }
 
   private user(o: Line, ts: number): number[] {
+    // O corpo de uma skill: o Claude Code o injeta como se fosse fala, logo
+    // depois do resultado da ferramenta Skill. É o que a skill mandou fazer —
+    // vai para dentro do card dela, não para a conversa.
+    const skill = this.skillBody(o);
+    if (skill) return skill;
     // `isMeta` é o que o Claude Code injeta por conta própria — saída de
     // comando, lembrete de sistema. Não foi ninguém que falou.
     if (o.isMeta) return [];
@@ -208,6 +216,9 @@ export class Timeline {
         tool.error = !!block.is_error;
         tool.done = true;
         touched.push(at.item);
+        // "Launching skill: x" é só o aviso de que a skill entrou; o que ela
+        // diz vem na linha seguinte.
+        this.skill = tool.name === "Skill" && !tool.error ? { id: block.tool_use_id, ...at } : null;
         // O resultado de uma ferramenta que pedia permissão é a resposta ao
         // pedido — de quem quer que tenha respondido.
         for (const ask of this.items) {
@@ -221,6 +232,27 @@ export class Timeline {
     }
     if (texts.length) touched.push(...this.spoken(texts.join("\n\n"), ts, !!o.isCompactSummary));
     return touched;
+  }
+
+  /// O texto que a skill trouxe, se esta linha for ele: vem logo depois do
+  /// resultado da ferramenta Skill, marcado como injetado pelo próprio Claude
+  /// Code (`isSynthetic` ao vivo, `isMeta` no transcript — que ainda diz de
+  /// qual ferramenta veio). Vira o resultado do card, e some da conversa.
+  private skillBody(o: Line): number[] | null {
+    const at = this.skill;
+    if (!at || (!o.isSynthetic && !o.isMeta)) return null;
+    const from = typeof o.sourceToolUseID === "string" ? o.sourceToolUseID : null;
+    if (from && from !== at.id) return null;
+    const content = o.message?.content;
+    const text = typeof content === "string" ? content : Array.isArray(content) ? textOf(content) : "";
+    if (!text.trim()) return null;
+    this.skill = null;
+    const item = this.items[at.item];
+    if (item?.kind !== "assistant") return null;
+    const tool = item.blocks[at.block];
+    if (tool?.kind !== "tool") return null;
+    tool.result = text;
+    return [at.item];
   }
 
   /// Texto numa linha `user`. Nem tudo é fala: o Claude Code também escreve
@@ -243,6 +275,8 @@ export class Timeline {
   /// entra no fim, quando não houve rascunho (transcript, ou colega que abriu
   /// a conversa no meio).
   private assistant(o: Line, ts: number): number[] {
+    // O agente já falou: o que a skill tinha a dizer, se era para vir, veio.
+    this.skill = null;
     const msg = String(o.message?.id ?? o.uuid ?? "");
     const content = Array.isArray(o.message?.content) ? o.message.content : [];
     // Resposta sintética: o Claude Code respondendo a um comando (`/context`,
@@ -500,6 +534,14 @@ function resultText(content: unknown): string {
     .map((c) => (c?.type === "text" ? String(c.text ?? "") : c?.type === "image" ? "[imagem]" : ""))
     .filter(Boolean)
     .join("\n");
+}
+
+/// Só o texto de uma lista de blocos.
+function textOf(content: Line[]): string {
+  return content
+    .filter((b) => b?.type === "text")
+    .map((b) => String(b.text ?? ""))
+    .join("\n\n");
 }
 
 function tryJson(text: string): unknown {
