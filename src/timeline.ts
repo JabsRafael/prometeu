@@ -1,3 +1,5 @@
+import { parseContext, type Report } from "./context";
+
 /// A conversa como a tela a desenha, a partir das linhas que o `claude -p`
 /// escreve em stream-json — e das mesmas linhas em repouso, no transcript.
 ///
@@ -57,7 +59,9 @@ export type Item =
   | { kind: "assistant"; ts: number; msg: string; blocks: Block[]; streaming: boolean; next: number }
   | Ask
   | { kind: "result"; ts: number; error: boolean; text: string; cost: number | null; ms: number | null }
-  | { kind: "system"; ts: number; text: string; error: boolean; what?: "compacted" | "summary"; tokens?: [number, number] };
+  | { kind: "system"; ts: number; text: string; error: boolean; what?: "compacted" | "summary"; tokens?: [number, number] }
+  /// O `/context`: um relatório, não uma fala do agente.
+  | { kind: "context"; ts: number; report: Report };
 
 type Line = Record<string, any>;
 
@@ -241,6 +245,13 @@ export class Timeline {
   private assistant(o: Line, ts: number): number[] {
     const msg = String(o.message?.id ?? o.uuid ?? "");
     const content = Array.isArray(o.message?.content) ? o.message.content : [];
+    // Resposta sintética: o Claude Code respondendo a um comando (`/context`,
+    // `/cost`), sem modelo. O `/context` tem desenho próprio.
+    if (o.message?.model === "<synthetic>") {
+      const text = content.find((c: Line) => c?.type === "text")?.text;
+      const report = typeof text === "string" ? parseContext(text) : null;
+      if (report) return [this.add({ kind: "context", ts, report })];
+    }
     let at = this.findAssistant(msg);
     if (at === -1) at = this.add({ kind: "assistant", ts, msg, blocks: [], streaming: true, next: 0 });
     const item = this.items[at];

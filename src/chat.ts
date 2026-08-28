@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { icon, type IconName } from "./icons";
 import { fromBack, t, tn } from "./i18n";
 import { diffHtml, isDiff } from "./highlight";
+import { grouped, kilo, sectionTotal, type Report } from "./context";
 import { md } from "./markdown";
 import * as notes from "./notes";
 import * as team from "./team";
@@ -301,6 +302,8 @@ export class ChatView {
         el.textContent = item.text || t("chat.result.error");
         return el;
       }
+      case "context":
+        return contextPanel(item.report);
       case "system": {
         if (item.what === "summary") {
           // O resumo com que o agente continua depois de compactar: é dele,
@@ -840,11 +843,86 @@ function inputView(name: string, input: unknown): HTMLElement {
   return box;
 }
 
-/// Tokens em milhar, curto: 24k, 3.1k, 800.
-function kilo(n: number): string {
-  if (n < 1000) return String(n);
-  const k = n / 1000;
-  return `${k < 10 ? k.toFixed(1).replace(/\.0$/, "") : Math.round(k)}k`;
+/// O `/context` desenhado: quanto da janela está em uso, dividido por
+/// categoria numa barra e em linhas; e cada seção do relatório (ferramentas
+/// MCP, skills, memória) dobrada, com o total — e, quando é uma lista
+/// comprida, agrupada pelo servidor ou origem, porque 250 linhas de nomes de
+/// ferramenta não são para ler.
+const CTX_COLORS = ["#ff6b3d", "#f5a623", "#e3c84a", "#7cc576", "#4fb3bf", "#5b8def", "#9b6bd6", "#d66bb0", "#8a8a8a"];
+
+function contextPanel(r: Report): HTMLElement {
+  const el = h("div", "ctx");
+  const head = h("div", "ctxhead", `<b></b><span class="model"></span><span class="use"></span>`);
+  head.querySelector("b")!.textContent = t("chat.ctx.title");
+  head.querySelector(".model")!.textContent = r.model;
+  head.querySelector(".use")!.textContent = `${r.used} / ${r.total} · ${t("chat.ctx.used", { pct: r.pct })}`;
+  el.append(head);
+
+  const used = r.categories.filter((c) => !/^free space$/i.test(c.name));
+  const free = r.categories.find((c) => /^free space$/i.test(c.name));
+  const sum = used.reduce((a, c) => a + c.n, 0) || 1;
+  const bar = h("div", "ctxbar");
+  used.forEach((c, i) => {
+    const seg = h("i", "");
+    seg.style.width = `${(c.n / sum) * 100}%`;
+    seg.style.background = CTX_COLORS[i % CTX_COLORS.length];
+    seg.title = `${c.name} · ${c.tokens}`;
+    bar.append(seg);
+  });
+  el.append(bar);
+  const rows = h("div", "ctxrows");
+  used.forEach((c, i) => {
+    const row = h("div", "ctxrow", `<i class="dot"></i><span class="name"></span><span class="n"></span><span class="pct"></span>`);
+    (row.querySelector(".dot") as HTMLElement).style.background = CTX_COLORS[i % CTX_COLORS.length];
+    row.querySelector(".name")!.textContent = c.name;
+    row.querySelector(".n")!.textContent = c.tokens;
+    row.querySelector(".pct")!.textContent = `${c.pct}%`;
+    rows.append(row);
+  });
+  if (free) {
+    const row = h("div", "ctxrow free", `<i class="dot"></i><span class="name"></span><span class="n"></span><span class="pct"></span>`);
+    row.querySelector(".name")!.textContent = t("chat.ctx.free");
+    row.querySelector(".n")!.textContent = free.tokens;
+    row.querySelector(".pct")!.textContent = `${free.pct}%`;
+    rows.append(row);
+  }
+  el.append(rows);
+
+  for (const s of r.sections) {
+    const sec = h("details", "ctxsec", `<summary><span class="title"></span><span class="count"></span><span class="n"></span></summary>`);
+    sec.querySelector(".title")!.textContent = s.title;
+    sec.querySelector(".count")!.textContent = String(s.rows.length);
+    sec.querySelector(".n")!.textContent = kilo(sectionTotal(s));
+    const groups = grouped(s);
+    if (groups) {
+      for (const g of groups) {
+        const grp = h("details", "ctxgrp", `<summary><span class="title"></span><span class="count"></span><span class="n"></span></summary>`);
+        grp.querySelector(".title")!.textContent = g.name;
+        grp.querySelector(".count")!.textContent = String(g.rows.length);
+        grp.querySelector(".n")!.textContent = kilo(g.n);
+        grp.append(contextTable(g.rows.map((row) => [row[0] ?? "", row[2] ?? ""])));
+        sec.append(grp);
+      }
+    } else {
+      sec.append(contextTable(s.rows));
+    }
+    el.append(sec);
+  }
+  return el;
+}
+
+function contextTable(rows: string[][]): HTMLElement {
+  const table = h("div", "ctxtable");
+  for (const row of rows) {
+    const line = h("div", "ctxline");
+    row.forEach((cell, i) => {
+      const span = h("span", i === row.length - 1 ? "n" : i === 0 ? "name" : "src");
+      span.textContent = cell;
+      line.append(span);
+    });
+    table.append(line);
+  }
+  return table;
 }
 
 function capLines(text: string): string {
