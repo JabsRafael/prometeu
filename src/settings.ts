@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import * as alert from "./alert";
 import { avatar, icon } from "./icons";
 import { LANGS, choose, chosen, fromBack, fromSystem, t, tn, type Lang } from "./i18n";
 import * as menu from "./menu";
@@ -60,7 +61,7 @@ export function draw() {
   const app = h("h2", "", "");
   app.textContent = t("settings.app");
   // A atualização vem antes do idioma: é o que se procura aqui com pressa.
-  page.append(app, settingsRow(), langRow());
+  page.append(app, settingsRow(), langRow(), alert.settingsRow());
   view.replaceChildren(page);
 }
 

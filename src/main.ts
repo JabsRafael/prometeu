@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
+import * as alert from "./alert";
 import * as archived from "./archived";
 import * as sidebar from "./sidebar";
 import { openCleanup } from "./cleanup";
@@ -156,6 +157,7 @@ async function openWorkspace(target: Workspace, push = true) {
   if (push) visit(target.id);
   showOnly(null);
   await ws.open(target);
+  alert.looked();
 }
 
 /// As issues do Linear no seu nome — de onde o trabalho sai.
@@ -198,6 +200,7 @@ $("settings").addEventListener("click", () => showSettings());
 listen<Board>("board", ({ payload }) => {
   state = payload;
   team.boardChanged(state);
+  alert.boardChanged(state);
   refresh();
 });
 
@@ -218,6 +221,8 @@ function refresh() {
   draw();
 }
 team.onChange(refresh);
+team.onChange(alert.teamChanged);
+alert.init({ looking: ws.id });
 
 /// Script que morreu sozinho — terminou, ou quebrou. A aba volta para o botão
 /// de começar sem ninguém perguntar de tempos em tempos.
