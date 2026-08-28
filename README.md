@@ -18,37 +18,43 @@ Sessão é one-off: nasce, faz, morre. Sem passar artefato de uma sessão para o
 Três camadas. Só a de cima é escrita com carinho.
 
 ```
-overlay (TS)   quadro, abas, notificação                    <- seu
-   ^  clique                                    v evento
-hooks (socket) prometheus-hook <-> prometheus.sock          <- cola
-                                                v payload
-PTY            o `claude` de verdade, TUI inteira           <- de graça
+tela (TS)      quadro, abas, a conversa desenhada           <- seu
+   ^  linha JSON                              v linha JSON
+back (Rust)    guarda as linhas, numera, repassa            <- cola
+                                              v stdin/stdout
+processo       `claude -p` (stream-json) ou `codex app-server` (JSON-RPC)
 ```
 
-O app **não reimplementa nada** do Claude Code. Roda o CLI de verdade num
-pseudo-terminal e intercepta só os momentos que merecem UI nativa. Todo comando,
-autocomplete, plan mode, skill e release novo continuam funcionando porque é o
-Claude Code de verdade rodando ali.
+O app **não reimplementa o agente**: roda o CLI de verdade, sem terminal, e
+cada coisa que acontece — o texto que ele escreve, a ferramenta que chama, o
+resultado dela, a permissão que pede — chega como uma linha de JSON. O back
+(`src-tauri/src/chat.rs`) guarda as linhas, numera e repassa; a tela as reduz
+a uma linha do tempo (`src/timeline.ts`, um reducer puro) e desenha
+(`src/chat.ts`): markdown, cards de ferramenta com o diff colorido, pensamento
+dobrado. O que a TUI faria com escape codes, aqui é um reducer em cima de JSON.
+Skills, MCP, `/compact`, `/context` continuam sendo do CLI — o que muda é só
+quem desenha.
 
-Escolher um modelo GPT no lançador troca o CLI da aba pelo `codex`, e nada disso
-muda: os hooks do Codex mandam os mesmos eventos, com os mesmos campos, pelo
-mesmo socket. O que muda está no `src-tauri/src/agents.rs` — as flags de modelo e
-esforço, o id de sessão que ele não deixa impor, e o `hooks.json` que não é por
-sessão.
+Escolher um modelo GPT no lançador troca o processo por trás da aba pelo
+`codex app-server`, e a tela não fica sabendo: `src-tauri/src/codex.rs` traduz
+cada notificação dele (`item/started`, `item/agentMessage/delta`,
+`turn/completed`…) para a linha stream-json equivalente, e cada linha da tela
+para a chamada dele (`turn/start`, `turn/interrupt`). O que o Codex faz
+diferente — o id de thread que ele escolhe, a conversa que o app grava porque
+o rollout dele tem outra forma, os comandos de barra que são do app — está
+explicado no cabeçalho desse arquivo. O catálogo de modelos sai do
+`models_cache.json` do próprio `codex` (`src-tauri/src/agents.rs`).
 
 ### O ida-e-volta
 
-1. O Claude Code dispara um hook — `PreToolUse`, `Stop`, `PermissionRequest`, …
-2. `prometheus-hook` lê o payload no stdin e o entrega pelo socket unix.
-3. O app anota no quadro o que aquela sessão está fazendo, ou que ela parou
-   esperando você, e solta o hook na hora.
-
-O app **não responde** por você: pergunta, plano e permissão são seletores da
-TUI, e é dentro do terminal que se responde. O hook serve para o quadro saber o
-que está acontecendo em cada conversa sem você abrir uma por uma.
-
-Uma conexão por invocação de hook, então a conexão já é a correlação: sem ids de
-mensagem, sem multiplexação.
+1. Uma fala é uma linha `{"type":"user",…}` no stdin do processo. Ele fica de
+   pé entre um turno e outro — a sessão não é o processo, é o transcript no
+   disco, e a próxima fala numa aba desligada o sobe de novo com `--resume`.
+2. O que ele escreve no stdout vai para a tela e para o buffer da aba, cada
+   linha com um número.
+3. O quadro lê o estado da mesma linha: ferramenta rodando é **rodando**,
+   pedido de permissão é **quer você**, `result` é **pronta**, fim do processo
+   é **desligada**. Não há hook nem socket: o stream já conta tudo.
 
 ### Sempre solto
 
@@ -59,9 +65,9 @@ worktree é isolado e descartável — e é por isso que solto **sem** worktree 
 único par que merece aviso, e o lançador o dá em laranja: aí o agente mexe sem
 pedir no clone em que você trabalha.
 
-O hook de `PermissionRequest` fica instalado mesmo assim: `AskUserQuestion` e
-`ExitPlanMode` passam por ele em bypass, e é dele que sai o **quer você** do
-quadro.
+Mesmo solto, `AskUserQuestion` e `ExitPlanMode` continuam chegando — pelo
+`--permission-prompt-tool stdio`, como `control_request` — e viram cards na
+conversa. É deles que sai o **quer você** do quadro.
 
 ### Modelo, esforço e plan mode
 
@@ -80,27 +86,26 @@ do próprio app, o mesmo do botão direito no card.
 levantada na marra (Claude Code 2.1.240): `--permission-mode plan` junto de
 `--dangerously-skip-permissions` nasce em bypass, e o plano nunca acontece. O
 que funciona é `--permission-mode plan --allow-dangerously-skip-permissions`:
-a sessão nasce em plan, e o "Would you like to proceed?" do `ExitPlanMode` já
-traz "switch to BYPASS PERMISSIONS" como primeira opção. Aprovar o plano é
-responder esse seletor no terminal; o quadro só conta que a conversa parou
-esperando você.
+a sessão nasce em plan, o plano chega como card, e o "sim" manda antes um
+`set_permission_mode` para bypass — senão a primeira ferramenta do plano já
+pergunta de novo. No Codex o botão some: o app-server não expõe plan mode.
 
-### Perguntar é da TUI
+### Pergunta, plano e permissão são cards
 
-O app já desenhou card de pergunta, de plano e de permissão por cima do
-terminal. Não desenha mais: a TUI do Claude Code desenha os mesmos seletores
-logo ali embaixo, com o texto inteiro e o teclado que você já conhece, e a
-segunda cópia só disputava atenção com a primeira. O hook solta o agente na
-hora nos três casos, e o que sobra no app é a nota **quer você** no card do
-workspace — que é a parte que o terminal não conta quando você está olhando
-outra conversa.
+Os três chegam pelo mesmo cano (`control_request`) e viram cards na conversa:
+a pergunta com uma aba por questão, como na TUI, e "Responder" só quando todas
+estiverem; o plano em markdown com **sim**, **sim, perguntando** e **mudar**
+(o que você escrever volta ao agente como a recusa); a permissão com o input
+da ferramenta. Esc interrompe o turno. Um colega olhando a conversa responde
+o mesmo card, e a resposta viaja até o Mac do dono.
 
-### Nunca no settings.json global
+### Onde a conversa dorme
 
-`~/.claude/settings.json` é um arquivo só, e outras ferramentas moram nele (o Vibe
-Island instala os hooks dele ali). O Prometheus escreve um settings por sessão em
-`~/.prometheus/sessions/<uuid>/settings.json` e passa `claude --settings <arquivo>`.
-Os dois rodam lado a lado sem se pisarem.
+A do Claude Code é o transcript dele, `~/.claude/projects/<slug>/<id>.jsonl`
+— o app não escreve nele, só lê para reabrir a aba e para contar quanto o
+contexto pesa. A do Codex o app grava, em `~/.prometheus/chats/<aba>.jsonl`,
+nas mesmas linhas que a tela desenhou: o rollout do Codex tem outra forma, e o
+id da thread dele fica no quadro para o `thread/resume`.
 
 ### Os scripts do repositório
 
@@ -116,10 +121,11 @@ run     = "npm run dev -- --port $PROMETHEUS_PORT"   # o botão Run
 archive = "docker compose down"                # antes de arquivar
 ```
 
-O `setup` roda sozinho quando o worktree nasce, e a primeira mensagem do
-lançador só é digitada ao agente depois que ele termina — agente que roda teste
-antes do `npm install` conclui coisa errada. Se o setup falhar, a mensagem vai
-mesmo assim, com um aviso na frente.
+O `setup` roda sozinho quando o worktree nasce, e a primeira fala do lançador
+só vai ao agente depois que ele termina — agente que roda teste antes do
+`npm install` conclui coisa errada. Enquanto isso ela fica na tela, apagada,
+e o que você escrever vai atrás dela. Se o setup falhar, a fala vai mesmo
+assim, com um aviso na frente.
 
 `run` também aceita a forma de vários, e aí o seletor ao lado do botão escolhe:
 
@@ -153,27 +159,27 @@ deixar isso virar trabalho manual — a aba **Setup** de um repo que não declar
 nada oferece **Perguntar ao agente**, que abre uma conversa com o prompt pronto
 para o Claude Code ler o repositório e escrever o arquivo.
 
-## A dois no mesmo terminal
+## A dois na mesma conversa
 
-Um time, e dentro dele sessões compartilhadas: o colega vê **tudo** o que
-está rolando no terminal, ao vivo, digita nele, e deixa nota citando o trecho
+Um time, e dentro dele sessões compartilhadas: o colega vê a conversa
+inteira, ao vivo, fala nela, responde os cards, e deixa nota citando o trecho
 que quer discutir.
 
 ```
-Mac do dono                       relay (Worker + 1 DO por time)        Mac do colega
-evento `pty` ──► saída (bin) ──►  presença · shares · quem olha    ──►  xterm ao vivo
-pty_write   ◄──  tecla       ◄──  notas · caixa "para mim"         ◄──  o que ele digita
+Mac do dono                        relay (Worker + 1 DO por time)        Mac do colega
+evento `chat` ──► linhas JSON ──►  presença · shares · quem olha    ──►  a mesma conversa
+chat_send    ◄──  fala/card   ◄──  notas · caixa "para mim"         ◄──  o que ele escreve
 ```
 
 **A sessão continua rodando só no Mac do dono.** Não há VM, não há sessão na
 nuvem: o `claude` é o mesmo processo de sempre, no worktree de sempre. O relay
 é burro — repassa frames e guarda o pouco que precisa sobreviver a alguém
 estar offline (membros, o que está compartilhado, as notas). Dono fora do ar =
-terminal congelado para os outros, e o card diz isso.
+conversa congelada para os outros, e o card diz isso.
 
-Quem fala com o relay é o **front**: ele já recebe todo byte de todo terminal
-e já sabe escrever neles. O back só guarda `~/.prometheus/team.json` (`0600`)
-e a marca de "compartilhado" no quadro.
+Quem fala com o relay é o **front**: ele já recebe toda linha de toda
+conversa e já sabe falar nelas. O back só guarda `~/.prometheus/team.json`
+(`0600`) e a marca de "compartilhado" no quadro.
 
 ### O time
 
@@ -186,35 +192,35 @@ de confiança", e trocar o segredo é criar outro time.
 
 Na barra de um workspace seu: **Compartilhar com o time**. Ele aparece no
 quadro dos colegas ("Compartilhados com você", e "Do time" na barra lateral),
-com o seu nome no card. Abrir mostra o terminal com a rolagem inteira e a
-saída ao vivo; o teclado está liberado. Você vê quem está olhando cada
+com o seu nome no card. Abrir mostra a conversa inteira e o que chega ao
+vivo; a caixa de escrever está liberada. Você vê quem está olhando cada
 conversa em chips ao lado do estado.
 
 Duas coisas fazem isso funcionar sem coordenação nenhuma:
 
-- **cada pedaço da saída sai numerado** (`Scroll`, em `pty.rs`), e a rolagem
-  que o dono manda a quem acabou de abrir vem com "até o pedaço N" — então o
-  colega descarta o que já estava dentro dela, mesmo quando o dono junta 40 ms
-  de saída num frame só. Sem número, ou o dono não podia juntar, ou o colega
-  via um trecho duas vezes;
+- **cada linha sai numerada** (`Lines`, em `chat.rs`), e a conversa que o dono
+  manda a quem acabou de abrir vem com "até a linha N" — então o colega
+  descarta o que já estava dentro dela e emenda o resto. Ela vai em partes,
+  cortadas em linha inteira, porque o relay limita cada mensagem a 1 MB e a
+  aba guarda até 4;
 - **o dono só transmite a aba que alguém está olhando.** Sem espectador, o
   custo é zero — o que importa porque o relay cobra por mensagem recebida.
 
-O tamanho é o do terminal do dono: o colega desenha nele e rola se não couber.
-Fora do que viaja: dock (setup/run/shells) e os cards de pergunta, plano e
-permissão — a TUI do Claude Code já desenha tudo dentro do terminal, e o
-colega responde ali como o dono responderia.
+O colega desenha no tamanho da janela dele: são as mesmas linhas, e o mesmo
+reducer dos dois lados. Fora do que viaja: o dock (setup/run/shells).
 
 ### As notas
 
-Nota não é fala para o agente: é recado entre pessoas **sobre** a sessão, no
-painel do lado. O caso que ela resolve é o agente levantar uma dúvida de
-desenho e você precisar de alguém para responder.
+Nota não é fala para o agente: é recado entre pessoas **sobre** a sessão, e
+entra na própria conversa, na hora em que foi escrita — entre a pergunta do
+agente e a resposta que alguém deu. O caso que ela resolve é o agente
+levantar uma dúvida de desenho e você precisar de alguém para responder.
 
-A âncora é a **citação** — o trecho selecionado no terminal (⌘⇧M, ou o botão
-que aparece quando há seleção). `@` abre a lista do time; quem foi marcado
-ganha **Para mim** na barra, com a nota, mesmo que estivesse offline. ⌘↵
-envia; Enter quebra linha.
+A caixa de escrever tem dois modos, **Agente** e **Nota**. A âncora é a
+**citação** — o trecho selecionado na conversa (⌘⇧M, ou o botão que aparece
+quando há seleção). `@` abre a lista do time; quem foi marcado ganha **Para
+mim** na barra, com a nota, mesmo que estivesse offline. ⌘↵ envia; Enter
+quebra linha.
 
 ### O relay
 
@@ -244,16 +250,11 @@ PORT=1421 npm run dev  # …e em outra porta, para dois lado a lado
 
 Aponte um repositório git e um nome de branch, e clique em **Criar sessão**.
 
-Na primeira vez em cada worktree novo o Claude Code pergunta se você confia na
-pasta — responda no próprio terminal, ele está ali.
-
 ### Dois Prometheus ao mesmo tempo
 
-`npm run app` passa por `scripts/app.sh`, que dá a este worktree porta,
-`~/.prometheus-dev-<workspace>` e socket de hook próprios. Sem isso três coisas
-colidem: a porta do vite (`strictPort`, e o segundo não sobe), o `board.json`, e
-o socket — `socket::listen` apaga o órfão antes do `bind`, então o último a
-subir rouba os hooks do primeiro.
+`npm run app` passa por `scripts/app.sh`, que dá a este worktree porta e
+`~/.prometheus-dev-<workspace>` próprios. Sem isso duas coisas colidem: a
+porta do vite (`strictPort`, e o segundo não sobe) e o `board.json`.
 
 O `.prometheus/settings.toml` deste repositório é o dogfooding: `run.app` sobe o
 app de verdade deste worktree, e `run.browser` abre a mesma UI no Chrome sobre o
@@ -268,8 +269,14 @@ npm test      # os dois lados
 
 Cobre o que erra calado:
 
-- o ida-e-volta do hook, e a garantia de que o app fora do ar não deixa o agente
-  pendurado;
+- a linha do tempo da conversa (`src/timeline.ts`): o rascunho do streaming
+  virando a linha inteira, o resultado achando a ferramenta, o card que fecha
+  quando alguém responde, a compactação, as tarefas em segundo plano, o
+  transcript reaberto que não pode terminar "chegando";
+- o tradutor do Codex (`codex.rs`) contra as formas que o app-server manda de
+  verdade: a numeração dos blocos, o diff montado do `fileChange`, a pergunta
+  que volta no id certo, o `/compact` com antes e depois, a retomada que cai
+  para conversa nova;
 - o contrato entre o front e os **dois** backs: todo `invoke` de `src/*.ts` tem
   que existir no `generate_handler!` e ter resposta no `src/mock.ts`. Sem essa
   checagem o mock apodrece calado, devolvendo `null` para um comando que nasceu
@@ -290,7 +297,8 @@ Cobre o que erra calado:
 
 Um quadro de workspaces, cada um num worktree, com várias conversas dentro. A
 etapa é sua e o estado é do agente — dois eixos que não se misturam. E, com
-time, o quadro de um colega também: a sessão dele ao vivo, e as notas ao lado.
+time, o quadro de um colega também: a conversa dele ao vivo, e as notas dentro
+dela.
 
 Se o botão da pergunta não fosse bom, nada disso valeria — então ele veio
 primeiro.
