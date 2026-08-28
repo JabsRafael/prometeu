@@ -4,6 +4,17 @@ O que muda no Prometheus, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.4.1] - 2026-08-28
+
+### Novidades
+
+- **quadro:** Pling e bolinha no Dock quando um agente para ou uma nota te marca
+
+### Correções
+
+- **quadro:** Escolher um nome na lista do @ troca o que foi digitado em vez de repetir
+- **chat:** Nota nova rola a conversa até o fim
+
 ## [0.4.0] - 2026-08-28
 
 ### Novidades
