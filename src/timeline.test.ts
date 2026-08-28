@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Timeline, summary } from "./timeline";
+import { pieces, Timeline, summary } from "./timeline";
 
 const j = (o: unknown) => JSON.stringify(o);
 const assistant = (id: string, block: unknown, extra = {}) =>
@@ -256,5 +256,57 @@ describe("summary", () => {
     expect(summary("Bash", {}, '{"command": "git diff\\nls", "descr')).toBe("git diff");
     expect(summary("Bash", {}, '{"command": "echo \\"a\\" ')).toBe('echo "a" ');
     expect(summary("Bash", {}, '{"comm')).toBe("");
+  });
+});
+
+describe("pieces", () => {
+  const work = (t: Timeline, id: string, tool: string, cmd: string) => {
+    t.push(assistant(id, { type: "thinking", thinking: "hmm" }));
+    t.push(assistant(id, { type: "tool_use", id: `tu-${id}`, name: tool, input: { command: cmd } }));
+  };
+
+  it("o trabalho seguido, mesmo em mensagens diferentes, é um pedaço só", () => {
+    const t = new Timeline();
+    t.push(j({ type: "user", message: { role: "user", content: "oi" } }));
+    work(t, "m1", "Bash", "ls");
+    work(t, "m2", "Bash", "pwd");
+    work(t, "m3", "Read", "x");
+    const p = pieces(t.items);
+    expect(p.map((x) => x.kind)).toEqual(["item", "work"]);
+    const w = p[1];
+    if (w.kind !== "work") throw new Error();
+    expect(w.refs.length).toBe(6);
+    expect(w.key).toBe("w1.0");
+  });
+
+  it("a fala do agente fica de fora, e corta o trabalho em dois", () => {
+    const t = new Timeline();
+    work(t, "m1", "Bash", "ls");
+    t.push(assistant("m2", { type: "text", text: "achei" }));
+    work(t, "m3", "Bash", "pwd");
+    expect(pieces(t.items).map((x) => x.kind)).toEqual(["work", "say", "work"]);
+  });
+
+  it("o que espera resposta corta o trabalho: o card não fica dentro do cartão", () => {
+    const t = new Timeline();
+    work(t, "m1", "Bash", "rm -rf /");
+    t.push(
+      j({
+        type: "control_request",
+        request_id: "r1",
+        request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "rm -rf /" } },
+      }),
+    );
+    work(t, "m2", "Bash", "ls");
+    expect(pieces(t.items).map((x) => x.kind)).toEqual(["work", "item", "work"]);
+  });
+
+  it("a chave de um pedaço não muda quando a conversa cresce", () => {
+    const t = new Timeline();
+    work(t, "m1", "Bash", "ls");
+    const before = pieces(t.items).map((x) => x.key);
+    work(t, "m2", "Bash", "pwd");
+    t.push(assistant("m3", { type: "text", text: "pronto" }));
+    expect(pieces(t.items).map((x) => x.key).slice(0, before.length)).toEqual(before);
   });
 });

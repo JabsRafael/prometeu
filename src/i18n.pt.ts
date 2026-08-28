@@ -265,6 +265,8 @@ export const PT = {
   "chat.ctx.used": "{pct}% da janela",
   "chat.ctx.free": "livre",
   "chat.thinking": "Pensando…",
+  "chat.work.one": "{n} passo",
+  "chat.work.other": "{n} passos",
   "chat.thought": "Pensou",
   "chat.more": "… mais {n} linhas no transcript",
   "chat.answered": "{what}: respondido",

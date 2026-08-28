@@ -527,3 +527,49 @@ export function summary(_name: string, input: unknown, json = ""): string {
 }
 
 const SUMMARY_KEYS = ["command", "file_path", "pattern", "path", "url", "query", "skill", "description", "prompt"];
+
+/* ---------- a conversa em pedaços de tela ---------- */
+
+/// Um bloco, pelo lugar dele: em que item, e em que posição.
+export type BlockRef = { at: number; block: number };
+
+/// Um pedaço da conversa na tela — que não é um item.
+///
+/// O agente trabalha em rajadas: pensa, chama uma ferramenta, pensa de novo,
+/// chama outra. Cada rajada dessas é uma mensagem, e uma tarefa banal vira
+/// vinte mensagens — desenhadas uma a uma, a fala que interessa se perde no
+/// meio de quarenta cartões. Aqui o trabalho seguido vira um pedaço só
+/// (`work`), e o que a pessoa lê fica de fora dele: a fala do agente (`say`),
+/// e tudo que não é mensagem dele (`item` — a fala da pessoa, o card que
+/// espera resposta, o fim do turno).
+///
+/// A `key` é o que a tela guarda de um quadro para o outro: os itens só
+/// crescem no fim, então o começo de um pedaço nunca muda de lugar — o mesmo
+/// pedaço é o mesmo nó, com a mesma seleção e o mesmo aberto/fechado.
+export type Piece =
+  | { kind: "item"; key: string; at: number }
+  | { kind: "say"; key: string; at: number; block: number }
+  | { kind: "work"; key: string; refs: BlockRef[] };
+
+export function pieces(items: Item[]): Piece[] {
+  const out: Piece[] = [];
+  let work: Extract<Piece, { kind: "work" }> | null = null;
+  items.forEach((item, at) => {
+    if (item.kind !== "assistant") {
+      work = null;
+      out.push({ kind: "item", key: `i${at}`, at });
+      return;
+    }
+    item.blocks.forEach((block, k) => {
+      if (!block) return;
+      if (block.kind === "text") {
+        work = null;
+        out.push({ kind: "say", key: `s${at}.${k}`, at, block: k });
+        return;
+      }
+      if (!work) out.push((work = { kind: "work", key: `w${at}.${k}`, refs: [] }));
+      work.refs.push({ at, block: k });
+    });
+  });
+  return out;
+}
