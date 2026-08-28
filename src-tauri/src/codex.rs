@@ -24,9 +24,10 @@
 //!   uma linha na tela.
 //! - **Solto, como o Claude Code das abas.** `approvalPolicy: never` e sandbox
 //!   aberta — o agente não para a cada comando. A pergunta ao usuário
-//!   (`request_user_input`) só existe no modo de plano do Codex, que o
-//!   app-server desta versão não expõe; a tradução dela fica pronta para quando
-//!   existir.
+//!   (`request_user_input`) o Codex só oferece ao modelo no modo de plano; a
+//!   feature `default_mode_request_user_input` a libera no modo comum, e é
+//!   ligada no spawn — sem ela o agente diz que "a ferramenta não está
+//!   disponível" e segue sem perguntar.
 //!
 //! O `Link` não tem thread nem AppHandle: recebe uma linha e devolve linhas.
 //! É o que deixa testá-lo com strings — e o que deixa o `chat.rs` não saber
@@ -53,7 +54,7 @@ pub fn spawn(
     launch: &Launch,
 ) -> Result<chat::Chat, String> {
     let mut cmd = Command::new("codex");
-    cmd.arg("app-server").current_dir(worktree);
+    cmd.args(["app-server", "--enable", "default_mode_request_user_input"]).current_dir(worktree);
     let log = paths::chat_log(id);
     let start = Start {
         cwd: worktree.display().to_string(),
