@@ -65,6 +65,10 @@ export class ChatView {
   private partial = "";
   private decoder = new TextDecoder("utf-8");
   private mode: "agent" | "note" = "agent";
+  /// Em que lado do toggle cada workspace estava. Escolher "nota" é sobre
+  /// aquele workspace — trocar de aba e voltar encontra o que estava escolhido
+  /// ali, com o rascunho junto, e não o do último workspace visitado.
+  private modes = new Map<string, "agent" | "note">();
   private feedback: string | null = null;
   /// Itens que mudaram desde o último quadro. O stream manda uma linha por
   /// token; redesenhar a cada uma trava a tela — um quadro por vez basta.
@@ -106,6 +110,7 @@ export class ChatView {
     this.key = key;
     this.remote = false;
     this.reset();
+    this.restoreMode();
     const text = await invoke<string>("chat_buffer", { session: key });
     if (this.key !== key) return;
     this.tl.load(text);
@@ -118,6 +123,7 @@ export class ChatView {
     this.key = key;
     this.remote = true;
     this.reset();
+    this.restoreMode();
     this.tl.load(new TextDecoder("utf-8").decode(bytes));
     this.renderAll();
   }
@@ -137,6 +143,7 @@ export class ChatView {
     this.key = null;
     this.remote = false;
     this.reset();
+    this.restoreMode();
     this.paintComposer();
   }
 
@@ -815,10 +822,25 @@ export class ChatView {
     const ws = this.ctx.info().workspace;
     if (this.mode === "note" && ws) notes.draftOf(ws).text = this.area.value;
     this.mode = mode;
+    if (ws) this.modes.set(ws, mode);
     this.area.value = mode === "note" && ws ? notes.draftOf(ws).text : "";
     this.grow();
     this.paintComposer();
     this.area.focus();
+  }
+
+  /// Ligar noutra conversa: o toggle volta a ser o daquele workspace, e com ele
+  /// o rascunho da nota. Sem isto, escolher "nota" num workspace deixava a
+  /// caixa em nota — e com o texto do outro — em tudo que fosse aberto depois.
+  private restoreMode() {
+    const ws = this.ctx.info().workspace;
+    const mode = (ws && this.modes.get(ws)) || "agent";
+    if (mode === "note") this.area.value = ws ? notes.draftOf(ws).text : "";
+    // A fala não é guardada — mas o que está na caixa é a nota do workspace de
+    // onde se veio, e essa não pode ir junto.
+    else if (this.mode === "note") this.area.value = "";
+    this.mode = mode;
+    this.grow();
   }
 
   /// ⌘⇧M, ou o botão: a nota nasce citando o que está selecionado.
