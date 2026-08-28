@@ -32,6 +32,10 @@ export type Share = {
   tabs: ShareTab[];
   /// Tamanho do terminal de cada aba, `[cols, rows]` — o colega desenha nesse.
   sizes: Record<string, [number, number]>;
+  /// Para quem: ids de membros, ou `null` para o time inteiro. É o relay que
+  /// faz valer — quem está fora não recebe o share, não abre aba, não escreve
+  /// e não vê nota.
+  audience: string[] | null;
 };
 
 /// O mesmo, com o que só o relay sabe: de quem é, e se o dono está aí.

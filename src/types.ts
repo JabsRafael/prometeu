@@ -65,6 +65,9 @@ export type Workspace = {
   cleaned: boolean;
   /// Compartilhado com o time: o `team.ts` anuncia e repassa a saída.
   shared: boolean;
+  /// Com quem: ids de membros, ou `null` para o time inteiro. Só vale com
+  /// `shared`; é o relay que faz valer.
+  audience: string[] | null;
   /// O worktree ainda está sendo montado. O card nasce assim que o lançador
   /// fecha, e a pasta — que num repositório grande leva segundos — chega
   /// depois. Enquanto isto for verdade não há aba nenhuma.

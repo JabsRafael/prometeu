@@ -60,6 +60,17 @@ const socksOf = (s: State, member: string) =>
 
 const shared = (e: Entry): Shared => ({ ...e.share, owner: e.owner, online: e.online });
 
+/// Este membro vê este share? O dono sempre; o resto, se a audiência é o time
+/// inteiro (`null`) ou o inclui.
+const canSee = (e: Entry, member: string) => e.owner === member || !e.share.audience || e.share.audience.includes(member);
+
+/// O share de um workspace pode não existir (notas sobrevivem ao unshare):
+/// aí é como era antes de haver audiência — todo mundo.
+const visibleTo = (s: State, ws: string, member: string) => {
+  const e = s.shares.get(ws);
+  return !e || canSee(e, member);
+};
+
 /// Sockets olhando uma aba.
 const attachedTo = (s: State, ws: string, tab: string) =>
   [...s.socks.values()].filter((k) => k.attached?.ws === ws && k.attached.tab === tab);
@@ -90,6 +101,10 @@ function byTab(s: State, tab: string): [string, Entry] | null {
 /* ---------- escritas ---------- */
 
 const broadcast = (s: State, frame: Down): Effect[] => [...s.socks.keys()].map((sock) => ({ e: "send", sock, frame }));
+
+/// Só a quem vê o share (ou a todos, se o workspace não tem share).
+const toAudience = (s: State, ws: string, frame: Down): Effect[] =>
+  [...s.socks.values()].filter((k) => visibleTo(s, ws, k.member)).map((k) => ({ e: "send", sock: k.id, frame }));
 
 const toMember = (s: State, member: string, frame: Down): Effect[] =>
   socksOf(s, member).map((sock) => ({ e: "send", sock, frame }));
@@ -123,7 +138,7 @@ export function reduce(s: State, ev: Event): Effect[] {
       for (const [ws, e] of s.shares) {
         if (e.owner !== ev.member || e.online) continue;
         e.online = true;
-        woke.push({ e: "put", key: `share:${ws}`, value: e }, ...broadcast(s, { t: "share", share: shared(e) }));
+        woke.push({ e: "put", key: `share:${ws}`, value: e }, ...toAudience(s, ws, { t: "share", share: shared(e) }));
       }
       const presence: Down = { t: "presence", members: members(s) };
       return [
@@ -135,7 +150,7 @@ export function reduce(s: State, ev: Event): Effect[] {
             t: "welcome",
             you: ev.member,
             members: presence.members,
-            shares: [...s.shares.values()].map(shared),
+            shares: [...s.shares.values()].filter((e) => canSee(e, ev.member)).map(shared),
             inbox: s.inbox.get(ev.member) ?? [],
             watching: watching(s, ev.member),
           },
@@ -162,7 +177,7 @@ export function reduce(s: State, ev: Event): Effect[] {
         for (const [ws, e] of s.shares) {
           if (e.owner !== sock.member || !e.online) continue;
           e.online = false;
-          out.push({ e: "put", key: `share:${ws}`, value: e }, ...broadcast(s, { t: "share", share: shared(e) }));
+          out.push({ e: "put", key: `share:${ws}`, value: e }, ...toAudience(s, ws, { t: "share", share: shared(e) }));
         }
       }
       out.push(...broadcast(s, { t: "presence", members: members(s) }));
@@ -218,9 +233,28 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
       if (!share || typeof share.id !== "string" || !Array.isArray(share.tabs)) return error(sock.id, "bad");
       const had = s.shares.get(share.id);
       if (had && had.owner !== me) return error(sock.id, "owner");
-      const e: Entry = { share, owner: me, online: true };
+      // Audiência de cliente velho (sem o campo) é o time inteiro, como era.
+      const audience = Array.isArray(share.audience) ? [...new Set(share.audience.map(String))] : null;
+      const e: Entry = { share: { ...share, audience }, owner: me, online: true };
       s.shares.set(share.id, e);
-      return [{ e: "put", key: `share:${share.id}`, value: e }, ...broadcast(s, { t: "share", share: shared(e) })];
+      const out: Effect[] = [{ e: "put", key: `share:${share.id}`, value: e }];
+      // Quem via e deixou de ver recebe o unshare, e solta a aba se olhava:
+      // para ele o workspace sumiu, e é isso que a tela dele deve mostrar.
+      for (const k of s.socks.values()) {
+        if (canSee(e, k.member)) {
+          out.push({ e: "send", sock: k.id, frame: { t: "share", share: shared(e) } });
+          continue;
+        }
+        if (!had || !canSee(had, k.member)) continue;
+        if (k.attached?.ws === share.id) out.push(setAttached(k, null));
+        out.push({ e: "send", sock: k.id, frame: { t: "unshare", ws: share.id } });
+      }
+      // O dono ouve de novo quem olha cada aba: quem saiu da audiência saiu
+      // da lista.
+      if (had) {
+        for (const tab of e.share.tabs) out.push(...watchChanged(s, { ws: share.id, tab: tab.id }));
+      }
+      return out;
     }
 
     case "unshare": {
@@ -234,13 +268,15 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
       for (const k of s.socks.values()) {
         if (k.attached?.ws === f.ws) out.push(setAttached(k, null));
       }
-      out.push(...broadcast(s, { t: "unshare", ws: f.ws }));
+      out.push(...[...s.socks.values()].filter((k) => canSee(e, k.member)).map((k): Effect => ({ e: "send", sock: k.id, frame: { t: "unshare", ws: f.ws } })));
       return out;
     }
 
     case "attach": {
       const e = s.shares.get(f.ws);
-      if (!e) return error(sock.id, "noShare");
+      // Fora da audiência é como se não existisse — nem o código do erro
+      // conta que existe.
+      if (!e || !canSee(e, me)) return error(sock.id, "noShare");
       if (!e.share.tabs.some((t) => t.id === f.tab)) return error(sock.id, "noTab");
       const prev = sock.attached;
       if (prev?.ws === f.ws && prev.tab === f.tab) return [];
@@ -273,7 +309,7 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
 
     case "write": {
       const e = s.shares.get(f.ws);
-      if (!e) return error(sock.id, "noShare");
+      if (!e || !canSee(e, me)) return error(sock.id, "noShare");
       if (!e.online) return error(sock.id, "offline");
       if (typeof f.data !== "string") return error(sock.id, "bad");
       return toMember(s, e.owner, { t: "write", ws: f.ws, tab: f.tab, data: f.data, from: me });
@@ -285,9 +321,12 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
       if (!textBody) return error(sock.id, "empty");
       if (textBody.length > NOTE_TEXT_MAX || (quote?.length ?? 0) > NOTE_QUOTE_MAX) return error(sock.id, "tooBig");
       if (typeof f.ws !== "string" || !f.ws) return error(sock.id, "bad");
-      // Menção só a quem existe, e nunca a si mesmo — a nota já é sua.
+      if (!visibleTo(s, f.ws, me)) return error(sock.id, "noShare");
+      // Menção só a quem existe e vê o workspace, e nunca a si mesmo — a nota
+      // já é sua. Marcar quem está fora não abre a porta: quem abre é o dono,
+      // mudando a audiência.
       const mentions = [...new Set((Array.isArray(f.mentions) ? f.mentions : []).map(String))].filter(
-        (m) => m !== me && s.members.has(m),
+        (m) => m !== me && s.members.has(m) && visibleTo(s, f.ws, m),
       );
       const note: Note = {
         id: `${ev.now}-${ev.rand}`,
@@ -303,7 +342,7 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
       s.notes.set(f.ws, list);
       const out: Effect[] = [
         { e: "put", key: `note:${f.ws}:${note.id}`, value: note },
-        ...broadcast(s, { t: "note", note }),
+        ...toAudience(s, f.ws, { t: "note", note }),
       ];
       for (const m of mentions) {
         const item: Inbox = { id: note.id, ws: f.ws, author: me, ts: ev.now };
@@ -316,6 +355,7 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
     }
 
     case "notes":
+      if (!visibleTo(s, f.ws, me)) return error(sock.id, "noShare");
       return [{ e: "send", sock: sock.id, frame: { t: "notes", ws: f.ws, items: s.notes.get(f.ws) ?? [] } }];
 
     case "inbox_read": {
@@ -341,7 +381,7 @@ export function hydrate(rows: Iterable<[string, unknown]>, socks: Sock[]): State
       s.members.set(key.slice("member:".length), { name: String(v.name ?? ""), last_seen: Number(v.last_seen ?? 0) });
     } else if (key.startsWith("share:")) {
       const e = v as unknown as Entry;
-      s.shares.set(key.slice("share:".length), { share: e.share, owner: e.owner, online: false });
+      s.shares.set(key.slice("share:".length), { share: { ...e.share, audience: e.share.audience ?? null }, owner: e.owner, online: false });
     } else if (key.startsWith("note:")) {
       const n = v as unknown as Note;
       const list = s.notes.get(n.ws) ?? [];

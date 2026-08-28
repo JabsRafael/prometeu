@@ -39,6 +39,7 @@ const ws = (
   pr: null,
   cleaned: false,
   shared: false,
+  audience: null,
   preparing: false,
   failed: null,
   remote: null,
@@ -402,11 +403,15 @@ function controlInto(tab: string, frame: Record<string, any>) {
   pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 400 });
 }
 
-/// Os workspaces compartilhados, entre recargas — o `shared` do board.json.
+/// Os workspaces compartilhados, entre recargas — o `shared` e a `audience`
+/// do board.json.
 const SHARED = "mock:shared";
-for (const id of JSON.parse(localStorage.getItem(SHARED) ?? "[]") as string[]) {
+for (const [id, audience] of JSON.parse(localStorage.getItem(SHARED) ?? "[]") as [string, string[] | null][]) {
   const ws = board.workspaces.find((x) => x.id === id);
-  if (ws) ws.shared = true;
+  if (ws) {
+    ws.shared = true;
+    ws.audience = audience;
+  }
 }
 
 function emit(event: string, payload: unknown) {
@@ -488,10 +493,13 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     }
     case "set_shared": {
       const target = board.workspaces.find((x) => x.id === args.id);
-      if (target) target.shared = args.shared;
+      if (target) {
+        target.shared = args.shared;
+        target.audience = args.shared ? args.audience : null;
+      }
       // Como o `board.json` do back: recarregar a página não desfaz o que foi
       // compartilhado, senão o dono que volta volta sem nada compartilhado.
-      localStorage.setItem(SHARED, JSON.stringify(board.workspaces.filter((x) => x.shared).map((x) => x.id)));
+      localStorage.setItem(SHARED, JSON.stringify(board.workspaces.filter((x) => x.shared).map((x) => [x.id, x.audience])));
       emit("board", board);
       return;
     }
@@ -757,6 +765,7 @@ const marcusShare = () => ({
     { id: "mt2", title: "testes", status: "pronta", note: null, tokens: 8_300 },
   ],
   sizes: { mt1: [100, 30], mt2: [100, 30] },
+  audience: null,
   owner: "marcus",
   online: marcusOnline,
 });

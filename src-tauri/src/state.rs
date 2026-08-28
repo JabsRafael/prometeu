@@ -164,6 +164,11 @@ pub struct Workspace {
     /// dono que fecha o app voltar compartilhando, sem ninguém pedir de novo.
     #[serde(default)]
     pub shared: bool,
+    /// Com quem: ids de membros do time, ou `None` para o time inteiro. Só
+    /// vale com `shared`. O back não sabe quem são — é o front que anuncia e
+    /// o relay que faz valer.
+    #[serde(default)]
+    pub audience: Option<Vec<String>>,
     /// O worktree ainda está sendo montado. O card entra no quadro assim que o
     /// lançador fecha e o `git worktree add` — segundos, num repositório
     /// grande — acontece atrás. Enquanto isto for verdade não há aba nenhuma:

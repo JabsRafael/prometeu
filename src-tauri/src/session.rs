@@ -185,11 +185,12 @@ pub fn set_unread(app: AppHandle, state: State<AppState>, id: String, unread: bo
 /// repassa a saída é o front, que é quem tem os bytes. Fica gravada para o
 /// dono que fecha o app voltar compartilhando sozinho.
 #[tauri::command]
-pub fn set_shared(app: AppHandle, state: State<AppState>, id: String, shared: bool) {
+pub fn set_shared(app: AppHandle, state: State<AppState>, id: String, shared: bool, audience: Option<Vec<String>>) {
     {
         let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(&id) {
             ws.shared = shared;
+            ws.audience = if shared { audience } else { None };
         }
     }
     publish(&app);
@@ -578,6 +579,7 @@ pub fn create_workspace(
         pr: None,
         cleaned: false,
         shared: false,
+        audience: None,
         preparing: true,
         failed: None,
         agent: draft.launch.agent.clone(),
@@ -1311,6 +1313,7 @@ mod tests {
             pr: None,
             cleaned: false,
             shared: false,
+            audience: None,
             preparing: false,
             failed: None,
             model: String::new(),

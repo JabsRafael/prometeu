@@ -466,6 +466,7 @@ function toShare(w: Workspace): Share {
     active: w.active,
     tabs: w.tabs.map((tab) => ({ id: tab.id, title: tab.title, status: tab.status, note: tab.note, tokens: tab.tokens })),
     sizes: Object.fromEntries(w.tabs.map((tab) => [tab.id, NO_SIZE])),
+    audience: w.audience,
   };
 }
 
@@ -501,8 +502,11 @@ const tabOwnedBy = (tab: string, ids: Set<string>) =>
 /// A aba pertence a um workspace meu, anunciado agora.
 const mine = (tab: string) => tabOwnedBy(tab, new Set(announced.keys()));
 
-export async function share(id: string, on: boolean) {
-  await invoke("set_shared", { id, shared: on });
+/// Compartilha com o time inteiro (`null`), com alguns (ids de membros), ou
+/// para (`false`). Lista vazia é parar: não há "compartilhado com ninguém".
+export async function share(id: string, audience: string[] | null | false) {
+  const on = audience !== false && (audience === null || audience.length > 0);
+  await invoke("set_shared", { id, shared: on, audience: on ? audience : null });
 }
 
 export const isShared = (id: string) => announced.has(id);
@@ -657,6 +661,7 @@ export function remotes(): Workspace[] {
       pr: null,
       cleaned: false,
       shared: false,
+      audience: null,
       // O colega só anuncia o que já montou: nada aqui nasce montando.
       preparing: false,
       failed: null,
@@ -774,6 +779,19 @@ export function notesOf(id: string): Note[] {
 /// se o pedido saiu: sem conexão a nota não vai a lugar nenhum, e quem
 /// escreveu precisa saber disso em vez de ver o campo esvaziar.
 export function addNote(id: string, text: string, mentions: string[], quote: string | null): boolean {
+  // Marcar quem está fora da audiência de um workspace seu é chamar a pessoa:
+  // ela entra na lista antes de a nota sair, senão o relay descarta a menção.
+  // O share vai pelo mesmo socket, na frente da nota — esperar o Rust gravar
+  // e o quadro voltar deixaria a nota chegar primeiro.
+  const w = lastBoard?.workspaces.find((x) => x.id === id);
+  if (w?.shared && !w.remote && w.audience) {
+    const missing = mentions.filter((m) => !w.audience!.includes(m));
+    if (missing.length) {
+      const grown: Share = { ...toShare(w), audience: [...w.audience, ...missing] };
+      if (send({ t: "share", share: grown })) announced.set(w.id, JSON.stringify(grown));
+      void share(id, grown.audience);
+    }
+  }
   return send({ t: "note", ws: relayId(id), text, mentions, quote });
 }
 

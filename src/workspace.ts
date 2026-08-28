@@ -312,7 +312,9 @@ export function draw() {
 }
 
 /// O botão de compartilhar e os chips de quem está olhando a conversa aberta.
-/// Só há botão com time, e só em workspace seu: o de um colega já é dele.
+/// Só há botão com time, e só em workspace seu: o de um colega já é dele. O
+/// clique abre a lista: o time inteiro, ou cada colega — e é o relay que faz a
+/// escolha valer, não a tela.
 function drawShare(ws: Workspace, tab?: Tab) {
   const btn = $("share") as HTMLButtonElement;
   const chips = $("watchers");
@@ -324,9 +326,12 @@ function drawShare(ws: Workspace, tab?: Tab) {
   btn.hidden = false;
   btn.className = "ghost md" + (ws.shared ? " on" : "");
   btn.innerHTML = `${icon("share-2", 14)}<span></span>`;
-  btn.querySelector("span")!.textContent = t(ws.shared ? "share.off" : "share.on");
+  btn.querySelector("span")!.textContent = shareLabel(ws);
   btn.title = t(ws.shared ? "share.off.title" : "share.on.title");
-  btn.onclick = () => team.share(ws.id, !ws.shared).catch((e) => ctx.say(fromBack(e), true));
+  btn.onclick = () => {
+    const at = btn.getBoundingClientRect();
+    menu.openAt({ x: at.left, y: at.bottom + 4 }, shareItems(ws));
+  };
   if (!ws.shared || !tab) return;
   for (const name of team.watchersOf(tab.id)) {
     const c = h("span", "chip watcher", `${avatar(name)}<span class="nm"></span>`);
@@ -334,6 +339,39 @@ function drawShare(ws: Workspace, tab?: Tab) {
     c.title = t("share.watching", { name });
     chips.append(c);
   }
+}
+
+function shareLabel(ws: Workspace): string {
+  if (!ws.shared) return t("share.on");
+  if (!ws.audience) return t("share.off");
+  return tn(ws.audience.length, "share.some");
+}
+
+/// A lista do botão: "todo o time" e um item por colega, com o check em quem
+/// vê. Clicar num colega liga ou desliga só ele; tirar o último é parar.
+function shareItems(ws: Workspace): menu.Item[] {
+  const me = team.status();
+  const others = me.members.filter((m) => m.id !== me.you);
+  const set = (audience: string[] | null | false) => team.share(ws.id, audience).catch((e) => ctx.say(fromBack(e), true));
+  const all = ws.shared && !ws.audience;
+  const some = ws.shared && ws.audience ? ws.audience : [];
+  const items: menu.Item[] = [
+    { label: t("share.all"), glyph: icon("users", 14), checked: all, run: () => set(all ? false : null) },
+    "sep",
+    ...others.map((m): menu.Item => {
+      const on = some.includes(m.id);
+      return {
+        label: m.name,
+        glyph: avatar(m.name),
+        hint: m.online ? undefined : t("team.offline"),
+        checked: on,
+        run: () => set(on ? some.filter((id) => id !== m.id) : [...some, m.id]),
+      };
+    }),
+  ];
+  if (!others.length) items.push({ label: t("share.alone"), disabled: true });
+  if (ws.shared) items.push("sep", { label: t("share.stop"), glyph: icon("x", 14), danger: true, run: () => set(false) });
+  return items;
 }
 
 /* ---------- ações do workspace ---------- */
