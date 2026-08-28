@@ -70,6 +70,17 @@ describe("Timeline", () => {
     expect(t.items).toHaveLength(1);
   });
 
+  it("o pensamento inteiro vem vazio; o que os deltas trouxeram fica", () => {
+    const t = new Timeline();
+    t.push(ev({ type: "message_start", message: { id: "m1" } }));
+    t.push(ev({ type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } }));
+    t.push(ev({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "pensei" } }));
+    t.push(assistant("m1", { type: "thinking", thinking: "", signature: "x" }));
+    const a = t.items[0];
+    if (a.kind !== "assistant" || a.blocks[0].kind !== "thinking") throw new Error();
+    expect(a.blocks[0].text).toBe("pensei");
+  });
+
   it("delta sem item aberto é descartado — o colega chegou no meio", () => {
     const t = new Timeline();
     expect(t.push(ev({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "x" } }))).toEqual([]);

@@ -196,6 +196,10 @@ export class Timeline {
       const block = toBlock(raw);
       if (!block) continue;
       const index = item.next++;
+      // O pensamento inteiro vem vazio na linha `assistant` (e no transcript):
+      // o texto só existe nos deltas. O rascunho é o que se tem; fica.
+      const draft = item.blocks[index];
+      if (block.kind === "thinking" && !block.text && draft?.kind === "thinking") block.text = draft.text;
       item.blocks[index] = block;
       if (block.kind === "tool") this.tools.set(block.id, { item: at, block: index });
     }

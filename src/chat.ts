@@ -292,6 +292,7 @@ export class ChatView {
         node.querySelector("summary")!.textContent = t(live ? "chat.thinking" : "chat.thought");
         (node.lastElementChild as HTMLElement).textContent = block.text;
         node.classList.toggle("live", live);
+        node.classList.toggle("empty", !block.text);
       } else {
         // Ferramenta: o card muda de estado (rodou, deu erro) — refeito, mas
         // aberto continua aberto.
@@ -314,7 +315,9 @@ export class ChatView {
       return el;
     }
     if (block.kind === "thinking") {
-      const el = h("details", "think" + (live ? " live" : ""), `<summary></summary><div></div>`);
+      // Sem texto (histórico do transcript, que não guarda o pensamento) não
+      // há o que abrir: fica o rótulo, sem seta.
+      const el = h("details", "think" + (live ? " live" : "") + (block.text ? "" : " empty"), `<summary></summary><div></div>`);
       el.dataset.kind = "thinking";
       el.querySelector("summary")!.textContent = t(live ? "chat.thinking" : "chat.thought");
       (el.lastElementChild as HTMLElement).textContent = block.text;
