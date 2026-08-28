@@ -238,6 +238,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "chat.ctx.used": "{pct}% of the window",
   "chat.ctx.free": "free",
   "chat.thinking": "Thinking…",
+  "chat.work.one": "{n} step",
+  "chat.work.other": "{n} steps",
   "chat.thought": "Thought",
   "chat.more": "… {n} more lines in the transcript",
   "chat.answered": "{what}: answered",

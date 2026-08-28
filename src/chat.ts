@@ -7,7 +7,7 @@ import { grouped, kilo, sectionTotal, type Report } from "./context";
 import { md } from "./markdown";
 import * as notes from "./notes";
 import * as team from "./team";
-import { summary, Timeline, type Ask, type Block, type Item } from "./timeline";
+import { pieces, summary, Timeline, type Ask, type Block, type Item, type Piece, type ToolBlock } from "./timeline";
 import type { Status } from "./types";
 import { h } from "./util";
 
@@ -54,8 +54,12 @@ export class ChatView {
   private key: string | null = null;
   private remote = false;
   private tl = new Timeline();
-  /// O nó de cada item, pelo índice no `Timeline`.
-  private nodes: HTMLElement[] = [];
+  /// Os pedaços que estão na tela, e o nó de cada um — na mesma ordem.
+  private shown: Piece[] = [];
+  private drawn: HTMLElement[] = [];
+  /// Os cartões de trabalho que alguém abriu: continuam abertos quando o
+  /// pedaço é redesenhado, e depois de trocar de aba e voltar.
+  private opened = new Set<string>();
   /// O que ainda não fechou uma linha, na conversa de um colega: os bytes
   /// chegam em pedaços, e um pedaço pode cortar um JSON no meio.
   private partial = "";
@@ -138,7 +142,8 @@ export class ChatView {
 
   private reset() {
     this.tl = new Timeline();
-    this.nodes = [];
+    this.shown = [];
+    this.drawn = [];
     this.partial = "";
     this.decoder = new TextDecoder("utf-8");
     this.feedback = null;
@@ -195,7 +200,7 @@ export class ChatView {
     this.raf = 0;
     const stick = this.stuck();
     const changed = this.dirty.size > 0;
-    for (const i of [...this.dirty].sort((a, b) => a - b)) this.renderOne(i);
+    this.sync(this.dirty);
     this.dirty.clear();
     if (changed) this.paintNotes();
     this.paintWorking();
@@ -247,25 +252,46 @@ export class ChatView {
   }
 
   private renderAll() {
-    this.nodes = [];
+    this.shown = [];
+    this.drawn = [];
     this.feed.replaceChildren();
     if (!this.tl.items.length) this.feed.append(h("div", "nohint", t("chat.empty")));
-    for (let i = 0; i < this.tl.items.length; i++) this.renderOne(i);
+    this.sync(null);
     this.paintNotes();
     this.paintWorking();
     this.paintComposer();
     this.feed.scrollTop = this.feed.scrollHeight;
   }
 
-  private renderOne(i: number) {
-    const item = this.tl.items[i];
-    const old = this.nodes[i];
-    // Mensagem chegando letra a letra: mexe no nó que está lá, em vez de
-    // trocá-lo. Trocar o nó a cada quadro é o que dava o tremor — e apagava a
-    // seleção de quem estava lendo.
-    if (old && item.kind === "assistant" && old.classList.contains("bot") && this.patch(old, item)) return;
-    const node = this.render(item, i);
-    node.dataset.i = String(i);
+  /// A tela alcança a timeline: os pedaços que tocam um item que mudou são
+  /// redesenhados, os que nasceram entram no fim, e o resto fica exatamente o
+  /// nó que já estava lá — com a seleção de quem lê e o que estava aberto.
+  /// `dirty` nulo é "mudou tudo".
+  private sync(dirty: Set<number> | null) {
+    const next = pieces(this.tl.items);
+    // Até onde continua sendo a mesma conversa. Como os itens só crescem no
+    // fim, isto quase sempre é tudo o que já está na tela.
+    let same = 0;
+    while (same < next.length && same < this.shown.length && next[same].key === this.shown[same].key) same++;
+    for (const gone of this.drawn.splice(same)) gone.remove();
+    for (let i = 0; i < same; i++) if (this.touches(next[i], dirty)) this.draw(i, next[i]);
+    for (let i = same; i < next.length; i++) this.draw(i, next[i]);
+    this.shown = next;
+  }
+
+  private touches(piece: Piece, dirty: Set<number> | null): boolean {
+    if (!dirty) return true;
+    return piece.kind === "work" ? piece.refs.some((r) => dirty.has(r.at)) : dirty.has(piece.at);
+  }
+
+  private draw(i: number, piece: Piece) {
+    const old = this.drawn[i];
+    // Chegando letra a letra: mexe no nó que está lá, em vez de trocá-lo.
+    // Trocar o nó a cada quadro é o que dava o tremor — e apagava a seleção
+    // de quem estava lendo.
+    if (old && this.repaint(old, piece)) return;
+    const node = this.node(piece);
+    node.dataset.key = piece.key;
     if (old) {
       // Card de ferramenta aberto continua aberto depois do redesenho.
       for (const open of old.querySelectorAll<HTMLElement>(".tool.open")) {
@@ -277,22 +303,42 @@ export class ChatView {
       this.feed.querySelector(".nohint")?.remove();
       this.feed.append(node);
     }
-    this.nodes[i] = node;
+    this.drawn[i] = node;
   }
 
-  private render(item: Item, i: number): HTMLElement {
+  private node(piece: Piece): HTMLElement {
+    if (piece.kind === "item") {
+      const item = this.tl.items[piece.at];
+      // Mensagem do agente vira `say` e `work`, nunca um pedaço `item`.
+      return item.kind === "assistant" ? h("div", "turn bot") : this.render(item, piece.at);
+    }
+    if (piece.kind === "say") {
+      const el = h("div", "turn bot");
+      const at = this.blockAt(piece);
+      if (at) el.append(this.block(at.block, at.live));
+      return el;
+    }
+    return this.workCard(piece);
+  }
+
+  /// O bloco de um pedaço, e se ele ainda está chegando: o último de uma
+  /// mensagem em streaming é o que está sendo escrito agora.
+  private blockAt(ref: { at: number; block: number }): { block: Block; live: boolean } | null {
+    const item = this.tl.items[ref.at];
+    if (item?.kind !== "assistant") return null;
+    const block = item.blocks[ref.block];
+    if (!block) return null;
+    return { block, live: item.streaming && ref.block === item.blocks.length - 1 };
+  }
+
+  /// O que não é mensagem do agente: a fala da pessoa, o card que espera
+  /// resposta, o fim do turno, um aviso do sistema. Mensagem do agente vira
+  /// pedaço (`say`, `work`) e não passa por aqui.
+  private render(item: Exclude<Item, { kind: "assistant" }>, i: number): HTMLElement {
     switch (item.kind) {
       case "user": {
         const el = h("div", "turn user", `<div class="bubble"></div>`);
         (el.firstElementChild as HTMLElement).textContent = item.text;
-        return el;
-      }
-      case "assistant": {
-        const el = h("div", "turn bot" + (item.streaming ? " live" : ""));
-        const last = item.blocks.length - 1;
-        item.blocks.forEach((block, k) => {
-          if (block) el.append(this.block(block, item.streaming && k === last));
-        });
         return el;
       }
       case "ask":
@@ -325,39 +371,113 @@ export class ChatView {
     }
   }
 
-  /// Uma mensagem já na tela mudou. Bloco por bloco: o que é do mesmo tipo é
-  /// atualizado no lugar, o que é novo entra no fim. `false` é "não deu, troca
-  /// o nó inteiro" — um bloco mudou de tipo, o que não acontece no stream.
-  private patch(el: HTMLElement, item: Extract<Item, { kind: "assistant" }>): boolean {
-    const last = item.blocks.length - 1;
-    for (let k = 0; k <= last; k++) {
-      const block = item.blocks[k];
-      if (!block) continue;
-      const live = item.streaming && k === last;
+  /// Um pedaço que já está na tela mudou. Bloco por bloco: o que é do mesmo
+  /// tipo é atualizado no lugar, o que é novo entra no fim. `false` é "não
+  /// deu, troca o nó inteiro".
+  private repaint(el: HTMLElement, piece: Piece): boolean {
+    if (el.dataset.key !== piece.key) return false;
+    // Fala da pessoa, card, aviso: refazer é barato, e o card guarda o que
+    // já foi escolhido nele.
+    if (piece.kind === "item") return false;
+    if (piece.kind === "say") {
+      const at = this.blockAt(piece);
+      const node = el.firstElementChild as HTMLElement | null;
+      if (!at || at.block.kind !== "text" || node?.dataset.kind !== "text") return false;
+      node.innerHTML = md(at.block.text);
+      node.classList.toggle("typing", at.live);
+      return true;
+    }
+    // Trabalho que era só pensamento e ganhou a primeira ferramenta deixa de
+    // ser um pensamento solto e passa a ser cartão: aí o nó é outro.
+    const parts = piece.refs.map((r) => this.blockAt(r)).filter((p) => !!p);
+    const card = el.classList.contains("work");
+    if (wantsCard(parts) !== card) return false;
+    const body = card ? el.querySelector<HTMLElement>(".wbody") : el;
+    if (!body) return false;
+    // O cartão fechado é o resumo do que está dentro: mudou um bloco, mudou
+    // o cabeçalho.
+    if (card) this.paintWorkHead(el, piece);
+    return this.patch(body, parts);
+  }
+
+  /// Os blocos de um pedaço, dentro do nó que já está na tela.
+  private patch(el: HTMLElement, blocks: ({ block: Block; live: boolean } | null)[]): boolean {
+    for (let k = 0; k < blocks.length; k++) {
+      const at = blocks[k];
+      if (!at) continue;
       const node = el.children[k] as HTMLElement | undefined;
       if (!node) {
-        el.append(this.block(block, live));
+        el.append(this.block(at.block, at.live));
         continue;
       }
-      if (node.dataset.kind !== block.kind) return false;
-      if (block.kind === "text") {
-        node.innerHTML = md(block.text);
-        node.classList.toggle("typing", live);
-      } else if (block.kind === "thinking") {
-        node.querySelector("summary")!.textContent = t(live ? "chat.thinking" : "chat.thought");
-        (node.lastElementChild as HTMLElement).textContent = block.text;
-        node.classList.toggle("live", live);
-        node.classList.toggle("bare", !block.text);
+      // Um bloco mudou de tipo: não acontece no stream, mas se acontecer o
+      // nó inteiro é refeito, em vez de a tela mentir.
+      if (node.dataset.kind !== at.block.kind) return false;
+      if (at.block.kind === "text") {
+        node.innerHTML = md(at.block.text);
+        node.classList.toggle("typing", at.live);
+      } else if (at.block.kind === "thinking") {
+        node.querySelector("summary")!.textContent = t(at.live ? "chat.thinking" : "chat.thought");
+        (node.lastElementChild as HTMLElement).textContent = at.block.text;
+        node.classList.toggle("live", at.live);
+        node.classList.toggle("bare", !at.block.text);
       } else {
         // Ferramenta: o card muda de estado (rodou, deu erro) — refeito, mas
         // aberto continua aberto.
-        const fresh = this.block(block, live);
+        const fresh = this.block(at.block, at.live);
         if (node.classList.contains("open")) fresh.classList.add("open");
         node.replaceWith(fresh);
       }
     }
-    el.classList.toggle("live", item.streaming);
     return true;
+  }
+
+  /// O trabalho do agente num cartão só. Fechado, é a linha do que ele está
+  /// fazendo agora — ou quanto fez, quando acabou. Aberto, é o passo a passo
+  /// de sempre. Sem isto, uma tarefa banal é quarenta cartões empilhados e a
+  /// fala que interessa se perde no meio deles.
+  private workCard(piece: Extract<Piece, { kind: "work" }>): HTMLElement {
+    const parts = piece.refs.map((r) => this.blockAt(r)).filter((p) => !!p);
+    if (!wantsCard(parts)) {
+      const el = h("div", "turn bot");
+      for (const p of parts) el.append(this.block(p.block, p.live));
+      return el;
+    }
+    const el = h("div", "work" + (this.opened.has(piece.key) ? " open" : ""));
+    const head = h("button", "whead", `<span class="wic"></span><b></b><span class="sum"></span><span class="st"></span>`);
+    head.addEventListener("click", () => {
+      const open = el.classList.toggle("open");
+      if (open) this.opened.add(piece.key);
+      else this.opened.delete(piece.key);
+    });
+    const body = h("div", "wbody");
+    for (const p of parts) body.append(this.block(p.block, p.live));
+    el.append(head, body);
+    this.paintWorkHead(el, piece);
+    return el;
+  }
+
+  /// O cabeçalho do cartão. Enquanto anda, é o passo de agora — senão a
+  /// conversa vira uma caixa fechada e ninguém vê o agente trabalhando.
+  /// Parado, é quantos passos foram, e em quê.
+  private paintWorkHead(el: HTMLElement, piece: Extract<Piece, { kind: "work" }>) {
+    const parts = piece.refs.map((r) => this.blockAt(r)).filter((p) => !!p);
+    const tools = parts.map((p) => p.block).filter((b): b is ToolBlock => b.kind === "tool");
+    const last = parts[parts.length - 1];
+    const running = parts.some((p) => p.live) || tools.some((b) => !b.done || b.background);
+    const bad = tools.some((b) => b.error);
+    el.classList.toggle("going", running);
+    el.classList.toggle("bad", !running && bad);
+    el.classList.toggle("ok", !running && !bad);
+
+    const now = running && last.block.kind === "tool" ? last.block : null;
+    const tally = count(tools);
+    const name = now ? now.name : tally[0]?.[0] ?? "";
+    const q = (sel: string) => el.querySelector(sel)!;
+    q(".wic").innerHTML = icon(running && !now ? "sparkles" : toolIcon(name), 14);
+    q("b").textContent = now ? toolLabel(now.name) : running ? t("chat.thinking") : tn(tools.length, "chat.work");
+    q(".sum").textContent = now ? summary(now.name, now.input, now.json) : running ? "" : tallyText(tally);
+    q(".st").innerHTML = running ? `<span class="spin"></span>` : icon(bad ? "x" : "check", 12);
   }
 
   /// `live` é o bloco que ainda está chegando: o último de uma mensagem em
@@ -602,7 +722,7 @@ export class ChatView {
 
   private respond(ask: Ask, response: unknown) {
     this.control({ type: "control_response", response: { subtype: "success", request_id: ask.id, response } });
-    for (const i of this.tl.answer(ask.id)) this.renderOne(i);
+    this.sync(new Set(this.tl.answer(ask.id)));
     this.paintComposer();
   }
 
@@ -801,9 +921,21 @@ export class ChatView {
     for (const note of [...list].sort((a, b) => a.ts - b.ts)) {
       const at = items.findIndex((it) => it.ts > note.ts);
       const card = notes.card(note);
-      if (at === -1 || !this.nodes[at]) this.feed.append(card);
-      else this.nodes[at].before(card);
+      const node = at === -1 ? null : this.nodeOf(at);
+      if (node) node.before(card);
+      else this.feed.append(card);
     }
+  }
+
+  /// O nó em que um item aparece: o dele, ou o cartão de trabalho que o
+  /// engoliu. É onde uma nota daquela hora entra.
+  private nodeOf(at: number): HTMLElement | null {
+    for (let i = 0; i < this.shown.length; i++) {
+      const piece = this.shown[i];
+      const last = piece.kind === "work" ? piece.refs[piece.refs.length - 1].at : piece.at;
+      if (last >= at) return this.drawn[i] ?? null;
+    }
+    return null;
   }
 
   /// Leva até uma nota — de onde a caixa "Para mim" leva.
@@ -957,6 +1089,27 @@ function toolIcon(name: string): IconName {
     default:
       return "sparkles";
   }
+}
+
+/// Se o trabalho merece um cartão em volta. Uma ferramenta só já é um cartão,
+/// e o pensamento ao lado dela é uma linha — pôr uma caixa em volta disso é
+/// esconder o que dava para ler de uma vez. O que cansa é a rajada.
+function wantsCard(parts: { block: Block }[]): boolean {
+  return parts.filter((p) => p.block.kind === "tool").length > 1;
+}
+
+/// Quantas vezes cada ferramenta apareceu num cartão de trabalho, da mais
+/// usada para a menos.
+function count(tools: ToolBlock[]): [string, number][] {
+  const n = new Map<string, number>();
+  for (const b of tools) n.set(b.name, (n.get(b.name) ?? 0) + 1);
+  return [...n].sort((a, b) => b[1] - a[1]);
+}
+
+/// "Bash ×8 · Read ×4": em que o agente gastou os passos, sem a lista inteira.
+function tallyText(tally: [string, number][]): string {
+  const head = tally.slice(0, 3).map(([name, n]) => (n > 1 ? `${toolLabel(name)} ×${n}` : toolLabel(name)));
+  return [...head, ...(tally.length > 3 ? ["…"] : [])].join(" · ");
 }
 
 /// O nome da ferramenta como a pessoa a lê. MCP vem `mcp__servidor__tool`.
