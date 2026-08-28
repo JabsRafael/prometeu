@@ -79,6 +79,10 @@ export class ChatView {
   /// token; redesenhar a cada uma trava a tela — um quadro por vez basta.
   private dirty = new Set<number>();
   private raf = 0;
+  /// A nota que acabou de sair daqui, esperando voltar do relay: quantas o
+  /// workspace tinha antes dela. Quando aparecer uma a mais, a rolagem vai
+  /// até ela — mesmo que quem escreveu tenha subido para citar um trecho.
+  private posted: { ws: string; count: number } | null = null;
   private working = h("div", "working", "<i></i><i></i><i></i><span class=\"wlabel\"></span>");
   /// A fala guardada, esperando o setup: fica na tela como se tivesse ido,
   /// com o aviso de que ainda não foi.
@@ -95,9 +99,14 @@ export class ChatView {
       if (session !== this.key || this.remote) return;
       this.absorb(line);
     });
+    // Nota nova — de um colega, ou a própria voltando do relay — entra no
+    // fim da conversa. Segue a mesma regra do stream: a rolagem acompanha se
+    // já estava no fim; e a nota que acabou de sair daqui é vista sempre.
     team.onChange(() => {
+      const stick = this.arrived() || this.stuck();
       if (this.key) this.paintNotes();
       this.paintComposer();
+      if (stick) this.feed.scrollTop = this.feed.scrollHeight;
     });
     // Link no texto do agente não navega: a janela é o app.
     this.feed.addEventListener("click", (e) => {
@@ -159,6 +168,7 @@ export class ChatView {
     this.partial = "";
     this.decoder = new TextDecoder("utf-8");
     this.feedback = null;
+    this.posted = null;
     this.dirty.clear();
     cancelAnimationFrame(this.raf);
     this.raf = 0;
@@ -261,6 +271,17 @@ export class ChatView {
 
   private stuck() {
     return this.feed.scrollTop + this.feed.clientHeight >= this.feed.scrollHeight - 48;
+  }
+
+  /// A nota que saiu daqui chegou: o workspace tem mais notas do que tinha
+  /// quando ela foi enviada. Vale uma vez, e só nesta aba.
+  private arrived(): boolean {
+    const posted = this.posted;
+    if (!posted) return false;
+    if (this.ctx.info().workspace !== posted.ws) return false;
+    if (team.notesOf(posted.ws).length <= posted.count) return false;
+    this.posted = null;
+    return true;
   }
 
   private renderAll() {
@@ -937,6 +958,7 @@ export class ChatView {
       // Sem conexão a nota não sai. O texto fica onde está — perder o que se
       // acabou de escrever é pior que ver o erro.
       if (!sent) return this.ctx.say(t("err.team.down"), true);
+      this.posted = { ws: info.workspace, count: team.notesOf(info.workspace).length };
       notes.dropDraft(info.workspace);
       this.area.value = "";
       this.grow();
