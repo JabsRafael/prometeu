@@ -5,7 +5,6 @@ use portable_pty::CommandBuilder;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 
 #[tauri::command]
@@ -784,9 +783,12 @@ pub fn resume_tab(app: AppHandle, state: State<AppState>, tab: String) -> Result
 /// Sobe de novo o processo de uma aba. É o `resume_tab`, e é o que a primeira
 /// fala numa aba desligada faz por conta própria (`chat::chat_send`).
 pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<bool, String> {
-    let (worktree, launch, cleaned) = lock(&state.board)
+    let (worktree, launch, cleaned, agent_session) = lock(&state.board)
         .workspace_of(tab)
-        .map(|w| (PathBuf::from(&w.worktree), w.launch(), w.cleaned))
+        .map(|w| {
+            let previous = w.tabs.iter().find(|t| t.id == tab).and_then(|t| t.agent_session.clone());
+            (PathBuf::from(&w.worktree), w.launch(), w.cleaned, previous)
+        })
         .ok_or_else(|| i18n::t("err.session.noTab"))?;
     if cleaned {
         return Err(i18n::t("err.session.cleaned"));
@@ -801,9 +803,16 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
 
     // Conversa que nunca falou não tem transcript, e retomar morre nela. Aí a
     // aba renasce com o mesmo id: não há nada perdido, e travar a tela num erro
-    // por causa de uma conversa vazia seria pior.
-    let resume = paths::transcript(tab, &worktree).exists();
-    let handle = chat::spawn(app, tab, &worktree, claude_args(tab, resume, &launch))?;
+    // por causa de uma conversa vazia seria pior. No Codex a pergunta é outra —
+    // se ele já contou qual thread abriu —, porque o transcript dele não mora
+    // num caminho que dê para adivinhar.
+    let (resume, handle) = match launch.agent.as_str() {
+        "codex" => (agent_session.is_some(), crate::codex::spawn(app, tab, &worktree, agent_session, &launch)?),
+        _ => {
+            let resume = paths::transcript(tab, &worktree).exists();
+            (resume, chat::spawn(app, tab, &worktree, claude_args(tab, resume, &launch))?)
+        }
+    };
     lock(&state.chats).insert(tab.to_string(), handle);
     chat::ready_now(app, tab);
     {
@@ -826,7 +835,11 @@ fn spawn_tab(
     launch: &Launch,
 ) -> Result<Tab, String> {
     let id = uuid::Uuid::new_v4().to_string();
-    let handle = chat::spawn(app, &id, worktree, claude_args(&id, false, launch))?;
+    // O modelo escolhido diz qual CLI sobe (ver `agents.rs`); a aba é a mesma.
+    let handle = match launch.agent.as_str() {
+        "codex" => crate::codex::spawn(app, &id, worktree, None, launch)?,
+        _ => chat::spawn(app, &id, worktree, claude_args(&id, false, launch))?,
+    };
     lock(&state.chats).insert(id.clone(), handle);
     // Quem chama põe a aba no quadro e só então libera a fala
     // (`chat::ready_now`): a fala guardada mora na aba, e a aba nasce aqui.

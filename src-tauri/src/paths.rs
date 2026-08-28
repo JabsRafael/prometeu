@@ -99,6 +99,16 @@ pub(crate) fn fnv1a(s: &str) -> u64 {
 /// O arquivo só nasce na primeira mensagem. Conversa criada e nunca usada não
 /// tem transcript nenhum — e é exatamente isso que o `--resume` responde com
 /// "No conversation found with session ID".
+/// A conversa de uma aba do Codex, nas mesmas linhas que a tela desenha. O
+/// Codex guarda o rollout dele em `~/.codex/sessions`, num formato que é dele;
+/// o que o app precisa amanhã é o que mostrou hoje — então grava o que
+/// traduziu (`codex.rs`), e é daqui que a aba reabre. Fica na raiz do app, e
+/// não no worktree, pelo mesmo motivo do transcript do Claude Code: apagar o
+/// worktree não apaga a conversa.
+pub fn chat_log(id: &str) -> PathBuf {
+    root().join("chats").join(format!("{id}.jsonl"))
+}
+
 pub fn transcript(id: &str, cwd: &Path) -> PathBuf {
     let slug: String = cwd
         .to_string_lossy()

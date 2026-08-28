@@ -114,11 +114,6 @@ fn ask_codex(prompt: &str, model: &str) -> Option<String> {
     // pedido vem rotulado para ele não confundir uma coisa com a outra.
     cmd.arg(format!("{SYSTEM}\n\nPedido:\n{prompt}"));
     cmd.current_dir(crate::paths::home());
-    // O `hooks.json` do Codex é global (ver `agents.rs`), então os hooks do
-    // quadro disparam até aqui. Apontar o socket para um caminho impossível é o
-    // jeito mais curto de o `prometheus-hook` desistir na primeira linha: um
-    // nomeador não tem status, nota nem aba a contar.
-    cmd.env("PROMETHEUS_SOCKET", "/dev/null/prometheus-sem-socket");
     // Sem isto o `codex exec` fica esperando "input adicional" no stdin e nunca
     // responde.
     cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());

@@ -484,6 +484,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.chat.spawn": "claude did not start: {cause}",
   "err.chat.pipe": "claude started without its input and output pipes",
   "err.chat.gone": "the conversation is not running",
+  "err.codex.spawn": "codex did not start: {cause}",
+  "err.codex.thread": "codex did not open the conversation: {cause}",
   "err.pty.gone": "terminal is not running",
   "err.pty.openpty": "openpty failed: {cause}",
   "err.pty.spawn": "spawn failed: {cause}",

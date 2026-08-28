@@ -3,6 +3,7 @@
 mod agents;
 mod browser;
 mod chat;
+mod codex;
 mod i18n;
 mod linear;
 mod lock;

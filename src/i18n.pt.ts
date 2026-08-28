@@ -528,6 +528,8 @@ export const PT = {
   "err.chat.spawn": "o claude não subiu: {cause}",
   "err.chat.pipe": "o claude subiu sem os canos de entrada e saída",
   "err.chat.gone": "a conversa não está rodando",
+  "err.codex.spawn": "o codex não subiu: {cause}",
+  "err.codex.thread": "o codex não abriu a conversa: {cause}",
   "err.pty.gone": "terminal não está rodando",
   "err.pty.openpty": "openpty falhou: {cause}",
   "err.pty.spawn": "spawn falhou: {cause}",
