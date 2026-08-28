@@ -59,6 +59,9 @@ pub enum Note {
     /// Não há mais o que dizer: o trabalho parou.
     Clear,
     Set(String),
+    /// O que estava escrito continua valendo: o agente falou no meio de uma
+    /// ferramenta e outra, e a ferramenta é o que a linha conta.
+    Keep,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

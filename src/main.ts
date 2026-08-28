@@ -249,14 +249,23 @@ type Drag = { type: string; paths?: string[]; position?: { x: number; y: number 
 /// invertida em tudo que o shell leria como outra coisa.
 const escapePath = (p: string) => p.replace(/([\s!"#$&'()*,:;<>?[\\\]^`{|}~])/g, "\\$1");
 
-/// Onde o arquivo caiu: o terminal da conversa, o do dock, ou lugar nenhum.
-function dropTarget(at?: { x: number; y: number }) {
+/// Onde o arquivo caiu: a conversa, o terminal do dock, ou lugar nenhum. Na
+/// conversa o caminho entra na caixa de escrever; no dock, no pty.
+type Drop = { host: HTMLElement; put: (text: string) => void } | null;
+function dropTarget(at?: { x: number; y: number }): Drop {
   if (!at || !$("veil").hidden) return null;
   const dpr = window.devicePixelRatio || 1;
   const el = document.elementFromPoint(at.x / dpr, at.y / dpr);
   if (!el) return null;
-  if (el.closest("#dock")) return { host: $("dock"), pty: dock.currentKey(), focus: dock.focus };
-  if (el.closest("#termwrap")) return { host: $("termwrap"), pty: session.currentSession(), focus: session.focus };
+  if (el.closest("#dock")) {
+    const pty = dock.currentKey();
+    if (!pty) return null;
+    return {
+      host: $("dock"),
+      put: (text) => void invoke("pty_write", { session: pty, data: text }).then(dock.focus).catch((e) => say(fromBack(e), true)),
+    };
+  }
+  if (el.closest("#chatwrap") && session.currentSession()) return { host: $("chatwrap"), put: session.insert };
   return null;
 }
 
@@ -280,15 +289,13 @@ getCurrentWebview().onDragDropEvent(({ payload }) => {
   }
 
   const target = dropTarget(drag.position);
-  if (drag.type !== "drop") return markDrop(target?.pty ? target.host : null);
+  if (drag.type !== "drop") return markDrop(target?.host ?? null);
 
   markDrop(null);
   const paths = drag.paths ?? [];
-  if (!target?.pty || !paths.length) return;
+  if (!target || !paths.length) return;
   // Espaço no fim: o próximo arquivo, ou o que você for escrever, não cola.
-  invoke("pty_write", { session: target.pty, data: paths.map(escapePath).join(" ") + " " })
-    .then(() => target.focus())
-    .catch((e) => say(fromBack(e), true));
+  target.put(paths.map(escapePath).join(" ") + " ");
 });
 
 /* ---------- ações ---------- */
@@ -305,7 +312,7 @@ function launch(projectId?: string, seed?: Issue) {
     // não vira narração aqui em cima.
     go: async (draft: Draft) => {
       try {
-        const created = await invoke<Workspace>("create_workspace", { draft, ...session.dims() });
+        const created = await invoke<Workspace>("create_workspace", { draft, ...dock.dims() });
         // O back já publicou o quadro com ele dentro, mas a resposta do comando
         // e o evento são duas mensagens, e nada garante qual chega primeiro.
         // Quem desenha procura o workspace aberto no quadro que a tela tem: sem
@@ -319,21 +326,6 @@ function launch(projectId?: string, seed?: Issue) {
     },
   });
 }
-
-$("resume").addEventListener("click", async () => {
-  const tab = session.currentSession();
-  if (!tab) return;
-  say(t("say.resuming"));
-  try {
-    // Conversa vazia não tem transcript: o back abre uma nova no mesmo lugar, e
-    // dizer isso é melhor do que deixar você procurar o histórico que não existe.
-    const resumed = await invoke<boolean>("resume_tab", { tab, ...session.dims() });
-    say(resumed ? "" : t("say.resumed"));
-    await session.attach(tab);
-  } catch (err) {
-    say(fromBack(err), true);
-  }
-});
 
 /* ---------- painéis laterais ---------- */
 
@@ -413,7 +405,7 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     toggleRail();
   }
-  // ⌘⇧M é a nota citando o que está selecionado no terminal: a mão já está no
+  // ⌘⇧M é a nota citando o que está selecionado na conversa: a mão já está no
   // mouse, tendo acabado de selecionar.
   if (cmd && e.shiftKey && e.key.toLowerCase() === "m" && open) {
     if (ws.quoteSelection()) e.preventDefault();
@@ -473,7 +465,7 @@ void loadAgents();
 // O time vem antes das configurações, que é onde ele aparece — e antes do
 // quadro, que vai mostrar o que os colegas compartilham.
 team.onError((m) => say(m, true));
-await team.init({ dims: () => session.dims() });
+await team.init();
 // A tela de issues pergunta às configurações se há Linear; elas respondem
 // depois de saber, e por isso vêm antes.
 await settings.init({ say });
@@ -487,7 +479,23 @@ issues.init({
 });
 archived.init({ board: () => state, hooks: () => hooks });
 ws.init({ say, board: view, redraw: draw, toBoard: () => showBoard() });
-session.initTerminal((m) => say(m, true));
+// O que a caixa de escrever precisa saber da aba aberta: de quem é, se está
+// desligada, se há time para deixar nota.
+session.init(
+  (m) => say(m, true),
+  () => {
+    const open = ws.id();
+    const w = open ? view().workspaces.find((x) => x.id === open) : undefined;
+    const tab = w?.tabs.find((t) => t.id === session.currentSession());
+    return {
+      workspace: open,
+      status: tab?.status ?? null,
+      pending: tab?.pending_prompt ?? null,
+      remote: w?.remote ? { name: team.nameOf(w.remote.owner), online: w.remote.online } : null,
+      team: !!team.status().config,
+    };
+  },
+);
 viewer.init((m) => say(m, true));
 dock.init($("dockterm"));
 state = await invoke<Board>("load_board");

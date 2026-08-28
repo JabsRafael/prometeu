@@ -6,7 +6,7 @@ use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 
 /// Quanto da saída fica guardado para redesenhar o terminal quando o usuário
 /// volta do quadro para a sessão. 512 KB cobre bastante rolagem e não pesa.
@@ -24,8 +24,8 @@ const REAP: Duration = Duration::from_millis(500);
 /// do `setup` solta a primeira fala do agente.
 pub type OnExit = Box<dyn FnOnce(Option<u32>) + Send>;
 
-/// O que só existe em pty de dock — script ou shell —, e nunca em conversa.
-/// `Some(Dock::default())` é o dock sem nada de especial; `None` é conversa.
+/// O que acompanha o pty de um dock — script ou shell. Conversa não passa por
+/// aqui: ela é `chat.rs`, e não tem terminal nenhum.
 #[derive(Default)]
 pub struct Dock {
     pub on_exit: Option<OnExit>,
@@ -60,13 +60,6 @@ impl Scroll {
     }
 }
 
-/// O que `pty_snapshot` devolve: a rolagem e até que pedaço ela vai.
-#[derive(serde::Serialize)]
-pub struct Snapshot {
-    pub bytes: Vec<u8>,
-    pub seq: u64,
-}
-
 pub struct Pty {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
@@ -82,11 +75,6 @@ pub struct Pty {
     gone: Arc<AtomicBool>,
     /// Grupo de processos do filho, para o `Drop` derrubar. Zero é "não sei".
     pid: u32,
-    /// Derrubar começa com SIGHUP no grupo inteiro. Vale para dock: `sh -c` não
-    /// lê o terminal, então o Ctrl-D que o writer manda ao ser largado não chega
-    /// a ninguém, e o servidor de dev ficaria órfão. Não vale para conversa: o
-    /// Claude Code sai limpo no Ctrl-D, e avisa o hook no caminho.
-    hangup: bool,
 }
 
 impl Pty {
@@ -118,7 +106,7 @@ impl Pty {
 /// Só enquanto o filho não foi colhido: pid de morto é reaproveitado, e o sinal
 /// iria parar num estranho. `alive` cai antes do `wait`, então verdadeiro aqui
 /// é filho vivo, e o pid é dele.
-fn signal_group(pid: u32, alive: &AtomicBool, sig: i32) {
+pub(crate) fn signal_group(pid: u32, alive: &AtomicBool, sig: i32) {
     if pid == 0 || !alive.load(Ordering::Relaxed) {
         return;
     }
@@ -128,7 +116,7 @@ fn signal_group(pid: u32, alive: &AtomicBool, sig: i32) {
 }
 
 /// Espera o processo sair, até o teto. `true` se saiu.
-fn wait_exit(alive: &AtomicBool, until: Duration) -> bool {
+pub(crate) fn wait_exit(alive: &AtomicBool, until: Duration) -> bool {
     let deadline = Instant::now() + until;
     while Instant::now() < deadline {
         if !alive.load(Ordering::Relaxed) {
@@ -146,18 +134,17 @@ fn wait_exit(alive: &AtomicBool, until: Duration) -> bool {
 /// porta até o app fechar. Só o SIGHUP também não basta — quem o ignora fica, e
 /// é justamente o caso de um servidor de dev sob `nohup`.
 ///
-/// Então: o desligamento educado que cada tipo entende (Ctrl-D na conversa,
-/// SIGHUP no grupo do dock) e, para quem não sair sozinho, SIGTERM e depois
-/// SIGKILL — sempre no grupo, que é a única forma de alcançar os netos.
+/// Então: SIGHUP no grupo — `sh -c` não lê o terminal, então o Ctrl-D que o
+/// writer manda ao ser largado não chega a ninguém — e, para quem não sair
+/// sozinho, SIGTERM e depois SIGKILL. Sempre no grupo, que é a única forma de
+/// alcançar os netos.
 ///
 /// A insistência mora numa thread à parte porque é feita de espera, e ninguém
 /// que fecha uma aba tem o que fazer nessa espera.
 impl Drop for Pty {
     fn drop(&mut self) {
         self.gone.store(true, Ordering::Relaxed);
-        if self.hangup {
-            signal_group(self.pid, &self.alive, libc::SIGHUP);
-        }
+        signal_group(self.pid, &self.alive, libc::SIGHUP);
         let (pid, alive) = (self.pid, self.alive.clone());
         std::thread::spawn(move || {
             if wait_exit(&alive, GRACE) {
@@ -185,12 +172,7 @@ type Opened = (Pty, Box<dyn Read + Send>, Box<dyn Child + Send + Sync>);
 ///
 /// Separado do `spawn` porque é aqui que mora o ciclo de vida do processo — e
 /// esta metade não sabe o que é Tauri, então o teste consegue rodá-la.
-fn open(
-    cmd: CommandBuilder,
-    cols: u16,
-    rows: u16,
-    hangup: bool,
-) -> Result<Opened, String> {
+fn open(cmd: CommandBuilder, cols: u16, rows: u16) -> Result<Opened, String> {
     let pair = native_pty_system()
         .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| i18n::ta("err.pty.openpty", &[("cause", e.to_string())]))?;
@@ -218,32 +200,27 @@ fn open(
         alive: Arc::new(AtomicBool::new(true)),
         gone: Arc::new(AtomicBool::new(false)),
         pid,
-        hangup,
     };
     Ok((pty, reader, child))
 }
 
 /// Sobe um processo num pseudo-terminal e bombeia a saída para o front.
-/// Cada pedaço vai carimbado com o id da sessão — o front só desenha o que é
-/// da sessão aberta, mas todas continuam correndo por trás.
+/// Cada pedaço vai carimbado com a chave do dock — o front só desenha o que
+/// está na frente, mas todos continuam correndo por trás.
 ///
-/// `Some(Dock)` é script ou shell do dock, e não conversa. Muda duas coisas: o
-/// fim vai escrito no próprio buffer — um `setup` que falhou tem que continuar
-/// dizendo isso amanhã, quando você reabrir a aba, e o buffer é a única coisa
-/// que sobrevive a fechar o painel —, e o desligamento começa por SIGHUP no
-/// grupo. Conversa não precisa de nenhum dos dois: aba desligada já tem a tela
-/// de "Retomar conversa" por cima.
+/// O fim vai escrito no próprio buffer: um `setup` que falhou tem que
+/// continuar dizendo isso amanhã, quando você reabrir a aba, e o buffer é a
+/// única coisa que sobrevive a fechar o painel.
 pub fn spawn(
     app: &AppHandle,
     session_id: &str,
     cmd: CommandBuilder,
     cols: u16,
     rows: u16,
-    dock: Option<Dock>,
+    dock: Dock,
 ) -> Result<Pty, String> {
-    let is_dock = dock.is_some();
-    let Dock { on_exit, header } = dock.unwrap_or_default();
-    let (pty, mut reader, mut child) = open(cmd, cols, rows, is_dock)?;
+    let Dock { on_exit, header } = dock;
+    let (pty, mut reader, mut child) = open(cmd, cols, rows)?;
 
     if let Some(text) = header {
         let seq = lock(&pty.buffer).absorb(text.as_bytes());
@@ -277,9 +254,7 @@ pub fn spawn(
         // `alive` cai antes dela, para ninguém sinalizar um pid já colhido.
         alive_t.store(false, Ordering::Relaxed);
         let code = child.wait().ok().map(|s| s.exit_code());
-        // Esta sessão não está mais de pé para receber fala nenhuma.
-        lock(&app.state::<AppState>().ready).remove(&id);
-        if is_dock && !gone_t.load(Ordering::Relaxed) {
+        if !gone_t.load(Ordering::Relaxed) {
             let line = match code {
                 Some(0) => format!("\r\n\x1b[32m✓ {}\x1b[0m\r\n", i18n::pick("terminou", "finished")),
                 Some(n) => format!(
@@ -294,14 +269,6 @@ pub fn spawn(
         if let Some(on_exit) = on_exit {
             on_exit(code);
         }
-        // O processo morreu: o card não some, vira desligado. O transcript
-        // continua no disco e o botão de retomar reabre de onde parou.
-        crate::socket::set(
-            &app,
-            &id,
-            Some(crate::state::Status::Desligada),
-            crate::state::Note::Clear,
-        );
         let _ = app.emit("pty-closed", (id, code));
     });
 
@@ -327,20 +294,6 @@ pub fn pty_buffer(state: State<AppState>, session: String) -> Vec<u8> {
         .get(&session)
         .map(|p| lock(&p.buffer).bytes.clone())
         .unwrap_or_default()
-}
-
-/// A rolagem e o número do último pedaço nela — para mandar a um colega que
-/// acabou de abrir a conversa. Tirado sob o mesmo lock que numera os pedaços,
-/// então "até o N" é exato.
-#[tauri::command]
-pub fn pty_snapshot(state: State<AppState>, session: String) -> Snapshot {
-    lock(&state.ptys)
-        .get(&session)
-        .map(|p| {
-            let s = lock(&p.buffer);
-            Snapshot { bytes: s.bytes.clone(), seq: s.seq }
-        })
-        .unwrap_or(Snapshot { bytes: Vec::new(), seq: 0 })
 }
 
 #[cfg(test)]
@@ -408,7 +361,7 @@ mod tests {
     fn snapshot_tirado_no_meio_da_saida_sabe_o_que_ja_levou() {
         let mut cmd = CommandBuilder::new("/bin/sh");
         cmd.args(["-c", "printf primeiro; sleep 0.4; printf segundo"]);
-        let (pty, mut reader, _child) = open(cmd, 80, 24, false).expect("pty não abriu");
+        let (pty, mut reader, _child) = open(cmd, 80, 24).expect("pty não abriu");
         let scroll = pty.buffer.clone();
 
         let read_chunk = |reader: &mut Box<dyn Read + Send>| -> u64 {
@@ -449,7 +402,7 @@ mod tests {
     fn encerrar_uma_sessao_leva_filho_e_neto() {
         let mut cmd = CommandBuilder::new("/bin/sh");
         cmd.args(["-c", "nohup sleep 30 >/dev/null 2>&1 & echo NETO=$!; exec sleep 30"]);
-        let (pty, mut reader, _child) = open(cmd, 80, 24, true).expect("pty não abriu");
+        let (pty, mut reader, _child) = open(cmd, 80, 24).expect("pty não abriu");
         let filho = pty.pid as i32;
 
         // Lê até o neto dizer o pid.

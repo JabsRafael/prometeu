@@ -6,7 +6,7 @@
 /// Controle vai em texto JSON (`{ t: "…" }`); bytes de terminal vão em frame
 /// binário, para não pagar base64 no caminho quente.
 
-export const PROTO = 1;
+export const PROTO = 2;
 
 export type Status = "rodando" | "querendo" | "pronta" | "desligada";
 
@@ -92,7 +92,9 @@ export const NOTE_QUOTE_MAX = 4 * 1024;
 
 /// Saída ao vivo de uma aba: vai para quem está olhando aquela aba.
 export const LIVE = 0;
-/// A rolagem inteira de uma aba, para um membro só — quem acabou de abrir.
+/// A conversa inteira de uma aba, para um membro só — quem acabou de abrir.
+/// Vai em partes: o relay limita cada mensagem a 1 MB, e uma conversa longa
+/// passa disso. Cada parte diz se vem mais; a última fecha.
 export const SNAPSHOT = 1;
 
 /// Um pedaço de saída como o PTY entregou, com o número dele. O dono junta
@@ -103,7 +105,7 @@ export type Segment = { seq: number; bytes: Uint8Array };
 
 export type Binary =
   | { kind: typeof LIVE; tab: string; segments: Segment[] }
-  | { kind: typeof SNAPSHOT; tab: string; to: string; seq: number; bytes: Uint8Array };
+  | { kind: typeof SNAPSHOT; tab: string; to: string; seq: number; more: boolean; bytes: Uint8Array };
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -143,11 +145,12 @@ export function encodeLive(tab: string, segments: Segment[]): Uint8Array {
   return out;
 }
 
-/// `[1][n][tab…][m][to…][seq][bytes…]`: a rolagem até o pedaço `seq`.
-export function encodeSnapshot(tab: string, to: string, seq: number, bytes: Uint8Array): Uint8Array {
+/// `[1][n][tab…][m][to…][seq][more][bytes…]`: uma parte da conversa até o
+/// pedaço `seq`. `more` é 1 quando outra parte vem atrás.
+export function encodeSnapshot(tab: string, to: string, seq: number, bytes: Uint8Array, more = false): Uint8Array {
   const id = enc.encode(tab);
   const who = enc.encode(to);
-  const out = new Uint8Array(3 + id.length + who.length + 8 + bytes.length);
+  const out = new Uint8Array(3 + id.length + who.length + 9 + bytes.length);
   const view = new DataView(out.buffer);
   out[0] = SNAPSHOT;
   out[1] = id.length;
@@ -157,7 +160,8 @@ export function encodeSnapshot(tab: string, to: string, seq: number, bytes: Uint
   out.set(who, at + 1);
   at += 1 + who.length;
   putU64(view, at, seq);
-  out.set(bytes, at + 8);
+  out[at + 8] = more ? 1 : 0;
+  out.set(bytes, at + 9);
   return out;
 }
 
@@ -191,11 +195,11 @@ export function decodeBinary(data: ArrayBuffer | Uint8Array): Binary | null {
   if (buf[0] === SNAPSHOT) {
     if (buf.length < at + 1) return null;
     const m = buf[at];
-    if (m === 0 || buf.length < at + 1 + m + 8) return null;
+    if (m === 0 || buf.length < at + 1 + m + 9) return null;
     const to = dec.decode(buf.subarray(at + 1, at + 1 + m));
     at += 1 + m;
     const seq = getU64(view, at);
-    return { kind: SNAPSHOT, tab, to, seq, bytes: buf.subarray(at + 8) };
+    return { kind: SNAPSHOT, tab, to, seq, more: buf[at + 8] === 1, bytes: buf.subarray(at + 9) };
   }
   return null;
 }

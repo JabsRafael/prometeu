@@ -53,7 +53,7 @@ const board: Board = {
   workspaces: [
     ws("sessao-0929", "p1", "njord", "Ola", "Fazendo", [
       { id: "t1", title: "conversa 1", status: "pronta", note: null, tokens: 57_000 },
-      { id: "t2", title: "conversa 2", status: "pronta", note: null, tokens: 112_400 },
+      { id: "t2", title: "conversa 2", status: "pronta", note: null, tokens: 112_400, pending_prompt: "O que tem nesse projeto aqui de legal?" },
     ]),
     ws("ui-2231", "p2", "prometheus", "Tela igual ao Conductor", "Fazendo", [
       { id: "t3", title: "conversa 1", status: "rodando", note: "Edit src/style.css", tokens: 23_800 },
@@ -185,16 +185,23 @@ const changes = [
   { path: "public/logo.png", added: 0, removed: 0, new_file: true, patch: "" },
 ];
 
+/// Uma conversa de mentira, no formato do stream: o que o `claude -p` teria
+/// escrito. É o que a tela desenha, e o que vai a um colega pelo relay.
+const line = (o: unknown) => JSON.stringify(o);
+const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 const SAMPLE =
-  "\x1b[1mClaude Code\x1b[0m v2.1.238\r\n" +
-  "Opus 5 (1M context) with high effort · Claude Max\r\n" +
-  "~/.prometheus/worktrees/njord/prometheus-sessao-0929\r\n\r\n" +
-  "\x1b[2m>\x1b[0m Me pergunte quais são as minhas 3 cores preferidas\r\n\r\n" +
-  "● Verde anotado. Só uma das três — quer dizer as outras duas?\r\n\r\n" +
-  "\x1b[2m✻ Cooked for 5s\x1b[0m\r\n\r\n" +
-  "───────────────────────────────────────────────────────────────\r\n" +
-  "\x1b[38;5;209m›\x1b[0m \x1b[7m \x1b[0m\r\n" +
-  "───────────────────────────────────────────────────────────────\r\n";
+  [
+    line({ type: "user", message: { role: "user", content: "Me pergunte quais são as minhas 3 cores preferidas" }, timestamp: ago(12) }),
+    line({ type: "assistant", message: { id: "m0", role: "assistant", content: [{ type: "thinking", thinking: "Pergunta simples. Vou perguntar direto." }] }, timestamp: ago(12) }),
+    line({ type: "assistant", message: { id: "m0", role: "assistant", content: [{ type: "text", text: "Quais são as suas **três** cores preferidas?" }] }, timestamp: ago(12) }),
+    line({ type: "user", message: { role: "user", content: "verde" }, timestamp: ago(10) }),
+    line({ type: "assistant", message: { id: "m1", role: "assistant", content: [{ type: "tool_use", id: "tu1", name: "Bash", input: { command: "ls -la", description: "Lista os arquivos" } }] }, timestamp: ago(10) }),
+    line({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu1", content: "total 0\n.env\nREADME.md\napp/" }] }, timestamp: ago(10) }),
+    line({ type: "assistant", message: { id: "m1", role: "assistant", content: [{ type: "tool_use", id: "tu2", name: "Edit", input: { file_path: "app/models/todo.rb", old_string: "  def complete!\n    destroy\n  end", new_string: "  def complete!\n    update!(completed_at: Time.current)\n  end" } }] }, timestamp: ago(9) }),
+    line({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu2", content: "The file app/models/todo.rb has been updated." }] }, timestamp: ago(9) }),
+    line({ type: "assistant", message: { id: "m1", role: "assistant", content: [{ type: "text", text: "Verde anotado. Só uma das três — quer dizer as outras duas?\n\n```ruby\ndef complete!\n  update!(completed_at: Time.current)\nend\n```" }] }, timestamp: ago(9) }),
+    line({ type: "result", subtype: "success", is_error: false, duration_ms: 5000 }),
+  ].join("\n") + "\n";
 
 /// Os scripts de cada workspace. Um repo com tudo declarado e dois runs, para a
 /// lista do botão ter o que mostrar; e um sem nada, que é o estado que o convite
@@ -271,9 +278,9 @@ const ISSUES: Issue[] = [
   issue("MOA-120", "Explorar sync com Notion", 0, BACKLOG, "Integrações", 240),
 ];
 
-/// A rolagem de cada conversa de mentira, numerada como o back numera: o que
-/// `mock.type` escreve entra aqui, sai pelo evento `pty` com o número, e o
-/// `pty_snapshot` devolve o mesmo par — para o compartilhamento poder ser
+/// As linhas de cada conversa de mentira, numeradas como o back numera: o que
+/// `chat_send` escreve entra aqui, sai pelo evento `chat` com o número, e o
+/// `chat_snapshot` devolve o mesmo par — para o compartilhamento poder ser
 /// testado contra um relay de verdade sem subir o Tauri.
 const scrolls = new Map<string, { text: string; seq: number }>();
 const scrollOf = (tab: string) => {
@@ -284,12 +291,113 @@ const scrollOf = (tab: string) => {
   }
   return s;
 };
-function typeInto(tab: string, data: string) {
+function pushLine(tab: string, o: unknown, keep = true) {
   const s = scrollOf(tab);
-  const out = data === "\r" ? "\r\n" : data;
-  s.text += out;
+  const text = line(o);
+  if (keep) s.text += text + "\n";
   s.seq += 1;
-  emit("pty", [tab, [...new TextEncoder().encode(out)], s.seq]);
+  emit("chat", [tab, text, s.seq]);
+}
+
+/// Uma fala: entra como o back a ecoa, e o agente de mentira responde
+/// letra a letra. Fala com "plano" vira um plano esperando aprovação; com
+/// "pergunta", uma pergunta com opções — os dois cards que existem para ver.
+let msgN = 0;
+/// O que o `/context` devolve (um de verdade, encurtado).
+const CONTEXT_MD = "## Context Usage\n\n**Model:** claude-fable-5  \n**Tokens:** 20.2k / 1m (2%)\n\n### Estimated usage by category\n\n| Category | Tokens | Percentage |\n|----------|--------|------------|\n| System prompt | 4k | 0.4% |\n| System tools | 6.5k | 0.7% |\n| MCP tools (deferred) | 14.3k | 1.4% |\n| System tools (deferred) | 14k | 1.4% |\n| Custom agents | 368 | 0.0% |\n| Skills | 3k | 0.3% |\n| Messages | 6.3k | 0.6% |\n| Compact buffer | 3k | 0.3% |\n| Free space | 976.8k | 97.7% |\n\n### MCP Tools\n\n| Tool | Server | Tokens |\n|------|--------|--------|\n| mcp__capim-ds__get_components | capim-ds | 250 |\n| mcp__capim-ds__get_foundations | capim-ds | 209 |\n| mcp__capim-ds__get_icon_details | capim-ds | 168 |\n| mcp__capim-ds__get_illustration_details | capim-ds | 194 |\n| mcp__capim-ds__get_logo_details | capim-ds | 171 |\n| mcp__capim-ds__list_components | capim-ds | 130 |\n| mcp__capim-ds__list_icons | capim-ds | 107 |\n| mcp__capim-ds__list_illustrations | capim-ds | 120 |\n| mcp__capim-ds__list_logos | capim-ds | 112 |\n| mcp__claude_ai_Google_Drive__copy_file | claude_ai_Google_Drive | 444 |\n| mcp__claude_ai_Google_Drive__create_file | claude_ai_Google_Drive | 965 |\n| mcp__claude_ai_Google_Drive__download_file_content | claude_ai_Google_Drive | 433 |\n| mcp__claude_ai_Google_Drive__get_file_metadata | claude_ai_Google_Drive | 237 |\n| mcp__claude_ai_Google_Drive__get_file_permissions | claude_ai_Google_Drive | 143 |\n\n### Custom Agents\n\n| Agent Type | Source | Tokens |\n|------------|--------|--------|\n| caveman:cavecrew-builder | Plugin | 134 |\n| caveman:cavecrew-investigator | Plugin | 112 |\n| caveman:cavecrew-reviewer | Plugin | 122 |\n\n### Skills\n\n| Skill | Source | Tokens |\n|-------|--------|--------|\n| para-memory-files | User | ~190 |\n| caveman:cavecrew | Plugin (caveman) | ~190 |\n| caveman:caveman | Plugin (caveman) | ~140 |\n| caveman:caveman-commit | Plugin (caveman) | ~120 |\n| caveman:caveman-compress | Plugin (caveman) | ~120 |\n| caveman:caveman-help | Plugin (caveman) | ~70 |\n| caveman:caveman-review | Plugin (caveman) | ~110 |\n| caveman:caveman-stats | Plugin (caveman) | ~90 |\n| dataviz | Built-in | ~380 |\n| update-config | Built-in | ~240 |\n| keybindings-help | Built-in | ~80 |\n| code-review | Built-in | ~270 |\n| simplify | Built-in | ~60 |\n| fewer-permission-prompts | Built-in | ~60 |\n| loop | Built-in | ~120 |\n| schedule | Built-in | ~130 |\n| claude-api | Built-in | ~360 |\n| workflow-authoring | Built-in | ~80 |\n| run | Built-in | ~120 |\n| init | Built-in | ~20 |\n| security-review | Built-in | ~30 |";
+function sayInto(tab: string, text: string) {
+  pushLine(tab, { type: "user", message: { role: "user", content: text }, ts: Date.now() });
+  const id = `mm${++msgN}`;
+  if (text.trim() === "/context") {
+    pushLine(tab, { type: "assistant", message: { id: `${id}x`, model: "<synthetic>", role: "assistant", content: [{ type: "text", text: CONTEXT_MD }] } });
+    pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 0 });
+    return;
+  }
+  if (text.trim() === "/compact") {
+    // Demora de verdade (um minuto, às vezes mais): a legenda fica o tempo
+    // todo, e no fim vêm o tamanho, o resumo e o eco do comando.
+    pushLine(tab, { type: "system", subtype: "status", status: "compacting" });
+    setTimeout(() => {
+      pushLine(tab, { type: "system", subtype: "status", status: null, compact_result: "success" });
+      pushLine(tab, { type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 23978, post_tokens: 3132 } });
+      pushLine(tab, { type: "user", isCompactSummary: true, message: { role: "user", content: "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n1. **Primary Request**: trocar o `destroy` por `completed_at`.\n2. **Files**: `app/models/todo.rb`." } });
+      pushLine(tab, { type: "user", message: { role: "user", content: "<local-command-stdout>Compacted </local-command-stdout>" } });
+      pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 4000 });
+    }, 4000);
+    return;
+  }
+  const words = (text.includes("plano")
+    ? "Li o pedido. Segue o plano — aprove para eu começar."
+    : text.includes("pergunta")
+      ? "Antes de mexer, uma pergunta."
+      : `Entendi: **${text.slice(0, 40)}**. Vou olhar o código e volto com o que achei.`
+  ).split(" ");
+  let i = 0;
+  pushLine(tab, { type: "stream_event", event: { type: "message_start", message: { id } } }, false);
+  pushLine(tab, { type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } } }, false);
+  const tick = setInterval(() => {
+    if (i < words.length) {
+      pushLine(tab, { type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: (i ? " " : "") + words[i++] } } }, false);
+      return;
+    }
+    clearInterval(tick);
+    pushLine(tab, { type: "assistant", message: { id, role: "assistant", content: [{ type: "text", text: words.join(" ") }] } });
+    if (text.includes("plano")) {
+      pushLine(tab, { type: "assistant", message: { id, role: "assistant", content: [{ type: "tool_use", id: `tu-${id}`, name: "ExitPlanMode", input: { plan: "# Plano\n\n1. Ler `app/models/todo.rb`\n2. Trocar o `destroy` por `completed_at`\n3. Rodar os testes" } }] } });
+      pushLine(tab, { type: "control_request", request_id: `req-${id}`, request: { subtype: "can_use_tool", tool_name: "ExitPlanMode", input: { plan: "# Plano\n\n1. Ler `app/models/todo.rb`\n2. Trocar o `destroy` por `completed_at`\n3. Rodar os testes" }, tool_use_id: `tu-${id}` } });
+      return;
+    }
+    if (text.includes("background")) {
+      // Duas tarefas em segundo plano: a legenda diz quantas, o card gira
+      // até o aviso de que acabou, e o agente reage sozinho ao aviso.
+      const tasks = [
+        { task: `bg-${id}a`, tool: `tu-${id}a`, desc: "Mapear lacunas de teste" },
+        { task: `bg-${id}b`, tool: `tu-${id}b`, desc: "Auditar qualidade do repositório" },
+      ];
+      for (const k of tasks) {
+        pushLine(tab, { type: "assistant", message: { id, role: "assistant", content: [{ type: "tool_use", id: k.tool, name: "Agent", input: { description: k.desc, subagent_type: "Explore", run_in_background: true, prompt: "…" } }] } });
+        pushLine(tab, { type: "system", subtype: "task_started", task_id: k.task, tool_use_id: k.tool, description: k.desc, is_backgrounded: true, task_type: "local_agent" });
+        pushLine(tab, { type: "user", message: { role: "user", content: [{ tool_use_id: k.tool, type: "tool_result", content: `Agent started with ID: ${k.task}. You will be notified when it completes.`, is_error: false }] } });
+      }
+      pushLine(tab, { type: "system", subtype: "background_tasks_changed", tasks: tasks.map((k) => ({ task_id: k.task, task_type: "local_agent", description: k.desc })) });
+      pushLine(tab, { type: "assistant", message: { id: `${id}c`, role: "assistant", content: [{ type: "text", text: "Dois agentes rodando. Aviso quando terminarem." }] } });
+      pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 1200 });
+      tasks.forEach((k, n) =>
+        setTimeout(() => {
+          pushLine(tab, { type: "system", subtype: "background_tasks_changed", tasks: tasks.slice(n + 1).map((j) => ({ task_id: j.task, task_type: "local_agent", description: j.desc })) });
+          pushLine(tab, { type: "system", subtype: "task_notification", task_id: k.task, tool_use_id: k.tool, status: "completed", summary: `Agent "${k.desc}" finished` });
+          pushLine(tab, { type: "assistant", message: { id: `${id}d${n}`, role: "assistant", content: [{ type: "text", text: `Terminou: ${k.desc}.` }] } });
+          pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 300 });
+        }, 5000 * (n + 1)),
+      );
+      return;
+    }
+    if (text.includes("diff")) {
+      const diff = "diff --git a/src/lib/token.ts b/src/lib/token.ts\nindex 4354763..0458d9c 100644\n--- a/src/lib/token.ts\n+++ b/src/lib/token.ts\n@@ -1,4 +1,5 @@\n /**\n- * Shape of the token\n+ * Shape of the token that authenticates\n+ * the public landings\n  */\n const PATTERN = /^[1-9A-Z]{36}$/;";
+      pushLine(tab, { type: "assistant", message: { id, role: "assistant", content: [{ type: "tool_use", id: `tu-${id}`, name: "Bash", input: { command: "git diff -- src/lib/token.ts", description: "Diff do arquivo" } }] } });
+      pushLine(tab, { type: "user", message: { role: "user", content: [{ tool_use_id: `tu-${id}`, type: "tool_result", content: diff, is_error: false }] } });
+      pushLine(tab, { type: "assistant", message: { id: `${id}c`, role: "assistant", content: [{ type: "text", text: "O mesmo diff, num bloco:\n\n```diff\n" + diff + "\n```\n\n1 arquivo, +2 −1." }] } });
+      pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 1200 });
+      return;
+    }
+    if (text.includes("pergunta")) {
+      pushLine(tab, { type: "assistant", message: { id, role: "assistant", content: [{ type: "tool_use", id: `tu-${id}`, name: "AskUserQuestion", input: { questions: [{ header: "Histórico", question: "Onde guardar os concluídos?", options: [{ label: "Coluna", description: "completed_at na tabela de todos" }, { label: "Tabela", description: "uma tabela só deles" }] }, { header: "Migração", question: "Rodar a migração agora?", options: [{ label: "Sim", description: "no banco de dev" }, { label: "Depois", description: "só escrever o arquivo" }] }] } }] } });
+      pushLine(tab, { type: "control_request", request_id: `req-${id}`, request: { subtype: "can_use_tool", tool_name: "AskUserQuestion", input: { questions: [{ header: "Histórico", question: "Onde guardar os concluídos?", options: [{ label: "Coluna", description: "completed_at na tabela de todos" }, { label: "Tabela", description: "uma tabela só deles" }] }, { header: "Migração", question: "Rodar a migração agora?", options: [{ label: "Sim", description: "no banco de dev" }, { label: "Depois", description: "só escrever o arquivo" }] }] }, tool_use_id: `tu-${id}` } });
+      return;
+    }
+    pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 1200 });
+  }, 60);
+}
+
+/// Uma resposta a card: a ferramenta "roda" e o turno termina.
+function controlInto(tab: string, frame: Record<string, any>) {
+  if (frame.type !== "control_response") return;
+  const req = String(frame.response?.request_id ?? "");
+  const id = req.replace(/^req-/, "");
+  const denied = frame.response?.response?.behavior === "deny";
+  pushLine(tab, { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: `tu-${id}`, content: denied ? String(frame.response.response.message) : "ok", is_error: denied }] } });
+  pushLine(tab, { type: "assistant", message: { id: `${id}b`, role: "assistant", content: [{ type: "text", text: denied ? "Certo, vou mudar o plano." : "Combinado. Seguindo." }] } });
+  pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 400 });
 }
 
 /// Os workspaces compartilhados, entre recargas — o `shared` do board.json.
@@ -321,19 +429,26 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       else localStorage.removeItem("mock:team");
       return;
     case "pty_buffer": {
-      // Chave com `:` é dock; sem, é conversa de agente.
       const s = String(args.session);
-      const text = !s.includes(":") ? scrollOf(s).text : docks.get(s) === false ? SCRIPT_OUT + DONE : SCRIPT_OUT;
+      const text = docks.get(s) === false ? SCRIPT_OUT + DONE : SCRIPT_OUT;
       return [...new TextEncoder().encode(text)];
     }
-    case "pty_snapshot": {
+    // Como o back: a última linha diz se há turno em andamento.
+    case "chat_buffer":
+      return scrollOf(String(args.session)).text + line({ type: "prometheus", subtype: "state", busy: false }) + "\n";
+    case "chat_snapshot": {
       const s = scrollOf(String(args.session));
-      return { bytes: [...new TextEncoder().encode(s.text)], seq: s.seq };
+      return { text: s.text, seq: s.seq };
     }
-    // O terminal de mentira ecoa o que recebe: é o que deixa ver a tecla de um
-    // colega chegar e voltar.
+    // A conversa de mentira responde ao que recebe: é o que deixa ver a fala
+    // de um colega chegar e voltar.
+    case "chat_send":
+      sayInto(String(args.session), String(args.text));
+      return;
+    case "chat_control":
+      controlInto(String(args.session), args.frame as Record<string, any>);
+      return;
     case "pty_write":
-      typeInto(String(args.session), String(args.data));
       return;
     case "workspace_diff":
       return changes;
@@ -625,8 +740,8 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
 let marcusOnline = true;
 const fakes: team.SocketLike[] = [];
 const enc = new TextEncoder();
-/// O workspace que o Marcus compartilhou: uma conversa rodando, do tamanho de
-/// um terminal comum. É o que o quadro mostra em "Do time".
+/// O workspace que o Marcus compartilhou: uma conversa rodando. É o que o
+/// quadro mostra em "Do time".
 const marcusShare = () => ({
   id: "ws-marcus",
   title: "Arquivar todos os concluídos",
@@ -675,9 +790,9 @@ function fakeSocket(url: string): team.SocketLike {
   ];
   const text = (frame: unknown) => s.onmessage?.({ data: JSON.stringify(frame) });
   const bin = (bytes: Uint8Array) => s.onmessage?.({ data: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) });
-  const live = (line: string) => {
+  const live = (o: unknown) => {
     if (!attached) return;
-    bin(encodeLive(attached, [{ seq: ++seq, bytes: enc.encode(line) }]));
+    bin(encodeLive(attached, [{ seq: ++seq, bytes: enc.encode(line(o) + "\n") }]));
   };
   const s: team.SocketLike & { presence: () => void } = {
     binaryType: "blob",
@@ -697,21 +812,24 @@ function fakeSocket(url: string): team.SocketLike {
           name = frame.name;
           s.presence();
           break;
-        // Abrir uma aba do Marcus: a rolagem vem, e depois uma linha de vez
+        // Abrir uma aba do Marcus: a conversa vem, e depois uma linha de vez
         // em quando — o suficiente para ver a tela andar sozinha.
         case "attach":
           attached = frame.tab;
           clearInterval(ticking);
           setTimeout(() => bin(encodeSnapshot(frame.tab, me, seq, enc.encode(SAMPLE))), 200);
-          ticking = setInterval(() => live(`\r\n\x1b[2m${new Date().toLocaleTimeString()}\x1b[0m  ✓ 1 test passed`), 2500);
+          ticking = setInterval(
+            () => live({ type: "assistant", message: { id: `mk${Date.now()}`, role: "assistant", content: [{ type: "text", text: `${new Date().toLocaleTimeString()} — ✓ 1 test passed` }] } }),
+            2500,
+          );
           break;
         case "detach":
           attached = null;
           clearInterval(ticking);
           break;
-        // O que você digita volta como se o terminal dele tivesse ecoado.
+        // O que você escreve volta como o back dele ecoaria a fala.
         case "write":
-          live(frame.data === "\r" ? "\r\n" : frame.data);
+          if (!String(frame.data).startsWith("{")) live({ type: "user", message: { role: "user", content: frame.data }, ts: Date.now() });
           break;
         // Quem compartilha o seu ganha o Marcus olhando, meio segundo depois.
         case "share":
@@ -806,8 +924,8 @@ w.__TAURI_INTERNALS__ = {
 
 // Atalho para testar o arrastar-e-soltar pelo console: `mock.drop([...])`.
 w.mock = {
-  /// Escreve na conversa de mentira, como se o processo tivesse escrito.
-  type: (tab: string, text: string) => typeInto(tab, text),
+  /// Uma linha na conversa de mentira, como se o processo tivesse escrito.
+  line: (tab: string, o: unknown) => pushLine(tab, o),
   /// O que o time diz agora — para dirigir a tela de fora e ver o que ela viu.
   team: () => ({ status: team.status(), remotes: team.remotes() }),
   presence: (online: boolean) => {

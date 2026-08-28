@@ -1,17 +1,17 @@
-/// A rolagem de uma conversa que roda em outro Mac.
+/// A conversa de uma aba que roda em outro Mac.
 ///
-/// Duas coisas chegam pelo relay, e podem cruzar no caminho: a **rolagem
-/// inteira** ("estes bytes, até o pedaço N") e os **pedaços ao vivo**, cada um
-/// com o número que o PTY deu. Quem recebe precisa juntar as duas sem repetir
-/// nem perder nada — e é só isso que este módulo faz, para poder ser testado
-/// sem terminal, sem rede e sem tela.
+/// Duas coisas chegam pelo relay, e podem cruzar no caminho: a **conversa
+/// inteira** ("estes bytes, até a linha N", em partes) e as **linhas ao vivo**,
+/// cada uma com o número que o back deu. Quem recebe precisa juntar as duas
+/// sem repetir nem perder nada — e é só isso que este módulo faz, para poder
+/// ser testado sem rede e sem tela.
 ///
-/// A regra é uma: pedaço com número até o da rolagem já está dentro dela.
+/// A regra é uma: linha com número até o da conversa já está dentro dela.
 /// Nada de comparar bytes, nada de adivinhar.
 
-/// Quanto se guarda de cada conversa. O mesmo teto do back (`SCROLLBACK`, em
-/// `pty.rs`): é a rolagem que ele teria mandado.
-export const MIRROR_MAX = 512 * 1024;
+/// Quanto se guarda de cada conversa. O mesmo teto do back (`KEEP`, em
+/// `chat.rs`): é a conversa que ele teria mandado.
+export const MIRROR_MAX = 4 * 1024 * 1024;
 
 export class Mirror {
   /// Guardado em pedaços e só juntado quando alguém pede: concatenar a cada
@@ -19,9 +19,11 @@ export class Mirror {
   private parts: Uint8Array[] = [];
   private total = 0;
   private last = 0;
-  /// A rolagem ainda não chegou. Até chegar, pedaço ao vivo não tem como ser
-  /// posicionado — e vai estar dentro dela de qualquer jeito.
+  /// A conversa ainda não chegou. Até chegar, linha ao vivo não tem como ser
+  /// posicionada — e vai estar dentro dela de qualquer jeito.
   private seeded = false;
+  /// As partes da conversa que está chegando: só vale quando a última fechar.
+  private pending: Uint8Array[] | null = null;
 
   constructor(private max = MIRROR_MAX) {}
 
@@ -29,14 +31,19 @@ export class Mirror {
     return this.seeded;
   }
 
-  /// A rolagem inteira, até o pedaço `seq`. Substitui o que havia: é a verdade
-  /// mais nova, e o que veio antes dela já está contado.
-  seed(bytes: Uint8Array, seq: number) {
-    this.parts = [bytes.slice()];
-    this.total = bytes.length;
+  /// Uma parte da conversa inteira, até a linha `seq`. `more` é "vem outra
+  /// atrás"; a última substitui o que havia: é a verdade mais nova, e o que
+  /// veio antes dela já está contado. Devolve se a conversa fechou.
+  seed(bytes: Uint8Array, seq: number, more = false): boolean {
+    (this.pending ??= []).push(bytes.slice());
+    if (more) return false;
+    this.parts = this.pending;
+    this.pending = null;
+    this.total = this.parts.reduce((n, p) => n + p.length, 0);
     this.last = seq;
     this.seeded = true;
     this.trim();
+    return true;
   }
 
   /// Um pedaço ao vivo. Devolve o que a tela tem que escrever — `null` quando

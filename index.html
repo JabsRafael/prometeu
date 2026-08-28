@@ -85,16 +85,16 @@
         <section id="wsView" class="view wsview" hidden>
           <div class="center">
             <div class="subbar tabbar" id="tabbar"></div>
-            <div class="termwrap" id="termwrap">
-              <div id="term"></div>
-              <!-- Conversa desligada — e, com o worktree devolvido ao disco ou
-                   ainda sendo montado, o mesmo painel conta as outras
-                   histórias: o que ficou, e o que está acontecendo. -->
+            <!-- A conversa: a timeline e a caixa de escrever, montadas por
+                 chat.ts. Não é um terminal — é o que o agente escreveu,
+                 desenhado. -->
+            <div class="chatwrap" id="chatwrap">
+              <!-- Worktree devolvido ao disco, ou ainda sendo montado: o painel
+                   conta o que ficou, ou o que está acontecendo. -->
               <div class="offline" id="offline" hidden>
                 <span class="offwave" id="offwave" hidden></span>
-                <h3 id="offtitle" data-t="offline.title"></h3>
-                <p id="offbody" data-t="offline.body"></p>
-                <button id="resume" class="pri lg" data-t="offline.resume"></button>
+                <h3 id="offtitle" data-t="gone.title"></h3>
+                <p id="offbody" data-t="gone.body"></p>
                 <span class="path" id="offpath"></span>
               </div>
             </div>
@@ -137,9 +137,6 @@
             <div class="sidetabs">
               <button id="tab-files" class="sidetab on" data-t="side.files"></button>
               <button id="tab-diff" class="sidetab"><span data-t="side.changes"></span> <span id="diffcount"></span></button>
-              <!-- Notas da sessão: o que alguém do time precisa que você veja,
-                   e o que você quer perguntar a alguém. Desenhada por notes.ts. -->
-              <button id="tab-notes" class="sidetab" hidden><span data-t="side.notes"></span> <span id="notecount"></span></button>
               <span class="spacer"></span>
               <button id="collapse" class="ico" data-t-title="side.collapse"></button>
               <button id="reveal" class="ico" data-t-title="side.reveal"></button>
@@ -147,7 +144,6 @@
             <div class="sidebody">
               <div class="tree" id="tree"></div>
               <div class="difflist" id="difflist" hidden></div>
-              <div class="notes" id="notes" hidden></div>
             </div>
             <!-- Setup prepara o worktree, Run sobe o projeto, e o + abre
                  shells. Todos rodam no mesmo worktree e nenhum é sessão de

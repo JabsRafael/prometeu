@@ -109,3 +109,31 @@ export function highlight(code: string, path: string): string {
   }
   return out + escHtml(code.slice(last));
 }
+
+/* ---------- diff ---------- */
+
+/// Um diff unificado, do `git diff` ou de um bloco ```diff: cabeçalho, hunk,
+/// linha que saiu, linha que entrou. É o que o card de uma ferramenta mostra
+/// quando o que ela devolveu é um diff, e o que o markdown mostra num bloco
+/// marcado como tal.
+export function isDiff(text: string): boolean {
+  return /^(diff --git |--- (a\/|\/dev\/null)|\+\+\+ (b\/|\/dev\/null)|@@ -\d)/m.test(text);
+}
+
+export function diffHtml(text: string): string {
+  return text
+    .split("\n")
+    .map((l) => {
+      const cls = /^(diff --git|index |--- |\+\+\+ |new file|deleted file|similarity|rename |old mode|new mode)/.test(l)
+        ? "meta"
+        : l.startsWith("@@")
+          ? "hunk"
+          : l.startsWith("+")
+            ? "add"
+            : l.startsWith("-")
+              ? "del"
+              : "";
+      return cls ? `<span class="${cls}">${escHtml(l)}\n</span>` : `${escHtml(l)}\n`;
+    })
+    .join("");
+}

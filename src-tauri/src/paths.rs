@@ -5,9 +5,7 @@ pub fn home() -> PathBuf {
 }
 
 /// O que separa o app de dev do app instalado, em todo caminho que o Prometheus
-/// escreve. Sem isto os dois disputam o mesmo socket — `socket::listen` apaga o
-/// socket órfão antes do `bind`, então o último a subir rouba os hooks do outro —
-/// e mexem no mesmo quadro e nos mesmos worktrees.
+/// escreve. Sem isto os dois mexem no mesmo quadro e nos mesmos worktrees.
 ///
 /// `cfg!` resolve em tempo de compilação: `tauri dev` compila em debug, `tauri
 /// build` em release. Nada para configurar.
@@ -20,21 +18,11 @@ fn suffix() -> &'static str {
 }
 
 /// Raiz de tudo que o Prometheus escreve fora do repositório do usuário.
-///
-/// O hook faz a mesma conta, e por isso o hook de debug fala com o app de dev.
 pub fn root() -> PathBuf {
     if let Ok(p) = std::env::var("PROMETHEUS_ROOT") {
         return PathBuf::from(p);
     }
     home().join(format!(".prometheus{}", suffix()))
-}
-
-pub fn socket_path() -> PathBuf {
-    root().join("run/prometheus.sock")
-}
-
-pub fn session_dir(id: &str) -> PathBuf {
-    root().join("sessions").join(id)
 }
 
 /// O time de que este app faz parte, com o segredo — só o dono lê. Quem fala
@@ -111,6 +99,16 @@ pub(crate) fn fnv1a(s: &str) -> u64 {
 /// O arquivo só nasce na primeira mensagem. Conversa criada e nunca usada não
 /// tem transcript nenhum — e é exatamente isso que o `--resume` responde com
 /// "No conversation found with session ID".
+/// A conversa de uma aba do Codex, nas mesmas linhas que a tela desenha. O
+/// Codex guarda o rollout dele em `~/.codex/sessions`, num formato que é dele;
+/// o que o app precisa amanhã é o que mostrou hoje — então grava o que
+/// traduziu (`codex.rs`), e é daqui que a aba reabre. Fica na raiz do app, e
+/// não no worktree, pelo mesmo motivo do transcript do Claude Code: apagar o
+/// worktree não apaga a conversa.
+pub fn chat_log(id: &str) -> PathBuf {
+    root().join("chats").join(format!("{id}.jsonl"))
+}
+
 pub fn transcript(id: &str, cwd: &Path) -> PathBuf {
     let slug: String = cwd
         .to_string_lossy()
@@ -118,17 +116,6 @@ pub fn transcript(id: &str, cwd: &Path) -> PathBuf {
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect();
     home().join(".claude/projects").join(slug).join(format!("{id}.jsonl"))
-}
-
-/// O binário do hook mora ao lado do executável do app.
-pub fn hook_bin() -> PathBuf {
-    if let Ok(p) = std::env::var("PROMETHEUS_HOOK_BIN") {
-        return PathBuf::from(p);
-    }
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join("prometheus-hook")))
-        .unwrap_or_else(|| PathBuf::from("prometheus-hook"))
 }
 
 #[cfg(test)]

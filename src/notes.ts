@@ -1,126 +1,63 @@
 import { avatar, icon } from "./icons";
-import { fromBack, t, tn } from "./i18n";
+import { t, tn } from "./i18n";
 import * as menu from "./menu";
-import * as session from "./session";
 import * as team from "./team";
-import { $, h } from "./util";
+import { h } from "./util";
+import type { Note } from "../relay/src/protocol";
 
 /// As notas de uma sessão: o que alguém do time precisa que você veja, e o que
 /// você quer perguntar a alguém sem interromper o agente.
 ///
 /// A nota não é uma mensagem para o agente — é um recado entre pessoas *sobre*
-/// a sessão. Por isso mora no painel do lado, e não no terminal: o terminal é
-/// do agente, e o que se escreve nele ele lê.
+/// a sessão. Ela mora dentro da conversa, na hora em que foi escrita, entre a
+/// fala e a resposta a que se refere: é assim que "isso aqui está certo?" quer
+/// dizer alguma coisa amanhã. O agente não a vê; o time, sim.
 ///
-/// A âncora é a **citação**: o trecho que estava selecionado no terminal
-/// quando a nota foi escrita. É o que faz "isso aqui está certo?" querer dizer
-/// alguma coisa amanhã, sem o app ter que entender o que o agente escreveu.
+/// A âncora é a **citação**: o trecho que estava selecionado na conversa
+/// quando a nota foi escrita.
+///
+/// Quem desenha a conversa é o `chat.ts`; aqui mora o que é só da nota — o
+/// card, o rascunho, as menções.
 
-type Ctx = {
-  /// O workspace na tela, como a tela o chama (o de um colega vem prefixado).
-  workspace: () => string | null;
-  say: (text: string, isError?: boolean) => void;
-};
-
-let ctx: Ctx;
 /// O que está sendo escrito, por workspace: trocar de aba, receber nota nova ou
 /// o quadro redesenhar não pode apagar o que a pessoa digitou.
-const drafts = new Map<string, { text: string; quote: string | null; mentions: string[] }>();
-/// A nota a destacar no próximo desenho — de onde a caixa "Para mim" leva.
-let highlight: string | null = null;
+export type Draft = { text: string; quote: string | null };
+const drafts = new Map<string, Draft>();
 
-export function init(context: Ctx) {
-  ctx = context;
-  team.onChange(() => {
-    if (!$("notes").hidden) draw();
-    paintCount();
-  });
-  // A seleção no terminal é a citação: o botão só existe quando há uma.
-  session.onSelection(() => {
-    if (!$("notes").hidden) drawQuoteButton();
-  });
-}
-
-const draftOf = (ws: string) => {
+export const draftOf = (ws: string): Draft => {
   let d = drafts.get(ws);
   if (!d) {
-    d = { text: "", quote: null, mentions: [] };
+    d = { text: "", quote: null };
     drafts.set(ws, d);
   }
   return d;
 };
 
-/// Abre o painel já citando o que está selecionado no terminal — o ⌘⇧M, e o
-/// botão que aparece quando há seleção.
-export function quoteSelection() {
-  const ws = ctx.workspace();
-  const sel = session.selection().trim();
-  if (!ws || !sel) return false;
-  draftOf(ws).quote = sel;
-  draw();
-  ($("notes").querySelector("textarea") as HTMLTextAreaElement | null)?.focus();
-  return true;
-}
+export const dropDraft = (ws: string) => void drafts.delete(ws);
 
-/// Quantas notas deste workspace, na aba do painel.
-export function paintCount() {
-  const ws = ctx.workspace();
-  const n = ws ? team.notesOf(ws).length : 0;
-  $("notecount").textContent = n ? String(n) : "";
-}
-
-export function draw() {
-  const ws = ctx.workspace();
-  const box = $("notes");
-  box.replaceChildren();
-  if (!ws) return;
+/// O card de uma nota, como aparece dentro da conversa.
+export function card(note: Note, lit = false): HTMLElement {
   const me = team.status();
-  if (!me.config) {
-    box.append(h("div", "nohint", t("notes.emptyNoTeam")));
-    return;
+  const mine = note.author === me.you;
+  const name = mine ? t("notes.byYou") : team.nameOf(note.author);
+  const el = h(
+    "div",
+    "note" + (note.mentions.includes(me.you ?? "") ? " forme" : "") + (lit ? " lit" : ""),
+    `<div class="who">${avatar(name)}<b></b><span class="when"></span></div>`,
+  );
+  el.dataset.note = note.id;
+  el.querySelector("b")!.textContent = name;
+  el.querySelector(".when")!.textContent = when(note.ts);
+  if (note.quote) {
+    const q = h("pre", "quote");
+    q.textContent = note.quote;
+    el.append(q);
   }
-
-  const list = team.notesOf(ws);
-  const feed = h("div", "notefeed");
-  if (!list.length) feed.append(h("div", "nohint", t("notes.empty")));
-  for (const note of list) {
-    const mine = note.author === me.you;
-    const name = mine ? t("notes.byYou") : team.nameOf(note.author);
-    const el = h(
-      "div",
-      "note" + (note.mentions.includes(me.you ?? "") ? " forme" : "") + (note.id === highlight ? " lit" : ""),
-      `<div class="who">${avatar(name)}<b></b><span class="when"></span></div>`,
-    );
-    el.querySelector("b")!.textContent = name;
-    el.querySelector(".when")!.textContent = when(note.ts);
-    if (note.quote) {
-      const q = h("pre", "quote");
-      q.textContent = note.quote;
-      el.append(q);
-    }
-    const body = h("div", "body");
-    // O @nome de quem está no time fica aceso; o resto é texto como veio.
-    body.append(...mark(note.text));
-    el.append(body);
-    feed.append(el);
-  }
-  box.append(feed, composer(ws));
-  // A seleção pode ter acontecido antes de o painel abrir — o botão não pode
-  // depender de ela mudar depois disso.
-  drawQuoteButton();
-  if (highlight) {
-    box.querySelector(".note.lit")?.scrollIntoView({ block: "center" });
-    highlight = null;
-  } else {
-    feed.scrollTop = feed.scrollHeight;
-  }
-  paintCount();
-}
-
-/// Leva até uma nota: acende ela no próximo desenho.
-export function focusNote(id: string) {
-  highlight = id;
-  draw();
+  const body = h("div", "body");
+  // O @nome de quem está no time fica aceso; o resto é texto como veio.
+  body.append(...mark(note.text));
+  el.append(body);
+  return el;
 }
 
 /// `@Alguém` do time vira destaque; o resto é o texto que a pessoa escreveu.
@@ -152,69 +89,20 @@ function mark(text: string): Node[] {
   return out;
 }
 
-function composer(ws: string): HTMLElement {
-  const draft = draftOf(ws);
-  const box = h("div", "notenew");
-
-  if (draft.quote) {
-    const chip = h("div", "quoted", `${icon("message-square", 12)}<span></span>`);
-    chip.children[1].textContent = tn(draft.quote.split("\n").length, "notes.quote");
-    const drop = h("button", "ico sm", icon("x", 12));
-    drop.title = t("notes.quote.drop");
-    drop.addEventListener("click", () => {
-      draft.quote = null;
-      draw();
-    });
-    chip.append(drop);
-    box.append(chip);
-  }
-
-  const area = document.createElement("textarea");
-  area.placeholder = t("notes.write");
-  area.value = draft.text;
-  area.rows = 3;
-  area.addEventListener("input", () => (draft.text = area.value));
-
-  const send = () => {
-    const text = area.value.trim();
-    if (!text) return;
-    try {
-      team.addNote(ws, text, mentionsIn(text), draft.quote);
-    } catch (e) {
-      return ctx.say(fromBack(e), true);
-    }
-    drafts.delete(ws);
-    draw();
-  };
-
-  // ⌘↵ envia; Enter simples quebra linha — uma nota costuma ter duas.
-  area.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      send();
-    }
-    // O @ abre a lista do time em vez de deixar você adivinhar o nome exato.
-    if (e.key === "@") {
-      e.preventDefault();
-      pickMention(area, draft);
-    }
-  });
-  box.append(area);
-
-  const row = h("div", "row");
-  const at = h("button", "ico sm", icon("at-sign", 13));
-  at.title = t("notes.mention");
-  at.addEventListener("click", () => pickMention(area, draft));
-  const go = h("button", "pri md", t("notes.send"));
-  go.addEventListener("click", send);
-  row.append(at, h("span", "spacer"), go);
-  box.append(row);
-  return box;
+/// O chip "citando N linhas" em cima do campo, com o botão de tirar.
+export function quoteChip(quote: string, drop: () => void): HTMLElement {
+  const chip = h("div", "quoted", `${icon("message-square", 12)}<span></span>`);
+  chip.children[1].textContent = tn(quote.split("\n").length, "notes.quote");
+  const x = h("button", "ico sm", icon("x", 12));
+  x.title = t("notes.quote.drop");
+  x.addEventListener("click", drop);
+  chip.append(x);
+  return chip;
 }
 
 /// Quem foi marcado: os nomes do time que aparecem com @ no texto. O relay
 /// descarta quem não existe, mas o id é daqui — o texto tem nome, não id.
-function mentionsIn(text: string): string[] {
+export function mentionsIn(text: string): string[] {
   const out: string[] = [];
   for (const m of team.status().members) {
     if (m.name && text.includes(`@${m.name}`)) out.push(m.id);
@@ -222,13 +110,14 @@ function mentionsIn(text: string): string[] {
   return out;
 }
 
-function pickMention(area: HTMLTextAreaElement, draft: { text: string }) {
+/// A lista do time, para escolher quem marcar em vez de adivinhar o nome.
+export function pickMention(area: HTMLTextAreaElement, onChange: () => void) {
   const me = team.status();
   const others = me.members.filter((m) => m.id !== me.you);
   if (!others.length) return;
   const at = area.getBoundingClientRect();
   menu.openAt(
-    { x: at.left, y: at.bottom + 4 },
+    { x: at.left, y: at.top - 4 },
     others.map((m) => ({
       label: m.name,
       glyph: avatar(m.name),
@@ -236,7 +125,7 @@ function pickMention(area: HTMLTextAreaElement, draft: { text: string }) {
       run: () => {
         const cut = area.selectionStart;
         area.value = `${area.value.slice(0, cut)}@${m.name} ${area.value.slice(cut)}`;
-        draft.text = area.value;
+        onChange();
         area.focus();
         area.selectionStart = area.selectionEnd = cut + m.name.length + 2;
       },
@@ -244,23 +133,9 @@ function pickMention(area: HTMLTextAreaElement, draft: { text: string }) {
   );
 }
 
-/// O botão "Comentar a seleção", que só existe quando há seleção no terminal.
-function drawQuoteButton() {
-  const row = $("notes").querySelector(".notenew .row");
-  if (!row) return;
-  row.querySelector(".quotesel")?.remove();
-  const sel = session.selection().trim();
-  if (!sel) return;
-  const b = h("button", "outline md quotesel", `${icon("message-square", 12)}<span></span>`);
-  b.children[1].textContent = t("notes.quoteSelection");
-  b.title = t("notes.quoteSelection.title");
-  b.addEventListener("click", () => quoteSelection());
-  row.prepend(b);
-}
-
 /// Hora do dia, ou o dia se foi antes de hoje: a nota de agora é a que
 /// importa, e "14:32" lê mais rápido que uma data inteira.
-function when(ts: number): string {
+export function when(ts: number): string {
   const d = new Date(ts);
   const today = new Date();
   const sameDay = d.toDateString() === today.toDateString();

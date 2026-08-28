@@ -2,6 +2,8 @@
 
 mod agents;
 mod browser;
+mod chat;
+mod codex;
 mod i18n;
 mod linear;
 mod lock;
@@ -10,7 +12,6 @@ mod paths;
 mod pty;
 mod scripts;
 mod session;
-mod socket;
 mod state;
 mod team;
 mod transcript;
@@ -25,16 +26,17 @@ pub struct AppState {
     /// Para onde o quadro vai quando muda: uma thread só, que junta as
     /// gravações. Ver `state::spawn_saver`.
     pub save: Sender<Arc<Board>>,
-    /// Toda aba de todo workspace continua rodando com o quadro na frente.
-    /// Chave é o id da sessão, que é o id da aba.
+    /// Toda conversa de todo workspace continua rodando com o quadro na
+    /// frente. Chave é o id da sessão, que é o id da aba.
+    pub chats: Mutex<HashMap<String, chat::Chat>>,
+    /// Os terminais do dock — setup, run, shells —, por `<workspace>:<tipo>`.
     pub ptys: Mutex<HashMap<String, pty::Pty>>,
     /// Qual workspace está na tela. O que acontece nele não vira novidade —
     /// você está vendo acontecer.
     pub looking: Mutex<Option<String>>,
     /// Sessões cujo Claude Code já avisou que está de pé — só nessas a primeira
-    /// fala pode ser digitada. Importa quando a fala espera o `setup` acabar:
-    /// o fim dele não pode digitar numa TUI que ainda está perguntando se você
-    /// confia na pasta.
+    /// fala pode ir. Importa quando a fala espera o `setup` acabar: o fim dele
+    /// não pode escrever num processo que ainda está subindo.
     pub ready: Mutex<HashSet<String>>,
 }
 
@@ -74,13 +76,10 @@ fn main() {
         .manage(AppState {
             board: Mutex::new(Board::load()),
             save: state::spawn_saver(),
+            chats: Mutex::new(HashMap::new()),
             ptys: Mutex::new(HashMap::new()),
             looking: Mutex::new(None),
             ready: Mutex::new(HashSet::new()),
-        })
-        .setup(|app| {
-            socket::listen(app.handle().clone())?;
-            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             i18n::set_lang,
@@ -132,7 +131,10 @@ fn main() {
             pty::pty_write,
             pty::pty_resize,
             pty::pty_buffer,
-            pty::pty_snapshot,
+            chat::chat_send,
+            chat::chat_control,
+            chat::chat_buffer,
+            chat::chat_snapshot,
             linear::linear_status,
             linear::linear_connect,
             linear::linear_disconnect,

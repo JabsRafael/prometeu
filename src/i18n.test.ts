@@ -62,7 +62,7 @@ describe("stage", () => {
 describe("fromBack", () => {
   it("código do back vira frase no idioma da tela", () => {
     use("en");
-    expect(fromBack('i18n:{"code":"err.pty.gone"}')).toBe("session is not running");
+    expect(fromBack('i18n:{"code":"err.pty.gone"}')).toBe("terminal is not running");
     use("pt-BR");
     expect(fromBack('i18n:{"code":"err.session.notGit","args":{"path":"/tmp/x"}}')).toBe(
       "/tmp/x não é um repositório git",

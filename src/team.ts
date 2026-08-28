@@ -24,8 +24,8 @@ import type { Board, Workspace } from "./types";
 
 /// O time: a conexão com o relay e o que ele conta — quem está online, o que
 /// está compartilhado, a caixa de notas. Vive aqui, no front, e não no Rust,
-/// porque tudo de que o compartilhamento precisa já passa por aqui: os bytes
-/// de todo terminal chegam pelo evento `pty`, e escrever num terminal é um
+/// porque tudo de que o compartilhamento precisa já passa por aqui: as linhas
+/// de toda conversa chegam pelo evento `chat`, e falar numa conversa é um
 /// `invoke`. O back só guarda o `team.json`.
 ///
 /// Uma conexão por app, sempre de pé enquanto houver time: cai, volta sozinha
@@ -33,10 +33,13 @@ import type { Board, Workspace } from "./types";
 /// e refaz o estado inteiro.
 ///
 /// Dois papéis, no mesmo módulo, porque o mesmo app faz os dois ao mesmo
-/// tempo: **dono** do que compartilhou (anuncia o workspace, repassa a saída
-/// das abas que alguém está olhando, recebe as teclas) e **colega** do que os
+/// tempo: **dono** do que compartilhou (anuncia o workspace, repassa as linhas
+/// das abas que alguém está olhando, recebe as falas) e **colega** do que os
 /// outros compartilharam (workspaces remotos no quadro, uma aba aberta por
-/// vez, o espelho da rolagem de cada uma).
+/// vez, o espelho das linhas de cada uma).
+///
+/// O relay não sabe o que carrega: para ele são bytes numerados, e eram bytes
+/// de terminal antes de serem linhas de JSON. O formato dos frames é o mesmo.
 
 export type TeamConfig = {
   /// URL do relay quando não é a padrão do app.
@@ -54,20 +57,24 @@ export type Phase = "off" | "connecting" | "online";
 /// só entra quem informar o seu em Configurações (ou `VITE_RELAY` no dev).
 const RELAY = "";
 
-/// Quanto da rolagem vai a quem acabou de abrir uma aba. O back guarda 512 KB;
-/// metade chega em menos de um segundo e cobre a tela inteira com folga.
-const SNAPSHOT_MAX = 256 * 1024;
+/// O tamanho de cada parte da conversa que vai a quem acabou de abrir uma
+/// aba. O relay limita a mensagem a 1 MB; a conversa inteira (até 4 MB, o que
+/// o back guarda) vai em quantas partes precisar, cortadas em linha inteira —
+/// meia linha de JSON não é nada.
+const SNAPSHOT_PART = 512 * 1024;
 /// Quanto a saída espera antes de sair num frame só. O relay cobra por
 /// mensagem recebida; a tela do colega não distingue 40 ms.
 const COALESCE = 40;
 const FRAME_MAX = 32 * 1024;
-/// Quanto o colega espera pelo snapshot ao abrir uma aba. Passou disso, abre
+/// Quanto o colega espera pela conversa ao abrir uma aba. Passou disso, abre
 /// com o espelho que tiver — o dono sumiu no meio.
-const SNAPSHOT_WAIT = 4000;
+const SNAPSHOT_WAIT = 10_000;
 
 const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
 
 /* ---------- o que fala com o mundo ---------- */
+
+const enc = new TextEncoder();
 
 /// O suficiente de um WebSocket para o mock do navegador fingir um.
 export type SocketLike = {
@@ -106,22 +113,15 @@ export function useTransport(next: Transport) {
   transport = next;
 }
 
-/// O que o resto do app dá a este módulo: o tamanho do terminal (para o
-/// tamanho das abas que ninguém redimensionou ainda) e para onde vão os bytes
-/// e o tamanho da conversa remota que está na tela.
-export type Deps = {
-  dims: () => { cols: number; rows: number };
-};
+/// Para onde vão as linhas da conversa remota que está na tela.
 export type GuestSink = {
   live: (tab: string, bytes: Uint8Array) => void;
-  size: (tab: string, cols: number, rows: number) => void;
-  /// A rolagem chegou de novo (o dono voltou, ou a conexão caiu e voltou): a
-  /// tela renasce dela.
-  reset: (tab: string, bytes: Uint8Array, cols: number, rows: number) => void;
+  /// As linhas chegaram de novo (o dono voltou, ou a conexão caiu e voltou): a
+  /// tela renasce delas.
+  reset: (tab: string, bytes: Uint8Array) => void;
 };
 
-let deps: Deps = { dims: () => ({ cols: 80, rows: 24 }) };
-let guest: GuestSink = { live: () => {}, size: () => {}, reset: () => {} };
+let guest: GuestSink = { live: () => {}, reset: () => {} };
 export const setSink = (sink: GuestSink) => void (guest = sink);
 
 /* ---------- estado ---------- */
@@ -180,8 +180,7 @@ export const inboxItems = () => inbox;
 
 /* ---------- ciclo de vida ---------- */
 
-export async function init(d?: Partial<Deps>) {
-  Object.assign(deps, d);
+export async function init() {
   try {
     const file = await invoke<{ config: TeamConfig | null; default_name: string }>("team_config");
     cfg = file.config;
@@ -189,9 +188,9 @@ export async function init(d?: Partial<Deps>) {
   } catch {
     // Sem back (ou back velho) não há time; a tela segue de pé.
   }
-  // Todo byte de todo PTY passa aqui; o que é de aba que alguém está olhando
-  // vai para o relay.
-  listen<[string, number[], number]>("pty", ({ payload: [key, bytes, seq] }) => output(key, bytes, seq));
+  // Toda linha de toda conversa passa aqui; o que é de aba que alguém está
+  // olhando vai para o relay.
+  listen<[string, string, number]>("chat", ({ payload: [key, line, seq] }) => output(key, line, seq));
   if (cfg) connect();
 }
 
@@ -327,12 +326,9 @@ function handle(frame: Down) {
     case "write":
       typed(frame.ws, frame.tab, frame.data);
       return;
-    case "size": {
-      const share = shares.get(frame.ws);
-      if (share) share.sizes[frame.tab] = [frame.cols, frame.rows];
-      if (attached?.tab === frame.tab) guest.size(frame.tab, frame.cols, frame.rows);
+    // Tamanho de terminal, de quando a conversa era um. Nada a fazer.
+    case "size":
       return;
-    }
     case "inbox":
       inbox = frame.items;
       break;
@@ -445,8 +441,6 @@ export async function setRelay(url: string) {
 let lastBoard: Board | null = null;
 /// O que anunciei de cada workspace meu, serializado: só vai de novo se mudou.
 const announced = new Map<string, string>();
-/// O tamanho que cada aba minha ganhou (`Term.onResize`) — vai no anúncio.
-const sizes = new Map<string, [number, number]>();
 /// Quem está olhando cada aba minha, pelo que o relay contou.
 const watchers = new Map<string, string[]>();
 /// Saída esperando para sair num frame só, por aba.
@@ -457,8 +451,11 @@ let flushTimer = 0;
 /// sair na frente do snapshot que já o contém.
 const holding = new Map<string, number>();
 
+/// O tamanho de terminal que o protocolo ainda pede por aba. A conversa não
+/// tem mais um, e o relay não olha o valor: vai um qualquer.
+const NO_SIZE: [number, number] = [80, 24];
+
 function toShare(w: Workspace): Share {
-  const dims = deps.dims();
   return {
     id: w.id,
     title: w.title,
@@ -468,7 +465,7 @@ function toShare(w: Workspace): Share {
     issue: w.issue ? { identifier: w.issue.identifier, title: w.issue.title, url: w.issue.url } : null,
     active: w.active,
     tabs: w.tabs.map((tab) => ({ id: tab.id, title: tab.title, status: tab.status, note: tab.note, tokens: tab.tokens })),
-    sizes: Object.fromEntries(w.tabs.map((tab) => [tab.id, sizes.get(tab.id) ?? [dims.cols, dims.rows]])),
+    sizes: Object.fromEntries(w.tabs.map((tab) => [tab.id, NO_SIZE])),
   };
 }
 
@@ -511,16 +508,6 @@ export async function share(id: string, on: boolean) {
 export const isShared = (id: string) => announced.has(id);
 export const watchersOf = (tab: string): string[] => (watchers.get(tab) ?? []).map(nameOf);
 
-/// O terminal de uma aba minha mudou de tamanho: quem olha acompanha, e o
-/// anúncio passa a dizer o tamanho novo.
-export function resized(tab: string, cols: number, rows: number) {
-  sizes.set(tab, [cols, rows]);
-  if (!mine(tab)) return;
-  const ws = lastBoard?.workspaces.find((w) => w.tabs.some((t) => t.id === tab));
-  if (ws) send({ t: "size", ws: ws.id, tab, cols, rows });
-  if (lastBoard) boardChanged(lastBoard);
-}
-
 function watched(tab: string, who: string[], added: string[]) {
   if (who.length) watchers.set(tab, who);
   else watchers.delete(tab);
@@ -539,16 +526,15 @@ function rewatch(watching: Watching) {
   }
 }
 
-/// A rolagem de uma aba minha para um colega. Enquanto ela não sai, a saída
-/// ao vivo da aba fica presa: um pedaço que saísse na frente e não estivesse
-/// no snapshot seria ignorado do outro lado — e perdido.
+/// A conversa inteira de uma aba minha para um colega, em partes. Enquanto
+/// ela não sai toda, as linhas ao vivo da aba ficam presas: uma que saísse na
+/// frente e não estivesse na conversa seria ignorada do outro lado — e perdida.
 async function snapshot(tab: string, member: string) {
   holding.set(tab, (holding.get(tab) ?? 0) + 1);
   try {
-    const s = await invoke<{ bytes: number[]; seq: number }>("pty_snapshot", { session: tab });
-    const all = Uint8Array.from(s.bytes);
-    const bytes = all.length > SNAPSHOT_MAX ? all.subarray(all.length - SNAPSHOT_MAX) : all;
-    sendBinary(encodeSnapshot(tab, member, s.seq, bytes));
+    const s = await invoke<{ text: string; seq: number }>("chat_snapshot", { session: tab });
+    const parts = split(s.text);
+    parts.forEach((part, i) => sendBinary(encodeSnapshot(tab, member, s.seq, enc.encode(part), i < parts.length - 1)));
   } catch {
     // Sessão que já não existe: o colega abre com o que tiver.
   } finally {
@@ -559,12 +545,28 @@ async function snapshot(tab: string, member: string) {
   }
 }
 
-/// Um pedaço de saída de algum PTY. Só interessa se alguém está olhando a
-/// aba — o resto do tempo isto custa uma busca num mapa vazio.
-function output(key: string, bytes: number[], seq: number) {
+/// A conversa em partes do tamanho de uma mensagem do relay, cortadas em linha
+/// inteira. Sempre ao menos uma — vazia, se a conversa ainda não falou.
+function split(text: string): string[] {
+  const out: string[] = [];
+  let rest = text;
+  while (rest.length > SNAPSHOT_PART) {
+    const cut = rest.lastIndexOf("\n", SNAPSHOT_PART);
+    const at = cut === -1 ? SNAPSHOT_PART : cut + 1;
+    out.push(rest.slice(0, at));
+    rest = rest.slice(at);
+  }
+  out.push(rest);
+  return out;
+}
+
+/// Uma linha de alguma conversa. Só interessa se alguém está olhando a aba —
+/// o resto do tempo isto custa uma busca num mapa vazio.
+function output(key: string, line: string, seq: number) {
   if (!watchers.has(key)) return;
   const list = queue.get(key) ?? [];
-  list.push({ seq, bytes: Uint8Array.from(bytes) });
+  const bytes = enc.encode(line + "\n");
+  list.push({ seq, bytes });
   queue.set(key, list);
   queued += bytes.length;
   if (queued >= FRAME_MAX) flush();
@@ -584,11 +586,27 @@ function flush() {
   if (queue.size && !flushTimer) flushTimer = setTimeout(flush, COALESCE);
 }
 
-/// Um colega digitou numa aba minha. Só vale para aba de workspace que eu
-/// anunciei: o relay já filtra, mas a tecla vai para um processo de verdade.
+/// Um colega falou numa aba minha — ou respondeu a um card dela: a resposta
+/// vem como a linha de controle inteira, em JSON (ver `chat.ts`). Só vale para
+/// aba de workspace que eu anunciei: o relay já filtra, mas o que chega vai
+/// para um processo de verdade.
 function typed(ws: string, tab: string, data: string) {
   if (!announced.has(ws) || !mine(tab)) return;
-  void invoke("pty_write", { session: tab, data }).catch(() => {});
+  const frame = control(data);
+  if (frame) void invoke("chat_control", { session: tab, frame }).catch(() => {});
+  else void invoke("chat_send", { session: tab, text: data }).catch(() => {});
+}
+
+/// Uma linha de controle, se é uma: um objeto JSON com `type`. Fala que por
+/// acaso começa com chave e não parseia é fala.
+function control(data: string): unknown | null {
+  if (!data.startsWith("{")) return null;
+  try {
+    const o = JSON.parse(data);
+    return o && typeof o === "object" && typeof o.type === "string" ? o : null;
+  } catch {
+    return null;
+  }
 }
 
 /* ---------- colega: o que os outros compartilharam ---------- */
@@ -603,15 +621,11 @@ const remoteId = (owner: string, ws: string) => `${PREFIX}${owner}/${ws}`;
 
 /// A aba de um colega que está na tela, se alguma.
 let attached: { ws: string; tab: string } | null = null;
-/// A rolagem de cada aba remota que já abri: a que o dono mandou mais o que
+/// As linhas de cada aba remota que já abri: as que o dono mandou mais o que
 /// veio ao vivo. É daqui que a tela renasce ao voltar para a aba. A regra de
 /// juntar as duas está em `mirror.ts`, testada sem rede nem tela.
 const mirror = new Map<string, Mirror>();
 let waiting: { tab: string; resolve: () => void } | null = null;
-
-/// O share de uma aba remota. Só para o que chega do relay já endereçado —
-/// nunca para decidir se uma aba é remota: aba local com o mesmo id existiria.
-const shareOfTab = (tab: string) => (attached?.tab === tab ? shares.get(attached.ws) : undefined);
 
 /// Workspaces dos colegas, como o quadro os desenha. Não são do Rust: só
 /// existem na tela, e o que os distingue é `remote`.
@@ -662,14 +676,14 @@ export const isRemote = (id: string) => id.startsWith(PREFIX);
 /// para onde vai — o id da aba sozinho não diz de quem ela é.
 export const attachedTab = () => attached?.tab ?? null;
 
-/// Abrir a aba de um colega: pede ao relay, espera a rolagem chegar e devolve
-/// o que a tela desenha. Uma aba por vez — abrir outra solta a anterior.
-export async function attach(id: string, tab: string): Promise<{ bytes: Uint8Array; cols: number; rows: number }> {
+/// Abrir a aba de um colega: pede ao relay, espera as linhas chegarem e
+/// devolve o que a tela desenha. Uma aba por vez — abrir outra solta a
+/// anterior.
+export async function attach(id: string, tab: string): Promise<{ bytes: Uint8Array }> {
   const found = remoteIds.get(id);
   const s = found && shares.get(found.ws);
   if (!s) throw t("err.team.noShare");
   attached = { ws: s.id, tab };
-  const [cols, rows] = s.sizes[tab] ?? [80, 24];
   if (s.online && send({ t: "attach", ws: s.id, tab })) {
     await new Promise<void>((resolve) => {
       waiting = { tab, resolve };
@@ -677,7 +691,7 @@ export async function attach(id: string, tab: string): Promise<{ bytes: Uint8Arr
     });
     if (waiting?.tab === tab) waiting = null;
   }
-  return { bytes: mirrorOf(tab), cols, rows };
+  return { bytes: mirrorOf(tab) };
 }
 
 export function detach() {
@@ -687,8 +701,9 @@ export function detach() {
   waiting = null;
 }
 
-/// A tecla de quem está olhando vai ao dono — se ele estiver aí. Vale para a
-/// aba na tela, que é a única em que se digita.
+/// A fala de quem está olhando vai ao dono — se ele estiver aí. Vale para a
+/// aba na tela, que é a única em que se escreve. Uma resposta a card vai pelo
+/// mesmo caminho, como a linha de controle em JSON.
 export function write(data: string) {
   if (!attached) return;
   const s = shares.get(attached.ws);
@@ -718,15 +733,14 @@ function binary(data: ArrayBuffer) {
   if (!bin) return;
   if (bin.kind === SNAPSHOT) {
     if (bin.to !== you) return;
-    mirrorFor(bin.tab).seed(bin.bytes, bin.seq);
+    // Parte do meio: guarda e espera a última.
+    if (!mirrorFor(bin.tab).seed(bin.bytes, bin.seq, bin.more)) return;
     if (waiting?.tab === bin.tab) {
       waiting.resolve();
       waiting = null;
     } else if (attached?.tab === bin.tab) {
       // Ninguém pediu: o dono voltou (ou a conexão), e a tela renasce.
-      const s = shareOfTab(bin.tab);
-      const [cols, rows] = s?.sizes[bin.tab] ?? [80, 24];
-      guest.reset(bin.tab, mirrorOf(bin.tab), cols, rows);
+      guest.reset(bin.tab, mirrorOf(bin.tab));
     }
     return;
   }
@@ -755,7 +769,7 @@ export function notesOf(id: string): Note[] {
   return [];
 }
 
-/// Escreve uma nota. `quote` é o trecho do terminal que ela cita, se cita, e
+/// Escreve uma nota. `quote` é o trecho da conversa que ela cita, se cita, e
 /// `mentions` são ids de membros — o relay descarta quem não existe.
 export function addNote(id: string, text: string, mentions: string[], quote: string | null) {
   send({ t: "note", ws: relayId(id), text, mentions, quote });
