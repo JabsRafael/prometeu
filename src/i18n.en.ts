@@ -242,6 +242,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "chat.plan.feedback": "What should change in the plan?",
   "chat.plan.send": "Send",
   "chat.ask.other": "Another answer…",
+  "chat.ask.n": "Question {n}",
   "chat.ask.go": "Answer",
   "chat.perm.title": "Wants permission for {tool}",
   "chat.perm.yes": "Allow",

@@ -417,46 +417,25 @@ export class ChatView {
     return el;
   }
 
+  /// Uma aba por pergunta, como na TUI: escolher já leva à próxima que falta,
+  /// e responder só quando todas estiverem — o agente recebe tudo de uma vez.
   private questionCard(el: HTMLElement, ask: Ask): HTMLElement {
     el.classList.add("question");
-    const questions = (ask.input.questions as { question: string; header?: string; multiSelect?: boolean; options: { label: string; description?: string }[] }[]) ?? [];
+    type Q = { question: string; header?: string; multiSelect?: boolean; options: { label: string; description?: string }[] };
+    const questions = (ask.input.questions as Q[]) ?? [];
     const answers: Record<string, string[]> = {};
     const other: Record<string, string> = {};
-    const paintGo = () => {
-      go.disabled = !questions.every((q) => (answers[q.question]?.length ?? 0) > 0 || other[q.question]?.trim());
+    let active = 0;
+    const has = (q: Q) => (answers[q.question]?.length ?? 0) > 0 || !!other[q.question]?.trim();
+    // A próxima que falta, depois desta; senão a primeira que falta; senão
+    // fica — está tudo respondido, e o botão é o que sobra.
+    const next = () => {
+      const after = questions.findIndex((q, i) => i > active && !has(q));
+      const any = questions.findIndex((q) => !has(q));
+      active = after !== -1 ? after : any !== -1 ? any : active;
     };
-    for (const q of questions) {
-      const block = h("div", "q");
-      if (q.header) block.append(h("span", "chip", q.header));
-      block.append(h("p", "", q.question));
-      const opts = h("div", "opts");
-      for (const o of q.options ?? []) {
-        const b = h("button", "opt", `<b></b><span></span>`);
-        b.querySelector("b")!.textContent = o.label;
-        b.querySelector("span")!.textContent = o.description ?? "";
-        b.addEventListener("click", () => {
-          const list = answers[q.question] ?? [];
-          if (q.multiSelect) {
-            answers[q.question] = list.includes(o.label) ? list.filter((x) => x !== o.label) : [...list, o.label];
-          } else {
-            answers[q.question] = [o.label];
-          }
-          for (const x of opts.children) x.classList.toggle("on", answers[q.question].includes((x as HTMLElement).querySelector("b")!.textContent ?? ""));
-          paintGo();
-        });
-        opts.append(b);
-      }
-      block.append(opts);
-      const free = document.createElement("input");
-      free.className = "field";
-      free.placeholder = t("chat.ask.other");
-      free.addEventListener("input", () => {
-        other[q.question] = free.value;
-        paintGo();
-      });
-      block.append(free);
-      el.append(block);
-    }
+    const tabs = h("div", "qtabs");
+    const body = h("div", "qbody");
     const row = h("div", "row");
     const go = h("button", "pri md", t("chat.ask.go")) as HTMLButtonElement;
     go.addEventListener("click", () => {
@@ -469,8 +448,71 @@ export class ChatView {
       this.respond(ask, { behavior: "allow", updatedInput: { ...ask.input, answers: out } });
     });
     row.append(h("span", "spacer"), go);
-    el.append(row);
-    paintGo();
+
+    const paint = () => {
+      tabs.replaceChildren(
+        ...questions.map((q, i) => {
+          const b = h("button", "qtab" + (i === active ? " on" : "") + (has(q) ? " done" : ""), `<span></span>${icon("check", 11)}`);
+          b.querySelector("span")!.textContent = q.header || t("chat.ask.n", { n: i + 1 });
+          b.addEventListener("click", () => {
+            active = i;
+            paint();
+          });
+          return b;
+        }),
+      );
+      tabs.hidden = questions.length < 2;
+      const q = questions[active];
+      body.replaceChildren();
+      if (!q) return;
+      body.append(h("p", "", q.question));
+      const opts = h("div", "opts");
+      for (const o of q.options ?? []) {
+        const on = (answers[q.question] ?? []).includes(o.label);
+        const b = h("button", "opt" + (on ? " on" : ""), `<b></b><span></span>`);
+        b.querySelector("b")!.textContent = o.label;
+        b.querySelector("span")!.textContent = o.description ?? "";
+        b.addEventListener("click", () => {
+          const list = answers[q.question] ?? [];
+          if (q.multiSelect) {
+            answers[q.question] = on ? list.filter((x) => x !== o.label) : [...list, o.label];
+          } else {
+            answers[q.question] = [o.label];
+            next();
+          }
+          paint();
+        });
+        opts.append(b);
+      }
+      body.append(opts);
+      const free = document.createElement("input");
+      free.className = "field";
+      free.placeholder = t("chat.ask.other");
+      free.value = other[q.question] ?? "";
+      free.addEventListener("input", () => {
+        other[q.question] = free.value;
+        paintGo();
+        paintTabs();
+      });
+      free.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && free.value.trim()) {
+          e.preventDefault();
+          if (questions.every(has)) go.click();
+          else {
+            next();
+            paint();
+          }
+        }
+      });
+      body.append(free);
+      paintGo();
+    };
+    const paintGo = () => void (go.disabled = !questions.every(has));
+    const paintTabs = () => {
+      for (const [i, b] of [...tabs.children].entries()) b.classList.toggle("done", has(questions[i]));
+    };
+    el.append(tabs, body, row);
+    paint();
     return el;
   }
 

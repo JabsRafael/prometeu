@@ -269,6 +269,7 @@ export const PT = {
   "chat.plan.feedback": "O que mudar no plano?",
   "chat.plan.send": "Mandar",
   "chat.ask.other": "Outra resposta…",
+  "chat.ask.n": "Pergunta {n}",
   "chat.ask.go": "Responder",
   "chat.perm.title": "Quer permissão para {tool}",
   "chat.perm.yes": "Permitir",
