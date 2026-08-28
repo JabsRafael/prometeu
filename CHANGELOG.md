@@ -4,6 +4,19 @@ O que muda no Prometheus, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.4.0] - 2026-08-28
+
+### Novidades
+
+- **Quebra:** **quadro:** Remove o Kanban e usa Issues como tela inicial
+- **conversa:** A conversa e o painel no desenho do Conductor
+
+### Correções
+
+- **codex:** Aceita caminhos absolutos e omite logs duplicados
+- **conversa:** Cada workspace lembra se a caixa estava em fala ou nota
+- **setup:** Preparar um worktree novo não quebra mais no meio
+
 ## [0.3.1] - 2026-08-28
 
 ### Novidades
