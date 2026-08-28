@@ -30,8 +30,10 @@ const ws = (
   pinned: false,
   unread: false,
   agent: "",
-  model: "",
-  effort: "",
+  // Modelo e esforço de mentira: é o que a caixa de escrever mostra embaixo,
+  // e sem eles o rodapé da conversa não teria o que desenhar.
+  model: "opus[1m]",
+  effort: "high",
   port: 3100,
   issue: null,
   pr: null,

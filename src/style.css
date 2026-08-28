@@ -18,6 +18,8 @@
   --fg-2: #a4a09d;
   --fg-3: #756f6c;
   --tab-line: #d8c2b3;
+  /* A fala da pessoa: o marrom quente do Conductor, e não mais um cinza. */
+  --bubble: #281e1d;
   --pri: #eae8e6;
   --pri-fg: #141110;
   --accent: #ff6b3d;
@@ -294,16 +296,19 @@ main { flex: 1; min-height: 0; position: relative; }
    texto largo demais cansa, e o composer do Conductor tem a largura do texto. */
 .chatwrap { flex: 1; position: relative; min-height: 0; display: flex; flex-direction: column; }
 .feed {
-  flex: 1; min-height: 0; overflow-y: auto; padding: 18px 24px 8px;
-  display: flex; flex-direction: column; gap: 14px; user-select: text; cursor: auto;
+  flex: 1; min-height: 0; overflow-y: auto; padding: 24px 24px 8px;
+  display: flex; flex-direction: column; gap: 24px; user-select: text; cursor: auto;
 }
 .feed > * { width: 100%; max-width: 860px; margin: 0 auto; flex: none; }
 .feed .nohint { margin-top: 20vh; }
 
-.turn.user { display: flex; justify-content: flex-end; }
+/* A pergunta abre um assunto novo: o respiro antes dela é maior que o de
+   dentro da resposta, como no Conductor. */
+.turn.user { display: flex; justify-content: flex-end; margin-top: 12px; }
+.feed > .turn.user:first-child { margin-top: 0; }
 .turn.user .bubble {
-  max-width: 82%; padding: 8px 12px; border-radius: var(--r-xl); background: var(--bg-raised-2);
-  white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5;
+  max-width: 82%; padding: 11px 16px; border-radius: 12px; background: var(--bubble);
+  font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5;
 }
 .turn.bot { display: flex; flex-direction: column; gap: 8px; }
 
@@ -331,7 +336,7 @@ main { flex: 1; min-height: 0; position: relative; }
 @keyframes bounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.5; } 30% { transform: translateY(-4px); opacity: 1; } }
 
 /* O markdown do agente: tipografia de leitura, código no mesmo colorizador do viewer. */
-.md { font-size: 13.5px; line-height: 1.6; overflow-wrap: anywhere; }
+.md { font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; }
 .md > :first-child { margin-top: 0; }
 .md > :last-child { margin-bottom: 0; }
 .md p { margin: 0 0 8px; }
@@ -356,25 +361,40 @@ main { flex: 1; min-height: 0; position: relative; }
 .md strong { font-weight: 600; }
 
 /* O pensamento, dobrado: é contexto, não resposta. */
-.think { font-size: 12px; color: var(--fg-3); }
-.think summary { list-style: none; display: inline-flex; align-items: center; gap: 6px; cursor: default; }
+.think { font-size: 13px; color: var(--fg-2); }
+.think summary { list-style: none; display: flex; align-items: center; gap: 8px; cursor: default; }
 .think summary::-webkit-details-marker { display: none; }
-.think summary::before { content: "›"; width: 8px; }
-.think[open] summary::before { content: "⌄"; }
-.think > div {
-  margin-top: 4px; padding-left: 14px; white-space: pre-wrap; overflow-wrap: anywhere;
-  color: var(--fg-2); max-height: 320px; overflow-y: auto;
+.think .tic { display: flex; flex: none; color: var(--fg-3); }
+.think summary b { font-weight: 400; flex: none; }
+/* A isca: a primeira linha do pensamento, numa pastilha que corta onde acabar
+   o espaço. É o que diz se vale abrir — sem ela, "Pensou" não informa nada. */
+.think .prev {
+  flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 2px 8px; border-radius: var(--r); background: var(--bg-raised);
+  font-family: var(--mono); font-size: 11.5px; color: var(--fg-3);
 }
+.think[open] .prev { display: none; }
+.think.bare .prev { display: none; }
+.think > div {
+  margin-top: 6px; padding-left: 22px; white-space: pre-wrap; overflow-wrap: anywhere;
+  font-size: 12.5px; color: var(--fg-2); max-height: 320px; overflow-y: auto;
+}
+
+/* Sob a resposta que fecha o turno: quanto levou, e o botão que copia o que o
+   agente escreveu. Discreto — quem lê a conversa não está lendo isto. */
+.meta { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 12px; color: var(--fg-3); }
+.meta .cp { width: 22px; height: 22px; color: var(--fg-3); }
+.meta .cp:hover { color: var(--fg); background: var(--bg-raised); }
 
 /* O trabalho seguido do agente, num cartão só: fechado é o passo de agora
    (ou quantos foram, quando acabou); aberto, o passo a passo. */
-.work { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg-side); }
+.work { border: none; background: none; }
 .work .whead {
-  width: 100%; height: 30px; padding: 0 10px; gap: 8px; border: none; border-radius: var(--r-lg);
+  width: 100%; height: 26px; padding: 0 6px 0 0; gap: 8px; border: none; border-radius: var(--r);
   display: flex; align-items: center; justify-content: flex-start;
   background: none; color: var(--fg-2); font-size: 12.5px; font-weight: 400;
 }
-.work .whead:hover { background: var(--bg-raised); }
+.work .whead:hover .sum, .work .whead:hover b { color: var(--fg); }
 .work .whead .wic { display: flex; flex: none; color: var(--fg-3); }
 .work .whead b { font-weight: 500; color: var(--fg); flex: none; }
 .work .whead .sum {
@@ -385,8 +405,10 @@ main { flex: 1; min-height: 0; position: relative; }
 .work.going .st { color: var(--run); }
 .work.ok .st { color: var(--done); }
 .work.bad .st { color: var(--err); }
-.work .wbody { display: none; flex-direction: column; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--line); }
-.work.open .whead { border-radius: var(--r-lg) var(--r-lg) 0 0; }
+.work .wbody {
+  display: none; flex-direction: column; gap: 8px;
+  margin: 6px 0 0 7px; padding: 2px 0 2px 15px; border-left: 1px solid var(--line);
+}
 .work.open .wbody { display: flex; }
 .work .tool { background: var(--bg-raised); }
 
@@ -508,14 +530,14 @@ main { flex: 1; min-height: 0; position: relative; }
    a borda diz para quem vai — o time, e não o agente. */
 .composer {
   flex: none; align-self: center; width: calc(100% - 48px); max-width: 860px; margin: 4px 0 14px;
-  padding: 8px 10px; display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
   background: var(--bg-raised); border: 1px solid var(--line-raised); border-radius: var(--r-xl);
 }
 .composer:focus-within { border-color: var(--line-ghost); }
 .composer.note { border-color: var(--accent); }
 .composer textarea {
   background: none; border: none; outline: none; resize: none; padding: 4px;
-  font: inherit; line-height: 1.5; color: var(--fg); min-height: 27px; max-height: 40vh;
+  font: inherit; font-size: 14px; line-height: 1.5; color: var(--fg); min-height: 60px; max-height: 40vh;
 }
 .composer textarea::placeholder { color: var(--fg-3); }
 .composer textarea:disabled { color: var(--fg-3); }
@@ -524,6 +546,18 @@ main { flex: 1; min-height: 0; position: relative; }
 .composer .mode { height: 22px; padding: 0 8px; border: none; border-radius: 4px; background: none; color: var(--fg-3); font-size: 11.5px; }
 .composer .mode.on { background: var(--bg-raised-2); color: var(--fg); }
 .composer .hint { font-size: 11.5px; color: var(--fg-3); }
+/* Com quem se fala, no canto de baixo: o modelo e o degrau de esforço deste
+   workspace. Não é botão — quem escolhe é o lançador. */
+.composer .with { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--fg-2); }
+.composer .mdl { display: inline-flex; align-items: center; gap: 6px; }
+.composer .mdl .ic { color: var(--fg-3); }
+.composer .with .effort { display: inline-flex; align-items: center; gap: 7px; color: var(--fg-3); }
+/* A seta redonda: falar com o agente é uma coisa só, e não precisa de rótulo. */
+.composer .send.round {
+  width: 28px; height: 28px; padding: 0; border-radius: 50%;
+  background: var(--pri); color: var(--pri-fg);
+}
+.composer .send.round:hover { background: #fff; }
 .composer .spacer { flex: 1; }
 .composer .cquote .quoted {
   display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fg-2);
@@ -693,7 +727,11 @@ body.noside .side { display: none; }
   font-family: var(--mono); font-size: 12px; font-weight: 400; color: var(--fg); line-height: 28px;
 }
 .diffrow:hover { background: var(--bg-raised); }
-.diffrow .p { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+/* O nome do arquivo na frente, a pasta atrás — e é a pasta que some primeiro
+   quando o painel é estreito. */
+.diffrow .p { flex: 1; min-width: 0; display: flex; align-items: baseline; }
+.diffrow .dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); }
+.diffrow .base { flex: none; }
 .diffrow .a { color: var(--done); }
 .diffrow .r { color: var(--err); }
 .diffrow .new { color: var(--fg-3); font-size: 11px; }

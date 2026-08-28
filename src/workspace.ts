@@ -60,6 +60,14 @@ export function init(context: Ctx) {
     if (sidePane === "diff" && changes) showChanges();
     else setSidePane("diff");
   });
+  // Revisar é ler o diff inteiro de uma vez, no centro — o mesmo caminho do
+  // segundo clique na aba de Mudanças, dito com todas as letras.
+  $("review").innerHTML = `${icon("eye", 13)}<span></span>`;
+  $("review").querySelector("span")!.textContent = t("side.review");
+  $("review").addEventListener("click", () => {
+    setSidePane("diff");
+    showChanges();
+  });
   $("reveal").addEventListener("click", () => {
     if (openWs) invoke("reveal", { id: openWs }).catch((e) => ctx.say(fromBack(e), true));
   });
@@ -857,6 +865,7 @@ async function loadChanges(id: string) {
   if (mine !== request) return;
   changesOf.set(id, changes);
   $("diffcount").textContent = changes.length ? String(changes.length) : "";
+  $("review").hidden = !changes.length;
   // Worktree limpo esquece que a aba foi fechada: o que sujar depois é trabalho
   // novo, e não o diff que você mandou embora.
   if (!changes.length) files(id).hidDiff = false;
@@ -874,8 +883,12 @@ async function loadChanges(id: string) {
         const row = document.createElement("button");
         row.className = "diffrow";
         row.title = f.path;
-        row.innerHTML = `<span class="p"></span><span class="new"></span><span class="a"></span><span class="r"></span>`;
-        row.children[0].textContent = f.path;
+        // O nome do arquivo em primeiro plano e a pasta atrás dele, como no
+        // Conductor: numa lista de vinte arquivos é o nome que se procura.
+        const cut = f.path.lastIndexOf("/");
+        row.innerHTML = `<span class="p"><span class="dir"></span><span class="base"></span></span><span class="new"></span><span class="a"></span><span class="r"></span>`;
+        row.querySelector(".dir")!.textContent = cut === -1 ? "" : f.path.slice(0, cut + 1);
+        row.querySelector(".base")!.textContent = f.path.slice(cut + 1);
         row.children[1].textContent = f.new_file ? t("diff.new") : "";
         row.children[2].textContent = f.added ? `+${f.added}` : "";
         row.children[3].textContent = f.removed ? `−${f.removed}` : "";

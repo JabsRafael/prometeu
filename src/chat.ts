@@ -4,6 +4,7 @@ import { icon, type IconName } from "./icons";
 import { fromBack, t, tn } from "./i18n";
 import { diffHtml, isDiff } from "./highlight";
 import { grouped, kilo, sectionTotal, type Report } from "./context";
+import { effortStep, modelLabel } from "./launcher";
 import { md } from "./markdown";
 import * as notes from "./notes";
 import * as team from "./team";
@@ -35,6 +36,10 @@ export type Info = {
   remote: { name: string; online: boolean } | null;
   /// Há time — e, portanto, notas.
   team: boolean;
+  /// Com quem se está falando: o modelo e o esforço escolhidos no lançador.
+  /// Vazio é o padrão do CLI, e aí a caixa não diz nada.
+  model: string;
+  effort: string;
 };
 
 export type Ctx = {
@@ -65,6 +70,10 @@ export class ChatView {
   private partial = "";
   private decoder = new TextDecoder("utf-8");
   private mode: "agent" | "note" = "agent";
+  /// Em que lado do toggle cada workspace estava. Escolher "nota" é sobre
+  /// aquele workspace — trocar de aba e voltar encontra o que estava escolhido
+  /// ali, com o rascunho junto, e não o do último workspace visitado.
+  private modes = new Map<string, "agent" | "note">();
   private feedback: string | null = null;
   /// Itens que mudaram desde o último quadro. O stream manda uma linha por
   /// token; redesenhar a cada uma trava a tela — um quadro por vez basta.
@@ -106,6 +115,7 @@ export class ChatView {
     this.key = key;
     this.remote = false;
     this.reset();
+    this.restoreMode();
     const text = await invoke<string>("chat_buffer", { session: key });
     if (this.key !== key) return;
     this.tl.load(text);
@@ -118,6 +128,7 @@ export class ChatView {
     this.key = key;
     this.remote = true;
     this.reset();
+    this.restoreMode();
     this.tl.load(new TextDecoder("utf-8").decode(bytes));
     this.renderAll();
   }
@@ -137,6 +148,7 @@ export class ChatView {
     this.key = null;
     this.remote = false;
     this.reset();
+    this.restoreMode();
     this.paintComposer();
   }
 
@@ -316,9 +328,55 @@ export class ChatView {
       const el = h("div", "turn bot");
       const at = this.blockAt(piece);
       if (at) el.append(this.block(at.block, at.live));
+      this.paintMeta(el, piece);
       return el;
     }
     return this.workCard(piece);
+  }
+
+  /// O rodapé de uma resposta: quanto o turno levou, e o botão que copia o que
+  /// o agente escreveu. Só na última fala de um turno que acabou — no meio da
+  /// rajada não há tempo para dizer, e a linha viraria ruído a cada ferramenta.
+  private paintMeta(el: HTMLElement, piece: Extract<Piece, { kind: "say" }>) {
+    const ms = this.turnMs(piece);
+    const old = el.querySelector(".meta");
+    if (ms === null) return void old?.remove();
+    // Menos de um décimo não é duração — é a linha do transcript, que não
+    // guarda quando o turno começou. Aí fica só o copiar.
+    const label = ms < 100 ? "" : took(ms);
+    if (old) return void (old.querySelector(".took")!.textContent = label);
+    const meta = h("div", "meta", `<span class="took"></span><button class="ico sm cp"></button>`);
+    meta.querySelector(".took")!.textContent = label;
+    const cp = meta.querySelector<HTMLElement>(".cp")!;
+    cp.innerHTML = icon("copy", 13);
+    cp.title = t("chat.copy");
+    cp.addEventListener("click", () => {
+      const at = this.blockAt(piece);
+      if (at?.block.kind !== "text") return;
+      void navigator.clipboard.writeText(at.block.text);
+      cp.innerHTML = icon("check", 13);
+      setTimeout(() => (cp.innerHTML = icon("copy", 13)), 1200);
+    });
+    el.append(meta);
+  }
+
+  /// Quanto durou o turno que esta fala fecha, ou `null` se ela não o fecha.
+  /// Fecha quem é o último bloco de uma mensagem que parou de chegar e não tem
+  /// outra mensagem do agente depois — isto é, o agente devolveu a vez.
+  private turnMs(piece: Extract<Piece, { kind: "say" }>): number | null {
+    const item = this.tl.items[piece.at];
+    if (item?.kind !== "assistant" || item.streaming) return null;
+    if (piece.block !== item.blocks.length - 1) return null;
+    for (let i = piece.at + 1; i < this.tl.items.length; i++) {
+      const next = this.tl.items[i];
+      if (next.kind === "assistant") return null;
+      if (next.kind === "user") break;
+    }
+    for (let i = piece.at - 1; i >= 0; i--) {
+      const before = this.tl.items[i];
+      if (before.kind === "user") return Math.max(0, item.ts - before.ts);
+    }
+    return null;
   }
 
   /// O bloco de um pedaço, e se ele ainda está chegando: o último de uma
@@ -385,6 +443,9 @@ export class ChatView {
       if (!at || at.block.kind !== "text" || node?.dataset.kind !== "text") return false;
       node.innerHTML = md(at.block.text);
       node.classList.toggle("typing", at.live);
+      // O turno acabou enquanto esta fala estava na tela: é agora que a
+      // duração e o copiar aparecem embaixo dela.
+      this.paintMeta(el, piece);
       return true;
     }
     // Trabalho que era só pensamento e ganhou a primeira ferramenta deixa de
@@ -417,7 +478,8 @@ export class ChatView {
         node.innerHTML = md(at.block.text);
         node.classList.toggle("typing", at.live);
       } else if (at.block.kind === "thinking") {
-        node.querySelector("summary")!.textContent = t(at.live ? "chat.thinking" : "chat.thought");
+        node.querySelector("b")!.textContent = t(at.live ? "chat.thinking" : "chat.thought");
+        node.querySelector(".prev")!.textContent = peek(at.block.text);
         (node.lastElementChild as HTMLElement).textContent = at.block.text;
         node.classList.toggle("live", at.live);
         node.classList.toggle("bare", !at.block.text);
@@ -492,9 +554,14 @@ export class ChatView {
     if (block.kind === "thinking") {
       // Sem texto (histórico do transcript, que não guarda o pensamento) não
       // há o que abrir: fica o rótulo, sem seta.
-      const el = h("details", "think" + (live ? " live" : "") + (block.text ? "" : " bare"), `<summary></summary><div></div>`);
+      const el = h(
+        "details",
+        "think" + (live ? " live" : "") + (block.text ? "" : " bare"),
+        `<summary><span class="tic">${icon("brain", 14)}</span><b></b><span class="prev"></span></summary><div></div>`,
+      );
       el.dataset.kind = "thinking";
-      el.querySelector("summary")!.textContent = t(live ? "chat.thinking" : "chat.thought");
+      el.querySelector("b")!.textContent = t(live ? "chat.thinking" : "chat.thought");
+      el.querySelector(".prev")!.textContent = peek(block.text);
       (el.lastElementChild as HTMLElement).textContent = block.text;
       return el;
     }
@@ -749,12 +816,19 @@ export class ChatView {
           <button class="mode on" data-mode="agent"></button>
           <button class="mode" data-mode="note"></button>
         </div>
+        <!-- Com quem se fala, como no rodapé do lançador: o modelo e o degrau
+             de esforço. Aqui só se lê — trocar de modelo é abrir sessão nova,
+             e isso é no lançador. -->
+        <span class="with" hidden>
+          <span class="mdl"></span>
+          <span class="effort"><span class="bars"><i></i><i></i><i></i><i></i><i></i></span><span class="el"></span></span>
+        </span>
         <button class="ico sm at" hidden></button>
         <button class="outline md quotesel" hidden></button>
         <span class="hint"></span>
         <span class="spacer"></span>
         <button class="ghost md stop" hidden></button>
-        <button class="pri md send"></button>
+        <button class="send"></button>
       </div>`;
     this.area = this.box.querySelector("textarea")!;
     const q = (sel: string) => this.box.querySelector<HTMLElement>(sel)!;
@@ -767,7 +841,6 @@ export class ChatView {
     q(".quotesel").title = t("notes.quoteSelection.title");
     q(".stop").innerHTML = `${icon("square", 12)}<span></span>`;
     q(".stop span").textContent = t("chat.stop");
-    q(".send").textContent = t("chat.send");
 
     for (const b of this.box.querySelectorAll<HTMLElement>(".mode")) {
       b.addEventListener("click", () => this.setMode(b.dataset.mode as "agent" | "note"));
@@ -815,10 +888,25 @@ export class ChatView {
     const ws = this.ctx.info().workspace;
     if (this.mode === "note" && ws) notes.draftOf(ws).text = this.area.value;
     this.mode = mode;
+    if (ws) this.modes.set(ws, mode);
     this.area.value = mode === "note" && ws ? notes.draftOf(ws).text : "";
     this.grow();
     this.paintComposer();
     this.area.focus();
+  }
+
+  /// Ligar noutra conversa: o toggle volta a ser o daquele workspace, e com ele
+  /// o rascunho da nota. Sem isto, escolher "nota" num workspace deixava a
+  /// caixa em nota — e com o texto do outro — em tudo que fosse aberto depois.
+  private restoreMode() {
+    const ws = this.ctx.info().workspace;
+    const mode = (ws && this.modes.get(ws)) || "agent";
+    if (mode === "note") this.area.value = ws ? notes.draftOf(ws).text : "";
+    // A fala não é guardada — mas o que está na caixa é a nota do workspace de
+    // onde se veio, e essa não pode ir junto.
+    else if (this.mode === "note") this.area.value = "";
+    this.mode = mode;
+    this.grow();
   }
 
   /// ⌘⇧M, ou o botão: a nota nasce citando o que está selecionado.
@@ -889,7 +977,14 @@ export class ChatView {
             ? t("chat.placeholder.off")
             : t("chat.placeholder");
     q(".hint").textContent = note ? "" : this.tl.compacting ? t("chat.compacting") : this.tl.busy ? t("chat.busy") : "";
-    q(".send").textContent = t(note ? "notes.send" : "chat.send");
+    this.paintWith(info, note);
+    // Falar com o agente é uma seta redonda, como no Conductor; deixar nota é
+    // outra coisa, e continua dizendo o que faz.
+    const send = q(".send");
+    send.className = note ? "send pri md" : "send pri round";
+    send.title = t(note ? "notes.send" : "chat.send");
+    if (note) send.textContent = t("notes.send");
+    else send.innerHTML = icon("arrow-up", 16);
 
     const quote = note && info.workspace ? notes.draftOf(info.workspace).quote : null;
     const chip = q(".cquote");
@@ -904,6 +999,26 @@ export class ChatView {
       );
     }
     this.paintQuoteButton();
+  }
+
+  /// Com quem se está falando, embaixo da caixa: o modelo e o degrau de
+  /// esforço deste workspace. Escolha do lançador — aqui só se lê, e por isso
+  /// não é botão. Nota não vai para modelo nenhum: some.
+  private paintWith(info: Info, note: boolean) {
+    const el = this.box.querySelector<HTMLElement>(".with")!;
+    const label = info.model ? modelLabel(info.model) : "";
+    el.hidden = note || !label;
+    if (el.hidden) return;
+    el.querySelector<HTMLElement>(".mdl")!.innerHTML = `${icon("sparkles", 13)}<span></span>`;
+    el.querySelector<HTMLElement>(".mdl span")!.textContent = label;
+    const step = effortStep(info.model, info.effort);
+    const bars = el.querySelector<HTMLElement>(".effort")!;
+    bars.hidden = !step;
+    if (!step) return;
+    bars.classList.toggle("ultra", info.effort === "ultracode");
+    bars.querySelector<HTMLElement>(".el")!.textContent = step.label;
+    bars.querySelectorAll(".bars i").forEach((bar, n) => bar.classList.toggle("lit", n <= step.step));
+    bars.title = t("chat.with", { model: label, effort: step.label });
   }
 
   /// O botão "Comentar a seleção", que só existe com time e seleção.
@@ -1067,6 +1182,23 @@ function capLines(text: string): string {
   const lines = text.split("\n");
   if (lines.length <= RESULT_LINES) return text;
   return lines.slice(0, RESULT_LINES).join("\n") + "\n" + t("chat.more", { n: lines.length - RESULT_LINES });
+}
+
+/// A primeira linha do pensamento, ao lado do rótulo: é a isca que diz se vale
+/// abrir. O corte fino é do CSS — aqui só se tira a quebra de linha, que numa
+/// linha só viraria espaço no meio da frase.
+function peek(text: string): string {
+  return text.split("\n").find((l) => l.trim()) ?? "";
+}
+
+/// Quanto o turno levou, do jeito que se lê de relance: segundos até um
+/// minuto, e daí em diante minutos e segundos. Abaixo de dois segundos a casa
+/// decimal é o que separa "rápido" de "instantâneo".
+function took(ms: number): string {
+  const s = ms / 1000;
+  if (s < 2) return `${s.toFixed(1)}s`;
+  if (s < 60) return `${Math.round(s)}s`;
+  return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
 }
 
 function toolIcon(name: string): IconName {

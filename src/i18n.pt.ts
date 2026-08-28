@@ -202,6 +202,8 @@ export const PT = {
 
   "side.files": "Arquivos",
   "side.changes": "Mudanças",
+  "side.review": "Revisar",
+  "side.review.title": "Ler o diff inteiro, empilhado no centro",
   "side.collapse": "Recolher pastas",
   "side.reveal": "Abrir o worktree no Finder",
   "diff.foldAll": "Recolher todos",
@@ -227,6 +229,8 @@ export const PT = {
   "chat.mode.agent": "Agente",
   "chat.mode.note": "Nota",
   "chat.send": "Enviar",
+  "chat.copy": "Copiar a resposta",
+  "chat.with": "{model}, esforço {effort} — escolhidos no lançador",
   "chat.stop": "Parar",
   "chat.busy": "o agente está trabalhando — Esc para interromper",
   "chat.compacting": "compactando o contexto…",

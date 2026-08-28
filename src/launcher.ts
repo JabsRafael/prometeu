@@ -105,6 +105,35 @@ const EFFORTS: [string, string][] = [
   ["ultracode", t("effort.ultracode")],
 ];
 
+/// A escada de degraus que um modelo aceita. O Codex chama `ultra` o que o
+/// Claude Code chama `ultracode`; o degrau é o mesmo, e o nome na tela é o do
+/// CLI que vai rodar.
+function ladderOf(model: string): [string, string][] {
+  const codex = agents.codex.find((m) => m.slug === model);
+  if (!codex) return EFFORTS;
+  return EFFORTS.filter(([id]) => codex.efforts.includes(id === "ultracode" ? "ultra" : id)).map(
+    ([id, name]) => [id, id === "ultracode" ? t("effort.ultra") : name],
+  );
+}
+
+/// O nome do modelo na tela — o mesmo do rodapé do lançador. É o que a caixa
+/// de escrever mostra embaixo: quem está lendo a conversa quer saber com quem
+/// está falando, e o alias (`opus[1m]`) não é isso.
+export function modelLabel(model: string): string {
+  const claude = MODELS.find(([id]) => id === model);
+  if (claude) return claude[1];
+  return agents.codex.find((m) => m.slug === model)?.name ?? model;
+}
+
+/// O esforço como as barrinhas o desenham: em que degrau está, e de quantos.
+/// Esforço que a escada deste modelo não tem não acende barra nenhuma.
+export function effortStep(model: string, effort: string): { label: string; step: number; total: number } | null {
+  const stairs = ladderOf(model);
+  const step = stairs.findIndex(([id]) => id === effort);
+  if (step === -1) return null;
+  return { label: stairs[step][1], step, total: stairs.length };
+}
+
 /// A escolha do worktree gruda entre lançamentos: quem trabalha de um jeito
 /// trabalha do mesmo jeito amanhã, e refazer o clique toda vez cansa. Modelo e
 /// esforço também; plan mode não — é decisão de uma tarefa, não de um jeito.
@@ -308,16 +337,8 @@ export function openLauncher(board: Board, opts: Open) {
     prompt.focus();
   });
 
-  /// A escada de degraus que o modelo de agora aceita. O Codex chama `ultra` o
-  /// que o Claude Code chama `ultracode`; o degrau é o mesmo, e o nome na tela
-  /// é o do CLI que vai rodar.
-  function ladder(): [string, string][] {
-    const codex = agents.codex.find((m) => m.slug === draft.model);
-    if (!codex) return EFFORTS;
-    return EFFORTS.filter(([id]) => codex.efforts.includes(id === "ultracode" ? "ultra" : id)).map(
-      ([id, name]) => [id, id === "ultracode" ? t("effort.ultra") : name],
-    );
-  }
+  /// A escada de degraus que o modelo de agora aceita.
+  const ladder = () => ladderOf(draft.model);
 
   /// O degrau mais próximo que a escada de agora tem. Sair do Sol (que vai até
   /// o `ultra`) para um modelo que para no `xhigh` não pode deixar para trás um

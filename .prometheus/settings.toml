@@ -11,8 +11,8 @@
 #   $PORT                       a mesma porta, para o que já respeita a convenção
 
 [scripts]
-# Cada worktree precisa das próprias dependências do front antes de subir o app
-# ou o mock no navegador.
+# Só as dependências do front: desde que o hook e o sidecar saíram, não há
+# binário para compilar antes do primeiro `cargo`.
 setup = "npm install"
 
 # O app de verdade deste worktree, isolado do que estiver instalado e de qualquer
