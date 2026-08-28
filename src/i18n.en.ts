@@ -427,6 +427,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.team.noShare": "that workspace isn't shared anymore",
   "err.team.noTab": "that conversation isn't there anymore",
   "err.team.offline": "the owner is offline — the conversation can't take a message",
+  "err.team.down": "no connection to the team — the note didn't go out",
   "err.team.empty": "the note is empty",
   "err.team.tooBig": "the note is too big",
   "err.team.bad": "the relay didn't understand what the app sent",
