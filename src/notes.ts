@@ -110,30 +110,78 @@ export function mentionsIn(text: string): string[] {
   return out;
 }
 
+/// A menção que está sendo escrita: do "@" que começa palavra até o cursor,
+/// sem espaço no meio. "@ti" é uma; "gustavo@x" e "@Thiago já" não são.
+export function typing(text: string, cut: number): { from: number; query: string } | null {
+  const m = /(?:^|\s)@(\S*)$/.exec(text.slice(0, cut));
+  if (!m) return null;
+  return { from: cut - m[1].length - 1, query: m[1] };
+}
+
+const fold = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+/// Quem o que foi digitado pode ser: "th" acha Thiago Souza, e "so" também —
+/// cada palavra do nome vale, sem ligar para acento nem maiúscula.
+export function matches<T extends { name: string }>(query: string, people: T[]): T[] {
+  const q = fold(query);
+  return people.filter((p) => fold(p.name).split(/\s+/).some((w) => w.startsWith(q)));
+}
+
+/// A lista aberta por aqui, se é daqui: o primeiro da lista é o que Enter e
+/// Tab escolhem, e é este menu — não outro — que fechar.
+let picking: { first: () => void } | null = null;
+
 /// A lista do time, para escolher quem marcar em vez de adivinhar o nome.
+/// Abre no botão, ou enquanto se escreve "@…": a lista encolhe a cada letra, e
+/// o nome escolhido entra no lugar do que foi digitado.
 export function pickMention(area: HTMLTextAreaElement, onChange: () => void) {
   const me = team.status();
   const others = me.members.filter((m) => m.id !== me.you);
-  if (!others.length) return;
-  const at = area.getBoundingClientRect();
+  const at = typing(area.value, area.selectionStart);
+  const list = at ? matches(at.query, others) : others;
+  if (!list.length) return dropMention();
+  const box = area.getBoundingClientRect();
+  const put = (name: string) => {
+    picking = null;
+    // O "@ti" que a pessoa digitou é o começo desta menção, não texto a mais:
+    // o nome entra no lugar dele. Sem nada digitado, entra onde está o cursor.
+    const cut = area.selectionStart;
+    const from = typing(area.value, cut)?.from ?? cut;
+    area.value = `${area.value.slice(0, from)}@${name} ${area.value.slice(cut)}`;
+    onChange();
+    area.focus();
+    area.selectionStart = area.selectionEnd = from + name.length + 2;
+  };
   menu.openAt(
-    { x: at.left, y: at.top - 4 },
-    others.map((m) => ({
+    { x: box.left, y: box.top - 4 },
+    list.map((m) => ({
       label: m.name,
       glyph: avatar(m.name),
       hint: m.online ? undefined : t("team.offline"),
-      run: () => {
-        // O "@" que a pessoa acabou de digitar é o começo desta menção, não um
-        // caractere a mais: o nome entra no lugar dele.
-        const cut = area.selectionStart;
-        const from = area.value[cut - 1] === "@" ? cut - 1 : cut;
-        area.value = `${area.value.slice(0, from)}@${m.name} ${area.value.slice(cut)}`;
-        onChange();
-        area.focus();
-        area.selectionStart = area.selectionEnd = from + m.name.length + 2;
-      },
+      run: () => put(m.name),
     })),
   );
+  picking = { first: () => put(list[0].name) };
+}
+
+/// A cada letra na caixa: a lista acompanha o "@…" — e some quando ele some.
+export function typedMention(area: HTMLTextAreaElement, onChange: () => void) {
+  if (typing(area.value, area.selectionStart)) pickMention(area, onChange);
+  else dropMention();
+}
+
+/// Enter ou Tab com a lista aberta escolhem o primeiro nome em vez de mandar a
+/// nota. Diz se havia lista para escolher.
+export function acceptMention(): boolean {
+  if (!picking || !menu.isOpen()) return false;
+  menu.close();
+  picking.first();
+  return true;
+}
+
+function dropMention() {
+  if (picking && menu.isOpen()) menu.close();
+  picking = null;
 }
 
 /// Hora do dia, ou o dia se foi antes de hoje: a nota de agora é a que

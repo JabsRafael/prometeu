@@ -853,19 +853,21 @@ export class ChatView {
     this.area.addEventListener("input", () => {
       this.keep();
       this.grow();
+      // O "@" é do texto, não do menu: ele entra como qualquer letra, e a
+      // lista abre depois e acompanha o que vem — quem fecha a lista continua
+      // com o que digitou, e quem escolhe um nome vê o nome tomar o lugar do
+      // "@ti" que já estava lá.
+      if (this.mode === "note") notes.typedMention(this.area, () => this.keep());
     });
     this.area.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+      if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey && !e.isComposing && notes.acceptMention()) {
+        e.preventDefault();
+      } else if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
         this.send();
       } else if (e.key === "Escape" && this.tl.busy && !this.area.value) {
         e.preventDefault();
         this.interrupt();
-      } else if (e.key === "@" && this.mode === "note") {
-        // O "@" é do texto, não do menu: ele entra como qualquer letra, e a
-        // lista abre depois — quem fecha a lista continua com o que digitou, e
-        // quem escolhe um nome vê o nome completar o "@" que já estava lá.
-        setTimeout(() => notes.pickMention(this.area, () => this.keep()));
       }
     });
   }
