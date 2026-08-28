@@ -4,6 +4,32 @@ O que muda no Prometheus, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.3.0] - 2026-08-28
+
+### Novidades
+
+- **quadro:** Marcar o vermelho na limpeza apaga o worktree do mesmo jeito
+- **lançador:** Escolher um modelo GPT roda a sessão no Codex
+- **conversa:** A conversa vira chat desenhado pelo app, com plano, pergunta e notas do time dentro dela
+- **time:** Quem abre a conversa de um colega recebe a conversa inteira, não só o fim
+- **conversa:** Perguntas do agente em abas, uma por pergunta, como na TUI
+- **conversa:** A fala em espera do setup, o que roda em segundo plano, a compactação e o diff aparecem na tela
+- **conversa:** /context vira um painel — barra por categoria e seções dobradas por servidor
+- **conversa:** Escolher um GPT abre a conversa no Codex, com o mesmo chat
+- **conversa:** O Codex faz pergunta com card, como o Claude Code
+
+### Correções
+
+- **conversa:** A primeira fala vai assim que a conversa sobe, e as seguintes não ficam presas
+- **conversa:** O texto do agente quebra linha, chega sem tremer e mostra que está trabalhando
+- **conversa:** Abrir "Pensando…" mostra o pensamento
+- **conversa:** O caret some quando a mensagem termina, e "Pensou" perde a moldura tracejada
+- **conversa:** Reabrir uma conversa não deixa a última mensagem "chegando"
+
+### Desempenho
+
+- **lançador:** Criar sessão abre na hora e o worktree prepara por trás
+
 ## [0.2.0] - 2026-08-27
 
 ### Novidades
