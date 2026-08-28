@@ -181,6 +181,29 @@ describe("Timeline", () => {
     expect(t.items[2].ts).toBe(500);
   });
 
+  it("skill: o corpo dela fica dentro do card, não vira fala", () => {
+    const t = new Timeline();
+    t.push(assistant("m1", { type: "tool_use", id: "tu1", name: "Skill", input: { skill: "release" } }));
+    t.push(j({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu1", content: "Launching skill: release" }] } }));
+    t.push(j({ type: "user", isSynthetic: true, message: { role: "user", content: [{ type: "text", text: "Você vai soltar uma versão" }] } }));
+    const a = t.items[0];
+    if (a.kind !== "assistant" || a.blocks[0].kind !== "tool") throw new Error();
+    expect(a.blocks[0].result).toBe("Você vai soltar uma versão");
+    expect(t.items).toHaveLength(1);
+  });
+
+  it("skill em segundo plano não engole a fala seguinte", () => {
+    const t = new Timeline();
+    t.push(assistant("m1", { type: "tool_use", id: "tu1", name: "Skill", input: { skill: "code-review" } }));
+    t.push(j({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu1", content: "Launching skill: code-review" }] } }));
+    t.push(assistant("m2", { type: "text", text: "chamei a skill" }));
+    t.push(j({ type: "user", isMeta: true, message: { role: "user", content: "<local-command-stdout>x</local-command-stdout>" } }));
+    t.push(j({ type: "user", message: { role: "user", content: "e aí?" } }));
+    if (t.items[0].kind !== "assistant" || t.items[0].blocks[0].kind !== "tool") throw new Error();
+    expect(t.items[0].blocks[0].result).toBe("Launching skill: code-review");
+    expect(t.items[2]).toMatchObject({ kind: "user", text: "e aí?" });
+  });
+
   it("tarefa em segundo plano: o card gira até o aviso, e a lista diz quantas", () => {
     const t = new Timeline();
     t.push(assistant("m1", { type: "tool_use", id: "tu1", name: "Agent", input: { description: "mapear", run_in_background: true } }));

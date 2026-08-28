@@ -605,6 +605,12 @@ export class ChatView {
       const plan = h("div", "md");
       plan.innerHTML = md(String((block.input as { plan?: string })?.plan ?? ""));
       body.append(plan);
+    } else if (block.name === "Skill" && block.result) {
+      // A skill é uma instrução escrita para o agente: dentro do card, fechada,
+      // e em markdown para quem abrir conseguir ler.
+      const what = h("div", "md");
+      what.innerHTML = md(capLines(block.result));
+      body.append(what);
     } else {
       body.append(inputView(block.name, block.input));
       if (block.result !== null) {
