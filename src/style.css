@@ -378,8 +378,8 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 }
 @keyframes blink { to { visibility: hidden; } }
 .think.live summary { color: var(--fg-2); animation: pulse 1.4s ease-in-out infinite; }
-.think.empty summary { pointer-events: none; }
-.think.empty summary::before { content: "·"; }
+.think.bare summary { pointer-events: none; }
+.think.bare summary::before { content: "·"; }
 @keyframes pulse { 50% { opacity: 0.35; } }
 .working { display: flex; gap: 5px; padding: 4px 2px; }
 .working i { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-3); animation: bounce 1.2s ease-in-out infinite; }

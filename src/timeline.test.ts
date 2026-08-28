@@ -70,6 +70,16 @@ describe("Timeline", () => {
     expect(t.items).toHaveLength(1);
   });
 
+  it("fala nova fecha a mensagem que estava chegando — e diz que ela mudou", () => {
+    const t = new Timeline();
+    t.push(ev({ type: "message_start", message: { id: "m1" } }));
+    t.push(ev({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }));
+    expect((t.items[0] as { streaming: boolean }).streaming).toBe(true);
+    const touched = t.push(j({ type: "user", message: { role: "user", content: "outra" } }));
+    expect(touched).toEqual([0, 1]);
+    expect((t.items[0] as { streaming: boolean }).streaming).toBe(false);
+  });
+
   it("o pensamento inteiro vem vazio; o que os deltas trouxeram fica", () => {
     const t = new Timeline();
     t.push(ev({ type: "message_start", message: { id: "m1" } }));

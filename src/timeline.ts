@@ -61,6 +61,9 @@ export class Timeline {
   /// A ferramenta de cada `tool_use_id`, para o resultado achar o bloco.
   private tools = new Map<string, { item: number; block: number }>();
   private lastTs = 0;
+  /// Mensagens que deixaram de estar chegando por causa da linha de agora —
+  /// mudaram, e a tela precisa saber, mesmo não sendo o item da linha.
+  private settled: number[] = [];
 
   /// Os pedidos esperando resposta.
   get pending(): Ask[] {
@@ -89,6 +92,12 @@ export class Timeline {
     // cima. O que eles fizeram aparece no resultado da ferramenta Task.
     if (o.isSidechain || o.parent_tool_use_id) return [];
     const ts = this.when(o, now);
+    this.settled = [];
+    const touched = this.reduce(o, ts);
+    return this.settled.length ? [...new Set([...this.settled, ...touched])] : touched;
+  }
+
+  private reduce(o: Line, ts: number): number[] {
     switch (o.type) {
       case "user":
         return this.user(o, ts);
@@ -132,8 +141,10 @@ export class Timeline {
   private settle() {
     for (let i = this.items.length - 1; i >= 0; i--) {
       const it = this.items[i];
-      if (it.kind === "assistant" && it.streaming) it.streaming = false;
-      else if (it.kind === "assistant") break;
+      if (it.kind === "assistant" && it.streaming) {
+        it.streaming = false;
+        this.settled.push(i);
+      } else if (it.kind === "assistant") break;
     }
   }
 
