@@ -62,7 +62,7 @@ pub fn spawn(
         model: launch.model.trim().to_string(),
         effort: agents::effort(&launch.effort).to_string(),
     };
-    chat::launch(app, id, cmd, &log, Some(log.clone()), "err.codex.spawn", move |stdin| {
+    chat::launch(app, id, cmd, &log, Some(log.clone()), "err.codex.spawn", process_stderr, move |stdin| {
         let link = Arc::new(Mutex::new(Link::new(Box::new(stdin), start)));
         let reader = link.clone();
         let translate = move |line: &str| lock(&reader).on_line(line).iter().map(Value::to_string).collect();
@@ -231,12 +231,15 @@ impl Link {
         }
     }
 
-    /// Uma fala. As que começam com barra são comandos — e são do app.
+    /// Uma fala. As que começam com um nome depois da barra são comandos do
+    /// app; caminhos absolutos continuam sendo texto para o agente.
     fn speak(&mut self, text: &str) -> Result<Vec<Value>, String> {
         let text = text.trim();
         if let Some(cmd) = text.strip_prefix('/') {
             let cmd = cmd.split_whitespace().next().unwrap_or("");
-            return self.slash(cmd);
+            if !cmd.contains('/') {
+                return self.slash(cmd);
+            }
         }
         let mut params = json!({
             "threadId": self.thread.clone().unwrap_or_default(),
@@ -773,6 +776,40 @@ fn spoken(frame: &Value) -> String {
     }
 }
 
+/// O app-server escreve no stderr os mesmos erros de ferramenta que já manda
+/// pelo JSON-RPC. São linhas de tracing com timestamp e nível, frequentemente
+/// coloridas; repassá-las duplica o card com uma faixa vermelha ilegível. O que
+/// não tem essa forma continua aparecendo, porque pode explicar um processo que
+/// morreu antes de conseguir responder pelo protocolo.
+fn process_stderr(line: &str) -> Option<String> {
+    let plain = strip_ansi(line);
+    let mut fields = plain.split_whitespace();
+    let timestamp = fields.next().unwrap_or("");
+    let level = fields.next().unwrap_or("");
+    let tracing = timestamp.contains('T')
+        && timestamp.ends_with('Z')
+        && matches!(level, "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR");
+    (!tracing).then_some(plain)
+}
+
+fn strip_ansi(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut chars = line.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' && chars.peek() == Some(&'[') {
+            chars.next();
+            for code in chars.by_ref() {
+                if ('@'..='~').contains(&code) {
+                    break;
+                }
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
 /// O comando como a pessoa o leria. O Codex embrulha tudo em
 /// `/bin/zsh -lc "…"`; o `commandActions` traz o de dentro.
 fn pretty(command: &str, actions: &Value) -> String {
@@ -1056,6 +1093,24 @@ mod tests {
         assert_eq!(f[0]["subtype"], "stderr");
         assert!(f[0]["text"].as_str().unwrap().contains("/cost"));
         assert_eq!(f[1]["type"], "result");
+    }
+
+    #[test]
+    fn caminho_absoluto_nao_vira_comando_de_barra() {
+        let (mut link, out) = link(None);
+        opened(&mut link, &out);
+        let path = r#"/var/folders/q7/TemporaryItems/Captura\ de\ Tela.png"#;
+        assert!(link.write(&user(path)).unwrap().is_empty());
+        let sent = out.take();
+        assert_eq!(sent[0]["method"], "turn/start");
+        assert_eq!(sent[0]["params"]["input"][0]["text"], path);
+    }
+
+    #[test]
+    fn log_do_app_server_nao_duplica_erro_da_ferramenta() {
+        let log = "\u{1b}[2m2026-08-28T16:54:16.210466Z\u{1b}[0m \u{1b}[31mERROR\u{1b}[0m \u{1b}[2mcodex_core::tools::router\u{1b}[0m: error=apply_patch verification failed";
+        assert_eq!(process_stderr(log), None);
+        assert_eq!(process_stderr("codex: not logged in"), Some("codex: not logged in".into()));
     }
 
     #[test]

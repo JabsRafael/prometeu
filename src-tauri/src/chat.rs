@@ -260,7 +260,11 @@ pub fn spawn(app: &AppHandle, id: &str, worktree: &Path, args: Vec<String>) -> R
     let seed = paths::transcript(id, worktree);
     // A linha já é a linha: o `claude -p` fala o formato da tela.
     let wire = |stdin| (Wire::Claude(stdin), Box::new(|line: &str| vec![line.to_string()]) as Translate);
-    launch(app, id, cmd, &seed, None, "err.chat.spawn", wire)
+    launch(app, id, cmd, &seed, None, "err.chat.spawn", passthrough_stderr, wire)
+}
+
+fn passthrough_stderr(line: &str) -> Option<String> {
+    Some(line.to_string())
 }
 
 /// Sobe um processo qualquer que fale com a conversa: o `claude` como está, ou
@@ -276,6 +280,7 @@ pub(crate) fn launch(
     seed: &Path,
     log: Option<PathBuf>,
     spawn_error: &str,
+    stderr_line: fn(&str) -> Option<String>,
     wire: impl FnOnce(ChildStdin) -> (Wire, Translate),
 ) -> Result<Chat, String> {
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -315,13 +320,14 @@ pub(crate) fn launch(
         pump: pump.clone(),
     };
 
-    // O stderr vira linha também: é por ele que o `claude` conta que não achou
-    // a sessão para retomar, ou que não está logado. Escondê-lo seria uma aba
-    // que morre calada.
+    // O stderr que o adaptador aceita vira linha também: é por ele que o
+    // `claude` conta que não achou a sessão para retomar ou que não está
+    // logado. O Codex filtra aqui os logs que duplicam eventos do JSON-RPC.
     {
         let pump = pump.clone();
         std::thread::spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                let Some(line) = stderr_line(&line) else { continue };
                 if line.trim().is_empty() {
                     continue;
                 }
