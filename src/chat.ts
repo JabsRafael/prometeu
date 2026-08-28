@@ -669,8 +669,10 @@ export class ChatView {
         e.preventDefault();
         this.interrupt();
       } else if (e.key === "@" && this.mode === "note") {
-        e.preventDefault();
-        notes.pickMention(this.area, () => this.keep());
+        // O "@" é do texto, não do menu: ele entra como qualquer letra, e a
+        // lista abre depois — quem fecha a lista continua com o que digitou, e
+        // quem escolhe um nome vê o nome completar o "@" que já estava lá.
+        setTimeout(() => notes.pickMention(this.area, () => this.keep()));
       }
     });
   }

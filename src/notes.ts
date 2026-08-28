@@ -123,11 +123,14 @@ export function pickMention(area: HTMLTextAreaElement, onChange: () => void) {
       glyph: avatar(m.name),
       hint: m.online ? undefined : t("team.offline"),
       run: () => {
+        // O "@" que a pessoa acabou de digitar é o começo desta menção, não um
+        // caractere a mais: o nome entra no lugar dele.
         const cut = area.selectionStart;
-        area.value = `${area.value.slice(0, cut)}@${m.name} ${area.value.slice(cut)}`;
+        const from = area.value[cut - 1] === "@" ? cut - 1 : cut;
+        area.value = `${area.value.slice(0, from)}@${m.name} ${area.value.slice(cut)}`;
         onChange();
         area.focus();
-        area.selectionStart = area.selectionEnd = cut + m.name.length + 2;
+        area.selectionStart = area.selectionEnd = from + m.name.length + 2;
       },
     })),
   );
