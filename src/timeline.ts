@@ -113,6 +113,9 @@ export class Timeline {
         return this.system(o, ts);
       case "prometheus":
         if (o.subtype === "stderr") return [this.add({ kind: "system", ts, text: String(o.text), error: true })];
+        // O fim de um buffer: o back diz se há turno em andamento. Sem turno,
+        // nada está chegando — por mais que as linhas pareçam dizer que sim.
+        if (o.subtype === "state" && !o.busy) return this.idle();
         return [];
       default:
         return [];
@@ -135,6 +138,25 @@ export class Timeline {
     if (item.kind === "user" || item.kind === "assistant") this.settle();
     this.items.push(item);
     return this.items.length - 1;
+  }
+
+  /// Nada está acontecendo: nenhuma mensagem chegando, nenhum pedido aberto,
+  /// nenhum turno. Devolve o que mudou.
+  private idle(): number[] {
+    const touched: number[] = [];
+    this.busy = false;
+    this.compacting = false;
+    this.items.forEach((it, i) => {
+      if (it.kind === "assistant" && it.streaming) {
+        it.streaming = false;
+        touched.push(i);
+      }
+      if (it.kind === "ask" && !it.answered) {
+        it.answered = true;
+        touched.push(i);
+      }
+    });
+    return touched;
   }
 
   /// Nenhuma mensagem do agente continua "chegando" antes daqui.

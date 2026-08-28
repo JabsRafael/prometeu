@@ -110,6 +110,10 @@ pub struct Chat {
     /// Este `Chat` foi derrubado: a thread que lê o processo velho para de
     /// emitir, senão os últimos suspiros dele sujariam a conversa do novo.
     gone: Arc<AtomicBool>,
+    /// Há um turno em andamento: uma fala entrou e o `result` não saiu. É o
+    /// que a tela precisa saber ao abrir a conversa — as linhas sozinhas não
+    /// dizem, porque o transcript não guarda `result`.
+    turn: Arc<AtomicBool>,
     pid: u32,
 }
 
@@ -187,6 +191,7 @@ pub fn spawn(app: &AppHandle, id: &str, worktree: &Path, args: Vec<String>) -> R
         buffer: Arc::new(Mutex::new(Lines::seeded(&paths::transcript(id, worktree)))),
         alive: Arc::new(AtomicBool::new(true)),
         gone: Arc::new(AtomicBool::new(false)),
+        turn: Arc::new(AtomicBool::new(false)),
         pid,
     };
 
@@ -210,7 +215,7 @@ pub fn spawn(app: &AppHandle, id: &str, worktree: &Path, args: Vec<String>) -> R
     }
 
     let sink = chat.buffer.clone();
-    let (alive_t, gone_t) = (chat.alive.clone(), chat.gone.clone());
+    let (alive_t, gone_t, turn_t) = (chat.alive.clone(), chat.gone.clone(), chat.turn.clone());
     let app = app.clone();
     let id = id.to_string();
     std::thread::spawn(move || {
@@ -236,6 +241,9 @@ pub fn spawn(app: &AppHandle, id: &str, worktree: &Path, args: Vec<String>) -> R
                 continue;
             }
             let _ = app.emit("chat", (id.clone(), text.to_string(), seq));
+            if frame["type"] == "result" {
+                turn_t.store(false, Ordering::Relaxed);
+            }
             react(&app, &id, &frame, &mut ready);
         }
         // EOF: o filho morreu ou está a um suspiro disso. `alive` cai antes do
@@ -420,7 +428,10 @@ fn say(app: &AppHandle, state: &AppState, session: &str, text: &str) -> Result<(
     write(state, session, &frame)?;
     let line = frame.to_string();
     let seq = match lock(&state.chats).get(session) {
-        Some(chat) => lock(&chat.buffer).absorb(&line),
+        Some(chat) => {
+            chat.turn.store(true, Ordering::Relaxed);
+            lock(&chat.buffer).absorb(&line)
+        }
         None => 0,
     };
     let _ = app.emit("chat", (session.to_string(), line, seq));
@@ -471,15 +482,24 @@ pub fn chat_buffer(state: State<AppState>, session: String) -> String {
     snapshot(&state, &session).text
 }
 
+/// As linhas, mais uma no fim que as linhas não sabem dizer: se há turno em
+/// andamento. Sem ele, a tela assenta o que parecia estar chegando — o
+/// transcript não guarda `result`, então uma conversa reaberta terminaria
+/// sempre numa mensagem "chegando".
 fn snapshot(state: &AppState, session: &str) -> Snapshot {
-    if let Some(chat) = lock(&state.chats).get(session) {
-        let b = lock(&chat.buffer);
-        return Snapshot { text: b.text.clone(), seq: b.seq };
-    }
-    let Some(worktree) = lock(&state.board).workspace_of(session).map(|w| w.worktree.clone()) else {
-        return Snapshot { text: String::new(), seq: 0 };
+    let (mut text, seq, busy) = match lock(&state.chats).get(session) {
+        Some(chat) => {
+            let b = lock(&chat.buffer);
+            (b.text.clone(), b.seq, chat.alive() && chat.turn.load(Ordering::Relaxed))
+        }
+        None => match lock(&state.board).workspace_of(session).map(|w| w.worktree.clone()) {
+            Some(worktree) => (Lines::seeded(&paths::transcript(session, Path::new(&worktree))).text, 0, false),
+            None => (String::new(), 0, false),
+        },
     };
-    Snapshot { text: Lines::seeded(&paths::transcript(session, Path::new(&worktree))).text, seq: 0 }
+    text.push_str(&json!({ "type": "prometheus", "subtype": "state", "busy": busy }).to_string());
+    text.push('\n');
+    Snapshot { text, seq }
 }
 
 /// As linhas e o número da última — para mandar a um colega que acabou de

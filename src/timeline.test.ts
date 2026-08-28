@@ -150,6 +150,22 @@ describe("Timeline", () => {
     expect(t.items[0]).toMatchObject({ kind: "system", text: "compacted" });
   });
 
+  it("o fim do buffer sem turno assenta o que parecia estar chegando", () => {
+    const t = new Timeline();
+    t.push(j({ type: "user", message: { role: "user", content: "oi" } }));
+    t.push(assistant("m1", { type: "text", text: "olá" }));
+    t.push(j({ type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "Bash", input: {} } }));
+    expect(t.busy).toBe(true);
+    expect(t.push(j({ type: "prometheus", subtype: "state", busy: false }))).toEqual([1, 2]);
+    expect(t.busy).toBe(false);
+    expect((t.items[1] as { streaming: boolean }).streaming).toBe(false);
+    expect(t.pending).toEqual([]);
+    // Com turno, fica como está.
+    t.push(assistant("m2", { type: "text", text: "de novo" }));
+    t.push(j({ type: "prometheus", subtype: "state", busy: true }));
+    expect(t.busy).toBe(true);
+  });
+
   it("o stderr do processo aparece como erro", () => {
     const t = new Timeline();
     t.push(j({ type: "prometheus", subtype: "stderr", text: "No conversation found" }));
