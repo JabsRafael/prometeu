@@ -11,14 +11,13 @@
 #   $PORT                       a mesma porta, para o que já respeita a convenção
 
 [scripts]
-# `sidecar.sh` compila o prometheus-hook, e o build script do Tauri recusa a
-# compilação se o binário não estiver lá — worktree novo não tem `binaries/`,
-# que é ignorado pelo git. Sem isto, `npm run app` falha no primeiro `cargo`.
-setup = "npm install && sh scripts/sidecar.sh"
+# Cada worktree precisa das próprias dependências do front antes de subir o app
+# ou o mock no navegador.
+setup = "npm install"
 
 # O app de verdade deste worktree, isolado do que estiver instalado e de qualquer
-# outro worktree: porta, `~/.prometheus-dev-<workspace>` e socket de hook
-# próprios. É o teste honesto — Tauri, PTY, hook e Claude Code de verdade.
+# outro worktree: porta e `~/.prometheus-dev-<workspace>` próprios. É o teste
+# honesto — Tauri, PTY e agentes de verdade.
 [scripts.run.app]
 command = "sh scripts/app.sh"
 default = true
