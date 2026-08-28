@@ -119,6 +119,19 @@ pub enum Wire {
 /// uma notificação dele pode virar várias linhas, ou nenhuma.
 pub type Translate = Box<dyn FnMut(&str) -> Vec<String> + Send>;
 
+/// As diferenças de protocolo na borda do processo: quais linhas de stderr
+/// entram na conversa e como stdin/stdout viram o cano comum do app.
+pub(crate) struct ProcessIo<F> {
+    stderr_line: fn(&str) -> Option<String>,
+    wire: F,
+}
+
+impl<F> ProcessIo<F> {
+    pub(crate) fn new(stderr_line: fn(&str) -> Option<String>, wire: F) -> Self {
+        Self { stderr_line, wire }
+    }
+}
+
 /// O caminho de uma linha até a tela: guardar, numerar, emitir, e contar ao
 /// quadro o que ela diz. É o mesmo para o que o processo escreve e para o que
 /// o app produz por conta própria (o tradutor do Codex respondendo a um
@@ -260,7 +273,7 @@ pub fn spawn(app: &AppHandle, id: &str, worktree: &Path, args: Vec<String>) -> R
     let seed = paths::transcript(id, worktree);
     // A linha já é a linha: o `claude -p` fala o formato da tela.
     let wire = |stdin| (Wire::Claude(stdin), Box::new(|line: &str| vec![line.to_string()]) as Translate);
-    launch(app, id, cmd, &seed, None, "err.chat.spawn", passthrough_stderr, wire)
+    launch(app, id, cmd, &seed, None, "err.chat.spawn", ProcessIo::new(passthrough_stderr, wire))
 }
 
 fn passthrough_stderr(line: &str) -> Option<String> {
@@ -280,9 +293,9 @@ pub(crate) fn launch(
     seed: &Path,
     log: Option<PathBuf>,
     spawn_error: &str,
-    stderr_line: fn(&str) -> Option<String>,
-    wire: impl FnOnce(ChildStdin) -> (Wire, Translate),
+    io: ProcessIo<impl FnOnce(ChildStdin) -> (Wire, Translate)>,
 ) -> Result<Chat, String> {
+    let ProcessIo { stderr_line, wire } = io;
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     // Um `claude` rodando dentro de outro herda CLAUDE_CODE_CHILD_SESSION e
     // desliga o salvamento do transcript — que é justamente o que a aba guarda

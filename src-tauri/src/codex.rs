@@ -62,12 +62,13 @@ pub fn spawn(
         model: launch.model.trim().to_string(),
         effort: agents::effort(&launch.effort).to_string(),
     };
-    chat::launch(app, id, cmd, &log, Some(log.clone()), "err.codex.spawn", process_stderr, move |stdin| {
+    let io = chat::ProcessIo::new(process_stderr, move |stdin| {
         let link = Arc::new(Mutex::new(Link::new(Box::new(stdin), start)));
         let reader = link.clone();
         let translate = move |line: &str| lock(&reader).on_line(line).iter().map(Value::to_string).collect();
-        (chat::Wire::Codex(link), Box::new(translate))
-    })
+        (chat::Wire::Codex(link), Box::new(translate) as chat::Translate)
+    });
+    chat::launch(app, id, cmd, &log, Some(log.clone()), "err.codex.spawn", io)
 }
 
 /// Com o que a thread abre.
