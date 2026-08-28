@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { icon, type IconName } from "./icons";
-import { fromBack, t } from "./i18n";
+import { fromBack, t, tn } from "./i18n";
+import { diffHtml, isDiff } from "./highlight";
 import { md } from "./markdown";
 import * as notes from "./notes";
 import * as team from "./team";
@@ -27,6 +28,8 @@ export type Info = {
   /// O id do workspace na tela (o de um colega vem prefixado).
   workspace: string | null;
   status: Status | null;
+  /// A fala que ainda não foi — espera o setup do worktree terminar.
+  pending: string | null;
   /// A conversa é de um colega: o nome dele, e se ele está aí.
   remote: { name: string; online: boolean } | null;
   /// Há time — e, portanto, notas.
@@ -62,7 +65,10 @@ export class ChatView {
   /// token; redesenhar a cada uma trava a tela — um quadro por vez basta.
   private dirty = new Set<number>();
   private raf = 0;
-  private working = h("div", "working", "<i></i><i></i><i></i>");
+  private working = h("div", "working", "<i></i><i></i><i></i><span class=\"wlabel\"></span>");
+  /// A fala guardada, esperando o setup: fica na tela como se tivesse ido,
+  /// com o aviso de que ainda não foi.
+  private waiting = h("div", "turn user wait", `<div class="bubble"></div><div class="working"><i></i><i></i><i></i><span class="wlabel"></span></div>`);
 
   open(host: HTMLElement, ctx: Ctx) {
     this.ctx = ctx;
@@ -149,9 +155,13 @@ export class ChatView {
     this.area.focus();
   }
 
-  /// O estado da aba mudou fora daqui (o quadro redesenhou): a caixa acompanha.
+  /// O estado da aba mudou fora daqui (o quadro redesenhou): a caixa e a fala
+  /// que espera acompanham.
   refresh() {
+    const stick = this.stuck();
+    this.paintWorking();
     this.paintComposer();
+    if (stick) this.feed.scrollTop = this.feed.scrollHeight;
   }
 
   /// O texto selecionado dentro da conversa — é o que uma nota cita.
@@ -194,12 +204,41 @@ export class ChatView {
 
   /// Os três pontos no fim: o agente está trabalhando e nada está chegando
   /// letra a letra agora (entre uma ferramenta e a próxima fala, por exemplo).
+  /// Com uma legenda quando há o que dizer: compactando, ou o que continua
+  /// rodando em segundo plano — que roda mesmo com o turno terminado.
   private paintWorking() {
+    this.paintWaiting();
     const last = this.tl.items[this.tl.items.length - 1];
     const typing = last?.kind === "assistant" && last.streaming && last.blocks[last.blocks.length - 1]?.kind === "text";
-    const show = this.tl.busy && !typing && !this.tl.pending.length;
-    if (show) this.feed.append(this.working);
-    else this.working.remove();
+    const tasks = [...this.tl.tasks.values()];
+    const show = this.tl.compacting || tasks.length > 0 || (this.tl.busy && !typing && !this.tl.pending.length);
+    if (!show) {
+      this.working.remove();
+      return;
+    }
+    const label = this.tl.compacting
+      ? t("chat.compacting")
+      : tasks.length
+        ? `${tn(tasks.length, "chat.bg")}: ${tasks.map((k) => k.description || "…").join(" · ")}`
+        : "";
+    this.working.querySelector(".wlabel")!.textContent = label;
+    this.feed.append(this.working);
+  }
+
+  /// A primeira fala, quando ainda não foi: o setup do worktree está rodando
+  /// e ela vai quando ele acabar. Sem isto a tela fica vazia esperando, e
+  /// parece que a fala se perdeu.
+  private paintWaiting() {
+    const info = this.ctx.info();
+    const text = !this.remote && this.key ? info.pending : null;
+    if (!text) {
+      this.waiting.remove();
+      return;
+    }
+    this.waiting.querySelector(".bubble")!.textContent = text;
+    this.waiting.querySelector(".wlabel")!.textContent = t("chat.waiting");
+    this.feed.querySelector(".nohint")?.remove();
+    this.feed.append(this.waiting);
   }
 
   private stuck() {
@@ -263,8 +302,21 @@ export class ChatView {
         return el;
       }
       case "system": {
+        if (item.what === "summary") {
+          // O resumo com que o agente continua depois de compactar: é dele,
+          // não da pessoa — e é longo. Fica dobrado, como o pensamento.
+          const el = h("details", "think summary", `<summary></summary><div class="md"></div>`);
+          el.querySelector("summary")!.textContent = t("chat.summary");
+          (el.lastElementChild as HTMLElement).innerHTML = md(item.text);
+          return el;
+        }
         const el = h("div", "sys" + (item.error ? " err" : ""));
-        el.textContent = item.text === "compacted" ? t("chat.compacted") : item.text;
+        el.textContent =
+          item.what === "compacted"
+            ? item.tokens
+              ? t("chat.compacted.tokens", { pre: kilo(item.tokens[0]), post: kilo(item.tokens[1]) })
+              : t("chat.compacted")
+            : item.text;
         return el;
       }
     }
@@ -324,13 +376,15 @@ export class ChatView {
       return el;
     }
     // Ferramenta: uma linha fechada, e o que entrou e saiu quando aberta.
-    const el = h("div", "tool" + (block.done ? (block.error ? " bad" : " ok") : " run"));
+    const running = !block.done || block.background;
+    const el = h("div", "tool" + (running ? " run" : block.error ? " bad" : " ok"));
     el.dataset.kind = "tool";
     el.dataset.tool = block.id;
-    const head = h("button", "thead", `<span class="tic">${icon(toolIcon(block.name), 14)}</span><b></b><span class="sum"></span><span class="st"></span>`);
+    const head = h("button", "thead", `<span class="tic">${icon(toolIcon(block.name), 14)}</span><b></b><span class="sum"></span><span class="bgtag"></span><span class="st"></span>`);
     head.querySelector("b")!.textContent = toolLabel(block.name);
-    head.querySelector(".sum")!.textContent = block.name === "ExitPlanMode" ? "" : summary(block.name, block.input);
-    head.querySelector(".st")!.innerHTML = block.done ? icon(block.error ? "x" : "check", 12) : `<span class="spin"></span>`;
+    head.querySelector(".sum")!.textContent = block.name === "ExitPlanMode" ? "" : summary(block.name, block.input, block.json);
+    head.querySelector(".bgtag")!.textContent = block.background ? t("chat.bg.tag") : "";
+    head.querySelector(".st")!.innerHTML = running ? `<span class="spin"></span>` : icon(block.error ? "x" : "check", 12);
     head.addEventListener("click", () => el.classList.toggle("open"));
     el.append(head);
     const body = h("div", "tbody");
@@ -344,7 +398,12 @@ export class ChatView {
       body.append(inputView(block.name, block.input));
       if (block.result !== null) {
         const out = h("pre", "tout" + (block.error ? " bad" : ""));
-        out.textContent = capLines(block.result);
+        // Um diff que a ferramenta devolveu (o `git diff` no Bash) se lê
+        // colorido, como o do Edit.
+        if (!block.error && isDiff(block.result)) {
+          out.classList.add("tdiff");
+          out.innerHTML = diffHtml(capLines(block.result));
+        } else out.textContent = capLines(block.result);
         body.append(out);
       }
     }
@@ -779,6 +838,13 @@ function inputView(name: string, input: unknown): HTMLElement {
     box.append(row);
   }
   return box;
+}
+
+/// Tokens em milhar, curto: 24k, 3.1k, 800.
+function kilo(n: number): string {
+  if (n < 1000) return String(n);
+  const k = n / 1000;
+  return `${k < 10 ? k.toFixed(1).replace(/\.0$/, "") : Math.round(k)}k`;
 }
 
 function capLines(text: string): string {

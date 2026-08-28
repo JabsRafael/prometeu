@@ -17,7 +17,9 @@
 /// - `control_request` — pedido de permissão, pergunta, plano: um card que
 ///   espera resposta.
 /// - `result` — o fim do turno.
-/// - `system` — o começo (`init`), a compactação, e ruído que se ignora.
+/// - `system` — o começo (`init`), a compactação, as tarefas em segundo
+///   plano (`task_started`, `background_tasks_changed`, `task_notification`),
+///   e ruído que se ignora.
 
 export type ToolBlock = {
   kind: "tool";
@@ -30,7 +32,13 @@ export type ToolBlock = {
   error: boolean;
   /// O resultado chegou (ou o bloco foi finalizado sem resultado ainda).
   done: boolean;
+  /// O resultado veio, mas a ferramenta continua rodando em segundo plano
+  /// (`run_in_background`): o aviso de que acabou vem depois, como `system`.
+  background: boolean;
 };
+
+/// Uma tarefa em segundo plano, do jeito que o Claude Code a lista.
+export type Task = { id: string; description: string; toolUseId: string | null };
 export type Block = { kind: "text"; text: string } | { kind: "thinking"; text: string } | ToolBlock;
 
 export type Ask = {
@@ -49,7 +57,7 @@ export type Item =
   | { kind: "assistant"; ts: number; msg: string; blocks: Block[]; streaming: boolean; next: number }
   | Ask
   | { kind: "result"; ts: number; error: boolean; text: string; cost: number | null; ms: number | null }
-  | { kind: "system"; ts: number; text: string; error: boolean };
+  | { kind: "system"; ts: number; text: string; error: boolean; what?: "compacted" | "summary"; tokens?: [number, number] };
 
 type Line = Record<string, any>;
 
@@ -58,6 +66,8 @@ export class Timeline {
   /// Um turno em andamento: a fala foi, e o `result` ainda não veio.
   busy = false;
   compacting = false;
+  /// O que roda em segundo plano agora, pela lista que o Claude Code manda.
+  tasks = new Map<string, Task>();
   /// A ferramenta de cada `tool_use_id`, para o resultado achar o bloco.
   private tools = new Map<string, { item: number; block: number }>();
   private lastTs = 0;
@@ -177,8 +187,7 @@ export class Timeline {
     const content = o.message?.content;
     if (typeof content === "string") {
       if (!content.trim()) return [];
-      this.busy = true;
-      return [this.add({ kind: "user", ts, text: content })];
+      return this.spoken(content, ts, !!o.isCompactSummary);
     }
     if (!Array.isArray(content)) return [];
     const touched: number[] = [];
@@ -206,11 +215,23 @@ export class Timeline {
         texts.push("[imagem]");
       }
     }
-    if (texts.length) {
-      this.busy = true;
-      touched.push(this.add({ kind: "user", ts, text: texts.join("\n\n") }));
-    }
+    if (texts.length) touched.push(...this.spoken(texts.join("\n\n"), ts, !!o.isCompactSummary));
     return touched;
+  }
+
+  /// Texto numa linha `user`. Nem tudo é fala: o Claude Code também escreve
+  /// ali o eco de um comando (`/compact`), o resumo com que a conversa
+  /// continua depois de compactar, e o aviso de tarefa que acabou — no
+  /// transcript; ao vivo o aviso vem como `system`.
+  private spoken(text: string, ts: number, summary: boolean): number[] {
+    if (/^\s*<(command-name|local-command-stdout|local-command-caveat)>/.test(text)) return [];
+    if (summary || text.startsWith("This session is being continued from a previous conversation")) {
+      return [this.add({ kind: "system", ts, text, error: false, what: "summary" })];
+    }
+    const task = /^\s*<task-notification>/.test(text) ? /<summary>([\s\S]*?)<\/summary>/.exec(text) : null;
+    if (task) return [this.add({ kind: "system", ts, text: task[1].trim(), error: false })];
+    this.busy = true;
+    return [this.add({ kind: "user", ts, text })];
   }
 
   /// A linha `assistant` inteira de um bloco. Cai em cima do rascunho que o
@@ -375,13 +396,63 @@ export class Timeline {
     switch (o.subtype) {
       case "status":
         this.compacting = o.status === "compacting";
+        if (o.compact_result === "failed") {
+          return [this.add({ kind: "system", ts, text: String(o.compact_error ?? "compact failed"), error: true })];
+        }
         return [];
-      case "compact_boundary":
+      case "compact_boundary": {
         this.compacting = false;
-        return [this.add({ kind: "system", ts, text: "compacted", error: false })];
+        const m = o.compact_metadata ?? {};
+        const tokens: [number, number] | undefined =
+          typeof m.pre_tokens === "number" && typeof m.post_tokens === "number" ? [m.pre_tokens, m.post_tokens] : undefined;
+        return [this.add({ kind: "system", ts, text: "compacted", error: false, what: "compacted", tokens })];
+      }
+      case "task_started": {
+        const id = String(o.task_id ?? "");
+        if (!id) return [];
+        const toolUseId = typeof o.tool_use_id === "string" ? o.tool_use_id : null;
+        this.tasks.set(id, { id, description: String(o.description ?? ""), toolUseId });
+        return this.mark(toolUseId, true);
+      }
+      case "background_tasks_changed": {
+        // A lista inteira, de novo: o que saiu dela acabou.
+        const now = new Map<string, Task>();
+        for (const raw of Array.isArray(o.tasks) ? o.tasks : []) {
+          const id = String(raw?.task_id ?? "");
+          if (!id) continue;
+          now.set(id, this.tasks.get(id) ?? { id, description: String(raw.description ?? ""), toolUseId: null });
+        }
+        const touched: number[] = [];
+        for (const [id, task] of this.tasks) if (!now.has(id)) touched.push(...this.mark(task.toolUseId, false));
+        this.tasks = now;
+        return touched;
+      }
+      case "task_notification": {
+        const id = String(o.task_id ?? "");
+        const task = this.tasks.get(id);
+        this.tasks.delete(id);
+        const toolUseId = typeof o.tool_use_id === "string" ? o.tool_use_id : (task?.toolUseId ?? null);
+        const touched = this.mark(toolUseId, false);
+        const text = String(o.summary ?? "").trim();
+        if (text) touched.push(this.add({ kind: "system", ts, text, error: o.status !== "completed" }));
+        return touched;
+      }
       default:
         return [];
     }
+  }
+
+  /// A ferramenta de um `tool_use_id` (se está na tela) passa a rodar em
+  /// segundo plano, ou deixa de rodar.
+  private mark(toolUseId: string | null, background: boolean): number[] {
+    const at = toolUseId ? this.tools.get(toolUseId) : undefined;
+    if (!at) return [];
+    const item = this.items[at.item];
+    if (item.kind !== "assistant") return [];
+    const tool = item.blocks[at.block];
+    if (tool?.kind !== "tool" || tool.background === background) return [];
+    tool.background = background;
+    return [at.item];
   }
 }
 
@@ -402,6 +473,7 @@ function toBlock(raw: Line | undefined): Block | null {
         result: null,
         error: false,
         done: false,
+        background: false,
       };
     default:
       return null;
@@ -430,10 +502,17 @@ function tryJson(text: string): unknown {
 /// Um resumo de uma linha do input de uma ferramenta — o que o card mostra
 /// fechado. Mesma escolha do `activity` do back: o comando, o arquivo, o
 /// padrão.
-export function summary(_name: string, input: unknown): string {
+export function summary(_name: string, input: unknown, json = ""): string {
   const i = (input ?? {}) as Record<string, unknown>;
-  const pick = ["command", "file_path", "pattern", "path", "url", "query", "skill", "description", "prompt"]
-    .map((k) => i[k])
-    .find((v) => typeof v === "string" && v.trim()) as string | undefined;
-  return pick ? pick.split("\n")[0] : "";
+  const pick = SUMMARY_KEYS.map((k) => i[k]).find((v) => typeof v === "string" && v.trim()) as string | undefined;
+  if (pick) return pick.split("\n")[0];
+  // O input ainda está chegando: o JSON não fecha, mas o começo de uma string
+  // já dá para ler — é o que o card mostra enquanto espera o resto.
+  for (const k of SUMMARY_KEYS) {
+    const m = new RegExp(`"${k}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`).exec(json);
+    if (m?.[1]) return m[1].replace(/\\n[\s\S]*/, "").replace(/\\(.)/g, "$1");
+  }
+  return "";
 }
+
+const SUMMARY_KEYS = ["command", "file_path", "pattern", "path", "url", "query", "skill", "description", "prompt"];

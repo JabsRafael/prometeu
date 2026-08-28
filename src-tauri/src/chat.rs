@@ -241,8 +241,12 @@ pub fn spawn(app: &AppHandle, id: &str, worktree: &Path, args: Vec<String>) -> R
                 continue;
             }
             let _ = app.emit("chat", (id.clone(), text.to_string(), seq));
-            if frame["type"] == "result" {
-                turn_t.store(false, Ordering::Relaxed);
+            // O turno acaba no `result` — e pode começar sem fala, quando uma
+            // tarefa em segundo plano termina e o agente reage a ela.
+            match frame["type"].as_str() {
+                Some("result") => turn_t.store(false, Ordering::Relaxed),
+                Some("assistant") => turn_t.store(true, Ordering::Relaxed),
+                _ => {}
             }
             react(&app, &id, &frame, &mut ready);
         }
@@ -447,6 +451,20 @@ pub fn chat_send(app: AppHandle, state: State<AppState>, session: String, text: 
     let text = text.trim().to_string();
     if text.is_empty() {
         return Ok(());
+    }
+    // Já há uma fala esperando o setup: esta vai atrás dela, na mesma leva.
+    // Passar na frente seria o agente ler a segunda antes da primeira.
+    {
+        let mut board = lock(&state.board);
+        if let Some(tab) = board.tab_mut(&session) {
+            if let Some(p) = tab.pending_prompt.as_mut() {
+                p.push_str("\n\n");
+                p.push_str(&text);
+                drop(board);
+                publish(&app);
+                return Ok(());
+            }
+        }
     }
     let up = lock(&state.chats).get(&session).is_some_and(|c| c.alive());
     let ready = lock(&state.ready).contains(&session);

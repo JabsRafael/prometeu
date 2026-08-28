@@ -1,5 +1,5 @@
 import { marked, type Tokens } from "marked";
-import { highlight } from "./highlight";
+import { diffHtml, highlight } from "./highlight";
 
 /// O que o agente escreve é markdown, e é assim que a tela o mostra. O
 /// `marked` faz a conta; aqui só o que é deste app: HTML cru que o texto
@@ -23,6 +23,7 @@ marked.use({
     },
     code({ text, lang }: Tokens.Code) {
       const raw = (lang ?? "").trim().split(/\s+/)[0].toLowerCase();
+      if (raw === "diff" || raw === "patch") return `<pre class="code tdiff">${diffHtml(text)}</pre>\n`;
       const ext = LANG[raw] ?? raw ?? "txt";
       return `<pre class="code"><code>${highlight(text, `x.${ext || "txt"}`)}</code></pre>\n`;
     },

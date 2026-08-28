@@ -26,6 +26,8 @@ export type Tab = {
   /// Tokens de contexto na última resposta: quão cheia está a janela. Vazio é
   /// conversa que ainda não respondeu.
   tokens: number | null;
+  /// A fala que ainda não foi: espera o setup do worktree terminar.
+  pending_prompt?: string | null;
 };
 
 export type Project = { id: string; name: string; path: string };

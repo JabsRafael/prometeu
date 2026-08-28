@@ -53,7 +53,7 @@ const board: Board = {
   workspaces: [
     ws("sessao-0929", "p1", "njord", "Ola", "Fazendo", [
       { id: "t1", title: "conversa 1", status: "pronta", note: null, tokens: 57_000 },
-      { id: "t2", title: "conversa 2", status: "pronta", note: null, tokens: 112_400 },
+      { id: "t2", title: "conversa 2", status: "pronta", note: null, tokens: 112_400, pending_prompt: "O que tem nesse projeto aqui de legal?" },
     ]),
     ws("ui-2231", "p2", "prometheus", "Tela igual ao Conductor", "Fazendo", [
       { id: "t3", title: "conversa 1", status: "rodando", note: "Edit src/style.css", tokens: 23_800 },
@@ -306,6 +306,19 @@ let msgN = 0;
 function sayInto(tab: string, text: string) {
   pushLine(tab, { type: "user", message: { role: "user", content: text }, ts: Date.now() });
   const id = `mm${++msgN}`;
+  if (text.trim() === "/compact") {
+    // Demora de verdade (um minuto, às vezes mais): a legenda fica o tempo
+    // todo, e no fim vêm o tamanho, o resumo e o eco do comando.
+    pushLine(tab, { type: "system", subtype: "status", status: "compacting" });
+    setTimeout(() => {
+      pushLine(tab, { type: "system", subtype: "status", status: null, compact_result: "success" });
+      pushLine(tab, { type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 23978, post_tokens: 3132 } });
+      pushLine(tab, { type: "user", isCompactSummary: true, message: { role: "user", content: "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n1. **Primary Request**: trocar o `destroy` por `completed_at`.\n2. **Files**: `app/models/todo.rb`." } });
+      pushLine(tab, { type: "user", message: { role: "user", content: "<local-command-stdout>Compacted </local-command-stdout>" } });
+      pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 4000 });
+    }, 4000);
+    return;
+  }
   const words = (text.includes("plano")
     ? "Li o pedido. Segue o plano — aprove para eu começar."
     : text.includes("pergunta")
@@ -325,6 +338,39 @@ function sayInto(tab: string, text: string) {
     if (text.includes("plano")) {
       pushLine(tab, { type: "assistant", message: { id, role: "assistant", content: [{ type: "tool_use", id: `tu-${id}`, name: "ExitPlanMode", input: { plan: "# Plano\n\n1. Ler `app/models/todo.rb`\n2. Trocar o `destroy` por `completed_at`\n3. Rodar os testes" } }] } });
       pushLine(tab, { type: "control_request", request_id: `req-${id}`, request: { subtype: "can_use_tool", tool_name: "ExitPlanMode", input: { plan: "# Plano\n\n1. Ler `app/models/todo.rb`\n2. Trocar o `destroy` por `completed_at`\n3. Rodar os testes" }, tool_use_id: `tu-${id}` } });
+      return;
+    }
+    if (text.includes("background")) {
+      // Duas tarefas em segundo plano: a legenda diz quantas, o card gira
+      // até o aviso de que acabou, e o agente reage sozinho ao aviso.
+      const tasks = [
+        { task: `bg-${id}a`, tool: `tu-${id}a`, desc: "Mapear lacunas de teste" },
+        { task: `bg-${id}b`, tool: `tu-${id}b`, desc: "Auditar qualidade do repositório" },
+      ];
+      for (const k of tasks) {
+        pushLine(tab, { type: "assistant", message: { id, role: "assistant", content: [{ type: "tool_use", id: k.tool, name: "Agent", input: { description: k.desc, subagent_type: "Explore", run_in_background: true, prompt: "…" } }] } });
+        pushLine(tab, { type: "system", subtype: "task_started", task_id: k.task, tool_use_id: k.tool, description: k.desc, is_backgrounded: true, task_type: "local_agent" });
+        pushLine(tab, { type: "user", message: { role: "user", content: [{ tool_use_id: k.tool, type: "tool_result", content: `Agent started with ID: ${k.task}. You will be notified when it completes.`, is_error: false }] } });
+      }
+      pushLine(tab, { type: "system", subtype: "background_tasks_changed", tasks: tasks.map((k) => ({ task_id: k.task, task_type: "local_agent", description: k.desc })) });
+      pushLine(tab, { type: "assistant", message: { id: `${id}c`, role: "assistant", content: [{ type: "text", text: "Dois agentes rodando. Aviso quando terminarem." }] } });
+      pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 1200 });
+      tasks.forEach((k, n) =>
+        setTimeout(() => {
+          pushLine(tab, { type: "system", subtype: "background_tasks_changed", tasks: tasks.slice(n + 1).map((j) => ({ task_id: j.task, task_type: "local_agent", description: j.desc })) });
+          pushLine(tab, { type: "system", subtype: "task_notification", task_id: k.task, tool_use_id: k.tool, status: "completed", summary: `Agent "${k.desc}" finished` });
+          pushLine(tab, { type: "assistant", message: { id: `${id}d${n}`, role: "assistant", content: [{ type: "text", text: `Terminou: ${k.desc}.` }] } });
+          pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 300 });
+        }, 5000 * (n + 1)),
+      );
+      return;
+    }
+    if (text.includes("diff")) {
+      const diff = "diff --git a/src/lib/token.ts b/src/lib/token.ts\nindex 4354763..0458d9c 100644\n--- a/src/lib/token.ts\n+++ b/src/lib/token.ts\n@@ -1,4 +1,5 @@\n /**\n- * Shape of the token\n+ * Shape of the token that authenticates\n+ * the public landings\n  */\n const PATTERN = /^[1-9A-Z]{36}$/;";
+      pushLine(tab, { type: "assistant", message: { id, role: "assistant", content: [{ type: "tool_use", id: `tu-${id}`, name: "Bash", input: { command: "git diff -- src/lib/token.ts", description: "Diff do arquivo" } }] } });
+      pushLine(tab, { type: "user", message: { role: "user", content: [{ tool_use_id: `tu-${id}`, type: "tool_result", content: diff, is_error: false }] } });
+      pushLine(tab, { type: "assistant", message: { id: `${id}c`, role: "assistant", content: [{ type: "text", text: "O mesmo diff, num bloco:\n\n```diff\n" + diff + "\n```\n\n1 arquivo, +2 −1." }] } });
+      pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 1200 });
       return;
     }
     if (text.includes("pergunta")) {

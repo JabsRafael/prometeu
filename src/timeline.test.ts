@@ -181,6 +181,61 @@ describe("Timeline", () => {
     expect(t.items[2].ts).toBe(500);
   });
 
+  it("tarefa em segundo plano: o card gira até o aviso, e a lista diz quantas", () => {
+    const t = new Timeline();
+    t.push(assistant("m1", { type: "tool_use", id: "tu1", name: "Agent", input: { description: "mapear", run_in_background: true } }));
+    t.push(j({ type: "system", subtype: "task_started", task_id: "bg1", tool_use_id: "tu1", description: "mapear", is_backgrounded: true }));
+    t.push(j({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu1", content: "Agent started" }] } }));
+    t.push(j({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "bg1", description: "mapear" }] }));
+    t.push(j({ type: "result", subtype: "success" }));
+    const a = t.items[0];
+    if (a.kind !== "assistant" || a.blocks[0].kind !== "tool") throw new Error();
+    expect(a.blocks[0].done).toBe(true);
+    expect(a.blocks[0].background).toBe(true);
+    expect([...t.tasks.values()].map((k) => k.description)).toEqual(["mapear"]);
+    expect(t.busy).toBe(false);
+    const touched = t.push(
+      j({ type: "system", subtype: "task_notification", task_id: "bg1", tool_use_id: "tu1", status: "completed", summary: 'Agent "mapear" finished' }),
+    );
+    expect(touched).toEqual([0, 1]);
+    expect(a.blocks[0].background).toBe(false);
+    expect(t.tasks.size).toBe(0);
+    expect(t.items[1]).toMatchObject({ kind: "system", text: 'Agent "mapear" finished', error: false });
+  });
+
+  it("no transcript o aviso de tarefa é uma linha user com XML: vira a mesma linha de sistema", () => {
+    const t = new Timeline();
+    t.push(j({ type: "user", message: { role: "user", content: "<task-notification>\n<task-id>x</task-id>\n<summary>Agent \"mapear\" finished</summary>\n</task-notification>" } }));
+    expect(t.items[0]).toMatchObject({ kind: "system", text: 'Agent "mapear" finished' });
+    expect(t.busy).toBe(false);
+  });
+
+  it("compactar: legenda enquanto dura, tamanho no fim, resumo dobrado, eco do comando fora", () => {
+    const t = new Timeline();
+    t.push(j({ type: "user", message: { role: "user", content: "/compact" } }));
+    t.push(j({ type: "system", subtype: "status", status: "compacting" }));
+    expect(t.compacting).toBe(true);
+    t.push(j({ type: "system", subtype: "status", status: null, compact_result: "success" }));
+    expect(t.compacting).toBe(false);
+    t.push(j({ type: "system", subtype: "compact_boundary", compact_metadata: { pre_tokens: 23978, post_tokens: 3132 } }));
+    t.push(j({ type: "user", isCompactSummary: true, message: { role: "user", content: "This session is being continued from a previous conversation…" } }));
+    t.push(j({ type: "user", message: { role: "user", content: "<local-command-stdout>Compacted </local-command-stdout>" } }));
+    t.push(j({ type: "user", message: { role: "user", content: "<command-name>/compact</command-name>" } }));
+    t.push(j({ type: "result", subtype: "success" }));
+    expect(t.items.map((i) => i.kind)).toEqual(["user", "system", "system"]);
+    expect(t.items[1]).toMatchObject({ what: "compacted", tokens: [23978, 3132] });
+    expect(t.items[2]).toMatchObject({ what: "summary" });
+    expect(t.busy).toBe(false);
+  });
+
+  it("compactação que falha é um erro na tela, não um silêncio", () => {
+    const t = new Timeline();
+    t.push(j({ type: "system", subtype: "status", status: "compacting" }));
+    t.push(j({ type: "system", subtype: "status", status: null, compact_result: "failed", compact_error: "Not enough messages to compact." }));
+    expect(t.compacting).toBe(false);
+    expect(t.items[0]).toMatchObject({ kind: "system", error: true, text: "Not enough messages to compact." });
+  });
+
   it("load lê um buffer inteiro e pula o que estiver cortado", () => {
     const t = new Timeline();
     t.load(`ssage":{"content":"cortado"}}\n${j({ type: "user", message: { role: "user", content: "inteira" } })}\n`);
@@ -194,5 +249,12 @@ describe("summary", () => {
     expect(summary("Read", { file_path: "/a/b.rs" })).toBe("/a/b.rs");
     expect(summary("Task", { description: "procurar bugs", prompt: "x" })).toBe("procurar bugs");
     expect(summary("Foo", {})).toBe("");
+  });
+
+  it("com o JSON pela metade, lê o começo da string que já chegou", () => {
+    expect(summary("Agent", {}, '{"description": "Mapear lacunas de te')).toBe("Mapear lacunas de te");
+    expect(summary("Bash", {}, '{"command": "git diff\\nls", "descr')).toBe("git diff");
+    expect(summary("Bash", {}, '{"command": "echo \\"a\\" ')).toBe('echo "a" ');
+    expect(summary("Bash", {}, '{"comm')).toBe("");
   });
 });

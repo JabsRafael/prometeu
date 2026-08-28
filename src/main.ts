@@ -490,6 +490,7 @@ session.init(
     return {
       workspace: open,
       status: tab?.status ?? null,
+      pending: tab?.pending_prompt ?? null,
       remote: w?.remote ? { name: team.nameOf(w.remote.owner), online: w.remote.online } : null,
       team: !!team.status().config,
     };
