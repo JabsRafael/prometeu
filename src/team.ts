@@ -57,18 +57,18 @@ export type Phase = "off" | "connecting" | "online";
 /// só entra quem informar o seu em Configurações (ou `VITE_RELAY` no dev).
 const RELAY = "";
 
-/// Quanto da conversa vai a quem acabou de abrir uma aba. O back guarda 4 MB;
-/// isto chega em um segundo e cobre os últimos turnos com folga — o resto o
-/// colega não rola até tão cedo. Cortado em linha inteira: meia linha de JSON
-/// não é nada.
-const SNAPSHOT_MAX = 512 * 1024;
+/// O tamanho de cada parte da conversa que vai a quem acabou de abrir uma
+/// aba. O relay limita a mensagem a 1 MB; a conversa inteira (até 4 MB, o que
+/// o back guarda) vai em quantas partes precisar, cortadas em linha inteira —
+/// meia linha de JSON não é nada.
+const SNAPSHOT_PART = 512 * 1024;
 /// Quanto a saída espera antes de sair num frame só. O relay cobra por
 /// mensagem recebida; a tela do colega não distingue 40 ms.
 const COALESCE = 40;
 const FRAME_MAX = 32 * 1024;
-/// Quanto o colega espera pelo snapshot ao abrir uma aba. Passou disso, abre
+/// Quanto o colega espera pela conversa ao abrir uma aba. Passou disso, abre
 /// com o espelho que tiver — o dono sumiu no meio.
-const SNAPSHOT_WAIT = 4000;
+const SNAPSHOT_WAIT = 10_000;
 
 const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
 
@@ -526,14 +526,15 @@ function rewatch(watching: Watching) {
   }
 }
 
-/// A conversa de uma aba minha para um colega. Enquanto ela não sai, as
-/// linhas ao vivo da aba ficam presas: uma que saísse na frente e não
-/// estivesse no snapshot seria ignorada do outro lado — e perdida.
+/// A conversa inteira de uma aba minha para um colega, em partes. Enquanto
+/// ela não sai toda, as linhas ao vivo da aba ficam presas: uma que saísse na
+/// frente e não estivesse na conversa seria ignorada do outro lado — e perdida.
 async function snapshot(tab: string, member: string) {
   holding.set(tab, (holding.get(tab) ?? 0) + 1);
   try {
     const s = await invoke<{ text: string; seq: number }>("chat_snapshot", { session: tab });
-    sendBinary(encodeSnapshot(tab, member, s.seq, enc.encode(tail(s.text))));
+    const parts = split(s.text);
+    parts.forEach((part, i) => sendBinary(encodeSnapshot(tab, member, s.seq, enc.encode(part), i < parts.length - 1)));
   } catch {
     // Sessão que já não existe: o colega abre com o que tiver.
   } finally {
@@ -544,11 +545,19 @@ async function snapshot(tab: string, member: string) {
   }
 }
 
-/// O fim de uma conversa, do tamanho que cabe num snapshot, em linhas inteiras.
-function tail(text: string): string {
-  if (text.length <= SNAPSHOT_MAX) return text;
-  const cut = text.indexOf("\n", text.length - SNAPSHOT_MAX);
-  return cut === -1 ? "" : text.slice(cut + 1);
+/// A conversa em partes do tamanho de uma mensagem do relay, cortadas em linha
+/// inteira. Sempre ao menos uma — vazia, se a conversa ainda não falou.
+function split(text: string): string[] {
+  const out: string[] = [];
+  let rest = text;
+  while (rest.length > SNAPSHOT_PART) {
+    const cut = rest.lastIndexOf("\n", SNAPSHOT_PART);
+    const at = cut === -1 ? SNAPSHOT_PART : cut + 1;
+    out.push(rest.slice(0, at));
+    rest = rest.slice(at);
+  }
+  out.push(rest);
+  return out;
 }
 
 /// Uma linha de alguma conversa. Só interessa se alguém está olhando a aba —
@@ -724,7 +733,8 @@ function binary(data: ArrayBuffer) {
   if (!bin) return;
   if (bin.kind === SNAPSHOT) {
     if (bin.to !== you) return;
-    mirrorFor(bin.tab).seed(bin.bytes, bin.seq);
+    // Parte do meio: guarda e espera a última.
+    if (!mirrorFor(bin.tab).seed(bin.bytes, bin.seq, bin.more)) return;
     if (waiting?.tab === bin.tab) {
       waiting.resolve();
       waiting = null;

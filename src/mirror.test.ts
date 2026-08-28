@@ -34,6 +34,18 @@ describe("espelho de uma conversa remota", () => {
     expect(s(m.absorb(8, b("!")))).toBe("!");
   });
 
+  it("a conversa chega em partes, e só a última a fecha", () => {
+    const m = new Mirror();
+    expect(m.seed(b("um "), 3, true)).toBe(false);
+    expect(m.ready).toBe(false);
+    expect(m.absorb(4, b("cedo"))).toBeNull();
+    expect(m.seed(b("dois "), 3, true)).toBe(false);
+    expect(m.seed(b("três"), 3)).toBe(true);
+    expect(text(m)).toBe("um dois três");
+    expect(m.absorb(3, b("já"))).toBeNull();
+    expect(s(m.absorb(4, b("!")))).toBe("!");
+  });
+
   it("passou do teto, o começo é que sai", () => {
     const m = new Mirror(10);
     m.seed(b("0123456789"), 1);

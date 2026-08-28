@@ -24,8 +24,10 @@ describe("frames binários", () => {
 
   it("snapshot: aba, destinatário, número e bytes", () => {
     const got = decodeBinary(encodeSnapshot("t", "bob", 9, bytes("tudo")));
-    expect(got).toMatchObject({ kind: SNAPSHOT, tab: "t", to: "bob", seq: 9 });
+    expect(got).toMatchObject({ kind: SNAPSHOT, tab: "t", to: "bob", seq: 9, more: false });
     if (got?.kind === SNAPSHOT) expect(text(got.bytes)).toBe("tudo");
+    const part = decodeBinary(encodeSnapshot("t", "bob", 9, bytes("meta"), true));
+    expect(part).toMatchObject({ kind: SNAPSHOT, more: true });
   });
 
   it("decodifica a partir de um ArrayBuffer com offset, como o WebSocket entrega", () => {
