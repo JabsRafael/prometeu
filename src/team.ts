@@ -770,9 +770,11 @@ export function notesOf(id: string): Note[] {
 }
 
 /// Escreve uma nota. `quote` é o trecho da conversa que ela cita, se cita, e
-/// `mentions` são ids de membros — o relay descarta quem não existe.
-export function addNote(id: string, text: string, mentions: string[], quote: string | null) {
-  send({ t: "note", ws: relayId(id), text, mentions, quote });
+/// `mentions` são ids de membros — o relay descarta quem não existe. Devolve
+/// se o pedido saiu: sem conexão a nota não vai a lugar nenhum, e quem
+/// escreveu precisa saber disso em vez de ver o campo esvaziar.
+export function addNote(id: string, text: string, mentions: string[], quote: string | null): boolean {
+  return send({ t: "note", ws: relayId(id), text, mentions, quote });
 }
 
 /// Quantas notas mencionam você e você ainda não abriu.

@@ -789,8 +789,10 @@ export class ChatView {
         e.preventDefault();
         this.interrupt();
       } else if (e.key === "@" && this.mode === "note") {
-        e.preventDefault();
-        notes.pickMention(this.area, () => this.keep());
+        // O "@" é do texto, não do menu: ele entra como qualquer letra, e a
+        // lista abre depois — quem fecha a lista continua com o que digitou, e
+        // quem escolhe um nome vê o nome completar o "@" que já estava lá.
+        setTimeout(() => notes.pickMention(this.area, () => this.keep()));
       }
     });
   }
@@ -838,11 +840,15 @@ export class ChatView {
     if (this.mode === "note") {
       if (!info.workspace) return;
       const draft = notes.draftOf(info.workspace);
+      let sent: boolean;
       try {
-        team.addNote(info.workspace, text, notes.mentionsIn(text), draft.quote);
+        sent = team.addNote(info.workspace, text, notes.mentionsIn(text), draft.quote);
       } catch (e) {
         return this.ctx.say(fromBack(e), true);
       }
+      // Sem conexão a nota não sai. O texto fica onde está — perder o que se
+      // acabou de escrever é pior que ver o erro.
+      if (!sent) return this.ctx.say(t("err.team.down"), true);
       notes.dropDraft(info.workspace);
       this.area.value = "";
       this.grow();

@@ -473,6 +473,7 @@ export const PT = {
   "err.team.noShare": "esse workspace não está mais compartilhado",
   "err.team.noTab": "essa conversa não está mais lá",
   "err.team.offline": "o dono está offline — a conversa não recebe fala",
+  "err.team.down": "sem conexão com o time — a nota não saiu",
   "err.team.empty": "a nota está vazia",
   "err.team.tooBig": "a nota é grande demais",
   "err.team.bad": "o relay não entendeu o que o app mandou",
