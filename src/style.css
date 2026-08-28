@@ -251,83 +251,21 @@ body.norail .top .nav { margin-left: 0; }
 
 main { flex: 1; min-height: 0; position: relative; }
 .view { position: absolute; inset: 0; display: flex; }
-.boardmain { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.listmain { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 
-/* Segunda linha do centro: no workspace são as abas, no quadro é o resumo. */
+/* Segunda linha do centro: abas no workspace, ferramentas nas listas. */
 .subbar {
   height: var(--tabs-h); flex: none; display: flex; align-items: center; gap: 2px;
   padding: 0 8px; background: var(--bg-raised); box-shadow: inset 0 -1px var(--line-raised);
   overflow-x: auto;
 }
 
-.pulse { gap: 18px; padding: 0 20px; }
-.stat { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--fg-2); white-space: nowrap; }
-.stat .dot { width: 7px; height: 7px; border-radius: 50%; }
-.stat b { font-weight: 500; color: var(--fg); }
-
-/* ---------- quadro ---------- */
-
-.cols { flex: 1; display: flex; gap: 16px; padding: 20px; overflow-x: auto; align-items: flex-start; }
-.col { flex: 0 0 264px; min-width: 0; display: flex; flex-direction: column; gap: 10px; max-height: 100%; }
-.col > .head { display: flex; align-items: center; gap: 8px; padding: 0 4px; flex: none; }
-.col > .head .gg { display: flex; color: var(--fg-2); }
-.col > .head .t { font-size: 13px; font-weight: 500; color: var(--fg-2); }
-.col > .head .c { font-size: 12px; color: var(--fg-3); }
-.col .drop {
-  display: flex; flex-direction: column; gap: 8px; min-height: 56px; min-width: 0;
-  border-radius: var(--r-lg); overflow-y: auto; padding-bottom: 4px;
-}
-.col .drop.over { box-shadow: inset 0 0 0 1px var(--tab-line); }
-
-.card {
-  height: auto; background: var(--bg-raised); border: 1px solid var(--line-raised); border-radius: var(--r-lg);
-  padding: 12px; display: flex; flex-direction: column; align-items: stretch; gap: 8px;
-  text-align: left; min-width: 0; max-width: 100%; font-weight: 400; white-space: normal;
-}
-.card:hover { background: var(--bg-raised); border-color: var(--line-ghost); }
-.card.here { border-color: var(--tab-line); }
-/* A faixa da esquerda é a mesma novidade da sidebar, no formato do card. */
-.card.unread { box-shadow: inset 3px 0 var(--accent); }
-.card .repo { font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card .ttl { font-size: 13px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
-.card .act {
-  font-family: var(--mono); font-size: 11.5px; color: var(--fg-2);
-  background: var(--bg); border-radius: var(--r); padding: 6px 8px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 100%;
-}
-.card .act.ask { color: var(--fg); white-space: normal; overflow-wrap: anywhere; }
-.card .foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.card .foot .chip { padding: 0; }
-.card .foot .tok { margin-left: auto; gap: 4px; }
-.card .foot .tok b { font-family: var(--mono); font-weight: 400; font-variant-numeric: tabular-nums; }
-.card .foot .x { margin-left: auto; opacity: 0; }
-.card .foot .tok + .x { margin-left: 0; }
-.card:hover .foot .x { opacity: 1; }
-.card .foot .x:hover { color: var(--err); background: var(--err-bg); }
-.card:has(.s-desligada) { opacity: 0.7; }
-
-/* Card pego com o mouse: o original fica apagado no lugar de onde saiu, e a
-   cópia segue o cursor sem pegar o mouse — o que está embaixo dela é a coluna. */
-.card.lifted { opacity: 0.35; }
-.card.ghost {
-  position: fixed; left: 0; top: 0; z-index: 20; pointer-events: none;
-  border-color: var(--line-ghost); box-shadow: 0 14px 36px rgb(0 0 0 / 0.45);
-}
-body.dragging, body.dragging * { cursor: grabbing !important; }
-
 /* Renomear no lugar: o campo entra na linha do rótulo que ele substituiu, então
    cada lugar dá a sua medida. O lápis aparece no hover da linha, como o x. */
 .rename { background: var(--bg); border-color: var(--line-ghost); }
 .rename.sub { height: 30px; margin: 1px 0; padding: 0 8px; font-size: 13px; }
-.rename.ttl { height: 26px; padding: 0 6px; font-size: 13px; font-weight: 500; }
 .rename.crumb { width: 260px; height: 24px; padding: 0 8px; }
 .rename.tab { width: 150px; height: 24px; padding: 0 8px; }
-
-
-.empty {
-  border: 1px dashed var(--line); border-radius: var(--r-lg); padding: 20px 12px;
-  text-align: center; font-size: 12px; color: var(--fg-3);
-}
 
 /* ---------- workspace ---------- */
 
@@ -1094,16 +1032,6 @@ body.noside .side { display: none; }
 .arow.gone .atitle b { color: var(--fg-2); }
 .arow .iact .ghost { gap: 5px; font-size: 12px; height: 24px; padding: 0 8px; }
 
-/* O chip da issue no card: a marca do Linear e o identificador. */
-.card .foot .chip.issue { gap: 4px; font-family: var(--mono); font-size: 11.5px; }
-.card .foot .chip.issue:hover { color: var(--fg); }
-/* O PR entrou: verde, que é a cor de pronto no resto da tela. É o selo que
-   diz, olhando o quadro de longe, que este aqui acabou. */
-.card .foot .chip.merged { gap: 4px; font-family: var(--mono); font-size: 11.5px; color: var(--done); }
-.card .foot .chip.merged:hover { filter: brightness(1.15); }
-/* O canto do card que conclui, quando é de concluir que se trata. */
-.card .foot .x.done { color: var(--done); }
-
 /* ---------- devolver worktrees ao disco ---------- */
 
 .sheet.clean { width: min(620px, 100%); }
@@ -1186,7 +1114,7 @@ body.noside .side { display: none; }
 .setrow .mem.off { color: var(--fg-3); }
 .setrow .mem.off .dot { background: var(--line-ghost); }
 
-/* ---------- time: quem olha, compartilhar, cards dos colegas ---------- */
+/* ---------- time: quem olha e compartilhar ---------- */
 
 .watchers { display: inline-flex; gap: 4px; align-items: center; }
 .watchers:empty { display: none; }
@@ -1194,16 +1122,6 @@ body.noside .side { display: none; }
 .chip.watcher .avatar { width: 16px; height: 16px; border-radius: 3px; font-size: 9px; }
 #share.on { color: var(--done); }
 #share.on .ic { color: var(--done); }
-
-.teamstrip { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; padding: 0 0 12px; }
-.teamstrip .head {
-  width: 100%; display: flex; align-items: center; gap: 6px;
-  font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--fg-3);
-}
-.teamstrip .card { width: 280px; }
-.card .owner { display: inline-flex; align-items: center; gap: 5px; color: var(--fg-2); }
-.card .owner .avatar { width: 16px; height: 16px; border-radius: 3px; font-size: 9px; }
-.card.remote.off { opacity: 0.6; }
 
 /* ---------- notas do time, dentro da conversa ---------- */
 

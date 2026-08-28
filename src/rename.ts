@@ -2,7 +2,7 @@
 /// Não tem diálogo porque um nome é uma linha, e o lugar dela é onde ela já está.
 let open: HTMLInputElement | null = null;
 
-/// O quadro é redesenhado a cada ferramenta que o agente usa. Quem desenha
+/// A lista é redesenhada a cada ferramenta que o agente usa. Quem desenha
 /// pergunta aqui antes de refazer a linha debaixo de um campo aberto.
 export const editing = () => open !== null;
 

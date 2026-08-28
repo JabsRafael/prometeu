@@ -11,8 +11,7 @@ import { $, h } from "./util";
 /// Configurações do app — o que não é do repositório (isso é o
 /// `settings.toml`) nem de um workspace: a conexão com o Linear, a linha de
 /// atualização (que mora em `update.ts`) e o idioma da tela. A página é a
-/// terceira tela do app, ao lado do quadro e do workspace, e entra no
-/// histórico ← → como as outras.
+/// uma das telas do app e entra no histórico ← → como as outras.
 ///
 /// A conexão mora no back: o token nunca chega aqui. O que a tela sabe é o
 /// `LinearStatus`, que chega no `init` e depois pelo evento `linear` toda vez
