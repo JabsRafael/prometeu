@@ -201,6 +201,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
 
   "side.files": "Files",
   "side.changes": "Changes",
+  "side.review": "Review",
+  "side.review.title": "Read the whole diff, stacked in the center",
   "side.collapse": "Collapse folders",
   "side.reveal": "Open the worktree in Finder",
   "diff.foldAll": "Collapse all",
@@ -224,6 +226,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "chat.mode.agent": "Agent",
   "chat.mode.note": "Note",
   "chat.send": "Send",
+  "chat.copy": "Copy the reply",
+  "chat.with": "{model}, {effort} effort — picked in the launcher",
   "chat.stop": "Stop",
   "chat.busy": "the agent is working — Esc to interrupt",
   "chat.compacting": "compacting context…",
