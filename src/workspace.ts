@@ -14,6 +14,7 @@ import {
   fmtTokens,
   label,
   merged,
+  prs,
   pending,
   repoLabel,
   stateLabel,
@@ -101,13 +102,6 @@ export function init(context: Ctx) {
     if (!ws) return;
     if (merged(ws)) finish(ws.id);
     else void openPr();
-  });
-
-  // Só o número e a seta: quem diz "PR" é o botão ao lado, e dois botões com o
-  // mesmo rótulo na mesma barra é o que fazia a barra ficar ambígua.
-  $("prlink").innerHTML = `<span></span>${icon("external-link", 12)}`;
-  $("prlink").addEventListener("click", () => {
-    if (openWs) invoke("open_pr", { id: openWs }).catch((e) => ctx.say(fromBack(e), true));
   });
 
   // Duplo clique renomeia, como no nome do workspace na migalha. Escuta na barra
@@ -259,7 +253,7 @@ export function draw() {
     // é a caixa de escrever.
     paintBranchName(ws.branch);
     $("pr").hidden = true;
-    $("prlink").hidden = true;
+    $("prlinks").hidden = true;
     $("offline").hidden = true;
     $("tabbar").hidden = false;
     $("side").hidden = true;
@@ -275,7 +269,7 @@ export function draw() {
   if (pending(ws)) {
     paintBranchName(ws.branch);
     $("pr").hidden = true;
-    $("prlink").hidden = true;
+    $("prlinks").hidden = true;
     $("dock").hidden = true;
     $("tabbar").hidden = true;
     $("side").hidden = true;
@@ -473,19 +467,34 @@ const PR_EVERY = 20_000;
 
 function paintPr(ws: Workspace) {
   const done = merged(ws);
+  const all = prs(ws);
   const ask = $("pr");
   ask.hidden = ws.cleaned;
-  ask.querySelector("span")!.textContent = done ? t("ws.finish") : ws.pr ? t("ws.pr.update") : t("ws.pr");
-  ask.title = done ? t("top.finish") : ws.pr ? t("top.pr.update") : t("top.pr");
+  ask.querySelector("span")!.textContent = done ? t("ws.finish") : all.length ? t("ws.pr.update") : t("ws.pr");
+  ask.title = done ? t("top.finish") : all.length ? t("top.pr.update") : t("top.pr");
   ask.classList.toggle("done", done);
   ask.firstElementChild!.outerHTML = icon(done ? "check" : "git-pull-request", 14);
 
-  const link = $("prlink");
-  link.hidden = !ws.pr;
-  if (!ws.pr) return;
-  const { number: n, title, isDraft, state } = ws.pr;
-  link.querySelector("span")!.textContent = `#${n}`;
-  link.title = t(state === "MERGED" ? "ws.pr.merged" : isDraft ? "ws.pr.draft" : "ws.pr.view", { n, title });
+  // Um link por PR — um por repositório que tem o seu. Só o número e a seta:
+  // quem diz "PR" é o botão ao lado, e dois botões com o mesmo rótulo na mesma
+  // barra é o que fazia a barra ficar ambígua. Com mais de um repo, o nome
+  // dele vai no title.
+  const links = $("prlinks");
+  links.hidden = !all.length;
+  links.replaceChildren(
+    ...all.map(({ repo, pr }) => {
+      const b = document.createElement("button");
+      b.className = "ghost md";
+      b.innerHTML = `<span></span>${icon("external-link", 12)}`;
+      b.children[0].textContent = `#${pr.number}`;
+      const what = t(pr.state === "MERGED" ? "ws.pr.merged" : pr.isDraft ? "ws.pr.draft" : "ws.pr.view", { n: pr.number, title: pr.title });
+      b.title = ws.repos.length > 1 ? `${repo} · ${what}` : what;
+      b.addEventListener("click", () => {
+        invoke("open_pr", { id: ws.id, repo }).catch((e) => ctx.say(fromBack(e), true));
+      });
+      return b;
+    }),
+  );
 }
 
 function drawPr(ws: Workspace) {

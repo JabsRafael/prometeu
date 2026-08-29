@@ -1,7 +1,7 @@
 import { attachMenu, type Hooks } from "./sidebar";
 import { avatar, icon, stageIcon } from "./icons";
 import { paint, stage as stageName, t, tn } from "./i18n";
-import { hasWorktree, repoLabel, type Board, type Workspace } from "./types";
+import { hasWorktree, repoLabel, type Board, type Workspace, merged, prs } from "./types";
 import { $, empty, h } from "./util";
 
 /// Os arquivados, numa tela só — e não numa lista aberta na barra lateral.
@@ -102,7 +102,7 @@ function drawList() {
 
 function matches(ws: Workspace) {
   if (!query) return true;
-  const hay = [ws.title, ws.branch, repoLabel(ws), stageName(ws.stage), ws.pr?.title ?? "", ws.issue?.identifier ?? ""]
+  const hay = [ws.title, ws.branch, repoLabel(ws), stageName(ws.stage), ...prs(ws).map(({ pr }) => pr.title), ws.issue?.identifier ?? ""]
     .join(" ")
     .toLowerCase();
   return query.split(/\s+/).every((word) => hay.includes(word));
@@ -131,11 +131,14 @@ function row(ws: Workspace): HTMLElement {
   const stage = el.querySelector(".astage")!;
   stage.innerHTML = `${stageIcon(at, total, 13)}<span></span>`;
   stage.children[1].textContent = stageName(ws.stage);
-  if (ws.pr) {
+  // Um número por PR — um por repositório que teve o seu; o selo só quando
+  // todos entraram.
+  const all = prs(ws);
+  if (all.length) {
     const pr = el.querySelector(".apr")!;
-    pr.textContent = `#${ws.pr.number}`;
-    pr.classList.toggle("merged", ws.pr.state === "MERGED");
-    (pr as HTMLElement).title = ws.pr.title;
+    pr.textContent = all.map(({ pr }) => `#${pr.number}`).join(" ");
+    pr.classList.toggle("merged", merged(ws));
+    (pr as HTMLElement).title = all.map(({ repo, pr }) => (ws.repos.length > 1 ? `${repo}: ${pr.title}` : pr.title)).join("\n");
   }
   // Worktree devolvido: o card ficou como histórico, e a linha diz isso em vez
   // de deixar você descobrir ao abrir.

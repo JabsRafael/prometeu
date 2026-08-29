@@ -111,6 +111,14 @@ pub struct Repo {
     /// gravado antes disto existir; o diff aprende o padrão e grava.
     #[serde(default)]
     pub base: String,
+    /// O PR desta branch neste repositório, como o `gh` respondeu da última
+    /// vez. É o quadro que guarda porque é o quadro que desenha: o selo de
+    /// mergeado no card e os botões da barra saem daqui, e uma resposta de
+    /// minutos atrás vale mais que uma consulta à rede a cada redesenho.
+    /// Vazio é "não perguntei ainda" e "esta branch não tem PR aqui" — para a
+    /// tela dá no mesmo. Um por repo: histórico separado, PR separado.
+    #[serde(default)]
+    pub pr: Option<crate::session::Pr>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -179,12 +187,10 @@ pub struct Workspace {
     /// mostra o identificador, e a aba de issues sabe que esta já tem dono.
     #[serde(default)]
     pub issue: Option<crate::linear::IssueRef>,
-    /// O PR desta branch, como o `gh` respondeu da última vez. É o quadro que
-    /// guarda porque é o quadro que desenha: o selo de mergeado no card e os
-    /// botões da barra saem daqui, e uma resposta de minutos atrás vale mais
-    /// que uma consulta à rede a cada redesenho. Vazio é "não perguntei ainda"
-    /// e "esta branch não tem PR" — para a tela dá no mesmo.
-    #[serde(default)]
+    /// Onde o PR morava quando o workspace só tinha um repositório. Quadro
+    /// gravado por versão anterior ainda o traz aqui, e o `revive` o leva para
+    /// o principal — que é de quem ele sempre foi. Nunca mais é gravado.
+    #[serde(default, skip_serializing)]
     pub pr: Option<crate::session::Pr>,
     /// O worktree foi devolvido ao disco: a pasta não existe mais e a branch
     /// local foi apagada. O card fica como histórico — transcript, o número do
@@ -228,8 +234,29 @@ impl Workspace {
             path: self.repo.clone(),
             name: self.repo_name.clone(),
             base: String::new(),
+            pr: None,
             worktree: self.worktree.clone(),
         })
+    }
+
+    /// Os PRs desta branch: um por repositório que tem o seu, na ordem do
+    /// workspace.
+    pub fn prs(&self) -> impl Iterator<Item = (&Repo, &crate::session::Pr)> {
+        self.repos.iter().filter_map(|r| r.pr.as_ref().map(|pr| (r, pr)))
+    }
+
+    /// O trabalho entrou: todo repositório que tem PR tem o PR mergeado, e há
+    /// pelo menos um. É o que faz a barra oferecer "Concluir" e o card ganhar
+    /// o selo.
+    pub fn merged(&self) -> bool {
+        let mut any = false;
+        for (_, pr) in self.prs() {
+            if !pr.merged() {
+                return false;
+            }
+            any = true;
+        }
+        any
     }
 
     /// Mais de um repositório: `worktree` é a pasta que os reúne, e não um
@@ -338,7 +365,20 @@ impl Board {
             // dele. É o que o app instalado encontra na primeira abertura
             // depois de atualizar — e nada além da lista muda.
             if ws.repos.is_empty() {
-                ws.repos.push(Repo { path: ws.repo.clone(), name: ws.repo_name.clone(), worktree: ws.worktree.clone(), base: String::new() });
+                ws.repos.push(Repo {
+                    path: ws.repo.clone(),
+                    name: ws.repo_name.clone(),
+                    worktree: ws.worktree.clone(),
+                    base: String::new(),
+                    pr: None,
+                });
+            }
+            // O PR morava no workspace enquanto ele só tinha um repositório:
+            // passa para o principal, que é de quem ele sempre foi.
+            if let Some(pr) = ws.pr.take() {
+                if let Some(main) = ws.repos.first_mut() {
+                    main.pr.get_or_insert(pr);
+                }
             }
         }
 
@@ -512,9 +552,24 @@ mod tests {
         let ws = &board.workspaces[0];
         assert_eq!(ws.repo, "/r");
         assert_eq!(ws.worktree, "/wt");
-        assert_eq!(ws.repos, vec![Repo { path: "/r".into(), name: "r".into(), worktree: "/wt".into(), base: String::new() }]);
+        assert_eq!(ws.repos, vec![Repo { path: "/r".into(), name: "r".into(), worktree: "/wt".into(), base: String::new(), pr: None }]);
         assert_eq!(ws.primary().worktree, "/wt");
         assert!(!ws.multi());
+    }
+
+    /// Quadro gravado por uma versão em que o PR era do workspace: ele passa
+    /// para o repositório principal, e o campo antigo não é gravado de novo.
+    #[test]
+    fn quadro_antigo_leva_o_pr_para_o_principal() {
+        let mut board = board_json(r#","pr":{"number":3,"title":"t","state":"MERGED"}"#);
+        board.revive();
+        let ws = &board.workspaces[0];
+        assert!(ws.pr.is_none());
+        assert_eq!(ws.repos[0].pr.as_ref().map(|p| p.number), Some(3));
+        assert!(ws.merged());
+        let json = serde_json::to_string(&board).unwrap();
+        assert!(!json.contains(r#""pr":{"number":3"#) || json.contains(r#""repos":[{"#));
+        assert!(!json.contains(r#""stage":"Fazendo","pr""#));
     }
 
     /// E quadro que já tem a lista não ganha item de novo — nem perde os que

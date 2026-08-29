@@ -34,7 +34,10 @@ export type Project = { id: string; name: string; path: string };
 
 /// Um repositório dentro do workspace: o clone de onde veio, o nome da pasta e
 /// onde está a cópia dele nesta branch.
-export type Repo = { path: string; name: string; worktree: string };
+/// Um repositório do workspace: de onde veio, onde está nesta branch, de onde
+/// a branch saiu nele, e o PR dela nele — um por repo, porque cada um tem o
+/// seu histórico.
+export type Repo = { path: string; name: string; worktree: string; base: string; pr: Pr | null };
 
 /// O nome que a tela dá aos repositórios do workspace: o do principal, ou os
 /// de todos quando há mais de um — é assim que se sabe de longe que o card
@@ -71,10 +74,6 @@ export type Workspace = {
   port: number | null;
   /// A issue do Linear de onde este trabalho saiu, se saiu de uma.
   issue: IssueRef | null;
-  /// O PR desta branch como o `gh` respondeu da última vez. `MERGED` é o que
-  /// faz a barra oferecer "Concluir" e o card ganhar o selo — é o sinal de que
-  /// este trabalho acabou.
-  pr: Pr | null;
   /// O worktree foi devolvido ao disco. O card fica como histórico: sem
   /// terminal, sem docks, sem arquivos — só o que ficou escrito.
   cleaned: boolean;
@@ -103,7 +102,17 @@ export type Remote = { owner: string; online: boolean };
 /// O PR de uma branch, como o `gh` conta. `state` é `OPEN`, `MERGED` ou
 /// `CLOSED`.
 export type Pr = { number: number; title: string; isDraft: boolean; state: string };
-export const merged = (ws: Workspace) => ws.pr?.state === "MERGED";
+
+/// Os PRs desta branch: um por repositório que tem o seu, na ordem do
+/// workspace.
+export const prs = (ws: Workspace) => ws.repos.flatMap((r) => (r.pr ? [{ repo: r.name, pr: r.pr }] : []));
+
+/// O trabalho entrou: todo repositório com PR tem o PR mergeado, e há pelo
+/// menos um. É o que faz a barra oferecer "Concluir" e o card ganhar o selo.
+export const merged = (ws: Workspace) => {
+  const all = prs(ws);
+  return all.length > 0 && all.every(({ pr }) => pr.state === "MERGED");
+};
 
 /// Arquivado que ainda tem um worktree só dele para devolver ao disco. O que
 /// roda no próprio clone (worktree desligado no lançador) nunca teve: a pasta

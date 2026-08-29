@@ -3,7 +3,7 @@
 /// `window.__TAURI_INTERNALS__` não existe — dentro do app não é carregado.
 import { encodeLive, encodeSnapshot } from "../relay/src/protocol";
 import * as team from "./team";
-import { hasWorktree, type Board, type Issue, type LinearStatus, type Scripts, type Workspace } from "./types";
+import { hasWorktree, type Board, type Issue, type LinearStatus, type Pr, type Scripts, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
@@ -25,7 +25,7 @@ const ws = (
   repo_name: repo,
   branch: `prometheus/${id}`,
   worktree: `~/.prometheus/worktrees/${repo}/prometheus-${id}`,
-  repos: [{ path: `/Users/gustavo/dev/${repo}`, name: repo, worktree: `~/.prometheus/worktrees/${repo}/prometheus-${id}` }],
+  repos: [{ path: `/Users/gustavo/dev/${repo}`, name: repo, worktree: `~/.prometheus/worktrees/${repo}/prometheus-${id}`, base: "origin/main", pr: null }],
   stage,
   archived: false,
   pinned: false,
@@ -37,7 +37,6 @@ const ws = (
   effort: "high",
   port: 3100,
   issue: null,
-  pr: null,
   cleaned: false,
   shared: false,
   audience: null,
@@ -70,9 +69,23 @@ const board: Board = {
       ]),
       {
         worktree: "~/.prometheus/worktrees/prometheus+njord/prometheus-portal-1217",
+        // Um PR por repositório: o do njord já entrou, o do prometheus ainda
+        // não — e é por isso que a barra não oferece "Concluir".
         repos: [
-          { path: "/Users/gustavo/dev/prometheus", name: "prometheus", worktree: "~/.prometheus/worktrees/prometheus+njord/prometheus-portal-1217/prometheus" },
-          { path: "/Users/gustavo/dev/njord", name: "njord", worktree: "~/.prometheus/worktrees/prometheus+njord/prometheus-portal-1217/njord" },
+          {
+            path: "/Users/gustavo/dev/prometheus",
+            name: "prometheus",
+            worktree: "~/.prometheus/worktrees/prometheus+njord/prometheus-portal-1217/prometheus",
+            base: "origin/main",
+            pr: { number: 51, title: "feat(portal): contratação pelo portal", isDraft: false, state: "OPEN" },
+          },
+          {
+            path: "/Users/gustavo/dev/njord",
+            name: "njord",
+            worktree: "~/.prometheus/worktrees/prometheus+njord/prometheus-portal-1217/njord",
+            base: "origin/develop",
+            pr: { number: 12, title: "feat: origem da entrada", isDraft: false, state: "MERGED" },
+          },
         ],
       },
     ),
@@ -116,6 +129,13 @@ const board: Board = {
     ),
   ],
 };
+
+// O PR é do repositório, não do workspace: o que as amostras acima escrevem
+// solto vai para o principal — o mesmo caminho do `revive` do back.
+for (const w of board.workspaces as (Workspace & { pr?: Pr | null })[]) {
+  if (w.pr) w.repos[0].pr = w.pr;
+  delete w.pr;
+}
 
 const tree: Record<string, { name: string; path: string; dir: boolean }[]> = {
   "": [
@@ -658,6 +678,8 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
           path: String(p),
           name: names[i],
           worktree: `${fresh.worktree}/${names[i]}`,
+          base: "origin/main",
+          pr: null,
         }));
       }
       fresh.agent = draft.agent;
@@ -715,10 +737,11 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     case "browser_reload":
     case "browser_close":
       return null;
-    // Só o workspace que já está em code review tem PR — é assim que se vê o
-    // botão aparecendo num e não no outro.
+    // No navegador não há `gh`: o PR que o quadro já sabe é o que ele mostra,
+    // e só o workspace em code review tem — é assim que se vê o botão
+    // aparecendo num e não no outro.
     case "pr_open":
-      return board.workspaces.find((x) => x.id === args.id)?.pr ?? null;
+      return null;
     // No navegador não há `gh`: o que o quadro já sabe é o que ele continua
     // sabendo.
     case "refresh_prs":
@@ -743,7 +766,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
           branch: x.branch,
           worktree: x.worktree,
           sizeKb: 2_900_000 - i * 700_000,
-          pr: x.pr?.number ?? null,
+          pr: x.repos.find((r) => r.pr)?.pr?.number ?? null,
           // Um bloqueado na lista é o que mostra a linha em vermelho com o
           // motivo — e ela dá para marcar assim mesmo.
           blocked: i === 1 ? 'i18n:{"args":{"n":"3"},"code":"err.cleanup.dirty"}' : null,

@@ -276,10 +276,11 @@ pub fn cleanup_list(state: State<AppState>) -> Vec<Cleanable> {
             .map(|ws| {
                 scope.spawn(move || {
                     let wt = PathBuf::from(&ws.worktree);
+                    let pr = ws.prs().next().map(|(_, p)| p.number);
                     Cleanable {
                         size_kb: size_of(&wt),
                         blocked: check(&ws).err(),
-                        pr: ws.pr.as_ref().map(|p| p.number),
+                        pr,
                         id: ws.id,
                         title: ws.title,
                         repo_name: ws.repo_name,
@@ -406,9 +407,7 @@ fn check(ws: &Workspace) -> Result<(), String> {
         if dirty > 0 {
             return Err(i18n::ta("err.cleanup.dirty", &[("n", dirty.to_string())]));
         }
-        // O PR que o quadro guarda é o do principal; os outros só têm o git.
-        let pr = (r.path == ws.repo).then_some(ws.pr.as_ref()).flatten();
-        if !merged(pr, &wt) {
+        if !merged(r.pr.as_ref(), &wt) {
             return Err(i18n::ta("err.cleanup.unmerged", &[("branch", ws.branch.clone())]));
         }
     }
@@ -600,6 +599,7 @@ pub fn create_workspace(
             name: repo_name.clone(),
             worktree: root.display().to_string(),
             base: draft.base.clone(),
+            pr: None,
         }],
         false => std::iter::once((repo_path.clone(), repo_name.clone(), draft.base.clone()))
             .chain(extras.into_iter().map(|(path, name)| {
@@ -611,6 +611,7 @@ pub fn create_workspace(
                 path: path.display().to_string(),
                 name,
                 base,
+                pr: None,
             })
             .collect(),
     };
@@ -1330,17 +1331,7 @@ pub fn workspace_diff(app: AppHandle, state: State<AppState>, id: String) -> Vec
 /// ninguém buscou, branch apagada — o ponto de partida vira o HEAD: sobra o
 /// que está fora de commit, que é melhor do que nada.
 fn repo_diff(name: &str, wt: &Path, base: &str) -> RepoDiff {
-    let since = match base.is_empty() {
-        true => String::new(),
-        false => git(wt, &["merge-base", base, "HEAD"]).trim().to_string(),
-    };
-    let (since, ahead) = match since.is_empty() {
-        true => ("HEAD".to_string(), 0),
-        false => {
-            let n = git(wt, &["rev-list", "--count", &format!("{since}..HEAD")]).trim().parse().unwrap_or(0);
-            (since, n)
-        }
-    };
+    let (since, ahead) = ahead_of(wt, base);
     let mut files = changes_since(wt, &since);
     // Fora de commit: o que o `git diff HEAD` vê. O que nem foi adicionado
     // ainda já nasce marcado em `changes_since`.
@@ -1351,6 +1342,22 @@ fn repo_diff(name: &str, wt: &Path, base: &str) -> RepoDiff {
     }
     let dirty = files.iter().filter(|f| f.dirty).count() as u32;
     RepoDiff { name: name.to_string(), base: base.to_string(), ahead, dirty, files }
+}
+
+/// De onde a branch diverge da base, e quantos commits ela tem de lá para cá.
+/// Sem base, ou sem ela no clone, o ponto é o HEAD e a conta é zero.
+fn ahead_of(wt: &Path, base: &str) -> (String, u32) {
+    let since = match base.is_empty() {
+        true => String::new(),
+        false => git(wt, &["merge-base", base, "HEAD"]).trim().to_string(),
+    };
+    match since.is_empty() {
+        true => ("HEAD".to_string(), 0),
+        false => {
+            let n = git(wt, &["rev-list", "--count", &format!("{since}..HEAD")]).trim().parse().unwrap_or(0);
+            (since, n)
+        }
+    }
 }
 
 /// Só o que está fora de commit — é o que o pedido de PR conta.
@@ -1482,7 +1489,7 @@ fn cap(patch: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{claude_args, is_terminal, patch_map, pick, pr_text, quoted, Launch, Pr, Repo};
+    use super::{multi_pr_text, RepoPr, claude_args, is_terminal, patch_map, pick, pr_text, quoted, Launch, Pr, Repo};
     use std::path::Path;
 
     fn pr(number: u64, branch: &str, state: &str) -> Pr {
@@ -1545,7 +1552,7 @@ mod tests {
             repo_name: "clone".into(),
             branch: "trabalho".into(),
             worktree: dest.display().to_string(),
-            repos: vec![Repo { path: local.display().to_string(), name: "clone".into(), worktree: dest.display().to_string(), base: String::new() }],
+            repos: vec![Repo { path: local.display().to_string(), name: "clone".into(), worktree: dest.display().to_string(), base: String::new(), pr: None }],
             stage: "Feito".into(),
             agent: String::new(),
             archived: true,
@@ -1578,7 +1585,7 @@ mod tests {
 
         // Mas o `gh` dizendo que o PR entrou é a outra resposta que serve — o
         // merge por squash não deixa a branch ancestral de nada.
-        ws.pr = Some(pr(3, "trabalho", "MERGED"));
+        ws.repos[0].pr = Some(pr(3, "trabalho", "MERGED"));
         super::check(&ws).unwrap();
 
         // Mudança fora de commit segura de qualquer jeito.
@@ -1606,7 +1613,7 @@ mod tests {
         ws.worktree = dest.display().to_string();
         let dest2 = root.join("wt2");
         super::add_worktree(&local, "trabalho-2", "origin/main", &dest2).unwrap();
-        ws.repos.push(Repo { path: local.display().to_string(), name: "clone-2".into(), worktree: dest2.display().to_string(), base: String::new() });
+        ws.repos.push(Repo { path: local.display().to_string(), name: "clone-2".into(), worktree: dest2.display().to_string(), base: String::new(), pr: None });
         super::check(&ws).unwrap();
         std::fs::write(dest2.join("d.txt"), "d").unwrap();
         assert!(super::check(&ws).unwrap_err().contains("dirty"));
@@ -1624,17 +1631,29 @@ mod tests {
         assert!(got.merged());
     }
 
+    fn repo_pr(name: &str, branch: Option<&str>, dirty: usize, ahead: u32, target: &str, upstream: bool, open: Option<u64>) -> RepoPr {
+        RepoPr {
+            name: name.into(),
+            branch: branch.map(str::to_string),
+            dirty,
+            ahead,
+            target: target.into(),
+            upstream,
+            open,
+        }
+    }
+
     /// O prompt de PR diz o estado e os passos com os nomes certos: a branch
     /// no push, o alvo sem o remoto no `--base`, e a sujeira contada.
     #[test]
     fn pr_text_diz_o_estado_e_os_passos() {
-        let t = pr_text(Some("meu/ajuste"), 3, "origin/main", false, None);
+        let t = pr_text(&repo_pr("app", Some("meu/ajuste"), 3, 2, "origin/main", false, None));
         assert!(t.contains("Há 3 arquivos"));
         assert!(t.contains("git push -u origin HEAD:meu/ajuste"));
         assert!(t.contains("gh pr create --base main"));
         assert!(t.contains("Ainda não há branch upstream."));
 
-        let limpo = pr_text(None, 0, "origin/master", true, None);
+        let limpo = pr_text(&repo_pr("app", None, 0, 0, "origin/master", true, None));
         assert!(limpo.contains("limpo"));
         assert!(limpo.contains("HEAD solto"));
         assert!(limpo.contains("--base master"));
@@ -1644,13 +1663,30 @@ mod tests {
     /// Com PR aberto o pedido é outro: atualizar o #42, e não criar um segundo.
     #[test]
     fn pr_text_com_pr_aberto_pede_atualizacao() {
-        let t = pr_text(Some("meu/ajuste"), 1, "origin/main", true, Some(42));
+        let t = pr_text(&repo_pr("app", Some("meu/ajuste"), 1, 1, "origin/main", true, Some(42)));
         assert!(t.contains("Quero atualizar o PR #42"));
         assert!(t.contains("gh pr view 42"));
         assert!(t.contains("gh pr edit 42"));
         assert!(!t.contains("gh pr create"));
         // O caminho até lá é o mesmo: commitar e empurrar continua sendo o miolo.
         assert!(t.contains("git push -u origin HEAD:meu/ajuste"));
+    }
+
+    /// Com mais de um repositório o pedido lista cada um com o que ele tem: o
+    /// que já tem PR pede atualização, o que não mudou fica sem PR, e o resto
+    /// ganha o seu — todos linkando os outros.
+    #[test]
+    fn multi_pr_text_lista_cada_repositorio() {
+        let t = multi_pr_text(&[
+            repo_pr("backend", Some("feat/x"), 2, 4, "origin/main", true, None),
+            repo_pr("portal", Some("feat/x"), 0, 1, "origin/develop", true, Some(17)),
+            repo_pr("dash", Some("feat/x"), 0, 0, "origin/main", false, None),
+        ]);
+        assert!(t.contains("reúne 3 repositórios"));
+        assert!(t.contains("`backend/` — branch `feat/x`, 4 commits além de `origin/main`, 2 arquivos fora de commit. sem PR ainda."));
+        assert!(t.contains("`portal/` — branch `feat/x`, 1 commit além de `origin/develop`, nada fora de commit. PR #17 aberto"));
+        assert!(t.contains("`dash/` — branch `feat/x`, nenhum commit além de `origin/main`, nada fora de commit, sem upstream. nada a entregar: fica sem PR."));
+        assert!(t.contains("linkar os outros PRs"));
     }
     use std::process::Command;
 
@@ -1842,7 +1878,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
             std::fs::create_dir_all(&wt).unwrap();
             // String literal do TOML: o comando tem aspas duplas dentro.
             std::fs::write(repo.join(".prometheus/settings.toml"), format!("[scripts]\nsetup = '{setup}'\n")).unwrap();
-            Repo { path: repo.display().to_string(), name: name.into(), worktree: wt.display().to_string(), base: String::new() }
+            Repo { path: repo.display().to_string(), name: name.into(), worktree: wt.display().to_string(), base: String::new(), pr: None }
         };
         let repos = vec![
             mk("back end", "echo \"$PROMETHEUS_WORKSPACE_PATH\" > saida.txt"),
@@ -2445,40 +2481,63 @@ pub fn scripts_prompt(state: State<AppState>, id: String) -> String {
 /// manda mais que este texto.
 #[tauri::command(async)]
 pub fn pr_prompt(state: State<AppState>, id: String) -> Result<String, String> {
-    let worktree = worktree_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
-    let branch = head_branch(&worktree);
-    let dirty = changes_in(&worktree).len();
-    // O alvo é o principal do remoto; sem `origin/HEAD` gravado, o de sempre.
-    let head = git(&worktree, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).trim().to_string();
-    let target = if head.is_empty() { "origin/main".to_string() } else { head };
-    let upstream = !git(&worktree, &["rev-parse", "--abbrev-ref", "@{upstream}"]).trim().is_empty();
-    // Com PR já aberto o pedido é outro: não criar de novo, e sim empurrar o
-    // que falta e conferir se o que está escrito lá ainda cobre a branch.
-    let open = branch
-        .as_deref()
-        .and_then(|b| gh_pr(&worktree, b))
-        .filter(|pr| pr.open())
-        .map(|pr| pr.number);
-    Ok(pr_text(branch.as_deref(), dirty, &target, upstream, open))
+    let repos = repos_of(&state, &id);
+    if repos.is_empty() {
+        return Err(i18n::t("err.session.noWorkspace"));
+    }
+    let states: Vec<RepoPr> = repos.iter().map(pr_state).collect();
+    Ok(match states.as_slice() {
+        [one] => pr_text(one),
+        many => multi_pr_text(many),
+    })
 }
 
-fn pr_text(branch: Option<&str>, dirty: usize, target: &str, upstream: bool, open: Option<u64>) -> String {
-    let estado = match dirty {
+/// O que o pedido de PR precisa saber de um repositório: onde a branch está,
+/// o que falta commitar, quantos commits ela tem além da base, e se já há um
+/// PR aberto para ela.
+struct RepoPr {
+    name: String,
+    branch: Option<String>,
+    dirty: usize,
+    ahead: u32,
+    target: String,
+    upstream: bool,
+    open: Option<u64>,
+}
+
+fn pr_state(r: &Repo) -> RepoPr {
+    let wt = Path::new(&r.worktree);
+    let branch = head_branch(wt);
+    let dirty = changes_in(wt).len();
+    // O alvo é o principal do remoto; sem `origin/HEAD` gravado, o de sempre.
+    let head = git(wt, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).trim().to_string();
+    let target = if head.is_empty() { "origin/main".to_string() } else { head };
+    let upstream = !git(wt, &["rev-parse", "--abbrev-ref", "@{upstream}"]).trim().is_empty();
+    // Com PR já aberto o pedido é outro: não criar de novo, e sim empurrar o
+    // que falta e conferir se o que está escrito lá ainda cobre a branch.
+    let open = branch.as_deref().and_then(|b| gh_pr(wt, b)).filter(|pr| pr.open()).map(|pr| pr.number);
+    let (_, ahead) = ahead_of(wt, &r.base);
+    RepoPr { name: r.name.clone(), branch, dirty, ahead, target, upstream, open }
+}
+
+fn pr_text(s: &RepoPr) -> String {
+    let estado = match s.dirty {
         0 => "O worktree está limpo — nada fora de commit.".to_string(),
         1 => "Há 1 arquivo com mudanças fora de commit.".to_string(),
         n => format!("Há {n} arquivos com mudanças fora de commit."),
     };
-    let onde = match branch {
+    let onde = match &s.branch {
         Some(b) => format!("A branch atual é `{b}`"),
         None => "O worktree está em HEAD solto — crie uma branch antes de commitar".to_string(),
     };
-    let up = if upstream { "A branch já tem upstream." } else { "Ainda não há branch upstream." };
-    let base = target.split_once('/').map_or(target, |(_, b)| b);
-    let push = match branch {
+    let target = &s.target;
+    let up = if s.upstream { "A branch já tem upstream." } else { "Ainda não há branch upstream." };
+    let base = target.split_once('/').map_or(target.as_str(), |(_, b)| b);
+    let push = match &s.branch {
         Some(b) => format!("git push -u origin HEAD:{b}"),
         None => "git push -u origin HEAD:<nome-da-branch>".to_string(),
     };
-    let (abertura, fim) = match open {
+    let (abertura, fim) = match s.open {
         Some(n) => (
             format!("Quero atualizar o PR #{n} desta branch."),
             format!(
@@ -2514,11 +2573,60 @@ Se algum passo falhar, pare e me pergunte."#
     )
 }
 
+/// Workspace com mais de um repositório: um PR por repo que tem o que
+/// entregar, na mesma branch, e cada descrição linkando os outros — é assim
+/// que uma funcionalidade que atravessa repositórios se revisa no GitHub.
+fn multi_pr_text(states: &[RepoPr]) -> String {
+    let lista: String = states
+        .iter()
+        .map(|s| {
+            let branch = match &s.branch {
+                Some(b) => format!("branch `{b}`"),
+                None => "HEAD solto (crie a branch antes de commitar)".to_string(),
+            };
+            let commits = match s.ahead {
+                0 => format!("nenhum commit além de `{}`", s.target),
+                1 => format!("1 commit além de `{}`", s.target),
+                n => format!("{n} commits além de `{}`", s.target),
+            };
+            let dirty = match s.dirty {
+                0 => "nada fora de commit".to_string(),
+                1 => "1 arquivo fora de commit".to_string(),
+                n => format!("{n} arquivos fora de commit"),
+            };
+            let pr = match s.open {
+                Some(n) => format!("PR #{n} aberto — atualize, não crie outro"),
+                None if s.ahead == 0 && s.dirty == 0 => "nada a entregar: fica sem PR".to_string(),
+                None => "sem PR ainda".to_string(),
+            };
+            let up = if s.upstream { "" } else { ", sem upstream" };
+            format!("- `{}/` — {branch}, {commits}, {dirty}{up}. {pr}.\n", s.name)
+        })
+        .collect();
+    format!(
+        r#"Quero abrir os PRs deste workspace. Ele reúne {n} repositórios na mesma branch, cada um com histórico próprio — e cada um leva o seu PR:
+
+{lista}
+Siga estes passos em cada repositório que tem o que entregar, entrando na pasta dele antes de cada comando de git ou gh:
+
+1. Se o repositório tiver uma skill ou comando de abrir PR (ex.: /open-pr), invoque-a nele — as instruções dela têm precedência sobre as daqui.
+2. Revise o que está fora de commit com `git status` e `git diff`, e commite seguindo as convenções daquele repositório.
+3. Empurre com `git push -u origin HEAD:<branch>`.
+4. Revise o diff inteiro da branch contra o alvo daquele repositório antes de escrever.
+5. Sem PR: crie com `gh pr create --base <alvo sem o origin/>`. Com PR aberto: confira com `gh pr view <n>` se o título e a descrição ainda cobrem tudo, e atualize com `gh pr edit <n>` se não cobrirem. Título com menos de 80 caracteres; descrição com até cinco frases, cobrindo todas as mudanças da branch naquele repositório — não só as desta conversa.
+6. Com todos abertos, edite a descrição de cada um para linkar os outros PRs deste workspace ("Parte de: <url>"): quem revisa um precisa achar o resto.
+
+Repositório sem commit além da base e sem mudança fora de commit não ganha PR.
+Se algum passo falhar, pare e me pergunte."#,
+        n = states.len()
+    )
+}
+
 /// O PR desta branch, se houver um. Quem sabe é o `gh`: é ele que está
 /// autenticado no remoto, e o app não guarda credencial de GitHub nenhuma. Sem
 /// `gh` instalado, sem login ou sem PR a resposta é a mesma — `None`, e a barra
 /// volta a oferecer o "Open PR" de sempre.
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Pr {
     pub number: u64,
@@ -2549,11 +2657,15 @@ impl Pr {
 /// abriu o workspace: `refresh_prs` varre tudo de minuto em minuto, e voltar do
 /// navegador de mergear não precisa esperar a próxima varredura.
 #[tauri::command(async)]
-pub fn pr_open(app: AppHandle, state: State<AppState>, id: String) -> Option<Pr> {
-    let worktree = worktree_of(&state, &id)?;
-    let pr = gh_pr(&worktree, &head_branch(&worktree)?);
-    remember_pr(&app, &state, &id, pr.clone());
-    pr
+pub fn pr_open(app: AppHandle, state: State<AppState>, id: String) {
+    let found: Vec<(String, Option<Pr>)> = repos_of(&state, &id)
+        .iter()
+        .map(|r| {
+            let wt = Path::new(&r.worktree);
+            (r.name.clone(), head_branch(wt).and_then(|b| gh_pr(wt, &b)))
+        })
+        .collect();
+    remember_prs(&app, &state, &id, found);
 }
 
 /// O PR de cada workspace vivo, numa pergunta por repositório em vez de uma por
@@ -2573,22 +2685,26 @@ pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
         .cloned()
         .collect();
 
-    let mut by_repo: BTreeMap<String, Vec<Workspace>> = BTreeMap::new();
-    for ws in alive {
-        by_repo.entry(ws.repo.clone()).or_default().push(ws);
+    // Uma pergunta por clone: dois workspaces do mesmo repositório, e os dois
+    // repos de um workspace, cabem na mesma resposta do `gh`.
+    let mut by_repo: BTreeMap<String, Vec<(String, String, String)>> = BTreeMap::new();
+    for ws in &alive {
+        for r in &ws.repos {
+            by_repo.entry(r.path.clone()).or_default().push((ws.id.clone(), r.name.clone(), ws.branch.clone()));
+        }
     }
 
-    let mut found: Vec<(String, Option<Pr>)> = Vec::new();
-    for (repo, list) in by_repo {
-        let prs = gh_prs(Path::new(&repo));
+    let mut found: Vec<(String, String, Option<Pr>)> = Vec::new();
+    for (path, list) in by_repo {
+        let prs = gh_prs(Path::new(&path));
         // Sem `gh`, sem login ou sem rede a resposta é vazia — e aí não se
         // apaga o que já se sabia: PR que existia não deixou de existir porque
         // o wifi caiu.
         if prs.is_empty() {
             continue;
         }
-        for ws in list {
-            found.push((ws.id, pick(&prs, &ws.branch)));
+        for (id, name, branch) in list {
+            found.push((id, name, pick(&prs, &branch)));
         }
     }
 
@@ -2597,14 +2713,14 @@ pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
     let mut moved = false;
     {
         let mut board = lock(&state.board);
-        for (id, pr) in found {
-            if let Some(ws) = board.workspace_mut(&id) {
-                if same(ws.pr.as_ref(), pr.as_ref()) {
-                    continue;
-                }
-                ws.pr = pr;
-                moved = true;
+        for (id, name, pr) in found {
+            let Some(ws) = board.workspace_mut(&id) else { continue };
+            let Some(r) = ws.repos.iter_mut().find(|r| r.name == name) else { continue };
+            if same(r.pr.as_ref(), pr.as_ref()) {
+                continue;
             }
+            r.pr = pr;
+            moved = true;
         }
     }
     if moved {
@@ -2620,19 +2736,30 @@ fn same(a: Option<&Pr>, b: Option<&Pr>) -> bool {
     }
 }
 
-/// Guarda no quadro o que o `gh` respondeu. Resposta vazia com PR já conhecido
-/// é `gh` mudo — sem rede, sem login —, e esquecer o PR por causa disso faria o
-/// botão da barra piscar entre "Atualizar PR" e "Open PR".
-fn remember_pr(app: &AppHandle, state: &State<AppState>, id: &str, pr: Option<Pr>) {
+/// Guarda no quadro o que o `gh` respondeu para cada repositório. Resposta
+/// vazia com PR já conhecido é `gh` mudo — sem rede, sem login —, e esquecer o
+/// PR por causa disso faria o botão da barra piscar entre "Atualizar PR" e
+/// "Open PR".
+fn remember_prs(app: &AppHandle, state: &State<AppState>, id: &str, found: Vec<(String, Option<Pr>)>) {
+    let mut moved = false;
     {
         let mut board = lock(&state.board);
         let Some(ws) = board.workspace_mut(id) else { return };
-        if pr.is_none() && ws.pr.is_some() {
-            return;
+        for (name, pr) in found {
+            let Some(r) = ws.repos.iter_mut().find(|r| r.name == name) else { continue };
+            if pr.is_none() && r.pr.is_some() {
+                continue;
+            }
+            if same(r.pr.as_ref(), pr.as_ref()) {
+                continue;
+            }
+            r.pr = pr;
+            moved = true;
         }
-        ws.pr = pr;
     }
-    publish(app);
+    if moved {
+        publish(app);
+    }
 }
 
 /// Entre os PRs do repositório, o desta branch: um aberto manda mais que um
@@ -2666,17 +2793,20 @@ fn gh_list(dir: &Path, extra: &[&str]) -> Vec<Pr> {
     serde_json::from_slice::<Vec<Pr>>(&out.stdout).unwrap_or_default()
 }
 
-/// Abre no navegador o PR desta branch. Quem descobre a URL é o `gh`, e é ele
+/// Abre no navegador o PR desta branch num repositório do workspace — o que a
+/// tela pediu pelo nome, ou o principal. Quem descobre a URL é o `gh`, e é ele
 /// mesmo quem abre — assim nenhuma URL atravessa o IPC, em direção nenhuma.
 #[tauri::command(async)]
-pub fn open_pr(state: State<AppState>, id: String) -> Result<(), String> {
+pub fn open_pr(state: State<AppState>, id: String, repo: String) -> Result<(), String> {
     let ws = workspace_copy(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
-    // Com o worktree devolvido, quem tem o número é o quadro e quem abre é o
-    // `gh` de dentro do clone: PR mergeado continua sendo lugar aonde se volta.
-    let main = ws.primary();
-    let (dir, what) = match (ws.cleaned, ws.pr.as_ref()) {
-        (false, _) => (main.worktree.clone(), head_branch(Path::new(&main.worktree)).ok_or_else(|| i18n::t("err.session.noPr"))?),
-        (true, Some(pr)) => (ws.repo.clone(), pr.number.to_string()),
+    let r = ws.repos.iter().find(|r| r.name == repo).cloned().unwrap_or_else(|| ws.primary());
+    // Com o número gravado no quadro, é ele que abre — inclusive com o worktree
+    // devolvido, quando o `gh` roda de dentro do clone: PR mergeado continua
+    // sendo lugar aonde se volta. Sem número, a branch do worktree responde.
+    let (dir, what) = match (ws.cleaned, r.pr.as_ref()) {
+        (false, None) => (r.worktree.clone(), head_branch(Path::new(&r.worktree)).ok_or_else(|| i18n::t("err.session.noPr"))?),
+        (false, Some(pr)) => (r.worktree.clone(), pr.number.to_string()),
+        (true, Some(pr)) => (r.path.clone(), pr.number.to_string()),
         (true, None) => return Err(i18n::t("err.session.noPr")),
     };
     let ok = Command::new("gh")
