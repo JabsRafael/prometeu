@@ -9,6 +9,10 @@ import type { Board, Issue, IssueRef } from "./types";
 
 export type Draft = {
   project: string;
+  /// Os outros repositórios do workspace, quando a funcionalidade atravessa
+  /// mais de um: cada um ganha um worktree na mesma branch, ao lado do do
+  /// `project`. Só com worktree — é a pasta que os reúne que o agente abre.
+  extras: string[];
   branch: string;
   /// De onde a branch nova sai. Vazio só enquanto a lista não chegou.
   base: string;
@@ -174,6 +178,7 @@ export function openLauncher(board: Board, opts: Open) {
 
   const draft: Draft = {
     project: preset ?? board.projects[0].id,
+    extras: [],
     branch: seed?.branch_name || `prometheus/${stamp()}`,
     base: "",
     worktree: localStorage.getItem(WORKTREE_KEY) !== "0",
@@ -195,7 +200,7 @@ export function openLauncher(board: Board, opts: Open) {
   sheet.className = "sheet";
   sheet.innerHTML = `
     <div class="sheettop">
-      <span class="who"><span id="d-avatar"></span><button id="d-project" class="ghost pick"><span></span>${icon("chevron-down", 12)}</button></span>
+      <span class="who"><span id="d-avatar"></span><button id="d-project" class="ghost pick"><span></span>${icon("chevron-down", 12)}</button><button id="d-more" class="ico sm" data-t-title="launcher.addRepo">${icon("plus", 14)}</button></span>
       <button id="d-base" class="ghost base" data-t-title="launcher.base.title">
         ${icon("git-branch", 12)}<span id="d-basename"></span>${icon("chevron-down", 12)}
       </button>
@@ -213,6 +218,7 @@ export function openLauncher(board: Board, opts: Open) {
     <div class="picker" id="d-picker" hidden></div>
     <div class="picker" id="d-ipicker" hidden></div>
     <textarea id="d-prompt" rows="6"></textarea>
+    <div class="attach" id="d-repos" hidden></div>
     <div class="attach" id="d-issue" hidden></div>
     <div class="attach" id="d-inj" hidden></div>
     <div class="sheetbar">
@@ -229,21 +235,72 @@ export function openLauncher(board: Board, opts: Open) {
   const prompt = $<HTMLTextAreaElement>("d-prompt");
   const hint = $("d-hint");
 
-  const projectName = () => board.projects.find((p) => p.id === draft.project)?.name ?? "";
+  const nameOf = (id: string) => board.projects.find((p) => p.id === id)?.name ?? "";
+  const projectName = () => nameOf(draft.project);
   const drawHint = () => {
     $("d-avatar").innerHTML = avatar(projectName());
     const from = draft.base ? ` ← ${draft.base}` : "";
     const onde = !draft.newBranch
       ? t("launcher.hint.here")
-      : t(draft.worktree ? "launcher.hint.worktree" : "launcher.hint.switch", {
-          branch: draft.branch,
-          from,
-        });
+      : t(
+          draft.extras.length ? "launcher.hint.multi" : draft.worktree ? "launcher.hint.worktree" : "launcher.hint.switch",
+          { branch: draft.branch, from },
+        );
 
-    hint.title = `${projectName()} · ${onde}`;
+    const names = [draft.project, ...draft.extras].map(nameOf).join(" + ");
+    hint.title = `${names} · ${onde}`;
     hint.textContent = onde;
   };
   drawHint();
+
+  /* ---------- mais de um repositório ---------- */
+
+  // Uma funcionalidade que atravessa dois repos é um workspace só: o agente
+  // abre uma pasta com um worktree de cada, na mesma branch. Os outros repos
+  // ficam à vista como chips, do lado do principal — e o + só oferece o que
+  // ainda não está nele.
+  const more = $<HTMLButtonElement>("d-more");
+  const reposBox = $("d-repos");
+  const others = () => board.projects.filter((p) => p.id !== draft.project && !draft.extras.includes(p.id));
+  const drawExtras = () => {
+    more.hidden = board.projects.length < 2;
+    more.disabled = !others().length;
+    more.title = t(others().length ? "launcher.addRepo" : "launcher.addRepo.none");
+    reposBox.hidden = !draft.extras.length;
+    reposBox.replaceChildren(
+      ...draft.extras.map((id) => {
+        const chip = h("span", "injchip repo", `${icon("git-branch", 12)}<span></span><button class="ico sm">${icon("x", 12)}</button>`);
+        chip.children[1].textContent = nameOf(id);
+        (chip.children[2] as HTMLElement).title = t("launcher.removeRepo", { name: nameOf(id) });
+        chip.children[2].addEventListener("click", () => {
+          draft.extras = draft.extras.filter((x) => x !== id);
+          drawExtras();
+          drawSwitches();
+          prompt.focus();
+        });
+        return chip;
+      }),
+    );
+  };
+  more.addEventListener("click", () => {
+    const at = more.getBoundingClientRect();
+    menu.openAt(
+      { x: at.left, y: at.bottom + 4 },
+      others().map((p) => ({
+        label: p.name,
+        run: () => {
+          draft.extras.push(p.id);
+          // Dois repos só cabem num worktree: é a pasta que os reúne que o
+          // agente abre, e clone espalhado não tem uma.
+          draft.worktree = true;
+          draft.newBranch = true;
+          drawExtras();
+          drawSwitches();
+          prompt.focus();
+        },
+      })),
+    );
+  });
 
   /* ---------- worktree e branch: as duas chavinhas ---------- */
 
@@ -263,7 +320,8 @@ export function openLauncher(board: Board, opts: Open) {
     }
     nb.disabled = draft.worktree;
     nb.title = t(draft.worktree ? "launcher.nb.locked" : "launcher.nb.off");
-    wt.title = t(draft.worktree ? "launcher.wt.on" : "launcher.wt.off");
+    wt.disabled = draft.extras.length > 0;
+    wt.title = t(draft.extras.length ? "launcher.wt.locked" : draft.worktree ? "launcher.wt.on" : "launcher.wt.off");
     // Sem branch nova não há de onde sair.
     baseBtn.disabled = !draft.newBranch || !branches.length;
     if (!draft.newBranch) basePick.close();
@@ -486,12 +544,16 @@ export function openLauncher(board: Board, opts: Open) {
     () => draft.project,
     (id) => {
       draft.project = id;
+      // O principal não pode estar também entre os outros.
+      draft.extras = draft.extras.filter((x) => x !== id);
       basePick.close();
       loadBranches();
+      drawExtras();
       drawHint();
       prompt.focus();
     },
   );
+  drawExtras();
   drawSwitches();
   loadBranches();
   setSeed(seed);

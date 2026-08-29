@@ -1,5 +1,5 @@
 use crate::lock::lock;
-use crate::state::{publish, Board, Project, Status, Tab, Workspace};
+use crate::state::{publish, Board, Project, Repo, Status, Tab, Workspace};
 use crate::{chat, i18n, paths, pty, scripts, AppState};
 use portable_pty::CommandBuilder;
 use std::collections::BTreeMap;
@@ -104,7 +104,7 @@ fn archive(state: &State<AppState>, id: &str, archived: bool) {
         if let Some(ws) = workspace_copy(state, id) {
             if let Some(command) = scripts_of(&ws).archive {
                 let mut cmd = Command::new("/bin/sh");
-                cmd.args(["-lc", &command]).current_dir(&ws.worktree);
+                cmd.args(["-lc", &command]).current_dir(&ws.primary().worktree);
                 for (key, value) in script_env(&ws) {
                     cmd.env(key, value);
                 }
@@ -335,38 +335,46 @@ pub fn cleanup_worktree(
         .unwrap_or_default();
     stop(&state, &dead);
 
-    let repo = PathBuf::from(&ws.repo);
-    let wt = PathBuf::from(&ws.worktree);
-    if wt.exists() {
-        // `--force` porque o que sobrou é o que o `.gitignore` esconde:
-        // `node_modules`, `target`, `.env` — e, quando a pessoa marcou o
-        // vermelho, também a mudança fora de commit que ela decidiu perder.
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(&repo)
-            .args(["worktree", "remove", "--force"])
-            .arg(&wt)
-            .output()
-            .map_err(|e| i18n::ta("err.git.spawn", &[("cause", e.to_string())]))?;
-        if !out.status.success() {
-            return Err(i18n::ta(
-                "err.git",
-                &[
-                    ("command", "git worktree remove".into()),
-                    ("cause", String::from_utf8_lossy(&out.stderr).trim().to_string()),
-                ],
-            ));
+    // Um worktree por repositório, e cada um sai do seu clone.
+    for r in &ws.repos {
+        let repo = PathBuf::from(&r.path);
+        let wt = PathBuf::from(&r.worktree);
+        if wt.exists() {
+            // `--force` porque o que sobrou é o que o `.gitignore` esconde:
+            // `node_modules`, `target`, `.env` — e, quando a pessoa marcou o
+            // vermelho, também a mudança fora de commit que ela decidiu perder.
+            let out = Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(["worktree", "remove", "--force"])
+                .arg(&wt)
+                .output()
+                .map_err(|e| i18n::ta("err.git.spawn", &[("cause", e.to_string())]))?;
+            if !out.status.success() {
+                return Err(i18n::ta(
+                    "err.git",
+                    &[
+                        ("command", "git worktree remove".into()),
+                        ("cause", String::from_utf8_lossy(&out.stderr).trim().to_string()),
+                    ],
+                ));
+            }
         }
+        // `-D` e não `-d`: sem `force` a branch já não tem nada que o alvo não
+        // tenha, e com `force` perdê-la é justamente o que foi marcado. Se o git
+        // recusar — ela está em check-out em outro lugar —, o worktree já foi e o
+        // trabalho aqui está feito: uma branch a mais no repositório não é motivo
+        // para devolver erro a quem só queria o disco de volta.
+        if !ws.branch.is_empty() {
+            let _ = git(&repo, &["branch", "-D", &ws.branch]);
+        }
+        let _ = git(&repo, &["worktree", "prune"]);
     }
-    // `-D` e não `-d`: sem `force` a branch já não tem nada que o alvo não
-    // tenha, e com `force` perdê-la é justamente o que foi marcado. Se o git
-    // recusar — ela está em check-out em outro lugar —, o worktree já foi e o
-    // trabalho aqui está feito: uma branch a mais no repositório não é motivo
-    // para devolver erro a quem só queria o disco de volta.
-    if !ws.branch.is_empty() {
-        let _ = git(&repo, &["branch", "-D", &ws.branch]);
+    // A pasta que reunia os worktrees é do Prometheus: sem eles, só sobra o
+    // que o app escreveu nela, e ela vai junto.
+    if ws.multi() {
+        let _ = std::fs::remove_dir_all(&ws.worktree);
     }
-    let _ = git(&repo, &["worktree", "prune"]);
 
     {
         let mut board = lock(&state.board);
@@ -387,18 +395,24 @@ pub fn cleanup_worktree(
 /// só acertar o quadro.
 fn check(ws: &Workspace) -> Result<(), String> {
     hard(ws)?;
-    let wt = PathBuf::from(&ws.worktree);
-    if !wt.exists() {
-        return Ok(());
+    // Cada repositório responde por si, e basta um segurar para nenhum sair:
+    // os worktrees são de um trabalho só, e devolver metade dele não é limpar.
+    for r in &ws.repos {
+        let wt = PathBuf::from(&r.worktree);
+        if !wt.exists() {
+            continue;
+        }
+        let dirty = git(&wt, &["status", "--porcelain"]).lines().count();
+        if dirty > 0 {
+            return Err(i18n::ta("err.cleanup.dirty", &[("n", dirty.to_string())]));
+        }
+        // O PR que o quadro guarda é o do principal; os outros só têm o git.
+        let pr = (r.path == ws.repo).then_some(ws.pr.as_ref()).flatten();
+        if !merged(pr, &wt) {
+            return Err(i18n::ta("err.cleanup.unmerged", &[("branch", ws.branch.clone())]));
+        }
     }
-    let dirty = git(&wt, &["status", "--porcelain"]).lines().count();
-    if dirty > 0 {
-        return Err(i18n::ta("err.cleanup.dirty", &[("n", dirty.to_string())]));
-    }
-    if merged(ws, &wt) {
-        return Ok(());
-    }
-    Err(i18n::ta("err.cleanup.unmerged", &[("branch", ws.branch.clone())]))
+    Ok(())
 }
 
 /// As duas guardas que `force` não levanta: nem a pessoa mais decidida quer
@@ -420,8 +434,8 @@ fn hard(ws: &Workspace) -> Result<(), String> {
 /// o PR mergeou, ou o git dizendo que o que está aqui já é ancestral do alvo —
 /// que é o que sobra quando o merge foi por fora do GitHub, ou o `gh` não
 /// existe nesta máquina.
-fn merged(ws: &Workspace, wt: &Path) -> bool {
-    if ws.pr.as_ref().is_some_and(|pr| pr.merged()) {
+fn merged(pr: Option<&Pr>, wt: &Path) -> bool {
+    if pr.is_some_and(|pr| pr.merged()) {
         return true;
     }
     let head = git(wt, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).trim().to_string();
@@ -453,6 +467,12 @@ fn size_of(wt: &Path) -> u64 {
 #[serde(rename_all = "camelCase")]
 pub struct Draft {
     project: String,
+    /// Os outros repositórios do workspace, quando a funcionalidade atravessa
+    /// mais de um: cada um ganha um worktree na mesma branch, lado a lado com
+    /// o do `project`. Só existe com `worktree` ligado — o agente precisa de
+    /// uma pasta que contenha todos, e clones espalhados não têm uma.
+    #[serde(default)]
+    extras: Vec<String>,
     /// Vazia é a escolha de não criar branch nenhuma.
     branch: String,
     /// De onde a branch nova sai.
@@ -530,14 +550,23 @@ pub fn create_workspace(
     rows: u16,
 ) -> Result<Workspace, String> {
     let repo_path = PathBuf::from(expand(&draft.project));
-    if !repo_path.join(".git").exists() {
-        return Err(i18n::ta("err.session.notGit", &[("path", repo_path.display().to_string())]));
+    let repo_name = repo_named(&repo_path)?;
+
+    // Os outros repositórios, conferidos do mesmo jeito. Dois clones com a
+    // mesma pasta de nome cairiam no mesmo worktree, e o principal repetido
+    // seria o mesmo repo duas vezes: os dois são erro, não dedução.
+    let mut extras: Vec<(PathBuf, String)> = Vec::new();
+    for extra in &draft.extras {
+        let path = PathBuf::from(expand(extra));
+        let name = repo_named(&path)?;
+        if path == repo_path || extras.iter().any(|(p, n)| *p == path || *n == name) {
+            return Err(i18n::ta("err.session.dupRepo", &[("name", name)]));
+        }
+        extras.push((path, name));
     }
-    let repo_name = repo_path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .ok_or_else(|| i18n::t("err.session.badPath"))?
-        .to_string();
+    if !extras.is_empty() && !draft.worktree {
+        return Err(i18n::t("err.session.extrasNeedWorktree"));
+    }
 
     // Branch vazia é a escolha de não criar branch nenhuma: a sessão abre no
     // repositório onde ele estiver. Worktree, esse, sempre precisa de uma —
@@ -547,11 +576,30 @@ pub fn create_workspace(
     // da branch, e a branch ou veio digitada ou é o HEAD do clone. Dá para
     // saber os dois antes de existir pasta nenhuma, e é isso que deixa o card
     // nascer já com o nome e o caminho certos.
+    //
+    // Com mais de um repositório, a raiz é uma pasta que reúne o worktree de
+    // cada um: é nela que o agente roda, e é ela que a árvore mostra.
     let (root, branch) = match (draft.worktree, draft.branch.trim().is_empty()) {
         (true, true) => return Err(i18n::t("err.session.worktreeNeedsBranch")),
-        (true, false) => (paths::worktree_dir(&repo_name, &draft.branch), draft.branch.clone()),
+        (true, false) if extras.is_empty() => (paths::worktree_dir(&repo_name, &draft.branch), draft.branch.clone()),
+        (true, false) => {
+            let names: Vec<String> =
+                std::iter::once(repo_name.clone()).chain(extras.iter().map(|(_, n)| n.clone())).collect();
+            (paths::multi_dir(&names, &draft.branch), draft.branch.clone())
+        }
         (false, false) => (repo_path.clone(), draft.branch.clone()),
         (false, true) => (repo_path.clone(), head_branch(&repo_path).unwrap_or_else(|| "HEAD".into())),
+    };
+    let repos: Vec<Repo> = match extras.is_empty() {
+        true => vec![Repo { path: repo_path.display().to_string(), name: repo_name.clone(), worktree: root.display().to_string() }],
+        false => std::iter::once((repo_path.clone(), repo_name.clone()))
+            .chain(extras)
+            .map(|(path, name)| Repo {
+                worktree: root.join(&name).display().to_string(),
+                path: path.display().to_string(),
+                name,
+            })
+            .collect(),
     };
 
     // A porta sai antes de qualquer script, porque é ela que o `setup` e o `run`
@@ -572,6 +620,7 @@ pub fn create_workspace(
         repo_name,
         branch,
         worktree: root.display().to_string(),
+        repos,
         stage: draft.stage.clone(),
         archived: false,
         pinned: false,
@@ -633,16 +682,31 @@ fn prepare(app: &AppHandle, id: &str, draft: Draft, cols: u16, rows: u16) {
 
 fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Result<(), String> {
     let state = app.state::<AppState>();
-    let (repo, root, branch) = {
+    let (repo, root, branch, repos) = {
         let board = lock(&state.board);
         let ws = board.workspaces.iter().find(|w| w.id == id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
-        (PathBuf::from(&ws.repo), PathBuf::from(&ws.worktree), ws.branch.clone())
+        (PathBuf::from(&ws.repo), PathBuf::from(&ws.worktree), ws.branch.clone(), ws.repos.clone())
     };
 
     // A pasta. É o segundo que se sentia ao criar, e é por isso que ele mora
     // aqui atrás e não entre o clique e a resposta.
+    //
+    // Com mais de um repositório é um worktree por repo, todos na mesma
+    // branch. A base escolhida no lançador é do principal — a lista de
+    // branches era dele —, e nos outros a branch nova sai do que cada um tem
+    // como principal (`origin/main`, ou o que o clone gravou). Branch que já
+    // existe no repo ignora a base de qualquer jeito.
     if draft.worktree {
-        add_worktree(&repo, &branch, &draft.base, &root)?;
+        for r in &repos {
+            let base = match r.path == repo.display().to_string() {
+                true => draft.base.clone(),
+                false => default_base(Path::new(&r.path)),
+            };
+            add_worktree(Path::new(&r.path), &branch, &base, Path::new(&r.worktree))?;
+        }
+        if repos.len() > 1 {
+            describe_root(&root, &repos, &branch);
+        }
     } else if !draft.branch.trim().is_empty() {
         switch_branch(&repo, &branch, &draft.base)?;
     }
@@ -1073,6 +1137,51 @@ fn has_commit(repo: &Path, reference: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// O nome de um clone, conferindo antes que ele é um repositório git.
+fn repo_named(path: &Path) -> Result<String, String> {
+    if !path.join(".git").exists() {
+        return Err(i18n::ta("err.session.notGit", &[("path", path.display().to_string())]));
+    }
+    path.file_name()
+        .and_then(|s| s.to_str())
+        .map(str::to_string)
+        .ok_or_else(|| i18n::t("err.session.badPath"))
+}
+
+/// O que um agente encontra ao abrir a pasta de um workspace com mais de um
+/// repositório: qual é qual, e que todos estão na mesma branch. O Claude Code
+/// lê `CLAUDE.md` de onde roda e o Codex lê `AGENTS.md`; os dois recebem o
+/// mesmo texto. Nunca sobrescreve — a pessoa pode ter escrito o dela.
+fn describe_root(root: &Path, repos: &[Repo], branch: &str) {
+    let list: String = repos
+        .iter()
+        .map(|r| format!("- `{}/` — {} `{}`\n", r.name, i18n::pick("clone em", "clone at"), r.path))
+        .collect();
+    let text = i18n::pick(
+        &format!(
+            "# Workspace com {} repositórios\n\nEsta pasta reúne um worktree por repositório, todos na branch `{branch}`:\n\n{list}\nCada um é um repositório git independente: commits, `git status` e PRs são por pasta. Leia o `CLAUDE.md` ou `AGENTS.md` de cada um antes de mexer nele.\n",
+            repos.len()
+        ),
+        &format!(
+            "# Workspace with {} repositories\n\nThis folder holds one worktree per repository, all on branch `{branch}`:\n\n{list}\nEach one is an independent git repository: commits, `git status` and PRs are per folder. Read each one's `CLAUDE.md` or `AGENTS.md` before working on it.\n",
+            repos.len()
+        ),
+    );
+    for name in ["CLAUDE.md", "AGENTS.md"] {
+        let file = root.join(name);
+        if !file.exists() {
+            let _ = std::fs::write(&file, &text);
+        }
+    }
+}
+
+/// De onde uma branch nova sai neste repositório quando ninguém escolheu:
+/// `origin/HEAD` como o clone gravou, senão os nomes de sempre, senão a branch
+/// em que ele está. É a mesma conta que encabeça a lista do lançador.
+fn default_base(repo: &Path) -> String {
+    list_branches(repo.display().to_string()).default
+}
+
 /// As branches do repositório, para o lançador escolher de onde a nova sai.
 /// Mais recente primeiro: a que você mexeu ontem é a que você quer hoje.
 #[derive(serde::Serialize)]
@@ -1243,7 +1352,8 @@ fn cap(patch: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{claude_args, is_terminal, patch_map, pick, pr_text, Launch, Pr};
+    use super::{claude_args, is_terminal, patch_map, pick, pr_text, quoted, Launch, Pr, Repo};
+    use std::path::Path;
 
     fn pr(number: u64, branch: &str, state: &str) -> Pr {
         Pr {
@@ -1305,6 +1415,7 @@ mod tests {
             repo_name: "clone".into(),
             branch: "trabalho".into(),
             worktree: dest.display().to_string(),
+            repos: vec![Repo { path: local.display().to_string(), name: "clone".into(), worktree: dest.display().to_string() }],
             stage: "Feito".into(),
             agent: String::new(),
             archived: true,
@@ -1359,6 +1470,16 @@ mod tests {
         // O próprio clone também não sai por `force` nenhum.
         ws.worktree = ws.repo.clone();
         assert!(super::hard(&ws).unwrap_err().contains("isRepo"));
+
+        // Com um segundo repositório, ele responde pelas mesmas guardas: um
+        // commit fora do alvo *nele* segura o workspace inteiro.
+        ws.worktree = dest.display().to_string();
+        let dest2 = root.join("wt2");
+        super::add_worktree(&local, "trabalho-2", "origin/main", &dest2).unwrap();
+        ws.repos.push(Repo { path: local.display().to_string(), name: "clone-2".into(), worktree: dest2.display().to_string() });
+        super::check(&ws).unwrap();
+        std::fs::write(dest2.join("d.txt"), "d").unwrap();
+        assert!(super::check(&ws).unwrap_err().contains("dirty"));
 
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -1569,6 +1690,80 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// O `setup` de cada repo entra num subshell com o caminho entre aspas:
+    /// pasta com espaço ou apóstrofo não pode virar dois argumentos.
+    #[test]
+    fn quoted_aguenta_espaco_e_apostrofo() {
+        assert_eq!(quoted("/a b"), "'/a b'");
+        assert_eq!(quoted("/d'x"), "'/d'\\''x'");
+    }
+
+    /// Dois repos, cada um com o seu `setup`: o comando composto roda um depois
+    /// do outro, cada um no seu worktree e vendo as suas variáveis — provado
+    /// rodando o comando de verdade num `sh` e lendo o que cada um escreveu.
+    #[test]
+    fn setup_de_varios_repos_roda_cada_um_na_sua_pasta() {
+        let root = std::env::temp_dir().join(format!("prometheus-multi-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mk = |name: &str, setup: &str| {
+            let repo = root.join("clones").join(name);
+            let wt = root.join("ws").join(name);
+            std::fs::create_dir_all(repo.join(".prometheus")).unwrap();
+            std::fs::create_dir_all(&wt).unwrap();
+            // String literal do TOML: o comando tem aspas duplas dentro.
+            std::fs::write(repo.join(".prometheus/settings.toml"), format!("[scripts]\nsetup = '{setup}'\n")).unwrap();
+            Repo { path: repo.display().to_string(), name: name.into(), worktree: wt.display().to_string() }
+        };
+        let repos = vec![
+            mk("back end", "echo \"$PROMETHEUS_WORKSPACE_PATH\" > saida.txt"),
+            mk("front", "echo \"$PROMETHEUS_ROOT_PATH:$PORT\" > saida.txt"),
+        ];
+        let ws = super::Workspace {
+            id: "w".into(),
+            title: "t".into(),
+            project: repos[0].path.clone(),
+            repo: repos[0].path.clone(),
+            repo_name: repos[0].name.clone(),
+            branch: "b".into(),
+            worktree: root.join("ws").display().to_string(),
+            repos: repos.clone(),
+            stage: "Fazendo".into(),
+            agent: String::new(),
+            archived: false,
+            pinned: false,
+            unread: false,
+            pr: None,
+            cleaned: false,
+            shared: false,
+            audience: None,
+            preparing: false,
+            failed: None,
+            model: String::new(),
+            effort: String::new(),
+            port: Some(3100),
+            issue: None,
+            tabs: Vec::new(),
+            active: None,
+        };
+
+        let (header, command) = super::multi_setup(&ws).unwrap();
+        // Nenhum dos dois declara cópia: não há cabeçalho.
+        assert!(header.is_none());
+        let out = Command::new("/bin/sh").args(["-c", &command]).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let read = |r: &Repo| std::fs::read_to_string(Path::new(&r.worktree).join("saida.txt")).unwrap();
+        assert_eq!(read(&repos[0]).trim(), repos[0].worktree);
+        assert_eq!(read(&repos[1]).trim(), format!("{}:3100", repos[1].path));
+
+        // Só um com setup ainda é uma aba; nenhum, não.
+        std::fs::remove_file(Path::new(&repos[1].path).join(".prometheus/settings.toml")).unwrap();
+        assert!(super::multi_setup(&ws).unwrap().1.contains("back end"));
+        std::fs::remove_file(Path::new(&repos[0].path).join(".prometheus/settings.toml")).unwrap();
+        assert!(super::multi_setup(&ws).is_none());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn separa_um_patch_por_arquivo() {
         let map = patch_map(DIFF);
@@ -1657,7 +1852,7 @@ fn inside(root: &Path, rel: &str) -> Result<PathBuf, String> {
 /// grande custa caro e quase nunca é olhada além do primeiro galho.
 #[tauri::command]
 pub fn list_dir(state: State<AppState>, id: String, rel: String) -> Vec<Entry> {
-    let Some(root) = worktree_of(&state, &id) else { return Vec::new() };
+    let Some(root) = cwd_of(&state, &id) else { return Vec::new() };
     // Não deixa `..` no caminho escapar do worktree.
     let Ok(dir) = inside(&root, &rel) else { return Vec::new() };
 
@@ -1687,7 +1882,7 @@ pub fn list_dir(state: State<AppState>, id: String, rel: String) -> Vec<Entry> {
 /// arquivo enorme viram erro legível em vez de travar a webview.
 #[tauri::command]
 pub fn read_file(state: State<AppState>, id: String, rel: String) -> Result<String, String> {
-    let root = worktree_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+    let root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
     let file = inside(&root, &rel)?;
     let meta = std::fs::metadata(&file).map_err(i18n::io)?;
     if meta.len() > 2 * 1024 * 1024 {
@@ -1784,6 +1979,9 @@ fn start_setup(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
+    if ws.multi() {
+        return start_multi_setup(app, state, ws, cols, rows);
+    }
     let found = scripts_of(ws);
     let notes = scripts::hydrate(Path::new(&ws.worktree), Path::new(&ws.repo), &found.copy);
     let report = scripts::report(&notes);
@@ -1794,6 +1992,70 @@ fn start_setup(
     let script =
         Script { kind: "setup", command: found.setup.as_deref().unwrap_or("true"), header: report };
     start_script(app, state, ws, script, cols, rows)
+}
+
+/// A aba Setup de um workspace com mais de um repositório: a cópia e o `setup`
+/// de cada um, em sequência, no mesmo terminal. Uma aba só porque é uma espera
+/// só — a primeira fala do agente sai quando o último terminar —, e porque o
+/// que se quer ler ali é "o ambiente está de pé", não um log por repo. O
+/// primeiro que falhar para a fila: o código de saída é o dele, e o cabeçalho
+/// diz em qual repo parou.
+fn start_multi_setup(
+    app: &AppHandle,
+    state: &State<AppState>,
+    ws: &Workspace,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    let (header, command) = multi_setup(ws).ok_or_else(|| {
+        let holes = [("kind", "setup".to_string()), ("file", scripts::FILES[0].to_string())];
+        i18n::ta("err.dock.noScript", &holes)
+    })?;
+    let script = Script { kind: "setup", command: &command, header };
+    start_script(app, state, ws, script, cols, rows)
+}
+
+/// O que a aba Setup de vários repositórios mostra e roda: o cabeçalho com o
+/// que cada um recebeu do clone, e um comando só com o `setup` de cada um em
+/// sequência. `None` é nenhum repo ter setup nem cópia — não há aba a abrir.
+/// Fora do `start_multi_setup` para o teste conferir o comando sem pty.
+fn multi_setup(ws: &Workspace) -> Option<(Option<String>, String)> {
+    let mut header = String::new();
+    let mut steps: Vec<String> = Vec::new();
+    for r in &ws.repos {
+        let found = scripts::read_for(Path::new(&r.worktree), Path::new(&r.path));
+        let notes = scripts::hydrate(Path::new(&r.worktree), Path::new(&r.path), &found.copy);
+        if let Some(report) = scripts::report(&notes) {
+            header.push_str(&format!("\x1b[1m{}\x1b[0m\r\n{report}", r.name));
+        }
+        let Some(setup) = found.setup else { continue };
+        // Cada `setup` roda num subshell, no seu worktree e com as variáveis
+        // apontando para ele — o comando entra como está, do mesmo jeito que
+        // entraria sozinho num `sh -lc`.
+        let env: String = scripts::env(Path::new(&r.worktree), Path::new(&r.path), &script_name(ws), ws.port)
+            .into_iter()
+            .map(|(k, v)| format!("export {k}={}; ", quoted(&v)))
+            .collect();
+        steps.push(format!(
+            "(printf '\\n\\033[1m── {} ──\\033[0m\\n'; cd {} && {env}{setup})",
+            r.name,
+            quoted(&r.worktree)
+        ));
+    }
+    if steps.is_empty() && header.is_empty() {
+        return None;
+    }
+    let command = match steps.is_empty() {
+        true => "true".to_string(),
+        false => steps.join(" && "),
+    };
+    Some(((!header.is_empty()).then_some(header), command))
+}
+
+/// Um caminho ou valor entre aspas simples, do jeito que o `sh` lê: o único
+/// caractere que precisa de cuidado é a própria aspa.
+fn quoted(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 /// O que subir num pty do dock: qual aba, o que rodar nela, e o que o Prometheus
@@ -1828,7 +2090,9 @@ fn start_script(
     // perfil de login exporta, e o app pode ter nascido do Finder.
     let mut cmd = CommandBuilder::new("/bin/sh");
     cmd.args(["-lc", command]);
-    cmd.cwd(&ws.worktree);
+    // O script é do repositório principal e roda nele — com mais de um repo, a
+    // raiz do workspace é só a pasta que os reúne.
+    cmd.cwd(&ws.primary().worktree);
     cmd.env("TERM", "xterm-256color");
     for (key, value) in script_env(ws) {
         cmd.env(key, value);
@@ -1884,18 +2148,24 @@ fn release_prompts(app: &AppHandle, workspace: &str, code: Option<u32>) {
 /// Os scripts que valem para este workspace: os do worktree, e sem eles os do
 /// clone de origem (ver `scripts::read_for`).
 fn scripts_of(ws: &Workspace) -> scripts::Scripts {
-    scripts::read_for(Path::new(&ws.worktree), Path::new(&ws.repo))
+    let main = ws.primary();
+    scripts::read_for(Path::new(&main.worktree), Path::new(&main.path))
 }
 
-fn script_env(ws: &Workspace) -> Vec<(String, String)> {
-    // O nome que o script vê é o da pasta do worktree, e não o título do card: o
-    // título muda quando você renomeia, e script que batiza container ou banco
-    // com ele veria o nome trocar debaixo dos pés.
-    let name = Path::new(&ws.worktree)
+/// O nome que o script vê: o da pasta do workspace, e não o título do card. O
+/// título muda quando você renomeia, e script que batiza container ou banco
+/// com ele veria o nome trocar debaixo dos pés.
+fn script_name(ws: &Workspace) -> String {
+    Path::new(&ws.worktree)
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| ws.branch.replace('/', "-"));
-    scripts::env(Path::new(&ws.worktree), Path::new(&ws.repo), &name, ws.port)
+        .unwrap_or_else(|| ws.branch.replace('/', "-"))
+}
+
+/// As variáveis do repositório principal — é nele que `run` e `archive` rodam.
+fn script_env(ws: &Workspace) -> Vec<(String, String)> {
+    let main = ws.primary();
+    scripts::env(Path::new(&main.worktree), Path::new(&main.path), &script_name(ws), ws.port)
 }
 
 /// Workspace criado antes de as portas existirem não tem uma. Em vez de pedir
@@ -1921,7 +2191,7 @@ pub(crate) fn ensure_port(state: &State<AppState>, id: &str) -> Option<u16> {
 /// Abre o worktree no Finder.
 #[tauri::command]
 pub fn reveal(state: State<AppState>, id: String) -> Result<(), String> {
-    let root = worktree_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+    let root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
     let ok = Command::new("open").arg(&root).status().map_err(i18n::io)?.success();
     ok.then_some(())
         .ok_or_else(|| i18n::ta("err.session.openFailed", &[("path", root.display().to_string())]))
@@ -2006,12 +2276,13 @@ pub fn workspace_scripts(state: State<AppState>, id: String) -> ScriptsView {
 #[tauri::command]
 pub fn create_scripts_file(state: State<AppState>, id: String) -> Result<String, String> {
     let ws = workspace_copy(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
-    let root = Path::new(&ws.worktree);
+    let main = ws.primary();
+    let root = Path::new(&main.worktree);
     let found = scripts_of(&ws);
     let (rel, text) = match found.file {
         Some(file) if !found.inherited => return Ok(file),
         Some(file) => {
-            let text = std::fs::read_to_string(Path::new(&ws.repo).join(&file)).map_err(|e| e.to_string())?;
+            let text = std::fs::read_to_string(Path::new(&main.path).join(&file)).map_err(|e| e.to_string())?;
             (file, text)
         }
         None => (scripts::FILES[0].to_string(), scripts::TEMPLATE.to_string()),
@@ -2269,8 +2540,9 @@ pub fn open_pr(state: State<AppState>, id: String) -> Result<(), String> {
     let ws = workspace_copy(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
     // Com o worktree devolvido, quem tem o número é o quadro e quem abre é o
     // `gh` de dentro do clone: PR mergeado continua sendo lugar aonde se volta.
+    let main = ws.primary();
     let (dir, what) = match (ws.cleaned, ws.pr.as_ref()) {
-        (false, _) => (ws.worktree.clone(), head_branch(Path::new(&ws.worktree)).ok_or_else(|| i18n::t("err.session.noPr"))?),
+        (false, _) => (main.worktree.clone(), head_branch(Path::new(&main.worktree)).ok_or_else(|| i18n::t("err.session.noPr"))?),
         (true, Some(pr)) => (ws.repo.clone(), pr.number.to_string()),
         (true, None) => return Err(i18n::t("err.session.noPr")),
     };
@@ -2287,10 +2559,21 @@ fn workspace_copy(state: &State<AppState>, id: &str) -> Option<Workspace> {
     lock(&state.board).workspaces.iter().find(|w| w.id == id).cloned()
 }
 
-/// O worktree deste workspace, se ainda houver um. Devolvido ao disco é o mesmo
-/// que não existir: quem lê arquivo, diff ou branch daqui recebe o vazio, e não
-/// um caminho que já não é de ninguém.
+/// O worktree do repositório principal, se ainda houver um — é dele que saem
+/// diff, branch e PR. Devolvido ao disco é o mesmo que não existir: quem lê
+/// daqui recebe o vazio, e não um caminho que já não é de ninguém.
 fn worktree_of(state: &State<AppState>, id: &str) -> Option<PathBuf> {
+    lock(&state.board)
+        .workspaces
+        .iter()
+        .find(|w| w.id == id && !w.cleaned)
+        .map(|w| PathBuf::from(w.primary().worktree))
+}
+
+/// Onde o agente trabalha: o worktree, ou a pasta que reúne os worktrees
+/// quando há mais de um repositório. É daqui que a árvore de arquivos e o
+/// Finder partem — a pessoa quer ver todos, não só o principal.
+fn cwd_of(state: &State<AppState>, id: &str) -> Option<PathBuf> {
     lock(&state.board)
         .workspaces
         .iter()

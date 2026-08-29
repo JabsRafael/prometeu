@@ -882,6 +882,13 @@ body.noside .side { display: none; }
 }
 .sheettop .who { display: flex; align-items: center; gap: 0; padding-left: 4px; }
 .sheettop .who .pick { color: var(--fg); }
+/* O + de "mais um repositório", colado ao seletor do principal. */
+.sheettop .who .ico.sm { color: var(--fg-3); margin-left: 2px; }
+.sheettop .who .ico.sm:disabled { opacity: 0.35; pointer-events: none; }
+/* Os outros repositórios do workspace: chips como os anexos, com o ícone de
+   branch — é a mesma branch em cada um. */
+.injchip.repo { gap: 5px; }
+.injchip.repo .ic { color: var(--fg-3); }
 /* Chavinha: o rótulo e o trilho no mesmo botão, como o toggle do Conductor. */
 .sw { gap: 8px; padding-right: 6px; }
 .sw .knob {

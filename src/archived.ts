@@ -1,7 +1,7 @@
 import { attachMenu, type Hooks } from "./sidebar";
 import { avatar, icon, stageIcon } from "./icons";
 import { paint, stage as stageName, t, tn } from "./i18n";
-import { hasWorktree, type Board, type Workspace } from "./types";
+import { hasWorktree, repoLabel, type Board, type Workspace } from "./types";
 import { $, empty, h } from "./util";
 
 /// Os arquivados, numa tela só — e não numa lista aberta na barra lateral.
@@ -102,7 +102,7 @@ function drawList() {
 
 function matches(ws: Workspace) {
   if (!query) return true;
-  const hay = [ws.title, ws.branch, ws.repo_name, stageName(ws.stage), ws.pr?.title ?? "", ws.issue?.identifier ?? ""]
+  const hay = [ws.title, ws.branch, repoLabel(ws), stageName(ws.stage), ws.pr?.title ?? "", ws.issue?.identifier ?? ""]
     .join(" ")
     .toLowerCase();
   return query.split(/\s+/).every((word) => hay.includes(word));
