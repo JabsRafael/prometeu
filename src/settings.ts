@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import * as alert from "./alert";
 import { avatar, icon } from "./icons";
@@ -7,7 +7,7 @@ import * as menu from "./menu";
 import * as team from "./team";
 import type { LinearStatus } from "./types";
 import { settingsRow } from "./update";
-import { $, h } from "./util";
+import { $, h, template } from "./util";
 
 /// Configurações do app — o que não é do repositório (isso é o
 /// `settings.toml`) nem de um workspace: a conexão com o Linear, a linha de
@@ -51,7 +51,7 @@ export const linear = () => status;
 
 export function draw() {
   const view = $("settingsView");
-  const page = h("div", "setpage", `<h1></h1><h2></h2>`);
+  const page = template("div", "setpage", `<h1></h1><h2></h2>`);
   page.children[0].textContent = t("settings.title");
   page.children[1].textContent = t("settings.integrations");
   page.append(linearRow());
@@ -69,7 +69,7 @@ export function draw() {
 /// app segue o computador — e a linha diz em que isso dá, para "do sistema"
 /// não ser uma resposta que esconde a pergunta.
 function langRow(): HTMLElement {
-  const row = h(
+  const row = template(
     "div",
     "setrow",
     `<span class="glyph">${icon("globe", 18)}</span><div class="txt"><b></b><span></span></div><div class="act"></div>`,
@@ -84,7 +84,7 @@ function langRow(): HTMLElement {
   ];
   const picked = chosen();
 
-  const btn = h("button", "ghost md pick", `<span></span>${icon("chevron-down", 12)}`) as HTMLButtonElement;
+  const btn = template("button", "ghost md pick", `<span></span>${icon("chevron-down", 12)}`) as HTMLButtonElement;
   btn.children[0].textContent = options.find(([id]) => id === picked)![1];
   btn.addEventListener("click", () => {
     const at = btn.getBoundingClientRect();
@@ -102,7 +102,7 @@ function langRow(): HTMLElement {
 }
 
 function linearRow() {
-  const row = h(
+  const row = template(
     "div",
     "setrow",
     `<span class="glyph">${icon("linear", 18)}</span><div class="txt"><b>Linear</b><span></span></div><div class="act"></div>`,
@@ -135,7 +135,7 @@ function linearRow() {
 
   text.textContent = t(status.busy ? "linear.waiting" : "linear.pitch");
 
-  const on = h("button", "outline md", `<span></span> ${icon("external-link", 12)}`) as HTMLButtonElement;
+  const on = template("button", "outline md", `<span></span> ${icon("external-link", 12)}`) as HTMLButtonElement;
   on.children[0].textContent = t("linear.connect");
   on.disabled = status.busy;
   on.title = t("linear.connect.title");
@@ -184,7 +184,7 @@ async function run(fn: () => Promise<void>) {
 }
 
 function sub(label: string): { row: HTMLElement; txt: HTMLElement; act: HTMLElement } {
-  const row = h("div", "setrow sub", `<div class="txt"><b></b></div><div class="act"></div>`);
+  const row = template("div", "setrow sub", `<div class="txt"><b></b></div><div class="act"></div>`);
   row.querySelector("b")!.textContent = label;
   return { row, txt: row.querySelector(".txt")!, act: row.querySelector(".act")! };
 }
@@ -192,7 +192,7 @@ function sub(label: string): { row: HTMLElement; txt: HTMLElement; act: HTMLElem
 function teamRows(): HTMLElement[] {
   const st = team.status();
   const rows: HTMLElement[] = [];
-  const row = h(
+  const row = template(
     "div",
     "setrow",
     `<span class="glyph">${icon("users", 18)}</span><div class="txt"><b></b><span></span></div><div class="act"></div>`,
@@ -268,7 +268,7 @@ function teamRows(): HTMLElement[] {
     text.textContent = t("team.connecting");
   }
 
-  const copy = h("button", "ghost md", `${icon("copy", 12)} <span></span>`);
+  const copy = template("button", "ghost md", `${icon("copy", 12)} <span></span>`);
   copy.querySelector("span")!.textContent = t("team.copyInvite");
   copy.title = t("team.copyInvite.title");
   copy.addEventListener("click", () => {
@@ -284,7 +284,7 @@ function teamRows(): HTMLElement[] {
   const who = sub(t("team.members"));
   const list = h("div", "members");
   for (const m of st.members) {
-    const chip = h("span", "mem" + (m.online ? "" : " off"), `${avatar(m.name)}<span class="nm"></span><i class="dot"></i>`);
+    const chip = template("span", "mem" + (m.online ? "" : " off"), `${avatar(m.name)}<span class="nm"></span><i class="dot"></i>`);
     chip.querySelector(".nm")!.textContent = m.id === st.you ? `${m.name} (${t("team.you")})` : m.name;
     chip.title = m.online ? "" : t("team.offline");
     list.append(chip);

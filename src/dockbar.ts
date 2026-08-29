@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./ipc";
 import * as dock from "./dock";
 import { icon, wave } from "./icons";
 import { fromBack, t } from "./i18n";

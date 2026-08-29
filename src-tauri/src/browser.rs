@@ -8,7 +8,7 @@
 /// A porta sai do estado, e não do front: URL arbitrária não viaja pelo IPC.
 /// Uma webview por workspace, viva enquanto a aba existir; trocar de workspace
 /// só esconde, e voltar mostra a mesma página onde estava.
-use crate::session::ensure_port;
+use crate::dock::ensure_port;
 use crate::{i18n, AppState};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Rect, State, Url, WebviewBuilder,
@@ -20,9 +20,19 @@ use tauri::{
 fn label(id: &str) -> String {
     let safe: String = id
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || "-/:_".contains(c) { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || "-/:_".contains(c) {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     format!("run-{safe}")
+}
+
+fn allowed(url: &Url) -> bool {
+    matches!(url.scheme(), "http" | "https")
 }
 
 /// Mostra a webview do workspace, criando na primeira vez. Nasce sem tamanho:
@@ -49,6 +59,9 @@ pub fn browser_open(app: AppHandle, state: State<AppState>, id: String) -> Resul
         .add_child(
             WebviewBuilder::new(label(&id), WebviewUrl::External(parsed)).on_navigation(
                 move |url| {
+                    if !allowed(url) {
+                        return false;
+                    }
                     let _ = to.emit("browser:url", (of.clone(), url.to_string()));
                     true
                 },
@@ -76,7 +89,7 @@ pub fn browser_url(app: AppHandle, id: String) -> Option<String> {
 pub fn browser_navigate(app: AppHandle, id: String, url: String) -> Result<(), String> {
     let bad = || i18n::ta("err.browser.badUrl", &[("url", url.clone())]);
     let parsed = Url::parse(&url).map_err(|_| bad())?;
-    if !matches!(parsed.scheme(), "http" | "https") {
+    if !allowed(&parsed) {
         return Err(bad());
     }
     let view = app.get_webview(&label(&id)).ok_or_else(bad)?;
@@ -126,5 +139,21 @@ mod tests {
     fn label_so_com_o_que_o_tauri_aceita() {
         assert_eq!(super::label("dock-1130"), "run-dock-1130");
         assert_eq!(super::label("porta 17.a"), "run-porta-17-a");
+    }
+
+    #[test]
+    fn navegacao_so_aceita_http() {
+        assert!(super::allowed(
+            &tauri::Url::parse("http://localhost:3000").unwrap()
+        ));
+        assert!(super::allowed(
+            &tauri::Url::parse("https://example.com/login").unwrap()
+        ));
+        assert!(!super::allowed(
+            &tauri::Url::parse("file:///etc/passwd").unwrap()
+        ));
+        assert!(!super::allowed(
+            &tauri::Url::parse("javascript:alert(1)").unwrap()
+        ));
     }
 }

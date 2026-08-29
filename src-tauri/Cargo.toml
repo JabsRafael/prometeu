@@ -2,7 +2,7 @@
 name = "prometheus"
 version = "0.4.4"
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.88"
 # Cargo não aceita espaço em nome de bin, e de todo modo não é daqui que sai o
 # nome no Dock: quem manda é o CFBundleName do Info.plist que o tauri-build
 # embute no binário. Ver `tauri.dev.conf.json` para o nome durante o dev.

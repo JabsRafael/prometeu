@@ -60,10 +60,12 @@ explicado no cabeçalho desse arquivo. O catálogo de modelos sai do
 
 Toda sessão nasce com `--dangerously-skip-permissions`, sem chavinha. Nada
 para para pedir, que é o que permite acompanhar várias sessões: agente que
-trava a cada `Write` não trabalha enquanto você olha outra coisa. Vale porque o
-worktree é isolado e descartável — e é por isso que solto **sem** worktree é o
-único par que merece aviso, e o lançador o dá em laranja: aí o agente mexe sem
-pedir no clone em que você trabalha.
+trava a cada `Write` não trabalha enquanto você olha outra coisa. O worktree
+separa as mudanças do Git e reduz acidentes no clone, mas não é sandbox: o
+processo continua com o acesso do seu usuário ao Mac. Por isso projeto novo
+nasce não confiável e exige uma confirmação explícita antes do primeiro agente
+ou script; rodar sem worktree ainda ganha o aviso adicional em laranja porque
+o agente mexe direto no clone em que você trabalha.
 
 Mesmo solto, `AskUserQuestion` e `ExitPlanMode` continuam chegando — pelo
 `--permission-prompt-tool stdio`, como `control_request` — e viram cards na
@@ -159,6 +161,12 @@ deixar isso virar trabalho manual — a aba **Setup** de um repo que não declar
 nada oferece **Perguntar ao agente**, que abre uma conversa com o prompt pronto
 para o Claude Code ler o repositório e escrever o arquivo.
 
+Projeto adicionado pela primeira vez nasce **não confiável**. Antes de criar o
+primeiro workspace, o lançador mostra o arquivo e cada comando de setup, run e
+archive que aquele clone poderá executar; só uma confirmação explícita grava a
+confiança. Workspaces antigos continuam confiáveis na migração para não parar o
+que já funcionava.
+
 ## A dois na mesma conversa
 
 Um time, e dentro dele sessões compartilhadas: o colega vê a conversa
@@ -173,20 +181,28 @@ chat_send    ◄──  fala/card   ◄──  notas · caixa "para mim"        
 
 **A sessão continua rodando só no Mac do dono.** Não há VM, não há sessão na
 nuvem: o `claude` é o mesmo processo de sempre, no worktree de sempre. O relay
-é burro — repassa frames e guarda o pouco que precisa sobreviver a alguém
+só coordena — repassa frames e guarda o pouco que precisa sobreviver a alguém
 estar offline (membros, o que está compartilhado, as notas). Dono fora do ar =
 conversa congelada para os outros, e o card diz isso.
 
+**O relay é uma fronteira de confiança, não criptografia ponta a ponta.** Quem
+opera o Worker pode ver metadados, conversa e notas que passam por ele. Fora da
+máquina local o app só aceita HTTPS/WSS; para conteúdo que o operador do relay
+não possa ler, ainda é preciso hospedar o seu próprio relay.
+
 Quem fala com o relay é o **front**: ele já recebe toda linha de toda
 conversa e já sabe falar nelas. O back só guarda `~/.prometheus/team.json`
-(`0600`) e a marca de "compartilhado" no workspace.
+(`0600`, com segredo do convite e credencial individual) e a marca de
+"compartilhado" no workspace.
 
 ### O time
 
 Configurações → **Time**: criar gera o código de convite
-(`pm1.<time>.<segredo>`); entrar é colar o código e dizer seu nome. Quem tem o
-código entra e digita em qualquer sessão compartilhada — é o modelo "pessoas
-de confiança", e trocar o segredo é criar outro time.
+(`pm2.<time>.<segredo>`); entrar é colar o código e dizer seu nome. O convite
+serve só para matrícula: o relay devolve uma identidade e uma credencial
+próprias para aquele app, e é ela — nunca o segredo coletivo — que autentica o
+WebSocket. Códigos `pm1` não migram com segurança; o time precisa ser recriado
+ou recebido de novo por um convite `pm2`.
 
 ### A sessão ao vivo
 
@@ -194,6 +210,10 @@ Na barra de um workspace seu: **Compartilhar com o time**. Ele aparece em
 "Do time" na barra lateral dos colegas, com o seu nome. Abrir mostra a conversa
 inteira e o que chega ao vivo; a caixa de escrever está liberada. Você vê quem
 está olhando cada conversa em chips ao lado do estado.
+
+Falas de colegas entram identificadas pelo nome. Respostas a cards passam por
+uma segunda validação no Mac do dono: só respondem um pedido realmente aberto,
+reutilizam o input que o dono viu e não podem ativar modo irrestrito.
 
 Duas coisas fazem isso funcionar sem coordenação nenhuma:
 
@@ -225,8 +245,9 @@ quebra linha.
 
 Mora em `relay/`: um Worker que cria times e encaminha cada conexão ao Durable
 Object daquele time. Toda decisão está em `relay/src/logic.ts`, um `reduce`
-puro que o vitest exercita sem miniflare; `room.ts` só converte WebSocket em
-evento e efeito em `send`/`storage`. Sobe uma vez:
+puro; `room.ts` converte WebSocket em evento e efeito em `send`/`storage`. Além
+dos testes puros, a suíte sobe o Worker local e confere matrícula e autenticação
+reais. Sobe uma vez:
 
 ```sh
 npm run relay:deploy   # precisa de `wrangler login`
@@ -263,7 +284,8 @@ Playwright dirige — a webview do Tauri no macOS é WKWebView e não fala CDP.
 ## Testes
 
 ```sh
-npm test      # os dois lados
+npx playwright install chromium  # uma vez nesta máquina
+npm test                       # web, relay, Rust e três fluxos de navegador
 ```
 
 Cobre o que erra calado:
@@ -287,10 +309,13 @@ Cobre o que erra calado:
   de verdade;
 - o corte de um `git diff` em um patch por arquivo, e a conta de número de linha
   que o front faz em cima dele;
-- o **relay** inteiro pela lógica pura (segredo errado recusado, quem recebe o
-  quê, dono que cai e volta, menção que vira caixa), o formato dos frames
-  binários, e a regra de juntar a rolagem do dono com os pedaços ao vivo
-  (`src/mirror.ts`) — que é o que erra calado: trecho repetido, trecho perdido.
+- o **relay** pela lógica pura (audiência, cotas, quem recebe o quê, dono que
+  cai e volta, menção que vira caixa) e no runtime local do Worker (matrícula,
+  credencial individual e recusa do protocolo antigo), o formato dos frames
+  binários e a regra de juntar a rolagem do dono com os pedaços ao vivo;
+- três fluxos Playwright sobre o mock: criação pelo lançador, pergunta e
+  resposta de card, e a troca rápida de abas com snapshot atrasado — a corrida
+  que conseguia pintar o conteúdo da conversa anterior.
 
 ## Estado
 

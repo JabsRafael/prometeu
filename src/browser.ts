@@ -2,7 +2,7 @@
 /// o app — que o back põe por cima do centro (ver `browser.rs`). O DOM só tem
 /// o lugar dela, `#webbody`, e uma view nativa não sabe o que o CSS fez: é a
 /// medida desse lugar que vai para o back toda vez que ele muda.
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import { fromBack } from "./i18n";
 import { $ } from "./util";

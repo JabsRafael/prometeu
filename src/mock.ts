@@ -51,8 +51,8 @@ const ws = (
 const board: Board = {
   stages: ["Preparando", "Fazendo", "Code review", "Travado", "Feito"],
   projects: [
-    { id: "p1", name: "njord", path: "/Users/gustavo/dev/njord" },
-    { id: "p2", name: "prometheus", path: "/Users/gustavo/dev/prometheus" },
+    { id: "p1", name: "njord", path: "/Users/gustavo/dev/njord", trusted: true },
+    { id: "p2", name: "prometheus", path: "/Users/gustavo/dev/prometheus", trusted: true },
   ],
   workspaces: [
     ws("sessao-0929", "p1", "njord", "Ola", "Fazendo", [
@@ -209,7 +209,7 @@ const SAMPLE =
             { name: "clear", description: "Clear conversation history and free up context", argumentHint: "[name]" },
             { name: "cost", description: "Show the total cost and duration of the current session", argumentHint: "" },
             { name: "color", description: "Set the color of the session", argumentHint: "" },
-            { name: "open-pr", description: "Abre um PR da branch atual — empurra, escreve título e corpo, garante o runner de CI no ar e acompanha os checks até o fim (project)", argumentHint: "" },
+            { name: "open-pr", description: "Abre um PR da branch atual — empurra, escreve título e corpo e acompanha os checks até o fim (project)", argumentHint: "" },
             { name: "release", description: "Solta uma versão nova do Prometheus — confere os commits, corta a tag, acompanha o CI e publica a draft (project)", argumentHint: "" },
             { name: "caveman:caveman", description: "(caveman) Ultra-compressed communication mode. Cuts token usage ~75% by speaking like caveman while keeping full technical accuracy.", argumentHint: "" },
             { name: "caveman:caveman-commit", description: "(caveman) Ultra-compressed commit message generator. Cuts noise from commit messages while preserving intent and reasoning.", argumentHint: "" },
@@ -451,6 +451,15 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     }
     case "load_board":
       return board;
+    case "project_trust_preview":
+      return (args.ids as string[]).map((id) => {
+        const project = board.projects.find((p) => p.id === id)!;
+        return { ...project, file: null, setup: null, runs: [], archive: null, copy: [] };
+      });
+    case "set_projects_trusted":
+      for (const project of board.projects) if ((args.ids as string[]).includes(project.id)) project.trusted = args.trusted;
+      queueMicrotask(() => emit("board", structuredClone(board)));
+      return null;
     // O time fica no localStorage aqui, para sobreviver a recarregar a aba —
     // no app é o `team.json` do back.
     case "team_config":
@@ -477,6 +486,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       sayInto(String(args.session), String(args.text));
       return;
     case "chat_control":
+    case "chat_control_remote":
       controlInto(String(args.session), args.frame as Record<string, any>);
       return;
     case "pty_write":
@@ -951,7 +961,13 @@ if (!(import.meta as unknown as { env?: Record<string, string | undefined> }).en
   team.useTransport({
     needsRelay: false,
     socket: fakeSocket,
-    create: async () => ({ team: "timeDeMentira", secret: "segredoDeMentira" }),
+    create: async () => ({
+      team: "timeDeMentira",
+      secret: "segredoDeMentira",
+      member: "eu_mock",
+      credential: "c".repeat(43),
+    }),
+    enroll: async () => ({ member: "eu_mock", credential: "c".repeat(43) }),
   });
 }
 

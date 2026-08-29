@@ -30,7 +30,14 @@ export type Tab = {
   pending_prompt?: string | null;
 };
 
-export type Project = { id: string; name: string; path: string };
+export type Project = {
+  id: string;
+  name: string;
+  path: string;
+  /// Registrar a pasta não autoriza shell/agentes. A primeira criação mostra
+  /// exatamente o que o repositório declara e persiste esta escolha.
+  trusted: boolean;
+};
 
 /// Um repositório dentro do workspace: o clone de onde veio, o nome da pasta e
 /// onde está a cópia dele nesta branch.

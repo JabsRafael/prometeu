@@ -54,7 +54,8 @@ pub fn spawn(
     launch: &Launch,
 ) -> Result<chat::Chat, String> {
     let mut cmd = Command::new("codex");
-    cmd.args(["app-server", "--enable", "default_mode_request_user_input"]).current_dir(worktree);
+    cmd.args(["app-server", "--enable", "default_mode_request_user_input"])
+        .current_dir(worktree);
     let log = paths::chat_log(id);
     let start = Start {
         cwd: worktree.display().to_string(),
@@ -65,8 +66,17 @@ pub fn spawn(
     let io = chat::ProcessIo::new(process_stderr, move |stdin| {
         let link = Arc::new(Mutex::new(Link::new(Box::new(stdin), start)));
         let reader = link.clone();
-        let translate = move |line: &str| lock(&reader).on_line(line).iter().map(Value::to_string).collect();
-        (chat::Wire::Codex(link), Box::new(translate) as chat::Translate)
+        let translate = move |line: &str| {
+            lock(&reader)
+                .on_line(line)
+                .iter()
+                .map(Value::to_string)
+                .collect()
+        };
+        (
+            chat::Wire::Codex(link),
+            Box::new(translate) as chat::Translate,
+        )
     });
     chat::launch(app, id, cmd, &log, Some(log.clone()), "err.codex.spawn", io)
 }
@@ -86,7 +96,9 @@ enum Sent {
     Init,
     /// `resumed` é `thread/resume`: se falhar, a conversa abre nova em vez de a
     /// aba morrer — o rollout pode ter sido apagado, e a aba vale mais.
-    Thread { resumed: bool },
+    Thread {
+        resumed: bool,
+    },
     Turn,
     Compact,
     Interrupt,
@@ -198,8 +210,13 @@ impl Link {
                 self.speak(&spoken(frame))
             }
             Some("control_response") => {
-                let id = frame["response"]["request_id"].as_str().unwrap_or("").to_string();
-                let Some(ask) = self.asks.remove(&id) else { return Ok(vec![]) };
+                let id = frame["response"]["request_id"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
+                let Some(ask) = self.asks.remove(&id) else {
+                    return Ok(vec![]);
+                };
                 let answer = &frame["response"]["response"];
                 let allowed = answer["behavior"].as_str() == Some("allow");
                 let result = match ask.kind {
@@ -211,7 +228,8 @@ impl Link {
                         let mut answers = serde_json::Map::new();
                         for (question, qid) in questions {
                             let text = given[&question].as_str().unwrap_or("").trim().to_string();
-                            let list: Vec<String> = if text.is_empty() { vec![] } else { vec![text] };
+                            let list: Vec<String> =
+                                if text.is_empty() { vec![] } else { vec![text] };
                             answers.insert(qid, json!({ "answers": list }));
                         }
                         json!({ "answers": answers })
@@ -239,7 +257,11 @@ impl Link {
             }
             Some("control_request") if frame["request"]["subtype"] == "interrupt" => {
                 if let (Some(thread), Some(turn)) = (self.thread.clone(), self.turn.clone()) {
-                    self.call("turn/interrupt", json!({ "threadId": thread, "turnId": turn }), Sent::Interrupt)?;
+                    self.call(
+                        "turn/interrupt",
+                        json!({ "threadId": thread, "turnId": turn }),
+                        Sent::Interrupt,
+                    )?;
                 }
                 Ok(vec![])
             }
@@ -275,8 +297,14 @@ impl Link {
         match cmd {
             "compact" => {
                 let thread = self.thread.clone().unwrap_or_default();
-                self.call("thread/compact/start", json!({ "threadId": thread }), Sent::Compact)?;
-                Ok(vec![stamp(json!({ "type": "system", "subtype": "status", "status": "compacting" }))])
+                self.call(
+                    "thread/compact/start",
+                    json!({ "threadId": thread }),
+                    Sent::Compact,
+                )?;
+                Ok(vec![stamp(
+                    json!({ "type": "system", "subtype": "status", "status": "compacting" }),
+                )])
             }
             "context" => Ok(vec![
                 stamp(json!({
@@ -300,7 +328,11 @@ impl Link {
     fn context_report(&self) -> String {
         let used = self.ctx.unwrap_or(0);
         let total = self.window.unwrap_or(0);
-        let pct = if total > 0 { (used as f64 / total as f64 * 100.0).round() as u64 } else { 0 };
+        let pct = if total > 0 {
+            (used as f64 / total as f64 * 100.0).round() as u64
+        } else {
+            0
+        };
         let free = total.saturating_sub(used);
         let conversation = i18n::pick("Conversa", "Conversation");
         format!(
@@ -347,7 +379,9 @@ impl Link {
 
     /// Uma linha do processo. Devolve as linhas da tela que ela vale.
     pub fn on_line(&mut self, line: &str) -> Vec<Value> {
-        let Ok(msg) = serde_json::from_str::<Value>(line) else { return vec![] };
+        let Ok(msg) = serde_json::from_str::<Value>(line) else {
+            return vec![];
+        };
         match (msg.get("method").and_then(Value::as_str), msg.get("id")) {
             (Some(method), Some(id)) => self.request(id.clone(), method, &msg["params"]),
             (Some(method), None) => self.notification(method, &msg["params"]),
@@ -380,10 +414,14 @@ impl Link {
                     self.queue.clear();
                     return vec![stderr(&cause)];
                 }
-                let thread = msg["result"]["thread"]["id"].as_str().unwrap_or("").to_string();
+                let thread = msg["result"]["thread"]["id"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
                 self.model = msg["result"]["model"].as_str().unwrap_or("").to_string();
                 self.thread = Some(thread.clone());
-                let mut out = vec![json!({ "type": "prometheus", "subtype": "session", "session": thread })];
+                let mut out =
+                    vec![json!({ "type": "prometheus", "subtype": "session", "session": thread })];
                 for frame in std::mem::take(&mut self.queue) {
                     if let Ok(more) = self.write(&frame) {
                         out.extend(more);
@@ -402,7 +440,9 @@ impl Link {
             },
             Some(Sent::Compact) => match error {
                 Some(cause) => vec![
-                    stamp(json!({ "type": "system", "subtype": "status", "status": null, "compact_result": "failed", "compact_error": cause })),
+                    stamp(
+                        json!({ "type": "system", "subtype": "status", "status": null, "compact_result": "failed", "compact_error": cause }),
+                    ),
                     result(false, &cause, None),
                 ],
                 None => vec![],
@@ -442,11 +482,19 @@ impl Link {
         let (kind, tool, input) = match method {
             "item/commandExecution/requestApproval" => {
                 let command = params["command"].as_str().unwrap_or("").to_string();
-                (AskKind::Command, "Bash", json!({ "command": pretty(&command, &params["commandActions"]) }))
+                (
+                    AskKind::Command,
+                    "Bash",
+                    json!({ "command": pretty(&command, &params["commandActions"]) }),
+                )
             }
             "item/fileChange/requestApproval" => {
                 let paths = self.patches.get(&item).cloned().unwrap_or_default();
-                (AskKind::Patch, "Edit", json!({ "file_path": paths.join(", ") }))
+                (
+                    AskKind::Patch,
+                    "Edit",
+                    json!({ "file_path": paths.join(", ") }),
+                )
             }
             "item/tool/requestUserInput" => {
                 let mut ids = vec![];
@@ -470,7 +518,11 @@ impl Link {
                             .collect()
                     })
                     .unwrap_or_default();
-                (AskKind::Input(ids), "AskUserQuestion", json!({ "questions": questions }))
+                (
+                    AskKind::Input(ids),
+                    "AskUserQuestion",
+                    json!({ "questions": questions }),
+                )
             }
             _ => {
                 let _ = self.refuse(&rpc, "unsupported by prometheus");
@@ -496,8 +548,12 @@ impl Link {
             }
             "item/started" => self.started(&p["item"]),
             "item/completed" => self.completed(&p["item"]),
-            "item/agentMessage/delta" | "item/plan/delta" => self.delta(p["itemId"].as_str(), p["delta"].as_str()),
-            "item/reasoning/summaryTextDelta" => self.delta(p["itemId"].as_str(), p["delta"].as_str()),
+            "item/agentMessage/delta" | "item/plan/delta" => {
+                self.delta(p["itemId"].as_str(), p["delta"].as_str())
+            }
+            "item/reasoning/summaryTextDelta" => {
+                self.delta(p["itemId"].as_str(), p["delta"].as_str())
+            }
             "item/reasoning/summaryPartAdded" => match p["summaryIndex"].as_u64() {
                 Some(n) if n > 0 => self.delta(p["itemId"].as_str(), Some("\n\n")),
                 _ => vec![],
@@ -534,7 +590,10 @@ impl Link {
                 let cause = p["error"]["message"].as_str().unwrap_or("").to_string();
                 let retry = p["willRetry"].as_bool() == Some(true);
                 let text = match retry {
-                    true => i18n::pick(&format!("{cause} (tentando de novo)"), &format!("{cause} (retrying)")),
+                    true => i18n::pick(
+                        &format!("{cause} (tentando de novo)"),
+                        &format!("{cause} (retrying)"),
+                    ),
                     false => cause,
                 };
                 vec![stderr(&text)]
@@ -550,19 +609,31 @@ impl Link {
             Some("agentMessage" | "plan") => self.open_text(&id, false),
             Some("reasoning") => self.open_text(&id, true),
             Some("commandExecution") => {
-                let command = pretty(item["command"].as_str().unwrap_or(""), &item["commandActions"]);
+                let command = pretty(
+                    item["command"].as_str().unwrap_or(""),
+                    &item["commandActions"],
+                );
                 self.tool_use(&id, "Bash", json!({ "command": command }))
             }
             Some("fileChange") => {
                 let paths: Vec<String> = item["changes"]
                     .as_array()
-                    .map(|cs| cs.iter().filter_map(|c| c["path"].as_str()).map(|p| self.relative(p)).collect())
+                    .map(|cs| {
+                        cs.iter()
+                            .filter_map(|c| c["path"].as_str())
+                            .map(|p| self.relative(p))
+                            .collect()
+                    })
                     .unwrap_or_default();
                 self.patches.insert(id.clone(), paths.clone());
                 self.tool_use(&id, "Edit", json!({ "file_path": paths.join(", ") }))
             }
             Some("mcpToolCall") => {
-                let name = format!("mcp__{}__{}", item["server"].as_str().unwrap_or(""), item["tool"].as_str().unwrap_or(""));
+                let name = format!(
+                    "mcp__{}__{}",
+                    item["server"].as_str().unwrap_or(""),
+                    item["tool"].as_str().unwrap_or("")
+                );
                 self.tool_use(&id, &name, item["arguments"].clone())
             }
             Some("dynamicToolCall") => {
@@ -570,13 +641,17 @@ impl Link {
                 self.tool_use(&id, &name, item["arguments"].clone())
             }
             Some("webSearch") => self.tool_use(&id, "WebSearch", json!({ "query": item["query"] })),
-            Some("collabAgentToolCall") => {
-                self.tool_use(&id, "Agent", json!({ "description": item["tool"], "prompt": item["prompt"] }))
-            }
+            Some("collabAgentToolCall") => self.tool_use(
+                &id,
+                "Agent",
+                json!({ "description": item["tool"], "prompt": item["prompt"] }),
+            ),
             Some("imageView") => self.tool_use(&id, "Read", json!({ "file_path": item["path"] })),
             Some("contextCompaction") => {
                 self.compact_pre = self.ctx;
-                vec![stamp(json!({ "type": "system", "subtype": "status", "status": "compacting" }))]
+                vec![stamp(
+                    json!({ "type": "system", "subtype": "status", "status": "compacting" }),
+                )]
             }
             _ => vec![],
         }
@@ -593,7 +668,12 @@ impl Link {
                 let parts = |key: &str| -> Vec<String> {
                     item[key]
                         .as_array()
-                        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(Value::as_str)
+                                .map(str::to_string)
+                                .collect()
+                        })
                         .unwrap_or_default()
                 };
                 let mut summary = parts("summary");
@@ -631,11 +711,15 @@ impl Link {
                 let failed = item["success"].as_bool() == Some(false);
                 vec![tool_result(&id, &texts(&item["contentItems"]), failed)]
             }
-            Some("webSearch" | "collabAgentToolCall" | "imageView") => vec![tool_result(&id, "", false)],
+            Some("webSearch" | "collabAgentToolCall" | "imageView") => {
+                vec![tool_result(&id, "", false)]
+            }
             Some("contextCompaction") => {
                 let post = self.ctx;
                 vec![
-                    stamp(json!({ "type": "system", "subtype": "status", "status": null, "compact_result": "success" })),
+                    stamp(
+                        json!({ "type": "system", "subtype": "status", "status": null, "compact_result": "success" }),
+                    ),
                     stamp(json!({
                         "type": "system",
                         "subtype": "compact_boundary",
@@ -659,15 +743,30 @@ impl Link {
         }
         let index = self.block;
         self.block += 1;
-        let block = if thinking { json!({ "type": "thinking", "thinking": "" }) } else { json!({ "type": "text", "text": "" }) };
-        out.push(self.event(json!({ "type": "content_block_start", "index": index, "content_block": block })));
-        self.open = Some(Open { item: id.to_string(), index, thinking, text: String::new() });
+        let block = if thinking {
+            json!({ "type": "thinking", "thinking": "" })
+        } else {
+            json!({ "type": "text", "text": "" })
+        };
+        out.push(self.event(
+            json!({ "type": "content_block_start", "index": index, "content_block": block }),
+        ));
+        self.open = Some(Open {
+            item: id.to_string(),
+            index,
+            thinking,
+            text: String::new(),
+        });
         out
     }
 
     fn delta(&mut self, id: Option<&str>, text: Option<&str>) -> Vec<Value> {
-        let (Some(id), Some(text)) = (id, text) else { return vec![] };
-        let Some(open) = self.open.as_mut().filter(|o| o.item == id) else { return vec![] };
+        let (Some(id), Some(text)) = (id, text) else {
+            return vec![];
+        };
+        let Some(open) = self.open.as_mut().filter(|o| o.item == id) else {
+            return vec![];
+        };
         open.text.push_str(text);
         let (index, thinking) = (open.index, open.thinking);
         let delta = match thinking {
@@ -691,7 +790,9 @@ impl Link {
     /// `assistant` inteira que a tela guarda. `text` é o texto final; sem ele
     /// vai o que chegou.
     fn seal(&mut self, text: Option<String>) -> Vec<Value> {
-        let Some(open) = self.open.take() else { return vec![] };
+        let Some(open) = self.open.take() else {
+            return vec![];
+        };
         let text = text.unwrap_or(open.text);
         vec![
             self.event(json!({ "type": "content_block_stop", "index": open.index })),
@@ -705,12 +806,16 @@ impl Link {
         let mut out = self.seal(None);
         self.message_open = true;
         self.block += 1;
-        out.push(self.assistant(json!({ "type": "tool_use", "id": id, "name": name, "input": input })));
+        out.push(
+            self.assistant(json!({ "type": "tool_use", "id": id, "name": name, "input": input })),
+        );
         out
     }
 
     fn assistant(&self, block: Value) -> Value {
-        stamp(json!({ "type": "assistant", "message": { "id": self.msg(), "role": "assistant", "content": [block] } }))
+        stamp(
+            json!({ "type": "assistant", "message": { "id": self.msg(), "role": "assistant", "content": [block] } }),
+        )
     }
 
     fn event(&self, event: Value) -> Value {
@@ -752,8 +857,16 @@ fn now() -> u64 {
 /// nas duas línguas. É a resposta ao `initialize` — a lista que a caixa
 /// oferece ao escrever "/".
 const SLASH: [(&str, &str, &str); 2] = [
-    ("compact", "Resume a conversa até aqui para liberar contexto", "Free up context by summarizing the conversation so far"),
-    ("context", "Quanto da janela de contexto está em uso", "How much of the context window is in use"),
+    (
+        "compact",
+        "Resume a conversa até aqui para liberar contexto",
+        "Free up context by summarizing the conversation so far",
+    ),
+    (
+        "context",
+        "Quanto da janela de contexto está em uso",
+        "How much of the context window is in use",
+    ),
 ];
 
 fn stamp(mut frame: Value) -> Value {
@@ -869,10 +982,22 @@ fn patch(change: &Value, cwd: &str) -> String {
         format!("{range}\n{}", body.join("\n"))
     };
     let (from, to, hunk) = match kind {
-        "add" if !diff.starts_with("@@") => ("/dev/null".to_string(), format!("b/{path}"), signed('+')),
-        "add" => ("/dev/null".to_string(), format!("b/{path}"), diff.to_string()),
-        "delete" if !diff.starts_with("@@") => (format!("a/{path}"), "/dev/null".to_string(), signed('-')),
-        "delete" => (format!("a/{path}"), "/dev/null".to_string(), diff.to_string()),
+        "add" if !diff.starts_with("@@") => {
+            ("/dev/null".to_string(), format!("b/{path}"), signed('+'))
+        }
+        "add" => (
+            "/dev/null".to_string(),
+            format!("b/{path}"),
+            diff.to_string(),
+        ),
+        "delete" if !diff.starts_with("@@") => {
+            (format!("a/{path}"), "/dev/null".to_string(), signed('-'))
+        }
+        "delete" => (
+            format!("a/{path}"),
+            "/dev/null".to_string(),
+            diff.to_string(),
+        ),
         _ => (format!("a/{path}"), format!("b/{path}"), diff.to_string()),
     };
     format!("diff --git a/{path} b/{path}\n--- {from}\n+++ {to}\n{hunk}")
@@ -915,7 +1040,10 @@ mod tests {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
             let text = String::from_utf8_lossy(buf);
             for line in text.lines().filter(|l| !l.trim().is_empty()) {
-                self.0.lock().unwrap().push(serde_json::from_str(line).unwrap());
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(serde_json::from_str(line).unwrap());
             }
             Ok(buf.len())
         }
@@ -932,7 +1060,12 @@ mod tests {
 
     fn link(resume: Option<&str>) -> (Link, Out) {
         let out = Out::default();
-        let start = Start { cwd: "/wt".into(), resume: resume.map(str::to_string), model: "gpt-5.4".into(), effort: "high".into() };
+        let start = Start {
+            cwd: "/wt".into(),
+            resume: resume.map(str::to_string),
+            model: "gpt-5.4".into(),
+            effort: "high".into(),
+        };
         (Link::new(Box::new(out.clone()), start), out)
     }
 
@@ -940,7 +1073,10 @@ mod tests {
     /// processo antes disso além do próprio `initialize`.
     fn opened(link: &mut Link, out: &Out) -> Vec<Value> {
         let before = out.take();
-        assert!(before.iter().all(|m| m["method"] == "initialize"), "{before:?}");
+        assert!(
+            before.iter().all(|m| m["method"] == "initialize"),
+            "{before:?}"
+        );
         link.on_line(r#"{"id":1,"result":{}}"#);
         let sent = out.take();
         assert_eq!(sent[0]["method"], "initialized");
@@ -985,7 +1121,12 @@ mod tests {
             .map(|c| c["name"].as_str().unwrap())
             .collect();
         assert_eq!(names, ["compact", "context"]);
-        assert!(frames[0]["response"]["response"]["commands"][0]["description"].as_str().unwrap().len() > 0);
+        assert!(
+            !frames[0]["response"]["response"]["commands"][0]["description"]
+                .as_str()
+                .unwrap()
+                .is_empty()
+        );
         assert!(out.take().is_empty());
     }
 
@@ -1006,13 +1147,17 @@ mod tests {
     fn um_turno_vira_rascunho_linha_inteira_e_result() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
-        link.on_line(r#"{"method":"turn/started","params":{"threadId":"t-1","turn":{"id":"turn-1"}}}"#);
+        link.on_line(
+            r#"{"method":"turn/started","params":{"threadId":"t-1","turn":{"id":"turn-1"}}}"#,
+        );
         let f = link.on_line(r#"{"method":"item/started","params":{"item":{"type":"agentMessage","id":"m1","text":""}}}"#);
         assert_eq!(f[0]["event"]["type"], "message_start");
         assert_eq!(f[0]["event"]["message"]["id"], "turn-1");
         assert_eq!(f[1]["event"]["type"], "content_block_start");
         assert_eq!(f[1]["event"]["index"], 0);
-        let f = link.on_line(r#"{"method":"item/agentMessage/delta","params":{"itemId":"m1","delta":"Ol"}}"#);
+        let f = link.on_line(
+            r#"{"method":"item/agentMessage/delta","params":{"itemId":"m1","delta":"Ol"}}"#,
+        );
         assert_eq!(f[0]["event"]["delta"]["text"], "Ol");
         let f = link.on_line(r#"{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"m1","text":"Olá"}}}"#);
         assert_eq!(f[0]["event"]["type"], "content_block_stop");
@@ -1052,14 +1197,18 @@ mod tests {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         link.on_line(r#"{"method":"turn/started","params":{"turn":{"id":"turn-1"}}}"#);
-        link.on_line(r#"{"method":"item/started","params":{"item":{"type":"reasoning","id":"r1"}}}"#);
+        link.on_line(
+            r#"{"method":"item/started","params":{"item":{"type":"reasoning","id":"r1"}}}"#,
+        );
         link.on_line(r#"{"method":"item/reasoning/summaryTextDelta","params":{"itemId":"r1","delta":"pensando"}}"#);
         let f = link.on_line(r#"{"method":"item/started","params":{"item":{"type":"commandExecution","id":"c1","command":"ls","commandActions":[]}}}"#);
         assert_eq!(f[0]["event"]["type"], "content_block_stop");
         assert_eq!(f[1]["message"]["content"][0]["thinking"], "pensando");
         assert_eq!(f[2]["message"]["content"][0]["type"], "tool_use");
         // O próximo texto nasce no índice 2: pensamento (0), ferramenta (1).
-        let f = link.on_line(r#"{"method":"item/started","params":{"item":{"type":"agentMessage","id":"m1"}}}"#);
+        let f = link.on_line(
+            r#"{"method":"item/started","params":{"item":{"type":"agentMessage","id":"m1"}}}"#,
+        );
         assert_eq!(f[0]["event"]["type"], "content_block_start");
         assert_eq!(f[0]["event"]["index"], 2);
     }
@@ -1072,7 +1221,10 @@ mod tests {
         assert_eq!(f[0]["type"], "control_request");
         assert_eq!(f[0]["request_id"], "7");
         assert_eq!(f[0]["request"]["tool_name"], "AskUserQuestion");
-        assert_eq!(f[0]["request"]["input"]["questions"][0]["options"][0]["label"], "azul");
+        assert_eq!(
+            f[0]["request"]["input"]["questions"][0]["options"][0]["label"],
+            "azul"
+        );
         link.write(&json!({
             "type": "control_response",
             "response": { "subtype": "success", "request_id": "7", "response": { "behavior": "allow", "updatedInput": { "answers": { "Qual cor?": "azul" } } } },
@@ -1105,7 +1257,9 @@ mod tests {
         assert_eq!(f[0]["status"], "compacting");
         assert_eq!(out.take()[0]["method"], "thread/compact/start");
         link.on_line(r#"{"method":"turn/started","params":{"turn":{"id":"turn-c"}}}"#);
-        link.on_line(r#"{"method":"item/started","params":{"item":{"type":"contextCompaction","id":"k1"}}}"#);
+        link.on_line(
+            r#"{"method":"item/started","params":{"item":{"type":"contextCompaction","id":"k1"}}}"#,
+        );
         link.on_line(r#"{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"totalTokens":4000},"modelContextWindow":258400}}}"#);
         let f = link.on_line(r#"{"method":"item/completed","params":{"item":{"type":"contextCompaction","id":"k1"}}}"#);
         assert_eq!(f[0]["compact_result"], "success");
@@ -1156,7 +1310,10 @@ mod tests {
     fn log_do_app_server_nao_duplica_erro_da_ferramenta() {
         let log = "\u{1b}[2m2026-08-28T16:54:16.210466Z\u{1b}[0m \u{1b}[31mERROR\u{1b}[0m \u{1b}[2mcodex_core::tools::router\u{1b}[0m: error=apply_patch verification failed";
         assert_eq!(process_stderr(log), None);
-        assert_eq!(process_stderr("codex: not logged in"), Some("codex: not logged in".into()));
+        assert_eq!(
+            process_stderr("codex: not logged in"),
+            Some("codex: not logged in".into())
+        );
     }
 
     #[test]
@@ -1182,8 +1339,12 @@ mod tests {
     fn o_patch_vira_diff_com_cabecalho_e_sinal() {
         let change = json!({ "path": "/wt/src/a.rs", "kind": { "type": "update", "move_path": null }, "diff": "@@ -1 +1 @@\n-a\n+b\n" });
         let text = patch(&change, "/wt");
-        assert_eq!(text, "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-a\n+b");
-        let add = json!({ "path": "/wt/n.txt", "kind": { "type": "add" }, "diff": "novo\nlinha\n" });
+        assert_eq!(
+            text,
+            "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-a\n+b"
+        );
+        let add =
+            json!({ "path": "/wt/n.txt", "kind": { "type": "add" }, "diff": "novo\nlinha\n" });
         assert_eq!(patch(&add, "/wt"), "diff --git a/n.txt b/n.txt\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1,2 @@\n+novo\n+linha");
         let del = json!({ "path": "/outro/x.txt", "kind": { "type": "delete" }, "diff": "fim\n" });
         assert!(patch(&del, "/wt").starts_with("diff --git a//outro/x.txt b//outro/x.txt\n--- a//outro/x.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-fim"));

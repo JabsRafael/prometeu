@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./ipc";
 import { fromBack } from "./i18n";
 import { highlight } from "./highlight";
 import { fileIcon, icon } from "./icons";

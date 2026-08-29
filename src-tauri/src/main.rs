@@ -4,6 +4,9 @@ mod agents;
 mod browser;
 mod chat;
 mod codex;
+mod dock;
+mod domain;
+mod github;
 mod i18n;
 mod linear;
 mod lock;
@@ -15,17 +18,17 @@ mod session;
 mod state;
 mod team;
 mod transcript;
+mod trust;
 
 use state::Board;
 use std::collections::{HashMap, HashSet};
-use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 pub struct AppState {
     pub board: Mutex<Board>,
     /// Para onde o quadro vai quando muda: uma thread só, que junta as
     /// gravações. Ver `state::spawn_saver`.
-    pub save: Sender<Arc<Board>>,
+    pub save: state::Saver,
     /// Toda conversa de todo workspace continua rodando com o quadro na
     /// frente. Chave é o id da sessão, que é o id da aba.
     pub chats: Mutex<HashMap<String, chat::Chat>>,
@@ -87,6 +90,8 @@ fn main() {
             session::load_board,
             session::add_project,
             session::remove_project,
+            trust::project_trust_preview,
+            trust::set_projects_trusted,
             session::list_branches,
             session::create_workspace,
             session::set_stage,
@@ -104,14 +109,14 @@ fn main() {
             session::workspace_branch,
             session::list_dir,
             session::read_file,
-            session::open_dock,
-            session::close_dock,
-            session::reveal,
-            session::workspace_scripts,
-            session::dock_state,
-            session::create_scripts_file,
-            session::scripts_prompt,
-            session::open_run,
+            dock::open_dock,
+            dock::close_dock,
+            dock::reveal,
+            dock::workspace_scripts,
+            dock::dock_state,
+            dock::create_scripts_file,
+            dock::scripts_prompt,
+            dock::open_run,
             browser::browser_open,
             browser::browser_url,
             browser::browser_navigate,
@@ -120,9 +125,9 @@ fn main() {
             browser::browser_reload,
             browser::browser_close,
             session::pr_prompt,
-            session::pr_open,
-            session::refresh_prs,
-            session::open_pr,
+            github::pr_open,
+            github::refresh_prs,
+            github::open_pr,
             session::new_tab,
             session::close_tab,
             session::focus_tab,
@@ -133,6 +138,7 @@ fn main() {
             pty::pty_buffer,
             chat::chat_send,
             chat::chat_control,
+            chat::chat_control_remote,
             chat::chat_buffer,
             chat::chat_snapshot,
             linear::linear_status,

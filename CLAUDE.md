@@ -50,11 +50,11 @@ Ela não entra em repositório nenhum.
 ## PR e CI
 
 Trabalho sai em branch e entra por PR: `/open-pr` empurra, escreve o PR e
-acompanha os checks. O CI (`.github/workflows/ci.yml`) roda no runner
-self-hosted deste Mac — `~/actions-runner`, serviço de login; `sh
-scripts/runner.sh` confere se está online e sobe se não estiver. Runner
-parado = job na fila por até 24h, sem aviso. O repositório precisa continuar
-privado enquanto houver runner self-hosted nele.
+acompanha os checks. O CI de PR (`.github/workflows/ci.yml`) roda em VM macOS
+descartável do GitHub: código ainda não revisado nunca entra no runner
+persistente. O runner self-hosted deste Mac fica só para release, depois de o
+workflow conferir que o commit já pertence à `main`, e o job usa o environment
+`release`. `sh scripts/runner.sh` confere se esse runner está online.
 
 ## Texto na tela
 

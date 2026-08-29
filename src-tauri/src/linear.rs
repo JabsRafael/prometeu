@@ -160,10 +160,12 @@ pub async fn blocking<T: Send + 'static>(
 /* ---------- o fluxo ---------- */
 
 fn connect() -> Result<Auth, String> {
-    let listener = TcpListener::bind(("127.0.0.1", PORT))
-        .map_err(|e| {
-            i18n::ta("err.linear.port", &[("port", PORT.to_string()), ("cause", e.to_string())])
-        })?;
+    let listener = TcpListener::bind(("127.0.0.1", PORT)).map_err(|e| {
+        i18n::ta(
+            "err.linear.port",
+            &[("port", PORT.to_string()), ("cause", e.to_string())],
+        )
+    })?;
     listener.set_nonblocking(true).map_err(i18n::io)?;
 
     let verifier = random();
@@ -204,6 +206,13 @@ fn wait_for_code(listener: &TcpListener, state: &str, deadline: Instant) -> Resu
                     continue;
                 }
                 let q = parse_query(query);
+                // Mesmo uma resposta de erro pertence ao fluxo só depois de
+                // provar o state. Sem isto qualquer request local podia matar
+                // uma autorização que ainda estava esperando o navegador.
+                if q.get("state").map(String::as_str) != Some(state) {
+                    respond(&mut stream, "400 Bad Request", &page(false, ""));
+                    continue;
+                }
                 if let Some(err) = q.get("error") {
                     let why = q.get("error_description").cloned().unwrap_or_default();
                     respond(&mut stream, "200 OK", &page(false, &why));
@@ -214,10 +223,6 @@ fn wait_for_code(listener: &TcpListener, state: &str, deadline: Instant) -> Resu
                             &[("why", format!("{err} {why}").trim().to_string())],
                         ),
                     });
-                }
-                if q.get("state").map(String::as_str) != Some(state) {
-                    respond(&mut stream, "400 Bad Request", &page(false, ""));
-                    return Err(i18n::t("err.linear.mismatch"));
                 }
                 let Some(code) = q.get("code").filter(|c| !c.is_empty()) else {
                     respond(&mut stream, "400 Bad Request", &page(false, ""));
@@ -246,7 +251,8 @@ fn respond(stream: &mut TcpStream, status: &str, body: &str) {
     let _ = write!(
         stream,
         "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\
-         Connection: close\r\n\r\n{body}",
+         Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'\r\n\
+         X-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     let _ = stream.flush();
@@ -258,19 +264,31 @@ fn respond(stream: &mut TcpStream, status: &str, body: &str) {
 /// navegador, longe do catálogo do front. Duas linhas em cada idioma — não
 /// vale um segundo catálogo deste lado.
 fn page(ok: bool, why: &str) -> String {
-    let lang = i18n::lang();
+    let lang = html(&i18n::lang());
     let (title, text) = match (ok, i18n::pt()) {
-        (true, true) => ("Linear conectado", "Pode fechar esta aba e voltar ao Prometheus.".to_string()),
-        (true, false) => {
-            ("Linear connected", "You can close this tab and go back to Prometheus.".to_string())
-        }
-        (false, true) => {
-            ("Não deu", format!("O Linear não autorizou o Prometheus. {why}").trim().to_string())
-        }
-        (false, false) => {
-            ("Did not work", format!("Linear did not authorize Prometheus. {why}").trim().to_string())
-        }
+        (true, true) => (
+            "Linear conectado",
+            "Pode fechar esta aba e voltar ao Prometheus.".to_string(),
+        ),
+        (true, false) => (
+            "Linear connected",
+            "You can close this tab and go back to Prometheus.".to_string(),
+        ),
+        (false, true) => (
+            "Não deu",
+            format!("O Linear não autorizou o Prometheus. {why}")
+                .trim()
+                .to_string(),
+        ),
+        (false, false) => (
+            "Did not work",
+            format!("Linear did not authorize Prometheus. {why}")
+                .trim()
+                .to_string(),
+        ),
     };
+    let title = html(title);
+    let text = html(&text);
     format!(
         "<!doctype html><html lang=\"{lang}\"><meta charset=\"utf-8\"><title>{title}</title>\
          <body style=\"margin:0;height:100vh;display:grid;place-items:center;background:#141110;\
@@ -278,6 +296,14 @@ fn page(ok: bool, why: &str) -> String {
          <div style=\"text-align:center\"><div style=\"font-size:22px;font-weight:600\">{title}</div>\
          <div style=\"color:#a4a09d;margin-top:8px\">{text}</div></div></body></html>"
     )
+}
+
+fn html(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 /// Troca o `code` pelo token. Sem `client_secret`: o verifier é a prova.
@@ -293,7 +319,10 @@ fn exchange(code: &str, verifier: &str) -> Result<Auth, String> {
 }
 
 fn refresh(auth: &Auth) -> Result<Auth, String> {
-    let rt = auth.refresh_token.as_deref().ok_or_else(|| i18n::t("err.linear.expired"))?;
+    let rt = auth
+        .refresh_token
+        .as_deref()
+        .ok_or_else(|| i18n::t("err.linear.expired"))?;
     let mut got = token_request(&[
         ("grant_type", "refresh_token"),
         ("refresh_token", rt),
@@ -327,11 +356,16 @@ fn token_request(fields: &[(&str, &str)]) -> Result<Auth, String> {
         .json()
         .map_err(|e| i18n::ta("err.linear.garbled", &[("cause", e.to_string())]))?;
     if let Some(err) = reply.error {
-        return Err(format!("o Linear recusou: {err} {}", reply.error_description.unwrap_or_default())
-            .trim()
-            .to_string());
+        return Err(format!(
+            "o Linear recusou: {err} {}",
+            reply.error_description.unwrap_or_default()
+        )
+        .trim()
+        .to_string());
     }
-    let access_token = reply.access_token.ok_or_else(|| i18n::t("err.linear.noToken"))?;
+    let access_token = reply
+        .access_token
+        .ok_or_else(|| i18n::t("err.linear.noToken"))?;
     Ok(Auth {
         access_token,
         refresh_token: reply.refresh_token,
@@ -356,7 +390,11 @@ pub fn token() -> Result<String, String> {
 }
 
 /// Uma query, com variáveis. Devolve o `data`; erros do GraphQL viram `Err`.
-pub fn graphql(token: &str, query: &str, vars: serde_json::Value) -> Result<serde_json::Value, String> {
+pub fn graphql(
+    token: &str,
+    query: &str,
+    vars: serde_json::Value,
+) -> Result<serde_json::Value, String> {
     let reply: serde_json::Value = reqwest::blocking::Client::new()
         .post(GRAPHQL)
         .bearer_auth(token)
@@ -380,11 +418,18 @@ pub fn graphql(token: &str, query: &str, vars: serde_json::Value) -> Result<serd
             .join("; ");
         return Err(i18n::ta("err.linear.queryRefused", &[("why", msg)]));
     }
-    reply.get("data").cloned().ok_or_else(|| i18n::t("err.linear.noData"))
+    reply
+        .get("data")
+        .cloned()
+        .ok_or_else(|| i18n::t("err.linear.noData"))
 }
 
 fn whoami(token: &str) -> Result<Who, String> {
-    let data = graphql(token, "{ viewer { name email organization { name urlKey } } }", serde_json::json!({}))?;
+    let data = graphql(
+        token,
+        "{ viewer { name email organization { name urlKey } } }",
+        serde_json::json!({}),
+    )?;
     let v = &data["viewer"];
     let s = |x: &serde_json::Value| x.as_str().unwrap_or("").to_string();
     Ok(Who {
@@ -407,13 +452,21 @@ pub fn load() -> Option<Auth> {
 
 fn save(auth: &Auth) -> Result<(), String> {
     let body = serde_json::to_string_pretty(auth).map_err(|e| e.to_string())?;
-    paths::write_private(&path(), &body)
-        .map_err(|cause| i18n::ta("err.linear.write", &[("path", path().display().to_string()), ("cause", cause)]))
+    paths::write_private(&path(), &body).map_err(|cause| {
+        i18n::ta(
+            "err.linear.write",
+            &[("path", path().display().to_string()), ("cause", cause)],
+        )
+    })
 }
 
 pub fn status() -> Status {
     let who = load().map(|a| a.who);
-    Status { connected: who.is_some(), who, busy: PENDING.load(Ordering::SeqCst) }
+    Status {
+        connected: who.is_some(),
+        who,
+        busy: PENDING.load(Ordering::SeqCst),
+    }
 }
 
 /* ---------- issues ---------- */
@@ -531,7 +584,10 @@ fn fetch_issues() -> Result<Issues, String> {
         }
         after = page.page_info.end_cursor;
     }
-    Ok(Issues { issues: all, fetched_at: now() })
+    Ok(Issues {
+        issues: all,
+        fetched_at: now(),
+    })
 }
 
 fn issues_path() -> PathBuf {
@@ -620,7 +676,11 @@ impl From<Raw> for Issue {
             branch_name: r.branch_name,
             priority: r.priority,
             priority_label: r.priority_label,
-            state: IssueState { name: r.state.name, kind: r.state.kind, color: r.state.color },
+            state: IssueState {
+                name: r.state.name,
+                kind: r.state.kind,
+                color: r.state.color,
+            },
             team: r.team.map(|t| t.key).unwrap_or_default(),
             project: r.project.map(|p| p.name),
             labels: r.labels.nodes,
@@ -632,14 +692,21 @@ impl From<Raw> for Issue {
 /* ---------- miudezas ---------- */
 
 fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// 64 caracteres hexadecimais de duas UUIDs v4 — que saem do gerador seguro
 /// do sistema. Serve de `code_verifier` (43 a 128 caracteres, RFC 7636) e de
 /// `state`.
 fn random() -> String {
-    format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple())
+    format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    )
 }
 
 /// `code_challenge` S256: base64url sem `=` do SHA-256 do verifier.
@@ -648,8 +715,13 @@ fn challenge(verifier: &str) -> String {
 }
 
 fn browse(url: &str) -> Result<(), String> {
-    let ok = Command::new("open").arg(url).status().map_err(i18n::io)?.success();
-    ok.then_some(()).ok_or_else(|| i18n::t("err.linear.noBrowser"))
+    let ok = Command::new("open")
+        .arg(url)
+        .status()
+        .map_err(i18n::io)?
+        .success();
+    ok.then_some(())
+        .ok_or_else(|| i18n::t("err.linear.noBrowser"))
 }
 
 /// Corpo `application/x-www-form-urlencoded`, que é como o OAuth fala. À mão
@@ -668,7 +740,9 @@ fn escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len() * 3);
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -741,7 +815,10 @@ mod tests {
     #[test]
     fn o_corpo_do_token_e_urlencoded() {
         assert_eq!(
-            form(&[("grant_type", "authorization_code"), ("redirect_uri", REDIRECT)]),
+            form(&[
+                ("grant_type", "authorization_code"),
+                ("redirect_uri", REDIRECT)
+            ]),
             "grant_type=authorization_code&redirect_uri=http%3A%2F%2Flocalhost%3A17420%2Flinear"
         );
     }

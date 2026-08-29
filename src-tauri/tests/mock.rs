@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 /// Comandos cujo retorno o front joga fora — manda e segue. Para esses, o
 /// `default: return null` do mock é a resposta certa, e exigir um `case` seria
 /// pedir código que não faz nada.
-const VOID: [&str; 14] = [
+const VOID: [&str; 15] = [
     "add_project",
     "remove_project",
     "remove_workspace",
@@ -33,11 +33,15 @@ const VOID: [&str; 14] = [
     "look_at",
     "team_config_set",
     "set_shared",
+    "set_projects_trusted",
 ];
 
 fn repo() -> PathBuf {
     // O crate é `src-tauri/`; o front é o irmão dele.
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf()
 }
 
 fn read(rel: &str) -> String {
@@ -67,26 +71,35 @@ fn invoked() -> BTreeSet<String> {
             }
             // O nome é o primeiro trecho entre aspas antes de qualquer outra
             // coisa acontecer.
-            let Some(open) = piece.find('"') else { continue };
+            let Some(open) = piece.find('"') else {
+                continue;
+            };
             if piece[..open].contains(';') || piece[..open].contains('\n') {
                 continue;
             }
             let rest = &piece[open + 1..];
-            let Some(close) = rest.find('"') else { continue };
+            let Some(close) = rest.find('"') else {
+                continue;
+            };
             let name = &rest[..close];
             if !name.starts_with("plugin:") {
                 found.insert(name.to_string());
             }
         }
     }
-    assert!(found.len() > 20, "o varredor não achou os invokes: {found:?}");
+    assert!(
+        found.len() > 20,
+        "o varredor não achou os invokes: {found:?}"
+    );
     found
 }
 
 /// Os nomes de dentro do `generate_handler!`, que é a lista de verdade.
 fn registered() -> BTreeSet<String> {
     let text = read("src-tauri/src/main.rs");
-    let start = text.find("generate_handler![").expect("sem generate_handler!");
+    let start = text
+        .find("generate_handler![")
+        .expect("sem generate_handler!");
     let block = &text[start..text[start..].find(']').unwrap() + start];
     block
         .lines()
@@ -109,7 +122,10 @@ fn mocked() -> BTreeSet<String> {
 #[test]
 fn tudo_que_o_front_chama_existe_no_rust() {
     let registered = registered();
-    let missing: Vec<_> = invoked().into_iter().filter(|c| !registered.contains(c)).collect();
+    let missing: Vec<_> = invoked()
+        .into_iter()
+        .filter(|c| !registered.contains(c))
+        .collect();
     assert!(
         missing.is_empty(),
         "o front chama comando que o generate_handler! não registra: {missing:?}"
