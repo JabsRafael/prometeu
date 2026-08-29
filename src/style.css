@@ -1216,7 +1216,13 @@ body.noside .side { display: none; }
   padding: 0 8px; border-radius: var(--r); background: none; color: var(--fg);
   font-weight: 400; justify-content: flex-start;
 }
-.mrow:hover { background: var(--bg-raised-3); }
+.mrow:hover, .mrow.sel { background: var(--bg-raised-3); }
+/* A lista de comandos da caixa: pode ter dezenas de linhas, então cabe na
+   tela e rola, em vez de crescer até tampar a conversa. */
+.menu.cmds { max-height: 40vh; overflow-y: auto; max-width: min(560px, calc(100vw - 16px)); }
+.menu.cmds .mrow { flex: none; }
+.menu.cmds .ml { flex: none; max-width: 240px; }
+.menu.cmds .mh { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .mrow .mg { display: flex; color: var(--fg-2); width: 16px; flex: none; }
 .mrow .ml { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .mrow .mh { font-size: 12px; color: var(--fg-3); }

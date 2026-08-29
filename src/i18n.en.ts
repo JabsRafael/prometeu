@@ -209,6 +209,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "chat.stop": "Stop",
   "chat.busy": "the agent is working — Esc to interrupt",
   "chat.compacting": "compacting context…",
+  "chat.cmd.compact": "Free up context by summarizing the conversation so far",
+  "chat.cmd.context": "How much of the context window is in use",
   "chat.compacted": "context compacted",
   "chat.compacted.tokens": "context compacted: {pre} → {post} tokens",
   "chat.summary": "Summary of the conversation so far — what the agent remembers after compacting",

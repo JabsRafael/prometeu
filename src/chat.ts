@@ -6,9 +6,10 @@ import { diffHtml, isDiff } from "./highlight";
 import { grouped, kilo, sectionTotal, type Report } from "./context";
 import { effortStep, modelLabel } from "./launcher";
 import { md } from "./markdown";
+import * as commands from "./commands";
 import * as notes from "./notes";
 import * as team from "./team";
-import { pieces, summary, Timeline, type Ask, type Block, type Item, type Piece, type ToolBlock } from "./timeline";
+import { pieces, summary, Timeline, type Ask, type Block, type Command, type Item, type Piece, type ToolBlock } from "./timeline";
 import type { Status } from "./types";
 import { h } from "./util";
 
@@ -885,9 +886,13 @@ export class ChatView {
       // com o que digitou, e quem escolhe um nome vê o nome tomar o lugar do
       // "@ti" que já estava lá.
       if (this.mode === "note") notes.typedMention(this.area, () => this.keep());
+      // O "/" no começo da fala é a mesma coisa: a lista dos comandos que o
+      // agente aceita abre em cima da caixa e acompanha as letras.
+      else commands.typed(this.area, this.commands(), () => this.grow());
     });
     this.area.addEventListener("keydown", (e) => {
-      if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey && !e.isComposing && notes.acceptMention()) {
+      const pick = e.key === "Enter" || e.key === "Tab";
+      if (pick && !e.shiftKey && !e.isComposing && (notes.acceptMention() || commands.accept(e.key === "Tab"))) {
         e.preventDefault();
       } else if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
@@ -977,7 +982,34 @@ export class ChatView {
     if (this.remote) team.write(text);
     else invoke("chat_send", { session: this.key, text }).catch((e) => this.ctx.say(fromBack(e), true));
     this.area.value = "";
+    commands.dismiss();
     this.grow();
+  }
+
+  /// Os comandos de barra desta conversa: o que o processo respondeu ao subir
+  /// (ver `Timeline.commands`). Com a conversa desligada não há processo, e
+  /// o transcript não guarda a resposta: vale a última lista vista com este
+  /// modelo — os comandos são quase todos os mesmos de uma conversa para
+  /// outra — e, antes de qualquer uma, os dois que o app conhece por si.
+  private commands(): Command[] {
+    const key = `prometheus:comandos:${this.ctx.info().model}`;
+    const live = this.tl.commands;
+    if (live.length) {
+      localStorage.setItem(key, JSON.stringify(live));
+      return live;
+    }
+    try {
+      const seen: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
+      if (Array.isArray(seen) && seen.length) {
+        return seen.filter((c): c is Command => !!c && typeof c.name === "string" && typeof c.description === "string");
+      }
+    } catch {
+      /* lista velha ilegível: é como se não houvesse */
+    }
+    return [
+      { name: "compact", description: t("chat.cmd.compact"), hint: "" },
+      { name: "context", description: t("chat.cmd.context"), hint: "" },
+    ];
   }
 
   private paintComposer() {

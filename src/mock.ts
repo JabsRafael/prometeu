@@ -194,6 +194,29 @@ const line = (o: unknown) => JSON.stringify(o);
 const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 const SAMPLE =
   [
+    // A resposta ao `initialize` que o back manda ao subir o processo, e o
+    // `init` que vem depois da primeira fala (o `color` é de terminal, sai).
+    line({
+      type: "control_response",
+      response: {
+        subtype: "success",
+        request_id: "initialize",
+        response: {
+          commands: [
+            { name: "compact", description: "Free up context by summarizing the conversation so far", argumentHint: "<optional custom summarization instructions>" },
+            { name: "context", description: "Show the context usage of the current session", argumentHint: "" },
+            { name: "clear", description: "Clear conversation history and free up context", argumentHint: "[name]" },
+            { name: "cost", description: "Show the total cost and duration of the current session", argumentHint: "" },
+            { name: "color", description: "Set the color of the session", argumentHint: "" },
+            { name: "open-pr", description: "Abre um PR da branch atual — empurra, escreve título e corpo, garante o runner de CI no ar e acompanha os checks até o fim (project)", argumentHint: "" },
+            { name: "release", description: "Solta uma versão nova do Prometheus — confere os commits, corta a tag, acompanha o CI e publica a draft (project)", argumentHint: "" },
+            { name: "caveman:caveman", description: "(caveman) Ultra-compressed communication mode. Cuts token usage ~75% by speaking like caveman while keeping full technical accuracy.", argumentHint: "" },
+            { name: "caveman:caveman-commit", description: "(caveman) Ultra-compressed commit message generator. Cuts noise from commit messages while preserving intent and reasoning.", argumentHint: "" },
+          ],
+        },
+      },
+    }),
+    line({ type: "system", subtype: "init", slash_commands: ["compact", "context", "clear", "cost", "color"], terminal_slash_commands: ["color"] }),
     line({ type: "user", message: { role: "user", content: "Me pergunte quais são as minhas 3 cores preferidas" }, timestamp: ago(12) }),
     line({ type: "assistant", message: { id: "m0", role: "assistant", content: [{ type: "thinking", thinking: "Pergunta simples. Vou perguntar direto." }] }, timestamp: ago(12) }),
     line({ type: "assistant", message: { id: "m0", role: "assistant", content: [{ type: "text", text: "Quais são as suas **três** cores preferidas?" }] }, timestamp: ago(12) }),

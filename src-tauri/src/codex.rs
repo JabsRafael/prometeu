@@ -220,6 +220,23 @@ impl Link {
                 self.reply(&ask.rpc, result)?;
                 Ok(vec![])
             }
+            // O `initialize` que o app manda ao subir o processo: o Claude Code
+            // responde com os comandos de barra que aceita; aqui a resposta é
+            // a lista dos que `slash` entende, na mesma forma.
+            Some("control_request") if frame["request"]["subtype"] == "initialize" => {
+                let commands: Vec<Value> = SLASH
+                    .iter()
+                    .map(|(name, pt, en)| json!({ "name": name, "description": i18n::pick(pt, en), "argumentHint": "" }))
+                    .collect();
+                Ok(vec![json!({
+                    "type": "control_response",
+                    "response": {
+                        "subtype": "success",
+                        "request_id": frame["request_id"],
+                        "response": { "commands": commands },
+                    },
+                })])
+            }
             Some("control_request") if frame["request"]["subtype"] == "interrupt" => {
                 if let (Some(thread), Some(turn)) = (self.thread.clone(), self.turn.clone()) {
                     self.call("turn/interrupt", json!({ "threadId": thread, "turnId": turn }), Sent::Interrupt)?;
@@ -731,6 +748,14 @@ fn now() -> u64 {
 
 /// Com a hora: o Codex não a põe nas linhas que a tela vai guardar, e é ela
 /// que ordena as notas do time entre os itens.
+/// Os comandos de barra que o tradutor entende (ver `slash`), com a descrição
+/// nas duas línguas. É a resposta ao `initialize` — a lista que a caixa
+/// oferece ao escrever "/".
+const SLASH: [(&str, &str, &str); 2] = [
+    ("compact", "Resume a conversa até aqui para liberar contexto", "Free up context by summarizing the conversation so far"),
+    ("context", "Quanto da janela de contexto está em uso", "How much of the context window is in use"),
+];
+
 fn stamp(mut frame: Value) -> Value {
     frame["ts"] = json!(now());
     frame
@@ -942,6 +967,26 @@ mod tests {
         assert_eq!(sent[0]["params"]["threadId"], "t-1");
         assert_eq!(sent[0]["params"]["input"][0]["text"], "oi");
         assert_eq!(sent[0]["params"]["effort"], "high");
+    }
+
+    #[test]
+    fn initialize_responde_os_comandos_sem_ir_ao_processo() {
+        let (mut link, out) = link(None);
+        out.take();
+        let req = json!({ "type": "control_request", "request_id": "initialize", "request": { "subtype": "initialize" } });
+        let frames = link.write(&req).unwrap();
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0]["type"], "control_response");
+        assert_eq!(frames[0]["response"]["request_id"], "initialize");
+        let names: Vec<&str> = frames[0]["response"]["response"]["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["compact", "context"]);
+        assert!(frames[0]["response"]["response"]["commands"][0]["description"].as_str().unwrap().len() > 0);
+        assert!(out.take().is_empty());
     }
 
     #[test]

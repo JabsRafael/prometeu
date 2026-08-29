@@ -22,12 +22,15 @@ export type Item =
     };
 
 let root: HTMLElement | null = null;
+/// A linha marcada — pelo mouse ou pelas setas. É a que Enter aciona.
+let sel: HTMLElement | null = null;
 
 export const isOpen = () => root !== null;
 
 export function close() {
   root?.remove();
   root = null;
+  sel = null;
   document.removeEventListener("mousedown", onDown, true);
   document.removeEventListener("keydown", onKey, true);
   window.removeEventListener("blur", close);
@@ -38,28 +41,70 @@ function onDown(e: MouseEvent) {
 }
 
 /// Esc é do menu enquanto ele está aberto: o do app fecharia o lançador atrás.
+/// As setas andam pela lista e Enter aciona a linha marcada — é o que deixa
+/// escolher sem tirar a mão do teclado quando o menu abriu enquanto se
+/// escrevia (ver `commands.ts`, `notes.ts`). Sem linha marcada, Enter segue
+/// para quem estava com o foco.
 function onKey(e: KeyboardEvent) {
-  if (e.key !== "Escape") return;
-  e.stopPropagation();
-  close();
+  if (e.key === "Escape") {
+    e.stopPropagation();
+    close();
+  } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    e.stopPropagation();
+    move(e.key === "ArrowDown" ? 1 : -1);
+  } else if (e.key === "Enter" && sel) {
+    e.preventDefault();
+    e.stopPropagation();
+    sel.click();
+  }
 }
 
+function select(row: HTMLElement | null) {
+  sel?.classList.remove("sel");
+  sel = row;
+  sel?.classList.add("sel");
+}
+
+/// Uma linha para baixo ou para cima, dando a volta nas pontas. Só as linhas
+/// do painel de cima: o submenu é do mouse.
+function move(delta: number) {
+  if (!root) return;
+  const rows = [...root.children].filter((el): el is HTMLElement => el.matches(".mrow:not(.off)"));
+  if (!rows.length) return;
+  const at = sel ? rows.indexOf(sel) : -1;
+  const next = at < 0 ? (delta > 0 ? 0 : rows.length - 1) : (at + delta + rows.length) % rows.length;
+  select(rows[next]);
+  rows[next].scrollIntoView({ block: "nearest" });
+}
+
+export type Where = {
+  x: number;
+  y: number;
+  /// O painel cresce para cima a partir do ponto, em vez de para baixo: é o
+  /// que abre em cima de uma caixa de texto sem tampá-la.
+  above?: boolean;
+};
+
 /// Abre em cima do ponto do clique. Se não couber, encosta na borda em vez de
-/// sair da tela.
-export function openAt(at: { x: number; y: number }, items: Item[]) {
+/// sair da tela. `cls` é uma classe a mais no painel, para a lista que precisa
+/// de outro tamanho.
+export function openAt(at: Where, items: Item[], cls?: string) {
   close();
   root = panel(items);
+  if (cls) root.classList.add(cls);
   document.body.append(root);
-  place(root, at.x, at.y);
+  place(root, at.x, at.y, at.above);
   document.addEventListener("mousedown", onDown, true);
   document.addEventListener("keydown", onKey, true);
   window.addEventListener("blur", close);
 }
 
-function place(el: HTMLElement, x: number, y: number) {
+function place(el: HTMLElement, x: number, y: number, above = false) {
   const { width, height } = el.getBoundingClientRect();
+  const top = above ? y - height : y;
   el.style.left = `${Math.max(8, Math.min(x, innerWidth - width - 8))}px`;
-  el.style.top = `${Math.max(8, Math.min(y, innerHeight - height - 8))}px`;
+  el.style.top = `${Math.max(8, Math.min(top, innerHeight - height - 8))}px`;
 }
 
 function panel(items: Item[]): HTMLElement {
@@ -89,6 +134,7 @@ function panel(items: Item[]): HTMLElement {
     box.append(row);
 
     row.addEventListener("mouseenter", () => {
+      if (!item.disabled) select(row);
       drop();
       if (!item.sub) return;
       // Dentro do painel, não no body: `position: fixed` posiciona igual, e
