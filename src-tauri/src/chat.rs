@@ -325,13 +325,26 @@ pub(crate) fn launch(
         ready: Arc::new(AtomicBool::new(false)),
         log,
     };
-    let chat = Chat {
+    let mut chat = Chat {
         wire,
         buffer: pump.sink.clone(),
         alive: Arc::new(AtomicBool::new(true)),
         pid,
         pump: pump.clone(),
     };
+    // A primeira linha para dentro é o `initialize` do protocolo: o processo
+    // responde com os comandos de barra que aceita (nome, descrição), sem
+    // esperar fala nenhuma — o `init` do stream, que também os lista, só sai
+    // depois da primeira fala. É o que a caixa mostra ao escrever "/". O Codex
+    // responde por conta própria, no tradutor.
+    match chat.write(&json!({ "type": "control_request", "request_id": "initialize", "request": { "subtype": "initialize" } })) {
+        Ok(echo) => {
+            for frame in echo {
+                pump.feed(&frame.to_string());
+            }
+        }
+        Err(e) => eprintln!("initialize em {id}: {e}"),
+    }
 
     // O stderr que o adaptador aceita vira linha também: é por ele que o
     // `claude` conta que não achou a sessão para retomar ou que não está

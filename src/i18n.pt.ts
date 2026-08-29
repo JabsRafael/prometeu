@@ -234,6 +234,8 @@ export const PT = {
   "chat.stop": "Parar",
   "chat.busy": "o agente está trabalhando — Esc para interromper",
   "chat.compacting": "compactando o contexto…",
+  "chat.cmd.compact": "Resume a conversa até aqui para liberar contexto",
+  "chat.cmd.context": "Quanto da janela de contexto está em uso",
   "chat.compacted": "contexto compactado",
   "chat.compacted.tokens": "contexto compactado: {pre} → {post} tokens",
   "chat.summary": "Resumo da conversa até aqui — é o que o agente lembra depois de compactar",

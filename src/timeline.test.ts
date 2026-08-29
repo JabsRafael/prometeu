@@ -181,6 +181,42 @@ describe("Timeline", () => {
     expect(t.items[2].ts).toBe(500);
   });
 
+  it("initialize: a resposta traz os comandos de barra; o init tira os de terminal", () => {
+    const t = new Timeline();
+    expect(t.commands).toEqual([]);
+    const answer = {
+      type: "control_response",
+      response: {
+        subtype: "success",
+        request_id: "initialize",
+        response: {
+          commands: [
+            { name: "compact", description: "Free up context", argumentHint: "<instructions>" },
+            { name: "color", description: "Set the color" },
+            { name: "release", description: "Solta uma versão" },
+            { bogus: true },
+          ],
+        },
+      },
+    };
+    expect(t.push(j(answer))).toEqual([]);
+    expect(t.items).toEqual([]);
+    expect(t.commands).toEqual([
+      { name: "compact", description: "Free up context", hint: "<instructions>" },
+      { name: "color", description: "Set the color", hint: "" },
+      { name: "release", description: "Solta uma versão", hint: "" },
+    ]);
+    // O init vem depois da primeira fala e diz quais são de terminal.
+    t.push(j({ type: "system", subtype: "init", slash_commands: ["compact", "color", "release"], terminal_slash_commands: ["color"] }));
+    expect(t.commands.map((c) => c.name)).toEqual(["compact", "release"]);
+    // Uma resposta nova (o processo subiu de novo) respeita o que o init disse.
+    t.push(j(answer));
+    expect(t.commands.map((c) => c.name)).toEqual(["compact", "release"]);
+    // As outras respostas (permissão respondida) não mexem em nada.
+    t.push(j({ type: "control_response", response: { subtype: "success", request_id: "x", response: {} } }));
+    expect(t.commands.length).toBe(2);
+  });
+
   it("skill: o corpo dela fica dentro do card, não vira fala", () => {
     const t = new Timeline();
     t.push(assistant("m1", { type: "tool_use", id: "tu1", name: "Skill", input: { skill: "release" } }));

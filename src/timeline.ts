@@ -65,6 +65,10 @@ export type Item =
 
 type Line = Record<string, any>;
 
+/// Um comando de barra, como o agente o descreve: `/name`, o que faz, e a
+/// dica do que vai depois (`<model>`), quando há.
+export type Command = { name: string; description: string; hint: string };
+
 export class Timeline {
   items: Item[] = [];
   /// Um turno em andamento: a fala foi, e o `result` ainda não veio.
@@ -72,6 +76,12 @@ export class Timeline {
   compacting = false;
   /// O que roda em segundo plano agora, pela lista que o Claude Code manda.
   tasks = new Map<string, Task>();
+  /// Os comandos de barra que o agente aceita: a resposta ao `initialize`
+  /// que o back manda ao subir o processo (ver `chat.rs`), com nome e
+  /// descrição. O `init` do stream, que só sai depois da primeira fala, diz
+  /// quais deles são de terminal (`exit`, `color`) — esses saem da lista.
+  commands: Command[] = [];
+  private terminal = new Set<string>();
   /// A ferramenta de cada `tool_use_id`, para o resultado achar o bloco.
   private tools = new Map<string, { item: number; block: number }>();
   /// A skill que acabou de ser chamada: o corpo dela vem na linha seguinte, e
@@ -128,6 +138,8 @@ export class Timeline {
         return this.result(o, ts);
       case "system":
         return this.system(o, ts);
+      case "control_response":
+        return this.answered(o);
       case "prometheus":
         if (o.subtype === "stderr") return [this.add({ kind: "system", ts, text: String(o.text), error: true })];
         // O fim de um buffer: o back diz se há turno em andamento. Sem turno,
@@ -437,8 +449,26 @@ export class Timeline {
     return touched;
   }
 
+  /// A resposta do processo a um pedido do app. A que interessa é a do
+  /// `initialize`: a lista de comandos de barra. As outras (permissão,
+  /// interrupção) não têm nada para a tela.
+  private answered(o: Line): number[] {
+    const list: unknown = o.response?.response?.commands;
+    if (!Array.isArray(list)) return [];
+    this.commands = list
+      .filter((c): c is Line => !!c && typeof c.name === "string" && !this.terminal.has(c.name))
+      .map((c) => ({ name: c.name, description: String(c.description ?? ""), hint: String(c.argumentHint ?? "") }));
+    return [];
+  }
+
   private system(o: Line, ts: number): number[] {
     switch (o.subtype) {
+      case "init": {
+        const terminal: unknown[] = Array.isArray(o.terminal_slash_commands) ? o.terminal_slash_commands : [];
+        this.terminal = new Set(terminal.filter((c): c is string => typeof c === "string"));
+        this.commands = this.commands.filter((c) => !this.terminal.has(c.name));
+        return [];
+      }
       case "status":
         this.compacting = o.status === "compacting";
         if (o.compact_result === "failed") {
