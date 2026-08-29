@@ -96,6 +96,11 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "launcher.nb.off": "Off, the session opens on the branch the repository is already on",
   "launcher.wt.on": "The branch gets a worktree of its own, isolated from your clone",
   "launcher.wt.off": "The branch is born in the repository itself: your clone switches branch",
+  "launcher.wt.locked": "With more than one repository, each one gets a worktree on the same branch",
+  "launcher.addRepo": "One more repository in this workspace",
+  "launcher.addRepo.none": "Register another repository to put two in one workspace",
+  "launcher.removeRepo": "Remove {name} from this workspace",
+  "launcher.hint.multi": "one worktree per repo · {branch}{from}",
   "launcher.effort.ultra":
     "Ultracode: very high effort plus workflow orchestration — the agent spawns subagents in parallel. Click to go back to Low",
   "launcher.effort.title":
@@ -450,6 +455,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.session.worktreeNeedsBranch": "a worktree needs a branch of its own",
   "err.session.worktreeElsewhere": "{path} already exists and is on branch '{head}', not on '{branch}'",
   "err.session.worktreeDetached": "{path} already exists and is not a worktree on any branch",
+  "err.session.extrasNeedWorktree": "a workspace with more than one repository needs a worktree",
+  "err.session.dupRepo": "{name} was added twice to the same workspace",
   "err.session.noParent": "worktree with no folder above it",
   "err.session.noWorktree": "the worktree is gone: {path}",
   "err.session.noWorkspace": "the workspace is gone",

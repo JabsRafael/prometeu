@@ -32,14 +32,29 @@ export type Tab = {
 
 export type Project = { id: string; name: string; path: string };
 
+/// Um repositório dentro do workspace: o clone de onde veio, o nome da pasta e
+/// onde está a cópia dele nesta branch.
+export type Repo = { path: string; name: string; worktree: string };
+
+/// O nome que a tela dá aos repositórios do workspace: o do principal, ou os
+/// de todos quando há mais de um — é assim que se sabe de longe que o card
+/// atravessa dois repos.
+export const repoLabel = (ws: Workspace) =>
+  ws.repos.length > 1 ? ws.repos.map((r) => r.name).join(" + ") : ws.repo_name;
+
 export type Workspace = {
   id: string;
   title: string;
   project: string;
+  /// O repositório principal — o primeiro de `repos`.
   repo: string;
   repo_name: string;
   branch: string;
+  /// Onde o agente trabalha: o worktree, ou a pasta que reúne o worktree de
+  /// cada repositório quando há mais de um.
   worktree: string;
+  /// Os repositórios deste workspace, o principal primeiro. Um só é o comum.
+  repos: Repo[];
   /// A etapa em que você pôs o trabalho. `Status` é o que o agente está
   /// fazendo; esta é a sua leitura do trabalho, e as duas não se misturam.
   stage: string;

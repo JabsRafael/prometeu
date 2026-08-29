@@ -66,6 +66,19 @@ pub fn worktree_dir(repo_name: &str, branch: &str) -> PathBuf {
         .join(dir_name(branch))
 }
 
+/// A pasta de um workspace com mais de um repositório: os nomes deles juntos
+/// no lugar do nome de um só, e dentro dela um worktree por repo, cada um com
+/// o nome do clone. `capim-backend+capim-portal/feat-x/capim-backend` não
+/// colide com o `capim-backend/feat-x` de um workspace de um repo só, e lê-se
+/// no Finder o que é.
+pub fn multi_dir(names: &[String], branch: &str) -> PathBuf {
+    home()
+        .join("prometheus")
+        .join(format!("worktrees{}", suffix()))
+        .join(names.join("+"))
+        .join(dir_name(branch))
+}
+
 /// O nome da pasta de uma branch. Trocar `/` por `-` é o que dá nome legível,
 /// mas sozinho ele colide: `feat/x` e `feat-x` viravam a mesma pasta, e a
 /// segunda sessão pegava silenciosamente o worktree da primeira — na branch
@@ -126,6 +139,17 @@ mod tests {
     fn slug_troca_tudo_que_nao_e_alfanumerico() {
         let path = transcript("abc", Path::new("/Users/ana/.prometheus/wt/x_1"));
         assert!(path.ends_with("-Users-ana--prometheus-wt-x-1/abc.jsonl"), "{}", path.display());
+    }
+
+    /// A pasta do workspace de dois repos fica ao lado das de um só, com os
+    /// dois nomes — e cada repo dentro dela com o seu.
+    #[test]
+    fn pasta_de_varios_repos_junta_os_nomes() {
+        let dir = multi_dir(&["back".into(), "front".into()], "feat/x");
+        let one = worktree_dir("back", "feat/x");
+        assert_eq!(dir.parent().unwrap().file_name().unwrap(), "back+front");
+        assert_eq!(dir.file_name(), one.file_name());
+        assert_eq!(dir.parent().unwrap().parent(), one.parent().unwrap().parent());
     }
 
     /// Branch sem `/` mantém o nome; com `/`, o nome achatado nunca é o mesmo

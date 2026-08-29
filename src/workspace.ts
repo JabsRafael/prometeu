@@ -15,6 +15,7 @@ import {
   label,
   merged,
   pending,
+  repoLabel,
   stateLabel,
   statusOf,
   type Board,
@@ -198,7 +199,7 @@ export function draw() {
   crumb.innerHTML =
     `${avatar(owner ?? ws.repo_name)}<span></span><span class="sep">${icon("chevron-right", 12)}</span><span></span>` +
     `<button class="branch" hidden>${icon("git-branch", 12)}<span></span></button>`;
-  crumb.children[1].textContent = owner ?? ws.repo_name;
+  crumb.children[1].textContent = owner ?? repoLabel(ws);
   const name = crumb.children[3] as HTMLElement;
   name.textContent = ws.title;
   if (!remote) {

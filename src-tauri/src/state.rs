@@ -1,7 +1,7 @@
 //! Três camadas, como no Conductor:
 //!
 //!   Projeto    um repositório registrado uma vez
-//!     └ Workspace   um worktree numa branch — é o card do quadro
+//!     └ Workspace   uma branch, num worktree por repositório — é o card do quadro
 //!         └ Aba     uma sessão de agente (Claude Code ou Codex); várias dividem
 //!                   os mesmos arquivos
 //!
@@ -92,16 +92,42 @@ pub struct Project {
     pub path: String,
 }
 
+/// Um repositório dentro de um workspace: de onde ele veio e onde está a cópia
+/// dele nesta branch. Workspace de um repositório só tem um destes; com mais
+/// de um, cada repo ganha um worktree seu, lado a lado, na mesma branch.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+pub struct Repo {
+    /// O clone registrado como projeto.
+    pub path: String,
+    /// O nome da pasta do clone — é o que a tela mostra e o nome da pasta do
+    /// worktree.
+    pub name: String,
+    /// Onde este repositório está nesta branch: o worktree, ou o próprio clone
+    /// quando o workspace roda nele.
+    pub worktree: String,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Workspace {
     pub id: String,
     pub title: String,
     #[serde(default)]
     pub project: String,
+    /// O repositório principal — o primeiro de `repos`. Continua aqui, e não
+    /// só na lista, porque é o que todo quadro gravado até hoje tem: é dele que
+    /// o diff, o PR e os scripts saem enquanto não olham para os outros.
     pub repo: String,
     pub repo_name: String,
     pub branch: String,
+    /// Onde o agente trabalha. Com um repositório só, é o worktree dele (ou o
+    /// clone); com mais de um, é a pasta que reúne o worktree de cada repo —
+    /// e é dela que a árvore de arquivos e o shell do dock partem.
     pub worktree: String,
+    /// Os repositórios deste workspace, o principal primeiro. Quadro gravado
+    /// antes disto existir vem sem a lista, e o `revive` monta a de um item a
+    /// partir de `repo` e `worktree` — nada muda para quem tinha um só.
+    #[serde(default)]
+    pub repos: Vec<Repo>,
     /// Onde o trabalho está — o que o quadro desenhava como coluna. É seu, não
     /// do processo: `Status` é o que o agente está fazendo agora, `stage` é o
     /// que você decidiu sobre o trabalho. `column` é o nome antigo.
@@ -188,6 +214,23 @@ pub struct Workspace {
 }
 
 impl Workspace {
+    /// O repositório principal: o primeiro da lista. Workspace construído sem
+    /// a lista (quadro velho antes do `revive`, ou um teste) responde com os
+    /// campos soltos, que dizem a mesma coisa.
+    pub fn primary(&self) -> Repo {
+        self.repos.first().cloned().unwrap_or_else(|| Repo {
+            path: self.repo.clone(),
+            name: self.repo_name.clone(),
+            worktree: self.worktree.clone(),
+        })
+    }
+
+    /// Mais de um repositório: `worktree` é a pasta que os reúne, e não um
+    /// worktree de git.
+    pub fn multi(&self) -> bool {
+        self.repos.len() > 1
+    }
+
     /// O card mostra o estado mais urgente entre as abas.
     pub fn status(&self) -> Status {
         self.tabs
@@ -282,6 +325,13 @@ impl Board {
             }
             if ws.project.is_empty() {
                 ws.project = ws.repo.clone();
+            }
+            // Quadro gravado antes de um workspace poder ter mais de um
+            // repositório: o único que ele tem é o principal, e o worktree é o
+            // dele. É o que o app instalado encontra na primeira abertura
+            // depois de atualizar — e nada além da lista muda.
+            if ws.repos.is_empty() {
+                ws.repos.push(Repo { path: ws.repo.clone(), name: ws.repo_name.clone(), worktree: ws.worktree.clone() });
             }
         }
 
@@ -443,6 +493,36 @@ mod tests {
         assert_eq!(ws.tabs[0].id, "w");
         assert_eq!(ws.active.as_deref(), Some("w"));
         assert!(ws.failed.is_none());
+    }
+
+    /// Quadro gravado por uma versão em que workspace tinha um repositório só:
+    /// a lista nasce com ele, e `repo`/`worktree` ficam exatamente como
+    /// estavam — é isso que faz atualizar o app não quebrar workspace nenhum.
+    #[test]
+    fn quadro_antigo_ganha_a_lista_de_um_repositorio() {
+        let mut board = board_json("");
+        board.revive();
+        let ws = &board.workspaces[0];
+        assert_eq!(ws.repo, "/r");
+        assert_eq!(ws.worktree, "/wt");
+        assert_eq!(ws.repos, vec![Repo { path: "/r".into(), name: "r".into(), worktree: "/wt".into() }]);
+        assert_eq!(ws.primary().worktree, "/wt");
+        assert!(!ws.multi());
+    }
+
+    /// E quadro que já tem a lista não ganha item de novo — nem perde os que
+    /// tem.
+    #[test]
+    fn quadro_com_lista_fica_como_esta() {
+        let mut board = board_json(
+            r#","repos":[{"path":"/r","name":"r","worktree":"/wt/r"},{"path":"/s","name":"s","worktree":"/wt/s"}]"#,
+        );
+        board.revive();
+        let ws = &board.workspaces[0];
+        assert_eq!(ws.repos.len(), 2);
+        assert!(ws.multi());
+        assert_eq!(ws.primary().name, "r");
+        assert_eq!(ws.repos[1].worktree, "/wt/s");
     }
 
     /// Nenhum PTY sobrevive ao app: aba gravada rodando volta desligada.

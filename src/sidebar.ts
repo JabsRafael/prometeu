@@ -3,7 +3,7 @@ import { stage as stageName, t } from "./i18n";
 import * as menu from "./menu";
 import * as team from "./team";
 import * as rename from "./rename";
-import { hasWorktree, stateLabel, statusOf, type Board, type Workspace } from "./types";
+import { hasWorktree, repoLabel, stateLabel, statusOf, type Board, type Workspace } from "./types";
 import { h } from "./util";
 
 /// Ações disponíveis na lista lateral e no menu de um workspace.
@@ -307,7 +307,7 @@ function renderGroup(
       rail.append(b);
       continue;
     }
-    b.title = `${ws.repo_name} · ${ws.branch} · ${stageName(ws.stage)} · ${stateLabel(ws)}`;
+    b.title = `${repoLabel(ws)} · ${ws.branch} · ${stageName(ws.stage)} · ${stateLabel(ws)}`;
     // A etapa saiu do cabeçalho e virou o anel da linha: o grupo é o projeto,
     // e continua dando para ler de longe o que está em qual etapa.
     const at = board.stages.indexOf(ws.stage);

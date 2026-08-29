@@ -25,6 +25,7 @@ const ws = (
   repo_name: repo,
   branch: `prometheus/${id}`,
   worktree: `~/.prometheus/worktrees/${repo}/prometheus-${id}`,
+  repos: [{ path: `/Users/gustavo/dev/${repo}`, name: repo, worktree: `~/.prometheus/worktrees/${repo}/prometheus-${id}` }],
   stage,
   archived: false,
   pinned: false,
@@ -588,6 +589,17 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       const repo = String(draft.project).split("/").pop() ?? "repo";
       const fresh = ws(id, draft.project, repo, draft.title || draft.branch, draft.stage, []);
       fresh.branch = draft.branch || "main";
+      // Mais de um repositório: a pasta que os reúne, com um worktree de cada.
+      const extras: string[] = draft.extras ?? [];
+      if (extras.length) {
+        const names = [repo, ...extras.map((p: string) => board.projects.find((x) => x.id === p)?.name ?? p)];
+        fresh.worktree = `~/prometheus/worktrees/${names.join("+")}/prometheus-${id}`;
+        fresh.repos = [draft.project, ...extras].map((p: string, i: number) => ({
+          path: String(p),
+          name: names[i],
+          worktree: `${fresh.worktree}/${names[i]}`,
+        }));
+      }
       fresh.agent = draft.agent;
       fresh.model = draft.model;
       fresh.effort = draft.effort;

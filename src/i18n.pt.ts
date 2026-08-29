@@ -111,6 +111,11 @@ export const PT = {
   "launcher.nb.off": "Desligado, a sessão abre na branch em que o repositório já está",
   "launcher.wt.on": "A branch ganha um worktree só dela, isolado do seu clone",
   "launcher.wt.off": "A branch nasce no próprio repositório: o seu clone troca de branch",
+  "launcher.wt.locked": "Com mais de um repositório, cada um ganha um worktree na mesma branch",
+  "launcher.addRepo": "Mais um repositório neste workspace",
+  "launcher.addRepo.none": "Registre outro repositório para juntar dois num workspace",
+  "launcher.removeRepo": "Tirar {name} deste workspace",
+  "launcher.hint.multi": "um worktree por repo · {branch}{from}",
   "launcher.effort.ultra":
     "Ultracode: esforço muito alto e orquestração de workflows — o agente abre subagentes em paralelo. Clique para voltar ao Baixo",
   "launcher.effort.title":
@@ -492,6 +497,8 @@ export const PT = {
   "err.session.worktreeNeedsBranch": "um worktree precisa de uma branch própria",
   "err.session.worktreeElsewhere": "{path} já existe e está na branch '{head}', não em '{branch}'",
   "err.session.worktreeDetached": "{path} já existe e não é um worktree em branch nenhuma",
+  "err.session.extrasNeedWorktree": "workspace com mais de um repositório precisa de worktree",
+  "err.session.dupRepo": "{name} entrou duas vezes no mesmo workspace",
   "err.session.noParent": "worktree sem pasta acima",
   "err.session.noWorktree": "worktree sumiu: {path}",
   "err.session.noWorkspace": "workspace sumiu",
