@@ -51,6 +51,7 @@ export type Ctx = {
 /// Quanto de resultado de ferramenta o card mostra aberto. O resto está no
 /// transcript; a tela não é o lugar de ler um arquivo de 4 mil linhas.
 const RESULT_LINES = 120;
+const ERROR_LINES = 36;
 
 export class ChatView {
   private feed!: HTMLElement;
@@ -424,9 +425,7 @@ export class ChatView {
       case "ask":
         return this.askCard(item, i);
       case "result": {
-        const el = h("div", "sys err");
-        el.textContent = item.text || t("chat.result.error");
-        return el;
+        return this.errorCard(item.text || t("chat.result.error"));
       }
       case "context":
         return contextPanel(item.report);
@@ -439,7 +438,8 @@ export class ChatView {
           (el.lastElementChild as HTMLElement).innerHTML = md(item.text);
           return el;
         }
-        const el = h("div", "sys" + (item.error ? " err" : ""));
+        if (item.error) return this.errorCard(item.text);
+        const el = h("div", "sys");
         el.textContent =
           item.what === "compacted"
             ? item.tokens
@@ -449,6 +449,26 @@ export class ChatView {
         return el;
       }
     }
+  }
+
+  /// Erro técnico não vira um paredão vermelho no meio da conversa. A linha
+  /// explica o que houve; a saída completa continua disponível para diagnóstico.
+  private errorCard(text: string): HTMLElement {
+    const value = text.trim() || t("chat.result.error");
+    if (!value.includes("\n") && value.length <= 180) {
+      const el = h("div", "sys err");
+      el.textContent = value;
+      return el;
+    }
+    const el = template(
+      "details",
+      "syserr",
+      `<summary><span class="eic">${icon("x", 12)}</span><b></b><span class="prev"></span></summary><pre></pre>`,
+    );
+    el.querySelector("b")!.textContent = t("chat.error.title");
+    el.querySelector(".prev")!.textContent = errorPeek(value);
+    el.querySelector("pre")!.textContent = capError(value);
+    return el;
   }
 
   /// Um pedaço que já está na tela mudou. Bloco por bloco: o que é do mesmo
@@ -606,6 +626,25 @@ export class ChatView {
       const plan = h("div", "md");
       plan.innerHTML = md(String((block.input as { plan?: string })?.plan ?? ""));
       body.append(plan);
+    } else if (block.error) {
+      const failed = template("div", "tfail", `<span class="tic">${icon("x", 12)}</span><span></span>`);
+      failed.lastElementChild!.textContent = t("chat.tool.failed");
+      body.append(failed);
+
+      const technical = h("div", "ttech");
+      const input = inputView(block.name, block.input);
+      if (input.childElementCount) technical.append(input);
+      if (block.result !== null) {
+        const out = h("pre", "tout");
+        out.textContent = capError(block.result);
+        technical.append(out);
+      }
+      if (technical.childElementCount) {
+        const details = template("details", "ttechnical", `<summary></summary>`);
+        details.querySelector("summary")!.textContent = t("chat.tool.details");
+        details.append(technical);
+        body.append(details);
+      }
     } else if (block.name === "Skill" && block.result) {
       // A skill é uma instrução escrita para o agente: dentro do card, fechada,
       // e em markdown para quem abrir conseguir ler.
@@ -615,10 +654,10 @@ export class ChatView {
     } else {
       body.append(inputView(block.name, block.input));
       if (block.result !== null) {
-        const out = h("pre", "tout" + (block.error ? " bad" : ""));
+        const out = h("pre", "tout");
         // Um diff que a ferramenta devolveu (o `git diff` no Bash) se lê
         // colorido, como o do Edit.
-        if (!block.error && isDiff(block.result)) {
+        if (isDiff(block.result)) {
           out.classList.add("tdiff");
           out.innerHTML = diffHtml(capLines(block.result));
         } else out.textContent = capLines(block.result);
@@ -1244,6 +1283,24 @@ function capLines(text: string): string {
   const lines = text.split("\n");
   if (lines.length <= RESULT_LINES) return text;
   return lines.slice(0, RESULT_LINES).join("\n") + "\n" + t("chat.more", { n: lines.length - RESULT_LINES });
+}
+
+/// Erros longos mostram começo e fim: a causa costuma estar num deles, e o
+/// miolo repetitivo continua preservado no transcript.
+function capError(text: string): string {
+  const lines = text.split("\n");
+  if (lines.length <= ERROR_LINES) return text;
+  const side = Math.floor(ERROR_LINES / 2);
+  const hidden = lines.length - side * 2;
+  return [...lines.slice(0, side), t("chat.more", { n: hidden }), ...lines.slice(-side)].join("\n");
+}
+
+/// Os wrappers do executor não explicam a falha; a primeira linha de verdade
+/// é uma prévia bem mais útil no cartão recolhido.
+function errorPeek(text: string): string {
+  const wrapper = /^(script (failed|completed)|wall time\b.*|output:|script error:)$/i;
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  return lines.find((line) => !wrapper.test(line)) ?? lines[0] ?? "";
 }
 
 /// A primeira linha do pensamento, ao lado do rótulo: é a isca que diz se vale

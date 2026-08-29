@@ -444,7 +444,15 @@ main { flex: 1; min-height: 0; position: relative; }
   white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow-y: auto; color: var(--fg-2);
 }
 .tout { padding-top: 8px; border-top: 1px dashed var(--line-raised); color: var(--fg); }
-.tout.bad { color: var(--err); }
+.tfail { display: flex; align-items: center; gap: 7px; color: var(--fg-2); font-size: 12px; }
+.tfail .tic { display: flex; flex: none; color: var(--err); }
+.ttechnical { color: var(--fg-3); font-size: 11.5px; }
+.ttechnical > summary { list-style: none; cursor: default; width: fit-content; }
+.ttechnical > summary::-webkit-details-marker { display: none; }
+.ttechnical > summary::before { content: "›"; display: inline-block; width: 12px; }
+.ttechnical[open] > summary::before { transform: rotate(90deg); }
+.ttech { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.ttech .tout { color: var(--fg-2); }
 .tdiff .del { display: block; color: var(--err); background: var(--del-bg); }
 .tdiff .add { display: block; color: var(--done); background: var(--add-bg); }
 .tdiff .hunk { display: block; color: var(--accent, var(--fg-2)); }
@@ -525,6 +533,17 @@ main { flex: 1; min-height: 0; position: relative; }
 .sys { font-size: 12px; color: var(--fg-3); text-align: center; }
 .sys.err { color: var(--err); text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
 .sys.done { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.syserr { font-size: 12px; color: var(--fg-2); }
+.syserr > summary { list-style: none; display: flex; align-items: center; gap: 7px; cursor: default; }
+.syserr > summary::-webkit-details-marker { display: none; }
+.syserr .eic { display: flex; flex: none; color: var(--err); }
+.syserr b { flex: none; color: var(--fg); font-weight: 500; }
+.syserr .prev { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); }
+.syserr > pre {
+  margin: 8px 0 0 19px; padding: 8px 10px; max-height: 240px; overflow: auto;
+  border-left: 1px solid var(--line); color: var(--fg-2); font: 11.5px/1.5 var(--mono);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
 
 /* A caixa: a mesma coluna da conversa, um degrau acima do fundo. Em modo nota
    a borda diz para quem vai — o time, e não o agente. */

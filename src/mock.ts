@@ -51,8 +51,8 @@ const ws = (
 const board: Board = {
   stages: ["Preparando", "Fazendo", "Code review", "Travado", "Feito"],
   projects: [
-    { id: "p1", name: "njord", path: "/Users/gustavo/dev/njord", trusted: true },
-    { id: "p2", name: "prometheus", path: "/Users/gustavo/dev/prometheus", trusted: true },
+    { id: "p1", name: "njord", path: "/Users/gustavo/dev/njord" },
+    { id: "p2", name: "prometheus", path: "/Users/gustavo/dev/prometheus" },
   ],
   workspaces: [
     ws("sessao-0929", "p1", "njord", "Ola", "Fazendo", [
@@ -451,15 +451,6 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     }
     case "load_board":
       return board;
-    case "project_trust_preview":
-      return (args.ids as string[]).map((id) => {
-        const project = board.projects.find((p) => p.id === id)!;
-        return { ...project, file: null, setup: null, runs: [], archive: null, copy: [] };
-      });
-    case "set_projects_trusted":
-      for (const project of board.projects) if ((args.ids as string[]).includes(project.id)) project.trusted = args.trusted;
-      queueMicrotask(() => emit("board", structuredClone(board)));
-      return null;
     // O time fica no localStorage aqui, para sobreviver a recarregar a aba —
     // no app é o `team.json` do back.
     case "team_config":

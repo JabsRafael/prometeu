@@ -133,16 +133,6 @@ export const PT = {
   "launcher.issue.noMatch": "nenhuma issue com esse texto",
   "launcher.issue.empty": "nenhuma issue no seu nome",
   "launcher.issueBlock": "Issue {id} do Linear: {title}",
-  "launcher.trust.title": "Confiar em {names}?",
-  "launcher.trust.body":
-    "O Prometheus vai iniciar agentes sem sandbox e poderá executar os scripts abaixo com o seu usuário. Worktree separa mudanças do Git, mas não limita acesso ao seu Mac.\n\n{details}",
-  "launcher.trust.none": "Nenhum script declarado; o agente ainda terá acesso irrestrito ao Mac.",
-  "launcher.trust.setup": "setup: {command}",
-  "launcher.trust.run": "run ({name}): {command}",
-  "launcher.trust.archive": "archive: {command}",
-  "launcher.trust.copy": "cópia do clone: {files}",
-  "launcher.trust.ok": "Confiar e criar",
-  "launcher.trust.cancel": "Cancelar",
 
   /* ---------- aba de issues ---------- */
 
@@ -268,6 +258,9 @@ export const PT = {
   "chat.more": "… mais {n} linhas no transcript",
   "chat.answered": "{what}: respondido",
   "chat.result.error": "O turno terminou com erro",
+  "chat.error.title": "O agente encontrou um erro",
+  "chat.tool.failed": "Uma etapa falhou; o agente recebeu os detalhes e pode tentar de novo.",
+  "chat.tool.details": "Ver detalhes técnicos",
   "chat.plan.title": "Plano pronto",
   "chat.plan.go": "Aprovar e seguir solto",
   "chat.plan.go.title": "Executa o plano sem parar a cada ferramenta — é como toda conversa daqui roda",
@@ -510,8 +503,6 @@ export const PT = {
   "err.linear.write": "não gravei {path}: {cause}",
 
   "err.session.notGit": "{path} não é um repositório git",
-  "err.session.noProject": "repositório não registrado",
-  "err.session.untrusted": "confirme a confiança antes de executar este repositório: {names}",
   "err.session.badPath": "caminho inválido",
   "err.session.worktreeNeedsBranch": "um worktree precisa de uma branch própria",
   "err.session.worktreeElsewhere": "{path} já existe e está na branch '{head}', não em '{branch}'",

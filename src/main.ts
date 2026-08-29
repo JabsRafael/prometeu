@@ -297,7 +297,6 @@ function launch(projectId?: string, seed?: Issue) {
     preset: projectId,
     seed,
     toSettings: () => showSettings(),
-    onError: (error) => say(fromBack(error), true),
     // Criar volta em milissegundos: o workspace entra na lista na hora e o worktree
     // monta atrás (ver `create_workspace`). Sem recado na barra, então — quem
     // conta que está montando é a tela que abriu, e estado que a tela já mostra

@@ -54,6 +54,48 @@ test("a troca rápida de aba ignora o snapshot atrasado da aba anterior", async 
   await expect(page.locator("#chatwrap .bubble", { hasText: "E2E_MARKER_T2" })).toHaveCount(0);
 });
 
+test("recolhe a saída técnica de uma ferramenta que falhou", async ({ page }) => {
+  await boot(page);
+  await openWorkspace(page, "Ola");
+
+  await page.evaluate(() => {
+    const mock = (window as unknown as {
+      mock: { line: (tab: string, line: unknown) => void };
+    }).mock;
+    mock.line("t1", {
+      type: "assistant",
+      message: {
+        id: "m-erro-e2e",
+        role: "assistant",
+        content: [{ type: "tool_use", id: "tu-erro-e2e", name: "Bash", input: { command: "apply_patch" } }],
+      },
+    });
+    mock.line("t1", {
+      type: "user",
+      message: {
+        role: "user",
+        content: [{
+          type: "tool_result",
+          tool_use_id: "tu-erro-e2e",
+          is_error: true,
+          content: "Script failed\nWall time: 0.1 seconds\nOutput:\napply_patch verification failed: trecho não encontrado",
+        }],
+      },
+    });
+  });
+
+  const tool = page.locator('#chatwrap .tool[data-tool="tu-erro-e2e"]');
+  await expect(tool).toHaveClass(/\bbad\b/);
+  await expect(tool.locator(".tout")).toBeHidden();
+
+  await tool.locator(".thead").click();
+  await expect(tool.locator(".tfail")).toContainText("Uma etapa falhou");
+  await expect(tool.locator(".tout")).toBeHidden();
+
+  await tool.locator(".ttechnical summary").click();
+  await expect(tool.locator(".tout")).toContainText("apply_patch verification failed");
+});
+
 test("cria um workspace pelo launcher e acompanha o preparo até a conversa", async ({ page }) => {
   await boot(page);
 

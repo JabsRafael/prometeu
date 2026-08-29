@@ -3,7 +3,6 @@
 
 use crate::lock::lock;
 use crate::state::Workspace;
-use crate::trust::ensure_workspace_trusted;
 use crate::{chat, i18n, pty, scripts, AppState};
 use portable_pty::CommandBuilder;
 use std::path::{Path, PathBuf};
@@ -41,10 +40,6 @@ pub fn open_dock(
 ) -> Result<String, String> {
     ensure_port(&state, &id);
     let ws = workspace_copy(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
-    {
-        let board = lock(&state.board);
-        ensure_workspace_trusted(&board, &ws)?;
-    }
     let key = format!("{id}:{kind}");
 
     if lock(&state.ptys).get(&key).is_some_and(|p| p.alive()) {

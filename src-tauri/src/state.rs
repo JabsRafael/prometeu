@@ -90,20 +90,6 @@ pub struct Project {
     pub id: String,
     pub name: String,
     pub path: String,
-    /// O usuário confirmou que confia neste clone para executar agentes e os
-    /// scripts declarados pelo próprio repositório. Registrar uma pasta não é
-    /// essa confirmação: um worktree organiza mudanças, mas não restringe o
-    /// processo ao diretório.
-    // Antes de existir este campo, todo projeto registrado já executava seus
-    // agentes/scripts. Preservar essa decisão implícita evita bloquear os
-    // workspaces existentes; todo projeto registrado daqui em diante nasce
-    // `false` em `add_project`.
-    #[serde(default = "trusted_before_gate")]
-    pub trusted: bool,
-}
-
-fn trusted_before_gate() -> bool {
-    true
 }
 
 /// Um repositório dentro de um workspace: de onde ele veio e onde está a cópia
@@ -397,22 +383,9 @@ impl Board {
                     id: ws.repo.clone(),
                     name: ws.repo_name.clone(),
                     path: ws.repo.clone(),
-                    trusted: true,
                 });
             }
         }
-    }
-
-    /// Todos os clones deste workspace foram explicitamente confiados. A
-    /// decisão mora no projeto, não no workspace: revogar um repositório vale
-    /// também para conversas antigas e workspaces com vários clones.
-    pub fn trusts_workspace(&self, ws: &Workspace) -> bool {
-        !ws.repos.is_empty()
-            && ws.repos.iter().all(|repo| {
-                self.projects
-                    .iter()
-                    .any(|project| project.path == repo.path && project.trusted)
-            })
     }
 
     /// Grava num arquivo ao lado e renomeia por cima. `rename` é atômico no
@@ -726,10 +699,6 @@ mod tests {
         );
         assert_eq!(ws.primary().worktree, "/wt");
         assert!(!ws.multi());
-        assert!(
-            board.projects[0].trusted,
-            "workspace que já executava antes da migração continua confiado"
-        );
     }
 
     /// E quadro que já tem a lista não ganha item de novo — nem perde os que

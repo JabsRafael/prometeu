@@ -1,4 +1,4 @@
-import { confirm, open } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 import { avatar, icon } from "./icons";
 import { paint, t } from "./i18n";
 import * as issues from "./issues";
@@ -166,20 +166,8 @@ export type Open = {
   preset?: string;
   seed?: Issue;
   go: (d: Draft) => void;
-  onError: (error: unknown) => void;
   /// "Configurar Linear" no seletor de issue: fecha o lançador e vai lá.
   toSettings: () => void;
-};
-
-type TrustPreview = {
-  id: string;
-  name: string;
-  path: string;
-  file: string | null;
-  setup: string | null;
-  runs: { name: string; command: string }[];
-  archive: string | null;
-  copy: string[];
 };
 
 export function openLauncher(board: Board, opts: Open) {
@@ -611,61 +599,22 @@ export function openLauncher(board: Board, opts: Open) {
     veil.replaceChildren();
     veil.hidden = true;
   };
-  let submitting = false;
-  const trustSelected = async (): Promise<boolean> => {
-    const selected = [draft.project, ...draft.extras];
-    const pending = board.projects.filter((project) => selected.includes(project.id) && !project.trusted);
-    if (!pending.length) return true;
-    const previews = await invoke<TrustPreview[]>("project_trust_preview", { ids: pending.map((project) => project.id) });
-    const details = previews
-      .map((preview) => {
-        const actions: string[] = [];
-        if (preview.setup) actions.push(t("launcher.trust.setup", { command: preview.setup }));
-        for (const run of preview.runs) actions.push(t("launcher.trust.run", { name: run.name, command: run.command }));
-        if (preview.archive) actions.push(t("launcher.trust.archive", { command: preview.archive }));
-        if (preview.copy.length) actions.push(t("launcher.trust.copy", { files: preview.copy.join(", ") }));
-        if (!actions.length) actions.push(t("launcher.trust.none"));
-        return `${preview.name} — ${preview.path}\n${actions.map((action) => `  ${action}`).join("\n")}`;
-      })
-      .join("\n\n");
-    const names = pending.map((project) => project.name).join(" + ");
-    const accepted = await confirm(t("launcher.trust.body", { details }), {
-      title: t("launcher.trust.title", { names }),
-      kind: "warning",
-      okLabel: t("launcher.trust.ok"),
-      cancelLabel: t("launcher.trust.cancel"),
-    });
-    if (!accepted) return false;
-    await invoke("set_projects_trusted", { ids: pending.map((project) => project.id), trusted: true });
-    for (const project of pending) project.trusted = true;
-    return true;
+  const submit = () => {
+    // Vazia é o que o back lê como "não cria branch, abre onde o repo está".
+    if (!draft.newBranch) draft.branch = "";
+    draft.prompt = seed ? issueBlock(seed, prompt.value) : prompt.value;
+    // O nome sai da issue, senão da primeira frase — e por último da branch.
+    draft.title = draft.title || summarize(prompt.value) || draft.branch || projectName();
+    hide();
+    go(draft);
   };
 
-  const submit = async () => {
-    if (submitting) return;
-    submitting = true;
-    try {
-      if (!(await trustSelected())) return;
-      // Vazia é o que o back lê como "não cria branch, abre onde o repo está".
-      if (!draft.newBranch) draft.branch = "";
-      draft.prompt = seed ? issueBlock(seed, prompt.value) : prompt.value;
-      // O nome sai da issue, senão da primeira frase — e por último da branch.
-      draft.title = draft.title || summarize(prompt.value) || draft.branch || projectName();
-      hide();
-      go(draft);
-    } catch (error) {
-      opts.onError(error);
-    } finally {
-      submitting = false;
-    }
-  };
-
-  $("d-go").addEventListener("click", () => void submit());
+  $("d-go").addEventListener("click", submit);
   // Enter cria; Shift+Enter quebra linha. O texto é o campo principal.
   prompt.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      void submit();
+      submit();
     }
   });
   // Clicar fora fecha, como no Conductor — não tem botão de cancelar. Decide no

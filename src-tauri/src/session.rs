@@ -1,7 +1,6 @@
 use crate::domain::Pr;
 use crate::lock::lock;
 use crate::state::{publish, Board, Project, Repo, Status, Tab, Workspace};
-use crate::trust::{ensure_paths_trusted, ensure_workspace_trusted};
 use crate::{chat, dock, i18n, paths, scripts, AppState};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -38,7 +37,6 @@ pub fn add_project(
             .unwrap_or("repo")
             .to_string(),
         path: id.clone(),
-        trusted: false,
     };
     {
         let mut board = lock(&state.board);
@@ -113,13 +111,7 @@ fn archive(state: &State<AppState>, id: &str, archived: bool) {
         // arquivado é processo que ninguém vê.
         dock::kill_docks(state, id);
         if let Some(ws) = workspace_copy(state, id) {
-            let trusted = {
-                let board = lock(&state.board);
-                board.trusts_workspace(&ws)
-            };
-            // Arquivar continua possível sem confiar, mas nunca adquire
-            // confiança implicitamente só para executar a limpeza do repo.
-            if let Some(command) = trusted.then(|| dock::scripts_of(&ws).archive).flatten() {
+            if let Some(command) = dock::scripts_of(&ws).archive {
                 let mut cmd = Command::new("/bin/sh");
                 cmd.args(["-lc", &command])
                     .current_dir(&ws.primary().worktree);
@@ -617,13 +609,6 @@ pub fn create_workspace(
     cols: u16,
     rows: u16,
 ) -> Result<Workspace, String> {
-    {
-        let board = lock(&state.board);
-        ensure_paths_trusted(
-            &board,
-            std::iter::once(draft.project.clone()).chain(draft.extras.iter().cloned()),
-        )?;
-    }
     let repo_path = PathBuf::from(expand(&draft.project));
     let repo_name = repo_named(&repo_path)?;
 
@@ -884,7 +869,6 @@ pub fn new_tab(
             .iter()
             .find(|w| w.id == workspace)
             .ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
-        ensure_workspace_trusted(&board, ws)?;
         if ws.cleaned {
             return Err(i18n::t("err.session.cleaned"));
         }
@@ -976,13 +960,6 @@ pub fn resume_tab(app: AppHandle, state: State<AppState>, tab: String) -> Result
 /// Sobe de novo o processo de uma aba. É o `resume_tab`, e é o que a primeira
 /// fala numa aba desligada faz por conta própria (`chat::chat_send`).
 pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<bool, String> {
-    {
-        let board = lock(&state.board);
-        let ws = board
-            .workspace_of(tab)
-            .ok_or_else(|| i18n::t("err.session.noTab"))?;
-        ensure_workspace_trusted(&board, ws)?;
-    }
     let (worktree, launch, cleaned, agent_session) = lock(&state.board)
         .workspace_of(tab)
         .map(|w| {

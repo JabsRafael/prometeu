@@ -62,10 +62,9 @@ Toda sessão nasce com `--dangerously-skip-permissions`, sem chavinha. Nada
 para para pedir, que é o que permite acompanhar várias sessões: agente que
 trava a cada `Write` não trabalha enquanto você olha outra coisa. O worktree
 separa as mudanças do Git e reduz acidentes no clone, mas não é sandbox: o
-processo continua com o acesso do seu usuário ao Mac. Por isso projeto novo
-nasce não confiável e exige uma confirmação explícita antes do primeiro agente
-ou script; rodar sem worktree ainda ganha o aviso adicional em laranja porque
-o agente mexe direto no clone em que você trabalha.
+processo continua com o acesso do seu usuário ao Mac. Rodar **sem** worktree
+ganha o aviso adicional em laranja porque o agente mexe direto no clone em que
+você trabalha.
 
 Mesmo solto, `AskUserQuestion` e `ExitPlanMode` continuam chegando — pelo
 `--permission-prompt-tool stdio`, como `control_request` — e viram cards na
@@ -160,12 +159,6 @@ Nada disso é descoberto: o repositório declara. O que o Prometheus faz é não
 deixar isso virar trabalho manual — a aba **Setup** de um repo que não declara
 nada oferece **Perguntar ao agente**, que abre uma conversa com o prompt pronto
 para o Claude Code ler o repositório e escrever o arquivo.
-
-Projeto adicionado pela primeira vez nasce **não confiável**. Antes de criar o
-primeiro workspace, o lançador mostra o arquivo e cada comando de setup, run e
-archive que aquele clone poderá executar; só uma confirmação explícita grava a
-confiança. Workspaces antigos continuam confiáveis na migração para não parar o
-que já funcionava.
 
 ## A dois na mesma conversa
 
@@ -285,7 +278,7 @@ Playwright dirige — a webview do Tauri no macOS é WKWebView e não fala CDP.
 
 ```sh
 npx playwright install chromium  # uma vez nesta máquina
-npm test                       # web, relay, Rust e três fluxos de navegador
+npm test                       # web, relay, Rust e quatro fluxos de navegador
 ```
 
 Cobre o que erra calado:
@@ -313,9 +306,9 @@ Cobre o que erra calado:
   cai e volta, menção que vira caixa) e no runtime local do Worker (matrícula,
   credencial individual e recusa do protocolo antigo), o formato dos frames
   binários e a regra de juntar a rolagem do dono com os pedaços ao vivo;
-- três fluxos Playwright sobre o mock: criação pelo lançador, pergunta e
-  resposta de card, e a troca rápida de abas com snapshot atrasado — a corrida
-  que conseguia pintar o conteúdo da conversa anterior.
+- quatro fluxos Playwright sobre o mock: criação pelo lançador, pergunta e
+  resposta de card, troca rápida de abas com snapshot atrasado e recolhimento
+  da saída técnica de ferramentas que falharam.
 
 ## Estado
 

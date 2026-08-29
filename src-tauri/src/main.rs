@@ -18,7 +18,6 @@ mod session;
 mod state;
 mod team;
 mod transcript;
-mod trust;
 
 use state::Board;
 use std::collections::{HashMap, HashSet};
@@ -90,8 +89,6 @@ fn main() {
             session::load_board,
             session::add_project,
             session::remove_project,
-            trust::project_trust_preview,
-            trust::set_projects_trusted,
             session::list_branches,
             session::create_workspace,
             session::set_stage,
