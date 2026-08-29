@@ -1249,19 +1249,36 @@ pub fn workspace_branch(state: State<AppState>, id: String) -> Option<String> {
     head_branch(&worktree_of(&state, &id)?)
 }
 
-/// O que mudou no worktree deste workspace — compartilhado por todas as abas,
-/// que é justamente o motivo de elas existirem. A conta fica em `changes_in`,
-/// que é o que o teste consegue rodar contra um worktree de verdade.
-/// `async` porque isto é o caminho mais quente do app: dois `git` e a leitura
-/// de todo arquivo novo, e a tela pede de novo a cada ferramenta que o agente
-/// usa. Na thread principal, era a janela travando em rajada — o front ainda
-/// junta as chamadas por cima disto.
+/// O que mudou num repositório do workspace. Com mais de um repo, cada um é
+/// uma seção da tela; com um só, é a tela inteira. Repo sem mudança vem com a
+/// lista vazia, e não some: é a tela que decide o que dizer dele.
+#[derive(serde::Serialize)]
+pub struct RepoDiff {
+    pub name: String,
+    pub files: Vec<FileChange>,
+}
+
+/// O que mudou neste workspace, repositório por repositório, na ordem em que
+/// eles estão nele — o principal primeiro. Compartilhado por todas as abas, que
+/// é justamente o motivo de elas existirem. A conta de cada repo fica em
+/// `changes_in`, que é o que o teste consegue rodar contra um worktree de
+/// verdade. `async` porque isto é o caminho mais quente do app: dois `git` e a
+/// leitura de todo arquivo novo, por repo, e a tela pede de novo a cada
+/// ferramenta que o agente usa. Na thread principal, era a janela travando em
+/// rajada — o front ainda junta as chamadas por cima disto.
 #[tauri::command(async)]
-pub fn workspace_diff(state: State<AppState>, id: String) -> Vec<FileChange> {
-    match worktree_of(&state, &id) {
-        Some(worktree) => changes_in(&worktree),
-        None => Vec::new(),
-    }
+pub fn workspace_diff(state: State<AppState>, id: String) -> Vec<RepoDiff> {
+    let repos = repos_of(&state, &id);
+    // Cada repositório é um git à parte, e nenhum depende do outro: os diffs
+    // saem ao mesmo tempo, e o workspace de três repos espera pelo mais lento,
+    // não pela soma.
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = repos
+            .iter()
+            .map(|r| scope.spawn(move || RepoDiff { name: r.name.clone(), files: changes_in(Path::new(&r.worktree)) }))
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    })
 }
 
 fn changes_in(wt: &Path) -> Vec<FileChange> {
@@ -2568,6 +2585,18 @@ fn worktree_of(state: &State<AppState>, id: &str) -> Option<PathBuf> {
         .iter()
         .find(|w| w.id == id && !w.cleaned)
         .map(|w| PathBuf::from(w.primary().worktree))
+}
+
+/// Os repositórios de um workspace que ainda tem worktree, na ordem dele — o
+/// principal primeiro. Devolvido ao disco é lista vazia, pela mesma razão de
+/// `worktree_of`.
+fn repos_of(state: &State<AppState>, id: &str) -> Vec<Repo> {
+    lock(&state.board)
+        .workspaces
+        .iter()
+        .find(|w| w.id == id && !w.cleaned)
+        .map(|w| w.repos.clone())
+        .unwrap_or_default()
 }
 
 /// Onde o agente trabalha: o worktree, ou a pasta que reúne os worktrees

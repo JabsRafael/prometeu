@@ -20,6 +20,7 @@ import {
   statusOf,
   type Board,
   type Change,
+  type RepoDiff,
   type Tab,
   type Workspace,
 } from "./types";
@@ -57,7 +58,7 @@ export function init(context: Ctx) {
     // Já no painel de Mudanças, clicar de novo traz o diff para o centro. É o
     // caminho de volta depois de fechar a aba — sem ele, quem fechou só voltaria
     // clicando num arquivo da lista.
-    const changes = openWs ? (changesOf.get(openWs)?.length ?? 0) : 0;
+    const changes = openWs ? count(openWs) : 0;
     if (sidePane === "diff" && changes) showChanges();
     else setSidePane("diff");
   });
@@ -74,7 +75,7 @@ export function init(context: Ctx) {
   });
   $("dfold").addEventListener("click", () => {
     if (!openWs) return;
-    diff.foldAll((changesOf.get(openWs) ?? []).map((c) => c.path));
+    diff.foldAll(diff.keys(changesOf.get(openWs) ?? []));
     drawChanges(openWs);
   });
 
@@ -551,13 +552,13 @@ function drawTabs(ws: Workspace) {
   // A aba de Mudanças existe enquanto houver o que mostrar e você não a tiver
   // fechado — ou enquanto ela estiver aberta, para o worktree ficar limpo sem a
   // tela sumir debaixo de você.
-  const changes = changesOf.get(ws.id) ?? [];
-  if (fs.diff || (changes.length && !fs.hidDiff)) {
+  const changes = count(ws.id);
+  if (fs.diff || (changes && !fs.hidDiff)) {
     const b = document.createElement("button");
     b.className = "tab file" + (fs.diff ? " on" : "");
     b.innerHTML = `${icon("diff", 14)}<span></span><span class="n"></span>`;
     b.children[1].textContent = t("tab.changes");
-    b.children[2].textContent = changes.length ? String(changes.length) : "";
+    b.children[2].textContent = changes ? String(changes) : "";
     b.title = t("tab.changes.title");
     b.addEventListener("click", () => showChanges());
     const x = document.createElement("span");
@@ -886,7 +887,8 @@ export function closeActive(): boolean {
 
 /* ---------- mudanças ---------- */
 
-const changesOf = new Map<string, Change[]>();
+const changesOf = new Map<string, RepoDiff[]>();
+const count = (id: string) => diff.keys(changesOf.get(id) ?? []).length;
 
 /// Cada chamada é um `git diff` do worktree inteiro no back, e quem pede é o
 /// evento do quadro — que chega a cada ferramenta que o agente usa. Juntar as
@@ -900,39 +902,37 @@ let request = 0;
 
 async function loadChanges(id: string) {
   const mine = ++request;
-  const changes = await invoke<Change[]>("workspace_diff", { id });
+  const repos = await invoke<RepoDiff[]>("workspace_diff", { id });
   if (mine !== request) return;
-  changesOf.set(id, changes);
-  $("diffcount").textContent = changes.length ? String(changes.length) : "";
-  $("review").hidden = !changes.length;
+  changesOf.set(id, repos);
+  const n = count(id);
+  $("diffcount").textContent = n ? String(n) : "";
+  $("review").hidden = !n;
   // Worktree limpo esquece que a aba foi fechada: o que sujar depois é trabalho
   // novo, e não o diff que você mandou embora.
-  if (!changes.length) files(id).hidDiff = false;
+  if (!n) files(id).hidDiff = false;
 
   const list = $("difflist");
-  if (!changes.length) {
+  if (!n) {
     const none = document.createElement("div");
     none.className = "none";
     none.textContent = t("diff.clean");
     list.replaceChildren(none);
   } else {
+    // Com mais de um repositório, cada um é uma seção da lista, com o nome e a
+    // soma na frente; com um só, a lista é a de sempre.
+    const multi = repos.length > 1;
     list.replaceChildren(
-      ...changes.map((f) => {
-        // A lista é o índice da tela do centro: clicar rola até o arquivo.
-        const row = document.createElement("button");
-        row.className = "diffrow";
-        row.title = f.path;
-        // O nome do arquivo em primeiro plano e a pasta atrás dele, como no
-        // Conductor: numa lista de vinte arquivos é o nome que se procura.
-        const cut = f.path.lastIndexOf("/");
-        row.innerHTML = `<span class="p"><span class="dir"></span><span class="base"></span></span><span class="new"></span><span class="a"></span><span class="r"></span>`;
-        row.querySelector(".dir")!.textContent = cut === -1 ? "" : f.path.slice(0, cut + 1);
-        row.querySelector(".base")!.textContent = f.path.slice(cut + 1);
-        row.children[1].textContent = f.new_file ? t("diff.new") : "";
-        row.children[2].textContent = f.added ? `+${f.added}` : "";
-        row.children[3].textContent = f.removed ? `−${f.removed}` : "";
-        row.addEventListener("click", () => showChanges(f.path));
-        return row;
+      ...repos.flatMap((r) => {
+        if (!r.files.length) return [];
+        const rows = r.files.map((f) => diffRow(r.name, f));
+        if (!multi) return rows;
+        const k = `${id}/${r.name}`;
+        for (const row of rows) {
+          row.classList.add("in");
+          row.hidden = shutRepos.has(k);
+        }
+        return [repoRow(k, r, rows), ...rows];
       }),
     );
   }
@@ -943,20 +943,71 @@ async function loadChanges(id: string) {
   if (files(id).diff) drawChanges(id);
 }
 
+/// Uma linha da lista: o índice da tela do centro — clicar rola até o arquivo.
+function diffRow(repo: string, f: Change): HTMLElement {
+  const row = document.createElement("button");
+  row.className = "diffrow";
+  row.title = f.path;
+  // O nome do arquivo em primeiro plano e a pasta atrás dele, como no
+  // Conductor: numa lista de vinte arquivos é o nome que se procura.
+  const cut = f.path.lastIndexOf("/");
+  row.innerHTML = `<span class="p"><span class="dir"></span><span class="base"></span></span><span class="new"></span><span class="a"></span><span class="r"></span>`;
+  row.querySelector(".dir")!.textContent = cut === -1 ? "" : f.path.slice(0, cut + 1);
+  row.querySelector(".base")!.textContent = f.path.slice(cut + 1);
+  row.children[1].textContent = f.new_file ? t("diff.new") : "";
+  row.children[2].textContent = f.added ? `+${f.added}` : "";
+  row.children[3].textContent = f.removed ? `−${f.removed}` : "";
+  row.addEventListener("click", () => showChanges(diff.key(repo, f.path)));
+  return row;
+}
+
+/// Quais repositórios estão recolhidos na lista. Sobrevive ao redesenho, que
+/// chega a cada ferramenta que o agente usa — senão recolher não recolheria.
+const shutRepos = new Set<string>();
+
+/// O cabeçalho de um repositório na lista: nome, quantos arquivos, a soma.
+/// Clique recolhe os arquivos dele.
+function repoRow(k: string, r: RepoDiff, rows: HTMLElement[]): HTMLElement {
+  const row = document.createElement("button");
+  row.className = "diffrepo";
+  row.title = r.name;
+  row.innerHTML = `<span class="tw"></span><span class="nm"></span><span class="cnt"></span><span class="a"></span><span class="r"></span>`;
+  row.children[1].textContent = r.name;
+  row.children[2].textContent = tn(r.files.length, "diff.files");
+  const added = diff.sum(r.files, "added");
+  const removed = diff.sum(r.files, "removed");
+  row.children[3].textContent = added ? `+${added}` : "";
+  row.children[4].textContent = removed ? `−${removed}` : "";
+  const glyph = () => {
+    row.children[0].innerHTML = icon(shutRepos.has(k) ? "chevron-right" : "chevron-down", 14);
+  };
+  row.addEventListener("click", () => {
+    shutRepos.has(k) ? shutRepos.delete(k) : shutRepos.add(k);
+    for (const f of rows) f.hidden = shutRepos.has(k);
+    glyph();
+  });
+  glyph();
+  return row;
+}
+
 /// Resumo na barra e o diff empilhado embaixo. Redesenhar é barato: a tela só é
 /// refeita quando algum patch mudou de verdade.
 function drawChanges(id: string, focus?: string) {
-  const changes = changesOf.get(id) ?? [];
-  const added = changes.reduce((n, c) => n + c.added, 0);
-  const removed = changes.reduce((n, c) => n + c.removed, 0);
+  const repos = changesOf.get(id) ?? [];
+  const all = repos.flatMap((r) => r.files);
+  const added = diff.sum(all, "added");
+  const removed = diff.sum(all, "removed");
 
   const crumb = $("dcrumb");
   crumb.innerHTML = `${icon("diff", 14)}<span class="nm"></span><span class="a"></span><span class="r"></span>`;
-  crumb.children[1].textContent = tn(changes.length, "diff.files");
+  // Com mais de um repositório a soma diz de quantos ela é.
+  const some = repos.filter((r) => r.files.length).length;
+  crumb.children[1].textContent =
+    repos.length > 1 ? `${tn(some, "diff.repos")} · ${tn(all.length, "diff.files")}` : tn(all.length, "diff.files");
   crumb.children[2].textContent = added ? `+${added}` : "";
   crumb.children[3].textContent = removed ? `−${removed}` : "";
 
-  diff.render($("dlist"), id, changes, focus);
+  diff.render($("dlist"), id, repos, focus);
 }
 
 /* ---------- painel da direita ---------- */

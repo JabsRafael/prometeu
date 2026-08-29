@@ -208,6 +208,12 @@ export type Change = {
   patch: string;
 };
 
+/// O que mudou num repositório do workspace. Com mais de um repo, cada um é
+/// uma seção da tela de mudanças; com um só, é a tela inteira. Vem na ordem
+/// do workspace — o principal primeiro —, e repo sem mudança vem com a lista
+/// vazia.
+export type RepoDiff = { name: string; files: Change[] };
+
 const RANK: Record<Status, number> = { querendo: 3, rodando: 2, pronta: 1, desligada: 0 };
 
 /// O estado do workspace é o da aba mais urgente: uma aba travada numa pergunta

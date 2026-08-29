@@ -62,6 +62,20 @@ const board: Board = {
     ws("ui-2231", "p2", "prometheus", "Tela igual ao Conductor", "Fazendo", [
       { id: "t3", title: "conversa 1", status: "rodando", note: "Edit src/style.css", tokens: 23_800 },
     ]),
+    // Dois repositórios na mesma branch: é aqui que a lista de mudanças ganha
+    // uma seção por repo.
+    Object.assign(
+      ws("portal-1217", "p2", "prometheus", "Contratação pelo portal", "Fazendo", [
+        { id: "t9", title: "conversa 1", status: "rodando", note: "Edit app/models/entry.rb", tokens: 31_000 },
+      ]),
+      {
+        worktree: "~/.prometheus/worktrees/prometheus+njord/prometheus-portal-1217",
+        repos: [
+          { path: "/Users/gustavo/dev/prometheus", name: "prometheus", worktree: "~/.prometheus/worktrees/prometheus+njord/prometheus-portal-1217/prometheus" },
+          { path: "/Users/gustavo/dev/njord", name: "njord", worktree: "~/.prometheus/worktrees/prometheus+njord/prometheus-portal-1217/njord" },
+        ],
+      },
+    ),
     // Uma pergunta esperando você é justamente o que vira novidade.
     Object.assign(
       ws("icone-2140", "p2", "prometheus", "Ícone do app", "Code review", [
@@ -150,6 +164,44 @@ end
   Dockerfile: "# syntax=docker/dockerfile:1\nFROM ruby:3.4-slim AS base\nWORKDIR /rails\nENV RAILS_ENV=production\nRUN apt-get update -qq && apt-get install -y curl\nCMD [\"bin/rails\", \"server\"]\n",
   ".rubocop.yml": "# Omakase Ruby styling for Rails\ninherit_gem: { rubocop-rails-omakase: rubocop.yml }\n\nAllCops:\n  TargetRubyVersion: 3.4\n  NewCops: enable\n",
 };
+
+/// As mudanças do segundo repositório do workspace de dois: o outro lado da
+/// mesma feature, com histórico próprio.
+const changes2 = [
+  {
+    path: "app/models/entry.rb",
+    added: 5,
+    removed: 1,
+    new_file: false,
+    patch: [
+      "@@ -4,7 +4,11 @@ class Entry < ApplicationRecord",
+      "   belongs_to :category",
+      "-  validates :amount, presence: true",
+      "+  validates :amount, presence: true, numericality: { greater_than: 0 }",
+      "+",
+      "+  def portal?",
+      '+    source == "portal"',
+      "+  end",
+      " ",
+      "   scope :month, ->(m) { where(date: m.beginning_of_month..m.end_of_month) }",
+      " end",
+    ].join("\n"),
+  },
+  {
+    path: "db/migrate/20260829120000_add_source_to_entries.rb",
+    added: 5,
+    removed: 0,
+    new_file: true,
+    patch: [
+      "@@ -0,0 +1,5 @@",
+      "+class AddSourceToEntries < ActiveRecord::Migration[7.1]",
+      "+  def change",
+      "+    add_column :entries, :source, :string",
+      "+  end",
+      "+end",
+    ].join("\n"),
+  },
+];
 
 const changes = [
   {
@@ -481,8 +533,12 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       return;
     case "pty_write":
       return;
-    case "workspace_diff":
-      return changes;
+    // Um grupo por repositório, como o back: o primeiro leva as mudanças de
+    // sempre, e o segundo (só no workspace de dois repos) as do outro lado.
+    case "workspace_diff": {
+      const target = board.workspaces.find((x) => x.id === args.id);
+      return (target?.repos ?? []).map((r, i) => ({ name: r.name, files: i === 0 ? changes : changes2 }));
+    }
     case "list_dir":
       return tree[args.rel ?? ""] ?? [];
     case "read_file":

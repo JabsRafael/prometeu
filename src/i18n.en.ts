@@ -200,6 +200,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "diff.truncated": "… {n} more lines, cut so the screen keeps up",
   "diff.files.one": "{n} file",
   "diff.files.other": "{n} files",
+  "diff.repos.one": "{n} repository",
+  "diff.repos.other": "{n} repositories",
 
   "chat.empty": "Nothing yet — write to begin.",
   "chat.placeholder": "Write to the agent — Enter sends, ⇧Enter breaks the line",
