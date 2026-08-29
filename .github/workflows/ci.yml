@@ -2,9 +2,10 @@
 # lados (vitest + cargo test), rustfmt, clippy, e o formato das mensagens de
 # commit.
 #
-# PR executa código do branch, inclusive scripts de dependências. Por isso a
-# CI usa uma VM descartável do GitHub; o Mac persistente fica reservado ao
-# release, depois de o commit já pertencer à main.
+# O repositório é privado e workflows vindos de forks ficam desativados nas
+# configurações do GitHub. Sob essa fronteira, a CI usa o runner self-hosted
+# deste Mac sem consumir minutos hospedados; não habilite PRs de forks enquanto
+# ele estiver registrado, pois npm ci e os testes executam código do branch.
 name: CI
 
 on:
@@ -18,7 +19,8 @@ permissions:
 jobs:
   testes:
     name: testes
-    runs-on: macos-15
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, macOS, ARM64]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -48,8 +50,8 @@ jobs:
 
   commits:
     name: mensagens de commit
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, macOS, ARM64]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
