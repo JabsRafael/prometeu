@@ -205,14 +205,26 @@ export type Change = {
   added: number;
   removed: number;
   new_file: boolean;
+  deleted: boolean;
+  /// Tem pedaço fora de commit — é o ponto ao lado do nome.
+  dirty: boolean;
   patch: string;
 };
 
-/// O que mudou num repositório do workspace. Com mais de um repo, cada um é
-/// uma seção da tela de mudanças; com um só, é a tela inteira. Vem na ordem
-/// do workspace — o principal primeiro —, e repo sem mudança vem com a lista
-/// vazia.
-export type RepoDiff = { name: string; files: Change[] };
+/// O que mudou num repositório do workspace: o que está nos commits desta
+/// branch e o que ainda está fora de commit, contra a base de onde a branch
+/// saiu. Com mais de um repo, cada um é uma seção da tela de mudanças; com um
+/// só, é a tela inteira. Vem na ordem do workspace — o principal primeiro —, e
+/// repo sem mudança vem com a lista vazia.
+export type RepoDiff = {
+  name: string;
+  /// De onde a branch saiu neste repo; é contra ela que `ahead` e o diff contam.
+  base: string;
+  ahead: number;
+  /// Quantos arquivos têm pedaço fora de commit.
+  dirty: number;
+  files: Change[];
+};
 
 const RANK: Record<Status, number> = { querendo: 3, rodando: 2, pronta: 1, desligada: 0 };
 

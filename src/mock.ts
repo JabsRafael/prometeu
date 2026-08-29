@@ -172,7 +172,7 @@ const changes2 = [
     path: "app/models/entry.rb",
     added: 5,
     removed: 1,
-    new_file: false,
+    new_file: false, deleted: false, dirty: true,
     patch: [
       "@@ -4,7 +4,11 @@ class Entry < ApplicationRecord",
       "   belongs_to :category",
@@ -191,7 +191,7 @@ const changes2 = [
     path: "db/migrate/20260829120000_add_source_to_entries.rb",
     added: 5,
     removed: 0,
-    new_file: true,
+    new_file: true, deleted: false, dirty: false,
     patch: [
       "@@ -0,0 +1,5 @@",
       "+class AddSourceToEntries < ActiveRecord::Migration[7.1]",
@@ -208,7 +208,7 @@ const changes = [
     path: "src/style.css",
     added: 6,
     removed: 2,
-    new_file: false,
+    new_file: false, deleted: false, dirty: true,
     patch: [
       "@@ -212,7 +212,11 @@ .card {",
       "   display: flex;",
@@ -229,7 +229,7 @@ const changes = [
     path: "src/icons.ts",
     added: 4,
     removed: 0,
-    new_file: true,
+    new_file: true, deleted: false, dirty: false,
     patch: [
       "@@ -0,0 +1,4 @@",
       '+export function icon(name: string, size = 16): string {',
@@ -238,7 +238,7 @@ const changes = [
       "+}",
     ].join("\n"),
   },
-  { path: "public/logo.png", added: 0, removed: 0, new_file: true, patch: "" },
+  { path: "public/logo.png", added: 0, removed: 0, new_file: true, deleted: false, dirty: true, patch: "" },
 ];
 
 /// Uma conversa de mentira, no formato do stream: o que o `claude -p` teria
@@ -537,7 +537,11 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     // sempre, e o segundo (só no workspace de dois repos) as do outro lado.
     case "workspace_diff": {
       const target = board.workspaces.find((x) => x.id === args.id);
-      return (target?.repos ?? []).map((r, i) => ({ name: r.name, files: i === 0 ? changes : changes2 }));
+      return (target?.repos ?? []).map((r, i) => {
+        const files = i === 0 ? changes : changes2;
+        const base = i === 0 ? "origin/main" : "origin/develop";
+        return { name: r.name, base, ahead: i === 0 ? 3 : 1, dirty: files.filter((f) => f.dirty).length, files };
+      });
     }
     case "list_dir":
       return tree[args.rel ?? ""] ?? [];

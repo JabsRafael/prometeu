@@ -442,6 +442,7 @@ for (const [id, name] of [
   ["collapse", "list-tree"],
   ["dock-again", "rotate"],
   ["run-pick", "chevron-down"],
+  ["dseen", "check"],
   ["dfold", "chevron-up"],
   ["settings", "settings"],
 ] as const) {

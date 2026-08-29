@@ -648,6 +648,17 @@ main { flex: 1; min-height: 0; position: relative; }
 .dhead .new { font-size: 11px; color: var(--fg-3); }
 .dhead .a { font-family: var(--mono); font-size: 12px; color: var(--done); }
 .dhead .r { font-family: var(--mono); font-size: 12px; color: var(--err); }
+/* Visto: o check na ponta acende, e o nome apaga um tom. Patch que mudar
+   depois desmarca sozinho — é o que faz "visto" servir para acompanhar. */
+.dhead .dseen {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: var(--r); color: var(--fg-3); opacity: 0.5;
+}
+.dhead .dseen:hover { background: var(--bg-raised-3); opacity: 1; color: var(--fg); }
+.dfile.seen .dhead .dseen { opacity: 1; color: var(--done); }
+.dfile.seen .dhead .dpath .nm { color: var(--fg-2); }
+/* O ponto do que está fora de commit, na lista e no cabeçalho do arquivo. */
+.dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--wait); align-self: center; }
 
 .dbody {
   font-family: var(--mono); font-size: 13px; line-height: 20px;
@@ -754,7 +765,21 @@ body.noside .side { display: none; }
 .diffrow .a { color: var(--done); }
 .diffrow .r { color: var(--err); }
 .diffrow .new { color: var(--fg-3); font-size: 11px; }
+.diffrow .chk { flex: none; display: flex; width: 14px; color: var(--fg-3); align-self: center; }
+.diffrow.seen, .diffrow.seen .base { color: var(--fg-3); }
 .difflist .none { color: var(--fg-3); font-size: 13px; padding: 24px 12px; text-align: center; }
+/* O resumo no topo da lista: quantos commits além da base, e o chip do que
+   está fora de commit — que também é o filtro. */
+.diffsum { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 12px 8px; font-size: 12px; color: var(--fg-3); }
+.diffsum .ahead { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diffsum .dirtyf {
+  display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px 0 7px;
+  border: 1px solid var(--line-raised); border-radius: 11px; background: none;
+  color: var(--fg-2); font-size: 12px; font-weight: 400;
+}
+.diffsum .dirtyf[hidden] { display: none; }
+.diffsum .dirtyf:hover { background: var(--bg-raised); color: var(--fg); }
+.diffsum .dirtyf.on { background: var(--bg-raised-2); border-color: var(--fg-3); color: var(--fg); }
 /* A seção de um repositório na lista: nome e soma, grudados no topo enquanto
    os arquivos dele passam; clique recolhe. Os arquivos entram um passo. */
 .diffrepo {

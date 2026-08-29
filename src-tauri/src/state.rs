@@ -105,6 +105,12 @@ pub struct Repo {
     /// Onde este repositório está nesta branch: o worktree, ou o próprio clone
     /// quando o workspace roda nele.
     pub worktree: String,
+    /// De onde a branch saiu neste repositório — é contra ela que a tela de
+    /// mudanças conta commits e diff. Cada repo tem a sua: o principal a que
+    /// o lançador escolheu, os outros o padrão de cada clone. Vazio é quadro
+    /// gravado antes disto existir; o diff aprende o padrão e grava.
+    #[serde(default)]
+    pub base: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -221,6 +227,7 @@ impl Workspace {
         self.repos.first().cloned().unwrap_or_else(|| Repo {
             path: self.repo.clone(),
             name: self.repo_name.clone(),
+            base: String::new(),
             worktree: self.worktree.clone(),
         })
     }
@@ -331,7 +338,7 @@ impl Board {
             // dele. É o que o app instalado encontra na primeira abertura
             // depois de atualizar — e nada além da lista muda.
             if ws.repos.is_empty() {
-                ws.repos.push(Repo { path: ws.repo.clone(), name: ws.repo_name.clone(), worktree: ws.worktree.clone() });
+                ws.repos.push(Repo { path: ws.repo.clone(), name: ws.repo_name.clone(), worktree: ws.worktree.clone(), base: String::new() });
             }
         }
 
@@ -505,7 +512,7 @@ mod tests {
         let ws = &board.workspaces[0];
         assert_eq!(ws.repo, "/r");
         assert_eq!(ws.worktree, "/wt");
-        assert_eq!(ws.repos, vec![Repo { path: "/r".into(), name: "r".into(), worktree: "/wt".into() }]);
+        assert_eq!(ws.repos, vec![Repo { path: "/r".into(), name: "r".into(), worktree: "/wt".into(), base: String::new() }]);
         assert_eq!(ws.primary().worktree, "/wt");
         assert!(!ws.multi());
     }
