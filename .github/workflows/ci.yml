@@ -16,6 +16,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   testes:
     name: testes
@@ -29,7 +33,9 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24.14.0
-          cache: npm
+
+      # O runner persistente já conserva ~/.npm; enviar esse cache de volta ao
+      # GitHub só prolonga o pós-job e pode prender a fila do runner único.
 
       - run: npm ci
 
