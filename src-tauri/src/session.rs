@@ -1785,6 +1785,52 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         }
     }
 
+    /// O diff contra a base, num repositório de verdade: o que está no commit
+    /// desta branch e o que está fora de commit vêm juntos, cada um marcado, por
+    /// caminho — e o número de commits além da base é o que se contou. Sem base
+    /// que exista, sobra o que está fora de commit.
+    #[test]
+    fn o_diff_contra_a_base_junta_commit_e_fora_de_commit() {
+        let root = std::env::temp_dir().join(format!("prometheus-diff-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let run = |args: &[&str]| {
+            let out = Command::new("git").arg("-C").arg(&root).args(args).output().unwrap();
+            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        };
+        run(&["init", "-q", "-b", "main"]);
+        run(&["config", "user.email", "t@t"]);
+        run(&["config", "user.name", "t"]);
+        std::fs::write(root.join("a.txt"), "a\n").unwrap();
+        std::fs::write(root.join("gone.txt"), "x\n").unwrap();
+        run(&["add", "-A"]);
+        run(&["commit", "-qm", "base"]);
+        run(&["checkout", "-qb", "feat"]);
+        std::fs::write(root.join("a.txt"), "a\nb\n").unwrap();
+        std::fs::remove_file(root.join("gone.txt")).unwrap();
+        std::fs::write(root.join("z.txt"), "z\n").unwrap();
+        run(&["add", "-A"]);
+        run(&["commit", "-qm", "feat"]);
+        // Fora de commit: um mexido depois do commit, e um que nem foi adicionado.
+        std::fs::write(root.join("a.txt"), "a\nb\nc\n").unwrap();
+        std::fs::write(root.join("novo.txt"), "n\n").unwrap();
+
+        let d = super::repo_diff("r", &root, "main");
+        assert_eq!(d.ahead, 1);
+        assert_eq!(d.dirty, 2);
+        let paths: Vec<&str> = d.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["a.txt", "gone.txt", "novo.txt", "z.txt"]);
+        let by = |p: &str| d.files.iter().find(|f| f.path == p).unwrap();
+        assert!(by("a.txt").dirty && by("a.txt").added == 2 && !by("a.txt").new_file);
+        assert!(by("gone.txt").deleted && !by("gone.txt").dirty);
+        assert!(by("z.txt").new_file && !by("z.txt").dirty && by("z.txt").patch.contains("+z"));
+        assert!(by("novo.txt").new_file && by("novo.txt").dirty);
+
+        let sem_base = super::repo_diff("r", &root, "nao-existe");
+        assert_eq!((sem_base.ahead, sem_base.files.len()), (0, 2));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// Um repo de mentira com remoto de verdade (o "origin" é uma pasta ao
     /// lado): é o único jeito de provar que a base escolhida no lançador é de
     /// onde a branch nasce, e que `origin/main` é o padrão que o clone gravou.
