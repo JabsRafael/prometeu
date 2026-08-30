@@ -96,6 +96,17 @@ export function init(context: Ctx) {
     drawChanges(openWs);
   });
 
+  // O diff acompanha o agente pelos eventos do quadro. Mas quem comita no dock,
+  // ou num terminal de fora, não publica evento nenhum — e o painel continuava
+  // mostrando como fora de commit o que você acabou de commitar. Voltar para a
+  // janela e estar olhando as Mudanças são os dois momentos em que isso se nota.
+  window.addEventListener("focus", () => {
+    if (hasDiff()) reloadChanges(openWs!);
+  });
+  setInterval(() => {
+    if (hasDiff() && document.hasFocus() && (sidePane === "diff" || files(openWs!).diff)) reloadChanges(openWs!);
+  }, WATCH_EVERY);
+
   // A onda do painel de "montando" é desenhada uma vez: ela não muda, e o
   // `draw` roda a cada atualização dos workspaces.
   $("offwave").innerHTML = wave(22);
@@ -466,6 +477,15 @@ const askBranch = debounce(400, async (id: string) => {
   branchOf.set(id, name);
   if (openWs === id) paintBranch(id);
 });
+
+/// Só existe diff — e PR para pedir — de workspace que está neste disco e já
+/// montado. O do colega mora no Mac dele, o devolvido não tem pasta, e o que
+/// está montando não tem nem git ainda.
+const diffable = (ws: Workspace) => !ws.remote && !ws.cleaned && !pending(ws);
+const hasDiff = () => {
+  const ws = current();
+  return !!ws && ws.id === openWs && diffable(ws);
+};
 
 /* ---------- PR da branch ---------- */
 
@@ -990,6 +1010,11 @@ function visible(id: string): RepoDiff[] {
 /// rajadas aqui é o que separa "o diff acompanha sozinho" de "a tela trava
 /// enquanto o agente trabalha".
 const reloadChanges = debounce(250, (id: string) => void loadChanges(id));
+
+/// De quanto em quanto tempo o diff é conferido enquanto você está olhando para
+/// ele. É o passo de quem comita no dock: nada avisa a tela, e ficar de olho o
+/// tempo todo seria um `git diff` por segundo em todo repositório do workspace.
+const WATCH_EVERY = 5_000;
 
 /// Descarta resposta de pedido velho: dois `workspace_diff` no ar podem voltar
 /// fora de ordem, e o antigo sobrescreveria o novo.
