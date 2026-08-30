@@ -929,6 +929,10 @@ const relayId = (id: string) => remoteIds.get(id)?.ws ?? id;
 /// As notas de um workspace, e o pedido ao relay se ainda não vieram. Devolve
 /// o que já se sabe; o resto chega pelo `onChange`.
 export function notesOf(id: string): Note[] {
+  // Workspace local não anunciado não existe no relay. Além de esconder a UI
+  // de notas no `main`, esta guarda impede que qualquer chamada futura produza
+  // um `noShare` para um workspace que nunca foi compartilhado.
+  if (!isRemote(id) && !announced.has(id)) return [];
   const ws = relayId(id);
   const have = notes.get(ws);
   if (have) return have;

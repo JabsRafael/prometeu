@@ -12,6 +12,31 @@ async function openWorkspace(page: Page, title: string) {
   await expect(page.locator("#crumb")).toContainText(title);
 }
 
+test("o topo local fica estável e não trata workspace comum como compartilhado", async ({ page }) => {
+  await boot(page);
+  await openWorkspace(page, "Ola");
+
+  // Este workspace nunca foi compartilhado: colaboração não vira um estado
+  // permanente na barra. A ação só entra no menu quando há um time configurado.
+  await expect(page.locator("#msg")).toBeHidden();
+  await expect(page.locator("#share")).toBeHidden();
+  await expect(page.locator("#wsmore")).toBeVisible();
+  await page.locator("#wsmore").click();
+  await expect(page.locator(".menu .mrow", { hasText: "Definir etapa" })).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  // Um evento do quadro redesenha o app inteiro. O nó da identidade deve
+  // sobreviver em vez de sumir e nascer de novo a cada ferramenta do agente.
+  await page.locator("#crumb .nm").evaluate((el) => (el.dataset.stable = "yes"));
+  await page.evaluate(async () => {
+    type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+    const invoke = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__.invoke;
+    await invoke("set_stage", { id: "sessao-0929", stage: "Fazendo" });
+  });
+  await expect(page.locator("#crumb .nm")).toHaveAttribute("data-stable", "yes");
+  await expect(page.locator("#msg")).toBeHidden();
+});
+
 test("a troca rápida de aba ignora o snapshot atrasado da aba anterior", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Ola");

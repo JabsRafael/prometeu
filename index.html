@@ -32,13 +32,10 @@
         <span class="spacer"></span>
         <span id="msg" class="msg"></span>
         <div id="wsctl" class="wsctl" hidden>
-          <span id="wsstatus" class="chip"></span>
-          <!-- Quem do time está olhando a conversa aberta: um chip por pessoa. -->
+          <!-- Colaboração só ocupa a barra quando está ativa. Compartilhar pela
+               primeira vez e mudar a etapa ficam nas ações do workspace. -->
+          <button id="share" class="ico" hidden></button>
           <span id="watchers" class="watchers"></span>
-          <!-- Compartilhar com o time: o workspace vai para a lista dos colegas,
-               e a saída das conversas para quem abrir. Só existe com time. -->
-          <button id="share" class="ghost md" hidden></button>
-          <button id="wsstage" class="ghost md" data-t-title="top.stage"></button>
           <!-- Não cria nada sozinho: injeta na conversa ativa o pedido de PR,
                com o estado do git e os passos. Quem faz é o agente. O ⌄ ao lado
                abre os PRs desta branch — um por repositório, num menu, para a
@@ -47,6 +44,7 @@
             <button id="pr" data-t-title="top.pr"></button>
             <button id="prpick" class="ico sm" data-t-title="top.pr.links" hidden></button>
           </div>
+          <button id="wsmore" class="ico" data-t-title="top.more"></button>
           <button id="sidetoggle" class="ico" data-t-title="top.side"></button>
         </div>
       </header>

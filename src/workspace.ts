@@ -17,8 +17,6 @@ import {
   merged,
   prs,
   pending,
-  stateLabel,
-  statusOf,
   type Board,
   type Change,
   type Choice,
@@ -219,10 +217,18 @@ export function draw() {
   const remote = ws.remote;
   const owner = remote ? team.nameOf(remote.owner) : null;
   const crumb = $("crumb");
-  crumb.innerHTML =
-    `${avatar(owner ?? ws.repo_name)}<span class="who"></span><button class="repos" hidden></button>` +
-    `<span class="sep">${icon("chevron-right", 12)}</span><span class="nm"></span>` +
-    `<button class="branch" hidden>${icon("git-branch", 12)}<span></span></button>`;
+  // O quadro muda a cada ferramenta do agente. A identidade, não: reconstruir
+  // esta árvore em todo evento fazia a branch e o título piscarem e também
+  // acumulava listeners. Ela só nasce de novo quando muda o workspace (ou o
+  // nome de um dono remoto); os redraws seguintes apenas atualizam valores.
+  const crumbKey = `${ws.id}\u0000${owner ?? ws.repo_name}`;
+  if (crumb.dataset.workspace !== crumbKey || !crumb.querySelector(".nm")) {
+    crumb.dataset.workspace = crumbKey;
+    crumb.innerHTML =
+      `${avatar(owner ?? ws.repo_name)}<span class="who"></span><button class="repos" hidden></button>` +
+      `<span class="sep">${icon("chevron-right", 12)}</span><span class="nm"></span>` +
+      `<button class="branch" hidden>${icon("git-branch", 12)}<span></span></button>`;
+  }
   // Com mais de um repositório os nomes emendados comiam a barra, e ainda
   // repetiam o que as seções de Mudanças já dizem. Fica quantos são, e o clique
   // leva a cada um deles.
@@ -246,40 +252,19 @@ export function draw() {
   if (!remote) {
     // Na migalha não tem lápis: nada ali é clicável, então o duplo clique é livre.
     name.title = t("ws.rename");
-    name.addEventListener("dblclick", () =>
-      rename.start(name, ws.title, (title) => renameWorkspace(ws.id, title), "crumb"),
-    );
+    name.ondblclick = () => rename.start(name, ws.title, (title) => renameWorkspace(ws.id, title), "crumb");
+  } else {
+    name.title = "";
+    name.ondblclick = null;
   }
-
-  // O cabeçalho usa o mesmo `stateLabel` da barra lateral: montando não
-  // tem ponto de status porque não tem aba de onde ele sairia.
-  const chip = $("wsstatus");
-  chip.className = "chip" + (pending(ws) ? (ws.failed ? " failed" : "") : ` s-${statusOf(ws)}`);
-  chip.innerHTML = pending(ws) ? (ws.failed ? "" : wave(12)) : `<i class="dot"></i>`;
-  chip.append(stateLabel(ws));
-
-  // A etapa é o mesmo submenu do botão direito, ancorado no botão: um lugar só
-  // para escolher, esteja você na lista lateral ou dentro da conversa.
-  const stages = ctx.board().stages;
-  const stage = $("wsstage");
-  stage.innerHTML = `${stageIcon(stages.indexOf(ws.stage), stages.length, 14)}<span></span>`;
-  stage.children[1].textContent = stageName(ws.stage);
-  stage.onclick = () => {
-    const at = stage.getBoundingClientRect();
-    menu.openAt(
-      { x: at.left, y: at.bottom + 4 },
-      stages.map((name, i) => ({
-        label: stageName(name),
-        glyph: stageIcon(i, stages.length),
-        checked: name === ws.stage,
-        run: () => setStage(ws.id, name),
-      })),
-    );
-  };
+  // A branch gravada dá a primeira pintura, sem abrir um buraco enquanto o
+  // Git responde. `drawBranch` abaixo a corrige caso o agente a tenha trocado.
+  paintBranchName(branchOf.get(ws.id) ?? ws.branch);
 
   drawTabs(ws);
   const tab = ws.tabs.find((t) => t.id === session.currentSession());
   drawShare(ws, tab);
+  drawMore(ws);
   // A caixa de escrever diz o estado da aba: desligada, de um colega offline.
   session.refresh();
 
@@ -294,7 +279,6 @@ export function draw() {
     $("tabbar").hidden = false;
     $("side").hidden = true;
     $("sidetoggle").hidden = true;
-    $("wsstage").hidden = true;
     $("dock").hidden = true;
     return;
   }
@@ -309,7 +293,6 @@ export function draw() {
     $("tabbar").hidden = true;
     $("side").hidden = true;
     $("sidetoggle").hidden = true;
-    $("wsstage").hidden = true;
     $("offline").hidden = false;
     $("offwave").hidden = !!ws.failed;
     $("offtitle").textContent = t(ws.failed ? "build.failed.title" : "build.title");
@@ -348,7 +331,6 @@ export function draw() {
   $("tabbar").hidden = ws.cleaned;
   $("side").hidden = ws.cleaned;
   $("sidetoggle").hidden = ws.cleaned;
-  $("wsstage").hidden = ws.cleaned;
 }
 
 /// O botão de compartilhar e os chips de quem está olhando a conversa aberta.
@@ -359,26 +341,66 @@ function drawShare(ws: Workspace, tab?: Tab) {
   const btn = $("share") as HTMLButtonElement;
   const chips = $("watchers");
   chips.replaceChildren();
-  if (ws.remote || ws.cleaned || !team.status().config) {
+  // Inativo é uma ação no menu, não um estado permanente na barra. Quando o
+  // workspace está compartilhado, o ícone verde e os avatares tornam a
+  // colaboração ativa visível sem uma frase longa.
+  if (ws.remote || ws.cleaned || !team.status().config || !ws.shared) {
     btn.hidden = true;
     return;
   }
   btn.hidden = false;
-  btn.className = "ghost md" + (ws.shared ? " on" : "");
-  btn.innerHTML = `${icon("share-2", 14)}<span></span>`;
-  btn.querySelector("span")!.textContent = shareLabel(ws);
-  btn.title = t(ws.shared ? "share.off.title" : "share.on.title");
+  btn.className = "ico on";
+  btn.innerHTML = icon("share-2", 14);
+  btn.title = `${shareLabel(ws)} — ${t("share.off.title")}`;
   btn.onclick = () => {
     const at = btn.getBoundingClientRect();
     menu.openAt({ x: at.left, y: at.bottom + 4 }, shareItems(ws));
   };
-  if (!ws.shared || !tab) return;
-  for (const name of team.watchersOf(tab.id)) {
-    const c = template("span", "chip watcher", `${avatar(name)}<span class="nm"></span>`);
-    c.querySelector(".nm")!.textContent = name;
+  if (!tab) return;
+  const watching = team.watchersOf(tab.id);
+  for (const name of watching.slice(0, 3)) {
+    const c = template("span", "watcher", avatar(name));
     c.title = t("share.watching", { name });
     chips.append(c);
   }
+  if (watching.length > 3) {
+    const rest = template("span", "watcher more", `+${watching.length - 3}`);
+    rest.title = watching.slice(3).join(" · ");
+    chips.append(rest);
+  }
+}
+
+/// Ações de baixa frequência saem da faixa principal. Etapa já aparece na
+/// sidebar; compartilhar só ganha presença própria no topo depois de ligado.
+function drawMore(ws: Workspace) {
+  const btn = $("wsmore") as HTMLButtonElement;
+  const available = !ws.remote && !ws.cleaned && !pending(ws);
+  btn.hidden = !available;
+  if (!available) return;
+
+  btn.innerHTML = icon("ellipsis", 16);
+  const stages = ctx.board().stages;
+  const at = stages.indexOf(ws.stage);
+  const items: menu.Item[] = [
+    {
+      label: t("ws.menu.stage"),
+      glyph: stageIcon(at, stages.length),
+      hint: stageName(ws.stage),
+      sub: stages.map((name, i) => ({
+        label: stageName(name),
+        glyph: stageIcon(i, stages.length),
+        checked: name === ws.stage,
+        run: () => setStage(ws.id, name),
+      })),
+    },
+  ];
+  if (team.status().config && !ws.shared) {
+    items.unshift({ label: t("share.on"), glyph: icon("share-2", 14), sub: shareItems(ws) });
+  }
+  btn.onclick = () => {
+    const box = btn.getBoundingClientRect();
+    menu.openAt({ x: box.left, y: box.bottom + 4 }, items);
+  };
 }
 
 function shareLabel(ws: Workspace): string {
