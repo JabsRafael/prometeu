@@ -722,6 +722,10 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       return ".prometheus/settings.toml";
     case "scripts_prompt":
       return "Descubra como preparar e como rodar este projeto, e escreva isso em `.prometheus/settings.toml`.";
+    // No navegador puro, abrir de fora é abrir uma aba do próprio navegador.
+    case "open_external":
+      window.open(String(args.url), "_blank", "noreferrer");
+      return null;
     case "open_run":
       console.log("abrir no navegador: http://localhost:" + ((scripts[args.id] ?? noScripts).port ?? 0));
       return null;

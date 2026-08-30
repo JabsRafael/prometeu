@@ -44,6 +44,7 @@ export const IPC_COMMANDS = [
   "look_at",
   "new_tab",
   "open_dock",
+  "open_external",
   "open_pr",
   "open_run",
   "pin_workspace",

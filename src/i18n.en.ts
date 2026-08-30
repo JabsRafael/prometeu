@@ -503,6 +503,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.session.openFailed": "could not open {path}",
 
   "err.browser.badUrl": "address that cannot be opened: {url}",
+  "err.browser.noBrowser": "could not open the browser",
   "err.dock.unknown": "unknown dock: {kind}",
   "err.dock.noScript": "no {kind} script in {file}",
 
