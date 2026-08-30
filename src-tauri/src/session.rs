@@ -1715,6 +1715,9 @@ mod tests {
             let out = Command::new("git")
                 .arg("-C")
                 .arg(dir)
+                // O commit do teste não depende da assinatura da máquina: com
+                // `commit.gpgsign` global, o gpg do runner falhava em paralelo.
+                .args(["-c", "commit.gpgsign=false"])
                 .args(args)
                 .output()
                 .unwrap();
@@ -2058,6 +2061,9 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
             let out = Command::new("git")
                 .arg("-C")
                 .arg(&root)
+                // O commit do teste não depende da assinatura da máquina: com
+                // `commit.gpgsign` global, o gpg do runner falhava em paralelo.
+                .args(["-c", "commit.gpgsign=false"])
                 .args(args)
                 .output()
                 .unwrap();
@@ -2114,6 +2120,9 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
             let out = Command::new("git")
                 .arg("-C")
                 .arg(dir)
+                // O commit do teste não depende da assinatura da máquina: com
+                // `commit.gpgsign` global, o gpg do runner falhava em paralelo.
+                .args(["-c", "commit.gpgsign=false"])
                 .args(args)
                 .output()
                 .unwrap();
