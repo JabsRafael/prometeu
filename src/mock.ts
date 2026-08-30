@@ -56,7 +56,9 @@ const board: Board = {
   workspaces: [
     ws("sessao-0929", "p1", "njord", "Ola", "Fazendo", [
       { id: "t1", title: "conversa 1", status: "pronta", note: null, tokens: 57_000 },
-      { id: "t2", title: "conversa 2", status: "pronta", note: null, tokens: 112_400, pending_prompt: "O que tem nesse projeto aqui de legal?" },
+      // Aba que nasceu com outro modelo que o do workspace: é o rodapé da
+      // conversa mostrando o dela, e não o das irmãs.
+      { id: "t2", title: "conversa 2", status: "pronta", note: null, tokens: 112_400, pending_prompt: "O que tem nesse projeto aqui de legal?", choice: { agent: "", model: "sonnet", effort: "medium" } },
     ]),
     ws("ui-2231", "p2", "prometheus", "Tela igual ao Conductor", "Fazendo", [
       { id: "t3", title: "conversa 1", status: "rodando", note: "Edit src/style.css", tokens: 23_800 },

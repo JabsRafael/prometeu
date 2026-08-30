@@ -37,8 +37,9 @@ export type Info = {
   remote: { name: string; online: boolean } | null;
   /// Há time — e, portanto, notas.
   team: boolean;
-  /// Com quem se está falando: o modelo e o esforço escolhidos no lançador.
-  /// Vazio é o padrão do CLI, e aí a caixa não diz nada.
+  /// Com quem se está falando: o modelo e o esforço desta conversa — o que a
+  /// aba escolheu ao nascer, ou o do workspace. Vazio é o padrão do CLI, e aí
+  /// a caixa não diz nada.
   model: string;
   effort: string;
 };
@@ -884,8 +885,8 @@ export class ChatView {
           <button class="mode" data-mode="note"></button>
         </div>
         <!-- Com quem se fala, como no rodapé do lançador: o modelo e o degrau
-             de esforço. Aqui só se lê — trocar de modelo é abrir sessão nova,
-             e isso é no lançador. -->
+             de esforço desta conversa. Aqui só se lê — modelo não se troca com
+             a conversa de pé; escolhe-se ao abrir a aba, na setinha do "+". -->
         <span class="with" hidden>
           <span class="mdl"></span>
           <span class="effort"><span class="bars"><i></i><i></i><i></i><i></i><i></i></span><span class="el"></span></span>
@@ -1103,8 +1104,9 @@ export class ChatView {
   }
 
   /// Com quem se está falando, embaixo da caixa: o modelo e o degrau de
-  /// esforço deste workspace. Escolha do lançador — aqui só se lê, e por isso
-  /// não é botão. Nota não vai para modelo nenhum: some.
+  /// esforço desta conversa — o dela, quando a aba nasceu com um escolhido, ou
+  /// o do workspace. Aqui só se lê, e por isso não é botão: trocar é abrir aba
+  /// nova. Nota não vai para modelo nenhum: some.
   private paintWith(info: Info, note: boolean) {
     const el = this.box.querySelector<HTMLElement>(".with")!;
     const label = info.model ? modelLabel(info.model) : "";

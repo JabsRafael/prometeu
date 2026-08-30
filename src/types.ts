@@ -28,7 +28,15 @@ export type Tab = {
   tokens: number | null;
   /// A fala que ainda não foi: espera o setup do worktree terminar.
   pending_prompt?: string | null;
+  /// O modelo desta conversa, quando quem a abriu escolheu um diferente do que
+  /// o workspace usa. Vazio é seguir o do workspace — o que faz o ⌘T.
+  choice?: Choice | null;
 };
+
+/// Com quem uma conversa fala: qual CLI sobe, com que modelo e com quanto
+/// esforço. Os três andam juntos porque escolher um GPT é escolher o Codex, e
+/// cada modelo tem a sua escada de esforço.
+export type Choice = { agent: string; model: string; effort: string };
 
 export type Project = { id: string; name: string; path: string };
 

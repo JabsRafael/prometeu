@@ -191,9 +191,11 @@ export const PT = {
   "ws.copied": "{name} copiado",
 
   "tab.tokens": " · {n} tokens de contexto",
+  "tab.model": " · falando com {model}",
   "tab.rename": " · duplo clique para renomear",
   "tab.close": "Fechar conversa",
   "tab.new": "Conversa nova, mesmos arquivos  ⌘T",
+  "tab.new.model": "Conversa nova com outro modelo",
   "tab.changes": "Mudanças",
   "tab.changes.title": "O que esta branch mudou; o número é o que você ainda não viu",
   "tab.changes.close": "Fechar Mudanças",

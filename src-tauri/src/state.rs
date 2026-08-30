@@ -64,6 +64,20 @@ pub enum Note {
     Keep,
 }
 
+/// Com quem uma conversa fala: qual CLI sobe, com que modelo e com quanto
+/// esforço. No workspace isto são três campos soltos, porque nasceram nele; na
+/// aba é um só, para que "escolheu o seu" e "segue o do workspace" sejam duas
+/// coisas — modelo vazio é uma escolha (o padrão do CLI), e não a falta de uma.
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct Choice {
+    #[serde(default)]
+    pub agent: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub effort: String,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Tab {
     /// É o `--session-id` do Claude Code. O transcript pendura nele.
@@ -83,6 +97,12 @@ pub struct Tab {
     /// conversa que ainda não respondeu, ou quadro gravado antes disto existir.
     #[serde(default)]
     pub tokens: Option<u64>,
+    /// O modelo desta conversa, quando quem abriu a aba escolheu um diferente
+    /// do que o workspace usa. `None` é seguir o do workspace — o que faz ⌘T, e
+    /// o que toda aba gravada antes disto existir traz. Retomar a aba respeita
+    /// o que está aqui: o transcript é de um modelo só.
+    #[serde(default)]
+    pub choice: Option<Choice>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -375,6 +395,7 @@ impl Board {
                     note: None,
                     pending_prompt: None,
                     tokens: None,
+                    choice: None,
                 });
             }
             // Nenhum PTY sobrevive ao fechamento do app, então qualquer status

@@ -485,8 +485,11 @@ session.init(
       pending: tab?.pending_prompt ?? null,
       remote: w?.remote ? { name: team.nameOf(w.remote.owner), online: w.remote.online } : null,
       team: !!team.status().config,
-      model: w?.model ?? "",
-      effort: w?.effort ?? "",
+      // O modelo da aba, quando ela escolheu um; senão o do workspace. Quem
+      // responde é ter ou não `choice`, e não o modelo estar preenchido:
+      // modelo vazio é uma escolha (o padrão do CLI), não a falta de uma.
+      model: tab?.choice ? tab.choice.model : (w?.model ?? ""),
+      effort: tab?.choice ? tab.choice.effort : (w?.effort ?? ""),
     };
   },
 );
