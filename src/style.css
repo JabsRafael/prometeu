@@ -229,8 +229,17 @@ body.norail .top .nav { margin-left: 0; }
 }
 .crumb .branch:hover { background: var(--bg-raised-2); color: var(--fg); }
 .crumb .branch > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.msg { font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.msg.err { color: var(--err); }
+/* Recados não fazem parte da identidade do workspace. Como toast, não empurram
+   breadcrumb nem ações quando aparecem e somem. */
+.msg {
+  position: fixed; z-index: 30; top: calc(var(--top-h) + 8px); right: 14px;
+  max-width: min(520px, calc(100vw - 28px)); padding: 7px 10px;
+  border: 1px solid var(--line-raised); border-radius: var(--r);
+  background: var(--bg-raised-2); box-shadow: 0 8px 24px #0008;
+  font-size: 12px; color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.msg:empty { display: none; }
+.msg.err { color: var(--err); border-color: color-mix(in srgb, var(--err) 35%, var(--line-raised)); }
 /* Com mais de um repositório, a migalha diz quantos são em vez de emendar os
    nomes: a largura passa a não depender de quantos o workspace tem. Os nomes
    estão no menu do chip e nas seções de Mudanças. */
@@ -243,6 +252,11 @@ body.norail .top .nav { margin-left: 0; }
    na mesma altura dos outros. */
 .top .split { height: 28px; margin-right: 0; }
 .wsctl { display: flex; align-items: center; gap: 8px; }
+/* O texto e a seta mudam quando Git/diff/PR respondem, mas o conjunto não
+   empurra os controles vizinhos. */
+.top #prsplit { width: 146px; }
+.top #prsplit > #pr { flex: 1; min-width: 0; }
+.top #prsplit > #pr span { overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------- pastilha de status ---------- */
 
@@ -1266,10 +1280,15 @@ body.noside .side { display: none; }
 
 /* ---------- time: quem olha e compartilhar ---------- */
 
-.watchers { display: inline-flex; gap: 4px; align-items: center; }
+.watchers { display: inline-flex; align-items: center; padding-left: 2px; }
 .watchers:empty { display: none; }
-.chip.watcher { gap: 5px; }
-.chip.watcher .avatar { width: 16px; height: 16px; border-radius: 3px; font-size: 9px; }
+.watcher {
+  width: 20px; height: 20px; margin-left: -5px; border: 2px solid var(--bg-raised);
+  border-radius: 5px; background: var(--bg-raised-2); display: inline-grid; place-items: center;
+}
+.watcher:first-child { margin-left: 0; }
+.watcher .avatar { width: 16px; height: 16px; border-radius: 3px; font-size: 9px; }
+.watcher.more { width: auto; min-width: 20px; padding: 0 4px; font-size: 10px; color: var(--fg-2); }
 #share.on { color: var(--done); }
 #share.on .ic { color: var(--done); }
 

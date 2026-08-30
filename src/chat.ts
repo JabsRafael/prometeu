@@ -35,7 +35,9 @@ export type Info = {
   pending: string | null;
   /// A conversa é de um colega: o nome dele, e se ele está aí.
   remote: { name: string; online: boolean } | null;
-  /// Há time — e, portanto, notas.
+  /// Este workspace participa do time — e, portanto, aceita notas. Ter um time
+  /// configurado não basta: um workspace local que nunca foi compartilhado
+  /// não existe no relay.
   team: boolean;
   /// Com quem se está falando: o modelo e o esforço desta conversa — o que a
   /// aba escolheu ao nascer, ou o do workspace. Vazio é o padrão do CLI, e aí

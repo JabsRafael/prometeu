@@ -40,7 +40,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "crumb.settings": "Settings",
   "crumb.archived": "Archived",
   "top.settings": "Settings  ⌘,",
-  "top.stage": "Stage of this work",
+  "top.more": "Workspace actions",
   "top.pr": "Ask the active conversation for the PR",
   "top.pr.update": "Ask the active conversation to update the PR",
   "top.pr.go": "Nothing to send — open the PR in the browser",

@@ -49,7 +49,7 @@ export const PT = {
   "crumb.settings": "Configurações",
   "crumb.archived": "Arquivados",
   "top.settings": "Configurações  ⌘,",
-  "top.stage": "Etapa deste trabalho",
+  "top.more": "Ações do workspace",
   "top.pr": "Pedir o PR à conversa ativa",
   "top.pr.update": "Pedir à conversa ativa que atualize o PR",
   "top.pr.go": "Nada para mandar — abrir o PR no navegador",
