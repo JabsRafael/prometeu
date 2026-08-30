@@ -231,8 +231,17 @@ body.norail .top .nav { margin-left: 0; }
 .crumb .branch > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msg { font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msg.err { color: var(--err); }
-/* Um link por PR, lado a lado: com mais de um repositório há mais de um. */
-.prlinks { display: inline-flex; align-items: center; gap: 4px; }
+/* Com mais de um repositório, a migalha diz quantos são em vez de emendar os
+   nomes: a largura passa a não depender de quantos o workspace tem. Os nomes
+   estão no menu do chip e nas seções de Mudanças. */
+.crumb .repos {
+  flex: none; height: 22px; padding: 0 8px; gap: 5px; border-radius: 999px;
+  border-color: var(--line-raised); background: none; font-weight: 400; font-size: 12px; color: var(--fg-2);
+}
+.crumb .repos:hover { background: var(--bg-raised-2); color: var(--fg); }
+/* O botão de PR é o único controle da barra que abre lista: o ⌄ tem de caber
+   na mesma altura dos outros. */
+.top .split { height: 28px; margin-right: 0; }
 .wsctl { display: flex; align-items: center; gap: 8px; }
 
 /* ---------- pastilha de status ---------- */
@@ -902,17 +911,17 @@ body.noside .side { display: none; }
   border: 1px solid var(--line-raised); border-radius: var(--r);
   background: var(--bg-raised); overflow: hidden;
 }
-.split #run-go {
+.split > button:first-child {
   display: flex; align-items: center; gap: 6px; padding: 0 10px; height: 100%;
   border-radius: 0; background: none;
 }
-.split #run-go:hover { background: var(--bg-raised-2); }
-.split #run-pick {
+.split > button:first-child:hover { background: var(--bg-raised-2); }
+.split > button + button {
   height: 100%; width: 22px; border-radius: 0; background: none;
   border-left: 1px solid var(--line-raised);
 }
-.split #run-pick:hover { background: var(--bg-raised-2); }
-.split #run-pick .ic { width: 14px; height: 14px; }
+.split > button + button:hover { background: var(--bg-raised-2); }
+.split > button + button .ic { width: 14px; height: 14px; }
 .split kbd { font: inherit; font-size: 11px; color: var(--fg-3); letter-spacing: 0.5px; }
 .dockbody { flex: 1; min-height: 0; position: relative; display: flex; }
 .dock.closed .dockbody { display: none; }
