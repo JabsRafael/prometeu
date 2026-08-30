@@ -393,10 +393,18 @@ pub fn env(worktree: &Path, repo: &Path, name: &str, port: Option<u16>) -> Vec<(
 /// qualquer quadro. Não é à prova de tudo — são 690 faixas, e dois caminhos
 /// podem cair na mesma — mas é o bastante para os três ou quatro ambientes que
 /// alguém sobe ao mesmo tempo.
+const FIRST: u16 = 3100;
+const SLOTS: u16 = (9990 - FIRST) / 10 + 1;
+
+/// Onde a procura começa, tirado só do caminho: nada do que está de pé na
+/// máquina entra aqui. É a parte que não muda — o mesmo worktree parte sempre
+/// da mesma faixa, em qualquer quadro.
+fn port_start(worktree: &Path) -> u16 {
+    (crate::paths::fnv1a(&worktree.to_string_lossy()) % u64::from(SLOTS)) as u16
+}
+
 pub fn alloc_port(worktree: &Path, taken: &[u16]) -> Option<u16> {
-    const FIRST: u16 = 3100;
-    const SLOTS: u16 = (9990 - FIRST) / 10 + 1;
-    let start = (crate::paths::fnv1a(&worktree.to_string_lossy()) % u64::from(SLOTS)) as u16;
+    let start = port_start(worktree);
     (0..SLOTS)
         .map(|i| FIRST + ((start + i) % SLOTS) * 10)
         .find(|base| !taken.contains(base) && (0..10).all(|i| usable(base + i) && free(base + i)))
@@ -813,13 +821,17 @@ default = true
         assert!((base..base + 10).all(usable), "{base}");
     }
 
-    /// O mesmo worktree cai na mesma porta em qualquer quadro; worktrees
-    /// diferentes começam a procura em pontos diferentes.
+    /// Worktrees diferentes começam a procura em pontos diferentes, e o ponto
+    /// sai só do caminho — por isso o mesmo worktree parte do mesmo lugar em
+    /// qualquer quadro. A porta que sai daí depende de quem está de pé na
+    /// máquina, e é por isso que a prova é sobre o ponto de partida.
     #[test]
     fn porta_sai_do_caminho_do_worktree() {
         let a = Path::new("/Users/ana/prometheus/worktrees/app/feat-a");
         let b = Path::new("/Users/ana/prometheus/worktrees/app/feat-b");
-        assert_eq!(alloc_port(a, &[]), alloc_port(a, &[]));
-        assert_ne!(alloc_port(a, &[]), alloc_port(b, &[]));
+        assert_ne!(port_start(a), port_start(b));
+        for p in [a, b] {
+            assert!(port_start(p) < SLOTS, "{}", port_start(p));
+        }
     }
 }
