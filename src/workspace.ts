@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./ipc";
 import * as sidebar from "./sidebar";
 import * as browser from "./browser";
 import * as diff from "./diff";
@@ -25,7 +25,7 @@ import {
   type Tab,
   type Workspace,
 } from "./types";
-import { $, debounce, h } from "./util";
+import { $, debounce, template } from "./util";
 import * as viewer from "./viewer";
 
 /// A tela de um workspace: migalha, abas, o que está no centro (conversa,
@@ -43,9 +43,14 @@ export type Ctx = {
 
 let ctx: Ctx;
 let openWs: string | null = null;
+/// Cada entrada/saída invalida toda continuação assíncrona da anterior. O id do
+/// workspace sozinho não basta: sair e voltar para o mesmo id também precisa
+/// matar o attach que começou na primeira visita.
+let navigation = 0;
 
 export const id = () => openWs;
 const current = () => ctx.board().workspaces.find((w) => w.id === openWs);
+const stillHere = (epoch: number, id: string) => navigation === epoch && openWs === id;
 
 export function init(context: Ctx) {
   ctx = context;
@@ -116,9 +121,11 @@ export function init(context: Ctx) {
 /* ---------- entrar e sair ---------- */
 
 export async function open(ws: Workspace) {
+  const epoch = ++navigation;
   // Ir de um workspace a outro não passa pelo `leave`: sem isto, a webview do
   // que ficou para trás continuaria por cima do que você abriu.
   browser.hide();
+  session.detach();
   const first = ws.tabs.find((t) => t.id === ws.active) ?? ws.tabs[0];
   sidebar.setOpen((openWs = ws.id));
   $("wsView").hidden = false;
@@ -128,7 +135,8 @@ export async function open(ws: Workspace) {
   // dentro dela.
   if (ws.remote) {
     showTerm();
-    if (first) await session.attach(first.id, ws.id);
+    if (first && !(await session.attach(first.id, ws.id))) return;
+    if (!stillHere(epoch, ws.id)) return;
     ctx.redraw();
     return;
   }
@@ -141,7 +149,6 @@ export async function open(ws: Workspace) {
   // ligar o terminal, arquivo para ler nem diff para pedir: o que a tela mostra
   // é o painel. Quando a aba nascer, é o `catchUp` do `draw` que liga.
   if (pending(ws)) {
-    session.detach();
     showTerm();
     draw();
     return;
@@ -149,18 +156,19 @@ export async function open(ws: Workspace) {
   // Worktree devolvido: não há processo para ligar nem arquivo para ler. O que
   // sobrou é o que está escrito, e é isso que a tela mostra.
   if (ws.cleaned) {
-    session.detach();
     draw();
     return;
   }
   // attach primeiro: é ele quem define a sessão corrente que as abas marcam.
-  if (first) await session.attach(first.id);
+  if (first && !(await session.attach(first.id))) return;
+  if (!stillHere(epoch, ws.id)) return;
   // Volta para onde parou: arquivo aberto continua aberto, diff continua na tela.
   const fs = files(ws.id);
   if (fs.web) await showWeb();
   else if (fs.diff) showChanges();
   else if (fs.active) await showFile();
   else showTerm();
+  if (!stillHere(epoch, ws.id)) return;
   ctx.redraw();
 }
 
@@ -174,11 +182,16 @@ export async function open(ws: Workspace) {
 function catchUp(ws: Workspace) {
   if (ws.remote || ws.cleaned || pending(ws) || session.currentSession()) return;
   const first = ws.tabs.find((t) => t.id === ws.active) ?? ws.tabs[0];
-  if (first) void session.attach(first.id).then(() => ctx.redraw());
+  if (first) {
+    const epoch = navigation;
+    void session.attach(first.id).then((attached) => {
+      if (attached && stillHere(epoch, ws.id)) ctx.redraw();
+    });
+  }
 }
 
 export function leave() {
-  team.detach();
+  navigation++;
   browser.hide();
   session.detach();
   invoke("look_at", { id: null });
@@ -339,7 +352,7 @@ function drawShare(ws: Workspace, tab?: Tab) {
   };
   if (!ws.shared || !tab) return;
   for (const name of team.watchersOf(tab.id)) {
-    const c = h("span", "chip watcher", `${avatar(name)}<span class="nm"></span>`);
+    const c = template("span", "chip watcher", `${avatar(name)}<span class="nm"></span>`);
     c.querySelector(".nm")!.textContent = name;
     c.title = t("share.watching", { name });
     chips.append(c);
@@ -393,13 +406,15 @@ export const setStage = (id: string, stage: string) => invoke("set_stage", { id,
 async function openPr() {
   const ws = current();
   if (!ws) return;
+  const epoch = navigation;
   const tab = ws.tabs.find((t) => t.id === session.currentSession()) ?? ws.tabs[0];
   if (!tab) return;
   try {
     const prompt = await invoke<string>("pr_prompt", { id: ws.id });
     await invoke("chat_send", { session: tab.id, text: prompt });
     // O pedido foi para a conversa; a tela vai atrás dele.
-    if (tab.id !== session.currentSession()) await session.attach(tab.id);
+    if (tab.id !== session.currentSession() && !(await session.attach(tab.id))) return;
+    if (!stillHere(epoch, ws.id)) return;
     showTerm();
     drawTabs(ws);
     session.focus();
@@ -688,17 +703,22 @@ async function selectTab(workspace: string, tab: string) {
   const remote = team.isRemote(workspace);
   if (!remote) invoke("focus_tab", { workspace, tab });
   showTerm();
-  await session.attach(tab, remote ? workspace : undefined);
+  const epoch = navigation;
+  if (!(await session.attach(tab, remote ? workspace : undefined))) return;
+  if (!stillHere(epoch, workspace)) return;
   draw();
 }
 
 export async function newTab(prompt = "") {
   const ws = current();
   if (!ws || ws.remote) return;
+  const epoch = navigation;
   try {
     const tab = await invoke<{ id: string }>("new_tab", { workspace: ws.id, prompt });
+    if (!stillHere(epoch, ws.id)) return;
     showTerm();
-    await session.attach(tab.id);
+    if (!(await session.attach(tab.id))) return;
+    if (!stillHere(epoch, ws.id)) return;
     draw();
   } catch (err) {
     ctx.say(fromBack(err), true);
@@ -999,7 +1019,7 @@ function nothing(text: string): HTMLElement {
 /// O resumo no topo da lista: quantos commits além da base, e o chip do que
 /// está fora de commit — que também é o filtro.
 function summary(id: string, repos: RepoDiff[]): HTMLElement {
-  const box = h("div", "diffsum", `<span class="ahead"></span><button class="dirtyf"></button>`);
+  const box = template("div", "diffsum", `<span class="ahead"></span><button class="dirtyf"></button>`);
   const ahead = repos.reduce((n, r) => n + r.ahead, 0);
   const dirty = repos.reduce((n, r) => n + r.dirty, 0);
   // Com um repo a base tem nome; com mais de um, cada um tem a sua, e ela fica

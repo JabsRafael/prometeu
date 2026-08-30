@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { empty, hydrate, reduce, type Effect, type Event, type State } from "./logic";
-import { encodeLive, encodeSnapshot, type Down, type Share, type Up } from "./protocol";
+import {
+  encodeLive,
+  encodeSnapshot,
+  NOTES_PER_WORKSPACE_MAX,
+  NOTE_TTL_MS,
+  SHARES_MAX,
+  type Down,
+  type Share,
+  type Up,
+} from "./protocol";
 
 const NOW = 1_700_000_000_000;
 
@@ -134,6 +143,14 @@ describe("compartilhar e olhar", () => {
     expect(one(off, "a1", "watch")).toEqual({ t: "watch", ws: "ws1", tab: "t2", members: [], added: [] });
   });
 
+  it("reanunciar sem a aba solta quem ainda estava nela", () => {
+    const s = team();
+    reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t2" }));
+    const fx = reduce(s, text("a1", { t: "share", share: share("ws1", ["t1"]) }));
+    expect(fx).toContainEqual({ e: "attachment", sock: "b1", member: "bob", attached: null });
+    expect(one(fx, "a1", "watch")).toMatchObject({ ws: "ws1", tab: "t2", members: [] });
+  });
+
   it("attach em workspace ou aba que não existe é erro", () => {
     const s = team();
     expect(one(reduce(s, text("b1", { t: "attach", ws: "nada", tab: "t1" })), "b1", "error")!.code).toBe("noShare");
@@ -142,11 +159,20 @@ describe("compartilhar e olhar", () => {
 
   it("write chega ao dono com quem escreveu; dono offline é erro", () => {
     const s = team();
+    reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t1" }));
     const fx = reduce(s, text("b1", { t: "write", ws: "ws1", tab: "t1", data: "ls\r" }));
     expect(sent(fx, "a1")).toEqual([{ t: "write", ws: "ws1", tab: "t1", data: "ls\r", from: "bob" }]);
     reduce(s, close("a1"));
     const off = reduce(s, text("b1", { t: "write", ws: "ws1", tab: "t1", data: "x" }));
     expect(one(off, "b1", "error")!.code).toBe("offline");
+  });
+
+  it("write exige que o mesmo socket esteja olhando exatamente a aba", () => {
+    const s = team();
+    expect(one(reduce(s, text("b1", { t: "write", ws: "ws1", tab: "t1", data: "oculto" })), "b1", "error")!.code).toBe("notAttached");
+    reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t2" }));
+    expect(one(reduce(s, text("b1", { t: "write", ws: "ws1", tab: "t1", data: "aba errada" })), "b1", "error")!.code).toBe("notAttached");
+    expect(one(reduce(s, text("b1", { t: "write", ws: "ws1", tab: "sumiu", data: "x" })), "b1", "error")!.code).toBe("noTab");
   });
 
   it("size do dono vai a quem olha a aba e fica no share", () => {
@@ -192,6 +218,13 @@ describe("compartilhar e olhar", () => {
     const s = team();
     expect(one(reduce(s, text("b1", { t: "share", share: share() })), "b1", "error")!.code).toBe("owner");
     expect(one(reduce(s, text("b1", { t: "unshare", ws: "ws1" })), "b1", "error")!.code).toBe("owner");
+  });
+
+  it("ids de aba são únicos no time para o frame binário não ficar ambíguo", () => {
+    const s = team();
+    const fx = reduce(s, text("b1", { t: "share", share: share("ws2", ["t1"]) }));
+    expect(one(fx, "b1", "error")!.code).toBe("tabConflict");
+    expect(s.shares.has("ws2")).toBe(false);
   });
 });
 
@@ -313,6 +346,42 @@ describe("notas", () => {
     const back = reduce(s, open("c2", "carol"));
     expect(one(back, "c2", "welcome")!.inbox.map((i) => i.id)).toEqual([`${NOW + 2}-n1`]);
   });
+
+  it("não cria nota para workspace inventado e limita o histórico", () => {
+    const s = team();
+    expect(one(reduce(s, text("b1", { t: "note", ws: "fake", text: "oi", mentions: [], quote: null })), "b1", "error")!.code).toBe("noShare");
+    for (let i = 0; i < NOTES_PER_WORKSPACE_MAX; i++) {
+      reduce(s, text("b1", { t: "note", ws: "ws1", text: `nota ${i}`, mentions: [], quote: null }, `n${i}`));
+    }
+    const fx = reduce(s, text("b1", { t: "note", ws: "ws1", text: "mais nova", mentions: [], quote: null }, "last"));
+    expect(s.notes.get("ws1")).toHaveLength(NOTES_PER_WORKSPACE_MAX);
+    expect(dels(fx)).toContain(`note:ws1:${NOW + 2}-n0`);
+  });
+
+  it("unshare apaga notas e caixas privadas; TTL também limpa o storage", () => {
+    const s = team();
+    reduce(s, text("b1", { t: "note", ws: "ws1", text: "@alice oi", mentions: ["alice"], quote: null }, "old"));
+    const expired = reduce(s, { k: "open", sock: "c1", member: "carol", name: "Carol", now: NOW + NOTE_TTL_MS + 10 });
+    expect(dels(expired)).toContain(`note:ws1:${NOW + 2}-old`);
+    expect(dels(expired)).toContain(`inbox:alice:${NOW + 2}-old`);
+
+    reduce(s, text("b1", { t: "note", ws: "ws1", text: "@alice nova", mentions: ["alice"], quote: null }, "new"));
+    const gone = reduce(s, text("a1", { t: "unshare", ws: "ws1" }));
+    expect(s.notes.has("ws1")).toBe(false);
+    expect(s.inbox.get("alice")).toBeUndefined();
+    expect(dels(gone)).toContain(`note:ws1:${NOW + 2}-new`);
+  });
+});
+
+describe("cotas", () => {
+  it("limita a quantidade de shares do time", () => {
+    const s = empty();
+    reduce(s, open("a1", "alice"));
+    for (let i = 0; i < SHARES_MAX; i++) reduce(s, text("a1", { t: "share", share: share(`ws${i}`, [`tab${i}`]) }));
+    const fx = reduce(s, text("a1", { t: "share", share: share("overflow", ["lasttab"]) }));
+    expect(one(fx, "a1", "error")!.code).toBe("quota");
+    expect(s.shares.size).toBe(SHARES_MAX);
+  });
 });
 
 describe("dono que volta", () => {
@@ -351,5 +420,38 @@ describe("acordar do storage", () => {
     expect(welcome.members.map((m) => [m.id, m.online])).toEqual([["alice", true], ["bob", true]]);
     expect(welcome.watching).toEqual({ ws1: { t1: ["bob"] } });
     expect(welcome.inbox.length).toBe(1);
+  });
+
+  it("ignora linhas corrompidas em vez de confiar no cast do storage", () => {
+    const woke = hydrate(
+      [
+        ["member:__proto__", { name: "intruso", last_seen: NOW }],
+        ["member:alice", { name: "x".repeat(500), last_seen: NOW }],
+        ["share:ws1", { owner: "alice", share: { id: "ws1", tabs: "não" } }],
+        ["note:ws1:n1", { id: "n1", ws: "ws1", author: "alice", text: 42, mentions: [], quote: null, ts: NOW }],
+      ],
+      [{ id: "sock", member: "bob", attached: { ws: "__proto__", tab: "t1" } }],
+    );
+    expect(woke.members.size).toBe(0);
+    expect(woke.shares.size).toBe(0);
+    expect(woke.notes.size).toBe(0);
+    expect(woke.socks.get("sock")?.attached).toBeNull();
+  });
+
+  it("não restaura attachment fora da audiência ou para aba que sumiu", () => {
+    const restricted = share("ws1", ["t1"], ["carol"]);
+    const rows: [string, unknown][] = [
+      ["share:ws1", { share: restricted, owner: "alice", online: false }],
+    ];
+
+    const woke = hydrate(rows, [
+      { id: "bob-sock", member: "bob", attached: { ws: "ws1", tab: "t1" } },
+      { id: "carol-sock", member: "carol", attached: { ws: "ws1", tab: "apagada" } },
+      { id: "alice-sock", member: "alice", attached: { ws: "ws1", tab: "t1" } },
+    ]);
+
+    expect(woke.socks.get("bob-sock")?.attached).toBeNull();
+    expect(woke.socks.get("carol-sock")?.attached).toBeNull();
+    expect(woke.socks.get("alice-sock")?.attached).toEqual({ ws: "ws1", tab: "t1" });
   });
 });

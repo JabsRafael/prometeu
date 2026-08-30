@@ -3,7 +3,7 @@ import { icon } from "./icons";
 import { t } from "./i18n";
 import * as team from "./team";
 import type { Board, Status } from "./types";
-import { h } from "./util";
+import { template } from "./util";
 
 /// Avisar quem não está olhando: o agente parou e espera você (terminou, ou
 /// travou numa pergunta), ou um colega escreveu uma nota te marcando.
@@ -172,14 +172,14 @@ export function pling() {
 /* ---------- a linha de Configurações ---------- */
 
 export function settingsRow(): HTMLElement {
-  const row = h(
+  const row = template(
     "div",
     "setrow",
     `<span class="glyph">${icon("bell", 18)}</span><div class="txt"><b></b><span></span></div><div class="act"></div>`,
   );
   row.querySelector(".txt b")!.textContent = t("settings.sound");
   row.querySelector(".txt span")!.textContent = t("settings.sound.body");
-  const sw = h("button", "ghost sw", `<span></span><i class="knob"></i>`) as HTMLButtonElement;
+  const sw = template("button", "ghost sw", `<span></span><i class="knob"></i>`) as HTMLButtonElement;
   sw.setAttribute("role", "switch");
   const paint = () => {
     const on = soundOn();

@@ -1,10 +1,21 @@
-/// Os três helpers que todo módulo de tela usava por conta própria.
+/// Helpers comuns dos módulos de tela.
 
 export const $ = (id: string) => document.getElementById(id)!;
 
-export function h(tag: string, className: string, html = ""): HTMLElement {
+/// Cria um elemento cujo conteúdo é sempre texto. Dados do agente, do relay ou
+/// de uma integração nunca devem ganhar semântica HTML só por passar aqui.
+export function h(tag: string, className: string, text = ""): HTMLElement {
   const node = document.createElement(tag);
   node.className = className;
+  node.textContent = text;
+  return node;
+}
+
+/// Cria a estrutura fixa de um componente. O nome deixa cada uso de
+/// `innerHTML` visível na revisão; só templates produzidos pelo próprio app
+/// (incluindo os SVGs de `icons.ts`) pertencem aqui.
+export function template(tag: string, className: string, html: string): HTMLElement {
+  const node = h(tag, className);
   node.innerHTML = html;
   return node;
 }
@@ -17,7 +28,7 @@ export function h(tag: string, className: string, html = ""): HTMLElement {
 /// dezenas de chamadas por segundo para desenhar a mesma tela.
 /// O vazio de uma lista de tela cheia: título, uma frase, e às vezes um botão.
 export function empty(title: string, text: string, action?: [string, () => void]): HTMLElement {
-  const box = h("div", "iempty", `<h3></h3><p></p>`);
+  const box = template("div", "iempty", `<h3></h3><p></p>`);
   box.children[0].textContent = title;
   box.children[1].textContent = text;
   if (action) {

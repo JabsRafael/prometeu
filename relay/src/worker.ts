@@ -1,7 +1,8 @@
 /// A porta de entrada do relay: criar um time e encaminhar cada conexão ao
 /// Durable Object daquele time. Só isso — o resto mora em `room.ts`.
 
-import { sha256, TeamRoom, type Env } from "./room";
+import { randomToken, sha256, TeamRoom, type Env } from "./room";
+import { parseMembership, type CreatedTeam } from "./protocol";
 
 export { TeamRoom };
 
@@ -11,11 +12,6 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
-function token(bytes: number): string {
-  const raw = crypto.getRandomValues(new Uint8Array(bytes));
-  return btoa(String.fromCharCode(...raw)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
@@ -23,15 +19,45 @@ export default {
     if (url.pathname === "/teams") {
       if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
       if (req.method !== "POST") return new Response("method", { status: 405, headers: CORS });
-      const team = token(12);
-      const secret = token(24);
+      // Cloudflare define este header na borda. No wrangler/mock ele não
+      // existe e o desenvolvimento continua sem depender da infraestrutura.
+      const ip = req.headers.get("CF-Connecting-IP");
+      if (ip) {
+        const hour = Math.floor(Date.now() / 3_600_000);
+        const limiter = env.TEAM.get(env.TEAM.idFromName(`create:${await sha256(ip)}`));
+        const permit = await limiter.fetch(`https://team/permit-create?h=${hour}`, { method: "POST" });
+        if (!permit.ok) return new Response("rate limit", { status: 429, headers: CORS });
+      }
+      const team = randomToken(12);
+      const secret = randomToken(24);
       const stub = env.TEAM.get(env.TEAM.idFromName(team));
       const init = await stub.fetch("https://team/init", {
         method: "POST",
-        body: JSON.stringify({ secret_hash: await sha256(secret) }),
+        body: JSON.stringify({ invite_hash: await sha256(secret) }),
       });
       if (!init.ok) return new Response("init", { status: 500, headers: CORS });
-      return Response.json({ team, secret }, { headers: CORS });
+      const enrollment = await stub.fetch("https://team/enroll", {
+        method: "POST",
+        body: JSON.stringify({ secret }),
+      });
+      if (!enrollment.ok) return new Response("enroll", { status: 500, headers: CORS });
+      const membership = parseMembership(await enrollment.json());
+      if (!membership) return new Response("enroll", { status: 500, headers: CORS });
+      return Response.json({ team, secret, ...membership } satisfies CreatedTeam, {
+        headers: { ...CORS, "Cache-Control": "no-store" },
+      });
+    }
+
+    const enroll = /^\/team\/([A-Za-z0-9_-]{8,64})\/enroll$/.exec(url.pathname);
+    if (enroll) {
+      if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+      if (req.method !== "POST") return new Response("method", { status: 405, headers: CORS });
+      const stub = env.TEAM.get(env.TEAM.idFromName(enroll[1]));
+      const response = await stub.fetch("https://team/enroll", { method: "POST", headers: req.headers, body: req.body });
+      const headers = new Headers(response.headers);
+      for (const [key, value] of Object.entries(CORS)) headers.set(key, value);
+      headers.set("Cache-Control", "no-store");
+      return new Response(response.body, { status: response.status, headers });
     }
 
     const m = /^\/team\/([A-Za-z0-9_-]{8,64})$/.exec(url.pathname);

@@ -33,7 +33,11 @@ pub fn context(path: &Path) -> Option<u64> {
     file.seek(SeekFrom::Start(start)).ok()?;
     file.read_to_string(&mut tail).ok()?;
     // O corte caiu no meio de uma linha: ela não é JSON inteiro.
-    let tail = if start > 0 { tail.split_once('\n').map(|(_, rest)| rest).unwrap_or("") } else { &tail };
+    let tail = if start > 0 {
+        tail.split_once('\n').map(|(_, rest)| rest).unwrap_or("")
+    } else {
+        &tail
+    };
     if let Some(n) = last_context(tail) {
         return Some(n);
     }
@@ -62,10 +66,14 @@ fn claude(v: &Value) -> Option<u64> {
         return None;
     }
     let usage = &v["message"]["usage"];
-    let n = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]
-        .iter()
-        .filter_map(|k| usage[k].as_u64())
-        .sum::<u64>();
+    let n = [
+        "input_tokens",
+        "cache_read_input_tokens",
+        "cache_creation_input_tokens",
+    ]
+    .iter()
+    .filter_map(|k| usage[k].as_u64())
+    .sum::<u64>();
     (n > 0).then_some(n)
 }
 
@@ -124,7 +132,8 @@ mod tests {
         let jsonl = [
             r#"{"type":"session_meta","payload":{"id":"abc"}}"#.to_string(),
             count(14_835),
-            r#"{"type":"response_item","payload":{"type":"message","role":"assistant"}}"#.to_string(),
+            r#"{"type":"response_item","payload":{"type":"message","role":"assistant"}}"#
+                .to_string(),
             count(30_180),
         ]
         .join("\n");
@@ -133,7 +142,10 @@ mod tests {
 
     #[test]
     fn sem_resposta_nenhuma_e_none() {
-        assert_eq!(last_context(r#"{"type":"user","message":{"content":"oi"}}"#), None);
+        assert_eq!(
+            last_context(r#"{"type":"user","message":{"content":"oi"}}"#),
+            None
+        );
         assert_eq!(last_context(""), None);
         assert_eq!(context(Path::new("/nao/existe.jsonl")), None);
     }
@@ -142,10 +154,16 @@ mod tests {
     /// não acha nada e a leitura inteira tem que achar.
     #[test]
     fn cauda_vazia_cai_para_o_arquivo_inteiro() {
-        let path = std::env::temp_dir().join(format!("prometheus-transcript-{}.jsonl", std::process::id()));
-        let filler = format!(r#"{{"type":"user","message":{{"content":"{}"}}}}"#, "x".repeat(100_000));
+        let path = std::env::temp_dir().join(format!(
+            "prometheus-transcript-{}.jsonl",
+            std::process::id()
+        ));
+        let filler = format!(
+            r#"{{"type":"user","message":{{"content":"{}"}}}}"#,
+            "x".repeat(100_000)
+        );
         let mut lines = vec![turn(1, 7_000, 0, 5)];
-        lines.extend(std::iter::repeat(filler).take(8));
+        lines.extend(std::iter::repeat_n(filler, 8));
         std::fs::write(&path, lines.join("\n")).unwrap();
         assert_eq!(context(&path), Some(7_001));
         std::fs::remove_file(&path).unwrap();

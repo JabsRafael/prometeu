@@ -1,14 +1,20 @@
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
+  DOWN_FRAME_MAX,
   PROTO,
   SNAPSHOT,
   decodeBinary,
   encodeLive,
   encodeSnapshot,
   formatInvite,
+  normalizeName,
+  parseCreatedTeam,
+  parseDown,
   parseInvite,
+  parseMembership,
+  type CreatedTeam,
   type Down,
+  type EnrollResponse,
   type Inbox,
   type Member,
   type Note,
@@ -19,6 +25,8 @@ import {
   type Watching,
 } from "../relay/src/protocol";
 import { t } from "./i18n";
+import { AttachLifecycle } from "./attach-lifecycle";
+import { invoke } from "./ipc";
 import { Mirror } from "./mirror";
 import type { Board, Workspace } from "./types";
 
@@ -46,8 +54,9 @@ export type TeamConfig = {
   relay: string | null;
   team: string;
   secret: string;
-  /// Quem você é para o time — nasce com o time e não muda.
+  /// Identidade e prova individuais, emitidas pelo relay na matrícula.
   member: string;
+  credential: string;
   name: string;
 };
 
@@ -89,7 +98,8 @@ export type SocketLike = {
 
 export type Transport = {
   socket: (url: string) => SocketLike;
-  create: (relay: string) => Promise<{ team: string; secret: string }>;
+  create: (relay: string) => Promise<CreatedTeam>;
+  enroll: (relay: string, team: string, secret: string) => Promise<EnrollResponse>;
   /// O mock não tem relay nenhum e não precisa de URL.
   needsRelay: boolean;
 };
@@ -104,7 +114,37 @@ let transport: Transport = {
       throw t("err.team.relay", { cause: String(e) });
     }
     if (!r.ok) throw t("err.team.relay", { cause: `HTTP ${r.status}` });
-    return (await r.json()) as { team: string; secret: string };
+    let body: unknown;
+    try {
+      body = await r.json();
+    } catch {
+      throw t("err.team.bad");
+    }
+    const created = parseCreatedTeam(body);
+    if (!created) throw t("err.team.bad");
+    return created;
+  },
+  enroll: async (relay, team, secret) => {
+    let r: Response;
+    try {
+      r = await fetch(`${httpUrl(relay)}/team/${encodeURIComponent(team)}/enroll`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ secret }),
+      });
+    } catch (e) {
+      throw t("err.team.relay", { cause: String(e) });
+    }
+    if (!r.ok) throw t("err.team.relay", { cause: `HTTP ${r.status}` });
+    let body: unknown;
+    try {
+      body = await r.json();
+    } catch {
+      throw t("err.team.bad");
+    }
+    const membership = parseMembership(body);
+    if (!membership) throw t("err.team.bad");
+    return membership;
   },
   needsRelay: true,
 };
@@ -182,9 +222,27 @@ export const inboxItems = () => inbox;
 
 export async function init() {
   try {
-    const file = await invoke<{ config: TeamConfig | null; default_name: string }>("team_config");
-    cfg = file.config;
+    const file = await invoke<{ config: unknown; default_name: string }>("team_config");
     defaultName = file.default_name;
+    const stored = storedConfig(file.config);
+    if (stored) relayDraft = stored.relay ?? "";
+    if (stored?.credential) {
+      cfg = { ...stored, credential: stored.credential };
+    } else if (stored) {
+      // v2 usava o segredo compartilhado como identidade. Tenta trocar o
+      // convite por uma matrícula v3 sem apagar o arquivo antigo se o relay
+      // ainda não tiver sido recriado.
+      const base = relayOf(stored);
+      try {
+        if (!base) throw new Error(t("err.team.noRelay"));
+        const membership = await transport.enroll(base, stored.team, stored.secret);
+        cfg = { ...stored, ...membership };
+        await invoke("team_config_set", { config: cfg });
+      } catch {
+        cfg = null;
+        fail?.(t("err.team.legacy"));
+      }
+    }
   } catch {
     // Sem back (ou back velho) não há time; a tela segue de pé.
   }
@@ -197,15 +255,54 @@ export async function init() {
 /// O relay que vale para uma configuração: o dela, o do ambiente de dev, o
 /// padrão do app — e, no mock do navegador, um endereço qualquer, porque lá
 /// não há relay e o socket é fingido.
-const relayOf = (c: TeamConfig | null) =>
+type StoredTeamConfig = Omit<TeamConfig, "credential"> & { credential?: string };
+
+function storedConfig(value: unknown): StoredTeamConfig | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  if (raw.relay !== null && typeof raw.relay !== "string") return null;
+  if (typeof raw.team !== "string" || typeof raw.secret !== "string" || typeof raw.member !== "string") return null;
+  const name = normalizeName(raw.name);
+  if (!name) return null;
+  if (!parseInvite(formatInvite(raw.team, raw.secret))) return null;
+  if (!parseMembership({ member: raw.member, credential: raw.credential ?? "" }) && raw.credential !== undefined) return null;
+  return {
+    relay: raw.relay,
+    team: raw.team,
+    secret: raw.secret,
+    member: raw.member,
+    credential: raw.credential as string | undefined,
+    name,
+  };
+}
+
+const relayOf = (c: Pick<TeamConfig, "relay"> | StoredTeamConfig | null) =>
   (c ? c.relay || "" : relayDraft) || env?.VITE_RELAY || RELAY || (transport.needsRelay ? "" : "ws://mock");
+
+function relayUrl(relay: string, socket: boolean): string {
+  let url: URL;
+  try {
+    url = new URL(relay);
+  } catch {
+    throw t("err.team.relayUrl");
+  }
+  if (url.username || url.password || url.search || url.hash) throw t("err.team.relayUrl");
+  const allowed = new Set(["http:", "https:", "ws:", "wss:"]);
+  if (!allowed.has(url.protocol)) throw t("err.team.relayUrl");
+  const local = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]";
+  if (transport.needsRelay && !local && (url.protocol === "http:" || url.protocol === "ws:")) {
+    throw t("err.team.insecureRelay");
+  }
+  url.protocol = socket ? (url.protocol === "https:" || url.protocol === "wss:" ? "wss:" : "ws:") : url.protocol === "https:" || url.protocol === "wss:" ? "https:" : "http:";
+  return url.toString().replace(/\/+$/, "");
+}
 
 /// `https://x` vira `wss://x`, `http://x` vira `ws://x`; `ws(s)://` fica.
 function wsUrl(relay: string): string {
-  return relay.replace(/^http/, "ws").replace(/\/+$/, "");
+  return relayUrl(relay, true);
 }
 function httpUrl(relay: string): string {
-  return relay.replace(/^ws/, "http").replace(/\/+$/, "");
+  return relayUrl(relay, false);
 }
 
 function connect() {
@@ -217,10 +314,31 @@ function connect() {
     return;
   }
   const c = cfg;
+  let url: string;
+  try {
+    const endpoint = new URL(`${wsUrl(base)}/team/${encodeURIComponent(c.team)}`);
+    endpoint.searchParams.set("c", c.credential);
+    endpoint.searchParams.set("m", c.member);
+    endpoint.searchParams.set("n", c.name);
+    endpoint.searchParams.set("p", String(PROTO));
+    url = endpoint.toString();
+  } catch (e) {
+    phase = "off";
+    fail?.(String(e));
+    changed();
+    return;
+  }
   phase = "connecting";
   changed();
-  const url = `${wsUrl(base)}/team/${c.team}?s=${c.secret}&m=${c.member}&n=${encodeURIComponent(c.name)}&p=${PROTO}`;
-  const s = transport.socket(url);
+  let s: SocketLike;
+  try {
+    s = transport.socket(url);
+  } catch (error) {
+    phase = "off";
+    fail?.(t("err.team.relay", { cause: String(error) }));
+    changed();
+    return;
+  }
   s.binaryType = "arraybuffer";
   sock = s;
   s.onopen = () => {
@@ -231,12 +349,20 @@ function connect() {
   s.onmessage = (ev) => {
     if (typeof ev.data === "string") {
       if (ev.data === "pong") return;
-      let frame: Down;
+      // O relay é configurável. Mesmo um endpoint hostil não pode entregar um
+      // JSON sem teto e obrigar a webview a materializá-lo inteiro em objetos.
+      if (ev.data.length > DOWN_FRAME_MAX || enc.encode(ev.data).byteLength > DOWN_FRAME_MAX) {
+        s.close();
+        return;
+      }
+      let raw: unknown;
       try {
-        frame = JSON.parse(ev.data);
+        raw = JSON.parse(ev.data);
       } catch {
         return;
       }
+      const frame = parseDown(raw);
+      if (!frame) return;
       handle(frame);
     } else if (ev.data instanceof ArrayBuffer) {
       binary(ev.data);
@@ -245,6 +371,7 @@ function connect() {
   s.onclose = () => {
     if (sock !== s) return;
     sock = null;
+    attachLife.completeCurrent();
     clearInterval(pinger);
     members = members.map((m) => ({ ...m, online: false }));
     for (const sh of shares.values()) sh.online = false;
@@ -269,6 +396,7 @@ function backoff(): number {
 function disconnect() {
   clearTimeout(retry);
   clearInterval(pinger);
+  attachLife.completeCurrent();
   const s = sock;
   sock = null;
   s?.close();
@@ -318,13 +446,16 @@ function handle(frame: Down) {
     case "unshare":
       shares.delete(frame.ws);
       for (const [id, r] of remoteIds) if (r.ws === frame.ws) remoteIds.delete(id);
-      if (attached?.ws === frame.ws) attached = null;
+      if (attached?.ws === frame.ws) {
+        attachLife.cancel();
+        attached = null;
+      }
       break;
     case "watch":
       watched(frame.tab, frame.members, frame.added);
       break;
     case "write":
-      typed(frame.ws, frame.tab, frame.data);
+      typed(frame.ws, frame.tab, frame.data, frame.from);
       return;
     // Tamanho de terminal, de quando a conversa era um. Nada a fazer.
     case "size":
@@ -370,6 +501,7 @@ async function adopt(next: TeamConfig) {
 }
 
 function reset() {
+  attachLife.cancel();
   you = null;
   members = [];
   shares = new Map();
@@ -384,7 +516,7 @@ function reset() {
 }
 
 const cleanName = (name: string) => {
-  const n = name.trim();
+  const n = normalizeName(name);
   if (!n) throw t("err.team.name");
   return n;
 };
@@ -393,15 +525,18 @@ export async function create(name: string) {
   const n = cleanName(name);
   const base = relayOf(null);
   if (!base) throw t("err.team.noRelay");
-  const { team, secret } = await transport.create(base);
-  await adopt({ relay: relayDraft || null, team, secret, member: crypto.randomUUID(), name: n });
+  const { team, secret, member, credential } = await transport.create(base);
+  await adopt({ relay: relayDraft || null, team, secret, member, credential, name: n });
 }
 
 export async function join(code: string, name: string) {
   const n = cleanName(name);
   const parsed = parseInvite(code);
   if (!parsed) throw t("err.team.badCode");
-  await adopt({ relay: relayDraft || null, team: parsed.team, secret: parsed.secret, member: crypto.randomUUID(), name: n });
+  const base = relayOf(null);
+  if (!base) throw t("err.team.noRelay");
+  const membership = await transport.enroll(base, parsed.team, parsed.secret);
+  await adopt({ relay: relayDraft || null, team: parsed.team, secret: parsed.secret, ...membership, name: n });
 }
 
 export async function leave() {
@@ -423,6 +558,7 @@ export async function setName(name: string) {
 
 export async function setRelay(url: string) {
   const u = url.trim().replace(/\/+$/, "");
+  if (u) wsUrl(u);
   relayDraft = u;
   if (cfg) {
     cfg = { ...cfg, relay: u || null };
@@ -594,22 +730,45 @@ function flush() {
 /// vem como a linha de controle inteira, em JSON (ver `chat.ts`). Só vale para
 /// aba de workspace que eu anunciei: o relay já filtra, mas o que chega vai
 /// para um processo de verdade.
-function typed(ws: string, tab: string, data: string) {
+function typed(ws: string, tab: string, data: string, from: string) {
   if (!announced.has(ws) || !mine(tab)) return;
-  const frame = control(data);
-  if (frame) void invoke("chat_control", { session: tab, frame }).catch(() => {});
-  else void invoke("chat_send", { session: tab, text: data }).catch(() => {});
+  const parsed = control(data);
+  if (parsed.recognized) {
+    if (parsed.frame) void invoke("chat_control_remote", { session: tab, frame: parsed.frame }).catch(() => {});
+    return;
+  }
+  const text = t("team.remotePrompt", { name: nameOf(from), text: data });
+  void invoke("chat_send", { session: tab, text }).catch(() => {});
 }
 
-/// Uma linha de controle, se é uma: um objeto JSON com `type`. Fala que por
-/// acaso começa com chave e não parseia é fala.
-function control(data: string): unknown | null {
-  if (!data.startsWith("{")) return null;
+type RemoteControl = { recognized: boolean; frame: unknown | null };
+
+/// Só duas ações remotas atravessam como controle: responder um pedido que o
+/// agente realmente fez ou interromper. Troca de modo e formatos inventados
+/// são descartados; o back ainda reconstrói respostas com o input original.
+function control(data: string): RemoteControl {
+  if (!data.startsWith("{")) return { recognized: false, frame: null };
   try {
     const o = JSON.parse(data);
-    return o && typeof o === "object" && typeof o.type === "string" ? o : null;
+    if (!o || typeof o !== "object" || typeof o.type !== "string") return { recognized: false, frame: null };
+    if (o.type === "control_request") {
+      const ok = typeof o.request_id === "string" && o.request_id.length <= 128 && o.request?.subtype === "interrupt";
+      return { recognized: true, frame: ok ? o : null };
+    }
+    if (o.type === "control_response") {
+      const response = o.response;
+      const answer = response?.response;
+      const ok =
+        response?.subtype === "success" &&
+        typeof response.request_id === "string" &&
+        response.request_id.length <= 128 &&
+        (answer?.behavior === "allow" || answer?.behavior === "deny") &&
+        data.length <= 64 * 1024;
+      return { recognized: true, frame: ok ? o : null };
+    }
+    return { recognized: o.type.startsWith("control_"), frame: null };
   } catch {
-    return null;
+    return { recognized: false, frame: null };
   }
 }
 
@@ -629,7 +788,7 @@ let attached: { ws: string; tab: string } | null = null;
 /// veio ao vivo. É daqui que a tela renasce ao voltar para a aba. A regra de
 /// juntar as duas está em `mirror.ts`, testada sem rede nem tela.
 const mirror = new Map<string, Mirror>();
-let waiting: { tab: string; resolve: () => void } | null = null;
+const attachLife = new AttachLifecycle();
 
 /// Workspaces dos colegas, como o quadro os desenha. Não são do Rust: só
 /// existem na tela, e o que os distingue é `remote`.
@@ -684,26 +843,33 @@ export const attachedTab = () => attached?.tab ?? null;
 /// Abrir a aba de um colega: pede ao relay, espera as linhas chegarem e
 /// devolve o que a tela desenha. Uma aba por vez — abrir outra solta a
 /// anterior.
-export async function attach(id: string, tab: string): Promise<{ bytes: Uint8Array }> {
+export async function attach(id: string, tab: string): Promise<{ bytes: Uint8Array } | null> {
   const found = remoteIds.get(id);
   const s = found && shares.get(found.ws);
   if (!s) throw t("err.team.noShare");
   attached = { ws: s.id, tab };
-  if (s.online && send({ t: "attach", ws: s.id, tab })) {
-    await new Promise<void>((resolve) => {
-      waiting = { tab, resolve };
-      setTimeout(resolve, SNAPSHOT_WAIT);
-    });
-    if (waiting?.tab === tab) waiting = null;
+  // Também invalida uma espera anterior quando o novo destino já está
+  // offline. Sem isto a Promise antiga ainda podia acordar dez segundos
+  // depois de a tela ter mudado de aba.
+  if (!s.online) attachLife.cancel();
+  if (s.online) {
+    const ticket = attachLife.start(s.id, tab, SNAPSHOT_WAIT);
+    if (!send({ t: "attach", ws: s.id, tab })) {
+      attachLife.cancel();
+      return attached?.ws === s.id && attached.tab === tab ? { bytes: mirrorOf(tab) } : null;
+    }
+    await ticket.wait;
+    // `detach`, outra aba ou outra tela ganhou enquanto o snapshot viajava.
+    // A continuação antiga termina aqui, sem tocar no ChatView.
+    if (!attachLife.current(ticket) || attached?.ws !== s.id || attached.tab !== tab) return null;
   }
   return { bytes: mirrorOf(tab) };
 }
 
 export function detach() {
-  if (!attached) return;
-  send({ t: "detach" });
+  attachLife.cancel();
+  if (attached) send({ t: "detach" });
   attached = null;
-  waiting = null;
 }
 
 /// A fala de quem está olhando vai ao dono — se ele estiver aí. Vale para a
@@ -740,10 +906,8 @@ function binary(data: ArrayBuffer) {
     if (bin.to !== you) return;
     // Parte do meio: guarda e espera a última.
     if (!mirrorFor(bin.tab).seed(bin.bytes, bin.seq, bin.more)) return;
-    if (waiting?.tab === bin.tab) {
-      waiting.resolve();
-      waiting = null;
-    } else if (attached?.tab === bin.tab) {
+    const completed = attachLife.completeTab(bin.tab);
+    if (!completed && attached?.tab === bin.tab) {
       // Ninguém pediu: o dono voltou (ou a conexão), e a tela renasce.
       guest.reset(bin.tab, mirrorOf(bin.tab));
     }

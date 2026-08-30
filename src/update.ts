@@ -3,7 +3,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
 import { icon } from "./icons";
 import { current as locale, t } from "./i18n";
-import { $, h } from "./util";
+import { $, h, template } from "./util";
 
 /// Atualização sem reinstalar nada: o app pergunta a um manifesto público se
 /// existe versão nova, baixa o bundle, confere a assinatura minisign com a
@@ -272,7 +272,7 @@ function paint() {
 /// A linha de Configurações. Quem monta a página pede uma; ela se redesenha
 /// sozinha enquanto estiver na tela.
 export function settingsRow(): HTMLElement {
-  const el = h(
+  const el = template(
     "div",
     "setrow",
     `<span class="glyph">${icon("rotate", 18)}</span><div class="txt"><b></b><span></span></div><div class="act"></div>`,

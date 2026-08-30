@@ -148,7 +148,9 @@ pub fn read_for(worktree: &Path, repo: &Path) -> Scripts {
 
 pub fn read(root: &Path) -> Scripts {
     for file in FILES {
-        let Ok(text) = std::fs::read_to_string(root.join(file)) else { continue };
+        let Ok(text) = std::fs::read_to_string(root.join(file)) else {
+            continue;
+        };
         // TOML quebrado é erro do usuário, não motivo para o app sumir com a
         // aba: vira "nenhum script", e o arquivo continua lá para ele consertar.
         let parsed: File = toml::from_str(&text).unwrap_or_default();
@@ -166,14 +168,21 @@ pub fn read(root: &Path) -> Scripts {
 }
 
 fn trimmed(value: Option<String>) -> Option<String> {
-    value.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    value
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn runs(spec: Option<toml::Value>) -> Vec<Run> {
     match spec {
         // `run = "..."`: um script só, e o nome não vem de lugar nenhum.
         Some(toml::Value::String(command)) => trimmed(Some(command))
-            .map(|command| vec![Run { name: "run".into(), command }])
+            .map(|command| {
+                vec![Run {
+                    name: "run".into(),
+                    command,
+                }]
+            })
             .unwrap_or_default(),
         // `[scripts.run.<nome>]`: vários, cada um com seu `command`.
         Some(toml::Value::Table(table)) => {
@@ -182,7 +191,10 @@ fn runs(spec: Option<toml::Value>) -> Vec<Run> {
                 .filter_map(|(name, value)| {
                     let entry = value.as_table()?;
                     let command = trimmed(entry.get("command")?.as_str().map(str::to_string))?;
-                    let default = entry.get("default").and_then(toml::Value::as_bool).unwrap_or(false);
+                    let default = entry
+                        .get("default")
+                        .and_then(toml::Value::as_bool)
+                        .unwrap_or(false);
                     Some((default, Run { name, command }))
                 })
                 .collect();
@@ -238,12 +250,16 @@ pub fn copies(worktree: &Path, repo: &Path, declared: Option<&[String]>) -> Vec<
 /// arquivo versionado já está aqui.
 fn auto(repo: &Path) -> Vec<String> {
     const SAMPLES: [&str; 4] = [".env.example", ".env.sample", ".env.template", ".env.dist"];
-    let Ok(dir) = std::fs::read_dir(repo) else { return Vec::new() };
+    let Ok(dir) = std::fs::read_dir(repo) else {
+        return Vec::new();
+    };
     let mut out: Vec<String> = dir
         .filter_map(|entry| {
             let entry = entry.ok()?;
             let name = entry.file_name().into_string().ok()?;
-            let keep = name.starts_with(".env") && !SAMPLES.contains(&name.as_str()) && entry.path().is_file();
+            let keep = name.starts_with(".env")
+                && !SAMPLES.contains(&name.as_str())
+                && entry.path().is_file();
             keep.then_some(name)
         })
         .collect();
@@ -311,10 +327,16 @@ pub fn report(notes: &[Copied]) -> Option<String> {
     for note in notes {
         out.push_str(&match note {
             Copied::Made(path) => {
-                format!("\x1b[32m→\x1b[0m {path} {}\r\n", i18n::pick("veio do clone", "copied from the clone"))
+                format!(
+                    "\x1b[32m→\x1b[0m {path} {}\r\n",
+                    i18n::pick("veio do clone", "copied from the clone")
+                )
             }
             Copied::Kept(path) => {
-                format!("\x1b[2m· {path} {}\x1b[0m\r\n", i18n::pick("já estava aqui", "already here"))
+                format!(
+                    "\x1b[2m· {path} {}\x1b[0m\r\n",
+                    i18n::pick("já estava aqui", "already here")
+                )
             }
             Copied::Failed(path, why) => format!("\x1b[31m✗\x1b[0m {path}: {why}\r\n"),
         });
@@ -342,7 +364,10 @@ pub fn env(worktree: &Path, repo: &Path, name: &str, port: Option<u16>) -> Vec<(
     let mut out: Vec<(String, String)> = pairs
         .into_iter()
         .flat_map(|(key, value)| {
-            [(format!("PROMETHEUS_{key}"), value.clone()), (format!("CONDUCTOR_{key}"), value)]
+            [
+                (format!("PROMETHEUS_{key}"), value.clone()),
+                (format!("CONDUCTOR_{key}"), value),
+            ]
         })
         .collect();
     if let Some(port) = port {
@@ -381,7 +406,9 @@ pub fn alloc_port(worktree: &Path, taken: &[u16]) -> Option<u16> {
 /// Chrome (`ERR_UNSAFE_PORT`) e WebKit (`URL::portAllowed`) seguem. Um servidor
 /// na 5060 sobe e responde ao curl, mas a janela fica branca sem dizer por quê.
 /// Só as que cabem na faixa do alocador; as abaixo de 3100 nunca saem dele.
-const BAD: &[u16] = &[3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6697, 10080];
+const BAD: &[u16] = &[
+    3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6697, 10080,
+];
 
 /// Se um navegador aceita abrir `localhost:{port}`.
 pub fn usable(port: u16) -> bool {
@@ -393,12 +420,15 @@ pub fn usable(port: u16) -> bool {
 /// motivo — máquina sem IPv6 — não é porta ocupada.
 fn free(port: u16) -> bool {
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, TcpListener};
-    [IpAddr::V4(Ipv4Addr::LOCALHOST), IpAddr::V6(Ipv6Addr::LOCALHOST)]
-        .into_iter()
-        .all(|ip| match TcpListener::bind((ip, port)) {
-            Ok(_) => true,
-            Err(e) => e.kind() != std::io::ErrorKind::AddrInUse,
-        })
+    [
+        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(Ipv6Addr::LOCALHOST),
+    ]
+    .into_iter()
+    .all(|ip| match TcpListener::bind((ip, port)) {
+        Ok(_) => true,
+        Err(e) => e.kind() != std::io::ErrorKind::AddrInUse,
+    })
 }
 
 /// O que o botão "Perguntar ao agente" manda na conversa nova. É prompt e não
@@ -455,17 +485,35 @@ Escreva o arquivo e rode o `setup` uma vez para confirmar que ele passa."#
 mod tests {
     use super::*;
 
+    struct Tmp(std::path::PathBuf);
+
+    impl std::ops::Deref for Tmp {
+        type Target = Path;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl Drop for Tmp {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     fn write(dir: &Path, rel: &str, text: &str) {
         let path = dir.join(rel);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, text).unwrap();
     }
 
-    fn tmp(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("prometheus-scripts-{name}"));
-        let _ = std::fs::remove_dir_all(&dir);
+    fn tmp(name: &str) -> Tmp {
+        let dir = std::env::temp_dir().join(format!(
+            "prometheus-scripts-{name}-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
-        dir
+        Tmp(dir)
     }
 
     #[test]
@@ -513,8 +561,16 @@ default = true
     #[test]
     fn prometheus_tem_prioridade_e_nao_mistura() {
         let dir = tmp("prioridade");
-        write(&dir, ".conductor/settings.toml", "[scripts]\nsetup = \"velho\"\nrun = \"velho\"\n");
-        write(&dir, ".prometheus/settings.toml", "[scripts]\nrun = \"novo\"\n");
+        write(
+            &dir,
+            ".conductor/settings.toml",
+            "[scripts]\nsetup = \"velho\"\nrun = \"velho\"\n",
+        );
+        write(
+            &dir,
+            ".prometheus/settings.toml",
+            "[scripts]\nrun = \"novo\"\n",
+        );
         let s = read(&dir);
         assert_eq!(s.run(None).unwrap().command, "novo");
         assert!(s.setup.is_none());
@@ -543,14 +599,22 @@ default = true
     fn worktree_sem_arquivo_herda_o_do_clone() {
         let repo = tmp("herda-repo");
         let wt = tmp("herda-wt");
-        write(&repo, ".prometheus/settings.toml", "[scripts]\nsetup = \"npm i\"\nrun = \"npm dev\"\n");
+        write(
+            &repo,
+            ".prometheus/settings.toml",
+            "[scripts]\nsetup = \"npm i\"\nrun = \"npm dev\"\n",
+        );
 
         let s = read_for(&wt, &repo);
         assert!(s.inherited);
         assert_eq!(s.run(None).unwrap().command, "npm dev");
         assert_eq!(s.file.as_deref(), Some(".prometheus/settings.toml"));
 
-        write(&wt, ".prometheus/settings.toml", "[scripts]\nrun = \"meu\"\n");
+        write(
+            &wt,
+            ".prometheus/settings.toml",
+            "[scripts]\nrun = \"meu\"\n",
+        );
         let s = read_for(&wt, &repo);
         assert!(!s.inherited);
         assert_eq!(s.run(None).unwrap().command, "meu");
@@ -575,7 +639,11 @@ default = true
         assert_eq!(s.file.as_deref(), Some(".prometheus/settings.toml"));
         assert_eq!(s.setup.as_deref(), Some("npm install"));
         assert_eq!(s.run(None).unwrap().name, "app");
-        assert!(s.run(Some("browser")).unwrap().command.contains("Google Chrome"));
+        assert!(s
+            .run(Some("browser"))
+            .unwrap()
+            .command
+            .contains("Google Chrome"));
     }
 
     #[test]
@@ -587,7 +655,9 @@ default = true
         assert_eq!(get("PORT").as_deref(), Some("3100"));
         assert_eq!(get("CONDUCTOR_WORKSPACE_PATH").as_deref(), Some("/wt"));
         // Sem porta, `PORT` não vai vazio: vazio quebraria o `${PORT:-3000}` de todo mundo.
-        assert!(env(Path::new("/wt"), Path::new("/repo"), "x", None).iter().all(|(k, _)| k != "PORT"));
+        assert!(env(Path::new("/wt"), Path::new("/repo"), "x", None)
+            .iter()
+            .all(|(k, _)| k != "PORT"));
     }
 
     /// A base precisa ser múltipla de dez, senão `$PORT+1` de um cai no `$PORT`
@@ -613,7 +683,10 @@ default = true
         }
         std::fs::create_dir_all(repo.join(".env.d")).unwrap();
         let wt = tmp("auto-wt");
-        assert_eq!(copies(&wt, &repo, None), vec![".env".to_string(), ".env.local".to_string()]);
+        assert_eq!(
+            copies(&wt, &repo, None),
+            vec![".env".to_string(), ".env.local".to_string()]
+        );
     }
 
     /// Declarado manda: só o que existe no clone, e nada que aponte para fora.
@@ -664,7 +737,10 @@ default = true
         assert!(matches!(notes[1], Copied::Made(_)));
         // O que já estava aqui continua sendo o daqui.
         assert_eq!(std::fs::read_to_string(wt.join(".env")).unwrap(), "meu");
-        assert_eq!(std::fs::read_to_string(wt.join("config/master.key")).unwrap(), "chave");
+        assert_eq!(
+            std::fs::read_to_string(wt.join("config/master.key")).unwrap(),
+            "chave"
+        );
 
         // Rodar de novo não desfaz nem duplica nada.
         let de_novo = hydrate(&wt, &repo, &list);
@@ -692,7 +768,11 @@ default = true
     #[test]
     fn copia_vem_junto_com_o_arquivo_herdado() {
         let repo = tmp("copia-herda-repo");
-        write(&repo, ".prometheus/settings.toml", "[scripts]\nrun = \"x\"\n\n[worktree]\ncopy = [\"segredo\"]\n");
+        write(
+            &repo,
+            ".prometheus/settings.toml",
+            "[scripts]\nrun = \"x\"\n\n[worktree]\ncopy = [\"segredo\"]\n",
+        );
         write(&repo, "segredo", "s");
         write(&repo, ".env", "nao-declarado");
         let wt = tmp("copia-herda-wt");
@@ -707,7 +787,11 @@ default = true
     #[test]
     fn copia_vazia_desliga_o_automatico() {
         let repo = tmp("vazia-repo");
-        write(&repo, ".prometheus/settings.toml", "[worktree]\ncopy = []\n");
+        write(
+            &repo,
+            ".prometheus/settings.toml",
+            "[worktree]\ncopy = []\n",
+        );
         write(&repo, ".env", "x");
         let wt = tmp("vazia-wt");
         assert!(read_for(&wt, &repo).copy.is_empty());

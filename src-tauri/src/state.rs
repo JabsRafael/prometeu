@@ -118,7 +118,7 @@ pub struct Repo {
     /// Vazio é "não perguntei ainda" e "esta branch não tem PR aqui" — para a
     /// tela dá no mesmo. Um por repo: histórico separado, PR separado.
     #[serde(default)]
-    pub pr: Option<crate::session::Pr>,
+    pub pr: Option<crate::domain::Pr>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -191,7 +191,7 @@ pub struct Workspace {
     /// gravado por versão anterior ainda o traz aqui, e o `revive` o leva para
     /// o principal — que é de quem ele sempre foi. Nunca mais é gravado.
     #[serde(default, skip_serializing)]
-    pub pr: Option<crate::session::Pr>,
+    pub pr: Option<crate::domain::Pr>,
     /// O worktree foi devolvido ao disco: a pasta não existe mais e a branch
     /// local foi apagada. O card fica como histórico — transcript, o número do
     /// PR, o caminho que era —, mas nada aqui abre terminal de novo.
@@ -241,8 +241,10 @@ impl Workspace {
 
     /// Os PRs desta branch: um por repositório que tem o seu, na ordem do
     /// workspace.
-    pub fn prs(&self) -> impl Iterator<Item = (&Repo, &crate::session::Pr)> {
-        self.repos.iter().filter_map(|r| r.pr.as_ref().map(|pr| (r, pr)))
+    pub fn prs(&self) -> impl Iterator<Item = (&Repo, &crate::domain::Pr)> {
+        self.repos
+            .iter()
+            .filter_map(|r| r.pr.as_ref().map(|pr| (r, pr)))
     }
 
     /// O trabalho entrou: todo repositório que tem PR tem o PR mergeado, e há
@@ -310,12 +312,38 @@ impl Default for Board {
 
 impl Board {
     pub fn load() -> Board {
-        let mut board: Board = std::fs::read_to_string(path())
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let current = path();
+        let mut board = Self::load_at(&current);
         board.revive();
         board
+    }
+
+    fn load_at(current: &std::path::Path) -> Board {
+        let backup = current.with_extension("json.bak");
+        let read = |candidate: &std::path::Path| -> Result<Board, String> {
+            let text = std::fs::read_to_string(candidate).map_err(|error| error.to_string())?;
+            serde_json::from_str(&text).map_err(|error| error.to_string())
+        };
+        match read(current) {
+            Ok(board) => board,
+            Err(error) => match read(&backup) {
+                Ok(board) => {
+                    if current.exists() {
+                        eprintln!(
+                            "board.json inválido ({error}); tentando backup {}",
+                            backup.display()
+                        );
+                    }
+                    board
+                }
+                Err(backup_error) => {
+                    if current.exists() || backup.exists() {
+                        eprintln!("board.json e backup inválidos: {error}; {backup_error}");
+                    }
+                    Board::default()
+                }
+            },
+        }
     }
 
     /// O que um quadro gravado precisa antes de virar o quadro de hoje: nada
@@ -408,20 +436,26 @@ impl Board {
     /// Grava num arquivo ao lado e renomeia por cima. `rename` é atômico no
     /// mesmo sistema de arquivos, então nunca existe um `board.json` cortado no
     /// meio — e um quadro cortado no meio não volta a carregar.
-    pub fn save(&self) {
+    pub fn save(&self) -> Result<(), String> {
         let path = path();
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
+        let json = serde_json::to_string_pretty(self).map_err(|error| error.to_string())?;
+        // O backup só recebe um quadro que ainda desserializa. Se o arquivo
+        // atual foi corrompido fora do app, preservá-lo por cima do último bom
+        // tiraria justamente a rota de recuperação.
+        if let Ok(previous) = std::fs::read_to_string(&path) {
+            if serde_json::from_str::<Board>(&previous).is_ok() {
+                paths::write_private(&path.with_extension("json.bak"), &previous)?;
+            }
         }
-        let Ok(json) = serde_json::to_vec_pretty(self) else { return };
-        let tmp = path.with_extension("json.tmp");
-        if std::fs::write(&tmp, json).is_ok() && std::fs::rename(&tmp, &path).is_err() {
-            let _ = std::fs::remove_file(&tmp);
-        }
+        paths::write_private(&path, &json)
     }
 
     pub fn workspace_mut(&mut self, id: &str) -> Option<&mut Workspace> {
         self.workspaces.iter_mut().find(|w| w.id == id)
+    }
+
+    pub fn workspace(&self, id: &str) -> Option<&Workspace> {
+        self.workspaces.iter().find(|workspace| workspace.id == id)
     }
 
     /// Procura a aba pelo id da sessão — é assim que um hook, que só conhece o
@@ -436,11 +470,15 @@ impl Board {
     /// O workspace dono da sessão, para escrever nele — é assim que um hook,
     /// que só conhece o `session_id`, marca novidade no card certo.
     pub fn workspace_of_mut(&mut self, session: &str) -> Option<&mut Workspace> {
-        self.workspaces.iter_mut().find(|w| w.tabs.iter().any(|t| t.id == session))
+        self.workspaces
+            .iter_mut()
+            .find(|w| w.tabs.iter().any(|t| t.id == session))
     }
 
     pub fn workspace_of(&self, session: &str) -> Option<&Workspace> {
-        self.workspaces.iter().find(|w| w.tabs.iter().any(|t| t.id == session))
+        self.workspaces
+            .iter()
+            .find(|w| w.tabs.iter().any(|t| t.id == session))
     }
 }
 
@@ -459,15 +497,31 @@ fn path() -> std::path::PathBuf {
 pub fn publish(app: &AppHandle) {
     let state = app.state::<AppState>();
     let board = Arc::new(lock(&state.board).clone());
-    let _ = state.save.send(board.clone());
-    let _ = app.emit("board", &*board);
+    if state.save.later(board.clone()).is_err() {
+        // A thread de persistência morreu: não transformar isso em perda
+        // silenciosa. O caminho raro paga a gravação síncrona.
+        if let Err(error) = board.save() {
+            eprintln!("não gravei board.json depois de perder o saver: {error}");
+        }
+    }
+    if let Err(error) = app.emit("board", &*board) {
+        eprintln!("não publiquei o quadro para a webview: {error}");
+    }
 }
 
-/// Grava agora, nesta thread. É o que fecha a janela de perda que a gravação
-/// adiada abre: o app morrendo dentro do `COALESCE` levaria junto a última
-/// mudança. Chamado na saída, quando não há mais depois.
+/// Pede uma gravação imediata à thread de persistência e espera a confirmação.
+/// É o que fecha a janela de perda que a gravação adiada abre: o app morrendo
+/// dentro do `COALESCE` levaria junto a última mudança. Chamado na saída,
+/// quando não há mais depois.
 pub fn save_now(app: &AppHandle) {
-    lock(&app.state::<AppState>().board).save();
+    let state = app.state::<AppState>();
+    let board = Arc::new(lock(&state.board).clone());
+    if let Err(error) = state.save.now(board.clone()) {
+        eprintln!("o saver não confirmou board.json ao sair: {error}");
+        if let Err(error) = board.save() {
+            eprintln!("não gravei board.json ao sair: {error}");
+        }
+    }
 }
 
 /// Junta as gravações numa só. Uma sessão ativa dispara dezenas de eventos por
@@ -477,19 +531,80 @@ const COALESCE: Duration = Duration::from_millis(250);
 
 /// A thread que grava. Recebe o quadro por canal, espera a poeira assentar e
 /// escreve uma vez só o estado mais recente que chegou.
-pub fn spawn_saver() -> Sender<Arc<Board>> {
-    let (tx, rx) = channel::<Arc<Board>>();
+enum Save {
+    Later(Arc<Board>),
+    Now(Arc<Board>, Sender<Result<(), String>>),
+}
+
+/// A fila de persistência sabe distinguir o caminho quente de um flush. O
+/// flush passa pela mesma thread e espera a confirmação; assim uma gravação
+/// antiga que já estava dormindo no coalesce nunca acorda depois da saída para
+/// sobrescrever o estado mais novo.
+#[derive(Clone)]
+pub struct Saver {
+    tx: Sender<Save>,
+}
+
+impl Saver {
+    fn later(&self, board: Arc<Board>) -> Result<(), ()> {
+        self.tx.send(Save::Later(board)).map_err(|_| ())
+    }
+
+    fn now(&self, board: Arc<Board>) -> Result<(), String> {
+        let (tx, rx) = channel();
+        self.tx
+            .send(Save::Now(board, tx))
+            .map_err(|_| "thread de persistência encerrada".to_string())?;
+        // Não há timeout de propósito. Fazer uma segunda gravação enquanto a
+        // primeira ainda está no disco reabriria exatamente a corrida que o
+        // flush resolve: a antiga poderia terminar por último. A thread não
+        // usa unwrap e sempre responde, inclusive quando o write falha.
+        rx.recv().map_err(|error| error.to_string())?
+    }
+}
+
+pub fn spawn_saver() -> Saver {
+    spawn_saver_with(Board::save)
+}
+
+fn spawn_saver_with<F>(save: F) -> Saver
+where
+    F: Fn(&Board) -> Result<(), String> + Send + 'static,
+{
+    let (tx, rx) = channel::<Save>();
     std::thread::spawn(move || {
-        while let Ok(mut board) = rx.recv() {
-            std::thread::sleep(COALESCE);
-            // Tudo que chegou durante a espera: só o último interessa.
+        while let Ok(first) = rx.recv() {
+            let (mut board, mut flushes) = match first {
+                Save::Later(board) => {
+                    std::thread::sleep(COALESCE);
+                    (board, Vec::new())
+                }
+                Save::Now(board, done) => (board, vec![done]),
+            };
+            // Tudo que chegou durante a espera: só o último quadro interessa.
+            // Todos os flushes recebem o resultado dessa mesma gravação.
             while let Ok(newer) = rx.try_recv() {
-                board = newer;
+                match newer {
+                    Save::Later(next) => board = next,
+                    Save::Now(next, done) => {
+                        board = next;
+                        flushes.push(done);
+                    }
+                }
             }
-            board.save();
+            let result = save(board.as_ref());
+            if let Err(error) = &result {
+                eprintln!("não gravei board.json: {error}");
+            }
+            if !flushes.is_empty() {
+                for done in flushes {
+                    let _ = done.send(result.clone());
+                }
+                break;
+            }
         }
     });
-    tx
+    Saver { tx }
 }
 
 #[cfg(test)]
@@ -507,6 +622,70 @@ mod tests {
         serde_json::from_str(&json).expect("board não desserializou")
     }
 
+    fn temporary_board_path() -> std::path::PathBuf {
+        std::env::temp_dir()
+            .join(format!("prometheus-board-{}", uuid::Uuid::new_v4()))
+            .join("board.json")
+    }
+
+    #[test]
+    fn flush_descarta_o_quadro_antigo_que_esperava_no_coalesce() {
+        let written = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let observed = written.clone();
+        let saver = spawn_saver_with(move |board| {
+            observed.lock().unwrap().push(board.stages[0].clone());
+            Ok(())
+        });
+        let old = Board {
+            stages: vec!["antigo".into()],
+            ..Board::default()
+        };
+        let final_board = Board {
+            stages: vec!["final".into()],
+            ..Board::default()
+        };
+
+        saver.later(Arc::new(old)).unwrap();
+        saver.now(Arc::new(final_board)).unwrap();
+
+        assert_eq!(*written.lock().unwrap(), vec!["final"]);
+    }
+
+    #[test]
+    fn quadro_corrompido_recupera_o_ultimo_backup_valido() {
+        let current = temporary_board_path();
+        std::fs::create_dir_all(current.parent().unwrap()).unwrap();
+        std::fs::write(&current, "{cortado").unwrap();
+        std::fs::write(
+            current.with_extension("json.bak"),
+            serde_json::to_string(&board_json("")).unwrap(),
+        )
+        .unwrap();
+
+        let recovered = Board::load_at(&current);
+
+        assert_eq!(recovered.stages, vec!["Fazendo"]);
+        assert_eq!(recovered.workspaces.len(), 1);
+        std::fs::remove_dir_all(current.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn backup_tambem_recupera_quadro_principal_ausente() {
+        let current = temporary_board_path();
+        std::fs::create_dir_all(current.parent().unwrap()).unwrap();
+        std::fs::write(
+            current.with_extension("json.bak"),
+            serde_json::to_string(&board_json("")).unwrap(),
+        )
+        .unwrap();
+
+        let recovered = Board::load_at(&current);
+
+        assert_eq!(recovered.stages, vec!["Fazendo"]);
+        assert_eq!(recovered.workspaces[0].id, "w");
+        std::fs::remove_dir_all(current.parent().unwrap()).unwrap();
+    }
+
     /// O app fechou no meio de montar um worktree. Voltar dizendo "montando"
     /// seria esperar por uma thread que morreu junto com o processo.
     #[test]
@@ -515,7 +694,10 @@ mod tests {
         board.revive();
         let ws = &board.workspaces[0];
         assert!(!ws.preparing, "não pode voltar montando");
-        assert_eq!(ws.failed.as_deref(), Some(crate::i18n::t("err.session.interrupted")).as_deref());
+        assert_eq!(
+            ws.failed.as_deref(),
+            Some(crate::i18n::t("err.session.interrupted")).as_deref()
+        );
     }
 
     /// E não inventa aba para ele: a migração que dá uma aba a quadro antigo é
@@ -552,7 +734,16 @@ mod tests {
         let ws = &board.workspaces[0];
         assert_eq!(ws.repo, "/r");
         assert_eq!(ws.worktree, "/wt");
-        assert_eq!(ws.repos, vec![Repo { path: "/r".into(), name: "r".into(), worktree: "/wt".into(), base: String::new(), pr: None }]);
+        assert_eq!(
+            ws.repos,
+            vec![Repo {
+                path: "/r".into(),
+                name: "r".into(),
+                worktree: "/wt".into(),
+                base: String::new(),
+                pr: None
+            }]
+        );
         assert_eq!(ws.primary().worktree, "/wt");
         assert!(!ws.multi());
     }
@@ -594,6 +785,9 @@ mod tests {
             r#","tabs":[{"id":"t1","title":"conversa","status":"rodando","note":null,"pending_prompt":null}]"#,
         );
         board.revive();
-        assert!(matches!(board.workspaces[0].tabs[0].status, Status::Desligada));
+        assert!(matches!(
+            board.workspaces[0].tabs[0].status,
+            Status::Desligada
+        ));
     }
 }

@@ -1,7 +1,7 @@
 import { avatar, icon } from "./icons";
 import { t } from "./i18n";
 import * as team from "./team";
-import { h } from "./util";
+import { h, template } from "./util";
 
 /// "Para mim": as notas do time que marcaram você e você ainda não abriu.
 ///
@@ -52,7 +52,7 @@ export function openInbox(go: (workspace: string, note: string) => void) {
       return;
     }
     for (const item of items) {
-      const row = h(
+      const row = template(
         "button",
         "inboxrow",
         `<span class="av"></span><span class="txt"><b></b><span class="what"></span></span>` +

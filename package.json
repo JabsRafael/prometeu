@@ -3,13 +3,25 @@
   "private": true,
   "version": "0.4.4",
   "type": "module",
+  "packageManager": "npm@11.9.0",
+  "engines": {
+    "node": "24.14.0",
+    "npm": "11.9.0"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && tsc -p relay && vite build",
+    "typecheck": "tsc --noEmit && tsc -p relay",
+    "build": "npm run typecheck && vite build",
     "app": "sh scripts/app.sh",
     "build:app": "tauri build",
     "tauri": "tauri",
-    "test": "vitest run && cd src-tauri && cargo test --workspace",
+    "test": "npm run test:web && npm run test:rust && npm run test:e2e",
+    "test:web": "vitest run",
+    "test:e2e": "playwright test",
+    "test:rust": "cd src-tauri && cargo test --workspace --all-targets",
+    "format:check": "cd src-tauri && cargo fmt --all -- --check",
+    "lint:rust": "cd src-tauri && cargo clippy --workspace --all-targets --all-features -- -D warnings",
+    "check": "npm run format:check && npm run build && npm test && npm run lint:rust",
     "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true",
     "relay:dev": "wrangler dev --config relay/wrangler.toml --port 8787",
     "relay:deploy": "wrangler deploy --config relay/wrangler.toml"
@@ -25,11 +37,12 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260826.1",
+    "@playwright/test": "1.62.1",
     "@tauri-apps/cli": "^2",
     "git-cliff": "^2.13.1",
     "typescript": "^5.6.0",
     "vite": "^6.0.0",
-    "vitest": "^2.1.9",
+    "vitest": "4.1.11",
     "wrangler": "^4.126.0"
   }
 }

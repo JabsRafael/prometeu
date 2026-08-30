@@ -21,14 +21,22 @@ pub fn team_config() -> TeamFile {
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok());
     let default_name = std::env::var("USER").unwrap_or_default();
-    TeamFile { config, default_name }
+    TeamFile {
+        config,
+        default_name,
+    }
 }
 
 /// `None` é sair do time: o arquivo some.
 #[tauri::command]
 pub fn team_config_set(config: Option<Value>) -> Result<(), String> {
     let path = paths::team_path();
-    let wrap = |cause: String| i18n::ta("err.team.write", &[("path", path.display().to_string()), ("cause", cause)]);
+    let wrap = |cause: String| {
+        i18n::ta(
+            "err.team.write",
+            &[("path", path.display().to_string()), ("cause", cause)],
+        )
+    };
     match config {
         None => match std::fs::remove_file(&path) {
             Ok(()) => Ok(()),

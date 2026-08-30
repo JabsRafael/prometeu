@@ -11,7 +11,8 @@
 #
 # Parado, o runner é um processo ocioso (~60 MB, CPU zero). O custo de verdade
 # é o cargo build rodando aqui quando há push — e é o mesmo build que rodaria
-# de qualquer jeito.
+# de qualquer jeito. Antes de usá-lo, o script exige repositório privado e
+# workflows de forks desativados, pois jobs de PR executam código do branch.
 set -eu
 
 REPO=gbrancaglione/prometheus
@@ -19,6 +20,15 @@ DIR=$HOME/actions-runner
 
 status() { gh api "repos/$REPO/actions/runners" --jq '.runners[] | "\(.name): \(.status)\(if .busy then ", ocupado" else "" end)"'; }
 online() { status 2>/dev/null | grep -q ": online"; }
+guard_pr_boundary() {
+  private=$(gh api "repos/$REPO" --jq '.private')
+  forks=$(gh api "repos/$REPO/actions/permissions/fork-pr-workflows-private-repos" \
+    --jq '.run_workflows_from_fork_pull_requests')
+  if [ "$private" != true ] || [ "$forks" != false ]; then
+    echo "runner recusado — mantenha o repositório privado e workflows de forks desativados" >&2
+    exit 1
+  fi
+}
 
 case "${1:-up}" in
   status)
@@ -26,6 +36,7 @@ case "${1:-up}" in
   stop)
     cd "$DIR" && ./svc.sh stop ;;
   up)
+    guard_pr_boundary
     if online; then status; exit 0; fi
     [ -d "$DIR" ] || { echo "não há runner em $DIR — ver o cabeçalho de .github/workflows/ci.yml" >&2; exit 1; }
     echo "runner offline — subindo o serviço"
