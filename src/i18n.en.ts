@@ -65,7 +65,6 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "ws.menu.gone": "worktree removed",
   "ws.menu.drop": "Remove workspace",
 
-  "model.default": "Default model",
   "model.claude": "Claude Code",
   "model.codex": "Codex",
   "effort.low": "Low",
@@ -170,9 +169,11 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "ws.copied": "{name} copied",
 
   "tab.tokens": " · {n} context tokens",
+  "tab.model": " · talking to {model}",
   "tab.rename": " · double-click to rename",
   "tab.close": "Close conversation",
   "tab.new": "New conversation, same files  ⌘T",
+  "tab.new.model": "New conversation with another model",
   "tab.changes": "Changes",
   "tab.changes.title": "What this branch changed; the number is what you haven't seen yet",
   "tab.changes.close": "Close Changes",

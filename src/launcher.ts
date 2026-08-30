@@ -34,8 +34,8 @@ export type Draft = {
   /// escolha à parte — sai do modelo, porque escolher um GPT é escolher o Codex.
   agent: string;
   /// O modelo: um alias do Claude Code (`opus`, `sonnet[1m]`…) ou um slug do
-  /// Codex (`gpt-5.6-sol`). Vazio é deixar o CLI escolher. Vale para o
-  /// workspace inteiro.
+  /// Codex (`gpt-5.6-sol`). Sempre um dos dois — não há "deixa o CLI escolher"
+  /// para escolher. Vale para o workspace inteiro.
   model: string;
   /// `--effort`, `low`…`max` ou `ultracode`. O lançador sempre escolhe um;
   /// vazio (workspace antigo) é não passar. Também do workspace.
@@ -54,8 +54,12 @@ type Branches = { all: string[]; default: string };
 /// Os aliases que o `--model` aceita, com o nome que aparece na tela. Alias e
 /// não id completo de propósito: "opus" é sempre o Opus mais novo, e a lista
 /// não envelhece a cada release. `[1m]` é a janela de um milhão.
+///
+/// Não há "modelo padrão" na lista: escolher é sempre escolher um nome, e o
+/// primeiro daqui é com quem se fala sem ter escolhido nada. Um `--model`
+/// vazio ainda existe no back — é o que quadro gravado antes disto traz —,
+/// mas não é mais coisa que se possa escolher.
 const MODELS: [string, string][] = [
-  ["", t("model.default")],
   ["fable", "Fable"],
   ["fable[1m]", "Fable · 1M"],
   ["opus", "Opus"],
@@ -89,10 +93,39 @@ export async function loadAgents() {
 
 const isCodex = (model: string) => agents.codex.some((m) => m.slug === model);
 
-/// O modelo com que o lançador abre quando não há nada lembrado. Vazio é o
-/// padrão do Claude Code; sem `claude` na máquina, é o primeiro do Codex —
-/// senão o rodapé começaria apontando para um CLI que não existe.
-const fallbackModel = () => (agents.claude ? "" : (agents.codex[0]?.slug ?? ""));
+/// Qual CLI um modelo escolhe: escolher um GPT é escolher o Codex, e não há
+/// botão à parte para isso — nem no lançador, nem na barra de abas.
+export const agentOf = (model: string) => (isCodex(model) ? "codex" : "");
+
+/// Os blocos do dropdown de modelo: os do Claude Code de um lado, os do Codex
+/// do outro, só os que esta máquina tem. A barra de abas abre a mesma lista —
+/// escolher com quem a conversa nova fala é a mesma escolha que o lançador faz.
+export function modelGroups(): Group[] {
+  const groups: Group[] = [];
+  if (agents.claude) groups.push({ head: t("model.claude"), items: MODELS });
+  if (agents.codex.length) {
+    groups.push({
+      head: t("model.codex"),
+      items: agents.codex.map((m) => [m.slug, m.name] as [string, string]),
+    });
+  }
+  return groups;
+}
+
+/// O degrau mais próximo que a escada deste modelo tem. Sair do Sol (que vai
+/// até o `ultra`) para um modelo que para no `xhigh` não pode deixar para trás
+/// um esforço que o CLI recusa.
+export function fitsEffort(model: string, effort: string): string {
+  const stairs = ladderOf(model);
+  if (stairs.some(([id]) => id === effort)) return effort;
+  return stairs[stairs.length - 1]?.[0] ?? "high";
+}
+
+/// O modelo com que o lançador abre quando não há nada lembrado: o primeiro da
+/// lista. Sem `claude` na máquina é o primeiro do Codex — senão o rodapé
+/// começaria apontando para um CLI que não existe.
+const fallbackModel = () =>
+  (agents.claude ? MODELS[0]?.[0] : agents.codex[0]?.slug) ?? "";
 
 /// A escada do esforço, na ordem em que o clique sobe. É o botão do Conductor:
 /// barras que acendem uma a uma, e depois da última volta ao Baixo — sem
@@ -350,21 +383,11 @@ export function openLauncher(board: Board, opts: Open) {
   // frase, e clicar neles não pode tirar você dela.
   const drawModel = dropdown(
     $("d-model"),
-    () => {
-      const groups: Group[] = [];
-      if (agents.claude) groups.push({ head: t("model.claude"), items: MODELS });
-      if (agents.codex.length) {
-        groups.push({
-          head: t("model.codex"),
-          items: agents.codex.map((m) => [m.slug, m.name] as [string, string]),
-        });
-      }
-      return groups;
-    },
+    modelGroups,
     () => draft.model,
     (id) => {
       draft.model = id;
-      draft.agent = isCodex(id) ? "codex" : "";
+      draft.agent = agentOf(id);
       localStorage.setItem(MODEL_KEY, id);
       // O Codex não tem plan mode por linha de comando, e cada modelo tem a
       // sua escada de esforço: trocar de modelo pode invalidar as duas coisas.
@@ -401,14 +424,7 @@ export function openLauncher(board: Board, opts: Open) {
   /// A escada de degraus que o modelo de agora aceita.
   const ladder = () => ladderOf(draft.model);
 
-  /// O degrau mais próximo que a escada de agora tem. Sair do Sol (que vai até
-  /// o `ultra`) para um modelo que para no `xhigh` não pode deixar para trás um
-  /// esforço que o CLI recusa.
-  function fits(level: string): string {
-    const stairs = ladder();
-    if (stairs.some(([id]) => id === level)) return level;
-    return stairs[stairs.length - 1]?.[0] ?? "high";
-  }
+  const fits = (level: string) => fitsEffort(draft.model, level);
 
   draft.effort = fits(draft.effort);
   drawEffort();
@@ -746,7 +762,7 @@ function picker(o: {
 /// Um bloco do dropdown: os modelos do Claude Code de um lado, os do Codex do
 /// outro. O `head` só aparece quando há mais de um bloco — com um agente só na
 /// máquina, um título sobre a lista inteira não separa nada.
-type Group = { head?: string; items: [string, string][] };
+export type Group = { head?: string; items: [string, string][] };
 
 /// A lista pode mudar entre dois cliques (o catálogo do Codex chega depois do
 /// primeiro desenho), então é uma função, e não um array.

@@ -5,6 +5,7 @@ import * as diff from "./diff";
 import * as dockbar from "./dockbar";
 import { avatar, icon, stageIcon, wave } from "./icons";
 import { fromBack, stage as stageName, t, tn } from "./i18n";
+import { agentOf, fitsEffort, modelGroups, modelLabel } from "./launcher";
 import * as menu from "./menu";
 import * as rename from "./rename";
 import * as session from "./session";
@@ -21,11 +22,12 @@ import {
   statusOf,
   type Board,
   type Change,
+  type Choice,
   type RepoDiff,
   type Tab,
   type Workspace,
 } from "./types";
-import { $, debounce, template } from "./util";
+import { $, debounce, h, template } from "./util";
 import * as viewer from "./viewer";
 
 /// A tela de um workspace: migalha, abas, o que está no centro (conversa,
@@ -559,6 +561,9 @@ function drawTabs(ws: Workspace) {
     b.title =
       label(tab.status) +
       (tab.tokens ? t("tab.tokens", { n: fmtTokens(tab.tokens) }) : "") +
+      // O modelo só é dito quando é outro que o das irmãs: numa barra em que
+      // todas falam com o mesmo, repetir o nome em cada uma não informa nada.
+      (tab.choice ? t("tab.model", { model: modelLabel(tab.choice.model) }) : "") +
       t("tab.rename");
     b.addEventListener("click", () => selectTab(ws.id, tab.id));
     if (!remote) {
@@ -645,12 +650,46 @@ function drawTabs(ws: Workspace) {
 
   // Conversa nova é no worktree, e o worktree é do dono.
   if (remote) return;
-  const add = document.createElement("button");
-  add.className = "ico";
-  add.innerHTML = icon("plus");
-  add.title = t("tab.new");
-  add.addEventListener("click", () => newTab());
+  // O "+" abre conversa com o modelo do workspace, que é o caso de sempre e o
+  // que o ⌘T faz. A setinha ao lado abre a lista: é ali que se sai do modelo
+  // das irmãs sem ter que abrir outro workspace para isso.
+  const add = h("div", "tabadd");
+  const plus = document.createElement("button");
+  plus.className = "ico";
+  plus.innerHTML = icon("plus");
+  plus.title = t("tab.new");
+  plus.addEventListener("click", () => void newTab());
+  const pick = document.createElement("button");
+  pick.className = "ico caret";
+  pick.innerHTML = icon("chevron-down", 12);
+  pick.title = t("tab.new.model");
+  pick.addEventListener("click", () => pickModel(pick, ws));
+  add.append(plus, pick);
   bar.append(add);
+}
+
+/// A lista de modelos do "+": a mesma do lançador, com o do workspace marcado.
+/// Escolher abre a conversa já falando com ele — não há um passo entre a
+/// escolha e a aba, porque modelo não se troca com a conversa de pé.
+function pickModel(at: HTMLElement, ws: Workspace) {
+  const box = at.getBoundingClientRect();
+  const blocks = modelGroups();
+  const items: menu.Item[] = [];
+  blocks.forEach((block, n) => {
+    if (n) items.push("sep");
+    if (block.head && blocks.length > 1) items.push({ label: block.head, disabled: true });
+    for (const [id, name] of block.items) {
+      items.push({
+        label: name,
+        checked: id === ws.model,
+        // O esforço do workspace só serve se a escada do modelo escolhido o
+        // tiver: sair do Sol para um modelo que para no xhigh cai no xhigh.
+        run: () =>
+          void newTab("", { agent: agentOf(id), model: id, effort: fitsEffort(id, ws.effort) }),
+      });
+    }
+  });
+  menu.openAt({ x: box.left, y: box.bottom + 4 }, items);
 }
 
 /// Abre o campo no rótulo da aba que está na barra agora. Procurar o botão na
@@ -709,12 +748,15 @@ async function selectTab(workspace: string, tab: string) {
   draw();
 }
 
-export async function newTab(prompt = "") {
+/// `choice` é o modelo escolhido na setinha do "+". Sem ele — ⌘T, clique no
+/// "+", conversa aberta por um script do dock — a conversa nasce com o do
+/// workspace.
+export async function newTab(prompt = "", choice: Choice | null = null) {
   const ws = current();
   if (!ws || ws.remote) return;
   const epoch = navigation;
   try {
-    const tab = await invoke<{ id: string }>("new_tab", { workspace: ws.id, prompt });
+    const tab = await invoke<{ id: string }>("new_tab", { workspace: ws.id, prompt, choice });
     if (!stillHere(epoch, ws.id)) return;
     showTerm();
     if (!(await session.attach(tab.id))) return;

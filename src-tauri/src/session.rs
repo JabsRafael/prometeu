@@ -1,6 +1,6 @@
 use crate::domain::Pr;
 use crate::lock::lock;
-use crate::state::{publish, Board, Project, Repo, Status, Tab, Workspace};
+use crate::state::{publish, Board, Choice, Project, Repo, Status, Tab, Workspace};
 use crate::{chat, dock, i18n, paths, scripts, AppState};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -573,9 +573,23 @@ pub struct Launch {
     pub plan: bool,
 }
 
+/// A escolha gravada na aba vira argumento do mesmo jeito que a do lançador —
+/// e nunca em plan mode: plan é de uma fala, não de uma conversa inteira.
+impl From<Choice> for Launch {
+    fn from(c: Choice) -> Self {
+        Launch {
+            agent: c.agent,
+            model: c.model,
+            effort: c.effort,
+            plan: false,
+        }
+    }
+}
+
 impl Workspace {
-    /// Com o que uma conversa nova ou retomada nasce aqui: o modelo e o
-    /// esforço do workspace, e nunca em plan mode — isso é escolha do lançador.
+    /// Com o que uma conversa nasce aqui quando ninguém escolheu outra coisa: o
+    /// modelo e o esforço do workspace, e nunca em plan mode — isso é escolha
+    /// do lançador.
     pub fn launch(&self) -> Launch {
         Launch {
             agent: self.agent.clone(),
@@ -583,6 +597,17 @@ impl Workspace {
             effort: self.effort.clone(),
             plan: false,
         }
+    }
+
+    /// Com o que uma aba sobe: o modelo que ela escolheu ao nascer, ou o do
+    /// workspace. É o que separa retomar de recomeçar — a aba que nasceu no
+    /// Sonnet volta no Sonnet, mesmo que as irmãs sejam de outro modelo.
+    pub fn launch_of(&self, tab: &str) -> Launch {
+        self.tabs
+            .iter()
+            .find(|t| t.id == tab)
+            .and_then(|t| t.choice.clone())
+            .map_or_else(|| self.launch(), Launch::from)
     }
 }
 
@@ -817,6 +842,9 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
         "conversa",
         first_message(&draft.prompt, &draft.inject),
         &draft.launch,
+        // A primeira conversa é a do lançador, e é dela que o workspace copiou
+        // o modelo: nada a gravar na aba.
+        None,
     )?;
 
     // Tirado do quadro no meio da montagem: o agente que acabou de subir não
@@ -857,16 +885,19 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
 
 /// Conversa nova nos mesmos arquivos. É o ⌘T: quando o contexto encheu, ou
 /// quando o assunto virou outro, mas o worktree é o mesmo.
+///
+/// `choice` é o modelo escolhido na setinha ao lado do "+". Sem ele — que é o
+/// ⌘T e o clique no "+" —, a conversa nasce com o do workspace, como as irmãs.
 #[tauri::command]
 pub fn new_tab(
     app: AppHandle,
     state: State<AppState>,
     workspace: String,
     prompt: String,
+    choice: Option<Choice>,
 ) -> Result<Tab, String> {
-    // Modelo e esforço são do workspace: conversa nova nos mesmos arquivos
-    // nasce com os mesmos que as irmãs. Plan mode não — é escolha de uma fala.
-    let (worktree, n, launch) = {
+    // Plan mode não vem de nenhum dos dois caminhos: é escolha de uma fala.
+    let (worktree, n, launch, choice) = {
         let board = lock(&state.board);
         let ws = board
             .workspaces
@@ -876,7 +907,17 @@ pub fn new_tab(
         if ws.cleaned {
             return Err(i18n::t("err.session.cleaned"));
         }
-        (PathBuf::from(&ws.worktree), ws.tabs.len() + 1, ws.launch())
+        // Escolher o mesmo do workspace não é escolher: a aba fica sem o campo,
+        // e o quadro não guarda uma cópia do que está uma linha acima.
+        let choice =
+            choice.filter(|c| c.agent != ws.agent || c.model != ws.model || c.effort != ws.effort);
+        let launch = choice.clone().map_or_else(|| ws.launch(), Launch::from);
+        (
+            PathBuf::from(&ws.worktree),
+            ws.tabs.len() + 1,
+            launch,
+            choice,
+        )
     };
 
     let title = if prompt.trim().is_empty() {
@@ -885,7 +926,7 @@ pub fn new_tab(
         tab_title(&prompt)
     };
     let pending = (!prompt.trim().is_empty()).then(|| prompt.trim().to_string());
-    let tab = spawn_tab(&app, &state, &worktree, &title, pending, &launch)?;
+    let tab = spawn_tab(&app, &state, &worktree, &title, pending, &launch, choice)?;
 
     {
         let mut board = lock(&state.board);
@@ -972,7 +1013,12 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
                 .iter()
                 .find(|t| t.id == tab)
                 .and_then(|t| t.agent_session.clone());
-            (PathBuf::from(&w.worktree), w.launch(), w.cleaned, previous)
+            (
+                PathBuf::from(&w.worktree),
+                w.launch_of(tab),
+                w.cleaned,
+                previous,
+            )
         })
         .ok_or_else(|| i18n::t("err.session.noTab"))?;
     if cleaned {
@@ -1027,6 +1073,7 @@ fn spawn_tab(
     title: &str,
     pending_prompt: Option<String>,
     launch: &Launch,
+    choice: Option<Choice>,
 ) -> Result<Tab, String> {
     let id = uuid::Uuid::new_v4().to_string();
     // O modelo escolhido diz qual CLI sobe (ver `agents.rs`); a aba é a mesma.
@@ -1045,6 +1092,7 @@ fn spawn_tab(
         note: None,
         pending_prompt,
         tokens: None,
+        choice,
     })
 }
 
@@ -1686,7 +1734,10 @@ fn cap(patch: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{claude_args, multi_pr_text, patch_map, pr_text, Launch, Pr, Repo, RepoPr};
+    use super::{
+        claude_args, multi_pr_text, patch_map, pr_text, Choice, Launch, Pr, Repo, RepoPr, Tab,
+        Workspace,
+    };
     use crate::dock::{is_terminal, multi_setup, quoted};
     use std::path::Path;
 
@@ -1983,6 +2034,96 @@ mod tests {
         );
         let at = escolhido.iter().position(|a| a == "--session-id").unwrap();
         assert_eq!(escolhido[at + 1], "id");
+    }
+
+    /// Um workspace vazio, para o que não depende de disco.
+    fn bare() -> Workspace {
+        Workspace {
+            id: "w".into(),
+            title: "w".into(),
+            project: String::new(),
+            repo: String::new(),
+            repo_name: String::new(),
+            branch: String::new(),
+            worktree: String::new(),
+            repos: Vec::new(),
+            stage: String::new(),
+            archived: false,
+            pinned: false,
+            unread: false,
+            pr: None,
+            cleaned: false,
+            shared: false,
+            audience: None,
+            preparing: false,
+            failed: None,
+            agent: String::new(),
+            model: String::new(),
+            effort: String::new(),
+            port: None,
+            issue: None,
+            tabs: Vec::new(),
+            active: None,
+        }
+    }
+
+    /// Uma aba com o que basta para dizer com quem ela fala.
+    fn tab(id: &str, choice: Option<Choice>) -> Tab {
+        Tab {
+            id: id.into(),
+            agent_session: None,
+            title: id.into(),
+            status: crate::state::Status::Desligada,
+            note: None,
+            pending_prompt: None,
+            tokens: None,
+            choice,
+        }
+    }
+
+    /// A aba que nasceu com outro modelo volta com ele, e não com o das irmãs
+    /// — é o que separa retomar de recomeçar. Aba sem escolha segue o
+    /// workspace, que é o quadro gravado antes disto existir e o ⌘T de sempre.
+    #[test]
+    fn retomar_uma_aba_respeita_o_modelo_com_que_ela_nasceu() {
+        let mut ws = bare();
+        ws.agent = String::new();
+        ws.model = "opus[1m]".into();
+        ws.effort = "high".into();
+        ws.tabs = vec![
+            tab("herda", None),
+            tab(
+                "propria",
+                Some(Choice {
+                    agent: "codex".into(),
+                    model: "gpt-5.6-sol".into(),
+                    effort: "ultracode".into(),
+                }),
+            ),
+        ];
+
+        let herda = ws.launch_of("herda");
+        assert_eq!(
+            (herda.model.as_str(), herda.effort.as_str()),
+            ("opus[1m]", "high")
+        );
+        assert_eq!(herda.agent, "");
+
+        let propria = ws.launch_of("propria");
+        assert_eq!(
+            (
+                propria.agent.as_str(),
+                propria.model.as_str(),
+                propria.effort.as_str()
+            ),
+            ("codex", "gpt-5.6-sol", "ultracode")
+        );
+        // Plan mode é de uma fala, não da conversa: retomar nunca volta nele.
+        assert!(!propria.plan);
+
+        // Aba que não está no quadro — fechada entre o pedido e a resposta —
+        // cai no do workspace, e não num modelo inventado.
+        assert_eq!(ws.launch_of("sumiu").model, "opus[1m]");
     }
 
     /// O que faz a conversa ser JSON dos dois lados, e o pedido de permissão

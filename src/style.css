@@ -291,6 +291,15 @@ main { flex: 1; min-height: 0; position: relative; }
 .tab:hover .tabx, .tab.on .tabx { opacity: 1; }
 .tab .tabx:hover { color: var(--err); }
 .tabbar > .ico { margin-left: 8px; }
+/* O "+" e a setinha ao lado são o mesmo gesto partido em dois: o "+" abre
+   conversa com o modelo do workspace, a setinha abre a lista de modelos. Ela é
+   estreita e apagada porque o caso raro não pode pesar tanto quanto o comum. */
+.tabadd { display: flex; align-items: center; flex: none; margin-left: 8px; }
+.tabadd > .ico { margin-left: 0; }
+.tabadd .caret { width: 16px; color: var(--fg-3); }
+.tabadd .caret .ic { width: 12px; height: 12px; }
+.tabadd:hover .caret { color: var(--fg-2); }
+.tabadd .caret:hover { color: var(--fg); }
 
 /* ---------- a conversa ---------- */
 
