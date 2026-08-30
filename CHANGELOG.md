@@ -4,6 +4,25 @@ O que muda no Prometheus, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.4.6] - 2026-08-30
+
+### Novidades
+
+- **conversa:** Aba nova pode falar com outro modelo, sem sair do workspace
+- **lançador:** A lista de modelos não tem mais "Modelo padrão" — escolhe-se sempre um
+- **mudanças:** O painel diz se os commits já foram para o remoto
+- **barra:** Um botão de PR só, com os PRs de cada repositório num menu
+
+### Correções
+
+- **navegador:** Link clicado abre no navegador do computador, e a aba de dentro fica só no Run
+- **lançador:** Branch do workspace novo leva o dia, e não repete nome já usado
+- **mudanças:** Commit feito no terminal some da lista sem esperar o agente
+
+### Desempenho
+
+- **mudanças:** Workspace com muitos arquivos abre na hora e rola liso
+
 ## [0.4.5] - 2026-08-30
 
 ### Novidades
