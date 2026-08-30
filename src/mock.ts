@@ -563,7 +563,10 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       return (target?.repos ?? []).map((r, i) => {
         const files = i === 0 ? changes : changes2;
         const base = i === 0 ? "origin/main" : "origin/develop";
-        return { name: r.name, base, ahead: i === 0 ? 3 : 1, dirty: files.filter((f) => f.dirty).length, files };
+        // O primeiro tem commit que ainda não foi para o remoto e o segundo
+        // não: é o par que faz o resumo dizer as duas coisas.
+        const ahead = i === 0 ? 3 : 1;
+        return { name: r.name, base, ahead, unpushed: i === 0 ? 1 : 0, dirty: files.filter((f) => f.dirty).length, files };
       });
     }
     case "list_dir":

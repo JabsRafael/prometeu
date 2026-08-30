@@ -139,3 +139,66 @@ test("envia uma pergunta, responde o card e devolve o controle ao chat", async (
   await expect(page.locator("#chatwrap .feed")).toContainText("Combinado. Seguindo.");
   await expect(composer).toBeEnabled();
 });
+
+/// Um workspace de três repositórios com cem arquivos mudados: o diff inteiro
+/// são dezenas de milhares de linhas, e montá-las de uma vez travava a tela por
+/// segundos e deixava a rolagem arrastando. O que este teste guarda é a regra —
+/// só o que está perto da tela é montado — porque ela é invisível enquanto
+/// funciona, e o que ela evita só aparece no workspace grande de alguém.
+test("a tela de Mudanças não monta o diff que ninguém está vendo", async ({ page }) => {
+  await boot(page);
+
+  await page.evaluate(() => {
+    type Invoke = (command: string, args?: Record<string, unknown>, options?: unknown) => Promise<unknown>;
+    const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+    const original = internals.invoke;
+    const patch = (n: number) =>
+      ["@@ -1,30 +1,30 @@ function algo() {"]
+        .concat(Array.from({ length: n }, (_, i) => (i % 2 ? `+  const x${i} = novo(${i});` : `-  const y${i} = velho(${i});`)))
+        .join("\n");
+    const files = (repo: string, n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        path: `${repo}/src/pasta${i % 7}/arquivo${i}.ts`,
+        added: 30,
+        removed: 30,
+        new_file: false,
+        deleted: false,
+        dirty: false,
+        patch: patch(60),
+      }));
+    internals.invoke = async function (command, args, options) {
+      if (command === "workspace_diff") {
+        return [
+          { name: "prometheus", base: "origin/main", ahead: 9, unpushed: 0, dirty: 0, files: files("um", 60) },
+          { name: "njord", base: "origin/develop", ahead: 3, unpushed: 0, dirty: 0, files: files("dois", 50) },
+        ];
+      }
+      return original.call(this, command, args, options);
+    };
+  });
+
+  await openWorkspace(page, "Contratação pelo portal");
+  // O diff é conferido de novo enquanto a tela dele está aberta: é por aí que
+  // ele chega, sem depender de o agente mexer em nada.
+  await page.locator("#tab-diff").click();
+  await expect(page.locator("#difflist .diffrepo")).toHaveCount(2, { timeout: 10_000 });
+  await expect(page.locator("#difflist .diffsum .state")).toContainText("tudo empurrado");
+
+  await page.locator("#review").click();
+  const dlist = page.locator("#dlist");
+  await expect(dlist.locator(".dfile")).toHaveCount(110);
+  // Os 110 cabeçalhos existem; as 6.600 linhas, não — só as de quem está perto
+  // da tela. Sem preguiça isto passava de 40 mil nós.
+  const linhas = await dlist.locator(".drow").count();
+  expect(linhas).toBeGreaterThan(0);
+  expect(linhas).toBeLessThan(2_000);
+
+  // O lugar de cada arquivo já está guardado: a rolagem tem a altura do diff
+  // inteiro antes de ele existir, e por isso não anda sozinha enquanto se lê.
+  const altura = await dlist.evaluate((el) => el.scrollHeight);
+  expect(altura).toBeGreaterThan(100_000);
+
+  // Clicar num arquivo lá do fim da lista leva até ele — montado.
+  await page.locator("#difflist .diffrow").last().click();
+  await expect(dlist.locator(".dfile").last().locator(".drow").first()).toBeVisible();
+});

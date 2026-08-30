@@ -1496,6 +1496,10 @@ pub struct RepoDiff {
     pub base: String,
     /// Quantos commits esta branch tem além da base.
     pub ahead: u32,
+    /// Destes commits, quantos ainda não foram para o remoto. Sem upstream é o
+    /// mesmo que `ahead`: nada daqui está publicado. É o que separa "commitei"
+    /// de "está no PR" — sem ele, a tela só sabe dizer que mudou.
+    pub unpushed: u32,
     /// Quantos arquivos têm pedaço fora de commit.
     pub dirty: u32,
     pub files: Vec<FileChange>,
@@ -1571,9 +1575,26 @@ fn repo_diff(name: &str, wt: &Path, base: &str) -> RepoDiff {
         name: name.to_string(),
         base: base.to_string(),
         ahead,
+        unpushed: unpushed_of(wt, ahead),
         dirty,
         files,
     }
+}
+
+/// Quantos commits desta branch ainda não estão no remoto. Branch sem upstream
+/// nunca foi empurrada: então nenhum deles está lá, e a resposta é o `ahead`
+/// inteiro.
+fn unpushed_of(wt: &Path, ahead: u32) -> u32 {
+    if git(wt, &["rev-parse", "--abbrev-ref", "@{upstream}"])
+        .trim()
+        .is_empty()
+    {
+        return ahead;
+    }
+    git(wt, &["rev-list", "--count", "@{upstream}..HEAD"])
+        .trim()
+        .parse()
+        .unwrap_or(0)
 }
 
 /// De onde a branch diverge da base, e quantos commits ela tem de lá para cá.
@@ -2233,6 +2254,9 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
 
         let d = super::repo_diff("r", &root, "main");
         assert_eq!(d.ahead, 1);
+        // Sem upstream, nada desta branch está publicado: todo commit dela conta
+        // como não empurrado.
+        assert_eq!(d.unpushed, 1);
         assert_eq!(d.dirty, 2);
         let paths: Vec<&str> = d.files.iter().map(|f| f.path.as_str()).collect();
         assert_eq!(paths, ["a.txt", "gone.txt", "novo.txt", "z.txt"]);
@@ -2244,7 +2268,24 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
 
         let sem_base = super::repo_diff("r", &root, "nao-existe");
         assert_eq!((sem_base.ahead, sem_base.files.len()), (0, 2));
+
+        // Com a branch empurrada, o mesmo commit deixa de contar: é o que a tela
+        // usa para dizer "tudo empurrado" em vez de oferecer atualizar o PR.
+        let remoto =
+            std::env::temp_dir().join(format!("prometheus-diff-remoto-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&remoto);
+        let out = Command::new("git")
+            .args(["init", "-q", "--bare"])
+            .arg(&remoto)
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        run(&["remote", "add", "origin", &remoto.display().to_string()]);
+        run(&["push", "-q", "-u", "origin", "feat"]);
+        assert_eq!(super::repo_diff("r", &root, "main").unpushed, 0);
+
         let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&remoto);
     }
 
     /// Um repo de mentira com remoto de verdade (o "origin" é uma pasta ao
