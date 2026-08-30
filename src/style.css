@@ -231,6 +231,8 @@ body.norail .top .nav { margin-left: 0; }
 .crumb .branch > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msg { font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msg.err { color: var(--err); }
+/* Um link por PR, lado a lado: com mais de um repositório há mais de um. */
+.prlinks { display: inline-flex; align-items: center; gap: 4px; }
 .wsctl { display: flex; align-items: center; gap: 8px; }
 
 /* ---------- pastilha de status ---------- */
@@ -459,7 +461,7 @@ main { flex: 1; min-height: 0; position: relative; }
 .tdiff .meta { display: block; color: var(--fg-3); }
 .md pre.tdiff { white-space: pre; }
 /* O /context: a janela em uso, por categoria, e as seções dobradas. */
-.ctx { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg-side); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; }
+.ctxpanel { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg-side); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; }
 .ctxhead { display: flex; align-items: baseline; gap: 10px; }
 .ctxhead b { font-weight: 500; color: var(--fg); }
 .ctxhead .model { font-family: var(--mono); font-size: 11.5px; color: var(--fg-2); }
@@ -667,6 +669,17 @@ main { flex: 1; min-height: 0; position: relative; }
 .dhead .new { font-size: 11px; color: var(--fg-3); }
 .dhead .a { font-family: var(--mono); font-size: 12px; color: var(--done); }
 .dhead .r { font-family: var(--mono); font-size: 12px; color: var(--err); }
+/* Visto: o check na ponta acende, e o nome apaga um tom. Patch que mudar
+   depois desmarca sozinho — é o que faz "visto" servir para acompanhar. */
+.dhead .dseen {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: var(--r); color: var(--fg-3); opacity: 0.5;
+}
+.dhead .dseen:hover { background: var(--bg-raised-3); opacity: 1; color: var(--fg); }
+.dfile.seen .dhead .dseen { opacity: 1; color: var(--done); }
+.dfile.seen .dhead .dpath .nm { color: var(--fg-2); }
+/* O ponto do que está fora de commit, na lista e no cabeçalho do arquivo. */
+.dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--wait); align-self: center; }
 
 .dbody {
   font-family: var(--mono); font-size: 13px; line-height: 20px;
@@ -696,6 +709,24 @@ main { flex: 1; min-height: 0; position: relative; }
 .drow.hunk code { color: var(--fg-3); }
 .dbody ::selection { background: var(--bg-raised-3); }
 .dnote { color: var(--fg-3); font-size: 12px; padding: 8px 16px 8px 68px; }
+
+/* Com mais de um repositório, cada um é uma seção: o cabeçalho do repo gruda
+   no topo, e o do arquivo gruda logo abaixo dele — os dois param enquanto o
+   corpo passa. Histórico separado é fato do git; a tela só o agrupa. */
+.drhead {
+  position: sticky; top: 0; z-index: 3; width: 100%; height: 30px; border-radius: 0;
+  display: flex; align-items: center; gap: 8px; justify-content: flex-start;
+  padding: 0 16px 0 12px; background: var(--bg-raised-2); font-weight: 500; font-size: 12.5px; color: var(--fg);
+  box-shadow: inset 0 -1px var(--line-raised);
+}
+.drhead:hover { background: var(--bg-raised-3); }
+.drhead .dtw { display: flex; color: var(--fg-2); }
+.drhead .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.drhead .cnt { font-weight: 400; font-size: 12px; color: var(--fg-3); }
+.drhead .a { font-family: var(--mono); font-size: 12px; color: var(--done); }
+.drhead .r { font-family: var(--mono); font-size: 12px; color: var(--err); }
+.drepo .dhead { top: 30px; }
+.drepo + .drepo { border-top: 1px solid var(--line); }
 
 /* ---------- painel da direita ---------- */
 
@@ -747,14 +778,44 @@ body.noside .side { display: none; }
 }
 .diffrow:hover { background: var(--bg-raised); }
 /* O nome do arquivo na frente, a pasta atrás — e é a pasta que some primeiro
-   quando o painel é estreito. */
+   quando o painel é estreito; só depois dela o nome encurta, em vez de passar
+   por cima do contador. */
 .diffrow .p { flex: 1; min-width: 0; display: flex; align-items: baseline; }
-.diffrow .dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); }
-.diffrow .base { flex: none; }
+.diffrow .dir { min-width: 0; flex-shrink: 100; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); }
+.diffrow .base { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .diffrow .a { color: var(--done); }
 .diffrow .r { color: var(--err); }
 .diffrow .new { color: var(--fg-3); font-size: 11px; }
+.diffrow .chk { flex: none; display: flex; width: 14px; color: var(--fg-3); align-self: center; }
+.diffrow.seen, .diffrow.seen .base { color: var(--fg-3); }
 .difflist .none { color: var(--fg-3); font-size: 13px; padding: 24px 12px; text-align: center; }
+/* O resumo no topo da lista: quantos commits além da base, e o chip do que
+   está fora de commit — que também é o filtro. */
+.diffsum { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 12px 8px; font-size: 12px; color: var(--fg-3); }
+.diffsum .ahead { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diffsum .dirtyf {
+  display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px 0 7px;
+  border: 1px solid var(--line-raised); border-radius: 11px; background: none;
+  color: var(--fg-2); font-size: 12px; font-weight: 400;
+}
+.diffsum .dirtyf[hidden] { display: none; }
+.diffsum .dirtyf:hover { background: var(--bg-raised); color: var(--fg); }
+.diffsum .dirtyf.on { background: var(--bg-raised-2); border-color: var(--fg-3); color: var(--fg); }
+/* A seção de um repositório na lista: nome e soma, grudados no topo enquanto
+   os arquivos dele passam; clique recolhe. Os arquivos entram um passo. */
+.diffrepo {
+  position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 6px; width: 100%; height: 28px; flex: none;
+  padding: 0 8px 0 6px; border: none; border-radius: var(--r); background: var(--bg);
+  font-size: 12.5px; font-weight: 500; color: var(--fg); text-align: left;
+}
+.diffrepo:hover { background: var(--bg-raised); }
+.diffrepo .tw { display: flex; color: var(--fg-2); }
+.diffrepo .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diffrepo .cnt { font-weight: 400; font-size: 11.5px; color: var(--fg-3); }
+.diffrepo .a { font-family: var(--mono); font-size: 12px; color: var(--done); }
+.diffrepo .r { font-family: var(--mono); font-size: 12px; color: var(--err); }
+.diffrow + .diffrepo { margin-top: 6px; }
+.diffrow.in { padding-left: 24px; }
 
 /* Dock: Setup, Run e os terminais, metade de baixo do painel. Fechado vira só
    a barra. */

@@ -42,9 +42,9 @@
           <!-- Não cria nada sozinho: injeta na conversa ativa o pedido de PR,
                com o estado do git e os passos. Quem faz é o agente. -->
           <button id="pr" class="outline md" data-t-title="top.pr"></button>
-          <!-- Só aparece quando a branch já tem PR aberto: leva até ele no
-               navegador, e quem sabe onde ele mora é o `gh`. -->
-          <button id="prlink" class="ghost md" hidden></button>
+          <!-- Só aparece quando a branch já tem PR: um link por repositório
+               que tem o seu, e quem sabe onde cada um mora é o `gh`. -->
+          <span id="prlinks" class="prlinks" hidden></span>
           <button id="sidetoggle" class="ico" data-t-title="top.side"></button>
         </div>
       </header>
@@ -93,6 +93,9 @@
               <div class="vbar">
                 <span class="vcrumb" id="dcrumb"></span>
                 <span class="spacer"></span>
+                <!-- Visto em tudo: leu, marcou, e o que o agente mudar depois
+                     é o que volta a contar na aba. -->
+                <button id="dseen" class="ico" data-t-title="diff.seenAll"></button>
                 <button id="dfold" class="ico" data-t-title="diff.foldAll"></button>
               </div>
               <div class="dlist" id="dlist"></div>

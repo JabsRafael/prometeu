@@ -14,12 +14,14 @@ import {
   fmtTokens,
   label,
   merged,
+  prs,
   pending,
   repoLabel,
   stateLabel,
   statusOf,
   type Board,
   type Change,
+  type RepoDiff,
   type Tab,
   type Workspace,
 } from "./types";
@@ -62,7 +64,7 @@ export function init(context: Ctx) {
     // Já no painel de Mudanças, clicar de novo traz o diff para o centro. É o
     // caminho de volta depois de fechar a aba — sem ele, quem fechou só voltaria
     // clicando num arquivo da lista.
-    const changes = openWs ? (changesOf.get(openWs)?.length ?? 0) : 0;
+    const changes = openWs ? total(openWs) : 0;
     if (sidePane === "diff" && changes) showChanges();
     else setSidePane("diff");
   });
@@ -79,7 +81,16 @@ export function init(context: Ctx) {
   });
   $("dfold").addEventListener("click", () => {
     if (!openWs) return;
-    diff.foldAll((changesOf.get(openWs) ?? []).map((c) => c.path));
+    diff.foldAll(diff.keys(visible(openWs)));
+    drawChanges(openWs);
+  });
+  // Visto em tudo: leu, marcou, e o que o agente mudar depois é o que volta a
+  // contar na aba.
+  $("dseen").addEventListener("click", () => {
+    if (!openWs) return;
+    diff.seeAll(openWs, changesOf.get(openWs) ?? []);
+    diff.invalidate();
+    seenChanged(openWs);
     drawChanges(openWs);
   });
 
@@ -96,13 +107,6 @@ export function init(context: Ctx) {
     if (!ws) return;
     if (merged(ws)) finish(ws.id);
     else void openPr();
-  });
-
-  // Só o número e a seta: quem diz "PR" é o botão ao lado, e dois botões com o
-  // mesmo rótulo na mesma barra é o que fazia a barra ficar ambígua.
-  $("prlink").innerHTML = `<span></span>${icon("external-link", 12)}`;
-  $("prlink").addEventListener("click", () => {
-    if (openWs) invoke("open_pr", { id: openWs }).catch((e) => ctx.say(fromBack(e), true));
   });
 
   // Duplo clique renomeia, como no nome do workspace na migalha. Escuta na barra
@@ -262,7 +266,7 @@ export function draw() {
     // é a caixa de escrever.
     paintBranchName(ws.branch);
     $("pr").hidden = true;
-    $("prlink").hidden = true;
+    $("prlinks").hidden = true;
     $("offline").hidden = true;
     $("tabbar").hidden = false;
     $("side").hidden = true;
@@ -278,7 +282,7 @@ export function draw() {
   if (pending(ws)) {
     paintBranchName(ws.branch);
     $("pr").hidden = true;
-    $("prlink").hidden = true;
+    $("prlinks").hidden = true;
     $("dock").hidden = true;
     $("tabbar").hidden = true;
     $("side").hidden = true;
@@ -478,19 +482,34 @@ const PR_EVERY = 20_000;
 
 function paintPr(ws: Workspace) {
   const done = merged(ws);
+  const all = prs(ws);
   const ask = $("pr");
   ask.hidden = ws.cleaned;
-  ask.querySelector("span")!.textContent = done ? t("ws.finish") : ws.pr ? t("ws.pr.update") : t("ws.pr");
-  ask.title = done ? t("top.finish") : ws.pr ? t("top.pr.update") : t("top.pr");
+  ask.querySelector("span")!.textContent = done ? t("ws.finish") : all.length ? t("ws.pr.update") : t("ws.pr");
+  ask.title = done ? t("top.finish") : all.length ? t("top.pr.update") : t("top.pr");
   ask.classList.toggle("done", done);
   ask.firstElementChild!.outerHTML = icon(done ? "check" : "git-pull-request", 14);
 
-  const link = $("prlink");
-  link.hidden = !ws.pr;
-  if (!ws.pr) return;
-  const { number: n, title, isDraft, state } = ws.pr;
-  link.querySelector("span")!.textContent = `#${n}`;
-  link.title = t(state === "MERGED" ? "ws.pr.merged" : isDraft ? "ws.pr.draft" : "ws.pr.view", { n, title });
+  // Um link por PR — um por repositório que tem o seu. Só o número e a seta:
+  // quem diz "PR" é o botão ao lado, e dois botões com o mesmo rótulo na mesma
+  // barra é o que fazia a barra ficar ambígua. Com mais de um repo, o nome
+  // dele vai no title.
+  const links = $("prlinks");
+  links.hidden = !all.length;
+  links.replaceChildren(
+    ...all.map(({ repo, pr }) => {
+      const b = document.createElement("button");
+      b.className = "ghost md";
+      b.innerHTML = `<span></span>${icon("external-link", 12)}`;
+      b.children[0].textContent = `#${pr.number}`;
+      const what = t(pr.state === "MERGED" ? "ws.pr.merged" : pr.isDraft ? "ws.pr.draft" : "ws.pr.view", { n: pr.number, title: pr.title });
+      b.title = ws.repos.length > 1 ? `${repo} · ${what}` : what;
+      b.addEventListener("click", () => {
+        invoke("open_pr", { id: ws.id, repo }).catch((e) => ctx.say(fromBack(e), true));
+      });
+      return b;
+    }),
+  );
 }
 
 function drawPr(ws: Workspace) {
@@ -566,13 +585,14 @@ function drawTabs(ws: Workspace) {
   // A aba de Mudanças existe enquanto houver o que mostrar e você não a tiver
   // fechado — ou enquanto ela estiver aberta, para o worktree ficar limpo sem a
   // tela sumir debaixo de você.
-  const changes = changesOf.get(ws.id) ?? [];
-  if (fs.diff || (changes.length && !fs.hidDiff)) {
+  const changes = total(ws.id);
+  if (fs.diff || (changes && !fs.hidDiff)) {
     const b = document.createElement("button");
     b.className = "tab file" + (fs.diff ? " on" : "");
     b.innerHTML = `${icon("diff", 14)}<span></span><span class="n"></span>`;
     b.children[1].textContent = t("tab.changes");
-    b.children[2].textContent = changes.length ? String(changes.length) : "";
+    const fresh = unseen(ws.id);
+    b.children[2].textContent = fresh ? String(fresh) : "";
     b.title = t("tab.changes.title");
     b.addEventListener("click", () => showChanges());
     const x = document.createElement("span");
@@ -734,6 +754,7 @@ function files(id: string): Files {
 /// mapa aqui guardava para sempre o estado de tela de coisas que não existem.
 export function forget(alive: Set<string>) {
   for (const [id, f] of filesOf) if (!alive.has(id) && f.webTab) browser.close(id);
+  diff.pruneSeen(alive);
   for (const map of [filesOf, changesOf, branchOf] as Map<string, unknown>[]) {
     for (const id of map.keys()) if (!alive.has(id)) map.delete(id);
   }
@@ -906,9 +927,23 @@ export function closeActive(): boolean {
 
 /* ---------- mudanças ---------- */
 
-const changesOf = new Map<string, Change[]>();
+const changesOf = new Map<string, RepoDiff[]>();
+/// Quantos arquivos mudaram, e quantos você ainda não leu — é o segundo que a
+/// aba conta: o que interessa em acompanhar o agente é o que é novo para você.
+const total = (id: string) => diff.keys(changesOf.get(id) ?? []).length;
+const unseen = (id: string) => diff.unseen(id, changesOf.get(id) ?? []);
 
-/// Cada chamada é um `git diff` do worktree inteiro no back, e quem pede é o
+/// Só o que está fora de commit. É o chip no topo da lista, e vale para a
+/// lista e para o centro.
+let onlyDirty = false;
+
+/// O que a tela mostra: tudo, ou só o que está fora de commit.
+function visible(id: string): RepoDiff[] {
+  const repos = changesOf.get(id) ?? [];
+  return onlyDirty ? repos.map((r) => ({ ...r, files: r.files.filter((f) => f.dirty) })) : repos;
+}
+
+/// Cada chamada é um `git diff` por repositório no back, e quem pede é o
 /// evento do quadro — que chega a cada ferramenta que o agente usa. Juntar as
 /// rajadas aqui é o que separa "o diff acompanha sozinho" de "a tela trava
 /// enquanto o agente trabalha".
@@ -920,42 +955,15 @@ let request = 0;
 
 async function loadChanges(id: string) {
   const mine = ++request;
-  const changes = await invoke<Change[]>("workspace_diff", { id });
+  const repos = await invoke<RepoDiff[]>("workspace_diff", { id });
   if (mine !== request) return;
-  changesOf.set(id, changes);
-  $("diffcount").textContent = changes.length ? String(changes.length) : "";
-  $("review").hidden = !changes.length;
-  // Worktree limpo esquece que a aba foi fechada: o que sujar depois é trabalho
+  changesOf.set(id, repos);
+  const n = total(id);
+  $("review").hidden = !n;
+  // Branch limpa esquece que a aba foi fechada: o que sujar depois é trabalho
   // novo, e não o diff que você mandou embora.
-  if (!changes.length) files(id).hidDiff = false;
-
-  const list = $("difflist");
-  if (!changes.length) {
-    const none = document.createElement("div");
-    none.className = "none";
-    none.textContent = t("diff.clean");
-    list.replaceChildren(none);
-  } else {
-    list.replaceChildren(
-      ...changes.map((f) => {
-        // A lista é o índice da tela do centro: clicar rola até o arquivo.
-        const row = document.createElement("button");
-        row.className = "diffrow";
-        row.title = f.path;
-        // O nome do arquivo em primeiro plano e a pasta atrás dele, como no
-        // Conductor: numa lista de vinte arquivos é o nome que se procura.
-        const cut = f.path.lastIndexOf("/");
-        row.innerHTML = `<span class="p"><span class="dir"></span><span class="base"></span></span><span class="new"></span><span class="a"></span><span class="r"></span>`;
-        row.querySelector(".dir")!.textContent = cut === -1 ? "" : f.path.slice(0, cut + 1);
-        row.querySelector(".base")!.textContent = f.path.slice(cut + 1);
-        row.children[1].textContent = f.new_file ? t("diff.new") : "";
-        row.children[2].textContent = f.added ? `+${f.added}` : "";
-        row.children[3].textContent = f.removed ? `−${f.removed}` : "";
-        row.addEventListener("click", () => showChanges(f.path));
-        return row;
-      }),
-    );
-  }
+  if (!n) files(id).hidDiff = false;
+  drawList(id);
 
   const ws = current();
   if (ws?.id !== id) return;
@@ -963,20 +971,154 @@ async function loadChanges(id: string) {
   if (files(id).diff) drawChanges(id);
 }
 
+/// Você marcou (ou desmarcou) um arquivo como visto: a lista e a aba contam
+/// de novo. O centro já se pintou sozinho.
+function seenChanged(id: string) {
+  drawList(id);
+  const ws = current();
+  if (ws?.id === id) drawTabs(ws);
+}
+
+/// A lista da direita: o resumo no topo, e um arquivo por linha — em seção
+/// por repositório quando há mais de um. Redesenhada a cada resposta do back
+/// e a cada "visto", que muda o que a linha mostra.
+function drawList(id: string) {
+  const all = changesOf.get(id) ?? [];
+  const repos = visible(id);
+  const fresh = unseen(id);
+  $("diffcount").textContent = fresh ? String(fresh) : "";
+
+  const list = $("difflist");
+  if (!diff.keys(all).length) {
+    list.replaceChildren(nothing(t("diff.clean")));
+    return;
+  }
+  const multi = all.length > 1;
+  const rows = repos.flatMap((r) => {
+    if (!r.files.length) return [];
+    const rows = r.files.map((f) => diffRow(id, r.name, f));
+    if (!multi) return rows;
+    const k = `${id}/${r.name}`;
+    for (const row of rows) {
+      row.classList.add("in");
+      row.hidden = shutRepos.has(k);
+    }
+    return [repoRow(k, r, rows), ...rows];
+  });
+  if (!diff.keys(repos).length) rows.push(nothing(t("diff.clean.filtered")));
+  list.replaceChildren(summary(id, all), ...rows);
+}
+
+function nothing(text: string): HTMLElement {
+  const none = document.createElement("div");
+  none.className = "none";
+  none.textContent = text;
+  return none;
+}
+
+/// O resumo no topo da lista: quantos commits além da base, e o chip do que
+/// está fora de commit — que também é o filtro.
+function summary(id: string, repos: RepoDiff[]): HTMLElement {
+  const box = template("div", "diffsum", `<span class="ahead"></span><button class="dirtyf"></button>`);
+  const ahead = repos.reduce((n, r) => n + r.ahead, 0);
+  const dirty = repos.reduce((n, r) => n + r.dirty, 0);
+  // Com um repo a base tem nome; com mais de um, cada um tem a sua, e ela fica
+  // no cabeçalho do repo.
+  box.children[0].textContent =
+    repos.length === 1 && repos[0].base ? tn(ahead, "diff.ahead", { base: repos[0].base }) : tn(ahead, "diff.commits");
+  const chip = box.children[1] as HTMLElement;
+  chip.hidden = !dirty && !onlyDirty;
+  chip.innerHTML = `<span class="dot"></span><span></span>`;
+  chip.children[1].textContent = t("diff.uncommitted", { n: dirty });
+  chip.classList.toggle("on", onlyDirty);
+  chip.title = t(onlyDirty ? "diff.onlyDirty" : "diff.onlyDirty.off");
+  chip.addEventListener("click", () => {
+    onlyDirty = !onlyDirty;
+    drawList(id);
+    if (files(id).diff) drawChanges(id);
+  });
+  return box;
+}
+
+/// Uma linha da lista: o índice da tela do centro — clicar rola até o arquivo.
+/// O ponto é pedaço fora de commit; o check da ponta é "visto".
+function diffRow(id: string, repo: string, f: Change): HTMLElement {
+  const row = document.createElement("button");
+  const seen = diff.isSeen(id, repo, f);
+  row.className = "diffrow" + (seen ? " seen" : "");
+  row.title = f.path;
+  // O nome do arquivo em primeiro plano e a pasta atrás dele, como no
+  // Conductor: numa lista de vinte arquivos é o nome que se procura.
+  const cut = f.path.lastIndexOf("/");
+  row.innerHTML =
+    `<span class="p"><span class="dir"></span><span class="base"></span></span>` +
+    `<span class="new"></span><span class="dot"></span><span class="a"></span><span class="r"></span><span class="chk"></span>`;
+  row.querySelector(".dir")!.textContent = cut === -1 ? "" : f.path.slice(0, cut + 1);
+  row.querySelector(".base")!.textContent = f.path.slice(cut + 1);
+  row.children[1].textContent = f.new_file ? t("diff.new") : f.deleted ? t("diff.deleted") : "";
+  const dot = row.children[2] as HTMLElement;
+  dot.hidden = !f.dirty;
+  dot.title = t("diff.dirty");
+  row.children[3].textContent = f.added ? `+${f.added}` : "";
+  row.children[4].textContent = f.removed ? `−${f.removed}` : "";
+  row.children[5].innerHTML = seen ? icon("check", 13) : "";
+  row.addEventListener("click", () => showChanges(diff.key(repo, f.path)));
+  return row;
+}
+
+/// Quais repositórios estão recolhidos na lista. Sobrevive ao redesenho, que
+/// chega a cada ferramenta que o agente usa — senão recolher não recolheria.
+const shutRepos = new Set<string>();
+
+/// O cabeçalho de um repositório na lista: nome, quantos arquivos, a soma; de
+/// onde a branch saiu fica no title. Clique recolhe os arquivos dele.
+function repoRow(k: string, r: RepoDiff, rows: HTMLElement[]): HTMLElement {
+  const row = document.createElement("button");
+  row.className = "diffrepo";
+  row.title = r.base ? tn(r.ahead, "diff.ahead", { base: r.base }) : tn(r.ahead, "diff.commits");
+  row.innerHTML = `<span class="tw"></span><span class="nm"></span><span class="cnt"></span><span class="a"></span><span class="r"></span>`;
+  row.children[1].textContent = r.name;
+  row.children[2].textContent = tn(r.files.length, "diff.files");
+  const added = diff.sum(r.files, "added");
+  const removed = diff.sum(r.files, "removed");
+  row.children[3].textContent = added ? `+${added}` : "";
+  row.children[4].textContent = removed ? `−${removed}` : "";
+  const glyph = () => {
+    row.children[0].innerHTML = icon(shutRepos.has(k) ? "chevron-right" : "chevron-down", 14);
+  };
+  row.addEventListener("click", () => {
+    shutRepos.has(k) ? shutRepos.delete(k) : shutRepos.add(k);
+    for (const f of rows) f.hidden = shutRepos.has(k);
+    glyph();
+  });
+  glyph();
+  return row;
+}
+
 /// Resumo na barra e o diff empilhado embaixo. Redesenhar é barato: a tela só é
 /// refeita quando algum patch mudou de verdade.
 function drawChanges(id: string, focus?: string) {
-  const changes = changesOf.get(id) ?? [];
-  const added = changes.reduce((n, c) => n + c.added, 0);
-  const removed = changes.reduce((n, c) => n + c.removed, 0);
+  const all = changesOf.get(id) ?? [];
+  const repos = visible(id);
+  const shown = repos.flatMap((r) => r.files);
+  const added = diff.sum(shown, "added");
+  const removed = diff.sum(shown, "removed");
 
   const crumb = $("dcrumb");
   crumb.innerHTML = `${icon("diff", 14)}<span class="nm"></span><span class="a"></span><span class="r"></span>`;
-  crumb.children[1].textContent = tn(changes.length, "diff.files");
+  const ahead = all.reduce((n, r) => n + r.ahead, 0);
+  const head = all.length === 1 && all[0].base ? tn(ahead, "diff.ahead", { base: all[0].base }) : tn(ahead, "diff.commits");
+  crumb.children[1].textContent = `${head} · ${tn(shown.length, "diff.files")}`;
   crumb.children[2].textContent = added ? `+${added}` : "";
   crumb.children[3].textContent = removed ? `−${removed}` : "";
 
-  diff.render($("dlist"), id, changes, focus);
+  diff.render($("dlist"), {
+    id,
+    repos,
+    focus,
+    empty: t(onlyDirty ? "diff.clean.filtered" : "diff.clean.long"),
+    onSeen: () => seenChanged(id),
+  });
 }
 
 /* ---------- painel da direita ---------- */

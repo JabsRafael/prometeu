@@ -1,27 +1,37 @@
 //! Integração com GitHub CLI. O resto da sessão trabalha com git e worktrees;
 //! descoberta, cache e abertura de PRs ficam nesta borda de rede/processo.
+//!
+//! O PR é do repositório, não do workspace: um workspace com mais de um repo
+//! tem um PR por repo, cada um na mesma branch, cada um com o seu histórico.
 
 use crate::domain::Pr;
 use crate::lock::lock;
-use crate::state::{publish, Workspace};
+use crate::state::{publish, Repo, Workspace};
 use crate::{i18n, AppState};
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use tauri::{AppHandle, State};
 
-/// Pergunta o PR desta branch e grava no quadro. É o caminho rápido de quem
-/// abriu o workspace; a varredura periódica continua sendo a rede de proteção.
+/// Pergunta o PR desta branch em cada repositório do workspace e grava no
+/// quadro. É o caminho rápido de quem abriu o workspace; a varredura periódica
+/// continua sendo a rede de proteção.
 #[tauri::command(async)]
-pub fn pr_open(app: AppHandle, state: State<AppState>, id: String) -> Option<Pr> {
-    let worktree = worktree_of(&state, &id)?;
-    let pr = pr_for_branch(&worktree, &head_branch(&worktree)?);
-    remember(&app, &state, &id, pr.clone());
-    pr
+pub fn pr_open(app: AppHandle, state: State<AppState>, id: String) {
+    let found: Vec<(String, Option<Pr>)> = repos_of(&state, &id)
+        .iter()
+        .map(|repo| {
+            let worktree = Path::new(&repo.worktree);
+            let pr = head_branch(worktree).and_then(|branch| pr_for_branch(worktree, &branch));
+            (repo.name.clone(), pr)
+        })
+        .collect();
+    remember(&app, &state, &id, found);
 }
 
-/// Uma consulta ao `gh` por repositório, não uma por workspace. Falha de rede
-/// não apaga o último estado conhecido do quadro.
+/// Uma consulta ao `gh` por clone, não uma por workspace: dois workspaces do
+/// mesmo repositório, e os dois repos de um workspace, cabem na mesma
+/// resposta. Falha de rede não apaga o último estado conhecido do quadro.
 #[tauri::command(async)]
 pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
     let alive: Vec<Workspace> = lock(&state.board)
@@ -31,36 +41,44 @@ pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
         .cloned()
         .collect();
 
-    let mut by_repo: BTreeMap<String, Vec<Workspace>> = BTreeMap::new();
-    for workspace in alive {
-        by_repo
-            .entry(workspace.repo.clone())
-            .or_default()
-            .push(workspace);
+    // Clone → (workspace, nome do repo nele, branch).
+    let mut by_clone: BTreeMap<String, Vec<(String, String, String)>> = BTreeMap::new();
+    for workspace in &alive {
+        for repo in &workspace.repos {
+            by_clone.entry(repo.path.clone()).or_default().push((
+                workspace.id.clone(),
+                repo.name.clone(),
+                workspace.branch.clone(),
+            ));
+        }
     }
 
-    let mut found: Vec<(String, Option<Pr>)> = Vec::new();
-    for (repo, workspaces) in by_repo {
-        let prs = list_repo(Path::new(&repo));
+    let mut found: Vec<(String, String, Option<Pr>)> = Vec::new();
+    for (clone, list) in by_clone {
+        let prs = list_repo(Path::new(&clone));
         if prs.is_empty() {
             continue;
         }
-        for workspace in workspaces {
-            found.push((workspace.id, pick(&prs, &workspace.branch)));
+        for (id, name, branch) in list {
+            found.push((id, name, pick(&prs, &branch)));
         }
     }
 
     let mut moved = false;
     {
         let mut board = lock(&state.board);
-        for (id, pr) in found {
-            if let Some(workspace) = board.workspace_mut(&id) {
-                if same(workspace.pr.as_ref(), pr.as_ref()) {
-                    continue;
-                }
-                workspace.pr = pr;
-                moved = true;
+        for (id, name, pr) in found {
+            let Some(workspace) = board.workspace_mut(&id) else {
+                continue;
+            };
+            let Some(repo) = workspace.repos.iter_mut().find(|repo| repo.name == name) else {
+                continue;
+            };
+            if same(repo.pr.as_ref(), pr.as_ref()) {
+                continue;
             }
+            repo.pr = pr;
+            moved = true;
         }
     }
     if moved {
@@ -68,19 +86,29 @@ pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
     }
 }
 
-/// Abre no navegador o PR desta branch. O `gh` descobre e abre a URL; nenhuma
+/// Abre no navegador o PR desta branch num repositório do workspace — o que a
+/// tela pediu pelo nome, ou o principal. O `gh` descobre e abre a URL; nenhuma
 /// URL atravessa o IPC.
 #[tauri::command(async)]
-pub fn open_pr(state: State<AppState>, id: String) -> Result<(), String> {
+pub fn open_pr(state: State<AppState>, id: String, repo: String) -> Result<(), String> {
     let workspace =
         workspace_copy(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
-    let primary = workspace.primary();
-    let (dir, what) = match (workspace.cleaned, workspace.pr.as_ref()) {
-        (false, _) => (
-            primary.worktree.clone(),
-            head_branch(Path::new(&primary.worktree)).ok_or_else(|| i18n::t("err.session.noPr"))?,
+    let repo = workspace
+        .repos
+        .iter()
+        .find(|candidate| candidate.name == repo)
+        .cloned()
+        .unwrap_or_else(|| workspace.primary());
+    // Com o número gravado no quadro, é ele que abre — inclusive com o worktree
+    // devolvido, quando o `gh` roda de dentro do clone: PR mergeado continua
+    // sendo lugar aonde se volta. Sem número, a branch do worktree responde.
+    let (dir, what) = match (workspace.cleaned, repo.pr.as_ref()) {
+        (false, None) => (
+            repo.worktree.clone(),
+            head_branch(Path::new(&repo.worktree)).ok_or_else(|| i18n::t("err.session.noPr"))?,
         ),
-        (true, Some(pr)) => (workspace.repo.clone(), pr.number.to_string()),
+        (false, Some(pr)) => (repo.worktree.clone(), pr.number.to_string()),
+        (true, Some(pr)) => (repo.path.clone(), pr.number.to_string()),
         (true, None) => return Err(i18n::t("err.session.noPr")),
     };
     let ok = Command::new("gh")
@@ -130,18 +158,34 @@ fn list(dir: &Path, extra: &[&str]) -> Vec<Pr> {
     serde_json::from_slice::<Vec<Pr>>(&out.stdout).unwrap_or_default()
 }
 
-fn remember(app: &AppHandle, state: &State<AppState>, id: &str, pr: Option<Pr>) {
+/// Guarda no quadro o que o `gh` respondeu para cada repositório. Resposta
+/// vazia com PR já conhecido é `gh` mudo — sem rede, sem login —, e esquecer o
+/// PR por causa disso faria o botão da barra piscar entre "Atualizar PR" e
+/// "Open PR".
+fn remember(app: &AppHandle, state: &State<AppState>, id: &str, found: Vec<(String, Option<Pr>)>) {
+    let mut moved = false;
     {
         let mut board = lock(&state.board);
         let Some(workspace) = board.workspace_mut(id) else {
             return;
         };
-        if pr.is_none() && workspace.pr.is_some() {
-            return;
+        for (name, pr) in found {
+            let Some(repo) = workspace.repos.iter_mut().find(|repo| repo.name == name) else {
+                continue;
+            };
+            if pr.is_none() && repo.pr.is_some() {
+                continue;
+            }
+            if same(repo.pr.as_ref(), pr.as_ref()) {
+                continue;
+            }
+            repo.pr = pr;
+            moved = true;
         }
-        workspace.pr = pr;
     }
-    publish(app);
+    if moved {
+        publish(app);
+    }
 }
 
 fn same(left: Option<&Pr>, right: Option<&Pr>) -> bool {
@@ -174,12 +218,15 @@ fn workspace_copy(state: &State<AppState>, id: &str) -> Option<Workspace> {
         .cloned()
 }
 
-fn worktree_of(state: &State<AppState>, id: &str) -> Option<PathBuf> {
+/// Os repositórios de um workspace que ainda tem worktree, na ordem dele — o
+/// principal primeiro. Devolvido ao disco é lista vazia.
+fn repos_of(state: &State<AppState>, id: &str) -> Vec<Repo> {
     lock(&state.board)
         .workspaces
         .iter()
         .find(|workspace| workspace.id == id && !workspace.cleaned)
-        .map(|workspace| PathBuf::from(workspace.primary().worktree.as_str()))
+        .map(|workspace| workspace.repos.clone())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

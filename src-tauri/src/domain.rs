@@ -2,8 +2,9 @@
 //! ao adaptador que os descobre (`session`/`gh`): mantê-los aqui evita que o
 //! estado persistido dependa de um módulo de comandos Tauri.
 
-/// O PR desta branch, como o `gh` o descreve.
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+/// O PR desta branch, como o `gh` o descreve. Compara e imprime porque mora
+/// dentro de `Repo`, que compara e imprime nos testes.
+#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Pr {
     pub number: u64,

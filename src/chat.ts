@@ -1205,7 +1205,7 @@ function inputView(name: string, input: unknown): HTMLElement {
 const CTX_COLORS = ["#ff6b3d", "#f5a623", "#e3c84a", "#7cc576", "#4fb3bf", "#5b8def", "#9b6bd6", "#d66bb0", "#8a8a8a"];
 
 function contextPanel(r: Report): HTMLElement {
-  const el = h("div", "ctx");
+  const el = h("div", "ctxpanel");
   const head = template("div", "ctxhead", `<b></b><span class="model"></span><span class="use"></span>`);
   head.querySelector("b")!.textContent = t("chat.ctx.title");
   head.querySelector(".model")!.textContent = r.model;

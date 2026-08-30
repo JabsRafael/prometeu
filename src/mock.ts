@@ -3,7 +3,7 @@
 /// `window.__TAURI_INTERNALS__` não existe — dentro do app não é carregado.
 import { encodeLive, encodeSnapshot } from "../relay/src/protocol";
 import * as team from "./team";
-import { hasWorktree, type Board, type Issue, type LinearStatus, type Scripts, type Workspace } from "./types";
+import { hasWorktree, type Board, type Issue, type LinearStatus, type Pr, type Scripts, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
@@ -25,7 +25,7 @@ const ws = (
   repo_name: repo,
   branch: `prometheus/${id}`,
   worktree: `~/.prometheus/worktrees/${repo}/prometheus-${id}`,
-  repos: [{ path: `/Users/gustavo/dev/${repo}`, name: repo, worktree: `~/.prometheus/worktrees/${repo}/prometheus-${id}` }],
+  repos: [{ path: `/Users/gustavo/dev/${repo}`, name: repo, worktree: `~/.prometheus/worktrees/${repo}/prometheus-${id}`, base: "origin/main", pr: null }],
   stage,
   archived: false,
   pinned: false,
@@ -37,7 +37,6 @@ const ws = (
   effort: "high",
   port: 3100,
   issue: null,
-  pr: null,
   cleaned: false,
   shared: false,
   audience: null,
@@ -62,6 +61,34 @@ const board: Board = {
     ws("ui-2231", "p2", "prometheus", "Tela igual ao Conductor", "Fazendo", [
       { id: "t3", title: "conversa 1", status: "rodando", note: "Edit src/style.css", tokens: 23_800 },
     ]),
+    // Dois repositórios na mesma branch: é aqui que a lista de mudanças ganha
+    // uma seção por repo.
+    Object.assign(
+      ws("portal-1217", "p2", "prometheus", "Contratação pelo portal", "Fazendo", [
+        { id: "t9", title: "conversa 1", status: "rodando", note: "Edit app/models/entry.rb", tokens: 31_000 },
+      ]),
+      {
+        worktree: "~/.prometheus/worktrees/prometheus+njord/prometheus-portal-1217",
+        // Um PR por repositório: o do njord já entrou, o do prometheus ainda
+        // não — e é por isso que a barra não oferece "Concluir".
+        repos: [
+          {
+            path: "/Users/gustavo/dev/prometheus",
+            name: "prometheus",
+            worktree: "~/.prometheus/worktrees/prometheus+njord/prometheus-portal-1217/prometheus",
+            base: "origin/main",
+            pr: { number: 51, title: "feat(portal): contratação pelo portal", isDraft: false, state: "OPEN" },
+          },
+          {
+            path: "/Users/gustavo/dev/njord",
+            name: "njord",
+            worktree: "~/.prometheus/worktrees/prometheus+njord/prometheus-portal-1217/njord",
+            base: "origin/develop",
+            pr: { number: 12, title: "feat: origem da entrada", isDraft: false, state: "MERGED" },
+          },
+        ],
+      },
+    ),
     // Uma pergunta esperando você é justamente o que vira novidade.
     Object.assign(
       ws("icone-2140", "p2", "prometheus", "Ícone do app", "Code review", [
@@ -102,6 +129,13 @@ const board: Board = {
     ),
   ],
 };
+
+// O PR é do repositório, não do workspace: o que as amostras acima escrevem
+// solto vai para o principal — o mesmo caminho do `revive` do back.
+for (const w of board.workspaces as (Workspace & { pr?: Pr | null })[]) {
+  if (w.pr) w.repos[0].pr = w.pr;
+  delete w.pr;
+}
 
 const tree: Record<string, { name: string; path: string; dir: boolean }[]> = {
   "": [
@@ -151,12 +185,50 @@ end
   ".rubocop.yml": "# Omakase Ruby styling for Rails\ninherit_gem: { rubocop-rails-omakase: rubocop.yml }\n\nAllCops:\n  TargetRubyVersion: 3.4\n  NewCops: enable\n",
 };
 
+/// As mudanças do segundo repositório do workspace de dois: o outro lado da
+/// mesma feature, com histórico próprio.
+const changes2 = [
+  {
+    path: "app/models/entry.rb",
+    added: 5,
+    removed: 1,
+    new_file: false, deleted: false, dirty: true,
+    patch: [
+      "@@ -4,7 +4,11 @@ class Entry < ApplicationRecord",
+      "   belongs_to :category",
+      "-  validates :amount, presence: true",
+      "+  validates :amount, presence: true, numericality: { greater_than: 0 }",
+      "+",
+      "+  def portal?",
+      '+    source == "portal"',
+      "+  end",
+      " ",
+      "   scope :month, ->(m) { where(date: m.beginning_of_month..m.end_of_month) }",
+      " end",
+    ].join("\n"),
+  },
+  {
+    path: "db/migrate/20260829120000_add_source_to_entries.rb",
+    added: 5,
+    removed: 0,
+    new_file: true, deleted: false, dirty: false,
+    patch: [
+      "@@ -0,0 +1,5 @@",
+      "+class AddSourceToEntries < ActiveRecord::Migration[7.1]",
+      "+  def change",
+      "+    add_column :entries, :source, :string",
+      "+  end",
+      "+end",
+    ].join("\n"),
+  },
+];
+
 const changes = [
   {
     path: "src/style.css",
     added: 6,
     removed: 2,
-    new_file: false,
+    new_file: false, deleted: false, dirty: true,
     patch: [
       "@@ -212,7 +212,11 @@ .card {",
       "   display: flex;",
@@ -177,7 +249,7 @@ const changes = [
     path: "src/icons.ts",
     added: 4,
     removed: 0,
-    new_file: true,
+    new_file: true, deleted: false, dirty: false,
     patch: [
       "@@ -0,0 +1,4 @@",
       '+export function icon(name: string, size = 16): string {',
@@ -186,7 +258,7 @@ const changes = [
       "+}",
     ].join("\n"),
   },
-  { path: "public/logo.png", added: 0, removed: 0, new_file: true, patch: "" },
+  { path: "public/logo.png", added: 0, removed: 0, new_file: true, deleted: false, dirty: true, patch: "" },
 ];
 
 /// Uma conversa de mentira, no formato do stream: o que o `claude -p` teria
@@ -482,8 +554,16 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       return;
     case "pty_write":
       return;
-    case "workspace_diff":
-      return changes;
+    // Um grupo por repositório, como o back: o primeiro leva as mudanças de
+    // sempre, e o segundo (só no workspace de dois repos) as do outro lado.
+    case "workspace_diff": {
+      const target = board.workspaces.find((x) => x.id === args.id);
+      return (target?.repos ?? []).map((r, i) => {
+        const files = i === 0 ? changes : changes2;
+        const base = i === 0 ? "origin/main" : "origin/develop";
+        return { name: r.name, base, ahead: i === 0 ? 3 : 1, dirty: files.filter((f) => f.dirty).length, files };
+      });
+    }
     case "list_dir":
       return tree[args.rel ?? ""] ?? [];
     case "read_file":
@@ -599,6 +679,8 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
           path: String(p),
           name: names[i],
           worktree: `${fresh.worktree}/${names[i]}`,
+          base: "origin/main",
+          pr: null,
         }));
       }
       fresh.agent = draft.agent;
@@ -656,10 +738,11 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     case "browser_reload":
     case "browser_close":
       return null;
-    // Só o workspace que já está em code review tem PR — é assim que se vê o
-    // botão aparecendo num e não no outro.
+    // No navegador não há `gh`: o PR que o quadro já sabe é o que ele mostra,
+    // e só o workspace em code review tem — é assim que se vê o botão
+    // aparecendo num e não no outro.
     case "pr_open":
-      return board.workspaces.find((x) => x.id === args.id)?.pr ?? null;
+      return null;
     // No navegador não há `gh`: o que o quadro já sabe é o que ele continua
     // sabendo.
     case "refresh_prs":
@@ -684,7 +767,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
           branch: x.branch,
           worktree: x.worktree,
           sizeKb: 2_900_000 - i * 700_000,
-          pr: x.pr?.number ?? null,
+          pr: x.repos.find((r) => r.pr)?.pr?.number ?? null,
           // Um bloqueado na lista é o que mostra a linha em vermelho com o
           // motivo — e ela dá para marcar assim mesmo.
           blocked: i === 1 ? 'i18n:{"args":{"n":"3"},"code":"err.cleanup.dirty"}' : null,

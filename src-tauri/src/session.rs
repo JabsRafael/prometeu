@@ -292,10 +292,11 @@ pub fn cleanup_list(state: State<AppState>) -> Vec<Cleanable> {
             .map(|ws| {
                 scope.spawn(move || {
                     let wt = PathBuf::from(&ws.worktree);
+                    let pr = ws.prs().next().map(|(_, p)| p.number);
                     Cleanable {
                         size_kb: size_of(&wt),
                         blocked: check(&ws).err(),
-                        pr: ws.pr.as_ref().map(|p| p.number),
+                        pr,
                         id: ws.id,
                         title: ws.title,
                         repo_name: ws.repo_name,
@@ -428,9 +429,7 @@ fn check(ws: &Workspace) -> Result<(), String> {
         if dirty > 0 {
             return Err(i18n::ta("err.cleanup.dirty", &[("n", dirty.to_string())]));
         }
-        // O PR que o quadro guarda é o do principal; os outros só têm o git.
-        let pr = (r.path == ws.repo).then_some(ws.pr.as_ref()).flatten();
-        if !merged(pr, &wt) {
+        if !merged(r.pr.as_ref(), &wt) {
             return Err(i18n::ta(
                 "err.cleanup.unmerged",
                 &[("branch", ws.branch.clone())],
@@ -660,18 +659,29 @@ pub fn create_workspace(
             head_branch(&repo_path).unwrap_or_else(|| "HEAD".into()),
         ),
     };
+    // A base escolhida no lançador é do principal — a lista de branches era
+    // dele. Nos outros, a branch nova sai do que cada clone tem como principal
+    // (`origin/main`, ou o que o clone gravou). Fica gravada por repo: é contra
+    // ela que a tela de mudanças conta o que esta branch tem.
     let repos: Vec<Repo> = match extras.is_empty() {
         true => vec![Repo {
             path: repo_path.display().to_string(),
             name: repo_name.clone(),
             worktree: root.display().to_string(),
+            base: draft.base.clone(),
+            pr: None,
         }],
-        false => std::iter::once((repo_path.clone(), repo_name.clone()))
-            .chain(extras)
-            .map(|(path, name)| Repo {
+        false => std::iter::once((repo_path.clone(), repo_name.clone(), draft.base.clone()))
+            .chain(extras.into_iter().map(|(path, name)| {
+                let base = default_base(&path);
+                (path, name, base)
+            }))
+            .map(|(path, name, base)| Repo {
                 worktree: root.join(&name).display().to_string(),
                 path: path.display().to_string(),
                 name,
+                base,
+                pr: None,
             })
             .collect(),
     };
@@ -787,17 +797,11 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
     // aqui atrás e não entre o clique e a resposta.
     //
     // Com mais de um repositório é um worktree por repo, todos na mesma
-    // branch. A base escolhida no lançador é do principal — a lista de
-    // branches era dele —, e nos outros a branch nova sai do que cada um tem
-    // como principal (`origin/main`, ou o que o clone gravou). Branch que já
-    // existe no repo ignora a base de qualquer jeito.
+    // branch, cada um saindo da base gravada nele. Branch que já existe no
+    // repo ignora a base de qualquer jeito.
     if draft.worktree {
         for r in &repos {
-            let base = match r.path == repo.display().to_string() {
-                true => draft.base.clone(),
-                false => default_base(Path::new(&r.path)),
-            };
-            add_worktree(Path::new(&r.path), &branch, &base, Path::new(&r.worktree))?;
+            add_worktree(Path::new(&r.path), &branch, &r.base, Path::new(&r.worktree))?;
         }
         if repos.len() > 1 {
             describe_root(&root, &repos, &branch);
@@ -1413,6 +1417,10 @@ pub struct FileChange {
     pub added: u32,
     pub removed: u32,
     pub new_file: bool,
+    pub deleted: bool,
+    /// Tem pedaço fora de commit: mexido depois do HEAD, ou nem adicionado
+    /// ainda. É o ponto ao lado do nome.
+    pub dirty: bool,
     /// Os trechos `@@` do diff, sem o cabeçalho `diff --git`/`index`, que a
     /// tela não mostra. Vem vazio quando não há o que desenhar: binário, ou
     /// patch grande demais para valer a viagem até a webview.
@@ -1428,30 +1436,134 @@ pub fn workspace_branch(state: State<AppState>, id: String) -> Option<String> {
     head_branch(&worktree_of(&state, &id)?)
 }
 
-/// O que mudou no worktree deste workspace — compartilhado por todas as abas,
-/// que é justamente o motivo de elas existirem. A conta fica em `changes_in`,
-/// que é o que o teste consegue rodar contra um worktree de verdade.
-/// `async` porque isto é o caminho mais quente do app: dois `git` e a leitura
-/// de todo arquivo novo, e a tela pede de novo a cada ferramenta que o agente
-/// usa. Na thread principal, era a janela travando em rajada — o front ainda
-/// junta as chamadas por cima disto.
+/// O que mudou num repositório do workspace: o que está nos commits desta
+/// branch e o que ainda está fora de commit, numa lista só, contra a base de
+/// onde a branch saiu. Com mais de um repo, cada um é uma seção da tela; com
+/// um só, é a tela inteira. Repo sem mudança vem com a lista vazia, e não
+/// some: é a tela que decide o que dizer dele.
+#[derive(serde::Serialize)]
+pub struct RepoDiff {
+    pub name: String,
+    /// De onde a branch saiu, como está gravado — `origin/main`, `develop`.
+    pub base: String,
+    /// Quantos commits esta branch tem além da base.
+    pub ahead: u32,
+    /// Quantos arquivos têm pedaço fora de commit.
+    pub dirty: u32,
+    pub files: Vec<FileChange>,
+}
+
+/// O que mudou neste workspace, repositório por repositório, na ordem em que
+/// eles estão nele — o principal primeiro. Compartilhado por todas as abas, que
+/// é justamente o motivo de elas existirem. A conta de cada repo fica em
+/// `changes_in`, que é o que o teste consegue rodar contra um worktree de
+/// verdade. `async` porque isto é o caminho mais quente do app: dois `git` e a
+/// leitura de todo arquivo novo, por repo, e a tela pede de novo a cada
+/// ferramenta que o agente usa. Na thread principal, era a janela travando em
+/// rajada — o front ainda junta as chamadas por cima disto.
 #[tauri::command(async)]
-pub fn workspace_diff(state: State<AppState>, id: String) -> Vec<FileChange> {
-    match worktree_of(&state, &id) {
-        Some(worktree) => changes_in(&worktree),
-        None => Vec::new(),
+pub fn workspace_diff(app: AppHandle, state: State<AppState>, id: String) -> Vec<RepoDiff> {
+    let mut repos = repos_of(&state, &id);
+
+    // Workspace gravado antes de a base existir: o padrão do clone serve, e
+    // fica no quadro para a próxima vez não perguntar ao git de novo — isto
+    // roda a cada ferramenta que o agente usa.
+    let mut learned = false;
+    for r in &mut repos {
+        if r.base.is_empty() {
+            r.base = default_base(Path::new(&r.path));
+            learned |= !r.base.is_empty();
+        }
+    }
+    if learned {
+        {
+            let mut board = lock(&state.board);
+            if let Some(ws) = board.workspace_mut(&id) {
+                for (mine, found) in ws.repos.iter_mut().zip(&repos) {
+                    if mine.base.is_empty() {
+                        mine.base = found.base.clone();
+                    }
+                }
+            }
+        }
+        publish(&app);
+    }
+
+    // Cada repositório é um git à parte, e nenhum depende do outro: os diffs
+    // saem ao mesmo tempo, e o workspace de três repos espera pelo mais lento,
+    // não pela soma.
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = repos
+            .iter()
+            .map(|r| scope.spawn(move || repo_diff(&r.name, Path::new(&r.worktree), &r.base)))
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    })
+}
+
+/// O diff de um repositório contra a base da branch: commits daqui e o que
+/// está fora de commit, numa lista só. Sem a base no clone — remoto que
+/// ninguém buscou, branch apagada — o ponto de partida vira o HEAD: sobra o
+/// que está fora de commit, que é melhor do que nada.
+fn repo_diff(name: &str, wt: &Path, base: &str) -> RepoDiff {
+    let (since, ahead) = ahead_of(wt, base);
+    let mut files = changes_since(wt, &since);
+    // Fora de commit: o que o `git diff HEAD` vê. O que nem foi adicionado
+    // ainda já nasce marcado em `changes_since`.
+    let uncommitted: std::collections::HashSet<String> =
+        git(wt, &["diff", "--name-only", "--no-renames", "HEAD"])
+            .lines()
+            .map(str::to_string)
+            .collect();
+    for f in &mut files {
+        f.dirty |= uncommitted.contains(&f.path);
+    }
+    let dirty = files.iter().filter(|f| f.dirty).count() as u32;
+    RepoDiff {
+        name: name.to_string(),
+        base: base.to_string(),
+        ahead,
+        dirty,
+        files,
     }
 }
 
+/// De onde a branch diverge da base, e quantos commits ela tem de lá para cá.
+/// Sem base, ou sem ela no clone, o ponto é o HEAD e a conta é zero.
+fn ahead_of(wt: &Path, base: &str) -> (String, u32) {
+    let since = match base.is_empty() {
+        true => String::new(),
+        false => git(wt, &["merge-base", base, "HEAD"]).trim().to_string(),
+    };
+    match since.is_empty() {
+        true => ("HEAD".to_string(), 0),
+        false => {
+            let n = git(wt, &["rev-list", "--count", &format!("{since}..HEAD")])
+                .trim()
+                .parse()
+                .unwrap_or(0);
+            (since, n)
+        }
+    }
+}
+
+/// Só o que está fora de commit — é o que o pedido de PR conta.
 fn changes_in(wt: &Path) -> Vec<FileChange> {
+    changes_since(wt, "HEAD")
+}
+
+/// O que mudou no worktree desde `since` — um commit, ou `HEAD` para só o que
+/// está fora de commit. Por caminho, sempre: a lista é lida enquanto o agente
+/// trabalha, e arquivo que troca de lugar a cada ferramenta não se acompanha.
+fn changes_since(wt: &Path, since: &str) -> Vec<FileChange> {
     // `--no-renames` para o caminho do numstat e o do patch serem o mesmo: com
     // detecção de rename o numstat diz `src/{a => b}.ts` e o patch diz `b`.
     let mut patches = patch_map(&git(
         wt,
-        &["diff", "--no-color", "--no-renames", "-U3", "HEAD"],
+        &["diff", "--no-color", "--no-renames", "-U3", since],
     ));
 
-    let mut out: Vec<FileChange> = git(wt, &["diff", "--numstat", "--no-renames", "HEAD"])
+    let mut out: Vec<FileChange> = git(wt, &["diff", "--numstat", "--no-renames", since])
         .lines()
         .filter_map(|l| {
             let mut f = l.split('\t');
@@ -1463,8 +1575,10 @@ fn changes_in(wt: &Path) -> Vec<FileChange> {
                 path,
                 added,
                 removed,
-                new_file: false,
-                patch,
+                new_file: patch.new,
+                deleted: patch.deleted,
+                dirty: false,
+                patch: patch.body,
             })
         })
         .collect();
@@ -1487,36 +1601,62 @@ fn changes_in(wt: &Path) -> Vec<FileChange> {
             added,
             removed: 0,
             new_file: true,
+            deleted: false,
+            dirty: true,
             patch: cap(patch),
         });
     }
 
-    out.sort_by_key(|c| std::cmp::Reverse(c.added + c.removed));
+    out.sort_by(|a, b| a.path.cmp(&b.path));
     out
+}
+
+/// Um arquivo dentro da saída de `git diff`: os trechos, e o que o cabeçalho
+/// disse sobre ele nascer ou morrer ali.
+#[derive(Default)]
+struct Patch {
+    body: String,
+    new: bool,
+    deleted: bool,
 }
 
 /// Corta a saída de um `git diff` em um patch por arquivo. Guarda só as linhas
 /// dos trechos: o caminho sai do `+++ b/…` (ou do `--- a/…`, quando o arquivo
-/// foi apagado e o destino é `/dev/null`), que aguenta nome com espaço.
-fn patch_map(text: &str) -> std::collections::HashMap<String, String> {
+/// foi apagado e o destino é `/dev/null`), que aguenta nome com espaço. O
+/// `new file mode`/`deleted file mode` do cabeçalho vira a marca do arquivo.
+fn patch_map(text: &str) -> std::collections::HashMap<String, Patch> {
     let mut out = std::collections::HashMap::new();
     let mut path = String::new();
     let mut old = String::new();
     let mut body: Vec<&str> = Vec::new();
+    let mut flags = (false, false);
     let mut in_hunk = false;
 
-    let mut flush = |path: &mut String, body: &mut Vec<&str>| {
+    let mut flush = |path: &mut String, body: &mut Vec<&str>, flags: &mut (bool, bool)| {
         if !path.is_empty() {
-            out.insert(std::mem::take(path), cap(body.join("\n")));
+            let (new, deleted) = std::mem::take(flags);
+            out.insert(
+                std::mem::take(path),
+                Patch {
+                    body: cap(body.join("\n")),
+                    new,
+                    deleted,
+                },
+            );
         }
         body.clear();
+        *flags = (false, false);
     };
 
     for line in text.lines() {
         if line.starts_with("diff --git ") {
-            flush(&mut path, &mut body);
+            flush(&mut path, &mut body, &mut flags);
             old.clear();
             in_hunk = false;
+        } else if line.starts_with("new file mode") {
+            flags.0 = true;
+        } else if line.starts_with("deleted file mode") {
+            flags.1 = true;
         } else if let Some(p) = line.strip_prefix("--- a/") {
             old = p.to_string();
         } else if let Some(p) = line.strip_prefix("+++ ") {
@@ -1531,7 +1671,7 @@ fn patch_map(text: &str) -> std::collections::HashMap<String, String> {
             body.push(line);
         }
     }
-    flush(&mut path, &mut body);
+    flush(&mut path, &mut body, &mut flags);
     out
 }
 
@@ -1546,7 +1686,7 @@ fn cap(patch: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{claude_args, patch_map, pr_text, Launch, Pr, Repo};
+    use super::{claude_args, multi_pr_text, patch_map, pr_text, Launch, Pr, Repo, RepoPr};
     use crate::dock::{is_terminal, multi_setup, quoted};
     use std::path::Path;
 
@@ -1575,6 +1715,9 @@ mod tests {
             let out = Command::new("git")
                 .arg("-C")
                 .arg(dir)
+                // O commit do teste não depende da assinatura da máquina: com
+                // `commit.gpgsign` global, o gpg do runner falhava em paralelo.
+                .args(["-c", "commit.gpgsign=false"])
                 .args(args)
                 .output()
                 .unwrap();
@@ -1618,6 +1761,8 @@ mod tests {
                 path: local.display().to_string(),
                 name: "clone".into(),
                 worktree: dest.display().to_string(),
+                base: String::new(),
+                pr: None,
             }],
             stage: "Feito".into(),
             agent: String::new(),
@@ -1651,7 +1796,7 @@ mod tests {
 
         // Mas o `gh` dizendo que o PR entrou é a outra resposta que serve — o
         // merge por squash não deixa a branch ancestral de nada.
-        ws.pr = Some(pr(3, "trabalho", "MERGED"));
+        ws.repos[0].pr = Some(pr(3, "trabalho", "MERGED"));
         super::check(&ws).unwrap();
 
         // Mudança fora de commit segura de qualquer jeito.
@@ -1683,6 +1828,8 @@ mod tests {
             path: local.display().to_string(),
             name: "clone-2".into(),
             worktree: dest2.display().to_string(),
+            base: String::new(),
+            pr: None,
         });
         super::check(&ws).unwrap();
         std::fs::write(dest2.join("d.txt"), "d").unwrap();
@@ -1705,17 +1852,45 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    fn repo_pr(
+        name: &str,
+        branch: Option<&str>,
+        dirty: usize,
+        ahead: u32,
+        target: &str,
+        upstream: bool,
+        open: Option<u64>,
+    ) -> RepoPr {
+        RepoPr {
+            name: name.into(),
+            branch: branch.map(str::to_string),
+            dirty,
+            ahead,
+            target: target.into(),
+            upstream,
+            open,
+        }
+    }
+
     /// O prompt de PR diz o estado e os passos com os nomes certos: a branch
     /// no push, o alvo sem o remoto no `--base`, e a sujeira contada.
     #[test]
     fn pr_text_diz_o_estado_e_os_passos() {
-        let t = pr_text(Some("meu/ajuste"), 3, "origin/main", false, None);
+        let t = pr_text(&repo_pr(
+            "app",
+            Some("meu/ajuste"),
+            3,
+            2,
+            "origin/main",
+            false,
+            None,
+        ));
         assert!(t.contains("Há 3 arquivos"));
         assert!(t.contains("git push -u origin HEAD:meu/ajuste"));
         assert!(t.contains("gh pr create --base main"));
         assert!(t.contains("Ainda não há branch upstream."));
 
-        let limpo = pr_text(None, 0, "origin/master", true, None);
+        let limpo = pr_text(&repo_pr("app", None, 0, 0, "origin/master", true, None));
         assert!(limpo.contains("limpo"));
         assert!(limpo.contains("HEAD solto"));
         assert!(limpo.contains("--base master"));
@@ -1725,13 +1900,46 @@ mod tests {
     /// Com PR aberto o pedido é outro: atualizar o #42, e não criar um segundo.
     #[test]
     fn pr_text_com_pr_aberto_pede_atualizacao() {
-        let t = pr_text(Some("meu/ajuste"), 1, "origin/main", true, Some(42));
+        let t = pr_text(&repo_pr(
+            "app",
+            Some("meu/ajuste"),
+            1,
+            1,
+            "origin/main",
+            true,
+            Some(42),
+        ));
         assert!(t.contains("Quero atualizar o PR #42"));
         assert!(t.contains("gh pr view 42"));
         assert!(t.contains("gh pr edit 42"));
         assert!(!t.contains("gh pr create"));
         // O caminho até lá é o mesmo: commitar e empurrar continua sendo o miolo.
         assert!(t.contains("git push -u origin HEAD:meu/ajuste"));
+    }
+
+    /// Com mais de um repositório o pedido lista cada um com o que ele tem: o
+    /// que já tem PR pede atualização, o que não mudou fica sem PR, e o resto
+    /// ganha o seu — todos linkando os outros.
+    #[test]
+    fn multi_pr_text_lista_cada_repositorio() {
+        let t = multi_pr_text(&[
+            repo_pr("backend", Some("feat/x"), 2, 4, "origin/main", true, None),
+            repo_pr(
+                "portal",
+                Some("feat/x"),
+                0,
+                1,
+                "origin/develop",
+                true,
+                Some(17),
+            ),
+            repo_pr("dash", Some("feat/x"), 0, 0, "origin/main", false, None),
+        ]);
+        assert!(t.contains("reúne 3 repositórios"));
+        assert!(t.contains("`backend/` — branch `feat/x`, 4 commits além de `origin/main`, 2 arquivos fora de commit. sem PR ainda."));
+        assert!(t.contains("`portal/` — branch `feat/x`, 1 commit além de `origin/develop`, nada fora de commit. PR #17 aberto"));
+        assert!(t.contains("`dash/` — branch `feat/x`, nenhum commit além de `origin/main`, nada fora de commit, sem upstream. nada a entregar: fica sem PR."));
+        assert!(t.contains("linkar os outros PRs"));
     }
     use std::process::Command;
 
@@ -1840,6 +2048,64 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         }
     }
 
+    /// O diff contra a base, num repositório de verdade: o que está no commit
+    /// desta branch e o que está fora de commit vêm juntos, cada um marcado, por
+    /// caminho — e o número de commits além da base é o que se contou. Sem base
+    /// que exista, sobra o que está fora de commit.
+    #[test]
+    fn o_diff_contra_a_base_junta_commit_e_fora_de_commit() {
+        let root = std::env::temp_dir().join(format!("prometheus-diff-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let run = |args: &[&str]| {
+            let out = Command::new("git")
+                .arg("-C")
+                .arg(&root)
+                // O commit do teste não depende da assinatura da máquina: com
+                // `commit.gpgsign` global, o gpg do runner falhava em paralelo.
+                .args(["-c", "commit.gpgsign=false"])
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        run(&["init", "-q", "-b", "main"]);
+        run(&["config", "user.email", "t@t"]);
+        run(&["config", "user.name", "t"]);
+        std::fs::write(root.join("a.txt"), "a\n").unwrap();
+        std::fs::write(root.join("gone.txt"), "x\n").unwrap();
+        run(&["add", "-A"]);
+        run(&["commit", "-qm", "base"]);
+        run(&["checkout", "-qb", "feat"]);
+        std::fs::write(root.join("a.txt"), "a\nb\n").unwrap();
+        std::fs::remove_file(root.join("gone.txt")).unwrap();
+        std::fs::write(root.join("z.txt"), "z\n").unwrap();
+        run(&["add", "-A"]);
+        run(&["commit", "-qm", "feat"]);
+        // Fora de commit: um mexido depois do commit, e um que nem foi adicionado.
+        std::fs::write(root.join("a.txt"), "a\nb\nc\n").unwrap();
+        std::fs::write(root.join("novo.txt"), "n\n").unwrap();
+
+        let d = super::repo_diff("r", &root, "main");
+        assert_eq!(d.ahead, 1);
+        assert_eq!(d.dirty, 2);
+        let paths: Vec<&str> = d.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["a.txt", "gone.txt", "novo.txt", "z.txt"]);
+        let by = |p: &str| d.files.iter().find(|f| f.path == p).unwrap();
+        assert!(by("a.txt").dirty && by("a.txt").added == 2 && !by("a.txt").new_file);
+        assert!(by("gone.txt").deleted && !by("gone.txt").dirty);
+        assert!(by("z.txt").new_file && !by("z.txt").dirty && by("z.txt").patch.contains("+z"));
+        assert!(by("novo.txt").new_file && by("novo.txt").dirty);
+
+        let sem_base = super::repo_diff("r", &root, "nao-existe");
+        assert_eq!((sem_base.ahead, sem_base.files.len()), (0, 2));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// Um repo de mentira com remoto de verdade (o "origin" é uma pasta ao
     /// lado): é o único jeito de provar que a base escolhida no lançador é de
     /// onde a branch nasce, e que `origin/main` é o padrão que o clone gravou.
@@ -1854,6 +2120,9 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
             let out = Command::new("git")
                 .arg("-C")
                 .arg(dir)
+                // O commit do teste não depende da assinatura da máquina: com
+                // `commit.gpgsign` global, o gpg do runner falhava em paralelo.
+                .args(["-c", "commit.gpgsign=false"])
                 .args(args)
                 .output()
                 .unwrap();
@@ -1958,6 +2227,8 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
                 path: repo.display().to_string(),
                 name: name.into(),
                 worktree: wt.display().to_string(),
+                base: String::new(),
+                pr: None,
             }
         };
         let repos = vec![
@@ -2026,16 +2297,19 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         let map = patch_map(DIFF);
         assert_eq!(map.len(), 3);
 
-        let main = &map["src/main.ts"];
+        let main = &map["src/main.ts"].body;
         assert!(main.starts_with("@@ -12,3 +12,4 @@ const $"), "{main}");
         assert!(main.contains("+let openWs: string | null = null;"));
         // Cabeçalho `index`/`---`/`+++` não entra: a tela não mostra.
         assert!(!main.contains("index 1c1c1c1"));
         assert!(!main.contains("--- a/src/main.ts"));
+        assert!(!map["src/main.ts"].new && !map["src/main.ts"].deleted);
 
-        // Apagado: o destino é /dev/null, então o caminho vem do `--- a/`.
-        assert!(map["src/old.ts"].contains("-export default gone;"));
-        assert_eq!(map["docs/com espaco.md"].lines().count(), 3);
+        // Apagado: o destino é /dev/null, então o caminho vem do `--- a/`, e o
+        // `deleted file mode` do cabeçalho é a marca.
+        assert!(map["src/old.ts"].body.contains("-export default gone;"));
+        assert!(map["src/old.ts"].deleted);
+        assert_eq!(map["docs/com espaco.md"].body.lines().count(), 3);
     }
 
     /// O front numera as abas de terminal, mas quem abre pty é o back: chave
@@ -2163,61 +2437,87 @@ pub fn read_file(state: State<AppState>, id: String, rel: String) -> Result<Stri
 /// manda mais que este texto.
 #[tauri::command(async)]
 pub fn pr_prompt(state: State<AppState>, id: String) -> Result<String, String> {
-    let worktree = worktree_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
-    let branch = head_branch(&worktree);
-    let dirty = changes_in(&worktree).len();
+    let repos = repos_of(&state, &id);
+    if repos.is_empty() {
+        return Err(i18n::t("err.session.noWorkspace"));
+    }
+    let states: Vec<RepoPr> = repos.iter().map(pr_state).collect();
+    Ok(match states.as_slice() {
+        [one] => pr_text(one),
+        many => multi_pr_text(many),
+    })
+}
+
+/// O que o pedido de PR precisa saber de um repositório: onde a branch está,
+/// o que falta commitar, quantos commits ela tem além da base, e se já há um
+/// PR aberto para ela.
+struct RepoPr {
+    name: String,
+    branch: Option<String>,
+    dirty: usize,
+    ahead: u32,
+    target: String,
+    upstream: bool,
+    open: Option<u64>,
+}
+
+fn pr_state(r: &Repo) -> RepoPr {
+    let wt = Path::new(&r.worktree);
+    let branch = head_branch(wt);
+    let dirty = changes_in(wt).len();
     // O alvo é o principal do remoto; sem `origin/HEAD` gravado, o de sempre.
-    let head = git(
-        &worktree,
-        &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
-    )
-    .trim()
-    .to_string();
+    let head = git(wt, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
+        .trim()
+        .to_string();
     let target = if head.is_empty() {
         "origin/main".to_string()
     } else {
         head
     };
-    let upstream = !git(&worktree, &["rev-parse", "--abbrev-ref", "@{upstream}"])
+    let upstream = !git(wt, &["rev-parse", "--abbrev-ref", "@{upstream}"])
         .trim()
         .is_empty();
     // Com PR já aberto o pedido é outro: não criar de novo, e sim empurrar o
     // que falta e conferir se o que está escrito lá ainda cobre a branch.
     let open = branch
         .as_deref()
-        .and_then(|branch| crate::github::pr_for_branch(&worktree, branch))
+        .and_then(|b| crate::github::pr_for_branch(wt, b))
         .filter(|pr| pr.open())
         .map(|pr| pr.number);
-    Ok(pr_text(branch.as_deref(), dirty, &target, upstream, open))
+    let (_, ahead) = ahead_of(wt, &r.base);
+    RepoPr {
+        name: r.name.clone(),
+        branch,
+        dirty,
+        ahead,
+        target,
+        upstream,
+        open,
+    }
 }
 
-fn pr_text(
-    branch: Option<&str>,
-    dirty: usize,
-    target: &str,
-    upstream: bool,
-    open: Option<u64>,
-) -> String {
-    let estado = match dirty {
+fn pr_text(s: &RepoPr) -> String {
+    let estado = match s.dirty {
         0 => "O worktree está limpo — nada fora de commit.".to_string(),
         1 => "Há 1 arquivo com mudanças fora de commit.".to_string(),
         n => format!("Há {n} arquivos com mudanças fora de commit."),
     };
-    let onde = match branch {
+    let onde = match &s.branch {
         Some(b) => format!("A branch atual é `{b}`"),
         None => "O worktree está em HEAD solto — crie uma branch antes de commitar".to_string(),
     };
-    let up = if upstream {
+    let target = &s.target;
+    let up = if s.upstream {
         "A branch já tem upstream."
     } else {
         "Ainda não há branch upstream."
     };
-    let base = target.split_once('/').map_or(target, |(_, b)| b);
-    let push = match branch {
+    let base = target.split_once('/').map_or(target.as_str(), |(_, b)| b);
+    let push = match &s.branch {
         Some(b) => format!("git push -u origin HEAD:{b}"),
         None => "git push -u origin HEAD:<nome-da-branch>".to_string(),
     };
-    let (abertura, fim) = match open {
+    let (abertura, fim) = match s.open {
         Some(n) => (
             format!("Quero atualizar o PR #{n} desta branch."),
             format!(
@@ -2253,6 +2553,61 @@ Se algum passo falhar, pare e me pergunte."#
     )
 }
 
+/// Workspace com mais de um repositório: um PR por repo que tem o que
+/// entregar, na mesma branch, e cada descrição linkando os outros — é assim
+/// que uma funcionalidade que atravessa repositórios se revisa no GitHub.
+fn multi_pr_text(states: &[RepoPr]) -> String {
+    let lista: String = states
+        .iter()
+        .map(|s| {
+            let branch = match &s.branch {
+                Some(b) => format!("branch `{b}`"),
+                None => "HEAD solto (crie a branch antes de commitar)".to_string(),
+            };
+            let commits = match s.ahead {
+                0 => format!("nenhum commit além de `{}`", s.target),
+                1 => format!("1 commit além de `{}`", s.target),
+                n => format!("{n} commits além de `{}`", s.target),
+            };
+            let dirty = match s.dirty {
+                0 => "nada fora de commit".to_string(),
+                1 => "1 arquivo fora de commit".to_string(),
+                n => format!("{n} arquivos fora de commit"),
+            };
+            let pr = match s.open {
+                Some(n) => format!("PR #{n} aberto — atualize, não crie outro"),
+                None if s.ahead == 0 && s.dirty == 0 => "nada a entregar: fica sem PR".to_string(),
+                None => "sem PR ainda".to_string(),
+            };
+            let up = if s.upstream { "" } else { ", sem upstream" };
+            format!(
+                "- `{}/` — {branch}, {commits}, {dirty}{up}. {pr}.\n",
+                s.name
+            )
+        })
+        .collect();
+    format!(
+        r#"Quero abrir os PRs deste workspace. Ele reúne {n} repositórios na mesma branch, cada um com histórico próprio — e cada um leva o seu PR:
+
+{lista}
+Siga estes passos em cada repositório que tem o que entregar, entrando na pasta dele antes de cada comando de git ou gh:
+
+1. Se o repositório tiver uma skill ou comando de abrir PR (ex.: /open-pr), invoque-a nele — as instruções dela têm precedência sobre as daqui.
+2. Revise o que está fora de commit com `git status` e `git diff`, e commite seguindo as convenções daquele repositório.
+3. Empurre com `git push -u origin HEAD:<branch>`.
+4. Revise o diff inteiro da branch contra o alvo daquele repositório antes de escrever.
+5. Sem PR: crie com `gh pr create --base <alvo sem o origin/>`. Com PR aberto: confira com `gh pr view <n>` se o título e a descrição ainda cobrem tudo, e atualize com `gh pr edit <n>` se não cobrirem. Título com menos de 80 caracteres; descrição com até cinco frases, cobrindo todas as mudanças da branch naquele repositório — não só as desta conversa.
+6. Com todos abertos, edite a descrição de cada um para linkar os outros PRs deste workspace ("Parte de: <url>"): quem revisa um precisa achar o resto.
+
+Repositório sem commit além da base e sem mudança fora de commit não ganha PR.
+Se algum passo falhar, pare e me pergunte."#,
+        n = states.len()
+    )
+}
+
+/// O worktree do repositório principal, se ainda houver um — é dele que saem
+/// diff, branch e PR. Devolvido ao disco é o mesmo que não existir: quem lê
+/// daqui recebe o vazio, e não um caminho que já não é de ninguém.
 fn workspace_copy(state: &State<AppState>, id: &str) -> Option<Workspace> {
     lock(&state.board)
         .workspaces
@@ -2261,15 +2616,24 @@ fn workspace_copy(state: &State<AppState>, id: &str) -> Option<Workspace> {
         .cloned()
 }
 
-/// O worktree do repositório principal, se ainda houver um — é dele que saem
-/// diff, branch e PR. Devolvido ao disco é o mesmo que não existir: quem lê
-/// daqui recebe o vazio, e não um caminho que já não é de ninguém.
 fn worktree_of(state: &State<AppState>, id: &str) -> Option<PathBuf> {
     lock(&state.board)
         .workspaces
         .iter()
         .find(|w| w.id == id && !w.cleaned)
         .map(|w| PathBuf::from(w.primary().worktree))
+}
+
+/// Os repositórios de um workspace que ainda tem worktree, na ordem dele — o
+/// principal primeiro. Devolvido ao disco é lista vazia, pela mesma razão de
+/// `worktree_of`.
+fn repos_of(state: &State<AppState>, id: &str) -> Vec<Repo> {
+    lock(&state.board)
+        .workspaces
+        .iter()
+        .find(|w| w.id == id && !w.cleaned)
+        .map(|w| w.repos.clone())
+        .unwrap_or_default()
 }
 
 /// Onde o agente trabalha: o worktree, ou a pasta que reúne os worktrees

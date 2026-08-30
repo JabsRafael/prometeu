@@ -818,7 +818,6 @@ export function remotes(): Workspace[] {
       effort: "",
       port: null,
       issue: s.issue ? { id: "", identifier: s.issue.identifier, title: s.issue.title, url: s.issue.url } : null,
-      pr: null,
       cleaned: false,
       shared: false,
       audience: null,
