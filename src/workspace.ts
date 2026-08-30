@@ -17,7 +17,6 @@ import {
   merged,
   prs,
   pending,
-  repoLabel,
   stateLabel,
   statusOf,
   type Board,
@@ -96,20 +95,25 @@ export function init(context: Ctx) {
     drawChanges(openWs);
   });
 
+  // O diff acompanha o agente pelos eventos do quadro. Mas quem comita no dock,
+  // ou num terminal de fora, não publica evento nenhum — e o painel continuava
+  // mostrando como fora de commit o que você acabou de commitar. Voltar para a
+  // janela e estar olhando as Mudanças são os dois momentos em que isso se nota.
+  window.addEventListener("focus", () => {
+    if (hasDiff()) reloadChanges(openWs!);
+  });
+  setInterval(() => {
+    if (hasDiff() && document.hasFocus() && (sidePane === "diff" || files(openWs!).diff)) reloadChanges(openWs!);
+  }, WATCH_EVERY);
+
   // A onda do painel de "montando" é desenhada uma vez: ela não muda, e o
   // `draw` roda a cada atualização dos workspaces.
   $("offwave").innerHTML = wave(22);
 
+  // Um botão só, quatro estados — pedir o PR, atualizar, ir até ele, concluir.
+  // Quem decide é `paintPr`, que é quem sabe o estado do git e o do PR.
   $("pr").innerHTML = `${icon("git-pull-request", 14)}<span></span>`;
   $("pr").querySelector("span")!.textContent = t("ws.pr");
-  // Um botão só, três estados: com o PR mergeado ele conclui em vez de pedir
-  // mais commit. Quem decide é o estado do PR na hora do clique.
-  $("pr").addEventListener("click", () => {
-    const ws = current();
-    if (!ws) return;
-    if (merged(ws)) finish(ws.id);
-    else void openPr();
-  });
 
   // Duplo clique renomeia, como no nome do workspace na migalha. Escuta na barra
   // e não no botão: o primeiro clique troca de aba, a troca refaz a barra, e o
@@ -216,10 +220,28 @@ export function draw() {
   const owner = remote ? team.nameOf(remote.owner) : null;
   const crumb = $("crumb");
   crumb.innerHTML =
-    `${avatar(owner ?? ws.repo_name)}<span></span><span class="sep">${icon("chevron-right", 12)}</span><span></span>` +
+    `${avatar(owner ?? ws.repo_name)}<span class="who"></span><button class="repos" hidden></button>` +
+    `<span class="sep">${icon("chevron-right", 12)}</span><span class="nm"></span>` +
     `<button class="branch" hidden>${icon("git-branch", 12)}<span></span></button>`;
-  crumb.children[1].textContent = owner ?? repoLabel(ws);
-  const name = crumb.children[3] as HTMLElement;
+  // Com mais de um repositório os nomes emendados comiam a barra, e ainda
+  // repetiam o que as seções de Mudanças já dizem. Fica quantos são, e o clique
+  // leva a cada um deles.
+  const many = !owner && ws.repos.length > 1;
+  const who = crumb.querySelector<HTMLElement>(".who")!;
+  const repos = crumb.querySelector<HTMLElement>(".repos")!;
+  who.hidden = many;
+  who.textContent = owner ?? ws.repo_name;
+  repos.hidden = !many;
+  if (many) {
+    repos.innerHTML = `${icon("folder", 12)}<span></span>`;
+    repos.children[1].textContent = tn(ws.repos.length, "diff.repos");
+    repos.title = ws.repos.map((r) => r.name).join(" · ");
+    repos.onclick = () => {
+      const at = repos.getBoundingClientRect();
+      menu.openAt({ x: at.left, y: at.bottom + 4 }, repoItems(ws));
+    };
+  }
+  const name = crumb.querySelector<HTMLElement>(".nm")!;
   name.textContent = ws.title;
   if (!remote) {
     // Na migalha não tem lápis: nada ali é clicável, então o duplo clique é livre.
@@ -267,8 +289,7 @@ export function draw() {
     // Sobra a conversa, e as notas dentro dela; quem diz que ele está offline
     // é a caixa de escrever.
     paintBranchName(ws.branch);
-    $("pr").hidden = true;
-    $("prlinks").hidden = true;
+    $("prsplit").hidden = true;
     $("offline").hidden = true;
     $("tabbar").hidden = false;
     $("side").hidden = true;
@@ -283,8 +304,7 @@ export function draw() {
   // um caminho que erra. Sobra o painel, que é o que há para dizer.
   if (pending(ws)) {
     paintBranchName(ws.branch);
-    $("pr").hidden = true;
-    $("prlinks").hidden = true;
+    $("prsplit").hidden = true;
     $("dock").hidden = true;
     $("tabbar").hidden = true;
     $("side").hidden = true;
@@ -302,7 +322,7 @@ export function draw() {
     return;
   }
 
-  $("pr").hidden = false;
+  $("prsplit").hidden = false;
   $("tab-files").hidden = false;
   $("tab-diff").hidden = false;
   $("dock").hidden = false;
@@ -394,6 +414,24 @@ function shareItems(ws: Workspace): menu.Item[] {
   return items;
 }
 
+/// A lista do chip de repositórios: um por repo, com o que ele tem de mudança,
+/// e o clique leva às Mudanças dele. O nome do repositório só é pergunta quando
+/// se quer ver o que mudou nele — o resto do tempo ele ocupa a barra à toa.
+function repoItems(ws: Workspace): menu.Item[] {
+  const all = changesOf.get(ws.id) ?? [];
+  return ws.repos.map((r): menu.Item => {
+    const mine = all.find((x) => x.name === r.name);
+    const files = mine?.files ?? [];
+    return {
+      label: r.name,
+      glyph: icon("folder", 14),
+      hint: files.length ? tn(files.length, "diff.files") : t("diff.clean"),
+      disabled: !files.length,
+      run: () => showChanges(diff.key(r.name, files[0].path)),
+    };
+  });
+}
+
 /* ---------- ações do workspace ---------- */
 
 export function renameWorkspace(id: string, title: string | null) {
@@ -467,13 +505,24 @@ const askBranch = debounce(400, async (id: string) => {
   if (openWs === id) paintBranch(id);
 });
 
+/// Só existe diff — e PR para pedir — de workspace que está neste disco e já
+/// montado. O do colega mora no Mac dele, o devolvido não tem pasta, e o que
+/// está montando não tem nem git ainda.
+const diffable = (ws: Workspace) => !ws.remote && !ws.cleaned && !pending(ws);
+const hasDiff = () => {
+  const ws = current();
+  return !!ws && ws.id === openWs && diffable(ws);
+};
+
 /* ---------- PR da branch ---------- */
 
-/// O PR governa o botão da esquerda, e são três estados: sem PR, "Open PR", que
-/// pede o PR ao agente; com PR aberto, "Atualizar PR" — commitar e empurrar
-/// continua sendo o que mais se faz depois que o PR existe; com PR mergeado,
-/// "Concluir", porque o que vem depois de mergear não é mais um commit, é sair
-/// da frente. Ao lado, o `#42` leva até ele no navegador.
+/// O PR governa o botão da esquerda, e são quatro estados: sem PR, "Open PR",
+/// que pede o PR ao agente; com PR aberto e coisa para mandar, "Atualizar PR";
+/// com PR aberto e nada para mandar, quantos PRs há — e o clique leva até eles,
+/// porque pedir para atualizar o que já está lá é pedir trabalho que não
+/// existe; com tudo mergeado, "Concluir", que o que vem depois de mergear não é
+/// mais um commit, é sair da frente. O ⌄ ao lado abre a lista, um item por
+/// repositório: com três repos, três botões não cabiam na barra.
 ///
 /// Quem guarda a resposta é o workspace (`ws.pr`), e não esta tela. Daqui só
 /// sai o pedido de perguntar de novo, e não
@@ -486,33 +535,56 @@ function paintPr(ws: Workspace) {
   const done = merged(ws);
   const all = prs(ws);
   const ask = $("pr");
-  ask.hidden = ws.cleaned;
-  ask.querySelector("span")!.textContent = done ? t("ws.finish") : all.length ? t("ws.pr.update") : t("ws.pr");
-  ask.title = done ? t("top.finish") : all.length ? t("top.pr.update") : t("top.pr");
+  $("prsplit").hidden = !diffable(ws);
+  // Com o PR aberto e nada para mandar, oferecer "Atualizar PR" é oferecer um
+  // trabalho que não existe: o botão passa a dizer quantos PRs há, e leva a
+  // eles. Enquanto o diff não chegou não se sabe, e o rótulo continua o de
+  // pedir — dizer "tudo empurrado" antes de olhar é dizer o que não se sabe.
+  const left = outstanding(ws.id);
+  const quiet = all.length > 0 && !done && left !== null && !left.dirty && !left.unpushed;
+  ask.querySelector("span")!.textContent = done
+    ? t("ws.finish")
+    : quiet
+      ? tn(all.length, "ws.pr.open")
+      : all.length
+        ? t("ws.pr.update")
+        : t("ws.pr");
+  ask.title = done ? t("top.finish") : quiet ? t("top.pr.go") : all.length ? t("top.pr.update") : t("top.pr");
   ask.classList.toggle("done", done);
   ask.firstElementChild!.outerHTML = icon(done ? "check" : "git-pull-request", 14);
+  ask.onclick = () => {
+    if (done) return finish(ws.id);
+    if (quiet) return all.length === 1 ? openIn(ws, all[0].repo) : prMenu(ws, ask);
+    void openPr();
+  };
 
-  // Um link por PR — um por repositório que tem o seu. Só o número e a seta:
-  // quem diz "PR" é o botão ao lado, e dois botões com o mesmo rótulo na mesma
-  // barra é o que fazia a barra ficar ambígua. Com mais de um repo, o nome
-  // dele vai no title.
-  const links = $("prlinks");
-  links.hidden = !all.length;
-  links.replaceChildren(
-    ...all.map(({ repo, pr }) => {
-      const b = document.createElement("button");
-      b.className = "ghost md";
-      b.innerHTML = `<span></span>${icon("external-link", 12)}`;
-      b.children[0].textContent = `#${pr.number}`;
-      const what = t(pr.state === "MERGED" ? "ws.pr.merged" : pr.isDraft ? "ws.pr.draft" : "ws.pr.view", { n: pr.number, title: pr.title });
-      b.title = ws.repos.length > 1 ? `${repo} · ${what}` : what;
-      b.addEventListener("click", () => {
-        invoke("open_pr", { id: ws.id, repo }).catch((e) => ctx.say(fromBack(e), true));
-      });
-      return b;
-    }),
+  // Os PRs desta branch ficam num menu: um repositório a mais era um botão a
+  // mais na barra, e três já não cabiam com o resto. O ⌄ só existe quando há
+  // PR para listar.
+  const pick = $("prpick");
+  pick.hidden = !all.length;
+  pick.innerHTML = icon("chevron-down", 14);
+  pick.onclick = () => prMenu(ws, pick);
+}
+
+/// O menu dos PRs: um item por repositório que tem o seu, com o estado dele na
+/// ponta. Abre no navegador — quem sabe onde cada um mora é o `gh`.
+function prMenu(ws: Workspace, at: HTMLElement) {
+  const many = ws.repos.length > 1;
+  const box = at.getBoundingClientRect();
+  menu.openAt(
+    { x: box.left, y: box.bottom + 4 },
+    prs(ws).map(({ repo, pr }) => ({
+      label: many ? `${repo} · #${pr.number}` : `#${pr.number} ${pr.title}`,
+      glyph: icon(pr.state === "MERGED" ? "check" : "git-pull-request", 14),
+      hint: t(pr.state === "MERGED" ? "pr.merged" : pr.isDraft ? "pr.draft" : "pr.open"),
+      run: () => openIn(ws, repo),
+    })),
   );
 }
+
+const openIn = (ws: Workspace, repo: string) =>
+  invoke("open_pr", { id: ws.id, repo }).catch((e) => ctx.say(fromBack(e), true));
 
 function drawPr(ws: Workspace) {
   paintPr(ws);
@@ -596,8 +668,8 @@ function drawTabs(ws: Workspace) {
     b.className = "tab file" + (fs.diff ? " on" : "");
     b.innerHTML = `${icon("diff", 14)}<span></span><span class="n"></span>`;
     b.children[1].textContent = t("tab.changes");
-    const fresh = unseen(ws.id);
-    b.children[2].textContent = fresh ? String(fresh) : "";
+    b.children[2].textContent = String(changes);
+    b.children[2].classList.toggle("fresh", unseen(ws.id) > 0);
     b.title = t("tab.changes.title");
     b.addEventListener("click", () => showChanges());
     const x = document.createElement("span");
@@ -991,6 +1063,11 @@ function visible(id: string): RepoDiff[] {
 /// enquanto o agente trabalha".
 const reloadChanges = debounce(250, (id: string) => void loadChanges(id));
 
+/// De quanto em quanto tempo o diff é conferido enquanto você está olhando para
+/// ele. É o passo de quem comita no dock: nada avisa a tela, e ficar de olho o
+/// tempo todo seria um `git diff` por segundo em todo repositório do workspace.
+const WATCH_EVERY = 5_000;
+
 /// Descarta resposta de pedido velho: dois `workspace_diff` no ar podem voltar
 /// fora de ordem, e o antigo sobrescreveria o novo.
 let request = 0;
@@ -1010,6 +1087,7 @@ async function loadChanges(id: string) {
   const ws = current();
   if (ws?.id !== id) return;
   drawTabs(ws); // a aba de Mudanças aparece, some e conta junto com a lista
+  paintPr(ws); // o botão de PR muda com o que falta commitar e empurrar
   if (files(id).diff) drawChanges(id);
 }
 
@@ -1027,8 +1105,12 @@ function seenChanged(id: string) {
 function drawList(id: string) {
   const all = changesOf.get(id) ?? [];
   const repos = visible(id);
-  const fresh = unseen(id);
-  $("diffcount").textContent = fresh ? String(fresh) : "";
+  // O número é quantos arquivos mudaram; que ainda há coisa nova para você é a
+  // cor dele. Um contador que só desce enquanto você lê parecia pendência.
+  const count = $("diffcount");
+  const n = diff.keys(all).length;
+  count.textContent = n ? String(n) : "";
+  count.classList.toggle("fresh", unseen(id) > 0);
 
   const list = $("difflist");
   if (!diff.keys(all).length) {
@@ -1058,12 +1140,27 @@ function nothing(text: string): HTMLElement {
   return none;
 }
 
-/// O resumo no topo da lista: quantos commits além da base, e o chip do que
-/// está fora de commit — que também é o filtro.
+/// Quanto ainda não saiu deste workspace: arquivo fora de commit e commit que
+/// não foi para o remoto. `null` enquanto o diff não chegou — antes de olhar,
+/// "não falta nada" seria chute.
+function outstanding(id: string): { dirty: number; unpushed: number } | null {
+  const repos = changesOf.get(id);
+  if (!repos) return null;
+  return {
+    dirty: repos.reduce((n, r) => n + r.dirty, 0),
+    unpushed: repos.reduce((n, r) => n + r.unpushed, 0),
+  };
+}
+
+/// O resumo no topo da lista: quantos commits além da base, o chip do que está
+/// fora de commit — que também é o filtro — e onde esses commits estão. Um diff
+/// de branch tem a mesma cara commitado ou não; sem esta linha, quem acabou de
+/// commitar continua olhando para o que parece trabalho pendente.
 function summary(id: string, repos: RepoDiff[]): HTMLElement {
-  const box = template("div", "diffsum", `<span class="ahead"></span><button class="dirtyf"></button>`);
+  const box = template("div", "diffsum", `<span class="ahead"></span><button class="dirtyf"></button><span class="state"></span>`);
   const ahead = repos.reduce((n, r) => n + r.ahead, 0);
   const dirty = repos.reduce((n, r) => n + r.dirty, 0);
+  const unpushed = repos.reduce((n, r) => n + r.unpushed, 0);
   // Com um repo a base tem nome; com mais de um, cada um tem a sua, e ela fica
   // no cabeçalho do repo.
   box.children[0].textContent =
@@ -1079,6 +1176,15 @@ function summary(id: string, repos: RepoDiff[]): HTMLElement {
     drawList(id);
     if (files(id).diff) drawChanges(id);
   });
+
+  // Onde os commits estão: no remoto, ou ainda só neste disco. Sem commit
+  // nenhum não há o que dizer — o que há é o chip do fora de commit.
+  const state = box.children[2] as HTMLElement;
+  state.hidden = !ahead;
+  state.className = "state" + (unpushed ? "" : " ok");
+  state.innerHTML = `${icon(unpushed ? "arrow-up" : "check", 13)}<span></span>`;
+  state.children[1].textContent = unpushed ? tn(unpushed, "diff.unpushed") : t("diff.pushed");
+  state.title = t(unpushed ? "diff.unpushed.title" : "diff.pushed.title");
   return box;
 }
 
@@ -1112,19 +1218,25 @@ function diffRow(id: string, repo: string, f: Change): HTMLElement {
 /// chega a cada ferramenta que o agente usa — senão recolher não recolheria.
 const shutRepos = new Set<string>();
 
-/// O cabeçalho de um repositório na lista: nome, quantos arquivos, a soma; de
-/// onde a branch saiu fica no title. Clique recolhe os arquivos dele.
+/// O cabeçalho de um repositório na lista: nome, quantos commits e quantos
+/// arquivos, a soma; de onde a branch saiu fica no title. O ponto é o que ainda
+/// não saiu dali — cada repo tem o seu git, e um estar em dia não diz nada do
+/// outro. Clique recolhe os arquivos dele.
 function repoRow(k: string, r: RepoDiff, rows: HTMLElement[]): HTMLElement {
   const row = document.createElement("button");
   row.className = "diffrepo";
-  row.title = r.base ? tn(r.ahead, "diff.ahead", { base: r.base }) : tn(r.ahead, "diff.commits");
-  row.innerHTML = `<span class="tw"></span><span class="nm"></span><span class="cnt"></span><span class="a"></span><span class="r"></span>`;
+  const left = [r.dirty ? t("diff.uncommitted", { n: r.dirty }) : "", r.unpushed ? tn(r.unpushed, "diff.unpushed") : ""].filter(Boolean);
+  row.title = [r.base ? tn(r.ahead, "diff.ahead", { base: r.base }) : tn(r.ahead, "diff.commits"), ...left].join(" · ");
+  row.innerHTML =
+    `<span class="tw"></span><span class="nm"></span><span class="cnt"></span>` +
+    `<span class="dot"></span><span class="a"></span><span class="r"></span>`;
   row.children[1].textContent = r.name;
-  row.children[2].textContent = tn(r.files.length, "diff.files");
+  row.children[2].textContent = `${tn(r.ahead, "diff.commitsN")} · ${tn(r.files.length, "diff.files")}`;
+  (row.children[3] as HTMLElement).hidden = !left.length;
   const added = diff.sum(r.files, "added");
   const removed = diff.sum(r.files, "removed");
-  row.children[3].textContent = added ? `+${added}` : "";
-  row.children[4].textContent = removed ? `−${removed}` : "";
+  row.children[4].textContent = added ? `+${added}` : "";
+  row.children[5].textContent = removed ? `−${removed}` : "";
   const glyph = () => {
     row.children[0].innerHTML = icon(shutRepos.has(k) ? "chevron-right" : "chevron-down", 14);
   };

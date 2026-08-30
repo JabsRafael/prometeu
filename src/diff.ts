@@ -12,6 +12,11 @@ import { highlight } from "./highlight";
 /// recolheu.
 
 const MAX_ROWS = 2500;
+/// A altura de uma linha do diff, igual à do CSS (`.dbody`, `line-height`). O
+/// lugar de um arquivo que ninguém abriu ainda é guardado por esta conta: sem
+/// ela a barra de rolagem cresceria a cada arquivo montado, e a tela pularia
+/// debaixo de quem está lendo.
+const ROW_H = 20;
 
 let signature = "";
 const shut = new Set<string>();
@@ -38,17 +43,72 @@ type View = {
   onSeen: () => void;
 };
 
-/// Reconstrói a tela — só quando algum patch mudou de verdade.
+/// O que já está desenhado, por arquivo e pela marca do patch de quando foi.
+/// Redesenhar a tela é reaproveitar o que não mudou: sem isto, uma linha nova
+/// num arquivo refazia as dezenas de milhares de linhas de todos os outros — e
+/// o quadro pede esta tela a cada ferramenta que o agente usa.
+const drawn = new Map<string, Drawn>();
+let drawnId = "";
+
+type Drawn = {
+  el: HTMLElement;
+  stamp: string;
+  /// Repinta o que é estado da tela e não do patch: "visto" e recolhido. O
+  /// elemento sobrevive ao redesenho, então precisa ser dito de novo.
+  sync: () => void;
+};
+
+/// Reconstrói a tela — só quando algum patch mudou de verdade. A marca de cada
+/// arquivo entra na assinatura no lugar do patch inteiro: comparar a soma de
+/// 260 KB de texto a cada evento do quadro já era metade da conta.
 export function render(host: HTMLElement, view: View) {
   const { id, repos } = view;
-  const sig = [id, ...repos.map((r) => r.name + r.files.map((c) => `${c.path}${c.patch}`).join(""))].join("\0");
+  if (drawnId !== id) {
+    drawn.clear();
+    drawnId = id;
+  }
+  const sig = [id, ...repos.map((r) => r.name + r.files.map((c) => `${c.path}${stamp(c)}`).join(""))].join("\0");
   if (sig !== signature) {
     signature = sig;
+    watch(host);
     const some = repos.filter((r) => r.files.length);
     const multi = repos.length > 1;
     host.replaceChildren(...(some.length ? some.flatMap((r) => (multi ? [group(view, r)] : files(view, r))) : [none(view.empty)]));
+    // Arquivo que saiu da lista sai do cache junto: um workspace que trabalha o
+    // dia inteiro não pode ir guardando o diff de tudo que já passou por ele.
+    const live = new Set(keys(repos));
+    for (const [k, d] of drawn) {
+      if (!live.has(k)) {
+        watcher?.unobserve(d.el);
+        drawn.delete(k);
+      }
+    }
   }
   if (view.focus) scrollTo(host, view.focus);
+}
+
+/* ---------- montar só o que se vê ---------- */
+
+/// Quem monta o corpo de um arquivo, pelo elemento dele. O corpo só existe
+/// quando o arquivo chega perto da tela: um workspace de cem arquivos tem
+/// dezenas de milhares de linhas, e montá-las todas de uma vez é a tela
+/// travada por segundos e a rolagem arrastando depois.
+const filler = new WeakMap<Element, () => void>();
+let watcher: IntersectionObserver | null = null;
+let watched: HTMLElement | null = null;
+
+function watch(host: HTMLElement) {
+  if (watched === host && watcher) return;
+  watcher?.disconnect();
+  watched = host;
+  // A margem é o que faz a rolagem parecer instantânea: o arquivo é montado
+  // uma tela antes de aparecer.
+  watcher = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) if (e.isIntersecting) filler.get(e.target)?.();
+    },
+    { root: host, rootMargin: "800px 0px" },
+  );
 }
 
 /// Apaga a assinatura: o próximo `render` desenha de novo mesmo sem patch
@@ -68,7 +128,11 @@ export function foldAll(all: string[]) {
 
 function scrollTo(host: HTMLElement, k: string) {
   const target = host.querySelector(`[data-key="${CSS.escape(k)}"]`);
-  target?.scrollIntoView({ block: "start" });
+  if (!target) return;
+  // Montar antes de rolar: chegar num arquivo é chegar no conteúdo dele, e não
+  // no lugar onde ele vai estar quando o observador o alcançar.
+  filler.get(target)?.();
+  target.scrollIntoView({ block: "start" });
 }
 
 function none(text: string): HTMLElement {
@@ -193,11 +257,27 @@ function group(view: View, r: RepoDiff): HTMLElement {
   return box;
 }
 
-const files = (view: View, r: RepoDiff) => r.files.map((c) => file(view, r.name, c));
+/// Os arquivos de um repositório: o que já estava desenhado com o mesmo patch
+/// volta como está, e só o que mudou é montado de novo.
+function files(view: View, r: RepoDiff): HTMLElement[] {
+  return r.files.map((c) => {
+    const k = key(r.name, c.path);
+    const mark = stamp(c);
+    const old = drawn.get(k);
+    if (old?.stamp === mark) {
+      old.sync();
+      return old.el;
+    }
+    if (old) watcher?.unobserve(old.el);
+    const made = file(view, r.name, c);
+    drawn.set(k, { ...made, stamp: mark });
+    return made.el;
+  });
+}
 
 /* ---------- um arquivo ---------- */
 
-function file(view: View, repo: string, change: Change): HTMLElement {
+function file(view: View, repo: string, change: Change): Omit<Drawn, "stamp"> {
   const k = key(repo, change.path);
   const box = document.createElement("div");
   box.className = "dfile";
@@ -241,6 +321,21 @@ function file(view: View, repo: string, change: Change): HTMLElement {
   });
   paintSeen();
 
+  // O corpo é montado quando o arquivo chega perto da tela — ou quando alguém
+  // o abre, ou vai até ele. Até lá o lugar dele fica guardado pela altura que
+  // as linhas vão ter, para a rolagem não andar sozinha depois.
+  let full = false;
+  const fill = () => {
+    if (full || shut.has(k)) return;
+    full = true;
+    body.style.minHeight = "";
+    body.append(...lines(change));
+    watcher?.unobserve(box);
+  };
+  body.style.minHeight = `${rowCount(change.patch) * ROW_H}px`;
+  filler.set(box, fill);
+  watcher?.observe(box);
+
   const glyph = () => {
     head.children[0].innerHTML = icon(shut.has(k) ? "chevron-right" : "chevron-down", 14);
     body.hidden = shut.has(k);
@@ -248,12 +343,24 @@ function file(view: View, repo: string, change: Change): HTMLElement {
   head.addEventListener("click", () => {
     shut.has(k) ? shut.delete(k) : shut.add(k);
     glyph();
+    fill();
   });
 
-  body.append(...lines(change));
   box.append(head, body);
   glyph();
-  return box;
+  // Reaproveitado, o elemento só precisa ouvir de novo o que não está no
+  // patch: se você marcou como visto, e se ele está recolhido. Montar o corpo
+  // continua sendo do observador — é o que faz redesenhar custar quase nada.
+  return { el: box, sync: () => (paintSeen(), glyph()) };
+}
+
+/// Quantas linhas o corpo deste arquivo vai ter, sem montá-las: conta pela
+/// mesma regra do `rows`, para o lugar guardado ser do tamanho do que chega.
+function rowCount(patch: string): number {
+  if (!patch) return 1;
+  let n = 0;
+  for (const line of patch.split("\n")) if (line && !line.startsWith("\\")) n++;
+  return Math.min(n, MAX_ROWS + 1);
 }
 
 /// Sem trechos: binário, ou patch cortado no back por ser grande demais. O

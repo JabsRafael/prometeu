@@ -238,6 +238,9 @@ export type RepoDiff = {
   /// De onde a branch saiu neste repo; é contra ela que `ahead` e o diff contam.
   base: string;
   ahead: number;
+  /// Destes commits, quantos ainda não foram para o remoto. É o que separa
+  /// "commitei" de "está no PR": sem ele a tela só sabe dizer que mudou.
+  unpushed: number;
   /// Quantos arquivos têm pedaço fora de commit.
   dirty: number;
   files: Change[];
