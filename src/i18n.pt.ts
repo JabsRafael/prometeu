@@ -545,6 +545,7 @@ export const PT = {
   "err.session.openFailed": "não abriu {path}",
 
   "err.browser.badUrl": "endereço que não dá para abrir: {url}",
+  "err.browser.noBrowser": "não consegui abrir o navegador",
   "err.dock.unknown": "dock desconhecido: {kind}",
   "err.dock.noScript": "nenhum script de {kind} em {file}",
 

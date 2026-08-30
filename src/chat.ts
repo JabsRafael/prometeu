@@ -110,11 +110,6 @@ export class ChatView {
       this.paintComposer();
       if (stick) this.feed.scrollTop = this.feed.scrollHeight;
     });
-    // Link no texto do agente não navega: a janela é o app.
-    this.feed.addEventListener("click", (e) => {
-      const a = (e.target as HTMLElement).closest("a");
-      if (a) e.preventDefault();
-    });
     document.addEventListener("selectionchange", () => this.paintQuoteButton());
   }
 

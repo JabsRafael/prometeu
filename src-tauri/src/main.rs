@@ -121,6 +121,7 @@ fn main() {
             browser::browser_hide,
             browser::browser_reload,
             browser::browser_close,
+            browser::open_external,
             session::pr_prompt,
             github::pr_open,
             github::refresh_prs,

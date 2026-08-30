@@ -10,6 +10,7 @@ import { openInbox } from "./inbox";
 import * as dock from "./dock";
 import * as dockbar from "./dockbar";
 import { icon } from "./icons";
+import * as links from "./links";
 import { current, fromBack, paint, t } from "./i18n";
 import * as issues from "./issues";
 import { dropFiles, loadAgents, openLauncher, type Draft } from "./launcher";
@@ -449,6 +450,7 @@ for (const [id, name] of [
   $(id).innerHTML = icon(name);
 }
 
+links.init(say);
 void update.init(say);
 // Quais agentes existem nesta máquina: é o que o lançador oferece no rodapé.
 // Ninguém espera por isso para a tela aparecer — até a resposta chegar, o
