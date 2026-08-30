@@ -33,8 +33,8 @@ export type Draft = {
   /// escolha à parte — sai do modelo, porque escolher um GPT é escolher o Codex.
   agent: string;
   /// O modelo: um alias do Claude Code (`opus`, `sonnet[1m]`…) ou um slug do
-  /// Codex (`gpt-5.6-sol`). Vazio é deixar o CLI escolher. Vale para o
-  /// workspace inteiro.
+  /// Codex (`gpt-5.6-sol`). Sempre um dos dois — não há "deixa o CLI escolher"
+  /// para escolher. Vale para o workspace inteiro.
   model: string;
   /// `--effort`, `low`…`max` ou `ultracode`. O lançador sempre escolhe um;
   /// vazio (workspace antigo) é não passar. Também do workspace.
@@ -53,8 +53,12 @@ type Branches = { all: string[]; default: string };
 /// Os aliases que o `--model` aceita, com o nome que aparece na tela. Alias e
 /// não id completo de propósito: "opus" é sempre o Opus mais novo, e a lista
 /// não envelhece a cada release. `[1m]` é a janela de um milhão.
+///
+/// Não há "modelo padrão" na lista: escolher é sempre escolher um nome, e o
+/// primeiro daqui é com quem se fala sem ter escolhido nada. Um `--model`
+/// vazio ainda existe no back — é o que quadro gravado antes disto traz —,
+/// mas não é mais coisa que se possa escolher.
 const MODELS: [string, string][] = [
-  ["", t("model.default")],
   ["fable", "Fable"],
   ["fable[1m]", "Fable · 1M"],
   ["opus", "Opus"],
@@ -116,10 +120,11 @@ export function fitsEffort(model: string, effort: string): string {
   return stairs[stairs.length - 1]?.[0] ?? "high";
 }
 
-/// O modelo com que o lançador abre quando não há nada lembrado. Vazio é o
-/// padrão do Claude Code; sem `claude` na máquina, é o primeiro do Codex —
-/// senão o rodapé começaria apontando para um CLI que não existe.
-const fallbackModel = () => (agents.claude ? "" : (agents.codex[0]?.slug ?? ""));
+/// O modelo com que o lançador abre quando não há nada lembrado: o primeiro da
+/// lista. Sem `claude` na máquina é o primeiro do Codex — senão o rodapé
+/// começaria apontando para um CLI que não existe.
+const fallbackModel = () =>
+  (agents.claude ? MODELS[0]?.[0] : agents.codex[0]?.slug) ?? "";
 
 /// A escada do esforço, na ordem em que o clique sobe. É o botão do Conductor:
 /// barras que acendem uma a uma, e depois da última volta ao Baixo — sem

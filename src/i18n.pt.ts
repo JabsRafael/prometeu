@@ -80,7 +80,6 @@ export const PT = {
 
   /* ---------- lançador ---------- */
 
-  "model.default": "Modelo padrão",
   "model.claude": "Claude Code",
   "model.codex": "Codex",
   "effort.low": "Baixo",

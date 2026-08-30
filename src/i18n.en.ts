@@ -65,7 +65,6 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "ws.menu.gone": "worktree removed",
   "ws.menu.drop": "Remove workspace",
 
-  "model.default": "Default model",
   "model.claude": "Claude Code",
   "model.codex": "Codex",
   "effort.low": "Low",
