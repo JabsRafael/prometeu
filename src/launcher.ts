@@ -1,4 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
+import { freshBranch } from "./branch";
 import { avatar, icon } from "./icons";
 import { paint, t } from "./i18n";
 import * as issues from "./issues";
@@ -154,7 +155,7 @@ export const dropFiles = (paths: string[]) => takeFiles?.(paths);
 
 /// O lançador é uma caixa de texto e um seletor de projeto — o "Create" do
 /// Conductor. O que dá para deduzir é deduzido, sem campo para editar: o nome
-/// sai da primeira frase (renomeia-se no card), a branch ganha o horário, a
+/// sai da primeira frase (renomeia-se no card), a branch ganha o dia e o horário, a
 /// etapa é a segunda da lista. Criar é Enter.
 ///
 /// Com `seed`, o workspace nasce de uma issue do Linear: a branch é a que o
@@ -179,7 +180,9 @@ export function openLauncher(board: Board, opts: Open) {
   const draft: Draft = {
     project: preset ?? board.projects[0].id,
     extras: [],
-    branch: seed?.branch_name || `prometheus/${stamp()}`,
+    // Sem a lista de branches do repo ainda: `loadBranches` refaz o nome
+    // assim que ela chega, e é ela que sabe se este já é de alguém.
+    branch: seed?.branch_name || freshBranch([]),
     base: "",
     worktree: localStorage.getItem(WORKTREE_KEY) !== "0",
     newBranch: localStorage.getItem(BRANCH_KEY) !== "0",
@@ -459,6 +462,9 @@ export function openLauncher(board: Board, opts: Open) {
     try {
       const got = await invoke<Branches>("list_branches", { project: draft.project });
       branches = got.all;
+      // O repositório é que sabe quais nomes já existem, e ele acabou de
+      // chegar (ou mudou, se trocaram de projeto). Issue manda no nome dela.
+      if (!seed) draft.branch = freshBranch(branches);
       setBase(got.default);
     } catch {
       // Repo sem ref nenhuma (recém-init): cria a branch de onde o HEAD estiver.
@@ -476,7 +482,7 @@ export function openLauncher(board: Board, opts: Open) {
   const setSeed = (issue: Issue | undefined) => {
     seed = issue;
     draft.issue = issue ? { id: issue.id, identifier: issue.identifier, title: issue.title, url: issue.url } : null;
-    draft.branch = issue?.branch_name || `prometheus/${stamp()}`;
+    draft.branch = issue?.branch_name || freshBranch(branches);
     draft.title = issue ? `${issue.identifier} · ${issue.title}` : "";
     prompt.placeholder = t(issue ? "launcher.prompt.issue" : "launcher.prompt");
     issueBtn.querySelector("span")!.textContent = issue?.identifier ?? t("launcher.issue");
@@ -809,10 +815,4 @@ export function issueBlock(issue: Issue, extra: string): string {
 function summarize(prompt: string) {
   const line = prompt.trim().split("\n")[0]?.trim() ?? "";
   return line.length > 46 ? line.slice(0, 45) + "…" : line;
-}
-
-/// Uma branch por workspace. O horário basta para não colidir e já diz quando foi.
-function stamp() {
-  const d = new Date();
-  return `${d.getHours()}`.padStart(2, "0") + `${d.getMinutes()}`.padStart(2, "0");
 }
