@@ -68,7 +68,9 @@ pub fn rename_later(app: &AppHandle, id: &str, prompt: &str, fallback: &str, lau
         launch.clone(),
     );
     std::thread::spawn(move || {
-        let Some(title) = ask(&prompt, &launch) else { return };
+        let Some(title) = ask(&prompt, &launch) else {
+            return;
+        };
         let state = app.state::<AppState>();
         {
             let mut board = lock(&state.board);
@@ -92,7 +94,14 @@ fn ask(prompt: &str, launch: &Launch) -> Option<String> {
         // trabalho é caro e mais lento para dizer cinco palavras.
         "codex" => {
             let model = crate::agents::codex_namer_model();
-            ask_codex(prompt, if model.is_empty() { &launch.model } else { &model })
+            ask_codex(
+                prompt,
+                if model.is_empty() {
+                    &launch.model
+                } else {
+                    &model
+                },
+            )
         }
         _ => ask_claude(prompt),
     }
@@ -104,7 +113,13 @@ fn ask(prompt: &str, launch: &Launch) -> Option<String> {
 fn ask_codex(prompt: &str, model: &str) -> Option<String> {
     let out = std::env::temp_dir().join(format!("prometheus-nome-{}.txt", uuid::Uuid::new_v4()));
     let mut cmd = Command::new("codex");
-    cmd.args(["exec", "--ephemeral", "--skip-git-repo-check", "-s", "read-only"]);
+    cmd.args([
+        "exec",
+        "--ephemeral",
+        "--skip-git-repo-check",
+        "-s",
+        "read-only",
+    ]);
     cmd.args(["-c", "model_reasoning_effort=low", "-c", "mcp_servers={}"]);
     cmd.arg("-o").arg(&out);
     if !model.trim().is_empty() {
@@ -116,10 +131,14 @@ fn ask_codex(prompt: &str, model: &str) -> Option<String> {
     cmd.current_dir(crate::paths::home());
     // Sem isto o `codex exec` fica esperando "input adicional" no stdin e nunca
     // responde.
-    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
 
     let child = cmd.spawn().ok();
-    let title = child.and_then(|mut c| wait(&mut c).then(|| std::fs::read_to_string(&out).ok())).flatten();
+    let title = child
+        .and_then(|mut c| wait(&mut c).then(|| std::fs::read_to_string(&out).ok()))
+        .flatten();
     let _ = std::fs::remove_file(&out);
     clean(&title?)
 }
@@ -149,7 +168,9 @@ fn ask_claude(prompt: &str) -> Option<String> {
             cmd.env_remove(k);
         }
     }
-    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
 
     let mut child = cmd.spawn().ok()?;
     child.stdin.take()?.write_all(prompt.as_bytes()).ok()?;
@@ -157,7 +178,9 @@ fn ask_claude(prompt: &str) -> Option<String> {
         return None;
     }
     let out = child.wait_with_output().ok()?;
-    out.status.success().then(|| clean(&String::from_utf8_lossy(&out.stdout)))?
+    out.status
+        .success()
+        .then(|| clean(&String::from_utf8_lossy(&out.stdout)))?
 }
 
 /// Espera o nomeador responder. Ele fecha sozinho quando responde; o teto é para
@@ -183,7 +206,10 @@ fn wait(child: &mut std::process::Child) -> bool {
 /// na lista é pior que o começo do prompt.
 fn clean(raw: &str) -> Option<String> {
     let line = raw.trim().lines().last()?.trim();
-    let line = line.trim_matches(['"', '\'', '`', '*']).trim_end_matches('.').trim();
+    let line = line
+        .trim_matches(['"', '\'', '`', '*'])
+        .trim_end_matches('.')
+        .trim();
     let ok = !line.is_empty() && line.chars().count() <= MAX_TITLE;
     ok.then(|| line.to_string())
 }
@@ -194,12 +220,18 @@ mod tests {
 
     #[test]
     fn tira_aspas_ponto_e_espaco() {
-        assert_eq!(clean("  \"Corrigir arrastar entre colunas.\"  ").unwrap(), "Corrigir arrastar entre colunas");
+        assert_eq!(
+            clean("  \"Corrigir arrastar entre colunas.\"  ").unwrap(),
+            "Corrigir arrastar entre colunas"
+        );
     }
 
     #[test]
     fn fica_com_a_ultima_linha() {
-        assert_eq!(clean("pensando...\n\nSubir modelo no rodapé").unwrap(), "Subir modelo no rodapé");
+        assert_eq!(
+            clean("pensando...\n\nSubir modelo no rodapé").unwrap(),
+            "Subir modelo no rodapé"
+        );
     }
 
     #[test]

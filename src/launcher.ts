@@ -1,10 +1,10 @@
-import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { avatar, icon } from "./icons";
 import { paint, t } from "./i18n";
 import * as issues from "./issues";
 import * as menu from "./menu";
-import { h } from "./util";
+import { invoke } from "./ipc";
+import { template } from "./util";
 import type { Board, Issue, IssueRef } from "./types";
 
 export type Draft = {
@@ -269,7 +269,7 @@ export function openLauncher(board: Board, opts: Open) {
     reposBox.hidden = !draft.extras.length;
     reposBox.replaceChildren(
       ...draft.extras.map((id) => {
-        const chip = h("span", "injchip repo", `${icon("git-branch", 12)}<span></span><button class="ico sm">${icon("x", 12)}</button>`);
+        const chip = template("span", "injchip repo", `${icon("git-branch", 12)}<span></span><button class="ico sm">${icon("x", 12)}</button>`);
         chip.children[1].textContent = nameOf(id);
         (chip.children[2] as HTMLElement).title = t("launcher.removeRepo", { name: nameOf(id) });
         chip.children[2].addEventListener("click", () => {
@@ -484,7 +484,7 @@ export function openLauncher(board: Board, opts: Open) {
     issueBox.hidden = !issue;
     issueBox.replaceChildren();
     if (issue) {
-      const chip = h(
+      const chip = template(
         "span",
         "injchip issue",
         `${icon("linear", 12)}<b class="iid"></b><span class="it"></span><button class="ico sm">${icon("x", 12)}</button>`,

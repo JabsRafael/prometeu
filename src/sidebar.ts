@@ -4,7 +4,7 @@ import * as menu from "./menu";
 import * as team from "./team";
 import * as rename from "./rename";
 import { hasWorktree, repoLabel, stateLabel, statusOf, type Board, type Workspace } from "./types";
-import { h } from "./util";
+import { h, template } from "./util";
 
 /// Ações disponíveis na lista lateral e no menu de um workspace.
 export type Hooks = {
@@ -136,16 +136,16 @@ function renderRail(board: Board, hooks: Hooks) {
   rail.replaceChildren();
   const live = board.workspaces.filter((w) => !w.archived && !w.remote);
 
-  rail.append(h("div", "navitem brand", `${icon("flame")}<span>Prometheus</span>`));
+  rail.append(template("div", "navitem brand", `${icon("flame")}<span>Prometheus</span>`));
 
-  const create = h("button", "navitem", `${icon("plus")}<span></span>`);
+  const create = template("button", "navitem", `${icon("plus")}<span></span>`);
   create.children[1].textContent = t("rail.create");
   create.title = t("rail.create.title");
   create.addEventListener("click", () => hooks.newWorkspace());
   rail.append(create);
 
   // As issues no seu nome, do Linear. É a tela inicial: de onde o trabalho sai.
-  const issues = h(
+  const issues = template(
     "button",
     "navitem" + (openId === ISSUES ? " on" : ""),
     `${icon("inbox")}<span></span><span class="n"></span>`,
@@ -161,7 +161,7 @@ function renderRail(board: Board, hooks: Hooks) {
   // resposta sua e não está dentro de uma sessão.
   const waiting = team.inboxCount();
   if (waiting) {
-    const mine = h("button", "navitem mentions", `${icon("at-sign")}<span></span><span class="n"></span>`);
+    const mine = template("button", "navitem mentions", `${icon("at-sign")}<span></span><span class="n"></span>`);
     mine.children[1].textContent = t("inbox.title");
     mine.querySelector(".n")!.textContent = String(waiting);
     mine.addEventListener("click", hooks.inbox);
@@ -183,9 +183,9 @@ function renderRail(board: Board, hooks: Hooks) {
     renderGroup(rail, board, hooks, t("rail.team"), icon("users", 14), shared, "@time", { avatars: true });
   }
 
-  const sect = h("div", "sect", `<span></span>`);
+  const sect = template("div", "sect", `<span></span>`);
   sect.children[0].textContent = t("rail.projects");
-  const add = h("button", "ico sm", icon("folder-plus"));
+  const add = template("button", "ico sm", icon("folder-plus"));
   add.title = t("rail.addProject");
   add.addEventListener("click", hooks.addProject);
   sect.append(add);
@@ -203,7 +203,7 @@ function renderRail(board: Board, hooks: Hooks) {
     const mine = live.filter((w) => w.project === project.id && !w.pinned);
     // Dentro do projeto quem ordena é a etapa: o que está andando fica em cima.
     mine.sort((a, b) => stageAt(a) - stageAt(b));
-    const plus = h("button", "ico sm", icon("plus"));
+    const plus = template("button", "ico sm", icon("plus"));
     // Criar workspace já dentro do projeto é o que torna começar algo rápido.
     plus.title = t("rail.newIn", { project: project.name });
     plus.addEventListener("click", (e) => {
@@ -226,7 +226,7 @@ function renderRail(board: Board, hooks: Hooks) {
   const gone = board.workspaces.filter((w) => w.archived).length;
   if (gone) {
     rail.append(document.createElement("hr"));
-    const arch = h(
+    const arch = template(
       "button",
       "navitem" + (openId === ARCHIVED ? " on" : ""),
       `${icon("archive")}<span></span><span class="n"></span>`,
@@ -260,7 +260,7 @@ function renderGroup(
   const shut = folded(key);
   // Div, e não botão: o + do projeto mora no cabeçalho, e `button` dentro de
   // `button` é HTML inválido. O `tabindex` devolve o que o botão dava de graça.
-  const head = h(
+  const head = template(
     "div",
     "group",
     `<span class="gg">${glyph}</span><span></span><span class="n"></span><span class="gc"></span>`,
@@ -288,7 +288,7 @@ function renderGroup(
 
   const total = board.stages.length;
   for (const ws of list) {
-    const b = h(
+    const b = template(
       "button",
       "navitem sub" + (ws.id === openId ? " on" : "") + (ws.unread ? " unread" : ""),
       `<i class="dot"></i><span class="lbl"></span><span class="n"></span>`,
@@ -302,7 +302,7 @@ function renderGroup(
     if (ws.remote) {
       const owner = team.nameOf(ws.remote.owner);
       b.title = `${owner} · ${ws.repo_name} · ${ws.branch} · ${stateLabel(ws)}`;
-      b.children[0].after(h("span", "av", avatar(owner)));
+      b.children[0].after(template("span", "av", avatar(owner)));
       if (!ws.remote.online) b.classList.add("off");
       rail.append(b);
       continue;
@@ -311,8 +311,8 @@ function renderGroup(
     // A etapa saiu do cabeçalho e virou o anel da linha: o grupo é o projeto,
     // e continua dando para ler de longe o que está em qual etapa.
     const at = board.stages.indexOf(ws.stage);
-    b.children[0].after(h("span", "st", stageIcon(at, total, 13)));
-    if (opts.avatars) b.children[0].after(h("span", "av", avatar(ws.repo_name)));
+    b.children[0].after(template("span", "st", stageIcon(at, total, 13)));
+    if (opts.avatars) b.children[0].after(template("span", "av", avatar(ws.repo_name)));
     attachMenu(b, ws, board, hooks, b, "sub");
     rail.append(b);
   }

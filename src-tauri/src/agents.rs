@@ -25,7 +25,10 @@ use std::path::PathBuf;
 /// perto de um segundo, e isto acontece com a janela subindo.
 fn installed() -> (bool, bool) {
     let out = std::process::Command::new("sh")
-        .args(["-lc", "command -v claude && echo TEM_CLAUDE; command -v codex && echo TEM_CODEX; true"])
+        .args([
+            "-lc",
+            "command -v claude && echo TEM_CLAUDE; command -v codex && echo TEM_CODEX; true",
+        ])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
         .unwrap_or_default();
@@ -35,7 +38,9 @@ fn installed() -> (bool, bool) {
 /// `$CODEX_HOME`, ou o `~/.codex` de sempre. É o home do usuário de propósito:
 /// conta, skills, memórias e config do Codex continuam valendo dentro do app.
 fn home() -> PathBuf {
-    std::env::var("CODEX_HOME").map(PathBuf::from).unwrap_or_else(|_| paths::home().join(".codex"))
+    std::env::var("CODEX_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| paths::home().join(".codex"))
 }
 
 /// Um modelo como o lançador o mostra.
@@ -63,15 +68,22 @@ pub struct Agents {
 #[tauri::command]
 pub fn agents() -> Agents {
     let (claude, codex) = installed();
-    Agents { claude, codex: if codex { codex_models() } else { vec![] } }
+    Agents {
+        claude,
+        codex: if codex { codex_models() } else { vec![] },
+    }
 }
 
 /// O catálogo do Codex, filtrado pelo que ele mesmo marca como visível. Lista
 /// vazia é "não há Codex nesta máquina" — o `codex` fora do PATH, ou instalado e
 /// nunca aberto (o catálogo só existe depois do primeiro login).
 fn codex_models() -> Vec<Model> {
-    let Ok(raw) = std::fs::read_to_string(home().join("models_cache.json")) else { return vec![] };
-    let Ok(cache) = serde_json::from_str::<Value>(&raw) else { return vec![] };
+    let Ok(raw) = std::fs::read_to_string(home().join("models_cache.json")) else {
+        return vec![];
+    };
+    let Ok(cache) = serde_json::from_str::<Value>(&raw) else {
+        return vec![];
+    };
     cache["models"]
         .as_array()
         .map(|models| {
@@ -83,9 +95,18 @@ fn codex_models() -> Vec<Model> {
                     let name = m["display_name"].as_str().unwrap_or(&slug).to_string();
                     let efforts = m["supported_reasoning_levels"]
                         .as_array()
-                        .map(|ls| ls.iter().filter_map(|l| l["effort"].as_str()).map(str::to_string).collect())
+                        .map(|ls| {
+                            ls.iter()
+                                .filter_map(|l| l["effort"].as_str())
+                                .map(str::to_string)
+                                .collect()
+                        })
                         .unwrap_or_default();
-                    Some(Model { slug, name, efforts })
+                    Some(Model {
+                        slug,
+                        name,
+                        efforts,
+                    })
                 })
                 .collect()
         })
@@ -98,8 +119,12 @@ fn codex_models() -> Vec<Model> {
 /// modelo do trabalho nisso é caro e mais lento. Vazio é catálogo ausente: aí o
 /// nomeador cai no modelo do próprio workspace.
 pub fn codex_namer_model() -> String {
-    let Ok(raw) = std::fs::read_to_string(home().join("models_cache.json")) else { return String::new() };
-    let Ok(cache) = serde_json::from_str::<Value>(&raw) else { return String::new() };
+    let Ok(raw) = std::fs::read_to_string(home().join("models_cache.json")) else {
+        return String::new();
+    };
+    let Ok(cache) = serde_json::from_str::<Value>(&raw) else {
+        return String::new();
+    };
     cache["models"]
         .as_array()
         .and_then(|models| {

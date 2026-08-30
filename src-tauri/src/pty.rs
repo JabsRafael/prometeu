@@ -85,7 +85,12 @@ impl Pty {
 
     pub fn resize(&self, cols: u16, rows: u16) -> Result<(), String> {
         self.master
-            .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+            .resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
             .map_err(i18n::io)
     }
 
@@ -174,7 +179,12 @@ type Opened = (Pty, Box<dyn Read + Send>, Box<dyn Child + Send + Sync>);
 /// esta metade não sabe o que é Tauri, então o teste consegue rodá-la.
 fn open(cmd: CommandBuilder, cols: u16, rows: u16) -> Result<Opened, String> {
     let pair = native_pty_system()
-        .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+        .openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .map_err(|e| i18n::ta("err.pty.openpty", &[("cause", e.to_string())]))?;
 
     let child = pair
@@ -256,12 +266,21 @@ pub fn spawn(
         let code = child.wait().ok().map(|s| s.exit_code());
         if !gone_t.load(Ordering::Relaxed) {
             let line = match code {
-                Some(0) => format!("\r\n\x1b[32m✓ {}\x1b[0m\r\n", i18n::pick("terminou", "finished")),
+                Some(0) => format!(
+                    "\r\n\x1b[32m✓ {}\x1b[0m\r\n",
+                    i18n::pick("terminou", "finished")
+                ),
                 Some(n) => format!(
                     "\r\n\x1b[31m✗ {}\x1b[0m\r\n",
-                    i18n::pick(&format!("saiu com código {n}"), &format!("exited with code {n}")),
+                    i18n::pick(
+                        &format!("saiu com código {n}"),
+                        &format!("exited with code {n}")
+                    ),
                 ),
-                None => format!("\r\n\x1b[31m✗ {}\x1b[0m\r\n", i18n::pick("encerrado", "stopped")),
+                None => format!(
+                    "\r\n\x1b[31m✗ {}\x1b[0m\r\n",
+                    i18n::pick("encerrado", "stopped")
+                ),
             };
             let seq = lock(&sink).absorb(line.as_bytes());
             let _ = app.emit("pty", (id.clone(), line.into_bytes(), seq));
@@ -278,13 +297,22 @@ pub fn spawn(
 #[tauri::command]
 pub fn pty_write(state: State<AppState>, session: String, data: String) -> Result<(), String> {
     let mut ptys = lock(&state.ptys);
-    ptys.get_mut(&session).ok_or_else(|| i18n::t("err.pty.gone"))?.write(&data)
+    ptys.get_mut(&session)
+        .ok_or_else(|| i18n::t("err.pty.gone"))?
+        .write(&data)
 }
 
 #[tauri::command]
-pub fn pty_resize(state: State<AppState>, session: String, cols: u16, rows: u16) -> Result<(), String> {
+pub fn pty_resize(
+    state: State<AppState>,
+    session: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
     let ptys = lock(&state.ptys);
-    ptys.get(&session).ok_or_else(|| i18n::t("err.pty.gone"))?.resize(cols, rows)
+    ptys.get(&session)
+        .ok_or_else(|| i18n::t("err.pty.gone"))?
+        .resize(cols, rows)
 }
 
 /// Devolve a rolagem guardada, para o terminal voltar como estava.
@@ -382,7 +410,10 @@ mod tests {
         // O que vem depois é justamente o que tem de ir ao vivo.
         assert_eq!(read_chunk(&mut reader), 2);
         assert!(lock(&scroll).bytes.ends_with(b"segundo"));
-        assert!(seq < lock(&scroll).seq, "o pedaço novo tem número maior que o do snapshot");
+        assert!(
+            seq < lock(&scroll).seq,
+            "o pedaço novo tem número maior que o do snapshot"
+        );
     }
 
     /// O bug que este arquivo existe para não ter de novo: fechar o dock
@@ -401,7 +432,10 @@ mod tests {
     #[test]
     fn encerrar_uma_sessao_leva_filho_e_neto() {
         let mut cmd = CommandBuilder::new("/bin/sh");
-        cmd.args(["-c", "nohup sleep 30 >/dev/null 2>&1 & echo NETO=$!; exec sleep 30"]);
+        cmd.args([
+            "-c",
+            "nohup sleep 30 >/dev/null 2>&1 & echo NETO=$!; exec sleep 30",
+        ]);
         let (pty, mut reader, _child) = open(cmd, 80, 24).expect("pty não abriu");
         let filho = pty.pid as i32;
 
@@ -410,7 +444,10 @@ mod tests {
         let mut chunk = [0u8; 512];
         let deadline = Instant::now() + Duration::from_secs(5);
         let neto: i32 = loop {
-            assert!(Instant::now() < deadline, "o neto nunca disse o pid: {saida:?}");
+            assert!(
+                Instant::now() < deadline,
+                "o neto nunca disse o pid: {saida:?}"
+            );
             let n = reader.read(&mut chunk).expect("leitura falhou");
             saida.push_str(&String::from_utf8_lossy(&chunk[..n]));
             let digits: String = saida
@@ -433,14 +470,26 @@ mod tests {
             while matches!(reader.read(&mut buf), Ok(n) if n > 0) {}
         });
 
-        assert!(running(filho), "o filho devia estar de pé antes do teste começar");
-        assert!(running(neto), "o neto devia estar de pé antes do teste começar");
+        assert!(
+            running(filho),
+            "o filho devia estar de pé antes do teste começar"
+        );
+        assert!(
+            running(neto),
+            "o neto devia estar de pé antes do teste começar"
+        );
 
         drop(pty);
 
         // A escalação é feita de espera, e roda fora desta thread.
         let teto = GRACE + REAP + Duration::from_secs(2);
-        assert!(parou(filho, teto), "o filho {filho} sobreviveu ao fechamento da sessão");
-        assert!(parou(neto, teto), "o neto {neto} sobreviveu ao fechamento da sessão");
+        assert!(
+            parou(filho, teto),
+            "o filho {filho} sobreviveu ao fechamento da sessão"
+        );
+        assert!(
+            parou(neto, teto),
+            "o neto {neto} sobreviveu ao fechamento da sessão"
+        );
     }
 }

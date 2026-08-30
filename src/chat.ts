@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import { icon, type IconName } from "./icons";
 import { fromBack, t, tn } from "./i18n";
@@ -11,7 +11,7 @@ import * as notes from "./notes";
 import * as team from "./team";
 import { pieces, summary, Timeline, type Ask, type Block, type Command, type Item, type Piece, type ToolBlock } from "./timeline";
 import type { Status } from "./types";
-import { h } from "./util";
+import { h, template } from "./util";
 
 /// A conversa na tela: a timeline desenhada, e a caixa de escrever embaixo.
 ///
@@ -51,6 +51,7 @@ export type Ctx = {
 /// Quanto de resultado de ferramenta o card mostra aberto. O resto está no
 /// transcript; a tela não é o lugar de ler um arquivo de 4 mil linhas.
 const RESULT_LINES = 120;
+const ERROR_LINES = 36;
 
 export class ChatView {
   private feed!: HTMLElement;
@@ -84,10 +85,10 @@ export class ChatView {
   /// workspace tinha antes dela. Quando aparecer uma a mais, a rolagem vai
   /// até ela — mesmo que quem escreveu tenha subido para citar um trecho.
   private posted: { ws: string; count: number } | null = null;
-  private working = h("div", "working", "<i></i><i></i><i></i><span class=\"wlabel\"></span>");
+  private working = template("div", "working", "<i></i><i></i><i></i><span class=\"wlabel\"></span>");
   /// A fala guardada, esperando o setup: fica na tela como se tivesse ido,
   /// com o aviso de que ainda não foi.
-  private waiting = h("div", "turn user wait", `<div class="bubble"></div><div class="working"><i></i><i></i><i></i><span class="wlabel"></span></div>`);
+  private waiting = template("div", "turn user wait", `<div class="bubble"></div><div class="working"><i></i><i></i><i></i><span class="wlabel"></span></div>`);
 
   open(host: HTMLElement, ctx: Ctx) {
     this.ctx = ctx;
@@ -367,7 +368,7 @@ export class ChatView {
     // guarda quando o turno começou. Aí fica só o copiar.
     const label = ms < 100 ? "" : took(ms);
     if (old) return void (old.querySelector(".took")!.textContent = label);
-    const meta = h("div", "meta", `<span class="took"></span><button class="ico sm cp"></button>`);
+    const meta = template("div", "meta", `<span class="took"></span><button class="ico sm cp"></button>`);
     meta.querySelector(".took")!.textContent = label;
     const cp = meta.querySelector<HTMLElement>(".cp")!;
     cp.innerHTML = icon("copy", 13);
@@ -417,16 +418,14 @@ export class ChatView {
   private render(item: Exclude<Item, { kind: "assistant" }>, i: number): HTMLElement {
     switch (item.kind) {
       case "user": {
-        const el = h("div", "turn user", `<div class="bubble"></div>`);
+        const el = template("div", "turn user", `<div class="bubble"></div>`);
         (el.firstElementChild as HTMLElement).textContent = item.text;
         return el;
       }
       case "ask":
         return this.askCard(item, i);
       case "result": {
-        const el = h("div", "sys err");
-        el.textContent = item.text || t("chat.result.error");
-        return el;
+        return this.errorCard(item.text || t("chat.result.error"));
       }
       case "context":
         return contextPanel(item.report);
@@ -434,12 +433,13 @@ export class ChatView {
         if (item.what === "summary") {
           // O resumo com que o agente continua depois de compactar: é dele,
           // não da pessoa — e é longo. Fica dobrado, como o pensamento.
-          const el = h("details", "think summary", `<summary></summary><div class="md"></div>`);
+          const el = template("details", "think summary", `<summary></summary><div class="md"></div>`);
           el.querySelector("summary")!.textContent = t("chat.summary");
           (el.lastElementChild as HTMLElement).innerHTML = md(item.text);
           return el;
         }
-        const el = h("div", "sys" + (item.error ? " err" : ""));
+        if (item.error) return this.errorCard(item.text);
+        const el = h("div", "sys");
         el.textContent =
           item.what === "compacted"
             ? item.tokens
@@ -449,6 +449,26 @@ export class ChatView {
         return el;
       }
     }
+  }
+
+  /// Erro técnico não vira um paredão vermelho no meio da conversa. A linha
+  /// explica o que houve; a saída completa continua disponível para diagnóstico.
+  private errorCard(text: string): HTMLElement {
+    const value = text.trim() || t("chat.result.error");
+    if (!value.includes("\n") && value.length <= 180) {
+      const el = h("div", "sys err");
+      el.textContent = value;
+      return el;
+    }
+    const el = template(
+      "details",
+      "syserr",
+      `<summary><span class="eic">${icon("x", 12)}</span><b></b><span class="prev"></span></summary><pre></pre>`,
+    );
+    el.querySelector("b")!.textContent = t("chat.error.title");
+    el.querySelector(".prev")!.textContent = errorPeek(value);
+    el.querySelector("pre")!.textContent = capError(value);
+    return el;
   }
 
   /// Um pedaço que já está na tela mudou. Bloco por bloco: o que é do mesmo
@@ -528,7 +548,7 @@ export class ChatView {
       return el;
     }
     const el = h("div", "work" + (this.opened.has(piece.key) ? " open" : ""));
-    const head = h("button", "whead", `<span class="wic"></span><b></b><span class="sum"></span><span class="st"></span>`);
+    const head = template("button", "whead", `<span class="wic"></span><b></b><span class="sum"></span><span class="st"></span>`);
     head.addEventListener("click", () => {
       const open = el.classList.toggle("open");
       if (open) this.opened.add(piece.key);
@@ -576,7 +596,7 @@ export class ChatView {
     if (block.kind === "thinking") {
       // Sem texto (histórico do transcript, que não guarda o pensamento) não
       // há o que abrir: fica o rótulo, sem seta.
-      const el = h(
+      const el = template(
         "details",
         "think" + (live ? " live" : "") + (block.text ? "" : " bare"),
         `<summary><span class="tic">${icon("brain", 14)}</span><b></b><span class="prev"></span></summary><div></div>`,
@@ -592,7 +612,7 @@ export class ChatView {
     const el = h("div", "tool" + (running ? " run" : block.error ? " bad" : " ok"));
     el.dataset.kind = "tool";
     el.dataset.tool = block.id;
-    const head = h("button", "thead", `<span class="tic">${icon(toolIcon(block.name), 14)}</span><b></b><span class="sum"></span><span class="bgtag"></span><span class="st"></span>`);
+    const head = template("button", "thead", `<span class="tic">${icon(toolIcon(block.name), 14)}</span><b></b><span class="sum"></span><span class="bgtag"></span><span class="st"></span>`);
     head.querySelector("b")!.textContent = toolLabel(block.name);
     head.querySelector(".sum")!.textContent = block.name === "ExitPlanMode" ? "" : summary(block.name, block.input, block.json);
     head.querySelector(".bgtag")!.textContent = block.background ? t("chat.bg.tag") : "";
@@ -606,6 +626,25 @@ export class ChatView {
       const plan = h("div", "md");
       plan.innerHTML = md(String((block.input as { plan?: string })?.plan ?? ""));
       body.append(plan);
+    } else if (block.error) {
+      const failed = template("div", "tfail", `<span class="tic">${icon("x", 12)}</span><span></span>`);
+      failed.lastElementChild!.textContent = t("chat.tool.failed");
+      body.append(failed);
+
+      const technical = h("div", "ttech");
+      const input = inputView(block.name, block.input);
+      if (input.childElementCount) technical.append(input);
+      if (block.result !== null) {
+        const out = h("pre", "tout");
+        out.textContent = capError(block.result);
+        technical.append(out);
+      }
+      if (technical.childElementCount) {
+        const details = template("details", "ttechnical", `<summary></summary>`);
+        details.querySelector("summary")!.textContent = t("chat.tool.details");
+        details.append(technical);
+        body.append(details);
+      }
     } else if (block.name === "Skill" && block.result) {
       // A skill é uma instrução escrita para o agente: dentro do card, fechada,
       // e em markdown para quem abrir conseguir ler.
@@ -615,10 +654,10 @@ export class ChatView {
     } else {
       body.append(inputView(block.name, block.input));
       if (block.result !== null) {
-        const out = h("pre", "tout" + (block.error ? " bad" : ""));
+        const out = h("pre", "tout");
         // Um diff que a ferramenta devolveu (o `git diff` no Bash) se lê
         // colorido, como o do Edit.
-        if (!block.error && isDiff(block.result)) {
+        if (isDiff(block.result)) {
           out.classList.add("tdiff");
           out.innerHTML = diffHtml(capLines(block.result));
         } else out.textContent = capLines(block.result);
@@ -633,7 +672,7 @@ export class ChatView {
 
   private askCard(ask: Ask, i: number): HTMLElement {
     if (ask.answered) {
-      const el = h("div", "sys done", `${icon("check", 12)}<span></span>`);
+      const el = template("div", "sys done", `${icon("check", 12)}<span></span>`);
       el.querySelector("span")!.textContent = t("chat.answered", { what: toolLabel(ask.tool) });
       return el;
     }
@@ -667,7 +706,7 @@ export class ChatView {
     el.append(row);
     // Pedir mudanças abre o campo: o que você escrever volta ao agente como a
     // recusa — é assim que o plano muda.
-    const fb = h("div", "fb", `<textarea rows="3"></textarea><div class="row"><span class="spacer"></span><button class="pri md"></button></div>`);
+    const fb = template("div", "fb", `<textarea rows="3"></textarea><div class="row"><span class="spacer"></span><button class="pri md"></button></div>`);
     const area = fb.querySelector("textarea")!;
     area.placeholder = t("chat.plan.feedback");
     fb.querySelector("button")!.textContent = t("chat.plan.send");
@@ -729,7 +768,7 @@ export class ChatView {
     const paint = () => {
       tabs.replaceChildren(
         ...questions.map((q, i) => {
-          const b = h("button", "qtab" + (i === active ? " on" : "") + (has(q) ? " done" : ""), `<span></span>${icon("check", 11)}`);
+          const b = template("button", "qtab" + (i === active ? " on" : "") + (has(q) ? " done" : ""), `<span></span>${icon("check", 11)}`);
           b.querySelector("span")!.textContent = q.header || t("chat.ask.n", { n: i + 1 });
           b.addEventListener("click", () => {
             active = i;
@@ -746,7 +785,7 @@ export class ChatView {
       const opts = h("div", "opts");
       for (const o of q.options ?? []) {
         const on = (answers[q.question] ?? []).includes(o.label);
-        const b = h("button", "opt" + (on ? " on" : ""), `<b></b><span></span>`);
+        const b = template("button", "opt" + (on ? " on" : ""), `<b></b><span></span>`);
         b.querySelector("b")!.textContent = o.label;
         b.querySelector("span")!.textContent = o.description ?? "";
         b.addEventListener("click", () => {
@@ -1150,7 +1189,7 @@ function inputView(name: string, input: unknown): HTMLElement {
   }
   for (const k of keys) {
     const v = i[k];
-    const row = h("div", "trow", `<span class="tk"></span><pre></pre>`);
+    const row = template("div", "trow", `<span class="tk"></span><pre></pre>`);
     row.querySelector(".tk")!.textContent = k;
     row.querySelector("pre")!.textContent = capLines(typeof v === "string" ? v : JSON.stringify(v, null, 2));
     box.append(row);
@@ -1167,7 +1206,7 @@ const CTX_COLORS = ["#ff6b3d", "#f5a623", "#e3c84a", "#7cc576", "#4fb3bf", "#5b8
 
 function contextPanel(r: Report): HTMLElement {
   const el = h("div", "ctx");
-  const head = h("div", "ctxhead", `<b></b><span class="model"></span><span class="use"></span>`);
+  const head = template("div", "ctxhead", `<b></b><span class="model"></span><span class="use"></span>`);
   head.querySelector("b")!.textContent = t("chat.ctx.title");
   head.querySelector(".model")!.textContent = r.model;
   head.querySelector(".use")!.textContent = `${r.used} / ${r.total} · ${t("chat.ctx.used", { pct: r.pct })}`;
@@ -1187,7 +1226,7 @@ function contextPanel(r: Report): HTMLElement {
   el.append(bar);
   const rows = h("div", "ctxrows");
   used.forEach((c, i) => {
-    const row = h("div", "ctxrow", `<i class="dot"></i><span class="name"></span><span class="n"></span><span class="pct"></span>`);
+    const row = template("div", "ctxrow", `<i class="dot"></i><span class="name"></span><span class="n"></span><span class="pct"></span>`);
     (row.querySelector(".dot") as HTMLElement).style.background = CTX_COLORS[i % CTX_COLORS.length];
     row.querySelector(".name")!.textContent = c.name;
     row.querySelector(".n")!.textContent = c.tokens;
@@ -1195,7 +1234,7 @@ function contextPanel(r: Report): HTMLElement {
     rows.append(row);
   });
   if (free) {
-    const row = h("div", "ctxrow free", `<i class="dot"></i><span class="name"></span><span class="n"></span><span class="pct"></span>`);
+    const row = template("div", "ctxrow free", `<i class="dot"></i><span class="name"></span><span class="n"></span><span class="pct"></span>`);
     row.querySelector(".name")!.textContent = t("chat.ctx.free");
     row.querySelector(".n")!.textContent = free.tokens;
     row.querySelector(".pct")!.textContent = `${free.pct}%`;
@@ -1204,14 +1243,14 @@ function contextPanel(r: Report): HTMLElement {
   el.append(rows);
 
   for (const s of r.sections) {
-    const sec = h("details", "ctxsec", `<summary><span class="title"></span><span class="count"></span><span class="n"></span></summary>`);
+    const sec = template("details", "ctxsec", `<summary><span class="title"></span><span class="count"></span><span class="n"></span></summary>`);
     sec.querySelector(".title")!.textContent = s.title;
     sec.querySelector(".count")!.textContent = String(s.rows.length);
     sec.querySelector(".n")!.textContent = kilo(sectionTotal(s));
     const groups = grouped(s);
     if (groups) {
       for (const g of groups) {
-        const grp = h("details", "ctxgrp", `<summary><span class="title"></span><span class="count"></span><span class="n"></span></summary>`);
+        const grp = template("details", "ctxgrp", `<summary><span class="title"></span><span class="count"></span><span class="n"></span></summary>`);
         grp.querySelector(".title")!.textContent = g.name;
         grp.querySelector(".count")!.textContent = String(g.rows.length);
         grp.querySelector(".n")!.textContent = kilo(g.n);
@@ -1244,6 +1283,24 @@ function capLines(text: string): string {
   const lines = text.split("\n");
   if (lines.length <= RESULT_LINES) return text;
   return lines.slice(0, RESULT_LINES).join("\n") + "\n" + t("chat.more", { n: lines.length - RESULT_LINES });
+}
+
+/// Erros longos mostram começo e fim: a causa costuma estar num deles, e o
+/// miolo repetitivo continua preservado no transcript.
+function capError(text: string): string {
+  const lines = text.split("\n");
+  if (lines.length <= ERROR_LINES) return text;
+  const side = Math.floor(ERROR_LINES / 2);
+  const hidden = lines.length - side * 2;
+  return [...lines.slice(0, side), t("chat.more", { n: hidden }), ...lines.slice(-side)].join("\n");
+}
+
+/// Os wrappers do executor não explicam a falha; a primeira linha de verdade
+/// é uma prévia bem mais útil no cartão recolhido.
+function errorPeek(text: string): string {
+  const wrapper = /^(script (failed|completed)|wall time\b.*|output:|script error:)$/i;
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  return lines.find((line) => !wrapper.test(line)) ?? lines[0] ?? "";
 }
 
 /// A primeira linha do pensamento, ao lado do rótulo: é a isca que diz se vale

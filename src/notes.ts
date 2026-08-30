@@ -2,7 +2,7 @@ import { avatar, icon } from "./icons";
 import { t, tn } from "./i18n";
 import * as menu from "./menu";
 import * as team from "./team";
-import { h } from "./util";
+import { h, template } from "./util";
 import type { Note } from "../relay/src/protocol";
 
 /// As notas de uma sessão: o que alguém do time precisa que você veja, e o que
@@ -40,7 +40,7 @@ export function card(note: Note, lit = false): HTMLElement {
   const me = team.status();
   const mine = note.author === me.you;
   const name = mine ? t("notes.byYou") : team.nameOf(note.author);
-  const el = h(
+  const el = template(
     "div",
     "note" + (note.mentions.includes(me.you ?? "") ? " forme" : "") + (lit ? " lit" : ""),
     `<div class="who">${avatar(name)}<b></b><span class="when"></span></div>`,
@@ -91,9 +91,9 @@ function mark(text: string): Node[] {
 
 /// O chip "citando N linhas" em cima do campo, com o botão de tirar.
 export function quoteChip(quote: string, drop: () => void): HTMLElement {
-  const chip = h("div", "quoted", `${icon("message-square", 12)}<span></span>`);
+  const chip = template("div", "quoted", `${icon("message-square", 12)}<span></span>`);
   chip.children[1].textContent = tn(quote.split("\n").length, "notes.quote");
-  const x = h("button", "ico sm", icon("x", 12));
+  const x = template("button", "ico sm", icon("x", 12));
   x.title = t("notes.quote.drop");
   x.addEventListener("click", drop);
   chip.append(x);

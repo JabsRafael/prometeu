@@ -2,7 +2,7 @@ import { attachMenu, type Hooks } from "./sidebar";
 import { avatar, icon, stageIcon } from "./icons";
 import { paint, stage as stageName, t, tn } from "./i18n";
 import { hasWorktree, repoLabel, type Board, type Workspace } from "./types";
-import { $, empty, h } from "./util";
+import { $, empty, template } from "./util";
 
 /// Os arquivados, numa tela só — e não numa lista aberta na barra lateral.
 /// Trabalho que você tirou da frente é o que se consulta de vez em quando:
@@ -113,7 +113,7 @@ function row(ws: Workspace): HTMLElement {
   const hooks = ctx.hooks();
   const total = board.stages.length;
   const at = board.stages.indexOf(ws.stage);
-  const el = h(
+  const el = template(
     "div",
     "arow" + (ws.cleaned ? " gone" : ""),
     `<span class="av"></span>` +
@@ -150,7 +150,7 @@ function row(ws: Workspace): HTMLElement {
   attachMenu(el, ws, board, hooks, el.querySelector(".atitle b") as HTMLElement, "arow");
 
   const act = el.querySelector(".iact")!;
-  const back = h("button", "ghost", `${icon("archive-restore", 14)}<span></span>`);
+  const back = template("button", "ghost", `${icon("archive-restore", 14)}<span></span>`);
   back.children[1].textContent = t("ws.menu.unarchive");
   back.title = ws.cleaned ? t("ws.menu.gone") : t("ws.menu.unarchive");
   (back as HTMLButtonElement).disabled = ws.cleaned;

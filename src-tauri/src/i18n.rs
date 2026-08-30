@@ -50,7 +50,11 @@ pub static TEST_LANG: Mutex<()> = Mutex::new(());
 /// Uma das duas frases, na que a pessoa lê. Só para o punhado de textos que o
 /// back escreve inteiros; tudo mais é código, e o catálogo mora no front.
 pub fn pick(pt_br: &str, en: &str) -> String {
-    if pt() { pt_br.to_string() } else { en.to_string() }
+    if pt() {
+        pt_br.to_string()
+    } else {
+        en.to_string()
+    }
 }
 
 /// Um código sem buraco nenhum.
@@ -95,6 +99,9 @@ mod tests {
     #[test]
     fn argumentos_saem_em_ordem_e_escapados() {
         let got = ta("err.session.notGit", &[("path", "/tmp/a\"b".into())]);
-        assert_eq!(got, r#"i18n:{"args":{"path":"/tmp/a\"b"},"code":"err.session.notGit"}"#);
+        assert_eq!(
+            got,
+            r#"i18n:{"args":{"path":"/tmp/a\"b"},"code":"err.session.notGit"}"#
+        );
     }
 }

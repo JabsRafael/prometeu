@@ -3,5 +3,7 @@ dist/
 src-tauri/target/
 src-tauri/gen/
 .playwright-mcp/
+playwright-report/
+test-results/
 worktrees*/
 .wrangler/

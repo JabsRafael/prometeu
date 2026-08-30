@@ -1,10 +1,10 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import { icon } from "./icons";
 import { fromBack, paint, t } from "./i18n";
 import * as settings from "./settings";
 import type { Board, Issue, Issues, LinearStatus, Workspace } from "./types";
-import { $, empty, h } from "./util";
+import { $, empty, h, template } from "./util";
 
 /// As issues do Linear no seu nome — a porta de entrada que não é um
 /// repositório. Cada linha é uma issue; "Criar workspace" abre o lançador já
@@ -191,7 +191,7 @@ function drawList() {
     const mine = hits.filter((i) => i.state.kind === kind).sort(byUrgency);
     if (!mine.length) continue;
     const shut = !query && folded(kind);
-    const head = h(
+    const head = template(
       "button",
       "igroup" + (shut ? " shut" : ""),
       `<span class="gc"></span><span class="t"></span><span class="c"></span>`,
@@ -232,7 +232,7 @@ function matches(i: Issue) {
 }
 
 function row(issue: Issue): HTMLElement {
-  const el = h(
+  const el = template(
     "div",
     "irow",
     `<span class="prio p${Math.min(issue.priority, 4)}"><i></i><i></i><i></i></span>` +

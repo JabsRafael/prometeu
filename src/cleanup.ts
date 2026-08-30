@@ -1,8 +1,8 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./ipc";
 import { icon } from "./icons";
 import { current as locale, fromBack, paint, t, tn } from "./i18n";
 import type { Cleanable } from "./types";
-import { h } from "./util";
+import { h, template } from "./util";
 
 /// Devolver worktrees ao disco: a folha que lista os arquivados que ainda
 /// ocupam espaço, com o tamanho de cada um, e apaga os que você marcar.
@@ -81,7 +81,7 @@ export function openCleanup(say: (text: string, isError?: boolean) => void) {
       return;
     }
     for (const r of rows) {
-      const row = h(
+      const row = template(
         "div",
         "cleanrow" + (r.blocked ? " risk" : ""),
         `<i class="box"></i><div class="txt"><b></b><span class="where"></span></div>` +

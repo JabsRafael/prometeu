@@ -1,12 +1,11 @@
 # Roda em todo PR e em todo push na main: type-check do front, testes dos dois
-# lados (vitest + cargo test), clippy, e o formato das mensagens de commit.
+# lados (vitest + cargo test), rustfmt, clippy, e o formato das mensagens de
+# commit.
 #
-# Tudo no runner self-hosted — o Mac de quem desenvolve, registrado em
-# ~/actions-runner e de pé como serviço de login (launchd). Runner hospedado
-# do GitHub custa minutos que este projeto não tem; o self-hosted é de graça,
-# e o target/ dele persiste entre runs, então o build é incremental. O
-# contrapeso: job só roda com o Mac ligado, e o repositório precisa continuar
-# privado — runner self-hosted em repo público executa PR de estranho.
+# O repositório é privado e workflows vindos de forks ficam desativados nas
+# configurações do GitHub. Sob essa fronteira, a CI usa o runner self-hosted
+# deste Mac sem consumir minutos hospedados; não habilite PRs de forks enquanto
+# ele estiver registrado, pois npm ci e os testes executam código do branch.
 name: CI
 
 on:
@@ -17,36 +16,53 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   testes:
     name: testes
-    runs-on: [self-hosted, macOS]
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, macOS, ARM64]
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          node-version: 24
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.14.0
+
+      # O runner persistente já conserva ~/.npm; enviar esse cache de volta ao
+      # GitHub só prolonga o pós-job e pode prender a fila do runner único.
 
       - run: npm ci
 
-      # O `generate_context!` embute o dist/ — precisa existir antes do
-      # cargo test.
-      - run: npm run build
+      - name: navegador dos testes de fluxo
+        run: npx playwright install chromium
 
-      - run: npm test
+      # Inclui formato, type-check, build do dist/ exigido pelo Tauri, testes
+      # web/Rust e Clippy com todos os targets.
+      - run: npm run check
 
-      - run: cargo clippy --workspace -- -D warnings
-        working-directory: src-tauri
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
 
   commits:
     name: mensagens de commit
-    if: github.event_name == 'pull_request'
-    runs-on: [self-hosted, macOS]
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, macOS, ARM64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: cada commit do PR passa pelo hook
         run: |
