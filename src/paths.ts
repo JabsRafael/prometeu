@@ -29,14 +29,16 @@ let picking: { first: () => void } | null = null;
 let asked = 0;
 
 /// A cada letra na caixa: a lista acompanha o "@…" — e some quando ele some.
-export async function typed(area: HTMLTextAreaElement, id: string, onChange: () => void) {
+/// `recent` são os arquivos que o agente acabou de mexer, do último para o
+/// primeiro: entre dois que combinam igual, eles vêm na frente.
+export async function typed(area: HTMLTextAreaElement, id: string, recent: string[], onChange: () => void) {
   const at = typing(area.value, area.selectionStart);
   if (!at) return dismiss();
 
   const mine = ++asked;
   let list: PathEntry[] = [];
   try {
-    list = await invoke<PathEntry[]>("find_paths", { id, query: at.query });
+    list = await invoke<PathEntry[]>("find_paths", { id, query: at.query, recent });
   } catch {
     list = [];
   }
@@ -60,7 +62,7 @@ export async function typed(area: HTMLTextAreaElement, id: string, onChange: () 
     onChange();
     area.focus();
     area.selectionStart = area.selectionEnd = from + entry.path.length + 1 + tail.length;
-    if (entry.dir) void typed(area, id, onChange);
+    if (entry.dir) void typed(area, id, recent, onChange);
   };
 
   const box = area.getBoundingClientRect();

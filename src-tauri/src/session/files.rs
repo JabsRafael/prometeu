@@ -80,17 +80,30 @@ pub fn read_file(state: State<AppState>, id: String, rel: String) -> Result<Stri
 /// `node_modules` ou `target`. Num workspace de mais de um repositório cada
 /// caminho vem com a pasta do repositório na frente, como o agente precisa
 /// escrever para achar o arquivo.
+/// `recent` são os arquivos que o agente acabou de ler ou escrever nesta
+/// conversa, do último para o primeiro — o front os tira da timeline. Quem
+/// escreve "@" no meio de um trabalho quase sempre quer um deles.
 #[tauri::command(async)]
-pub fn find_paths(state: State<AppState>, id: String, query: String) -> Vec<Entry> {
+pub fn find_paths(
+    state: State<AppState>,
+    id: String,
+    query: String,
+    recent: Vec<String>,
+) -> Vec<Entry> {
     let Some(root) = cwd_of(&state, &id) else {
         return Vec::new();
     };
     let repos = repos_of(&state, &id);
     let all = cached(&id, || scan(&root, &repos));
+    let fresh = recency(&root, &recent);
 
-    let mut hits: Vec<(u8, usize, usize, &String)> = all
+    let mut hits: Vec<(i32, usize, usize, &String)> = all
         .iter()
-        .filter_map(|path| rank(&query, path).map(|(kind, depth, len)| (kind, depth, len, path)))
+        .filter_map(|path| {
+            let clean = path.trim_end_matches('/');
+            let points = score(&query, clean)? + fresh.get(clean).copied().unwrap_or(0);
+            Some((-points, clean.matches('/').count(), clean.len(), path))
+        })
         .collect();
     hits.sort_by(|a, b| {
         a.0.cmp(&b.0)
@@ -111,6 +124,35 @@ pub fn find_paths(state: State<AppState>, id: String, query: String) -> Vec<Entr
         })
         .collect()
 }
+
+/// O quanto cada arquivo tocado há pouco sobe na lista. O último vale mais que
+/// o anterior, e o décimo terceiro já não vale nada: o que interessa é o
+/// punhado de arquivos deste trabalho, não o histórico da conversa inteira.
+///
+/// O agente escreve o caminho como quiser — absoluto, ou relativo à pasta onde
+/// ele roda. Os dois viram o caminho relativo à raiz do workspace, que é a
+/// forma que a lista usa; o que não estiver dentro dela fica de fora.
+fn recency(root: &Path, recent: &[String]) -> HashMap<String, i32> {
+    let mut out = HashMap::new();
+    for (at, raw) in recent.iter().take(RECENT_MOST).enumerate() {
+        let rel = match Path::new(raw).strip_prefix(root) {
+            Ok(rest) => rest.to_string_lossy().replace('\\', "/"),
+            // Relativo já: só o que não sobe de nível serve.
+            Err(_) if !raw.starts_with('/') && !raw.starts_with("..") => raw.clone(),
+            Err(_) => continue,
+        };
+        let points = RECENT - (at as i32) * RECENT_STEP;
+        out.entry(rel).or_insert(points);
+    }
+    out
+}
+
+/// Quantos arquivos tocados há pouco ainda sobem na lista, e quanto vale cada
+/// um. `RECENT` é da ordem de uma query de quatro letras casada no nome: pesa,
+/// mas não passa por cima de quem a pessoa escreveu por extenso.
+const RECENT_MOST: usize = 12;
+const RECENT: i32 = 120;
+const RECENT_STEP: i32 = 8;
 
 /// Quantos cabem na lista sem ela virar a tela inteira.
 const MOST: usize = 40;
@@ -188,46 +230,155 @@ fn scan(root: &Path, repos: &[Repo]) -> Vec<String> {
     files
 }
 
-/// O que o que foi digitado pode ser, e quão bem: primeiro o nome do arquivo
-/// que começa assim, depois o que tem isso no meio, depois o caminho inteiro,
-/// e por último as letras na ordem em pontos diferentes do caminho — é o que
-/// faz "amtr" achar `app/models/transcriber.rb`. Empate se decide pelo mais
-/// raso e mais curto: quem escreve pouco quer o arquivo perto da raiz.
+/// O quanto um caminho combina com o que foi digitado. Mais é melhor; `None`
+/// é não servir, e nada digitado serve tudo por igual.
 ///
-/// `None` é não servir. Nada digitado serve tudo.
-fn rank(query: &str, path: &str) -> Option<(u8, usize, usize)> {
-    let clean = path.trim_end_matches('/');
-    let depth = clean.matches('/').count();
-    let len = clean.len();
+/// Duas contas: uma no nome do arquivo e outra no caminho inteiro. O nome pesa
+/// o dobro, porque é ele que a pessoa tem na cabeça — "user" quer
+/// `models/user.rb` antes de `user/legacy/parser.rb`. Barra no que foi
+/// digitado é sinal de que a conta é só do caminho: "app/mod" não é nome de
+/// arquivo nenhum.
+fn score(query: &str, path: &str) -> Option<i32> {
     if query.is_empty() {
-        return Some((0, depth, len));
+        return Some(0);
     }
-    let q = query.to_lowercase();
-    let low = path.to_lowercase();
-    let name = low.trim_end_matches('/').rsplit('/').next().unwrap_or(&low);
-
-    // Com barra no que foi digitado, o alvo é o caminho: "app/mod" não é nome
-    // de arquivo nenhum.
-    let kind = if !q.contains('/') && name.starts_with(&q) {
-        0
-    } else if !q.contains('/') && name.contains(&q) {
-        1
-    } else if low.contains(&q) {
-        2
-    } else if subsequence(&q, &low) {
-        3
-    } else {
-        return None;
+    let q: Vec<char> = query.to_lowercase().chars().collect();
+    if q.contains(&'/') {
+        return fuzzy(&q, path);
+    }
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let on_path = fuzzy(&q, path)?;
+    // O nome é o fim do caminho: o que casa nele casa no caminho, e o contrário
+    // não. Sem match no nome sobra a conta do caminho.
+    let Some(on_name) = fuzzy(&q, name) else {
+        return Some(on_path);
     };
-    Some((kind, depth, len))
+    Some(on_name * 2 + on_path / 4 + whole(&q, name))
+}
+
+/// O quanto o que foi digitado dá conta do nome sozinho. Sem isto, "user" põe
+/// a pasta `db/seeds/users` na frente de `app/models/user.rb`: as duas casam
+/// quatro letras seguidas no começo do nome, e o desempate por caminho mais
+/// curto escolhe a errada. A extensão não conta — quem escreve "user" escreveu
+/// o nome do arquivo inteiro, e sabe disso.
+fn whole(q: &[char], name: &str) -> i32 {
+    let stem = match name.rsplit_once('.') {
+        Some((before, _)) if !before.is_empty() => before,
+        _ => name,
+    };
+    let low: Vec<char> = stem.to_lowercase().chars().collect();
+    if low == q {
+        return WHOLE;
+    }
+    match low.starts_with(q) {
+        true => STARTS,
+        false => 0,
+    }
+}
+
+/// O nome inteiro escrito, e o nome começando pelo que foi escrito.
+const WHOLE: i32 = 64;
+const STARTS: i32 = 24;
+
+/// Cada letra vale isto por si.
+const MATCH: i32 = 16;
+/// Letra que começa uma parte do caminho — a primeira de tudo, ou a que vem
+/// depois de `/`, `_`, `-`, `.` ou espaço. É o que faz "amtr" achar
+/// `app/models/transcriber.rb` e "ur" preferir `user_repo.rb` a `nature.rb`.
+const BOUNDARY: i32 = 8;
+/// Letra maiúscula depois de minúscula: a fronteira de `userRepo`, que ninguém
+/// escreve com separador mas todo mundo lê como duas palavras.
+const CAMEL: i32 = 6;
+/// Letra colada na anterior. Premia o trecho inteiro escrito de uma vez.
+const CONSEC: i32 = 8;
+/// Cada letra pulada entre uma que casou e a seguinte.
+const GAP: i32 = 1;
+/// Caminho mais longo que isto não é pontuado até o fim: a conta é o produto
+/// do tamanho da busca pelo do texto, e um caminho absurdo não pode custar o
+/// tempo de todos os outros.
+const LONGEST: usize = 260;
+
+const NEVER: i32 = i32::MIN / 4;
+
+/// As letras da busca no texto, na ordem, com a melhor pontuação possível.
+///
+/// É a conta que o quick open de um editor faz: uma matriz de programação
+/// dinâmica onde cada letra da busca pode casar em qualquer ponto do texto, e
+/// o que decide entre dois encaixes é onde eles caem — começo de palavra e
+/// letras coladas valem mais que letras espalhadas. Guloso não serve: em
+/// `models/user.rb`, "usr" casaria o "u" de nada e perderia o encaixe bom mais
+/// à frente.
+///
+/// Só duas linhas da matriz existem por vez — a anterior e a de agora.
+fn fuzzy(q: &[char], text: &str) -> Option<i32> {
+    let chars: Vec<char> = text.chars().take(LONGEST).collect();
+    let lower: Vec<char> = chars.iter().flat_map(|c| c.to_lowercase()).collect();
+    // `to_lowercase` de uma letra pode dar mais de uma; nesse caso as posições
+    // deixam de bater e a conta fina não vale a pena.
+    if lower.len() != chars.len() || q.len() > chars.len() {
+        return match lower.len() == chars.len() {
+            true => None,
+            false => subsequence(q, &lower).then_some(0),
+        };
+    }
+    let n = chars.len();
+
+    // Quanto vale casar na posição `j`, pelo lugar dela no texto.
+    let place = |j: usize| -> i32 {
+        if j == 0 {
+            return BOUNDARY;
+        }
+        if matches!(chars[j - 1], '/' | '_' | '-' | '.' | ' ') {
+            return BOUNDARY;
+        }
+        match chars[j - 1].is_lowercase() && chars[j].is_uppercase() {
+            true => CAMEL,
+            false => 0,
+        }
+    };
+
+    // `exact[j]`: a melhor pontuação das letras da busca vistas até aqui,
+    // terminando exatamente na posição `j` do texto.
+    let mut exact = vec![NEVER; n];
+    for (i, want) in q.iter().enumerate() {
+        let mut next = vec![NEVER; n];
+        // `carry` é o melhor encaixe da letra anterior em qualquer posição já
+        // passada, já descontado o que se pulou para chegar aqui.
+        let mut carry = NEVER;
+        for j in 0..n {
+            if j > 0 {
+                let jump = exact[j - 1];
+                carry = carry.saturating_sub(GAP).max(jump);
+            }
+            if lower[j] != *want {
+                continue;
+            }
+            next[j] = match i {
+                // A primeira letra pode casar em qualquer lugar: o que vem
+                // antes dela não é buraco, é só o começo do caminho.
+                0 => MATCH + place(j),
+                _ if carry <= NEVER => continue,
+                _ => {
+                    let apart = carry + MATCH + place(j);
+                    let glued = match j > 0 && exact[j - 1] > NEVER {
+                        true => exact[j - 1] + MATCH + place(j) + CONSEC,
+                        false => NEVER,
+                    };
+                    apart.max(glued)
+                }
+            };
+        }
+        exact = next;
+    }
+    exact.into_iter().max().filter(|best| *best > NEVER)
 }
 
 /// As letras de `q` aparecem em `text` nesta ordem, não necessariamente
-/// juntas.
-fn subsequence(q: &str, text: &str) -> bool {
-    let mut left = q.chars();
+/// juntas. É a resposta grosseira, para o caminho que a conta fina recusa.
+fn subsequence(q: &[char], text: &[char]) -> bool {
+    let mut left = q.iter();
     let mut want = left.next();
-    for c in text.chars() {
+    for c in text {
         if Some(c) == want {
             want = left.next();
             if want.is_none() {
@@ -243,10 +394,19 @@ mod tests {
     use super::*;
     use std::process::Command;
 
+    /// A lista como `find_paths` a monta: mais pontos primeiro, e o empate
+    /// para o mais raso e mais curto.
     fn best(query: &str, paths: &[&str]) -> Vec<String> {
-        let mut hits: Vec<(u8, usize, usize, &str)> = paths
+        ranked(query, paths, &HashMap::new())
+    }
+
+    fn ranked(query: &str, paths: &[&str], fresh: &HashMap<String, i32>) -> Vec<String> {
+        let mut hits: Vec<(i32, usize, usize, &str)> = paths
             .iter()
-            .filter_map(|p| rank(query, p).map(|(k, d, l)| (k, d, l, *p)))
+            .filter_map(|p| {
+                let points = score(query, p)? + fresh.get(*p).copied().unwrap_or(0);
+                Some((-points, p.matches('/').count(), p.len(), *p))
+            })
             .collect();
         hits.sort_by(|a, b| {
             a.0.cmp(&b.0)
@@ -258,20 +418,58 @@ mod tests {
     }
 
     #[test]
-    fn nome_que_comeca_assim_vem_antes() {
-        let all = [
-            "app/models/user.rb",
-            "spec/models/user_spec.rb",
-            "lib/use_case.rb",
-        ];
+    fn o_nome_pesa_mais_que_o_resto_do_caminho() {
+        let all = ["app/user/legacy/parser.rb", "app/models/user.rb"];
         assert_eq!(
             best("user", &all),
-            [
-                "app/models/user.rb",
-                "spec/models/user_spec.rb",
-                "lib/use_case.rb"
-            ]
+            ["app/models/user.rb", "app/user/legacy/parser.rb"]
         );
+    }
+
+    #[test]
+    fn comeco_de_palavra_vale_mais_que_letra_no_meio() {
+        // "ur" está nos dois: em `user_repo` começa as duas partes, em `nature`
+        // cai no meio das duas sílabas.
+        let q: Vec<char> = "ur".chars().collect();
+        assert!(fuzzy(&q, "user_repo.rb") > fuzzy(&q, "nature.rb"));
+    }
+
+    /// "amtr" não é nome de arquivo nenhum: as letras começam as partes do
+    /// caminho, e é assim que se chega no que está fundo sem escrever pasta
+    /// por pasta.
+    #[test]
+    fn as_iniciais_do_caminho_acham_o_arquivo() {
+        assert!(score("amtr", "app/models/transcriber.rb").is_some());
+    }
+
+    /// Casar no nome ganha de casar espalhado pelo caminho, mesmo o segundo
+    /// caindo todo em começo de palavra: o nome é o que a pessoa tem na
+    /// cabeça.
+    #[test]
+    fn nome_ganha_de_caminho() {
+        let all = ["app/models/transcriber.rb", "lib/parametros.rb"];
+        assert_eq!(best("amtr", &all)[0], "lib/parametros.rb");
+    }
+
+    #[test]
+    fn escrito_de_uma_vez_ganha_de_letra_espalhada() {
+        let all = ["app/user.rb", "app/utilities/serializer.rb"];
+        assert_eq!(best("user", &all)[0], "app/user.rb");
+    }
+
+    #[test]
+    fn camel_case_e_fronteira_como_qualquer_outra() {
+        let all = ["src/userRepo.ts", "src/nature.ts"];
+        assert_eq!(best("ur", &all)[0], "src/userRepo.ts");
+    }
+
+    #[test]
+    fn nao_e_guloso_com_a_primeira_letra() {
+        // O "u" de "under" é o primeiro que aparece, e o encaixe bom está
+        // depois dele.
+        assert!(score("usr", "under/models/user.rb").is_some());
+        let all = ["under/models/user.rb", "under/models/superset.rb"];
+        assert_eq!(best("usr", &all)[0], "under/models/user.rb");
     }
 
     #[test]
@@ -281,20 +479,19 @@ mod tests {
     }
 
     #[test]
-    fn letras_na_ordem_acham_o_caminho() {
-        assert_eq!(
-            best("amtr", &["app/models/transcriber.rb"]),
-            ["app/models/transcriber.rb"]
-        );
-        assert!(best("zzz", &["app/models/transcriber.rb"]).is_empty());
+    fn o_que_nao_tem_as_letras_fica_de_fora() {
+        assert!(score("zzz", "app/models/transcriber.rb").is_none());
     }
 
+    /// O nome escrito por extenso ganha de um nome maior que só começa igual —
+    /// e a extensão não conta, porque ninguém a escreve.
     #[test]
-    fn empate_vai_para_o_mais_raso() {
-        let all = ["a/b/c/user.rb", "user.rb", "a/user.rb"];
-        assert_eq!(
-            best("user", &all),
-            ["user.rb", "a/user.rb", "a/b/c/user.rb"]
+    fn o_nome_inteiro_ganha_de_quem_so_comeca_igual() {
+        let all = ["db/seeds/users/", "app/models/user.rb"];
+        assert_eq!(best("user", &all)[0], "app/models/user.rb");
+        assert!(
+            whole(&"user".chars().collect::<Vec<_>>(), "user.rb")
+                > whole(&"user".chars().collect::<Vec<_>>(), "users")
         );
     }
 
@@ -304,8 +501,42 @@ mod tests {
     }
 
     #[test]
-    fn pasta_pesa_como_o_caminho_sem_a_barra() {
-        assert_eq!(rank("app", "app/"), Some((0, 0, 3)));
+    fn maiuscula_nao_atrapalha() {
+        assert!(score("readme", "README.md").is_some());
+        assert!(score("CLAUDE", "CLAUDE.md").is_some());
+    }
+
+    /// O arquivo que o agente acabou de mexer sobe — mas só entre os que já
+    /// serviam: quem não tem as letras continua de fora.
+    #[test]
+    fn o_que_o_agente_acabou_de_tocar_sobe() {
+        let all = ["app/models/user.rb", "spec/models/user_spec.rb"];
+        assert_eq!(best("user", &all)[0], "app/models/user.rb");
+
+        let fresh = HashMap::from([("spec/models/user_spec.rb".to_string(), RECENT)]);
+        assert_eq!(ranked("user", &all, &fresh)[0], "spec/models/user_spec.rb");
+        assert_eq!(ranked("zzz", &all, &fresh), Vec::<String>::new());
+    }
+
+    /// O agente escreve o caminho como quiser: o absoluto vira relativo à raiz,
+    /// o relativo fica como está, e o que está fora do workspace não entra.
+    #[test]
+    fn os_recentes_viram_caminho_da_raiz() {
+        let root = Path::new("/tmp/ws");
+        let fresh = recency(
+            root,
+            &[
+                "/tmp/ws/app/models/user.rb".to_string(),
+                "spec/user_spec.rb".to_string(),
+                "/etc/hosts".to_string(),
+            ],
+        );
+        assert_eq!(fresh.get("app/models/user.rb"), Some(&RECENT));
+        assert_eq!(
+            fresh.get("spec/user_spec.rb"),
+            Some(&(RECENT - RECENT_STEP))
+        );
+        assert!(fresh.keys().all(|k| !k.contains("hosts")));
     }
 
     /// Num repositório de verdade: o que o git conhece entra, o que o
@@ -335,11 +566,5 @@ mod tests {
         assert!(found.contains(&"app/models/".to_string()));
         assert!(!found.iter().any(|p| p.contains("node_modules")));
         let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn maiuscula_nao_atrapalha() {
-        assert!(rank("readme", "README.md").is_some());
-        assert!(rank("CLAUDE", "CLAUDE.md").is_some());
     }
 }

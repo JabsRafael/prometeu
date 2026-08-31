@@ -185,6 +185,35 @@ test("o @ na caixa completa um caminho do workspace", async ({ page }) => {
   await expect(page.locator("#chatwrap .feed")).not.toContainText("veja @app");
 });
 
+/// Entre dois caminhos que combinam igual, o que o agente acabou de mexer vem
+/// na frente: no meio de um trabalho, o "@" quase sempre é sobre o arquivo que
+/// acabou de aparecer na conversa.
+test("o arquivo que o agente acabou de ler sobe na lista do @", async ({ page }) => {
+  await boot(page);
+  await openWorkspace(page, "Ola");
+
+  const composer = page.locator("#chatwrap .composer textarea");
+  await composer.fill("veja @waha");
+  await expect(page.locator(".menu .mrow").first()).toContainText("app/adapters/waha.rb");
+
+  // O agente lê outro arquivo da mesma pasta. A lista do "@" passa a oferecê-lo
+  // primeiro, mesmo com "adapters" combinando igual nos dois.
+  await composer.fill("");
+  await page.evaluate(() => {
+    const mock = (window as unknown as { mock: { line: (tab: string, line: unknown) => void } }).mock;
+    mock.line("t1", {
+      type: "assistant",
+      message: {
+        id: "m-recency",
+        role: "assistant",
+        content: [{ type: "tool_use", id: "tu-recency", name: "Read", input: { file_path: "app/adapters/transcriber.rb" } }],
+      },
+    });
+  });
+  await composer.fill("veja @adapters");
+  await expect(page.locator(".menu .mrow").first()).toContainText("app/adapters/transcriber.rb");
+});
+
 /// Um workspace de três repositórios com cem arquivos mudados: o diff inteiro
 /// são dezenas de milhares de linhas, e montá-las de uma vez travava a tela por
 /// segundos e deixava a rolagem arrastando. O que este teste guarda é a regra —

@@ -600,6 +600,30 @@ export function summary(_name: string, input: unknown, json = ""): string {
 
 const SUMMARY_KEYS = ["command", "file_path", "pattern", "path", "url", "query", "skill", "description", "prompt"];
 
+/// Os arquivos que o agente leu ou escreveu nesta conversa, do último para o
+/// primeiro e sem repetir. É o que faz o "@" da caixa oferecer primeiro o que
+/// está em cima da mesa: quem escreve "@" no meio de um trabalho quase sempre
+/// quer um arquivo que acabou de aparecer na conversa (ver `paths.ts`).
+///
+/// Só as ferramentas que apontam um arquivo — o `path` de um Grep é uma pasta
+/// onde procurar, e o de um Bash não existe.
+export function touched(items: Item[], most = 12): string[] {
+  const out: string[] = [];
+  for (let at = items.length - 1; at >= 0 && out.length < most; at--) {
+    const item = items[at];
+    if (item.kind !== "assistant") continue;
+    for (let k = item.blocks.length - 1; k >= 0 && out.length < most; k--) {
+      const block = item.blocks[k];
+      if (block.kind !== "tool" || !FILE_TOOLS.has(block.name)) continue;
+      const file = (block.input as Record<string, unknown> | null)?.["file_path"];
+      if (typeof file === "string" && file && !out.includes(file)) out.push(file);
+    }
+  }
+  return out;
+}
+
+const FILE_TOOLS = new Set(["Read", "Edit", "Write", "NotebookEdit", "MultiEdit"]);
+
 /* ---------- a conversa em pedaços de tela ---------- */
 
 /// Um bloco, pelo lugar dele: em que item, e em que posição.

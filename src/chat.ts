@@ -24,7 +24,7 @@ import * as commands from "./commands";
 import * as notes from "./notes";
 import * as paths from "./paths";
 import * as team from "./team";
-import { pieces, summary, Timeline, type Ask, type Block, type Command, type Item, type Piece, type ToolBlock } from "./timeline";
+import { pieces, summary, Timeline, touched, type Ask, type Block, type Command, type Item, type Piece, type ToolBlock } from "./timeline";
 import type { Status } from "./types";
 import { h, template } from "./util";
 
@@ -958,7 +958,7 @@ export class ChatView {
   private typedPath() {
     const ws = this.ctx.info().workspace;
     if (this.remote || !ws) return paths.dismiss();
-    void paths.typed(this.area, ws, () => this.grow());
+    void paths.typed(this.area, ws, touched(this.tl.items), () => this.grow());
   }
 
   /// O rascunho da nota sobrevive a trocar de aba; o da fala, não — a fala é

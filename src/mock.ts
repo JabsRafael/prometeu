@@ -576,10 +576,20 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     // se escreveu.
     case "find_paths": {
       const q = String(args.query ?? "").toLowerCase();
+      const recent: string[] = args.recent ?? [];
+      const points = (p: string) => {
+        const at = recent.indexOf(p);
+        return at < 0 ? 0 : 100 - at;
+      };
       return Object.values(tree)
         .flat()
         .filter((e) => e.path.toLowerCase().includes(q))
-        .sort((a, b) => a.path.split("/").length - b.path.split("/").length || a.path.localeCompare(b.path))
+        .sort(
+          (a, b) =>
+            points(b.path) - points(a.path) ||
+            a.path.split("/").length - b.path.split("/").length ||
+            a.path.localeCompare(b.path),
+        )
         .slice(0, 40);
     }
     case "read_file":
