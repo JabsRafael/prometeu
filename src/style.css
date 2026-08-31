@@ -887,6 +887,10 @@ body.noside .side { display: none; }
   font-size: 12.5px; font-weight: 500; color: var(--fg); text-align: left;
 }
 .diffrepo:hover { background: var(--bg-raised); }
+/* O repositório que o filtro esvaziou: continua na lista para você saber que
+   ele está ali, mas sem peso — não há arquivo abaixo dele. */
+.diffrepo.quiet { color: var(--fg-3); font-weight: 400; }
+.diffrepo.quiet:hover { background: var(--bg); }
 .diffrepo .tw { display: flex; color: var(--fg-2); }
 .diffrepo .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .diffrepo .cnt { flex: none; font-weight: 400; font-size: 11.5px; color: var(--fg-3); }

@@ -364,3 +364,54 @@ test("duplo clique numa mudança abre o arquivo no viewer", async ({ page }) => 
   await expect(page.locator("#viewer")).toBeVisible();
   await expect(page.locator("#vcrumb")).toContainText("style.css");
 });
+
+/// O filtro do que está fora de commit escondia repositório inteiro: num
+/// workspace com três repos, se o que ainda não foi commitado estava só num
+/// deles, os outros dois sumiam da lista sem deixar rastro — e a tela parecia
+/// estar deixando de mostrar mudança. Agora o repositório continua ali,
+/// dizendo que o dele está todo commitado.
+test("o filtro de fora de commit não faz repositório sumir da lista", async ({ page }) => {
+  await boot(page);
+
+  await page.evaluate(() => {
+    type Invoke = (command: string, args?: Record<string, unknown>, options?: unknown) => Promise<unknown>;
+    const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+    const original = internals.invoke;
+    const files = (repo: string, n: number, dirty: boolean) =>
+      Array.from({ length: n }, (_, i) => ({
+        path: `${repo}/arquivo${i}.ts`,
+        added: 3,
+        removed: 1,
+        new_file: false,
+        deleted: false,
+        dirty,
+        patch: "@@ -1,1 +1,1 @@\n-velho\n+novo",
+      }));
+    internals.invoke = async function (command, args, options) {
+      if (command === "workspace_diff") {
+        return [
+          // Tudo commitado: é este que sumia quando o filtro ligava.
+          { name: "prometheus", base: "origin/main", ahead: 9, unpushed: 0, dirty: 0, files: files("um", 8, false) },
+          { name: "njord", base: "origin/develop", ahead: 4, unpushed: 0, dirty: 2, files: files("dois", 2, true) },
+        ];
+      }
+      return original.call(this, command, args, options);
+    };
+  });
+
+  await openWorkspace(page, "Contratação pelo portal");
+  await page.locator("#tab-diff").click();
+
+  const repos = page.locator("#difflist .diffrepo");
+  await expect(repos).toHaveCount(2, { timeout: 10_000 });
+  await expect(page.locator("#difflist .diffrow")).toHaveCount(10);
+
+  // Liga o filtro: só os dois arquivos do njord ficam, mas os dois
+  // repositórios continuam na lista.
+  await page.locator("#difflist .diffsum .dirtyf").click();
+  await expect(page.locator("#difflist .diffrow")).toHaveCount(2);
+  await expect(repos).toHaveCount(2);
+  await expect(repos.first()).toHaveClass(/\bquiet\b/);
+  await expect(repos.first()).toContainText("prometheus");
+  await expect(repos.first()).toContainText("tudo commitado");
+});
