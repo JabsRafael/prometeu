@@ -194,7 +194,10 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "side.collapse": "Collapse folders",
   "side.reveal": "Open the worktree in Finder",
   "diff.foldAll": "Collapse all",
+  "diff.open": "Double-click opens the file",
   "viewer.copyPath": "Copy path",
+  "viewer.save": "Save — ⌘S",
+  "viewer.cancel": "Undo what was not saved — Esc",
   "web.reload": "Reload",
   "web.external": "Open in the external browser",
   "web.url": "Page address — type another one and press Enter",
@@ -511,6 +514,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.session.outside": "path outside the worktree",
   "err.session.tooBig": "file too large ({kb} KB)",
   "err.session.binary": "binary file",
+  "err.session.changed": "the file changed on disk while you were editing — open it again to see what arrived",
   "err.session.openFailed": "could not open {path}",
 
   "err.browser.badUrl": "address that cannot be opened: {url}",

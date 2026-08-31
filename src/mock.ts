@@ -183,6 +183,7 @@ end
 `,
   "CLAUDE.md": "# Njord\n\nControle financeiro pessoal em Rails.\n\n## Regras\n\n- Competência é o dia em que o dinheiro **saiu**.\n- Rodar `bin/ci` antes de abrir PR. Ver [docs](docs/README.md).\n",
   ".gitignore": "# Ignore bundler config.\n/.bundle\n/log/*\n!/log/.keep\n/tmp/*\n",
+  "src/style.css": ".card {\n  display: flex;\n  gap: 8px;\n  padding: 12px;\n}\n",
   Dockerfile: "# syntax=docker/dockerfile:1\nFROM ruby:3.4-slim AS base\nWORKDIR /rails\nENV RAILS_ENV=production\nRUN apt-get update -qq && apt-get install -y curl\nCMD [\"bin/rails\", \"server\"]\n",
   ".rubocop.yml": "# Omakase Ruby styling for Rails\ninherit_gem: { rubocop-rails-omakase: rubocop.yml }\n\nAllCops:\n  TargetRubyVersion: 3.4\n  NewCops: enable\n",
 };
@@ -571,6 +572,11 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     }
     case "list_dir":
       return tree[args.rel ?? ""] ?? [];
+    // Salvar do viewer: escreve por cima, e a próxima leitura já vê. A guarda
+    // de corrida (`was`) é do back de verdade; aqui ninguém escreve por baixo.
+    case "write_file":
+      files[args.rel] = args.text;
+      return;
     // Como o back: o que combina com o que foi digitado, do mais raso para o
     // mais fundo. A árvore do mock é rasa, então basta o caminho conter o que
     // se escreveu.

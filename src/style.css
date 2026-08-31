@@ -37,6 +37,8 @@
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
   --r: 6px;
+  /* Largura mínima da coluna de números do viewer. */
+  --gutter: 48px;
   --r-lg: 8px;
   --r-xl: 10px;
   --rail-w: 256px;
@@ -643,14 +645,48 @@ main { flex: 1; min-height: 0; position: relative; }
   flex: 1; min-height: 0; overflow: auto; display: flex; align-items: flex-start;
   padding: 12px 0 24px; font-family: var(--mono); font-size: 13px; line-height: 20px;
   user-select: text; cursor: text;
+  /* O gutter fica por cima do código, e o navegador não sabe disso: ao levar o
+     cursor para a tela ele encostaria o começo da linha embaixo dele. Esta é a
+     faixa que ele deixa livre. */
+  scroll-padding-left: var(--gutter);
 }
 .gutter {
-  flex: none; position: sticky; left: 0; background: var(--bg);
-  min-width: 48px; padding: 0 16px 0 12px; text-align: right; color: var(--fg-3);
+  /* Grudado na esquerda: com linha comprida, o código passa por baixo dele em
+     vez de empurrá-lo. Por isso o z-index acima do <pre> — que agora tem o seu
+     para ficar em cima da caixa de escrever. */
+  flex: none; position: sticky; left: 0; z-index: 2; background: var(--bg);
+  min-width: var(--gutter); padding: 0 16px 0 12px; text-align: right; color: var(--fg-3);
   white-space: pre; user-select: none; cursor: default;
 }
-#vpre { margin: 0; flex: 1; font: inherit; white-space: pre; color: var(--fg); padding-right: 24px; tab-size: 4; }
-#vpre ::selection, .vcode ::selection { background: var(--bg-raised-3); }
+/* O arquivo é sempre editável, e as cores continuam sendo as do `highlight`:
+   a caixa que recebe o texto fica debaixo do <pre> colorido, com o texto dela
+   transparente. O que se vê é o <pre>; o cursor e o fundo da seleção são da
+   caixa, e passam por baixo das letras coloridas em vez de tapá-las.
+
+   Os dois precisam ocupar o mesmo retângulo, letra por letra: mesma fonte,
+   mesma entrelinha, mesmo recuo, `white-space: pre` nos dois. Quem dá a altura
+   e a largura da pilha é o <pre>, que é o que tem conteúdo de verdade; quem
+   rola é o .vcode, e por isso o gutter continua ao lado das linhas certas. */
+.vstack { position: relative; flex: 1; }
+#vpre {
+  position: relative; z-index: 1; pointer-events: none;
+  margin: 0; font: inherit; white-space: pre; color: var(--fg); padding-right: 24px; tab-size: 4;
+}
+#vtext {
+  position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%;
+  margin: 0; font: inherit; line-height: inherit; white-space: pre; tab-size: 4;
+  padding: 0 24px 0 0; border: 0; outline: 0; resize: none; overflow: hidden;
+  background: transparent; color: transparent; -webkit-text-fill-color: transparent;
+  caret-color: var(--fg);
+}
+#vtext::selection { background: var(--bg-raised-3); }
+.vcode ::selection { background: var(--bg-raised-3); }
+/* Mexeu e ainda não salvou: o ponto na migalha, o mesmo sinal do arquivo fora
+   de commit na lista de Mudanças. */
+.vcrumb.dirty::after {
+  content: ""; flex: none; width: 6px; height: 6px; margin-left: 8px;
+  border-radius: 50%; background: var(--wait);
+}
 .h-c { color: #7f848e; font-style: italic; }
 .h-s { color: #98c379; }
 .h-k { color: #e06c75; }

@@ -70,6 +70,7 @@ export const IPC_COMMANDS = [
   "workspace_branch",
   "workspace_diff",
   "workspace_scripts",
+  "write_file",
 ] as const;
 
 export type IpcCommand = (typeof IPC_COMMANDS)[number];

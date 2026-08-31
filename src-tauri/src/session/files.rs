@@ -66,3 +66,87 @@ pub fn read_file(state: State<AppState>, id: String, rel: String) -> Result<Stri
     let bytes = std::fs::read(&file).map_err(i18n::io)?;
     String::from_utf8(bytes).map_err(|_| i18n::t("err.session.binary"))
 }
+
+/// Grava o que a pessoa escreveu no viewer. `was` é o texto que ela abriu: se
+/// o disco não estiver mais assim, o agente mexeu no arquivo no meio da edição
+/// e salvar apagaria o trabalho dele por cima. Melhor recusar — ela reabre o
+/// arquivo já com o que chegou e refaz a correção.
+pub fn save(file: &Path, text: &str, was: &str) -> Result<(), String> {
+    let bytes = std::fs::read(file).map_err(i18n::io)?;
+    let now = String::from_utf8(bytes).map_err(|_| i18n::t("err.session.binary"))?;
+    if now != was {
+        return Err(i18n::t("err.session.changed"));
+    }
+    std::fs::write(file, text).map_err(i18n::io)
+}
+
+#[tauri::command]
+pub fn write_file(
+    state: State<AppState>,
+    id: String,
+    rel: String,
+    text: String,
+    was: String,
+) -> Result<(), String> {
+    let root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+    let file = inside(&root, &rel)?;
+    save(&file, &text, &was)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{inside, save};
+
+    fn tmp(name: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("prometheus-files-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// O caso comum: o disco está como estava quando abriu, então grava.
+    #[test]
+    fn salvar_grava_quando_o_disco_nao_mudou() {
+        let dir = tmp("save");
+        let file = dir.join("nota.md");
+        std::fs::write(&file, "linha um\nlinha dois\n").unwrap();
+
+        save(&file, "linha um\n", "linha um\nlinha dois\n").unwrap();
+
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "linha um\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// O agente escreveu enquanto a pessoa editava: salvar apagaria o que ele
+    /// fez, então não salva e o arquivo continua com o que ele deixou.
+    #[test]
+    fn salvar_recusa_quando_o_agente_escreveu_por_baixo() {
+        let dir = tmp("race");
+        let file = dir.join("nota.md");
+        std::fs::write(&file, "o que o agente escreveu\n").unwrap();
+
+        let err = save(&file, "o que eu escrevi\n", "o que eu abri\n").unwrap_err();
+
+        assert_eq!(err, "i18n:{\"code\":\"err.session.changed\"}");
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "o que o agente escreveu\n"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Link para fora do worktree não vira caminho para escrever.
+    #[test]
+    fn inside_barra_link_que_sai_do_worktree() {
+        let dir = tmp("outside");
+        let (root, fora) = (dir.join("worktree"), dir.join("fora"));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&fora).unwrap();
+        std::fs::write(fora.join("segredo.txt"), "x").unwrap();
+        std::os::unix::fs::symlink(fora.join("segredo.txt"), root.join("atalho.txt")).unwrap();
+
+        assert!(inside(&root, "atalho.txt").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

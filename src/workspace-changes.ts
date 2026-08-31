@@ -42,11 +42,17 @@ export function summary(repos: RepoDiff[], onlyDirty: boolean, toggleDirty: () =
   return box;
 }
 
-export function fileRow(id: string, repo: string, change: Change, open: (focus: string) => void): HTMLElement {
+export function fileRow(
+  id: string,
+  repo: string,
+  change: Change,
+  open: (focus: string) => void,
+  onOpen: (repo: string, path: string) => void,
+): HTMLElement {
   const row = document.createElement("button");
   const seen = diff.isSeen(id, repo, change);
   row.className = "diffrow" + (seen ? " seen" : "");
-  row.title = change.path;
+  row.title = change.deleted ? change.path : `${change.path}\n${t("diff.open")}`;
   const cut = change.path.lastIndexOf("/");
   row.innerHTML =
     `<span class="p"><span class="dir"></span><span class="base"></span></span>` +
@@ -61,6 +67,9 @@ export function fileRow(id: string, repo: string, change: Change, open: (focus: 
   row.children[4].textContent = change.removed ? `−${change.removed}` : "";
   row.children[5].innerHTML = seen ? icon("check", 13) : "";
   row.addEventListener("click", () => open(diff.key(repo, change.path)));
+  // O mesmo gesto do diff no centro: um clique vai até o arquivo, dois abrem
+  // ele para mexer.
+  if (!change.deleted) row.addEventListener("dblclick", () => onOpen(repo, change.path));
   return row;
 }
 

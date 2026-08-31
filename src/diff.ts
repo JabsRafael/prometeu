@@ -41,6 +41,10 @@ type View = {
   /// Você marcou um arquivo como visto: a lista da direita e a aba precisam
   /// saber, e quem as desenha é quem chamou.
   onSeen: () => void;
+  /// Duplo clique no cabeçalho de um arquivo: sai do diff e abre o arquivo
+  /// inteiro no viewer, onde dá para mexer nele. Quem sabe transformar o
+  /// caminho do repositório em caminho do workspace é quem chamou.
+  onOpen: (repo: string, path: string) => void;
 };
 
 /// O que já está desenhado, por arquivo e pela marca do patch de quando foi.
@@ -288,7 +292,7 @@ function file(view: View, repo: string, change: Change): Omit<Drawn, "stamp"> {
 
   const head = document.createElement("button");
   head.className = "dhead";
-  head.title = change.path;
+  head.title = change.deleted ? change.path : `${change.path}\n${t("diff.open")}`;
   const cut = change.path.lastIndexOf("/");
   head.innerHTML =
     `<span class="dtw"></span>${fileIcon(change.path.slice(cut + 1), 14)}` +
@@ -345,6 +349,12 @@ function file(view: View, repo: string, change: Change): Omit<Drawn, "stamp"> {
     glyph();
     fill();
   });
+  // Ler o diff é meio caminho: o outro meio é ir mexer no arquivo. Os dois
+  // cliques do gesto recolhem e abrem de novo, e o que sobra é o arquivo no
+  // centro. Apagado não abre — não há o que ler.
+  if (!change.deleted) {
+    head.addEventListener("dblclick", () => view.onOpen(repo, change.path));
+  }
 
   box.append(head, body);
   glyph();

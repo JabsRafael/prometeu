@@ -276,3 +276,91 @@ test("a tela de Mudanças não monta o diff que ninguém está vendo", async ({ 
   await page.locator("#difflist .diffrow").last().click();
   await expect(dlist.locator(".dfile").last().locator(".drow").first()).toBeVisible();
 });
+
+/// O arquivo abre pronto para escrever — não há botão de editar. O que este
+/// teste guarda é o que quebra sozinho: o quadro bate a cada ferramenta que o
+/// agente usa e redesenha o arquivo aberto; se o redesenho não respeitar o que
+/// está sendo escrito, o texto some no meio da frase.
+test("escrever no arquivo aberto sobrevive ao redesenho do quadro e salva", async ({ page }) => {
+  await boot(page);
+  await openWorkspace(page, "Ola");
+
+  await page.locator("#tab-files").click();
+  await page.locator("#tree .treerow", { hasText: "CLAUDE.md" }).click();
+  await expect(page.locator("#viewer")).toBeVisible();
+  await expect(page.locator("#vpre")).toContainText("Controle financeiro pessoal");
+
+  // Sem nada escrito não há o que salvar nem o que desfazer.
+  await expect(page.locator("#vtext")).toBeVisible();
+  await expect(page.locator("#vsave")).toBeHidden();
+  await expect(page.locator("#vcancel")).toBeHidden();
+
+  const texto = "# Njord\n\nCorrigido à mão pelo E2E.\n";
+  await page.locator("#vtext").fill(texto);
+  // As cores acompanham: o que se lê é o <pre>, e ele já mostra o texto novo.
+  await expect(page.locator("#vpre")).toContainText("Corrigido à mão pelo E2E.");
+  await expect(page.locator("#vsave")).toBeVisible();
+  await expect(page.locator("#vcrumb")).toHaveClass(/\bdirty\b/);
+
+  const board = () =>
+    page.evaluate(async () => {
+      type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+      const invoke = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__.invoke;
+      await invoke("set_stage", { id: "sessao-0929", stage: "Fazendo" });
+    });
+
+  await board();
+  await expect(page.locator("#vtext")).toHaveValue(texto);
+
+  // Nem clicar em outro arquivo e voltar: o rascunho espera, e volta de onde
+  // parou. Um clique errado não custa o que já foi escrito.
+  await page.locator("#tree .treerow", { hasText: ".gitignore" }).click();
+  await expect(page.locator("#vpre")).toContainText("Ignore bundler config");
+  await expect(page.locator("#vsave")).toBeHidden();
+  await page.locator("#tree .treerow", { hasText: "CLAUDE.md" }).click();
+  await expect(page.locator("#vtext")).toHaveValue(texto);
+  await expect(page.locator("#vsave")).toBeVisible();
+
+  await page.locator("#vsave").click();
+  await expect(page.locator("#vsave")).toBeHidden();
+  await expect(page.locator("#vcrumb")).not.toHaveClass(/\bdirty\b/);
+
+  // Salvou de verdade: o redesenho seguinte lê o disco e acha o que foi escrito.
+  await board();
+  await expect(page.locator("#vpre")).toContainText("Corrigido à mão pelo E2E.");
+  await expect(page.locator("#vpre")).not.toContainText("Controle financeiro pessoal");
+
+  // E o arquivo que só passou pela tela no meio da edição continua intacto:
+  // salvar escreve no arquivo que está sendo editado, não no último aberto.
+  await page.locator("#tree .treerow", { hasText: ".gitignore" }).click();
+  await expect(page.locator("#vpre")).toContainText("Ignore bundler config");
+  await expect(page.locator("#vpre")).not.toContainText("Corrigido à mão pelo E2E.");
+});
+
+/// Ler o diff e ir mexer no arquivo são o mesmo movimento: o duplo clique
+/// atravessa da lista de Mudanças, e do diff empilhado no centro, para o
+/// arquivo inteiro aberto no viewer.
+test("duplo clique numa mudança abre o arquivo no viewer", async ({ page }) => {
+  await boot(page);
+  await openWorkspace(page, "Ola");
+
+  await page.locator("#tab-diff").click();
+  const row = page.locator("#difflist .diffrow", { hasText: "style.css" }).first();
+  await expect(row).toBeVisible();
+
+  // Um clique é ir até o arquivo no diff do centro, e não abrir.
+  await row.click();
+  await expect(page.locator("#dlist .dhead", { hasText: "style.css" }).first()).toBeVisible();
+  await expect(page.locator("#viewer")).toBeHidden();
+
+  await row.dblclick();
+  await expect(page.locator("#viewer")).toBeVisible();
+  await expect(page.locator("#vcrumb")).toContainText("style.css");
+  await expect(page.locator("#vpre")).toContainText("padding: 12px");
+
+  // E o mesmo gesto no cabeçalho do arquivo dentro do diff empilhado.
+  await page.locator("#tab-diff").click();
+  await page.locator("#dlist .dhead", { hasText: "style.css" }).first().dblclick();
+  await expect(page.locator("#viewer")).toBeVisible();
+  await expect(page.locator("#vcrumb")).toContainText("style.css");
+});

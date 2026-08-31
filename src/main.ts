@@ -495,7 +495,7 @@ session.init(
     };
   },
 );
-viewer.init((m) => say(m, true));
+viewer.init((m) => say(m, true), ws.fileSaved);
 dock.init($("dockterm"));
 state = await invoke<Board>("load_board");
 showIssues();
