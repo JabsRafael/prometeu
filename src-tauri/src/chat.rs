@@ -435,7 +435,20 @@ pub(crate) fn launch(
         alive.store(false, Ordering::Relaxed);
         let _ = child.wait();
         let (app, id) = (pump.app, pump.id);
-        lock(&app.state::<AppState>().ready).remove(&id);
+        let state = app.state::<AppState>();
+        // A aba pode ter retomado enquanto este filho antigo terminava o
+        // `wait`. Nesse caso o mapa já aponta para outro `alive`: limpar o
+        // `ready` ou marcar a aba desligada aqui derrubaria o processo novo e
+        // deixaria a próxima fala presa como se ainda esperasse o setup.
+        //
+        // O lock fica até o fim da transição para a troca no mapa não entrar
+        // entre a conferência e a limpeza. Se este ainda é o atual, quem o
+        // substituir só começa depois e publica o estado novo por último.
+        let chats = lock(&state.chats);
+        if !same_process(chats.get(&id).map(|chat| &chat.alive), &alive) {
+            return;
+        }
+        lock(&state.ready).remove(&id);
         // O processo morreu: o card não some, vira desligado. O transcript
         // continua no disco e a próxima fala reabre de onde parou.
         update(&app, &id, Some(Status::Desligada), Note::Clear, None);
@@ -443,6 +456,13 @@ pub(crate) fn launch(
     });
 
     Ok(chat)
+}
+
+/// O processo que terminou ainda é o que ocupa a aba? `Arc::ptr_eq` compara a
+/// identidade, não o valor — dois processos mortos têm `false`, mas continuam
+/// sendo processos diferentes.
+fn same_process(current: Option<&Arc<AtomicBool>>, ended: &Arc<AtomicBool>) -> bool {
+    current.is_some_and(|current| Arc::ptr_eq(current, ended))
 }
 
 /// O que vale guardar. Os deltas de streaming são o texto chegando letra a
@@ -610,16 +630,18 @@ fn update(app: &AppHandle, session: &str, status: Option<Status>, note: Note, to
 pub fn ready_now(app: &AppHandle, session: &str) {
     let state = app.state::<AppState>();
     lock(&state.ready).insert(session.to_string());
+    if !setup_running(&state, session) {
+        send_prompt(app, session, None);
+    }
+}
+
+fn setup_running(state: &AppState, session: &str) -> bool {
     // O lock do quadro sai antes do dos PTYs: dois locks aninhados é como
     // nasce um travamento, e aqui não há motivo para segurar os dois.
     let key = lock(&state.board)
         .workspace_of(session)
         .map(|ws| format!("{}:setup", ws.id));
-    let setup_running =
-        key.is_some_and(|key| lock(&state.ptys).get(&key).is_some_and(|p| p.alive()));
-    if !setup_running {
-        send_prompt(app, session, None);
-    }
+    key.is_some_and(|key| lock(&state.ptys).get(&key).is_some_and(|p| p.alive()))
 }
 
 /// Manda a fala guardada da aba, uma vez só. `prefix` vai na frente, na mesma
@@ -636,8 +658,25 @@ pub fn send_prompt(app: &AppHandle, session: &str, prefix: Option<String>) {
         };
         format!("{}{p}", prefix.unwrap_or_default())
     };
-    publish(app);
-    let _ = say(app, &state, session, &prompt);
+    match say(app, &state, session, &prompt) {
+        Ok(()) => publish(app),
+        Err(error) => {
+            // O processo pode morrer entre a conferência e a escrita. A fala
+            // ainda não entrou no transcript, então volta para a frente da
+            // fila em vez de desaparecer. Uma fala que chegou nesse intervalo
+            // fica depois dela, preservando a ordem original.
+            let mut board = lock(&state.board);
+            if let Some(tab) = board.tab_mut(session) {
+                tab.pending_prompt = Some(match tab.pending_prompt.take() {
+                    Some(after) => format!("{prompt}\n\n{after}"),
+                    None => prompt,
+                });
+            }
+            drop(board);
+            publish(app);
+            eprintln!("fala pendente em {session}: {error}");
+        }
+    }
 }
 
 /// Uma fala, no formato do stream — com a hora, que o Claude Code não põe
@@ -698,38 +737,73 @@ pub fn chat_send(
         return Ok(());
     }
     // Já há uma fala esperando o setup: esta vai atrás dela, na mesma leva.
-    // Passar na frente seria o agente ler a segunda antes da primeira.
-    {
+    // Passar na frente seria o agente ler a segunda antes da primeira. Mesmo
+    // assim seguimos até a conferência do processo: a pendência pode ter
+    // sobrevivido a uma queda ou ao app fechado, e só anexar texto nela a
+    // deixaria presa para sempre.
+    let queued = {
         let mut board = lock(&state.board);
-        if let Some(tab) = board.tab_mut(&session) {
-            if let Some(p) = tab.pending_prompt.as_mut() {
-                p.push_str("\n\n");
-                p.push_str(&text);
-                drop(board);
-                publish(&app);
-                return Ok(());
-            }
-        }
-    }
+        board.tab_mut(&session).is_some_and(|tab| {
+            tab.pending_prompt.as_mut().is_some_and(|pending| {
+                pending.push_str("\n\n");
+                pending.push_str(&text);
+                true
+            })
+        })
+    };
     let up = lock(&state.chats).get(&session).is_some_and(|c| c.alive());
     let ready = lock(&state.ready).contains(&session);
-    if up && ready {
+    if !queued && up && ready {
         say(&app, &state, &session, &text)?;
         update(&app, &session, Some(Status::Rodando), Note::Clear, None);
         return Ok(());
     }
-    {
+    if !queued {
         let mut board = lock(&state.board);
         let Some(tab) = board.tab_mut(&session) else {
             return Err(i18n::t("err.session.noTab"));
         };
         tab.pending_prompt = Some(text);
     }
-    if !up {
-        crate::session::revive(&app, &state, &session)?;
-    }
+    // A fila existe antes de tentar reabrir o processo: se o CLI nem conseguir
+    // subir, a fala continua visível e gravada para a próxima tentativa.
     publish(&app);
+    match wake(up, ready, setup_running(&state, &session)) {
+        Wake::Revive => {
+            crate::session::revive(&app, &state, &session)?;
+        }
+        // `ready` é o sinal do cano, não do protocolo: depois que o `Chat`
+        // entrou no mapa já se pode escrever. Ausente com processo vivo é o
+        // estado órfão deixado por versões anteriores (ou por uma corrida), e
+        // `ready_now` ainda respeita um setup que esteja realmente rodando.
+        Wake::Ready => ready_now(&app, &session),
+        // A fala já estava na fila, o processo está pronto e o setup acabou:
+        // é uma pendência órfã gravada por uma versão anterior, não uma razão
+        // para continuar mostrando o spinner.
+        Wake::Send => send_prompt(&app, &session, None),
+        Wake::None => {}
+    }
     Ok(())
+}
+
+#[derive(Debug, PartialEq)]
+enum Wake {
+    None,
+    Ready,
+    Revive,
+    Send,
+}
+
+/// Como fazer uma fila pendente voltar a andar. Processo morto precisa ser
+/// retomado; processo vivo que perdeu apenas o marcador pode ser religado no
+/// lugar. Vivo e pronto está legitimamente esperando o setup terminar.
+fn wake(up: bool, ready: bool, setup: bool) -> Wake {
+    match (up, ready, setup) {
+        (false, _, _) => Wake::Revive,
+        (true, false, _) => Wake::Ready,
+        (true, true, false) => Wake::Send,
+        (true, true, true) => Wake::None,
+    }
 }
 
 /// Uma linha qualquer para dentro do processo: resposta a pedido de permissão,
@@ -923,6 +997,25 @@ pub fn chat_snapshot(state: State<AppState>, session: String) -> Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fim_antigo_nao_fecha_o_processo_que_o_substituiu() {
+        let old = Arc::new(AtomicBool::new(false));
+        let new = Arc::new(AtomicBool::new(true));
+
+        assert!(same_process(Some(&old), &old));
+        assert!(!same_process(Some(&new), &old));
+        assert!(!same_process(None, &old));
+    }
+
+    #[test]
+    fn pendencia_orfa_reabre_ou_religa_a_conversa() {
+        assert_eq!(wake(false, false, false), Wake::Revive);
+        assert_eq!(wake(false, true, false), Wake::Revive);
+        assert_eq!(wake(true, false, false), Wake::Ready);
+        assert_eq!(wake(true, true, false), Wake::Send);
+        assert_eq!(wake(true, true, true), Wake::None);
+    }
 
     /// Cada linha ganha o número seguinte; o que vai ao vivo sem ficar guardado
     /// também conta — o snapshot diz "até o N", e N tem de ser o mesmo dos dois
