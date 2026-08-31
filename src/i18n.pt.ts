@@ -251,6 +251,7 @@ export const PT = {
   "diff.truncated": "… {n} linhas a mais, cortadas para a tela não travar",
   "diff.files.one": "{n} arquivo",
   "diff.files.other": "{n} arquivos",
+  "diff.allCommitted": "tudo commitado",
   "diff.repos.one": "{n} repositório",
   "diff.repos.other": "{n} repositórios",
 

@@ -1148,9 +1148,13 @@ function drawList(id: string) {
   }
   const multi = all.length > 1;
   const rows = repos.flatMap((r) => {
-    if (!r.files.length) return [];
+    // Repositório sem mudança nenhuma fica fora da lista. Mas o que tem mudança
+    // e ficou vazio porque o filtro escondeu tudo continua aparecendo: sumir
+    // inteiro é o que faz parecer que a tela não mostra o que mudou.
+    const has = all.find((a) => a.name === r.name)?.files.length ?? 0;
+    if (!has) return [];
     const rows = r.files.map((f) => changesUi.fileRow(id, r.name, f, showChanges, openChange));
-    if (!multi) return rows;
+    if (!multi) return r.files.length ? rows : [];
     const k = `${id}/${r.name}`;
     for (const row of rows) {
       row.classList.add("in");

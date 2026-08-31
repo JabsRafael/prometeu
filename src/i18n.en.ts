@@ -228,6 +228,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "diff.truncated": "… {n} more lines, cut so the screen keeps up",
   "diff.files.one": "{n} file",
   "diff.files.other": "{n} files",
+  "diff.allCommitted": "all committed",
   "diff.repos.one": "{n} repository",
   "diff.repos.other": "{n} repositories",
 

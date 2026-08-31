@@ -73,21 +73,29 @@ export function fileRow(
   return row;
 }
 
+/// Uma seção da lista. `rows` são os arquivos que o filtro deixou passar — pode
+/// ser nenhum, e aí a linha fica só para dizer que o repositório continua ali,
+/// com mudança que o filtro está escondendo. Repositório sem mudança nenhuma
+/// não chega aqui.
 export function repoRow(key: string, repo: RepoDiff, rows: HTMLElement[]): HTMLElement {
   const row = document.createElement("button");
-  row.className = "diffrepo";
+  row.className = "diffrepo" + (rows.length ? "" : " quiet");
   const left = [repo.dirty ? t("diff.uncommitted", { n: repo.dirty }) : "", repo.unpushed ? tn(repo.unpushed, "diff.unpushed") : ""].filter(Boolean);
   row.title = [repo.base ? tn(repo.ahead, "diff.ahead", { base: repo.base }) : tn(repo.ahead, "diff.commits"), ...left].join(" · ");
   row.innerHTML =
     `<span class="tw"></span><span class="nm"></span><span class="cnt"></span>` +
     `<span class="dot"></span><span class="a"></span><span class="r"></span>`;
   row.children[1].textContent = repo.name;
-  row.children[2].textContent = `${tn(repo.ahead, "diff.commitsN")} · ${tn(repo.files.length, "diff.files")}`;
+  const count = rows.length ? tn(repo.files.length, "diff.files") : t("diff.allCommitted");
+  row.children[2].textContent = `${tn(repo.ahead, "diff.commitsN")} · ${count}`;
   (row.children[3] as HTMLElement).hidden = !left.length;
   const added = diff.sum(repo.files, "added");
   const removed = diff.sum(repo.files, "removed");
   row.children[4].textContent = added ? `+${added}` : "";
   row.children[5].textContent = removed ? `−${removed}` : "";
+  // Sem arquivo para mostrar não há o que recolher: a seta some e o clique
+  // não vira um botão que não faz nada.
+  if (!rows.length) return row;
   const glyph = () => {
     row.children[0].innerHTML = icon(collapsedRepos.has(key) ? "chevron-right" : "chevron-down", 14);
   };
