@@ -4,6 +4,7 @@ import * as alert from "./alert";
 import { avatar, icon } from "./icons";
 import { LANGS, choose, chosen, fromBack, fromSystem, t, tn, type Lang } from "./i18n";
 import * as menu from "./menu";
+import * as news from "./news";
 import * as team from "./team";
 import type { LinearStatus } from "./types";
 import { settingsRow } from "./update";
@@ -61,7 +62,7 @@ export function draw() {
   const app = h("h2", "", "");
   app.textContent = t("settings.app");
   // A atualização vem antes do idioma: é o que se procura aqui com pressa.
-  page.append(app, settingsRow(), langRow(), alert.settingsRow());
+  page.append(app, settingsRow(), news.settingsRow(), langRow(), alert.settingsRow());
   view.replaceChildren(page);
 }
 

@@ -351,6 +351,9 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "settings.sound.body": "A ping when an agent finishes or asks something while you're looking elsewhere, and when a note mentions you.",
   "settings.sound.on": "On",
   "settings.sound.off": "Off",
+  "settings.news": "What's new",
+  "settings.news.body": "What changed in the app, version by version.",
+  "settings.news.open": "View",
   "notes.write": "Note for the team — the agent won't read it; @ marks someone",
   "notes.send": "Leave note",
   "notes.quote.one": "Quoting 1 line of the conversation",
@@ -438,6 +441,21 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "update.failed": "could not update: {err}",
   "update.restartFailed": "could not restart: {err}",
   "update.stuck": "the app did not restart on its own — quit and open Prometheus, {version} is already installed",
+  "update.notes": "See what's coming",
+
+  /* ---------- what's new ---------- */
+
+  "news.title": "What's new",
+  "news.sub.app": "Prometheus {version}",
+  "news.sub.fresh": "What landed up to {version}",
+  "news.sub.next": "What's coming in {version}",
+  "news.close": "Close",
+  "news.empty": "Nothing to tell yet.",
+  "news.sec.feat": "New",
+  "news.sec.fix": "Fixes",
+  "news.sec.perf": "Performance",
+  "news.sec.revert": "Reverted",
+  "news.sec.other": "Other",
 
   "say.creating": "building the worktree…",
   "say.copied": "{path} copied",

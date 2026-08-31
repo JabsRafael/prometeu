@@ -3,6 +3,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
 import { icon } from "./icons";
 import { current as locale, t } from "./i18n";
+import { openNotes } from "./news";
 import { $, h, template } from "./util";
 
 /// Atualização sem reinstalar nada: o app pergunta a um manifesto público se
@@ -66,6 +67,10 @@ export type View = {
   footer: boolean;
   note: string;
   tone: "plain" | "ok" | "bad";
+  /// As notas da versão encontrada, quando o manifesto as trouxe. É o que a
+  /// linha de Configurações abre em "ver o que vem": elas já chegavam aqui e
+  /// morriam num `title`, que ninguém lê antes de decidir baixar.
+  notes?: { version: string; body: string };
 };
 
 /// O botão parado: "pergunte de novo". Vale nas três fases em que não há
@@ -107,6 +112,9 @@ export function view(phase: Phase): View {
         footer: true,
         note: t("update.found.note", { version: phase.update.version }),
         tone: "plain",
+        notes: phase.update.body?.trim()
+          ? { version: phase.update.version, body: phase.update.body }
+          : undefined,
       };
     case "downloading":
       return {
@@ -252,9 +260,12 @@ function paintRow(el: HTMLElement) {
   const note = el.querySelector(".txt > span")!;
   note.textContent = now.note;
   note.className = now.tone === "plain" ? "" : now.tone;
-  const btn = el.querySelector("button") as HTMLButtonElement;
+  const link = el.querySelector(".notes") as HTMLButtonElement;
+  link.hidden = !now.notes;
+  link.textContent = t("update.notes");
+  const btn = el.querySelector(".go") as HTMLButtonElement;
   dress(btn);
-  btn.className = now.ready ? "pri md" : "outline md";
+  btn.className = now.ready ? "pri md go" : "outline md go";
 }
 
 function paint() {
@@ -278,9 +289,15 @@ export function settingsRow(): HTMLElement {
     `<span class="glyph">${icon("rotate", 18)}</span><div class="txt"><b></b><span></span></div><div class="act"></div>`,
   );
   el.querySelector("b")!.textContent = ver ? `Prometheus ${ver}` : "Prometheus";
-  const btn = h("button", "outline md") as HTMLButtonElement;
+  // Ler o que vem antes de decidir baixar: só aparece quando há notas, e some
+  // sozinho na fase seguinte.
+  const link = h("button", "ghost md notes") as HTMLButtonElement;
+  link.addEventListener("click", () => {
+    if (now.notes) openNotes(now.notes.version, now.notes.body);
+  });
+  const btn = h("button", "outline md go") as HTMLButtonElement;
   btn.addEventListener("click", () => click());
-  el.querySelector(".act")!.append(btn);
+  el.querySelector(".act")!.append(link, btn);
   // Nasce já com a fase de agora — ela é mais velha que a página.
   paintRow(el);
   row = el;

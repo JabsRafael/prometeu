@@ -384,6 +384,9 @@ export const PT = {
   "settings.sound.body": "Um pling quando um agente termina ou pergunta algo e você está olhando outra coisa, e quando uma nota te marca.",
   "settings.sound.on": "Ligado",
   "settings.sound.off": "Desligado",
+  "settings.news": "Novidades",
+  "settings.news.body": "O que mudou no app, versão a versão.",
+  "settings.news.open": "Ver",
   "notes.write": "Nota para o time — o agente não lê; @ marca alguém",
   "notes.send": "Deixar nota",
   "notes.quote.one": "Citando 1 linha da conversa",
@@ -474,6 +477,21 @@ export const PT = {
   "update.restartFailed": "não deu para reiniciar: {err}",
   "update.stuck":
     "o app não reiniciou sozinho — feche e abra o Prometheus, a {version} já está instalada",
+  "update.notes": "Ver o que vem",
+
+  /* ---------- novidades ---------- */
+
+  "news.title": "Novidades",
+  "news.sub.app": "Prometheus {version}",
+  "news.sub.fresh": "O que entrou até a {version}",
+  "news.sub.next": "O que vem na {version}",
+  "news.close": "Fechar",
+  "news.empty": "Nada para contar ainda.",
+  "news.sec.feat": "Novidades",
+  "news.sec.fix": "Correções",
+  "news.sec.perf": "Desempenho",
+  "news.sec.revert": "Revertido",
+  "news.sec.other": "Outros",
 
   /* ---------- recados da barra de cima ---------- */
 

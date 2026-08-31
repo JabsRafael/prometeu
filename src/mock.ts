@@ -885,7 +885,9 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       emit("linear", linear);
       return linear;
     // Fora do Tauri não existe bundle para perguntar a versão. Dizer isso na
-    // tela é melhor que repetir aqui um número que envelhece sozinho.
+    // tela é melhor que repetir aqui um número que envelhece sozinho. Como
+    // versão ele vale 0.0.0, e é por isso que a folha de novidades não abre
+    // sozinha aqui: nenhuma versão do changelog é menor ou igual a ela.
     case "plugin:app|version":
       return "0.0.0-mock";
     // O updater também não tem o que fazer aqui: `null` é "nada novo", que é
