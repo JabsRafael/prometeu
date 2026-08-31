@@ -218,6 +218,9 @@ export const PT = {
   "side.reveal": "Abrir o worktree no Finder",
   "diff.foldAll": "Recolher todos",
   "viewer.copyPath": "Copiar caminho",
+  "viewer.edit": "Editar o arquivo",
+  "viewer.save": "Salvar — ⌘S",
+  "viewer.cancel": "Sair sem salvar — Esc",
   "web.reload": "Recarregar",
   "web.external": "Abrir no navegador de fora",
   "web.url": "Endereço da página — escreva outro e tecle Enter",
@@ -553,6 +556,7 @@ export const PT = {
   "err.session.outside": "caminho fora do worktree",
   "err.session.tooBig": "arquivo grande demais ({kb} KB)",
   "err.session.binary": "arquivo binário",
+  "err.session.changed": "o arquivo mudou no disco enquanto você editava — abra de novo para ver o que chegou",
   "err.session.openFailed": "não abriu {path}",
 
   "err.browser.badUrl": "endereço que não dá para abrir: {url}",

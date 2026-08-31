@@ -106,6 +106,7 @@ fn main() {
             session::diff::workspace_branch,
             session::files::list_dir,
             session::files::read_file,
+            session::files::write_file,
             dock::open_dock,
             dock::close_dock,
             dock::reveal,

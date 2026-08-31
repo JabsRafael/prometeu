@@ -227,3 +227,57 @@ test("a tela de Mudanças não monta o diff que ninguém está vendo", async ({ 
   await page.locator("#difflist .diffrow").last().click();
   await expect(dlist.locator(".dfile").last().locator(".drow").first()).toBeVisible();
 });
+
+/// Editar no viewer existe para corrigir um trecho sem pedir ao agente. O que
+/// este teste guarda é a parte que quebra sozinha: o quadro bate a cada
+/// ferramenta que o agente usa e redesenha o arquivo aberto — se o redesenho
+/// não respeitar a edição, o que a pessoa está digitando some no meio da frase.
+test("editar um arquivo no viewer sobrevive ao redesenho do quadro e salva", async ({ page }) => {
+  await boot(page);
+  await openWorkspace(page, "Ola");
+
+  await page.locator("#tab-files").click();
+  await page.locator("#tree .treerow", { hasText: "CLAUDE.md" }).click();
+  await expect(page.locator("#viewer")).toBeVisible();
+  await expect(page.locator("#vpre")).toContainText("Controle financeiro pessoal");
+
+  await page.locator("#vedit").click();
+  await expect(page.locator("#vtext")).toBeVisible();
+  await expect(page.locator("#vpre")).toBeHidden();
+  await page.locator("#vtext").fill("# Njord\n\nCorrigido à mão pelo E2E.\n");
+
+  const board = () =>
+    page.evaluate(async () => {
+      type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+      const invoke = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__.invoke;
+      await invoke("set_stage", { id: "sessao-0929", stage: "Fazendo" });
+    });
+
+  await board();
+  await expect(page.locator("#vtext")).toHaveValue("# Njord\n\nCorrigido à mão pelo E2E.\n");
+
+  // Nem clicar em outro arquivo e voltar: o rascunho espera, e a edição volta
+  // de onde parou. Um clique errado não custa o que já foi escrito.
+  await page.locator("#tree .treerow", { hasText: ".gitignore" }).click();
+  await expect(page.locator("#vpre")).toBeVisible();
+  await expect(page.locator("#vtext")).toBeHidden();
+  await expect(page.locator("#vpre")).toContainText("Ignore bundler config");
+  await page.locator("#tree .treerow", { hasText: "CLAUDE.md" }).click();
+  await expect(page.locator("#vtext")).toBeVisible();
+  await expect(page.locator("#vtext")).toHaveValue("# Njord\n\nCorrigido à mão pelo E2E.\n");
+
+  await page.locator("#vsave").click();
+  await expect(page.locator("#vtext")).toBeHidden();
+  await expect(page.locator("#vpre")).toContainText("Corrigido à mão pelo E2E.");
+
+  // Salvou de verdade: o redesenho seguinte lê o disco e acha o que foi escrito.
+  await board();
+  await expect(page.locator("#vpre")).toContainText("Corrigido à mão pelo E2E.");
+  await expect(page.locator("#vpre")).not.toContainText("Controle financeiro pessoal");
+
+  // E o arquivo que só passou pela tela no meio da edição continua intacto:
+  // salvar escreve no arquivo que está sendo editado, não no último aberto.
+  await page.locator("#tree .treerow", { hasText: ".gitignore" }).click();
+  await expect(page.locator("#vpre")).toContainText("Ignore bundler config");
+  await expect(page.locator("#vpre")).not.toContainText("Corrigido à mão pelo E2E.");
+});

@@ -571,6 +571,11 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     }
     case "list_dir":
       return tree[args.rel ?? ""] ?? [];
+    // Salvar do viewer: escreve por cima, e a próxima leitura já vê. A guarda
+    // de corrida (`was`) é do back de verdade; aqui ninguém escreve por baixo.
+    case "write_file":
+      files[args.rel] = args.text;
+      return;
     case "read_file":
       if (args.rel in files) return files[args.rel];
       // Como o back de verdade: código, e não frase. O front traduz.

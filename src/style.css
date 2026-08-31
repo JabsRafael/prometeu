@@ -651,6 +651,15 @@ main { flex: 1; min-height: 0; position: relative; }
 }
 #vpre { margin: 0; flex: 1; font: inherit; white-space: pre; color: var(--fg); padding-right: 24px; tab-size: 4; }
 #vpre ::selection, .vcode ::selection { background: var(--bg-raised-3); }
+/* A textarea da edição ocupa o lugar exato do <pre>: mesma fonte, mesma
+   entrelinha, mesmo recuo. Quem rola na vertical é o .vcode, como na
+   leitura — por isso ela cresce com o texto (altura pelo JS) em vez de
+   rolar por dentro, e o gutter continua colado nas linhas certas. */
+#vtext {
+  margin: 0; flex: 1; min-width: 0; font: inherit; line-height: inherit; white-space: pre; tab-size: 4;
+  color: var(--fg); background: transparent; border: 0; outline: 0; resize: none;
+  padding: 0 24px 0 0; overflow: auto hidden;
+}
 .h-c { color: #7f848e; font-style: italic; }
 .h-s { color: #98c379; }
 .h-k { color: #e06c75; }
