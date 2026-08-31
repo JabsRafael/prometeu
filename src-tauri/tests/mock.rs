@@ -102,7 +102,10 @@ fn registered() -> BTreeSet<String> {
     let block = &text[start..text[start..].find(']').unwrap() + start];
     block
         .lines()
-        .filter_map(|line| line.trim().trim_end_matches(',').split("::").nth(1))
+        .filter(|line| line.contains("::"))
+        // O comando pode estar num submódulo (`session::diff::workspace_diff`):
+        // para o contrato IPC importa sempre o último segmento.
+        .filter_map(|line| line.trim().trim_end_matches(',').rsplit("::").next())
         .map(str::to_string)
         .collect()
 }

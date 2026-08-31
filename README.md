@@ -35,6 +35,12 @@ dobrado. O que a TUI faria com escape codes, aqui é um reducer em cima de JSON.
 Skills, MCP, `/compact`, `/context` continuam sendo do CLI — o que muda é só
 quem desenha.
 
+As fronteiras maiores ficam em módulos próprios: apresentação da conversa em
+`src/chat-presentation.ts`, índice de mudanças em `src/workspace-changes.ts`,
+transporte e controle remoto do time em `src/team-transport.ts` e
+`src/team-control.ts`; no back, Git/diff e leitura de arquivos ficam em
+`src-tauri/src/session/diff.rs` e `src-tauri/src/session/files.rs`.
+
 Escolher um modelo GPT no lançador troca o processo por trás da aba pelo
 `codex app-server`, e a tela não fica sabendo: `src-tauri/src/codex.rs` traduz
 cada notificação dele (`item/started`, `item/agentMessage/delta`,

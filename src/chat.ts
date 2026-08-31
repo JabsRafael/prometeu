@@ -1,9 +1,23 @@
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
-import { icon, type IconName } from "./icons";
+import { icon } from "./icons";
 import { fromBack, t, tn } from "./i18n";
 import { diffHtml, isDiff } from "./highlight";
-import { grouped, kilo, sectionTotal, type Report } from "./context";
+import { kilo } from "./context";
+import {
+  capError,
+  capLines,
+  contextPanel,
+  countTools,
+  errorPeek,
+  inputView,
+  peek,
+  tallyText,
+  took,
+  toolIcon,
+  toolLabel,
+  wantsCard,
+} from "./chat-presentation";
 import { effortStep, modelLabel } from "./launcher";
 import { md } from "./markdown";
 import * as commands from "./commands";
@@ -50,11 +64,6 @@ export type Ctx = {
   say: (text: string, isError?: boolean) => void;
   info: () => Info;
 };
-
-/// Quanto de resultado de ferramenta o card mostra aberto. O resto está no
-/// transcript; a tela não é o lugar de ler um arquivo de 4 mil linhas.
-const RESULT_LINES = 120;
-const ERROR_LINES = 36;
 
 export class ChatView {
   private feed!: HTMLElement;
@@ -573,7 +582,7 @@ export class ChatView {
     el.classList.toggle("ok", !running && !bad);
 
     const now = running && last.block.kind === "tool" ? last.block : null;
-    const tally = count(tools);
+    const tally = countTools(tools);
     const name = now ? now.name : tally[0]?.[0] ?? "";
     const q = (sel: string) => el.querySelector(sel)!;
     q(".wic").innerHTML = icon(running && !now ? "sparkles" : toolIcon(name), 14);
@@ -1167,209 +1176,4 @@ export class ChatView {
     el.classList.add("lit");
     el.scrollIntoView({ block: "center" });
   }
-}
-
-/* ---------- pedaços ---------- */
-
-/// O input de uma ferramenta, legível: chave por chave, strings como vieram
-/// (é o comando, o caminho, o texto), o resto em JSON.
-function inputView(name: string, input: unknown): HTMLElement {
-  const box = h("div", "tin");
-  const i = (input ?? {}) as Record<string, unknown>;
-  const keys = Object.keys(i).filter((k) => k !== "description");
-  if (name === "Edit" && typeof i.old_string === "string" && typeof i.new_string === "string") {
-    const diff = h("pre", "tdiff");
-    diff.append(
-      ...i.old_string.split("\n").map((l) => Object.assign(h("span", "del"), { textContent: `- ${l}\n` })),
-      ...i.new_string.split("\n").map((l) => Object.assign(h("span", "add"), { textContent: `+ ${l}\n` })),
-    );
-    box.append(Object.assign(h("div", "tk"), { textContent: String(i.file_path ?? "") }), diff);
-    return box;
-  }
-  for (const k of keys) {
-    const v = i[k];
-    const row = template("div", "trow", `<span class="tk"></span><pre></pre>`);
-    row.querySelector(".tk")!.textContent = k;
-    row.querySelector("pre")!.textContent = capLines(typeof v === "string" ? v : JSON.stringify(v, null, 2));
-    box.append(row);
-  }
-  return box;
-}
-
-/// O `/context` desenhado: quanto da janela está em uso, dividido por
-/// categoria numa barra e em linhas; e cada seção do relatório (ferramentas
-/// MCP, skills, memória) dobrada, com o total — e, quando é uma lista
-/// comprida, agrupada pelo servidor ou origem, porque 250 linhas de nomes de
-/// ferramenta não são para ler.
-const CTX_COLORS = ["#ff6b3d", "#f5a623", "#e3c84a", "#7cc576", "#4fb3bf", "#5b8def", "#9b6bd6", "#d66bb0", "#8a8a8a"];
-
-function contextPanel(r: Report): HTMLElement {
-  const el = h("div", "ctxpanel");
-  const head = template("div", "ctxhead", `<b></b><span class="model"></span><span class="use"></span>`);
-  head.querySelector("b")!.textContent = t("chat.ctx.title");
-  head.querySelector(".model")!.textContent = r.model;
-  head.querySelector(".use")!.textContent = `${r.used} / ${r.total} · ${t("chat.ctx.used", { pct: r.pct })}`;
-  el.append(head);
-
-  const used = r.categories.filter((c) => !/^free space$/i.test(c.name));
-  const free = r.categories.find((c) => /^free space$/i.test(c.name));
-  const sum = used.reduce((a, c) => a + c.n, 0) || 1;
-  const bar = h("div", "ctxbar");
-  used.forEach((c, i) => {
-    const seg = h("i", "");
-    seg.style.width = `${(c.n / sum) * 100}%`;
-    seg.style.background = CTX_COLORS[i % CTX_COLORS.length];
-    seg.title = `${c.name} · ${c.tokens}`;
-    bar.append(seg);
-  });
-  el.append(bar);
-  const rows = h("div", "ctxrows");
-  used.forEach((c, i) => {
-    const row = template("div", "ctxrow", `<i class="dot"></i><span class="name"></span><span class="n"></span><span class="pct"></span>`);
-    (row.querySelector(".dot") as HTMLElement).style.background = CTX_COLORS[i % CTX_COLORS.length];
-    row.querySelector(".name")!.textContent = c.name;
-    row.querySelector(".n")!.textContent = c.tokens;
-    row.querySelector(".pct")!.textContent = `${c.pct}%`;
-    rows.append(row);
-  });
-  if (free) {
-    const row = template("div", "ctxrow free", `<i class="dot"></i><span class="name"></span><span class="n"></span><span class="pct"></span>`);
-    row.querySelector(".name")!.textContent = t("chat.ctx.free");
-    row.querySelector(".n")!.textContent = free.tokens;
-    row.querySelector(".pct")!.textContent = `${free.pct}%`;
-    rows.append(row);
-  }
-  el.append(rows);
-
-  for (const s of r.sections) {
-    const sec = template("details", "ctxsec", `<summary><span class="title"></span><span class="count"></span><span class="n"></span></summary>`);
-    sec.querySelector(".title")!.textContent = s.title;
-    sec.querySelector(".count")!.textContent = String(s.rows.length);
-    sec.querySelector(".n")!.textContent = kilo(sectionTotal(s));
-    const groups = grouped(s);
-    if (groups) {
-      for (const g of groups) {
-        const grp = template("details", "ctxgrp", `<summary><span class="title"></span><span class="count"></span><span class="n"></span></summary>`);
-        grp.querySelector(".title")!.textContent = g.name;
-        grp.querySelector(".count")!.textContent = String(g.rows.length);
-        grp.querySelector(".n")!.textContent = kilo(g.n);
-        grp.append(contextTable(g.rows.map((row) => [row[0] ?? "", row[2] ?? ""])));
-        sec.append(grp);
-      }
-    } else {
-      sec.append(contextTable(s.rows));
-    }
-    el.append(sec);
-  }
-  return el;
-}
-
-function contextTable(rows: string[][]): HTMLElement {
-  const table = h("div", "ctxtable");
-  for (const row of rows) {
-    const line = h("div", "ctxline");
-    row.forEach((cell, i) => {
-      const span = h("span", i === row.length - 1 ? "n" : i === 0 ? "name" : "src");
-      span.textContent = cell;
-      line.append(span);
-    });
-    table.append(line);
-  }
-  return table;
-}
-
-function capLines(text: string): string {
-  const lines = text.split("\n");
-  if (lines.length <= RESULT_LINES) return text;
-  return lines.slice(0, RESULT_LINES).join("\n") + "\n" + t("chat.more", { n: lines.length - RESULT_LINES });
-}
-
-/// Erros longos mostram começo e fim: a causa costuma estar num deles, e o
-/// miolo repetitivo continua preservado no transcript.
-function capError(text: string): string {
-  const lines = text.split("\n");
-  if (lines.length <= ERROR_LINES) return text;
-  const side = Math.floor(ERROR_LINES / 2);
-  const hidden = lines.length - side * 2;
-  return [...lines.slice(0, side), t("chat.more", { n: hidden }), ...lines.slice(-side)].join("\n");
-}
-
-/// Os wrappers do executor não explicam a falha; a primeira linha de verdade
-/// é uma prévia bem mais útil no cartão recolhido.
-function errorPeek(text: string): string {
-  const wrapper = /^(script (failed|completed)|wall time\b.*|output:|script error:)$/i;
-  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
-  return lines.find((line) => !wrapper.test(line)) ?? lines[0] ?? "";
-}
-
-/// A primeira linha do pensamento, ao lado do rótulo: é a isca que diz se vale
-/// abrir. O corte fino é do CSS — aqui só se tira a quebra de linha, que numa
-/// linha só viraria espaço no meio da frase.
-function peek(text: string): string {
-  return text.split("\n").find((l) => l.trim()) ?? "";
-}
-
-/// Quanto o turno levou, do jeito que se lê de relance: segundos até um
-/// minuto, e daí em diante minutos e segundos. Abaixo de dois segundos a casa
-/// decimal é o que separa "rápido" de "instantâneo".
-function took(ms: number): string {
-  const s = ms / 1000;
-  if (s < 2) return `${s.toFixed(1)}s`;
-  if (s < 60) return `${Math.round(s)}s`;
-  return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
-}
-
-function toolIcon(name: string): IconName {
-  switch (name) {
-    case "Read":
-    case "Glob":
-    case "Grep":
-      return "search";
-    case "Write":
-    case "Edit":
-    case "NotebookEdit":
-      return "pencil";
-    case "Bash":
-      return "terminal";
-    case "Task":
-    case "Agent":
-      return "users";
-    case "ExitPlanMode":
-    case "EnterPlanMode":
-      return "map";
-    case "AskUserQuestion":
-      return "message-square";
-    case "WebFetch":
-    case "WebSearch":
-      return "globe";
-    default:
-      return "sparkles";
-  }
-}
-
-/// Se o trabalho merece um cartão em volta. Uma ferramenta só já é um cartão,
-/// e o pensamento ao lado dela é uma linha — pôr uma caixa em volta disso é
-/// esconder o que dava para ler de uma vez. O que cansa é a rajada.
-function wantsCard(parts: { block: Block }[]): boolean {
-  return parts.filter((p) => p.block.kind === "tool").length > 1;
-}
-
-/// Quantas vezes cada ferramenta apareceu num cartão de trabalho, da mais
-/// usada para a menos.
-function count(tools: ToolBlock[]): [string, number][] {
-  const n = new Map<string, number>();
-  for (const b of tools) n.set(b.name, (n.get(b.name) ?? 0) + 1);
-  return [...n].sort((a, b) => b[1] - a[1]);
-}
-
-/// "Bash ×8 · Read ×4": em que o agente gastou os passos, sem a lista inteira.
-function tallyText(tally: [string, number][]): string {
-  const head = tally.slice(0, 3).map(([name, n]) => (n > 1 ? `${toolLabel(name)} ×${n}` : toolLabel(name)));
-  return [...head, ...(tally.length > 3 ? ["…"] : [])].join(" · ");
-}
-
-/// O nome da ferramenta como a pessoa a lê. MCP vem `mcp__servidor__tool`.
-function toolLabel(name: string): string {
-  if (name.startsWith("mcp__")) return name.split("__").slice(1).join(" · ");
-  return name;
 }

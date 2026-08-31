@@ -18,7 +18,6 @@ import {
   prs,
   pending,
   type Board,
-  type Change,
   type Choice,
   type RepoDiff,
   type Tab,
@@ -26,6 +25,7 @@ import {
 } from "./types";
 import { $, debounce, h, template } from "./util";
 import * as viewer from "./viewer";
+import * as changesUi from "./workspace-changes";
 
 /// A tela de um workspace: migalha, abas, o que está no centro (conversa,
 /// arquivo ou diff) e o painel da direita.
@@ -1136,30 +1136,27 @@ function drawList(id: string) {
 
   const list = $("difflist");
   if (!diff.keys(all).length) {
-    list.replaceChildren(nothing(t("diff.clean")));
+      list.replaceChildren(changesUi.nothing(t("diff.clean")));
     return;
   }
   const multi = all.length > 1;
   const rows = repos.flatMap((r) => {
     if (!r.files.length) return [];
-    const rows = r.files.map((f) => diffRow(id, r.name, f));
+    const rows = r.files.map((f) => changesUi.fileRow(id, r.name, f, showChanges));
     if (!multi) return rows;
     const k = `${id}/${r.name}`;
     for (const row of rows) {
       row.classList.add("in");
-      row.hidden = shutRepos.has(k);
+      row.hidden = changesUi.collapsed(k);
     }
-    return [repoRow(k, r, rows), ...rows];
+    return [changesUi.repoRow(k, r, rows), ...rows];
   });
-  if (!diff.keys(repos).length) rows.push(nothing(t("diff.clean.filtered")));
-  list.replaceChildren(summary(id, all), ...rows);
-}
-
-function nothing(text: string): HTMLElement {
-  const none = document.createElement("div");
-  none.className = "none";
-  none.textContent = text;
-  return none;
+  if (!diff.keys(repos).length) rows.push(changesUi.nothing(t("diff.clean.filtered")));
+  list.replaceChildren(changesUi.summary(all, onlyDirty, () => {
+    onlyDirty = !onlyDirty;
+    drawList(id);
+    if (files(id).diff) drawChanges(id);
+  }), ...rows);
 }
 
 /// Quanto ainda não saiu deste workspace: arquivo fora de commit e commit que
@@ -1172,103 +1169,6 @@ function outstanding(id: string): { dirty: number; unpushed: number } | null {
     dirty: repos.reduce((n, r) => n + r.dirty, 0),
     unpushed: repos.reduce((n, r) => n + r.unpushed, 0),
   };
-}
-
-/// O resumo no topo da lista: quantos commits além da base, o chip do que está
-/// fora de commit — que também é o filtro — e onde esses commits estão. Um diff
-/// de branch tem a mesma cara commitado ou não; sem esta linha, quem acabou de
-/// commitar continua olhando para o que parece trabalho pendente.
-function summary(id: string, repos: RepoDiff[]): HTMLElement {
-  const box = template("div", "diffsum", `<span class="ahead"></span><button class="dirtyf"></button><span class="state"></span>`);
-  const ahead = repos.reduce((n, r) => n + r.ahead, 0);
-  const dirty = repos.reduce((n, r) => n + r.dirty, 0);
-  const unpushed = repos.reduce((n, r) => n + r.unpushed, 0);
-  // Com um repo a base tem nome; com mais de um, cada um tem a sua, e ela fica
-  // no cabeçalho do repo.
-  box.children[0].textContent =
-    repos.length === 1 && repos[0].base ? tn(ahead, "diff.ahead", { base: repos[0].base }) : tn(ahead, "diff.commits");
-  const chip = box.children[1] as HTMLElement;
-  chip.hidden = !dirty && !onlyDirty;
-  chip.innerHTML = `<span class="dot"></span><span></span>`;
-  chip.children[1].textContent = t("diff.uncommitted", { n: dirty });
-  chip.classList.toggle("on", onlyDirty);
-  chip.title = t(onlyDirty ? "diff.onlyDirty" : "diff.onlyDirty.off");
-  chip.addEventListener("click", () => {
-    onlyDirty = !onlyDirty;
-    drawList(id);
-    if (files(id).diff) drawChanges(id);
-  });
-
-  // Onde os commits estão: no remoto, ou ainda só neste disco. Sem commit
-  // nenhum não há o que dizer — o que há é o chip do fora de commit.
-  const state = box.children[2] as HTMLElement;
-  state.hidden = !ahead;
-  state.className = "state" + (unpushed ? "" : " ok");
-  state.innerHTML = `${icon(unpushed ? "arrow-up" : "check", 13)}<span></span>`;
-  state.children[1].textContent = unpushed ? tn(unpushed, "diff.unpushed") : t("diff.pushed");
-  state.title = t(unpushed ? "diff.unpushed.title" : "diff.pushed.title");
-  return box;
-}
-
-/// Uma linha da lista: o índice da tela do centro — clicar rola até o arquivo.
-/// O ponto é pedaço fora de commit; o check da ponta é "visto".
-function diffRow(id: string, repo: string, f: Change): HTMLElement {
-  const row = document.createElement("button");
-  const seen = diff.isSeen(id, repo, f);
-  row.className = "diffrow" + (seen ? " seen" : "");
-  row.title = f.path;
-  // O nome do arquivo em primeiro plano e a pasta atrás dele, como no
-  // Conductor: numa lista de vinte arquivos é o nome que se procura.
-  const cut = f.path.lastIndexOf("/");
-  row.innerHTML =
-    `<span class="p"><span class="dir"></span><span class="base"></span></span>` +
-    `<span class="new"></span><span class="dot"></span><span class="a"></span><span class="r"></span><span class="chk"></span>`;
-  row.querySelector(".dir")!.textContent = cut === -1 ? "" : f.path.slice(0, cut + 1);
-  row.querySelector(".base")!.textContent = f.path.slice(cut + 1);
-  row.children[1].textContent = f.new_file ? t("diff.new") : f.deleted ? t("diff.deleted") : "";
-  const dot = row.children[2] as HTMLElement;
-  dot.hidden = !f.dirty;
-  dot.title = t("diff.dirty");
-  row.children[3].textContent = f.added ? `+${f.added}` : "";
-  row.children[4].textContent = f.removed ? `−${f.removed}` : "";
-  row.children[5].innerHTML = seen ? icon("check", 13) : "";
-  row.addEventListener("click", () => showChanges(diff.key(repo, f.path)));
-  return row;
-}
-
-/// Quais repositórios estão recolhidos na lista. Sobrevive ao redesenho, que
-/// chega a cada ferramenta que o agente usa — senão recolher não recolheria.
-const shutRepos = new Set<string>();
-
-/// O cabeçalho de um repositório na lista: nome, quantos commits e quantos
-/// arquivos, a soma; de onde a branch saiu fica no title. O ponto é o que ainda
-/// não saiu dali — cada repo tem o seu git, e um estar em dia não diz nada do
-/// outro. Clique recolhe os arquivos dele.
-function repoRow(k: string, r: RepoDiff, rows: HTMLElement[]): HTMLElement {
-  const row = document.createElement("button");
-  row.className = "diffrepo";
-  const left = [r.dirty ? t("diff.uncommitted", { n: r.dirty }) : "", r.unpushed ? tn(r.unpushed, "diff.unpushed") : ""].filter(Boolean);
-  row.title = [r.base ? tn(r.ahead, "diff.ahead", { base: r.base }) : tn(r.ahead, "diff.commits"), ...left].join(" · ");
-  row.innerHTML =
-    `<span class="tw"></span><span class="nm"></span><span class="cnt"></span>` +
-    `<span class="dot"></span><span class="a"></span><span class="r"></span>`;
-  row.children[1].textContent = r.name;
-  row.children[2].textContent = `${tn(r.ahead, "diff.commitsN")} · ${tn(r.files.length, "diff.files")}`;
-  (row.children[3] as HTMLElement).hidden = !left.length;
-  const added = diff.sum(r.files, "added");
-  const removed = diff.sum(r.files, "removed");
-  row.children[4].textContent = added ? `+${added}` : "";
-  row.children[5].textContent = removed ? `−${removed}` : "";
-  const glyph = () => {
-    row.children[0].innerHTML = icon(shutRepos.has(k) ? "chevron-right" : "chevron-down", 14);
-  };
-  row.addEventListener("click", () => {
-    shutRepos.has(k) ? shutRepos.delete(k) : shutRepos.add(k);
-    for (const f of rows) f.hidden = shutRepos.has(k);
-    glyph();
-  });
-  glyph();
-  return row;
 }
 
 /// Resumo na barra e o diff empilhado embaixo. Redesenhar é barato: a tela só é
