@@ -228,11 +228,11 @@ test("a tela de Mudanças não monta o diff que ninguém está vendo", async ({ 
   await expect(dlist.locator(".dfile").last().locator(".drow").first()).toBeVisible();
 });
 
-/// Editar no viewer existe para corrigir um trecho sem pedir ao agente. O que
-/// este teste guarda é a parte que quebra sozinha: o quadro bate a cada
-/// ferramenta que o agente usa e redesenha o arquivo aberto — se o redesenho
-/// não respeitar a edição, o que a pessoa está digitando some no meio da frase.
-test("editar um arquivo no viewer sobrevive ao redesenho do quadro e salva", async ({ page }) => {
+/// O arquivo abre pronto para escrever — não há botão de editar. O que este
+/// teste guarda é o que quebra sozinho: o quadro bate a cada ferramenta que o
+/// agente usa e redesenha o arquivo aberto; se o redesenho não respeitar o que
+/// está sendo escrito, o texto some no meio da frase.
+test("escrever no arquivo aberto sobrevive ao redesenho do quadro e salva", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Ola");
 
@@ -241,10 +241,17 @@ test("editar um arquivo no viewer sobrevive ao redesenho do quadro e salva", asy
   await expect(page.locator("#viewer")).toBeVisible();
   await expect(page.locator("#vpre")).toContainText("Controle financeiro pessoal");
 
-  await page.locator("#vedit").click();
+  // Sem nada escrito não há o que salvar nem o que desfazer.
   await expect(page.locator("#vtext")).toBeVisible();
-  await expect(page.locator("#vpre")).toBeHidden();
-  await page.locator("#vtext").fill("# Njord\n\nCorrigido à mão pelo E2E.\n");
+  await expect(page.locator("#vsave")).toBeHidden();
+  await expect(page.locator("#vcancel")).toBeHidden();
+
+  const texto = "# Njord\n\nCorrigido à mão pelo E2E.\n";
+  await page.locator("#vtext").fill(texto);
+  // As cores acompanham: o que se lê é o <pre>, e ele já mostra o texto novo.
+  await expect(page.locator("#vpre")).toContainText("Corrigido à mão pelo E2E.");
+  await expect(page.locator("#vsave")).toBeVisible();
+  await expect(page.locator("#vcrumb")).toHaveClass(/\bdirty\b/);
 
   const board = () =>
     page.evaluate(async () => {
@@ -254,21 +261,20 @@ test("editar um arquivo no viewer sobrevive ao redesenho do quadro e salva", asy
     });
 
   await board();
-  await expect(page.locator("#vtext")).toHaveValue("# Njord\n\nCorrigido à mão pelo E2E.\n");
+  await expect(page.locator("#vtext")).toHaveValue(texto);
 
-  // Nem clicar em outro arquivo e voltar: o rascunho espera, e a edição volta
-  // de onde parou. Um clique errado não custa o que já foi escrito.
+  // Nem clicar em outro arquivo e voltar: o rascunho espera, e volta de onde
+  // parou. Um clique errado não custa o que já foi escrito.
   await page.locator("#tree .treerow", { hasText: ".gitignore" }).click();
-  await expect(page.locator("#vpre")).toBeVisible();
-  await expect(page.locator("#vtext")).toBeHidden();
   await expect(page.locator("#vpre")).toContainText("Ignore bundler config");
+  await expect(page.locator("#vsave")).toBeHidden();
   await page.locator("#tree .treerow", { hasText: "CLAUDE.md" }).click();
-  await expect(page.locator("#vtext")).toBeVisible();
-  await expect(page.locator("#vtext")).toHaveValue("# Njord\n\nCorrigido à mão pelo E2E.\n");
+  await expect(page.locator("#vtext")).toHaveValue(texto);
+  await expect(page.locator("#vsave")).toBeVisible();
 
   await page.locator("#vsave").click();
-  await expect(page.locator("#vtext")).toBeHidden();
-  await expect(page.locator("#vpre")).toContainText("Corrigido à mão pelo E2E.");
+  await expect(page.locator("#vsave")).toBeHidden();
+  await expect(page.locator("#vcrumb")).not.toHaveClass(/\bdirty\b/);
 
   // Salvou de verdade: o redesenho seguinte lê o disco e acha o que foi escrito.
   await board();
