@@ -15,6 +15,7 @@ import { current, fromBack, paint, t } from "./i18n";
 import * as issues from "./issues";
 import { dropFiles, loadAgents, openLauncher, type Draft } from "./launcher";
 import * as menu from "./menu";
+import * as news from "./news";
 import * as rename from "./rename";
 import * as session from "./session";
 import * as settings from "./settings";
@@ -499,6 +500,10 @@ viewer.init((m) => say(m, true), ws.fileSaved);
 dock.init($("dockterm"));
 state = await invoke<Board>("load_board");
 showIssues();
+
+// O que mudou desde a última vez que você abriu o app. Depois da primeira tela
+// desenhada: a folha aparece sobre o app, e não no lugar dele.
+void news.init();
 
 // De onde vem o selo de mergeado: uma pergunta ao `gh` por repositório, e a
 // resposta entra no estado. De minuto em minuto porque é rede, e porque o que

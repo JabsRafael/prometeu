@@ -69,6 +69,16 @@ describe("view", () => {
     expect(view({ at: "ready", version: "0.2.0" }).footer).toBe(true);
   });
 
+  it("as notas da versão encontrada viajam até a linha, e só nela", () => {
+    const update = found("0.2.0");
+    expect(view({ at: "found", update }).notes).toEqual({ version: "0.2.0", body: "notas" });
+    // Já baixando ou já pronta, a decisão de ler o que vem já passou.
+    expect(view({ at: "downloading", update, got: 0, total: 0 }).notes).toBeUndefined();
+    expect(view({ at: "ready", version: "0.2.0" }).notes).toBeUndefined();
+    // Release sem corpo não vira um botão que abre uma folha vazia.
+    expect(view({ at: "found", update: { ...update, body: "  " } }).notes).toBeUndefined();
+  });
+
   it("a linha de Configurações diz a hora da última pergunta e o motivo da falha", () => {
     expect(view({ at: "fresh", when: "13:48" })).toMatchObject({
       text: "Buscar atualizações",

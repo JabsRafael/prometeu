@@ -1278,6 +1278,29 @@ body.noside .side { display: none; }
 .cleanhint.risk { color: var(--err); }
 .sheetbar .pri.risk { background: var(--err); border-color: var(--err); color: var(--pri-fg); }
 
+/* ---------- novidades ---------- */
+
+/* O changelog como quem lê: uma versão por bloco, e dentro dela o markdown do
+   git-cliff passado pelo mesmo `.md` da conversa. */
+.sheet.news { width: min(620px, 100%); }
+.sheet.news .sheettop b { font-weight: 500; }
+.sheet.news .sheettop .sub { font-size: 12px; color: var(--fg-3); }
+.newslist { max-height: min(56vh, 520px); overflow: auto; padding: 2px 16px 8px; }
+.newsempty { padding: 28px 12px; text-align: center; color: var(--fg-3); font-size: 13px; }
+.newsrel { padding: 14px 0; border-bottom: 1px solid var(--line-raised); }
+.newsrel:last-child { border-bottom: none; }
+.newsver { display: flex; align-items: baseline; gap: 8px; }
+.newsver b { font-size: 14px; font-weight: 600; }
+.newsver span { font-size: 12px; color: var(--fg-3); }
+.newsrel .md { font-size: 13.5px; }
+/* Novidades, Correções, Desempenho: rótulos de seção, no mesmo tom dos
+   títulos de Configurações — não são frases, são divisórias. */
+.newsrel .md h3 {
+  margin: 12px 0 4px; font-size: 11px; font-weight: 600;
+  letter-spacing: 0.05em; text-transform: uppercase; color: var(--fg-3);
+}
+.newsrel .md > :first-child { margin-top: 8px; }
+
 /* ---------- configurações ---------- */
 
 /* Uma coluna centrada, como a página de conta do Conductor: cada ajuste é uma
