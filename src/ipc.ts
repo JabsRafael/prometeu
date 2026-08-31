@@ -31,6 +31,7 @@ export const IPC_COMMANDS = [
   "create_scripts_file",
   "create_workspace",
   "dock_state",
+  "find_paths",
   "finish_workspace",
   "focus_tab",
   "linear_connect",
