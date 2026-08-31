@@ -4,6 +4,24 @@ O que muda no Prometheus, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.4.8] - 2026-08-31
+
+### Novidades
+
+- **arquivos:** Editar e salvar o arquivo aberto sem passar pelo agente
+- **mudanças:** Duplo clique num arquivo mudado abre ele para editar
+- **arquivos:** O arquivo abre pronto para escrever, e continua colorido
+- **conversa:** O @ na caixa completa o caminho de um arquivo do workspace
+- **conversa:** A lista do @ acerta melhor, e o arquivo recém-mexido vem na frente
+
+### Correções
+
+- **conversa:** Mensagens não ficam presas ao retomar uma aba
+
+### Desempenho
+
+- **conversa:** A lista do @ aguenta um monorepo
+
 ## [0.4.7] - 2026-08-31
 
 ### Correções

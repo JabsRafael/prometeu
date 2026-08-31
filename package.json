@@ -1,7 +1,7 @@
 {
   "name": "prometheus",
   "private": true,
-  "version": "0.4.7",
+  "version": "0.4.8",
   "type": "module",
   "packageManager": "npm@11.9.0",
   "engines": {
