@@ -39,10 +39,15 @@ export function brief(description: string, max = 72): string {
 let picking: { first: () => void; exact: boolean } | null = null;
 
 /// A cada letra na caixa: a lista acompanha o "/…" — e some quando ele some.
-export function typed(area: HTMLTextAreaElement, all: Command[], onChange: () => void) {
+/// Diz se a lista é desta vez — quem chama passa a vez a outra lista quando
+/// não é (ver `paths.ts`).
+export function typed(area: HTMLTextAreaElement, all: Command[], onChange: () => void): boolean {
   const at = typing(area.value, area.selectionStart);
   const list = at ? matches(at.query, all) : [];
-  if (!at || !list.length) return dismiss();
+  if (!at || !list.length) {
+    dismiss();
+    return false;
+  }
   const put = (name: string) => {
     picking = null;
     // O "/com" que a pessoa digitou é o começo deste comando, não texto a
@@ -60,6 +65,7 @@ export function typed(area: HTMLTextAreaElement, all: Command[], onChange: () =>
     "cmds",
   );
   picking = { first: () => put(list[0].name), exact: list.some((c) => c.name.toLowerCase() === at.query.toLowerCase()) };
+  return true;
 }
 
 /// Enter ou Tab com a lista aberta completam o primeiro nome em vez de mandar

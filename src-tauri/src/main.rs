@@ -104,6 +104,7 @@ fn main() {
             session::remove_workspace,
             session::diff::workspace_diff,
             session::diff::workspace_branch,
+            session::find::find_paths,
             session::files::list_dir,
             session::files::read_file,
             session::files::write_file,

@@ -8,6 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 pub(crate) mod diff;
 pub(crate) mod files;
+pub(crate) mod find;
 
 use diff::{ahead_of, changes_in};
 #[cfg(test)]

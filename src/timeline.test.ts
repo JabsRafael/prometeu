@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pieces, Timeline, summary } from "./timeline";
+import { pieces, Timeline, summary, touched } from "./timeline";
 
 const j = (o: unknown) => JSON.stringify(o);
 const assistant = (id: string, block: unknown, extra = {}) =>
@@ -358,6 +358,19 @@ describe("pieces", () => {
     );
     work(t, "m2", "Bash", "ls");
     expect(pieces(t.items).map((x) => x.kind)).toEqual(["work", "item", "work"]);
+  });
+
+  it("os arquivos que o agente mexeu vêm do último para o primeiro, sem repetir", () => {
+    const t = new Timeline();
+    t.push(assistant("m1", { type: "tool_use", id: "t1", name: "Read", input: { file_path: "/ws/a.rb" } }));
+    t.push(assistant("m2", { type: "tool_use", id: "t2", name: "Bash", input: { command: "ls /ws/nada.rb" } }));
+    t.push(assistant("m3", { type: "tool_use", id: "t3", name: "Grep", input: { path: "/ws/app" } }));
+    t.push(assistant("m4", { type: "tool_use", id: "t4", name: "Edit", input: { file_path: "/ws/b.rb" } }));
+    t.push(assistant("m5", { type: "tool_use", id: "t5", name: "Read", input: { file_path: "/ws/a.rb" } }));
+    // O Bash e o Grep não apontam um arquivo, e o a.rb lido duas vezes é um só,
+    // na posição da última.
+    expect(touched(t.items)).toEqual(["/ws/a.rb", "/ws/b.rb"]);
+    expect(touched(t.items, 1)).toEqual(["/ws/a.rb"]);
   });
 
   it("a chave de um pedaço não muda quando a conversa cresce", () => {
