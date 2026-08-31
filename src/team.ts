@@ -417,6 +417,12 @@ function sendBinary(data: Uint8Array): boolean {
 
 /* ---------- o que chega ---------- */
 
+/// Erro do relay que a pessoa não pediu e não resolve: o workspace ou a aba
+/// não estão mais lá. O app pergunta por eles sozinho — ao reconectar, ao
+/// desenhar as notas — e cada pergunta dessas virava um aviso vermelho no
+/// topo sobre algo que ninguém fez.
+const QUIET = new Set(["noShare", "noTab"]);
+
 function handle(frame: Down) {
   switch (frame.t) {
     case "welcome":
@@ -425,15 +431,21 @@ function handle(frame: Down) {
       shares = new Map(frame.shares.map((s) => [s.id, s]));
       inbox = frame.inbox;
       phase = "online";
-      // O que eu tinha em cache pode ter envelhecido enquanto eu estava fora.
-      const asked = [...notes.keys()];
-      notes.clear();
-      for (const ws of asked) send({ t: "notes", ws });
       // A verdade veio; o que é meu vai de novo, e quem já olhava minhas abas
       // ganha a rolagem inteira — o que saiu enquanto eu estava fora não
-      // chegou a ninguém.
+      // chegou a ninguém. Vai antes de qualquer pedido: o relay ainda não
+      // sabe o que é meu, e perguntar sobre um workspace que ele não tem é
+      // ganhar um erro em vez de uma resposta.
       announced.clear();
       if (lastBoard) boardChanged(lastBoard);
+      // O que eu tinha em cache pode ter envelhecido enquanto eu estava fora.
+      // Só se repete o pedido do que ainda existe daqui: o cache guarda todo
+      // workspace pelo qual já se perguntou, inclusive o que parou de ser
+      // compartilhado meses atrás, e pedir as notas dele de novo a cada
+      // reconexão era o que fazia o erro voltar sozinho.
+      const asked = [...notes.keys()].filter(known);
+      notes.clear();
+      for (const ws of asked) send({ t: "notes", ws });
       rewatch(frame.watching);
       if (attached) send({ t: "attach", ws: attached.ws, tab: attached.tab });
       break;
@@ -475,6 +487,12 @@ function handle(frame: Down) {
       notes.set(frame.ws, frame.items);
       break;
     case "error": {
+      // O erro do relay não diz a que pedido responde. Os que só contam que
+      // algo saiu de lá respondem, quase sempre, a pedido que o app fez
+      // sozinho — e a barra de cima é a resposta ao que a pessoa acabou de
+      // fazer, não um lugar onde o app conversa consigo mesmo. Quem conserta
+      // a tela é o `unshare`, que vem por conta própria.
+      if (QUIET.has(frame.code)) return;
       // Relay mais novo que o app pode mandar um código que este catálogo não
       // tem; dizer a chave crua é pior que dizer que algo não passou.
       const key = `err.team.${frame.code}` as Parameters<typeof t>[0];
@@ -925,6 +943,11 @@ function binary(data: ArrayBuffer) {
 /// O id que o relay conhece: o de um colega vem prefixado na tela, o seu é
 /// ele mesmo.
 const relayId = (id: string) => remoteIds.get(id)?.ws ?? id;
+
+/// O relay tem este workspace agora? Já em id de relay: é meu e anunciado, ou
+/// é de um colega e veio no `welcome`. Perguntar sobre o que não está aqui é
+/// pedir um `noShare`.
+const known = (ws: string) => announced.has(ws) || shares.has(ws);
 
 /// As notas de um workspace, e o pedido ao relay se ainda não vieram. Devolve
 /// o que já se sabe; o resto chega pelo `onChange`.

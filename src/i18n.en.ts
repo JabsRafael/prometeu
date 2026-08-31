@@ -454,7 +454,6 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.team.legacy": "this team used the old protocol — recreate it or join again with a pm2 invite",
   "err.team.owner": "only the owner changes what they shared",
   "err.team.noShare": "that workspace isn't shared anymore",
-  "err.team.noTab": "that conversation isn't there anymore",
   "err.team.offline": "the owner is offline — the conversation can't take a message",
   "err.team.down": "no connection to the team — the note didn't go out",
   "err.team.empty": "the note is empty",
