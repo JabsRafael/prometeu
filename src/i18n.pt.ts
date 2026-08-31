@@ -496,7 +496,6 @@ export const PT = {
   "err.team.legacy": "esse time usava o protocolo antigo — recrie-o ou entre novamente com um convite pm2",
   "err.team.owner": "só o dono mexe no que compartilhou",
   "err.team.noShare": "esse workspace não está mais compartilhado",
-  "err.team.noTab": "essa conversa não está mais lá",
   "err.team.offline": "o dono está offline — a conversa não recebe fala",
   "err.team.down": "sem conexão com o time — a nota não saiu",
   "err.team.empty": "a nota está vazia",
