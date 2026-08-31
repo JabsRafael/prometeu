@@ -4,7 +4,9 @@ App de desktop (Tauri 2 + Vite/TypeScript) que organiza sessões de agente por
 workspace — Claude Code (`claude -p` stream-json, `src-tauri/src/chat.rs`), ou
 o Codex quando o modelo escolhido é um GPT (`codex app-server` traduzido para
 as mesmas linhas em `src-tauri/src/codex.rs`; o catálogo de modelos está em
-`agents.rs`). A conversa é desenhada pelo app (`src/timeline.ts`, `src/chat.ts`);
+`agents.rs`). A conversa é desenhada pelo app (`src/timeline.ts`, `src/chat.ts`,
+com apresentação em `src/chat-presentation.ts`); Git/diff e leitura de arquivos
+do workspace ficam em `src-tauri/src/session/diff.rs` e `session/files.rs`;
 o terminal (xterm + pty) só serve setup, run e shells do dock.
 O código fica neste repositório privado; os pacotes vão para o público
 `gbrancaglione/prometheus-releases`, de onde o app instalado se atualiza

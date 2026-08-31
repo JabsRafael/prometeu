@@ -8,13 +8,10 @@ import {
   encodeSnapshot,
   formatInvite,
   normalizeName,
-  parseCreatedTeam,
   parseDown,
   parseInvite,
   parseMembership,
-  type CreatedTeam,
   type Down,
-  type EnrollResponse,
   type Inbox,
   type Member,
   type Note,
@@ -28,7 +25,16 @@ import { t } from "./i18n";
 import { AttachLifecycle } from "./attach-lifecycle";
 import { invoke } from "./ipc";
 import { Mirror } from "./mirror";
+import { remoteControl } from "./team-control";
+import {
+  defaultTransport,
+  wsUrl as transportWsUrl,
+  type SocketLike,
+  type Transport,
+} from "./team-transport";
 import type { Board, Workspace } from "./types";
+
+export type { SocketLike, Transport } from "./team-transport";
 
 /// O time: a conexão com o relay e o que ele conta — quem está online, o que
 /// está compartilhado, a caixa de notas. Vive aqui, no front, e não no Rust,
@@ -85,69 +91,7 @@ const env = (import.meta as unknown as { env?: Record<string, string | undefined
 
 const enc = new TextEncoder();
 
-/// O suficiente de um WebSocket para o mock do navegador fingir um.
-export type SocketLike = {
-  binaryType: string;
-  send(data: string | ArrayBuffer | Uint8Array): void;
-  close(): void;
-  onopen: (() => void) | null;
-  onmessage: ((ev: { data: unknown }) => void) | null;
-  onclose: (() => void) | null;
-  onerror: (() => void) | null;
-};
-
-export type Transport = {
-  socket: (url: string) => SocketLike;
-  create: (relay: string) => Promise<CreatedTeam>;
-  enroll: (relay: string, team: string, secret: string) => Promise<EnrollResponse>;
-  /// O mock não tem relay nenhum e não precisa de URL.
-  needsRelay: boolean;
-};
-
-let transport: Transport = {
-  socket: (url) => new WebSocket(url) as unknown as SocketLike,
-  create: async (relay) => {
-    let r: Response;
-    try {
-      r = await fetch(`${httpUrl(relay)}/teams`, { method: "POST" });
-    } catch (e) {
-      throw t("err.team.relay", { cause: String(e) });
-    }
-    if (!r.ok) throw t("err.team.relay", { cause: `HTTP ${r.status}` });
-    let body: unknown;
-    try {
-      body = await r.json();
-    } catch {
-      throw t("err.team.bad");
-    }
-    const created = parseCreatedTeam(body);
-    if (!created) throw t("err.team.bad");
-    return created;
-  },
-  enroll: async (relay, team, secret) => {
-    let r: Response;
-    try {
-      r = await fetch(`${httpUrl(relay)}/team/${encodeURIComponent(team)}/enroll`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ secret }),
-      });
-    } catch (e) {
-      throw t("err.team.relay", { cause: String(e) });
-    }
-    if (!r.ok) throw t("err.team.relay", { cause: `HTTP ${r.status}` });
-    let body: unknown;
-    try {
-      body = await r.json();
-    } catch {
-      throw t("err.team.bad");
-    }
-    const membership = parseMembership(body);
-    if (!membership) throw t("err.team.bad");
-    return membership;
-  },
-  needsRelay: true,
-};
+let transport: Transport = defaultTransport();
 
 export function useTransport(next: Transport) {
   transport = next;
@@ -279,31 +223,8 @@ function storedConfig(value: unknown): StoredTeamConfig | null {
 const relayOf = (c: Pick<TeamConfig, "relay"> | StoredTeamConfig | null) =>
   (c ? c.relay || "" : relayDraft) || env?.VITE_RELAY || RELAY || (transport.needsRelay ? "" : "ws://mock");
 
-function relayUrl(relay: string, socket: boolean): string {
-  let url: URL;
-  try {
-    url = new URL(relay);
-  } catch {
-    throw t("err.team.relayUrl");
-  }
-  if (url.username || url.password || url.search || url.hash) throw t("err.team.relayUrl");
-  const allowed = new Set(["http:", "https:", "ws:", "wss:"]);
-  if (!allowed.has(url.protocol)) throw t("err.team.relayUrl");
-  const local = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]";
-  if (transport.needsRelay && !local && (url.protocol === "http:" || url.protocol === "ws:")) {
-    throw t("err.team.insecureRelay");
-  }
-  url.protocol = socket ? (url.protocol === "https:" || url.protocol === "wss:" ? "wss:" : "ws:") : url.protocol === "https:" || url.protocol === "wss:" ? "https:" : "http:";
-  return url.toString().replace(/\/+$/, "");
-}
-
 /// `https://x` vira `wss://x`, `http://x` vira `ws://x`; `ws(s)://` fica.
-function wsUrl(relay: string): string {
-  return relayUrl(relay, true);
-}
-function httpUrl(relay: string): string {
-  return relayUrl(relay, false);
-}
+const wsUrl = (relay: string) => transportWsUrl(relay, transport.needsRelay);
 
 function connect() {
   if (!cfg) return;
@@ -732,44 +653,13 @@ function flush() {
 /// para um processo de verdade.
 function typed(ws: string, tab: string, data: string, from: string) {
   if (!announced.has(ws) || !mine(tab)) return;
-  const parsed = control(data);
+  const parsed = remoteControl(data);
   if (parsed.recognized) {
     if (parsed.frame) void invoke("chat_control_remote", { session: tab, frame: parsed.frame }).catch(() => {});
     return;
   }
   const text = t("team.remotePrompt", { name: nameOf(from), text: data });
   void invoke("chat_send", { session: tab, text }).catch(() => {});
-}
-
-type RemoteControl = { recognized: boolean; frame: unknown | null };
-
-/// Só duas ações remotas atravessam como controle: responder um pedido que o
-/// agente realmente fez ou interromper. Troca de modo e formatos inventados
-/// são descartados; o back ainda reconstrói respostas com o input original.
-function control(data: string): RemoteControl {
-  if (!data.startsWith("{")) return { recognized: false, frame: null };
-  try {
-    const o = JSON.parse(data);
-    if (!o || typeof o !== "object" || typeof o.type !== "string") return { recognized: false, frame: null };
-    if (o.type === "control_request") {
-      const ok = typeof o.request_id === "string" && o.request_id.length <= 128 && o.request?.subtype === "interrupt";
-      return { recognized: true, frame: ok ? o : null };
-    }
-    if (o.type === "control_response") {
-      const response = o.response;
-      const answer = response?.response;
-      const ok =
-        response?.subtype === "success" &&
-        typeof response.request_id === "string" &&
-        response.request_id.length <= 128 &&
-        (answer?.behavior === "allow" || answer?.behavior === "deny") &&
-        data.length <= 64 * 1024;
-      return { recognized: true, frame: ok ? o : null };
-    }
-    return { recognized: o.type.startsWith("control_"), frame: null };
-  } catch {
-    return { recognized: false, frame: null };
-  }
 }
 
 /* ---------- colega: o que os outros compartilharam ---------- */
