@@ -4,6 +4,17 @@ O que muda no Prometheus, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.4.9] - 2026-08-31
+
+### Novidades
+
+- **novidades:** O que mudou no app aparece dentro dele, e não só na página de releases
+
+### Correções
+
+- **quadro:** PR continua aparecendo quando a branch do worktree foi renomeada
+- **quadro:** Repositório some da lista de mudanças quando o filtro está ligado
+
 ## [0.4.8] - 2026-08-31
 
 ### Novidades
