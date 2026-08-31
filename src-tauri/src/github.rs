@@ -52,8 +52,8 @@ pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
     let mut by_clone: BTreeMap<String, Vec<(String, String, String)>> = BTreeMap::new();
     for workspace in &alive {
         for repo in &workspace.repos {
-            let branch = head_branch(Path::new(&repo.worktree))
-                .unwrap_or_else(|| workspace.branch.clone());
+            let branch =
+                head_branch(Path::new(&repo.worktree)).unwrap_or_else(|| workspace.branch.clone());
             by_clone.entry(repo.path.clone()).or_default().push((
                 workspace.id.clone(),
                 repo.name.clone(),
