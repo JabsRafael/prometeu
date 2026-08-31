@@ -165,6 +165,26 @@ test("envia uma pergunta, responde o card e devolve o controle ao chat", async (
   await expect(composer).toBeEnabled();
 });
 
+/// O "@" da caixa aponta um arquivo do workspace para o agente. O que importa
+/// aqui é a caixa acabar com um caminho de verdade escrito nela: é isso que o
+/// agente lê, e é o que faltava — a lista nunca abria.
+test("o @ na caixa completa um caminho do workspace", async ({ page }) => {
+  await boot(page);
+  await openWorkspace(page, "Ola");
+
+  const composer = page.locator("#chatwrap .composer textarea");
+  await composer.fill("veja @app/adapters/tra");
+
+  const first = page.locator(".menu .mrow").first();
+  await expect(first).toContainText("app/adapters/transcriber.rb");
+
+  // Tab escreve o caminho inteiro no lugar do que foi digitado, e não manda a
+  // fala.
+  await composer.press("Tab");
+  await expect(composer).toHaveValue("veja @app/adapters/transcriber.rb ");
+  await expect(page.locator("#chatwrap .feed")).not.toContainText("veja @app");
+});
+
 /// Um workspace de três repositórios com cem arquivos mudados: o diff inteiro
 /// são dezenas de milhares de linhas, e montá-las de uma vez travava a tela por
 /// segundos e deixava a rolagem arrastando. O que este teste guarda é a regra —

@@ -571,6 +571,17 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     }
     case "list_dir":
       return tree[args.rel ?? ""] ?? [];
+    // Como o back: o que combina com o que foi digitado, do mais raso para o
+    // mais fundo. A árvore do mock é rasa, então basta o caminho conter o que
+    // se escreveu.
+    case "find_paths": {
+      const q = String(args.query ?? "").toLowerCase();
+      return Object.values(tree)
+        .flat()
+        .filter((e) => e.path.toLowerCase().includes(q))
+        .sort((a, b) => a.path.split("/").length - b.path.split("/").length || a.path.localeCompare(b.path))
+        .slice(0, 40);
+    }
     case "read_file":
       if (args.rel in files) return files[args.rel];
       // Como o back de verdade: código, e não frase. O front traduz.
