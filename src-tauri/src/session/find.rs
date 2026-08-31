@@ -44,7 +44,7 @@ pub fn find_paths(
         return Vec::new();
     };
     let repos = repos_of(&state, &id);
-    let all = cached(&id, move || scan(&root.clone(), &repos));
+    let all = cached(&id, move || scan(&root, &repos));
     let fresh = recency(&state, &id, &recent);
 
     let q: Vec<u8> = query.to_ascii_lowercase().into_bytes();
