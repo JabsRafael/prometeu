@@ -1113,6 +1113,13 @@ async function loadChanges(id: string) {
   if (files(id).diff) drawChanges(id);
 }
 
+/// Um arquivo foi salvo pelo viewer: o disco mudou por fora do agente, e o
+/// diff que está na tela ainda é o de antes.
+export function fileSaved(id: string) {
+  const ws = current();
+  if (ws?.id === id && diffable(ws)) reloadChanges(id);
+}
+
 /// Você marcou (ou desmarcou) um arquivo como visto: a lista e a aba contam
 /// de novo. O centro já se pintou sozinho.
 function seenChanged(id: string) {
@@ -1142,7 +1149,7 @@ function drawList(id: string) {
   const multi = all.length > 1;
   const rows = repos.flatMap((r) => {
     if (!r.files.length) return [];
-    const rows = r.files.map((f) => changesUi.fileRow(id, r.name, f, showChanges));
+    const rows = r.files.map((f) => changesUi.fileRow(id, r.name, f, showChanges, openChange));
     if (!multi) return rows;
     const k = `${id}/${r.name}`;
     for (const row of rows) {
@@ -1194,7 +1201,21 @@ function drawChanges(id: string, focus?: string) {
     focus,
     empty: t(onlyDirty ? "diff.clean.filtered" : "diff.clean.long"),
     onSeen: () => seenChanged(id),
+    onOpen: openChange,
   });
+}
+
+/// Abre no viewer um arquivo que veio do diff. O caminho do diff é relativo ao
+/// worktree do repositório dele, e o viewer parte do worktree do workspace —
+/// que, com mais de um repositório, é a pasta que reúne todos. A diferença
+/// entre os dois é o pedaço que falta na frente.
+function openChange(repo: string, path: string) {
+  const ws = current();
+  if (!ws) return;
+  const root = ws.worktree;
+  const mine = ws.repos.find((r) => r.name === repo)?.worktree ?? root;
+  const under = mine.startsWith(`${root}/`) ? `${mine.slice(root.length + 1)}/` : "";
+  void openFile(`${under}${path}`);
 }
 
 /* ---------- painel da direita ---------- */

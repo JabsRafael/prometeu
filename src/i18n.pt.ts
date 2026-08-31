@@ -217,6 +217,7 @@ export const PT = {
   "side.collapse": "Recolher pastas",
   "side.reveal": "Abrir o worktree no Finder",
   "diff.foldAll": "Recolher todos",
+  "diff.open": "Clique duplo abre o arquivo",
   "viewer.copyPath": "Copiar caminho",
   "viewer.edit": "Editar o arquivo",
   "viewer.save": "Salvar — ⌘S",

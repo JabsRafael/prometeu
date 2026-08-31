@@ -281,3 +281,31 @@ test("editar um arquivo no viewer sobrevive ao redesenho do quadro e salva", asy
   await expect(page.locator("#vpre")).toContainText("Ignore bundler config");
   await expect(page.locator("#vpre")).not.toContainText("Corrigido à mão pelo E2E.");
 });
+
+/// Ler o diff e ir mexer no arquivo são o mesmo movimento: o duplo clique
+/// atravessa da lista de Mudanças, e do diff empilhado no centro, para o
+/// arquivo inteiro aberto no viewer.
+test("duplo clique numa mudança abre o arquivo no viewer", async ({ page }) => {
+  await boot(page);
+  await openWorkspace(page, "Ola");
+
+  await page.locator("#tab-diff").click();
+  const row = page.locator("#difflist .diffrow", { hasText: "style.css" }).first();
+  await expect(row).toBeVisible();
+
+  // Um clique é ir até o arquivo no diff do centro, e não abrir.
+  await row.click();
+  await expect(page.locator("#dlist .dhead", { hasText: "style.css" }).first()).toBeVisible();
+  await expect(page.locator("#viewer")).toBeHidden();
+
+  await row.dblclick();
+  await expect(page.locator("#viewer")).toBeVisible();
+  await expect(page.locator("#vcrumb")).toContainText("style.css");
+  await expect(page.locator("#vpre")).toContainText("padding: 12px");
+
+  // E o mesmo gesto no cabeçalho do arquivo dentro do diff empilhado.
+  await page.locator("#tab-diff").click();
+  await page.locator("#dlist .dhead", { hasText: "style.css" }).first().dblclick();
+  await expect(page.locator("#viewer")).toBeVisible();
+  await expect(page.locator("#vcrumb")).toContainText("style.css");
+});

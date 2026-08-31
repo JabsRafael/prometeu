@@ -26,11 +26,16 @@ const key = (id: string, path: string) => `${id}\n${path}`;
 
 let editing: string | null = null;
 let fail: (m: string) => void = () => {};
+/// Salvou: o arquivo mudou no disco sem o agente ter mexido em nada, então
+/// nada mais avisaria a tela de Mudanças — e ela só se confere sozinha
+/// enquanto você está olhando para ela.
+let saved: (id: string) => void = () => {};
 
 const box = () => $("vtext") as HTMLTextAreaElement;
 
-export function init(onError: (m: string) => void) {
+export function init(onError: (m: string) => void, onSaved: (id: string) => void) {
   fail = onError;
+  saved = onSaved;
   $("vcopy").innerHTML = icon("copy");
   $("vcopy").addEventListener("click", () => {
     if (!shown) return;
@@ -203,4 +208,5 @@ async function save() {
   shown = { ...shown, text };
   mode();
   paint();
+  saved(shown.id);
 }

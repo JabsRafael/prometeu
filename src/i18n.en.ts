@@ -194,6 +194,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "side.collapse": "Collapse folders",
   "side.reveal": "Open the worktree in Finder",
   "diff.foldAll": "Collapse all",
+  "diff.open": "Double-click opens the file",
   "viewer.copyPath": "Copy path",
   "viewer.edit": "Edit the file",
   "viewer.save": "Save — ⌘S",
