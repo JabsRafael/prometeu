@@ -31,7 +31,8 @@ pub fn pr_open(app: AppHandle, state: State<AppState>, id: String) {
 
 /// Uma consulta ao `gh` por clone, não uma por workspace: dois workspaces do
 /// mesmo repositório, e os dois repos de um workspace, cabem na mesma
-/// resposta. Falha de rede não apaga o último estado conhecido do quadro.
+/// resposta. Nem falha de rede nem resposta incompleta apagam o último estado
+/// conhecido do quadro.
 #[tauri::command(async)]
 pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
     let alive: Vec<Workspace> = lock(&state.board)
@@ -42,13 +43,21 @@ pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
         .collect();
 
     // Clone → (workspace, nome do repo nele, branch).
+    //
+    // A branch é a do worktree, não a que o quadro guardou: quem trabalha
+    // renomeia a branch, ou troca de branch dentro do worktree, e a partir daí
+    // o nome gravado no card não é mais o que o `gh` conhece. Perguntar pelo
+    // nome velho não acha PR nenhum — e num workspace de vários repos isso
+    // apagava o PR de todos de uma vez.
     let mut by_clone: BTreeMap<String, Vec<(String, String, String)>> = BTreeMap::new();
     for workspace in &alive {
         for repo in &workspace.repos {
+            let branch =
+                head_branch(Path::new(&repo.worktree)).unwrap_or_else(|| workspace.branch.clone());
             by_clone.entry(repo.path.clone()).or_default().push((
                 workspace.id.clone(),
                 repo.name.clone(),
-                workspace.branch.clone(),
+                branch,
             ));
         }
     }
@@ -74,11 +83,7 @@ pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
             let Some(repo) = workspace.repos.iter_mut().find(|repo| repo.name == name) else {
                 continue;
             };
-            if same(repo.pr.as_ref(), pr.as_ref()) {
-                continue;
-            }
-            repo.pr = pr;
-            moved = true;
+            moved |= write(repo, pr);
         }
     }
     if moved {
@@ -158,10 +163,7 @@ fn list(dir: &Path, extra: &[&str]) -> Vec<Pr> {
     serde_json::from_slice::<Vec<Pr>>(&out.stdout).unwrap_or_default()
 }
 
-/// Guarda no quadro o que o `gh` respondeu para cada repositório. Resposta
-/// vazia com PR já conhecido é `gh` mudo — sem rede, sem login —, e esquecer o
-/// PR por causa disso faria o botão da barra piscar entre "Atualizar PR" e
-/// "Open PR".
+/// Guarda no quadro o que o `gh` respondeu para cada repositório.
 fn remember(app: &AppHandle, state: &State<AppState>, id: &str, found: Vec<(String, Option<Pr>)>) {
     let mut moved = false;
     {
@@ -173,19 +175,28 @@ fn remember(app: &AppHandle, state: &State<AppState>, id: &str, found: Vec<(Stri
             let Some(repo) = workspace.repos.iter_mut().find(|repo| repo.name == name) else {
                 continue;
             };
-            if pr.is_none() && repo.pr.is_some() {
-                continue;
-            }
-            if same(repo.pr.as_ref(), pr.as_ref()) {
-                continue;
-            }
-            repo.pr = pr;
-            moved = true;
+            moved |= write(repo, pr);
         }
     }
     if moved {
         publish(app);
     }
+}
+
+/// Grava no repo o que o `gh` respondeu, e diz se o quadro mudou. Não achar
+/// nada não apaga o que já se sabia: resposta vazia é `gh` mudo — sem rede, sem
+/// login —, e a lista de um repositório movimentado tem tamanho, o PR de ontem
+/// já saiu dela. Esquecer por causa disso fazia o botão da barra piscar entre
+/// "Atualizar PR" e "Open PR".
+fn write(repo: &mut Repo, pr: Option<Pr>) -> bool {
+    if pr.is_none() && repo.pr.is_some() {
+        return false;
+    }
+    if same(repo.pr.as_ref(), pr.as_ref()) {
+        return false;
+    }
+    repo.pr = pr;
+    true
 }
 
 fn same(left: Option<&Pr>, right: Option<&Pr>) -> bool {
@@ -231,8 +242,9 @@ fn repos_of(state: &State<AppState>, id: &str) -> Vec<Repo> {
 
 #[cfg(test)]
 mod tests {
-    use super::pick;
+    use super::{pick, write};
     use crate::domain::Pr;
+    use crate::state::Repo;
 
     fn pr(number: u64, branch: &str, state: &str) -> Pr {
         Pr {
@@ -253,6 +265,22 @@ mod tests {
         ];
         assert_eq!(pick(&all, "meu/ajuste").unwrap().number, 7);
         assert!(pick(&all, "nao/existe").is_none());
+    }
+
+    #[test]
+    fn nao_achar_nao_apaga_o_pr_conhecido() {
+        let mut repo = Repo {
+            path: "/clone".into(),
+            name: "repo".into(),
+            worktree: "/worktree".into(),
+            base: "origin/main".into(),
+            pr: Some(pr(7, "meu/ajuste", "OPEN")),
+        };
+        assert!(!write(&mut repo, None));
+        assert_eq!(repo.pr.as_ref().unwrap().number, 7);
+        assert!(write(&mut repo, Some(pr(7, "meu/ajuste", "MERGED"))));
+        assert_eq!(repo.pr.as_ref().unwrap().state, "MERGED");
+        assert!(!write(&mut repo, Some(pr(7, "meu/ajuste", "MERGED"))));
     }
 
     #[test]
