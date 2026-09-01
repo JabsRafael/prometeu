@@ -192,6 +192,26 @@ pub fn browser_hide(app: AppHandle, id: String) {
     }
 }
 
+/// Voltar e avançar, como em qualquer navegador — quem está testando o Run
+/// entra num fluxo, erra o passo e quer o anterior de volta, e a página nem
+/// sempre tem um botão para isso. É o histórico da própria webview: sem API
+/// para ele no Tauri, quem anda é o `history` de dentro da página.
+#[tauri::command]
+pub fn browser_back(app: AppHandle, id: String) {
+    hop(&app, &id, "history.back()");
+}
+
+#[tauri::command]
+pub fn browser_forward(app: AppHandle, id: String) {
+    hop(&app, &id, "history.forward()");
+}
+
+fn hop(app: &AppHandle, id: &str, js: &str) {
+    if let Some(view) = app.get_webview(&label(id)) {
+        let _ = view.eval(js);
+    }
+}
+
 #[tauri::command]
 pub fn browser_reload(app: AppHandle, id: String) {
     if let Some(view) = app.get_webview(&label(&id)) {
