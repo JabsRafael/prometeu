@@ -4,6 +4,12 @@ O que muda no Prometheus, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.4.13] - 2026-09-01
+
+### Novidades
+
+- **conversa:** O "+" abre o Finder e o arquivo vira anexo da fala
+
 ## [0.4.12] - 2026-09-01
 
 ### Novidades
