@@ -420,6 +420,15 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "linear.connect.title":
     "Opens Linear in the browser for you to authorize Prometheus. Read-only, and only on this Mac",
 
+  "status.usage": "Usage",
+  "status.window.session": "Session",
+  "status.window.weekly": "Weekly",
+  "status.window.overage": "Overage",
+  "status.resets": "resets in {when}",
+  "status.now": "now",
+  "status.ago": "{when} ago",
+  "status.justNow": "just now",
+
   "update.ask": "Check for updates",
   "update.ask.title": "Asks right now whether a new version is out",
   "update.checking": "Checking…",

@@ -53,6 +53,7 @@ body {
   margin: 0;
   height: 100vh;
   display: flex;
+  flex-direction: column;
   background: var(--bg);
   color: var(--fg);
   font: 13px/1.5 var(--font);
@@ -61,6 +62,9 @@ body {
   user-select: none;
   cursor: default;
 }
+/* O app inteiro numa linha — a faixa de baixo fica fora dela, porque
+   atravessa a janela toda, inclusive por baixo da barra de workspaces. */
+.shell { flex: 1; min-height: 0; display: flex; }
 .stack { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .spacer { flex: 1; }
 [hidden] { display: none !important; }
@@ -1401,7 +1405,7 @@ body.noside .side { display: none; }
 /* Flutua acima de tudo, inclusive do lançador: quem abriu o menu está mexendo
    nele agora. Fica em `fixed` para o submenu poder nascer dentro do painel e
    ainda assim se posicionar pela tela. */
-.menu {
+.menu, .upop {
   position: fixed; z-index: 30; min-width: 200px; padding: 5px;
   background: var(--bg-raised-2); border: 1px solid var(--line-ghost);
   border-radius: var(--r-lg); box-shadow: 0 20px 48px -12px rgb(0 0 0 / 0.85);
@@ -1443,3 +1447,55 @@ body.noside .side { display: none; }
   border: 1.5px dashed var(--accent); border-radius: var(--r-lg);
   background: rgb(255 107 61 / 0.06);
 }
+
+/* ---------- a faixa de baixo ---------- */
+
+/* Quanto da cota já foi, e o estado da máquina. Fina de propósito: é o rodapé
+   que se lê de canto de olho, e cada pixel dela sai da conversa. Some inteira
+   quando não há número nenhum — faixa vazia é ruído com borda. */
+.status {
+  flex: none; height: 26px; display: flex; align-items: center; gap: 14px;
+  padding: 0 10px; background: var(--bg-side);
+  border-top: 1px solid var(--line-side);
+  font-size: 11px; color: var(--fg-3); overflow: hidden;
+}
+.uchip {
+  display: flex; align-items: center; gap: 7px; height: 20px; padding: 0 6px;
+  border-radius: var(--r); background: none; color: var(--fg-3);
+  font-size: 11px; font-weight: 400; flex: none;
+}
+.uchip:hover { background: var(--bg-raised); color: var(--fg-2); }
+.utext { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* A barrinha: o traço cheio é quanto já foi. Cinza enquanto é informação,
+   quente quando começa a mandar no seu dia. */
+.meter {
+  width: 34px; height: 4px; flex: none; border-radius: 2px;
+  background: var(--bg-raised-3); overflow: hidden;
+}
+.meter.wide { width: 100%; }
+.meter > i { display: block; height: 100%; border-radius: 2px; background: var(--fg-3); }
+.meter.warn > i { background: var(--wait); }
+.meter.hot > i { background: var(--err); }
+.uchip:hover .meter > i { background: var(--fg-2); }
+.uchip:hover .meter.warn > i { background: var(--wait); }
+.uchip:hover .meter.hot > i { background: var(--err); }
+
+/* O painel do uso. Uma linha por janela, e os agentes empilhados: são dois
+   números por agente, e dois agentes — cabe tudo à vista. */
+.upop { min-width: 268px; padding: 10px 12px 12px; gap: 0; }
+.uhead { font-size: 12px; font-weight: 600; color: var(--fg); padding-bottom: 8px; }
+.uagent {
+  display: flex; align-items: center; gap: 7px; padding: 8px 0 5px;
+  border-top: 1px solid var(--line-raised);
+}
+.uagent .ic { flex: none; }
+.uname { font-size: 12px; font-weight: 600; color: var(--fg); flex: 1; }
+.uwhen { font-size: 11px; color: var(--fg-3); }
+.urow {
+  display: grid; grid-template-columns: 54px minmax(56px, 1fr) 34px auto;
+  align-items: center; gap: 8px; height: 22px;
+  font-size: 11px; color: var(--fg-2);
+}
+.upct { text-align: right; font-variant-numeric: tabular-nums; color: var(--fg); }
+.ureset { color: var(--fg-3); white-space: nowrap; }

@@ -6,6 +6,8 @@
     <title>Prometheus</title>
   </head>
   <body>
+    <!-- Tudo que é o app, e embaixo a faixa que atravessa a janela inteira. -->
+    <div class="shell">
     <!-- Navegação nunca some: trocar de workspace não é trocar de modo. -->
     <nav class="rail" id="rail">
       <div class="railtop" data-tauri-drag-region="deep">
@@ -185,6 +187,12 @@
         </section>
       </main>
     </div>
+    </div>
+
+    <!-- A faixa de baixo: quanto da cota de cada agente já foi, e o estado da
+         máquina. Não é do workspace aberto — é do app inteiro, e por isso
+         atravessa a janela toda. Desenhada por `statusbar.ts`. -->
+    <footer class="status" id="status"></footer>
 
     <div class="veil" id="veil" hidden></div>
     <script type="module" src="/src/main.ts"></script>

@@ -680,6 +680,27 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
           { slug: "gpt-5.4", name: "GPT-5.4", efforts: ["low", "medium", "high", "xhigh"] },
         ],
       };
+    // A cota dos dois agentes, com números parecidos com os de um dia de
+    // trabalho: é o que faz a faixa de baixo aparecer no navegador.
+    case "usage": {
+      const now = Math.floor(Date.now() / 1000);
+      return {
+        claude: {
+          windows: [
+            { kind: "session", pct: 16, resets: now + 3 * 3600 + 14 * 60 },
+            { kind: "weekly", pct: 78, resets: now + 3 * 86400 + 4 * 3600 },
+          ],
+          at: now - 4 * 60,
+        },
+        codex: {
+          windows: [
+            { kind: "session", pct: 0, resets: now + 4 * 3600 + 55 * 60 },
+            { kind: "weekly", pct: 13, resets: now + 6 * 86400 + 12 * 3600 },
+          ],
+          at: now - 96 * 60,
+        },
+      };
+    }
     case "list_branches":
       return {
         all: [

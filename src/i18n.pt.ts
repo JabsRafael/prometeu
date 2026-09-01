@@ -453,6 +453,17 @@ export const PT = {
   "linear.connect.title":
     "Abre o Linear no navegador para você autorizar o Prometheus. Só leitura, e só neste Mac",
 
+  /* ---------- a faixa de baixo ---------- */
+
+  "status.usage": "Uso",
+  "status.window.session": "Sessão",
+  "status.window.weekly": "Semana",
+  "status.window.overage": "Extra",
+  "status.resets": "zera em {when}",
+  "status.now": "agora",
+  "status.ago": "há {when}",
+  "status.justNow": "agora mesmo",
+
   /* ---------- atualização ---------- */
 
   "update.ask": "Buscar atualizações",

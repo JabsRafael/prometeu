@@ -102,6 +102,10 @@ enum Sent {
     Turn,
     Compact,
     Interrupt,
+    /// `account/rateLimits/read`, mandado uma vez no início: a notificação de
+    /// cota só chega quando ela muda, e a barra de baixo não pode ficar
+    /// esperando o primeiro turno para ter um número.
+    Usage,
 }
 
 /// Um pedido do servidor esperando a tela responder.
@@ -395,9 +399,16 @@ impl Link {
         match self.sent.remove(&id) {
             Some(Sent::Init) => {
                 let _ = self.notify("initialized", json!({}));
+                let _ = self.call("account/rateLimits/read", json!({}), Sent::Usage);
                 self.open_thread();
                 vec![]
             }
+            // Codex sem conta logada responde erro aqui, e a barra fica sem a
+            // faixa dele — que é exatamente o que se quer dizer.
+            Some(Sent::Usage) => match error {
+                Some(_) => vec![],
+                None => vec![rate_limits(&msg["result"]["rateLimits"])],
+            },
             Some(Sent::Thread { resumed }) => {
                 if let Some(cause) = error {
                     // Retomar falhou: a conversa de antes ficou para trás, mas a
@@ -558,6 +569,10 @@ impl Link {
                 Some(n) if n > 0 => self.delta(p["itemId"].as_str(), Some("\n\n")),
                 _ => vec![],
             },
+            // Quanto da cota já foi. Não é da conversa: sai daqui pelo mesmo
+            // cano das outras linhas só porque é o cano que chega ao app
+            // (ver `chat::react`), e o `usage` é quem guarda.
+            "account/rateLimits/updated" => vec![rate_limits(&p["rateLimits"])],
             "thread/tokenUsage/updated" => {
                 let usage = &p["tokenUsage"];
                 self.window = usage["modelContextWindow"].as_u64().or(self.window);
@@ -844,6 +859,13 @@ fn relative(path: &str, cwd: &str) -> String {
 
 /* ---------- linhas prontas ---------- */
 
+/// A cota do Codex embrulhada como linha do app: quem a lê é `chat::react`,
+/// que a entrega ao `usage`. Não vai para o transcript (ver `chat::keep`) —
+/// não é conversa.
+fn rate_limits(limits: &Value) -> Value {
+    json!({ "type": "prometheus", "subtype": "usage", "usage": limits })
+}
+
 fn now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1080,10 +1102,25 @@ mod tests {
         link.on_line(r#"{"id":1,"result":{}}"#);
         let sent = out.take();
         assert_eq!(sent[0]["method"], "initialized");
-        assert_eq!(sent[1]["method"], "thread/start");
-        assert_eq!(sent[1]["params"]["approvalPolicy"], "never");
-        assert_eq!(sent[1]["params"]["model"], "gpt-5.4");
-        link.on_line(r#"{"id":2,"result":{"thread":{"id":"t-1"},"model":"gpt-5.4"}}"#)
+        let start = call_id(&sent, "thread/start");
+        let thread = &sent[start.1];
+        assert_eq!(thread["params"]["approvalPolicy"], "never");
+        assert_eq!(thread["params"]["model"], "gpt-5.4");
+        link.on_line(&format!(
+            r#"{{"id":{},"result":{{"thread":{{"id":"t-1"}},"model":"gpt-5.4"}}}}"#,
+            start.0
+        ))
+    }
+
+    /// O id JSON-RPC de um pedido, e onde ele saiu. Procurar pelo método em vez
+    /// de contar linhas é o que deixa somar pedido novo no início da conversa
+    /// (a cota, por exemplo) sem reescrever teste nenhum.
+    fn call_id(sent: &[Value], method: &str) -> (u64, usize) {
+        let at = sent
+            .iter()
+            .position(|m| m["method"] == method)
+            .unwrap_or_else(|| panic!("nenhum {method} em {sent:?}"));
+        (sent[at]["id"].as_u64().unwrap(), at)
     }
 
     fn user(text: &str) -> Value {
@@ -1136,9 +1173,11 @@ mod tests {
         out.take();
         link.on_line(r#"{"id":1,"result":{}}"#);
         let sent = out.take();
-        assert_eq!(sent[1]["method"], "thread/resume");
-        assert_eq!(sent[1]["params"]["threadId"], "velha");
-        let frames = link.on_line(r#"{"id":2,"error":{"code":1,"message":"no such thread"}}"#);
+        let (id, at) = call_id(&sent, "thread/resume");
+        assert_eq!(sent[at]["params"]["threadId"], "velha");
+        let frames = link.on_line(&format!(
+            r#"{{"id":{id},"error":{{"code":1,"message":"no such thread"}}}}"#
+        ));
         assert_eq!(frames[0]["subtype"], "stderr");
         assert_eq!(out.take()[0]["method"], "thread/start");
     }

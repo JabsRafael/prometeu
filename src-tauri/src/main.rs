@@ -18,6 +18,7 @@ mod session;
 mod state;
 mod team;
 mod transcript;
+mod usage;
 
 use state::Board;
 use std::collections::{HashMap, HashSet};
@@ -86,6 +87,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             i18n::set_lang,
             agents::agents,
+            usage::usage,
             session::load_board,
             session::add_project,
             session::remove_project,

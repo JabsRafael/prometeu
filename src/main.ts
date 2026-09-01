@@ -19,6 +19,7 @@ import * as news from "./news";
 import * as rename from "./rename";
 import * as session from "./session";
 import * as settings from "./settings";
+import * as statusbar from "./statusbar";
 import * as team from "./team";
 import "./style.css";
 import type { Board, Issue, Workspace } from "./types";
@@ -229,6 +230,11 @@ alert.init({ looking: ws.id });
 /// Script que morreu sozinho — terminou, ou quebrou. A aba volta para o botão
 /// de começar sem ninguém perguntar de tempos em tempos.
 listen<[string, number | null]>("pty-closed", ({ payload: [key] }) => dockbar.closed(key));
+
+/// A cota mudou: alguma aba, de qualquer workspace, acabou de falar com um
+/// agente. É a conta inteira, então a faixa de baixo se refaz sozinha.
+listen<statusbar.Usage>("usage", ({ payload }) => statusbar.show(payload));
+invoke<statusbar.Usage>("usage").then(statusbar.show).catch(() => {});
 
 /* ---------- arrastar arquivo para dentro do terminal ---------- */
 

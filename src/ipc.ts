@@ -67,6 +67,7 @@ export const IPC_COMMANDS = [
   "set_unread",
   "team_config",
   "team_config_set",
+  "usage",
   "workspace_branch",
   "workspace_diff",
   "workspace_scripts",
