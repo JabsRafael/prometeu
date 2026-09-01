@@ -78,8 +78,7 @@ fn same_site(typed: &str, host: &str) -> bool {
 
 /// Se a página fica na aba. O Run e o que a pessoa digitou ficam; o resto sai.
 fn inside(id: &str, url: &Url) -> bool {
-    local(url)
-        || typed(id).is_some_and(|t| url.host_str().is_some_and(|h| same_site(&t, h)))
+    local(url) || typed(id).is_some_and(|t| url.host_str().is_some_and(|h| same_site(&t, h)))
 }
 
 /// Abre no navegador do sistema. Só `http`/`https`: `open` com qualquer esquema
