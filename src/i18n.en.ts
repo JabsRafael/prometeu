@@ -102,6 +102,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "launcher.addRepo.none": "Register another repository to put two in one workspace",
   "launcher.removeRepo": "Remove {name} from this workspace",
   "launcher.hint.multi": "one worktree per repo · {branch}{from}",
+  "launcher.hint.taken": "this branch is already open in {ws}",
   "launcher.effort.ultra":
     "Ultracode: very high effort plus workflow orchestration — the agent spawns subagents in parallel. Click to go back to Low",
   "launcher.effort.title":
@@ -513,6 +514,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.session.worktreeNeedsBranch": "a worktree needs a branch of its own",
   "err.session.worktreeElsewhere": "{path} already exists and is on branch '{head}', not on '{branch}'",
   "err.session.worktreeDetached": "{path} already exists and is not a worktree on any branch",
+  "err.session.branchBusy":
+    "in {name}, branch '{branch}' is already open at {path} — git will not open the same branch in two folders",
   "err.session.extrasNeedWorktree": "a workspace with more than one repository needs a worktree",
   "err.session.dupRepo": "{name} was added twice to the same workspace",
   "err.session.noParent": "worktree with no folder above it",

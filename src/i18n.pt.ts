@@ -117,6 +117,7 @@ export const PT = {
   "launcher.addRepo.none": "Registre outro repositório para juntar dois num workspace",
   "launcher.removeRepo": "Tirar {name} deste workspace",
   "launcher.hint.multi": "um worktree por repo · {branch}{from}",
+  "launcher.hint.taken": "esta branch já está aberta em {ws}",
   "launcher.effort.ultra":
     "Ultracode: esforço muito alto e orquestração de workflows — o agente abre subagentes em paralelo. Clique para voltar ao Baixo",
   "launcher.effort.title":
@@ -555,6 +556,8 @@ export const PT = {
   "err.session.worktreeNeedsBranch": "um worktree precisa de uma branch própria",
   "err.session.worktreeElsewhere": "{path} já existe e está na branch '{head}', não em '{branch}'",
   "err.session.worktreeDetached": "{path} já existe e não é um worktree em branch nenhuma",
+  "err.session.branchBusy":
+    "em {name}, a branch '{branch}' já está aberta em {path} — o git não abre a mesma branch em duas pastas",
   "err.session.extrasNeedWorktree": "workspace com mais de um repositório precisa de worktree",
   "err.session.dupRepo": "{name} entrou duas vezes no mesmo workspace",
   "err.session.noParent": "worktree sem pasta acima",

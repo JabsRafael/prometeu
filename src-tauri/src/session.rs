@@ -719,6 +719,18 @@ pub fn create_workspace(
             .collect(),
     };
 
+    // A branch já aberta em outra pasta é o único "não" que dá para dar antes de
+    // o card nascer, e é o que separa recusar de fracassar: o `git worktree add`
+    // recusaria de qualquer jeito, mas lá atrás, com o card já no quadro e a
+    // pessoa olhando para um workspace que nunca vai montar. Ler
+    // `git worktree list` é ler metadado — não custa o segundo que fez a
+    // montagem inteira mudar de thread.
+    if draft.worktree {
+        for r in &repos {
+            branch_free(Path::new(&r.path), &branch, Path::new(&r.worktree))?;
+        }
+    }
+
     // A porta sai antes de qualquer script, porque é ela que o `setup` e o `run`
     // recebem no ambiente — e é o que deixa dois worktrees do mesmo projeto
     // subirem o servidor ao mesmo tempo sem um matar o outro.
@@ -833,8 +845,23 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
     // branch, cada um saindo da base gravada nele. Branch que já existe no
     // repo ignora a base de qualquer jeito.
     if draft.worktree {
+        // Meio workspace no disco é pior que nenhum: a pessoa veria a pasta de
+        // um repositório só, e o card não teria como contar que está pela
+        // metade. Recusou um, desfaz os que esta montagem tinha feito.
+        let mut feitos: Vec<(PathBuf, PathBuf)> = Vec::new();
         for r in &repos {
-            add_worktree(Path::new(&r.path), &branch, &r.base, Path::new(&r.worktree))?;
+            let (clone, dest) = (PathBuf::from(&r.path), PathBuf::from(&r.worktree));
+            match add_worktree(&clone, &branch, &r.base, &dest) {
+                Ok(true) => feitos.push((clone, dest)),
+                Ok(false) => {}
+                Err(e) => {
+                    undo_worktrees(&feitos);
+                    if repos.len() > 1 {
+                        let _ = std::fs::remove_dir(&root);
+                    }
+                    return Err(e);
+                }
+            }
         }
         if repos.len() > 1 {
             describe_root(&root, &repos, &branch);
@@ -1189,14 +1216,17 @@ fn tab_title(prompt: &str) -> String {
 /// `base` é de onde a branch nova sai — `origin/main`, por padrão. Branch que
 /// já existe ignora a base: aí o worktree só a traz de volta para o disco, e
 /// mudar o ponto de partida de trabalho que já começou não é criar workspace.
-fn add_worktree(repo: &Path, branch: &str, base: &str, dest: &Path) -> Result<(), String> {
+///
+/// Devolve se a pasta nasceu aqui: pasta adotada não é desfeita quando um
+/// repositório irmão recusa.
+fn add_worktree(repo: &Path, branch: &str, base: &str, dest: &Path) -> Result<bool, String> {
     // Pasta que já está lá é reaproveitada — mas só se for a branch pedida.
     // Antes qualquer pasta com o nome certo servia, então um worktree na branch
     // errada era adotado calado e o quadro passava a mentir em que branch a
     // sessão estava mexendo.
     if dest.exists() {
         return match head_branch(dest) {
-            Some(head) if head == branch => Ok(()),
+            Some(head) if head == branch => Ok(false),
             Some(head) => Err(i18n::ta(
                 "err.session.worktreeElsewhere",
                 &[
@@ -1211,10 +1241,15 @@ fn add_worktree(repo: &Path, branch: &str, base: &str, dest: &Path) -> Result<()
             )),
         };
     }
+    branch_free(repo, branch, dest)?;
+
     let parent = dest
         .parent()
         .ok_or_else(|| i18n::t("err.session.noParent"))?;
-    std::fs::create_dir_all(parent).map_err(i18n::io)?;
+    // Quem cria a pasta do worktree é o git; daqui sai só o caminho até ela — e
+    // ele volta atrás se o git recusar, senão sobra no disco uma pasta vazia que
+    // não é worktree de ninguém e não aparece em `git worktree list`.
+    let abertas = open_dirs(parent)?;
 
     let mut cmd = Command::new("git");
     cmd.arg("-C").arg(repo).arg("worktree").arg("add");
@@ -1223,15 +1258,20 @@ fn add_worktree(repo: &Path, branch: &str, base: &str, dest: &Path) -> Result<()
     } else {
         cmd.arg("-b").arg(branch).arg(dest);
         if !base.is_empty() {
-            prepare_base(repo, base)?;
+            if let Err(e) = prepare_base(repo, base) {
+                close_dirs(&abertas);
+                return Err(e);
+            }
             cmd.arg(base);
         }
     }
 
-    let out = cmd
-        .output()
-        .map_err(|e| i18n::ta("err.git.spawn", &[("cause", e.to_string())]))?;
+    let out = cmd.output().map_err(|e| {
+        close_dirs(&abertas);
+        i18n::ta("err.git.spawn", &[("cause", e.to_string())])
+    })?;
     if !out.status.success() {
+        close_dirs(&abertas);
         return Err(i18n::ta(
             "err.git",
             &[
@@ -1243,7 +1283,99 @@ fn add_worktree(repo: &Path, branch: &str, base: &str, dest: &Path) -> Result<()
             ],
         ));
     }
-    Ok(())
+    Ok(true)
+}
+
+/// Onde esta branch já está em check-out neste repositório — o próprio clone ou
+/// um worktree dele. É o que o `git worktree add` confere antes de recusar.
+fn worktree_of_branch(repo: &Path, branch: &str) -> Option<PathBuf> {
+    let want = format!("branch refs/heads/{branch}");
+    let listed = git(repo, &["worktree", "list", "--porcelain"]);
+    let mut at = None;
+    for line in listed.lines() {
+        match line.strip_prefix("worktree ") {
+            Some(path) => at = Some(PathBuf::from(path)),
+            None if line == want => return at,
+            None => {}
+        }
+    }
+    None
+}
+
+/// Uma branch só abre numa pasta — regra do git, não escolha daqui. Duas
+/// sessões que saem da mesma issue do Linear pedem a mesma branch, e o destino
+/// não é o mesmo: a pasta leva os nomes dos repositórios do workspace, e
+/// `capim-code-rules` sozinho não mora onde `capim-code-rules+capim-autonomous`
+/// mora. Quem recusava era o git, com o texto dele; aqui o erro diz de quem é a
+/// pasta que está segurando a branch, que é o que decide o que fazer.
+fn branch_free(repo: &Path, branch: &str, dest: &Path) -> Result<(), String> {
+    match worktree_of_branch(repo, branch) {
+        Some(at) if !same_path(&at, dest) => Err(i18n::ta(
+            "err.session.branchBusy",
+            &[
+                ("name", repo_label(repo)),
+                ("branch", branch.to_string()),
+                ("path", at.display().to_string()),
+            ],
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// O git lista worktree por caminho resolvido; o destino daqui é montado a
+/// partir do `HOME`. Comparar texto puro faria `/var` e `/private/var` — o
+/// mesmo lugar — passarem por pastas diferentes.
+fn same_path(a: &Path, b: &Path) -> bool {
+    a == b
+        || match (a.canonicalize(), b.canonicalize()) {
+            (Ok(x), Ok(y)) => x == y,
+            _ => false,
+        }
+}
+
+/// Abre o caminho até `dir` e devolve, de fora para dentro, as pastas que
+/// passaram a existir agora — as que o `close_dirs` sabe desfazer.
+fn open_dirs(dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut novas = Vec::new();
+    let mut at = Some(dir);
+    while let Some(p) = at.filter(|p| !p.exists()) {
+        novas.push(p.to_path_buf());
+        at = p.parent();
+    }
+    std::fs::create_dir_all(dir).map_err(i18n::io)?;
+    novas.reverse();
+    Ok(novas)
+}
+
+/// `remove_dir` e não `remove_dir_all`: só some a pasta que continua vazia. Se
+/// alguma coisa chegou nela nesse meio-tempo, ela fica.
+fn close_dirs(dirs: &[PathBuf]) {
+    for dir in dirs.iter().rev() {
+        let _ = std::fs::remove_dir(dir);
+    }
+}
+
+/// O nome de um repositório para uma frase de erro: a pasta do clone.
+fn repo_label(repo: &Path) -> String {
+    repo.file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// Devolve ao disco o que esta montagem criou. A branch fica: ela não atrapalha
+/// a próxima tentativa, que a reaproveita como faria com qualquer branch que já
+/// existe — e apagá-la seria apagar também a que já estava lá antes.
+fn undo_worktrees(feitos: &[(PathBuf, PathBuf)]) {
+    for (repo, dest) in feitos.iter().rev() {
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["worktree", "remove", "--force"])
+            .arg(dest)
+            .output();
+        let _ = git(repo, &["worktree", "prune"]);
+    }
 }
 
 /// Worktree desligado: a branch nasce no próprio repositório e é o diretório de
@@ -2089,6 +2221,62 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         // Já estar na branch pedida é um no-op, não um erro.
         super::switch_branch(&local, "aqui", "origin/main").unwrap();
         assert_eq!(run(&local, &["rev-parse", "HEAD"]), velha);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A mesma branch em duas pastas é o que o git recusa — e é o que dois
+    /// workspaces saídos da mesma issue do Linear pedem, um com um repositório
+    /// e outro com dois: a branch é a mesma, a pasta não, porque ela leva os
+    /// nomes dos repositórios do workspace. O erro tem de dizer onde a branch
+    /// está, e a tentativa não pode deixar pasta vazia para trás.
+    #[test]
+    fn branch_aberta_em_outra_pasta_recusa_sem_deixar_pasta() {
+        let root = std::env::temp_dir().join(format!("prometheus-busy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let repo = root.join("code-rules");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let run = |dir: &Path, args: &[&str]| {
+            let out = Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args(["-c", "commit.gpgsign=false"])
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        run(&repo, &["init", "-q", "-b", "main"]);
+        run(&repo, &["config", "user.email", "t@t"]);
+        run(&repo, &["config", "user.name", "t"]);
+        std::fs::write(repo.join("a.txt"), "a").unwrap();
+        run(&repo, &["add", "-A"]);
+        run(&repo, &["commit", "-qm", "a"]);
+
+        // O workspace de um repositório só.
+        let um = root.join("code-rules").join("aut-49");
+        assert!(super::add_worktree(&repo, "aut-49", "", &um).unwrap());
+
+        // O de dois: mesma branch, outra pasta.
+        let dois = root.join("code-rules+autonomous").join("aut-49");
+        let erro = super::add_worktree(&repo, "aut-49", "", &dois.join("code-rules")).unwrap_err();
+        let onde = um.canonicalize().unwrap().display().to_string();
+        assert!(erro.contains("aut-49") && erro.contains(&onde), "{erro}");
+        assert!(
+            !dois.exists(),
+            "sobrou a pasta da tentativa: {}",
+            dois.display()
+        );
+        assert!(!root.join("code-rules+autonomous").exists());
+
+        // Pasta que já está na branch pedida continua sendo adotada — e adotar
+        // não é criar: quem adota não é desfeito quando um irmão recusa.
+        assert!(!super::add_worktree(&repo, "aut-49", "", &um).unwrap());
 
         let _ = std::fs::remove_dir_all(&root);
     }
