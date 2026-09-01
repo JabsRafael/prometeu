@@ -1,5 +1,6 @@
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 import { icon } from "./icons";
 import { fromBack, t, tn } from "./i18n";
 import { diffHtml, isDiff } from "./highlight";
@@ -50,6 +51,9 @@ export type Info = {
   pending: string | null;
   /// A conversa é de um colega: o nome dele, e se ele está aí.
   remote: { name: string; online: boolean } | null;
+  /// Onde o agente trabalha: a pasta do worktree. O "+" abre o Finder ali, e
+  /// o arquivo escolhido dentro dela entra na fala como caminho relativo.
+  worktree: string | null;
   /// Este workspace participa do time — e, portanto, aceita notas. Ter um time
   /// configurado não basta: um workspace local que nunca foi compartilhado
   /// não existe no relay.
@@ -93,6 +97,10 @@ export class ChatView {
   /// trocar de aba no meio de uma frase e voltar encontra a frase onde ela
   /// ficou, e a aba de destino encontra a dela — não a de onde se veio.
   private says = new Map<string, string>();
+  /// Os arquivos anexados a cada conversa, esperando a fala em que vão. Como
+  /// a fala pela metade, são da aba: trocar de aba e voltar reencontra o que
+  /// se tinha anexado ali.
+  private files = new Map<string, string[]>();
   private feedback: string | null = null;
   /// Itens que mudaram desde o último quadro. O stream manda uma linha por
   /// token; redesenhar a cada uma trava a tela — um quadro por vez basta.
@@ -892,13 +900,16 @@ export class ChatView {
   private buildComposer() {
     this.box.innerHTML = `
       <div class="cquote" hidden></div>
+      <!-- Os anexos ficam à vista, em cima do que se escreve: o que vai junto
+           da fala é parte da fala. É a mesma tira do lançador. -->
+      <div class="cfiles" hidden></div>
       <textarea rows="1" spellcheck="true"></textarea>
       <div class="crow">
         <div class="modes" hidden>
           <button class="mode on" data-mode="agent"></button>
           <button class="mode" data-mode="note"></button>
         </div>
-        <!-- O "+" abre a lista de arquivos do workspace, a mesma do "@". -->
+        <!-- O "+" abre o Finder: qualquer arquivo do Mac vira menção na fala. -->
         <button class="ico sm addfile" hidden></button>
         <!-- Com quem se fala, como no rodapé do lançador: o modelo e o degrau
              de esforço desta conversa. Aqui só se lê — modelo não se troca com
@@ -932,7 +943,7 @@ export class ChatView {
       b.addEventListener("click", () => this.setMode(b.dataset.mode as "agent" | "note"));
     }
     q(".at").addEventListener("click", () => notes.pickMention(this.area, () => this.keep()));
-    q(".addfile").addEventListener("click", () => this.addFile());
+    q(".addfile").addEventListener("click", () => void this.addFile());
     q(".quotesel").addEventListener("click", () => this.quoteSelection());
     q(".stop").addEventListener("click", () => this.interrupt());
     q(".send").addEventListener("click", () => this.send());
@@ -965,17 +976,25 @@ export class ChatView {
     });
   }
 
-  /// O "+" ao lado da caixa: abre a lista de arquivos do workspace sem que
-  /// ninguém precise saber do "@". O que ele faz é escrever o "@" onde o
-  /// cursor está — o caminho escolhido entra na fala como qualquer outro.
-  private addFile() {
-    const a = this.area;
-    const { text, cut } = paths.begin(a.value, a.selectionStart);
-    a.value = text;
-    a.focus();
-    a.selectionStart = a.selectionEnd = cut;
-    this.grow();
-    this.typedPath();
+  /// O "+" ao lado da caixa: o Finder, aberto no worktree mas livre para ir a
+  /// qualquer canto do Mac — a captura de tela na Área de Trabalho, o arquivo
+  /// de outro projeto. O escolhido vira anexo desta fala, como no lançador: um
+  /// chip em cima da caixa, que sai da fala com o "×" e vira menção quando ela
+  /// vai. O texto que se está escrevendo não é mexido.
+  private async addFile() {
+    const root = this.ctx.info().worktree;
+    const picked = await open({ multiple: true, title: t("chat.addFile.dialog"), defaultPath: root ?? undefined });
+    const list = Array.isArray(picked) ? picked : picked ? [picked] : [];
+    const has = this.attached();
+    for (const p of list) if (p && !has.includes(p)) has.push(p);
+    if (this.key) this.files.set(this.key, has);
+    this.paintComposer();
+    this.area.focus();
+  }
+
+  /// Os anexos desta conversa. Sem aba não há onde guardá-los.
+  private attached(): string[] {
+    return (this.key && this.files.get(this.key)) || [];
   }
 
   /// A lista de caminhos do "@". Só na conversa daqui: a de um colega roda no
@@ -1004,9 +1023,11 @@ export class ChatView {
     return (this.key && this.says.get(this.key)) || "";
   }
 
-  /// Aba fechada leva junto a fala que ficou pela metade nela.
+  /// Aba fechada leva junto a fala que ficou pela metade nela, e os anexos
+  /// que esperavam por ela.
   forget(alive: Set<string>) {
     for (const key of this.says.keys()) if (!alive.has(key)) this.says.delete(key);
+    for (const key of this.files.keys()) if (!alive.has(key)) this.files.delete(key);
   }
 
   private grow() {
@@ -1054,7 +1075,8 @@ export class ChatView {
 
   private send() {
     const text = this.area.value.trim();
-    if (!text || !this.key) return;
+    const files = this.mode === "note" ? [] : this.attached();
+    if ((!text && !files.length) || !this.key) return;
     const info = this.ctx.info();
     if (this.mode === "note") {
       if (!info.workspace) return;
@@ -1076,13 +1098,18 @@ export class ChatView {
       return;
     }
     if (info.remote && !info.remote.online) return this.ctx.say(t("err.team.offline"), true);
-    if (this.remote) team.write(text);
-    else invoke("chat_send", { session: this.key, text }).catch((e) => this.ctx.say(fromBack(e), true));
+    // Os anexos vão na frente da fala, como menção — a mesma forma que o
+    // lançador dá ao que se anexa à primeira fala.
+    const said = [paths.mentions(files, info.worktree), text].filter(Boolean).join("\n\n");
+    if (this.remote) team.write(said);
+    else invoke("chat_send", { session: this.key, text: said }).catch((e) => this.ctx.say(fromBack(e), true));
     this.says.delete(this.key);
+    this.files.delete(this.key);
     this.area.value = "";
     commands.dismiss();
     paths.dismiss();
     this.grow();
+    this.paintComposer();
   }
 
   /// Os comandos de barra desta conversa: o que o processo respondeu ao subir
@@ -1122,8 +1149,9 @@ export class ChatView {
     for (const b of this.box.querySelectorAll<HTMLElement>(".mode")) b.classList.toggle("on", b.dataset.mode === this.mode);
     const note = this.mode === "note";
     q(".at").hidden = !note;
-    // O "+" aponta arquivo do workspace daqui: não há o que apontar numa nota,
-    // nem na conversa de um colega — os arquivos dela são do Mac dele.
+    // O "+" aponta arquivo para o agente daqui: não há o que apontar numa
+    // nota, nem na conversa de um colega — quem lê o arquivo é o agente que
+    // roda no Mac dele, e o Finder daqui é outro disco.
     q(".addfile").hidden = note || this.remote || !info.workspace;
     q(".stop").hidden = note || !this.tl.busy;
     this.box.classList.toggle("note", note);
@@ -1163,6 +1191,31 @@ export class ChatView {
       );
     }
     this.paintQuoteButton();
+    this.paintFiles(note);
+  }
+
+  /// Os anexos em cima da caixa: um chip por arquivo, com o nome à vista e o
+  /// caminho no title — o mesmo que o agente vai ler. O "×" tira o arquivo da
+  /// fala. Na nota não há
+  /// anexo — os que esperam ficam guardados, e voltam com o modo agente.
+  private paintFiles(note: boolean) {
+    const row = this.box.querySelector<HTMLElement>(".cfiles")!;
+    const list = note ? [] : this.attached();
+    row.hidden = !list.length;
+    row.replaceChildren(
+      ...list.map((path, i) => {
+        const chip = template("span", "injchip", `<span></span><button class="ico sm">${icon("x", 12)}</button>`);
+        chip.children[0].textContent = path.split("/").pop() ?? path;
+        chip.children[0].setAttribute("title", paths.short(path, this.ctx.info().worktree));
+        chip.children[1].addEventListener("click", () => {
+          const files = this.attached().slice();
+          files.splice(i, 1);
+          if (this.key) this.files.set(this.key, files);
+          this.paintComposer();
+        });
+        return chip;
+      }),
+    );
   }
 
   /// Com quem se está falando, embaixo da caixa: o modelo e o degrau de

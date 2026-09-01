@@ -618,6 +618,8 @@ main { flex: 1; min-height: 0; position: relative; }
 }
 .composer .send.round:hover { background: #fff; }
 .composer .spacer { flex: 1; }
+/* Os anexos da fala, em cima da caixa: quebram linha quando são muitos. */
+.composer .cfiles { display: flex; flex-wrap: wrap; gap: 6px; }
 .composer .cquote .quoted {
   display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fg-2);
   background: var(--bg); border-radius: var(--r); padding: 4px 4px 4px 8px;

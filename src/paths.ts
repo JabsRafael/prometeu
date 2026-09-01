@@ -93,12 +93,25 @@ export function dismiss() {
   picking = null;
 }
 
-/// O "+" da caixa: escreve o "@" que abre a lista, onde o cursor está. Serve
-/// a quem não sabe do "@" — daí em diante os dois são a mesma coisa. Quem já
-/// estava escrevendo um caminho não ganha um segundo "@".
-export function begin(text: string, cut: number): { text: string; cut: number } {
-  if (typing(text, cut)) return { text, cut };
-  const before = text.slice(0, cut);
-  const sep = !before || /\s$/.test(before) ? "" : " ";
-  return { text: `${before}${sep}@${text.slice(cut)}`, cut: cut + sep.length + 1 };
+/// Os arquivos anexados à fala viram menção `@caminho` na frente dela — é
+/// como o lançador já manda o que se anexa à primeira fala (`first_message`,
+/// no `session.rs`), e é o que o Claude Code e o Codex leem como arquivo.
+/// O que está dentro do workspace vira caminho relativo, que é como o agente
+/// chama os arquivos dele; o de fora entra inteiro. Caminho com espaço vai
+/// entre aspas: a menção crua acabaria no meio do nome, e a barra invertida
+/// não é desfeita.
+export function mentions(picked: string[], root: string | null): string {
+  return picked
+    .filter(Boolean)
+    .map((p) => `@${quoted(short(p, root))}`)
+    .join(" ");
 }
+
+/// O caminho como o agente o chama: relativo ao worktree quando está dentro
+/// dele, inteiro quando é de outro canto do Mac.
+export function short(path: string, root: string | null): string {
+  const base = root?.replace(/\/+$/, "");
+  return base && path.startsWith(`${base}/`) ? path.slice(base.length + 1) : path;
+}
+
+const quoted = (path: string) => (/\s/.test(path) ? `"${path}"` : path);
