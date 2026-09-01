@@ -45,6 +45,9 @@ export function detach() {
   view.detach();
 }
 
+/// Aba que sumiu do quadro leva junto a fala que ficou pela metade nela.
+export const forget = (alive: Set<string>) => view.forget(alive);
+
 export const currentSession = () => view.current();
 export const focus = () => view.focus();
 export const refresh = () => view.refresh();

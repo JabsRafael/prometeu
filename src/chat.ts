@@ -89,6 +89,10 @@ export class ChatView {
   /// aquele workspace — trocar de aba e voltar encontra o que estava escolhido
   /// ali, com o rascunho junto, e não o do último workspace visitado.
   private modes = new Map<string, "agent" | "note">();
+  /// A fala pela metade de cada aba. O que se escreve é daquela conversa:
+  /// trocar de aba no meio de uma frase e voltar encontra a frase onde ela
+  /// ficou, e a aba de destino encontra a dela — não a de onde se veio.
+  private says = new Map<string, string>();
   private feedback: string | null = null;
   /// Itens que mudaram desde o último quadro. O stream manda uma linha por
   /// token; redesenhar a cada uma trava a tela — um quadro por vez basta.
@@ -131,6 +135,7 @@ export class ChatView {
   /// Uma conversa daqui: a rolagem que o back guardou, e daí em diante as
   /// linhas ao vivo.
   async attach(key: string) {
+    this.stash();
     this.key = key;
     this.remote = false;
     this.reset();
@@ -144,6 +149,7 @@ export class ChatView {
   /// A conversa de um colega: as linhas que vieram dele. Daqui em diante os
   /// bytes chegam por `remoteWrite`.
   attachRemote(key: string, bytes: Uint8Array) {
+    this.stash();
     this.key = key;
     this.remote = true;
     this.reset();
@@ -164,6 +170,7 @@ export class ChatView {
   }
 
   detach() {
+    this.stash();
     this.key = null;
     this.remote = false;
     this.reset();
@@ -961,11 +968,27 @@ export class ChatView {
     void paths.typed(this.area, ws, touched(this.tl.items), () => this.grow());
   }
 
-  /// O rascunho da nota sobrevive a trocar de aba; o da fala, não — a fala é
-  /// da aba, e a aba é o processo.
+  /// O rascunho da nota, guardado a cada tecla: a nota é do workspace, e o
+  /// quadro pode redesenhar no meio de uma frase.
   private keep() {
     const ws = this.ctx.info().workspace;
     if (this.mode === "note" && ws) notes.draftOf(ws).text = this.area.value;
+  }
+
+  /// Guarda a fala antes de a tela ligar noutra conversa. A nota é do
+  /// workspace, mas a fala é da aba — e no meio de uma troca só a chave antiga
+  /// ainda está aqui; o workspace de `info()` já pode ser o de destino.
+  private stash() {
+    if (this.mode === "agent" && this.key) this.says.set(this.key, this.area.value);
+  }
+
+  private stashed(): string {
+    return (this.key && this.says.get(this.key)) || "";
+  }
+
+  /// Aba fechada leva junto a fala que ficou pela metade nela.
+  forget(alive: Set<string>) {
+    for (const key of this.says.keys()) if (!alive.has(key)) this.says.delete(key);
   }
 
   private grow() {
@@ -978,24 +1001,23 @@ export class ChatView {
     if (mode === this.mode) return;
     const ws = this.ctx.info().workspace;
     if (this.mode === "note" && ws) notes.draftOf(ws).text = this.area.value;
+    else this.stash();
     this.mode = mode;
     if (ws) this.modes.set(ws, mode);
-    this.area.value = mode === "note" && ws ? notes.draftOf(ws).text : "";
+    this.area.value = mode === "note" ? (ws ? notes.draftOf(ws).text : "") : this.stashed();
     this.grow();
     this.paintComposer();
     this.area.focus();
   }
 
-  /// Ligar noutra conversa: o toggle volta a ser o daquele workspace, e com ele
-  /// o rascunho da nota. Sem isto, escolher "nota" num workspace deixava a
-  /// caixa em nota — e com o texto do outro — em tudo que fosse aberto depois.
+  /// Ligar noutra conversa: o toggle volta a ser o daquele workspace, e a
+  /// caixa, o que estava escrito ali — a nota do workspace, ou a fala da aba.
+  /// Sem isto, começar uma frase num workspace e clicar noutro levava a frase
+  /// junto.
   private restoreMode() {
     const ws = this.ctx.info().workspace;
     const mode = (ws && this.modes.get(ws)) || "agent";
-    if (mode === "note") this.area.value = ws ? notes.draftOf(ws).text : "";
-    // A fala não é guardada — mas o que está na caixa é a nota do workspace de
-    // onde se veio, e essa não pode ir junto.
-    else if (this.mode === "note") this.area.value = "";
+    this.area.value = mode === "note" ? (ws ? notes.draftOf(ws).text : "") : this.stashed();
     this.mode = mode;
     this.grow();
   }
@@ -1038,6 +1060,7 @@ export class ChatView {
     if (info.remote && !info.remote.online) return this.ctx.say(t("err.team.offline"), true);
     if (this.remote) team.write(text);
     else invoke("chat_send", { session: this.key, text }).catch((e) => this.ctx.say(fromBack(e), true));
+    this.says.delete(this.key);
     this.area.value = "";
     commands.dismiss();
     paths.dismiss();
