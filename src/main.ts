@@ -221,6 +221,7 @@ function refresh() {
     }
   }
   ws.forget(alive);
+  session.forget(new Set(view().workspaces.flatMap((w) => w.tabs.map((t) => t.id))));
   // Só o quadro local decide se este Mac fica acordado. Um agente trabalhando
   // num workspace compartilhado está rodando no Mac de outra pessoa.
   statusbar.boardChanged(state);
