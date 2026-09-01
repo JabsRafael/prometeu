@@ -66,9 +66,20 @@ fn typed(id: &str) -> Option<String> {
         .cloned()
 }
 
+/// Mesmo site do host digitado: o próprio, ou subdomínio de um do outro.
+/// Quem digita `google.com` cai em `www.google.com` no primeiro redirecionamento,
+/// e um login em `accounts.google.com` volta para `google.com` — nada disso é
+/// sair do site que a pessoa pediu.
+fn same_site(typed: &str, host: &str) -> bool {
+    typed == host
+        || host.strip_suffix(typed).is_some_and(|p| p.ends_with('.'))
+        || typed.strip_suffix(host).is_some_and(|p| p.ends_with('.'))
+}
+
 /// Se a página fica na aba. O Run e o que a pessoa digitou ficam; o resto sai.
 fn inside(id: &str, url: &Url) -> bool {
-    local(url) || typed(id).is_some_and(|host| Some(host.as_str()) == url.host_str())
+    local(url)
+        || typed(id).is_some_and(|t| url.host_str().is_some_and(|h| same_site(&t, h)))
 }
 
 /// Abre no navegador do sistema. Só `http`/`https`: `open` com qualquer esquema
@@ -259,6 +270,25 @@ mod tests {
         assert!(super::inside(
             "digitou",
             &tauri::Url::parse("https://github.com/gbrancaglione/prometheus").unwrap()
+        ));
+        // O redirecionamento para um subdomínio (www, login) continua no site.
+        assert!(super::inside(
+            "digitou",
+            &tauri::Url::parse("https://www.github.com/").unwrap()
+        ));
+        host("www", "www.google.com");
+        assert!(super::inside(
+            "www",
+            &tauri::Url::parse("https://google.com/").unwrap()
+        ));
+        // Host que só termina parecido não é subdomínio.
+        assert!(!super::inside(
+            "digitou",
+            &tauri::Url::parse("https://nothub.com/").unwrap()
+        ));
+        assert!(!super::inside(
+            "digitou",
+            &tauri::Url::parse("https://evilgithub.com/").unwrap()
         ));
         // Outra aba não herda o que se digitou nesta.
         assert!(!super::inside(
