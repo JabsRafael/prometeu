@@ -20,6 +20,13 @@ const PATHS = {
   "chevron-up": '<path d="m18 15-6-6-6 6"/>',
   square: '<rect width="14" height="14" x="5" y="5" rx="2"/>',
   terminal: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
+  memory:
+    '<path d="M6 19v-3"/><path d="M10 19v-3"/><path d="M14 19v-3"/><path d="M18 19v-3"/>' +
+    '<path d="M8 11V9"/><path d="M16 11V9"/><path d="M12 11V9"/>' +
+    '<path d="M2 15h20"/><path d="M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4Z"/>',
+  plug:
+    '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/>' +
+    '<path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
   play: '<path d="M6 4.5v15l13-7.5Z"/>',
   // Seis barras que o CSS faz subir e descer: é o "tem coisa rodando" da aba.
   // Todas nascem centradas em y≈12, então uma origem só (`12px 12px`) serve

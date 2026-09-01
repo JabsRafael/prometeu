@@ -43,6 +43,7 @@ export const IPC_COMMANDS = [
   "list_dir",
   "load_board",
   "look_at",
+  "machine",
   "new_tab",
   "open_dock",
   "open_external",

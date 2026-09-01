@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { use } from "./i18n";
-import { ago, span, until } from "./statusbar";
+import { ago, bytes, span, until } from "./statusbar";
 
 beforeEach(() => use("pt-BR"));
 
@@ -42,5 +42,18 @@ describe("ago", () => {
   it("mais de um minuto vira quanto tempo faz", () => {
     expect(ago(1000 - 4 * 60, 1000)).toBe("há 4m");
     expect(ago(1000 - 96 * 60, 1000)).toBe("há 1h 36m");
+  });
+});
+
+describe("bytes", () => {
+  it("uma casa até dez, nenhuma depois", () => {
+    expect(bytes(822 * 1024 * 1024)).toBe("822 MB");
+    expect(bytes(1.25 * 1024 * 1024 * 1024)).toBe("1.3 GB");
+    expect(bytes(4096)).toBe("4.0 KB");
+  });
+
+  it("processo que ainda não pegou memória nenhuma", () => {
+    expect(bytes(0)).toBe("0 B");
+    expect(bytes(900)).toBe("900 B");
   });
 });

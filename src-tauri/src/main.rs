@@ -9,6 +9,7 @@ mod domain;
 mod github;
 mod i18n;
 mod linear;
+mod machine;
 mod lock;
 mod naming;
 mod paths;
@@ -88,6 +89,7 @@ fn main() {
             i18n::set_lang,
             agents::agents,
             usage::usage,
+            machine::machine,
             session::load_board,
             session::add_project,
             session::remove_project,
@@ -151,6 +153,10 @@ fn main() {
             team::team_config,
             team::team_config_set,
         ])
+        .setup(|app| {
+            machine::watch(app.handle().clone());
+            Ok(())
+        })
         .build(tauri::generate_context!())
         .expect("erro ao subir o Prometheus")
         .run(|app, event| {

@@ -701,6 +701,23 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
         },
       };
     }
+    // O que o app custaria à máquina num dia comum: ele mesmo, uma conversa e
+    // um `npm run dev` de pé.
+    case "machine":
+      return {
+        rss: 822 * 1024 * 1024,
+        cpu: 3.4,
+        procs: [
+          { kind: "app", name: "Prometheus", detail: "", rss: 640 * 1024 * 1024, cpu: 0.8,
+            hist: [0.4, 0.6, 1.2, 0.9, 0.7, 2.1, 1.4, 0.8, 0.6, 0.8] },
+          { kind: "chat", name: "Tela igual ao Conductor", detail: "Conversa 1", rss: 128 * 1024 * 1024, cpu: 2.2,
+            hist: [0, 0, 4.5, 8.2, 6.1, 3.3, 1.2, 2.8, 5.4, 2.2] },
+          { kind: "term", name: "Ícone do app", detail: "run", rss: 54 * 1024 * 1024, cpu: 0.4,
+            hist: [0.2, 0.3, 0.2, 0.5, 0.4, 0.3, 0.4, 0.4, 0.3, 0.4] },
+        ],
+        terms: 2,
+        ports: [{ id: "0831-1714", title: "Ícone do app", port: 3100 }],
+      };
     case "list_branches":
       return {
         all: [

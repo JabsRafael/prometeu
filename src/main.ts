@@ -233,8 +233,14 @@ listen<[string, number | null]>("pty-closed", ({ payload: [key] }) => dockbar.cl
 
 /// A cota mudou: alguma aba, de qualquer workspace, acabou de falar com um
 /// agente. É a conta inteira, então a faixa de baixo se refaz sozinha.
-listen<statusbar.Usage>("usage", ({ payload }) => statusbar.show(payload));
-invoke<statusbar.Usage>("usage").then(statusbar.show).catch(() => {});
+listen<statusbar.Usage>("usage", ({ payload }) => statusbar.showUsage(payload));
+invoke<statusbar.Usage>("usage").then(statusbar.showUsage).catch(() => {});
+
+/// O que o app está custando à máquina, de três em três segundos. Só chega
+/// quando muda: o quieto não redesenha nada.
+listen<statusbar.Machine>("machine", ({ payload }) => statusbar.showMachine(payload));
+statusbar.init({ say });
+invoke<statusbar.Machine>("machine").then(statusbar.showMachine).catch(() => {});
 
 /* ---------- arrastar arquivo para dentro do terminal ---------- */
 

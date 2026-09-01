@@ -428,6 +428,12 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "status.now": "now",
   "status.ago": "{when} ago",
   "status.justNow": "just now",
+  "status.res": "Resources",
+  "status.res.none": "Nothing running right now",
+  "status.res.clean": "Clean up worktrees",
+  "status.terms": "Terminals running",
+  "status.ports": "Ports",
+  "status.ports.none": "No port serving",
 
   "update.ask": "Check for updates",
   "update.ask.title": "Asks right now whether a new version is out",

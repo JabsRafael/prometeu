@@ -253,6 +253,12 @@ impl Chat {
     pub fn alive(&self) -> bool {
         self.alive.load(Ordering::Relaxed)
     }
+
+    /// O líder do grupo do agente. Ver `machine.rs`: o que ele subiu por baixo
+    /// conta como dele.
+    pub fn pid(&self) -> u32 {
+        self.pid
+    }
 }
 
 /// Sair do mapa é morrer, e morrer é em degraus: o stdin fecha (o `claude`

@@ -463,6 +463,12 @@ export const PT = {
   "status.now": "agora",
   "status.ago": "há {when}",
   "status.justNow": "agora mesmo",
+  "status.res": "Recursos",
+  "status.res.none": "Nada rodando agora",
+  "status.res.clean": "Limpar worktrees",
+  "status.terms": "Terminais de pé",
+  "status.ports": "Portas",
+  "status.ports.none": "Nenhuma porta servindo",
 
   /* ---------- atualização ---------- */
 

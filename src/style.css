@@ -1499,3 +1499,45 @@ body.noside .side { display: none; }
 }
 .upct { text-align: right; font-variant-numeric: tabular-nums; color: var(--fg); }
 .ureset { color: var(--fg-3); white-space: nowrap; }
+.uhead { display: flex; align-items: baseline; }
+.uaside { font-size: 11px; font-weight: 400; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.uempty { padding: 14px 0 16px; text-align: center; font-size: 11px; color: var(--fg-3); }
+
+/* A lista de processos e a de portas: mesma linha, colunas diferentes. */
+.upop.res { min-width: 380px; }
+.upop.port { min-width: 240px; }
+.prow {
+  display: grid; grid-template-columns: minmax(0, 1fr) 46px 44px 62px;
+  align-items: center; gap: 8px; height: 30px;
+  font-size: 11px; color: var(--fg-2);
+  border-top: 1px solid var(--line-raised);
+}
+.pname {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--fg);
+}
+/* De onde o processo veio: a aba, o terminal. Fica atrás do nome, na mesma
+   linha, porque duas linhas por processo fariam o painel virar tela. */
+.pname em { font-style: normal; color: var(--fg-3); }
+.pname em::before { content: " · "; }
+.spark { width: 46px; height: 14px; color: var(--fg-3); overflow: visible; }
+.pcpu, .prss { text-align: right; font-variant-numeric: tabular-nums; }
+.prss { color: var(--fg); }
+
+/* Limpar worktrees: a única ação do painel, e ela abre a folha que já existe. */
+.urow.act {
+  display: flex; align-items: center; justify-content: flex-start; gap: 6px;
+  width: 100%; height: 30px; margin-top: 4px; padding: 0 6px;
+  border-top: 1px solid var(--line-raised); border-radius: 0;
+  background: none; color: var(--fg); font-size: 12px; font-weight: 400;
+}
+.urow.act:hover { color: var(--fg); background: var(--bg-raised-3); border-radius: var(--r); }
+.urow.act .ic { margin-left: auto; color: var(--fg-3); }
+
+.prow.port {
+  grid-template-columns: 44px minmax(0, 1fr) 14px; cursor: default;
+  padding: 0 6px; border-radius: var(--r);
+}
+.prow.port:hover { background: var(--bg-raised-3); }
+.pport { font-variant-numeric: tabular-nums; color: var(--fg); font-weight: 600; }
+.prow.port .ic { color: var(--fg-3); }
