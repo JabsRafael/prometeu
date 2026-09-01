@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import * as alert from "./alert";
+import * as appmenu from "./appmenu";
 import * as archived from "./archived";
 import * as sidebar from "./sidebar";
 import { openCleanup } from "./cleanup";
@@ -381,60 +382,97 @@ grip.addEventListener("dblclick", () => {
   localStorage.removeItem(SIDE_W);
 });
 
-document.addEventListener("keydown", (e) => {
-  const cmd = e.metaKey || e.ctrlKey;
+/// O que um atalho faz. Chamam daqui de baixo (o teclado) e do menu do Mac
+/// (`appmenu.ts`), que é o caminho que sobra quando o foco está dentro da aba
+/// de navegador — webview do sistema, que não manda tecla para este documento.
+/// Devolve se fez alguma coisa: é o que decide se a tecla é engolida.
+function act(a: appmenu.Action): boolean {
   const open = ws.id();
-  if (cmd && e.key === "n") {
-    e.preventDefault();
-    launch(state.workspaces.find((w) => w.id === open)?.project);
-  }
   // Num workspace de colega nada disto existe: nem aba nova, nem etapa, nem
   // dock. O atalho não faz nada, em vez de mandar ao back um id que ele não tem.
   const own = open && !team.isRemote(open) ? open : null;
-  if (cmd && e.key === "t" && own) {
-    e.preventDefault();
-    ws.newTab();
+  switch (a) {
+    case "novoWorkspace":
+      launch(state.workspaces.find((w) => w.id === open)?.project);
+      return true;
+    case "novaConversa":
+      if (!own) return false;
+      ws.newTab();
+      return true;
+    case "arquivar":
+      if (!own) return false;
+      hooks.archive(own, true);
+      return true;
+    // ⌘⇧D é concluir: a última etapa e o arquivo, que é o que se faz quando o PR
+    // entrou — e o que se fazia em três passos antes de haver um gesto só.
+    case "concluir":
+      if (!own) return false;
+      hooks.finish(own);
+      return true;
+    case "run":
+      if (!own) return false;
+      dockbar.toggleRun();
+      return true;
+    case "lateral":
+      toggleRail();
+      return true;
+    // ⌘⇧M é a nota citando o que está selecionado na conversa: a mão já está no
+    // mouse, tendo acabado de selecionar.
+    case "nota":
+      return !!open && ws.quoteSelection();
+    // ⌘, é onde todo app do Mac guarda as preferências.
+    case "ajustes":
+      showSettings();
+      return true;
+    // O dock tem a primeira palavra: ⌘W com o cursor dentro dele fecha o
+    // terminal que está ali, e não a aba do centro, que é o que ele fecharia
+    // por baixo. Com o foco na aba de navegador, porém, o cursor do dock é o de
+    // antes: `hasFocus` falso com a janela ativa é a página que está com ele, e
+    // aí ⌘W é a aba — que é o que se quer fechar quando se está olhando para ela.
+    case "fechar":
+      return (document.hasFocus() && dockbar.closeFocused()) || ws.closeActive();
+    case "voltar":
+      travel(-1);
+      return true;
+    case "avancar":
+      travel(1);
+      return true;
   }
-  if (cmd && e.shiftKey && e.key.toLowerCase() === "a" && own) {
-    e.preventDefault();
-    hooks.archive(own, true);
+}
+
+/// A tecla apertada, se for atalho. Minúscula porque com Shift o `key` vem
+/// maiúsculo.
+function shortcut(e: KeyboardEvent): appmenu.Action | null {
+  const k = e.key.toLowerCase();
+  if (e.shiftKey) {
+    if (k === "a") return "arquivar";
+    if (k === "d") return "concluir";
+    if (k === "m") return "nota";
+    return null;
   }
-  // ⌘⇧D é concluir: a última etapa e o arquivo, que é o que se faz quando o PR
-  // entrou — e o que se fazia em três passos antes de haver um gesto só.
-  if (cmd && e.shiftKey && e.key.toLowerCase() === "d" && own) {
-    e.preventDefault();
-    hooks.finish(own);
-  }
-  if (cmd && e.key === "r" && own) {
-    e.preventDefault();
-    dockbar.toggleRun();
-  }
-  if (cmd && e.key === "b") {
-    e.preventDefault();
-    toggleRail();
-  }
-  // ⌘⇧M é a nota citando o que está selecionado na conversa: a mão já está no
-  // mouse, tendo acabado de selecionar.
-  if (cmd && e.shiftKey && e.key.toLowerCase() === "m" && open) {
-    if (ws.quoteSelection()) e.preventDefault();
-  }
-  // ⌘, é onde todo app do Mac guarda as preferências.
-  if (cmd && e.key === ",") {
-    e.preventDefault();
-    showSettings();
-  }
-  // O dock tem a primeira palavra: ⌘W com o cursor dentro dele fecha o terminal
-  // que está ali, e não a aba do centro, que é o que ele fecharia por baixo.
-  if (cmd && e.key === "w" && (dockbar.closeFocused() || ws.closeActive())) e.preventDefault();
-  if (cmd && (e.key === "[" || e.key === "]")) {
-    e.preventDefault();
-    travel(e.key === "[" ? -1 : 1);
-  }
+  if (k === "n") return "novoWorkspace";
+  if (k === "t") return "novaConversa";
+  if (k === "r") return "run";
+  if (k === "b") return "lateral";
+  if (k === ",") return "ajustes";
+  if (k === "w") return "fechar";
+  if (k === "[") return "voltar";
+  if (k === "]") return "avancar";
+  return null;
+}
+
+document.addEventListener("keydown", (e) => {
+  // Atalho atendido é atalho engolido: sem o `preventDefault`, o acelerador do
+  // menu dispara a mesma ação em seguida.
+  const a = e.metaKey || e.ctrlKey ? shortcut(e) : null;
+  if (a && act(a)) e.preventDefault();
   if (e.key === "Escape" && !$("veil").hidden) {
     $("veil").hidden = true;
     $("veil").replaceChildren();
   }
 });
+
+void appmenu.install(act);
 
 /* ---------- início ---------- */
 
@@ -454,6 +492,8 @@ for (const [id, name] of [
   ["fwd", "arrow-right"],
   ["sidetoggle", "panel-right"],
   ["reveal", "external-link"],
+  ["wback", "arrow-left"],
+  ["wfwd", "arrow-right"],
   ["wreload", "rotate"],
   ["wext", "external-link"],
   ["collapse", "list-tree"],
