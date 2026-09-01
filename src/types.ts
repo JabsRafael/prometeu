@@ -132,6 +132,25 @@ export const hasWorktree = (ws: Workspace) => ws.archived && !ws.cleaned && ws.w
 /// card existe, e é ele que conta o que está acontecendo.
 export const pending = (ws: Workspace) => ws.preparing || !!ws.failed;
 
+/// Quem já está com esta branch aberta numa pasta que não seria a deste
+/// workspace — o git só abre uma branch numa pasta de cada vez.
+///
+/// Sair duas vezes da mesma issue do Linear pede a mesma branch duas vezes, e
+/// a pasta muda com os repositórios escolhidos: o worktree de um repositório só
+/// não mora onde mora o de dois. Repetir os mesmos repositórios, esse, cai na
+/// mesma pasta — e aí não há disputa, o workspace novo reaproveita o worktree.
+export const branchTaken = (board: Board, repos: string[], branch: string) =>
+  board.workspaces.find(
+    (w) =>
+      !w.cleaned &&
+      w.branch === branch &&
+      w.repos.some((r) => repos.includes(r.path)) &&
+      !(w.worktree !== w.repo && sameRepos(w, repos)),
+  ) ?? null;
+
+const sameRepos = (w: Workspace, repos: string[]) =>
+  w.repos.length === repos.length && w.repos.every((r) => repos.includes(r.path));
+
 /// Um worktree que pode voltar para o disco, e o que ele ocupa. `blocked` é o
 /// erro do back dizendo por que não pode — passa por `fromBack` como qualquer
 /// outro.

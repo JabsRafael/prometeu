@@ -6,7 +6,7 @@ import * as issues from "./issues";
 import * as menu from "./menu";
 import { invoke } from "./ipc";
 import { template } from "./util";
-import type { Board, Issue, IssueRef } from "./types";
+import { branchTaken, type Board, type Issue, type IssueRef, type Workspace } from "./types";
 
 export type Draft = {
   project: string;
@@ -278,6 +278,10 @@ export function openLauncher(board: Board, opts: Open) {
 
   const nameOf = (id: string) => board.projects.find((p) => p.id === id)?.name ?? "";
   const projectName = () => nameOf(draft.project);
+  // O workspace que já segurava a branch, quando há um: enquanto ele existir
+  // não adianta criar, e o botão fica travado — o git recusaria o segundo
+  // check-out, e recusar aqui é não perder o que já foi digitado.
+  let taken: Workspace | null = null;
   const drawHint = () => {
     $("d-avatar").innerHTML = avatar(projectName());
     const from = draft.base ? ` ← ${draft.base}` : "";
@@ -289,8 +293,18 @@ export function openLauncher(board: Board, opts: Open) {
         );
 
     const names = [draft.project, ...draft.extras].map(nameOf).join(" + ");
-    hint.title = `${names} · ${onde}`;
-    hint.textContent = onde;
+    // A mesma branch em duas pastas o git recusa, e o lançador é onde ainda dá
+    // para escolher outra: sair duas vezes da mesma issue do Linear pede a
+    // branch que ela nomeia, e a pasta muda com os repositórios escolhidos.
+    taken =
+      draft.newBranch && draft.worktree
+        ? branchTaken(board, [draft.project, ...draft.extras], draft.branch)
+        : null;
+    const aviso = taken ? t("launcher.hint.taken", { ws: taken.title }) : "";
+    hint.classList.toggle("bad", !!aviso);
+    hint.title = aviso || `${names} · ${onde}`;
+    hint.textContent = aviso || onde;
+    $<HTMLButtonElement>("d-go").disabled = !!aviso;
   };
   drawHint();
 
@@ -627,6 +641,7 @@ export function openLauncher(board: Board, opts: Open) {
     veil.hidden = true;
   };
   const submit = () => {
+    if (taken) return;
     // Vazia é o que o back lê como "não cria branch, abre onde o repo está".
     if (!draft.newBranch) draft.branch = "";
     draft.prompt = seed ? issueBlock(seed, prompt.value) : prompt.value;
