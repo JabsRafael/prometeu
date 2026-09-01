@@ -303,6 +303,7 @@ export const PT = {
   "chat.mode.agent": "Agente",
   "chat.mode.note": "Nota",
   "chat.send": "Enviar",
+  "chat.addFile": "Apontar um arquivo do workspace",
   "chat.copy": "Copiar a resposta",
   "chat.with": "{model}, esforço {effort} — escolhidos no lançador",
   "chat.stop": "Parar",

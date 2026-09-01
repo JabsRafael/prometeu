@@ -898,6 +898,8 @@ export class ChatView {
           <button class="mode on" data-mode="agent"></button>
           <button class="mode" data-mode="note"></button>
         </div>
+        <!-- O "+" abre a lista de arquivos do workspace, a mesma do "@". -->
+        <button class="ico sm addfile" hidden></button>
         <!-- Com quem se fala, como no rodapé do lançador: o modelo e o degrau
              de esforço desta conversa. Aqui só se lê — modelo não se troca com
              a conversa de pé; escolhe-se ao abrir a aba, na setinha do "+". -->
@@ -918,6 +920,8 @@ export class ChatView {
     q(".mode[data-mode=note]").textContent = t("chat.mode.note");
     q(".at").innerHTML = icon("at-sign", 13);
     q(".at").title = t("notes.mention");
+    q(".addfile").innerHTML = icon("plus", 14);
+    q(".addfile").title = t("chat.addFile");
     q(".quotesel").innerHTML = `${icon("message-square", 12)}<span></span>`;
     q(".quotesel span").textContent = t("notes.quoteSelection");
     q(".quotesel").title = t("notes.quoteSelection.title");
@@ -928,6 +932,7 @@ export class ChatView {
       b.addEventListener("click", () => this.setMode(b.dataset.mode as "agent" | "note"));
     }
     q(".at").addEventListener("click", () => notes.pickMention(this.area, () => this.keep()));
+    q(".addfile").addEventListener("click", () => this.addFile());
     q(".quotesel").addEventListener("click", () => this.quoteSelection());
     q(".stop").addEventListener("click", () => this.interrupt());
     q(".send").addEventListener("click", () => this.send());
@@ -958,6 +963,19 @@ export class ChatView {
         this.interrupt();
       }
     });
+  }
+
+  /// O "+" ao lado da caixa: abre a lista de arquivos do workspace sem que
+  /// ninguém precise saber do "@". O que ele faz é escrever o "@" onde o
+  /// cursor está — o caminho escolhido entra na fala como qualquer outro.
+  private addFile() {
+    const a = this.area;
+    const { text, cut } = paths.begin(a.value, a.selectionStart);
+    a.value = text;
+    a.focus();
+    a.selectionStart = a.selectionEnd = cut;
+    this.grow();
+    this.typedPath();
   }
 
   /// A lista de caminhos do "@". Só na conversa daqui: a de um colega roda no
@@ -1104,6 +1122,9 @@ export class ChatView {
     for (const b of this.box.querySelectorAll<HTMLElement>(".mode")) b.classList.toggle("on", b.dataset.mode === this.mode);
     const note = this.mode === "note";
     q(".at").hidden = !note;
+    // O "+" aponta arquivo do workspace daqui: não há o que apontar numa nota,
+    // nem na conversa de um colega — os arquivos dela são do Mac dele.
+    q(".addfile").hidden = note || this.remote || !info.workspace;
     q(".stop").hidden = note || !this.tl.busy;
     this.box.classList.toggle("note", note);
     this.box.classList.toggle("busy", !note && this.tl.busy);
