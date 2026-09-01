@@ -4,6 +4,19 @@ O que muda no Prometheus, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.4.10] - 2026-09-01
+
+### Novidades
+
+- **rodapé:** Quanto da cota de cada agente já foi, na barra de baixo
+- **rodapé:** Memória, terminais e portas do app na barra de baixo
+- **rodapé:** Escolher quando o Mac não pode dormir
+
+### Correções
+
+- **rodapé:** A cota some da barra antes da primeira resposta do agente
+- **rodapé:** Esclarece cotas e quando o Mac fica acordado
+
 ## [0.4.9] - 2026-08-31
 
 ### Novidades
