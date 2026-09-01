@@ -1466,6 +1466,8 @@ body.noside .side { display: none; }
 }
 .uchip:hover { background: var(--bg-raised); color: var(--fg-2); }
 .utext { white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* O traço de quem ainda não tem número: fica, mas não puxa o olho. */
+.utext.dim { color: var(--line-ghost); }
 
 /* A barrinha: o traço cheio é quanto já foi. Cinza enquanto é informação,
    quente quando começa a mandar no seu dia. */

@@ -91,6 +91,11 @@ export async function loadAgents() {
   }
 }
 
+/// Quais CLIs existem nesta máquina. A faixa de baixo mostra a cota de cada um
+/// — inclusive antes de haver leitura, porque um agente instalado e sem número
+/// ainda é um agente instalado.
+export const installed = () => ({ claude: agents.claude, codex: agents.codex.length > 0 });
+
 const isCodex = (model: string) => agents.codex.some((m) => m.slug === model);
 
 /// Qual CLI um modelo escolhe: escolher um GPT é escolher o Codex, e não há

@@ -421,6 +421,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
     "Opens Linear in the browser for you to authorize Prometheus. Read-only, and only on this Mac",
 
   "status.usage": "Usage",
+  "status.usage.none": "Usage shows up after the first reply",
   "status.window.session": "Session",
   "status.window.weekly": "Weekly",
   "status.window.overage": "Overage",

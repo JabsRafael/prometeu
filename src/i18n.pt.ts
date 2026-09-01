@@ -456,6 +456,7 @@ export const PT = {
   /* ---------- a faixa de baixo ---------- */
 
   "status.usage": "Uso",
+  "status.usage.none": "A cota aparece depois da primeira resposta",
   "status.window.session": "Sessão",
   "status.window.weekly": "Semana",
   "status.window.overage": "Extra",

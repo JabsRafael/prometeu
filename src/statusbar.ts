@@ -32,6 +32,9 @@ const WARN = 75;
 const HOT = 90;
 
 let usage: Usage = {};
+/// Quais agentes desenhar, tenham leitura ou não. Até o back responder, o de
+/// antes: o app era só o Claude Code.
+let agents = ["claude"];
 let machine: Machine = { rss: 0, cpu: 0, procs: [], terms: 0, ports: [] };
 let say: (text: string, isError?: boolean) => void = () => {};
 
@@ -86,6 +89,13 @@ const holding = () => awake === "on" || (awake === "agent" && working);
 export function showUsage(next: Usage) {
   usage = next;
   draw();
+  if (open === "usage") fill();
+}
+
+/// Quais CLIs estão instalados nesta máquina.
+export function showAgents(have: { claude: boolean; codex: boolean }) {
+  agents = [...(have.claude ? ["claude"] : []), ...(have.codex ? ["codex"] : [])];
+  draw();
 }
 
 export function showMachine(next: Machine) {
@@ -103,17 +113,22 @@ const SHORT: Record<string, string> = { session: "5h", weekly: "7d", overage: "+
 function draw() {
   const bar = $("status");
   bar.innerHTML = "";
-  for (const [agent, data] of Object.entries(usage)) {
-    if (!data.windows.length) continue;
+  // Agente instalado e sem leitura continua na faixa, com um traço no lugar do
+  // número. Sumir pareceria defeito justamente na estreia: a cota do Claude
+  // Code só existe depois que ele responde, e não há onde perguntá-la antes.
+  for (const agent of agents) {
+    const windows = usage[agent]?.windows ?? [];
     bar.append(
       chip(
         "usage",
         brand(agent) +
-          meter(Math.max(...data.windows.map((w) => w.pct))) +
-          `<span class="utext">${data.windows
-            .map((w) => `${SHORT[w.kind] ?? w.kind} ${Math.round(w.pct)}%`)
-            .join(" · ")}</span>`,
-        t("status.usage"),
+          (windows.length
+            ? meter(Math.max(...windows.map((w) => w.pct))) +
+              `<span class="utext">${windows
+                .map((w) => `${SHORT[w.kind] ?? w.kind} ${Math.round(w.pct)}%`)
+                .join(" · ")}</span>`
+            : '<span class="utext dim">—</span>'),
+        windows.length ? t("status.usage") : t("status.usage.none"),
       ),
     );
   }
@@ -273,20 +288,26 @@ const head = (title: string, aside = "") =>
 function usagePanel(): string {
   return (
     head(t("status.usage")) +
-    Object.entries(usage)
+    agents.map((agent) => card(agent, usage[agent])).join("")
+  );
+}
+
+/// Um agente no painel: o nome, de quando é a leitura, e uma linha por janela.
+/// Sem leitura, a frase que explica por que ainda não há número.
+function card(agent: string, data?: Agent): string {
+  const head =
+    `<div class="uagent">${brand(agent)}<span class="uname">${name(agent)}</span>` +
+    `<span class="uwhen">${data ? ago(data.at) : ""}</span></div>`;
+  if (!data?.windows.length) return head + `<div class="uempty">${t("status.usage.none")}</div>`;
+  return (
+    head +
+    data.windows
       .map(
-        ([agent, data]) =>
-          `<div class="uagent">${brand(agent)}<span class="uname">${name(agent)}</span>` +
-          `<span class="uwhen">${ago(data.at)}</span></div>` +
-          data.windows
-            .map(
-              (w) =>
-                `<div class="urow"><span class="ukind">${kind(w.kind)}</span>` +
-                meter(w.pct, true) +
-                `<span class="upct">${Math.round(w.pct)}%</span>` +
-                `<span class="ureset">${t("status.resets", { when: until(w.resets) })}</span></div>`,
-            )
-            .join(""),
+        (w) =>
+          `<div class="urow"><span class="ukind">${kind(w.kind)}</span>` +
+          meter(w.pct, true) +
+          `<span class="upct">${Math.round(w.pct)}%</span>` +
+          `<span class="ureset">${t("status.resets", { when: until(w.resets) })}</span></div>`,
       )
       .join("")
   );

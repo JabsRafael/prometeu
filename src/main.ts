@@ -13,7 +13,7 @@ import { icon } from "./icons";
 import * as links from "./links";
 import { current, fromBack, paint, t } from "./i18n";
 import * as issues from "./issues";
-import { dropFiles, loadAgents, openLauncher, type Draft } from "./launcher";
+import { dropFiles, installed, loadAgents, openLauncher, type Draft } from "./launcher";
 import * as menu from "./menu";
 import * as news from "./news";
 import * as rename from "./rename";
@@ -469,7 +469,7 @@ void update.init(say);
 // Quais agentes existem nesta máquina: é o que o lançador oferece no rodapé.
 // Ninguém espera por isso para a tela aparecer — até a resposta chegar, o
 // lançador mostra só o Claude Code, que é o que o app era.
-void loadAgents();
+void loadAgents().then(() => statusbar.showAgents(installed()));
 // O time vem antes das configurações, que é onde ele aparece, e antes da barra
 // lateral, que vai mostrar o que os colegas compartilham.
 team.onError((m) => say(m, true));
