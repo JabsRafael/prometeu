@@ -811,6 +811,8 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     case "browser_navigate":
       console.log("navegar para:", args.url);
       return null;
+    case "browser_back":
+    case "browser_forward":
     case "browser_bounds":
     case "browser_hide":
     case "browser_reload":

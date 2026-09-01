@@ -127,6 +127,8 @@ fn main() {
             browser::browser_navigate,
             browser::browser_bounds,
             browser::browser_hide,
+            browser::browser_back,
+            browser::browser_forward,
             browser::browser_reload,
             browser::browser_close,
             browser::open_external,

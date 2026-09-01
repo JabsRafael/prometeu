@@ -20,6 +20,10 @@ const typing = () => document.activeElement === bar();
 let poll = 0;
 
 export function init(external: (id: string) => void, say: (m: string, err?: boolean) => void) {
+  // Voltar e avançar são do histórico da página, e não do histórico de telas do
+  // app (as setas lá de cima): quem está testando o Run anda dentro do site.
+  $("wback").addEventListener("click", () => shown && invoke("browser_back", { id: shown }));
+  $("wfwd").addEventListener("click", () => shown && invoke("browser_forward", { id: shown }));
   $("wreload").addEventListener("click", () => shown && invoke("browser_reload", { id: shown }));
   $("wext").addEventListener("click", () => shown && external(shown));
   // Rail recolhendo, coluna da direita sumindo, janela mudando de tamanho:

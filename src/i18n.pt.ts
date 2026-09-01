@@ -256,6 +256,8 @@ export const PT = {
   "viewer.copyPath": "Copiar caminho",
   "viewer.save": "Salvar — ⌘S",
   "viewer.cancel": "Desfazer o que não foi salvo — Esc",
+  "web.back": "Voltar",
+  "web.fwd": "Avançar",
   "web.reload": "Recarregar",
   "web.external": "Abrir no navegador de fora",
   "web.url": "Endereço da página — escreva outro e tecle Enter",

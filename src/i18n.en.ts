@@ -231,6 +231,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "viewer.copyPath": "Copy path",
   "viewer.save": "Save — ⌘S",
   "viewer.cancel": "Undo what was not saved — Esc",
+  "web.back": "Back",
+  "web.fwd": "Forward",
   "web.reload": "Reload",
   "web.external": "Open in the external browser",
   "web.url": "Page address — type another one and press Enter",
