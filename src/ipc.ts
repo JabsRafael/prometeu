@@ -62,6 +62,7 @@ export const IPC_COMMANDS = [
   "rename_workspace",
   "reveal",
   "scripts_prompt",
+  "set_awake",
   "set_lang",
   "set_shared",
   "set_stage",

@@ -1,7 +1,9 @@
 import { openCleanup } from "./cleanup";
 import { brand, icon } from "./icons";
 import { fromBack, t } from "./i18n";
+import * as menu from "./menu";
 import { invoke } from "./ipc";
+import type { Board } from "./types";
 import { $ } from "./util";
 
 /// A faixa de baixo: o que os agentes já gastaram da cota, e o que o app está
@@ -33,9 +35,53 @@ let usage: Usage = {};
 let machine: Machine = { rss: 0, cpu: 0, procs: [], terms: 0, ports: [] };
 let say: (text: string, isError?: boolean) => void = () => {};
 
+/// Quando não deixar o Mac dormir. A escolha é deste Mac e fica nele, como a
+/// do idioma — não é coisa que se sincronize entre máquinas.
+type Awake = "on" | "agent" | "off";
+const AWAKE_STORE = "prometheus:acordado";
+const AWAKE: Awake[] = ["on", "agent", "off"];
+let awake: Awake = read();
+/// Há agente trabalhando agora. Sai do quadro, e é o que decide o modo
+/// "enquanto trabalha".
+let working = false;
+/// O que o back já sabe. Sem isto, cada mudança de quadro mandaria um pedido.
+let held: boolean | null = null;
+
+/// Fora do navegador (vitest roda em node) não há `localStorage`: o módulo
+/// continua de pé, desligado.
+function read(): Awake {
+  try {
+    const saved = localStorage.getItem(AWAKE_STORE);
+    return AWAKE.find((mode) => mode === saved) ?? "off";
+  } catch {
+    return "off";
+  }
+}
+
 export function init(hooks: { say: (text: string, isError?: boolean) => void }) {
   say = hooks.say;
+  hold();
 }
+
+/// O quadro mudou: pode ter começado ou parado de trabalhar alguém.
+export function boardChanged(board: Board) {
+  const next = board.workspaces.some((w) => w.tabs.some((tab) => tab.status === "rodando"));
+  if (next === working) return;
+  working = next;
+  hold();
+  draw();
+}
+
+/// Segurar ou soltar. Só fala com o back quando a resposta muda: o quadro se
+/// republica a cada ferramenta que um agente roda.
+function hold() {
+  const want = awake === "on" || (awake === "agent" && working);
+  if (want === held) return;
+  held = want;
+  invoke("set_awake", { on: want }).catch((err) => say(fromBack(err), true));
+}
+
+const holding = () => awake === "on" || (awake === "agent" && working);
 
 export function showUsage(next: Usage) {
   usage = next;
@@ -74,6 +120,15 @@ function draw() {
   const gap = document.createElement("span");
   gap.className = "spacer";
   bar.append(gap);
+  bar.append(
+    chip(
+      "awake",
+      icon("coffee", 13) +
+        `<span class="utext">${t(`status.awake.${awake}`)}</span>` +
+        `<span class="dot${holding() ? " on" : ""}"></span>`,
+      t("status.awake"),
+    ),
+  );
   bar.append(
     chip("res", icon("memory", 13) + `<span class="utext">${bytes(machine.rss)}</span>`, t("status.res")),
   );
@@ -119,7 +174,7 @@ export function bytes(n: number): string {
 
 /* ---------- os painéis ---------- */
 
-type Which = "usage" | "res" | "term" | "port";
+type Which = "usage" | "res" | "term" | "port" | "awake";
 
 let panel: HTMLElement | null = null;
 let open: Which | null = null;
@@ -151,6 +206,20 @@ function toggle(which: Which, at: HTMLElement, e: MouseEvent) {
   close();
   if (was === which || which === "term") return;
   e.stopPropagation();
+  // São três linhas com uma explicação cada: é menu, e menu o app já tem.
+  if (which === "awake") {
+    const box = at.getBoundingClientRect();
+    return menu.openAt(
+      { x: box.left, y: box.top - 6, above: true },
+      AWAKE.map((mode) => ({
+        label: t(`status.awake.${mode}`),
+        hint: t(`status.awake.${mode}.note`),
+        checked: awake === mode,
+        run: () => pick(mode),
+      })),
+      "awake",
+    );
+  }
   open = which;
   panel = document.createElement("div");
   panel.className = `upop ${which}`;
@@ -163,6 +232,18 @@ function toggle(which: Which, at: HTMLElement, e: MouseEvent) {
   document.addEventListener("mousedown", onDown, true);
   document.addEventListener("keydown", onKey, true);
   window.addEventListener("blur", close);
+}
+
+function pick(mode: Awake) {
+  awake = mode;
+  try {
+    localStorage.setItem(AWAKE_STORE, mode);
+  } catch {
+    // Sem onde guardar, a escolha vale só até fechar. Não é motivo para não
+    // atender ao clique.
+  }
+  hold();
+  draw();
 }
 
 /// O conteúdo do painel aberto. Separado do `toggle` porque a lista de

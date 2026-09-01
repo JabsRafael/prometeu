@@ -1541,3 +1541,25 @@ body.noside .side { display: none; }
 .prow.port:hover { background: var(--bg-raised-3); }
 .pport { font-variant-numeric: tabular-nums; color: var(--fg); font-weight: 600; }
 .prow.port .ic { color: var(--fg-3); }
+
+/* O pontinho do café: aceso é o Mac sendo segurado acordado agora. Apagado
+   continua na faixa, e não some — o lugar do estado tem que ser o mesmo
+   estando ligado ou não. */
+.dot { width: 5px; height: 5px; border-radius: 50%; background: var(--line-ghost); flex: none; }
+.dot.on { background: var(--done); }
+/* O menu do café: a explicação de cada modo vem embaixo do nome, e não na
+   ponta da linha, senão a linha fica com o dobro da largura do resto. */
+.menu.awake { min-width: 268px; }
+.menu.awake .mrow {
+  display: grid; height: auto; padding: 7px 9px; column-gap: 0; row-gap: 1px;
+  grid-template-columns: 1fr 16px;
+  grid-template-areas: "label check" "note check";
+  align-items: center;
+}
+.menu.awake .mg { display: none; }
+.menu.awake .ml { grid-area: label; }
+.menu.awake .mh {
+  grid-area: note; text-align: left; font-size: 11px; color: var(--fg-3);
+  white-space: normal;
+}
+.menu.awake .mc { grid-area: check; justify-self: end; }

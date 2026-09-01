@@ -703,6 +703,9 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     }
     // O que o app custaria à máquina num dia comum: ele mesmo, uma conversa e
     // um `npm run dev` de pé.
+    // No navegador não há Mac para segurar acordado: guarda e devolve.
+    case "set_awake":
+      return null;
     case "machine":
       return {
         rss: 822 * 1024 * 1024,

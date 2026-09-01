@@ -220,6 +220,7 @@ function refresh() {
     }
   }
   ws.forget(alive);
+  statusbar.boardChanged(view());
   drawNav();
   draw();
 }

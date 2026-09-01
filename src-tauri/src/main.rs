@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod agents;
+mod awake;
 mod browser;
 mod chat;
 mod codex;
@@ -90,6 +91,7 @@ fn main() {
             agents::agents,
             usage::usage,
             machine::machine,
+            awake::set_awake,
             session::load_board,
             session::add_project,
             session::remove_project,

@@ -20,6 +20,10 @@ const PATHS = {
   "chevron-up": '<path d="m18 15-6-6-6 6"/>',
   square: '<rect width="14" height="14" x="5" y="5" rx="2"/>',
   terminal: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
+  coffee:
+    '<path d="M10 2v2"/><path d="M14 2v2"/><path d="M6 2v2"/>' +
+    '<path d="M4 8h14a1 1 0 0 1 1 1v2a4 4 0 0 1-4 4h-1a5 5 0 0 1-10 0V9a1 1 0 0 1 1-1Z"/>' +
+    '<path d="M19 9h1a3 3 0 0 1 0 6h-1"/><path d="M3 21h16"/>',
   memory:
     '<path d="M6 19v-3"/><path d="M10 19v-3"/><path d="M14 19v-3"/><path d="M18 19v-3"/>' +
     '<path d="M8 11V9"/><path d="M16 11V9"/><path d="M12 11V9"/>' +
