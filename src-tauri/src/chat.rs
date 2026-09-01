@@ -22,7 +22,7 @@
 use crate::i18n;
 use crate::lock::lock;
 use crate::state::{publish, Note, Status, Workspace};
-use crate::{codex, paths, transcript, AppState};
+use crate::{codex, paths, transcript, usage, AppState};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::process::CommandExt;
@@ -252,6 +252,12 @@ impl Chat {
 
     pub fn alive(&self) -> bool {
         self.alive.load(Ordering::Relaxed)
+    }
+
+    /// O líder do grupo do agente. Ver `machine.rs`: o que ele subiu por baixo
+    /// conta como dele.
+    pub fn pid(&self) -> u32 {
+        self.pid
     }
 }
 
@@ -494,6 +500,12 @@ fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool) {
         // no setup e o setup já ter acabado.
         Some("system") if frame["subtype"] == "init" && !ready.swap(true, Ordering::Relaxed) => {
             ready_now(app, id);
+        }
+        // Quanto da cota já foi. Vem a cada pedido ao modelo, é da conta e não
+        // da sessão, e quem guarda é o `usage` — a barra de baixo é uma só.
+        Some("rate_limit_event") => usage::claude(app, &frame["rate_limit_info"]),
+        Some("prometheus") if frame["subtype"] == "usage" => {
+            usage::codex(app, &frame["usage"]);
         }
         // O tradutor do Codex contando ao quadro o que o stream do Claude Code
         // deixa no transcript: quanto a conversa pesa, e qual é a sessão do

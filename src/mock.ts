@@ -680,6 +680,48 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
           { slug: "gpt-5.4", name: "GPT-5.4", efforts: ["low", "medium", "high", "xhigh"] },
         ],
       };
+    // A cota dos dois agentes, com números parecidos com os de um dia de
+    // trabalho: é o que faz a faixa de baixo aparecer no navegador.
+    case "usage": {
+      const now = Math.floor(Date.now() / 1000);
+      return {
+        claude: {
+          windows: [
+            { kind: "session", pct: 16, resets: now + 3 * 3600 + 14 * 60 },
+            { kind: "weekly", pct: 78, resets: now + 3 * 86400 + 4 * 3600 },
+            { kind: "fable", pct: 72, resets: now + 3 * 86400 + 4 * 3600 },
+          ],
+          at: now - 4 * 60,
+        },
+        codex: {
+          windows: [
+            { kind: "session", pct: 0, resets: now + 4 * 3600 + 55 * 60 },
+            { kind: "weekly", pct: 13, resets: now + 6 * 86400 + 12 * 3600 },
+          ],
+          at: now - 96 * 60,
+        },
+      };
+    }
+    // O que o app custaria à máquina num dia comum: ele mesmo, uma conversa e
+    // um `npm run dev` de pé.
+    // No navegador não há Mac para segurar acordado: guarda e devolve.
+    case "set_awake":
+      return null;
+    case "machine":
+      return {
+        rss: 822 * 1024 * 1024,
+        cpu: 3.4,
+        procs: [
+          { kind: "app", name: "Prometheus", detail: "", rss: 640 * 1024 * 1024, cpu: 0.8,
+            hist: [0.4, 0.6, 1.2, 0.9, 0.7, 2.1, 1.4, 0.8, 0.6, 0.8] },
+          { kind: "chat", name: "Tela igual ao Conductor", detail: "Conversa 1", rss: 128 * 1024 * 1024, cpu: 2.2,
+            hist: [0, 0, 4.5, 8.2, 6.1, 3.3, 1.2, 2.8, 5.4, 2.2] },
+          { kind: "term", name: "Ícone do app", detail: "run", rss: 54 * 1024 * 1024, cpu: 0.4,
+            hist: [0.2, 0.3, 0.2, 0.5, 0.4, 0.3, 0.4, 0.4, 0.3, 0.4] },
+        ],
+        terms: 2,
+        ports: [{ id: "0831-1714", title: "Ícone do app", port: 3100 }],
+      };
     case "list_branches":
       return {
         all: [

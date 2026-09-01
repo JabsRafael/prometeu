@@ -53,6 +53,7 @@ body {
   margin: 0;
   height: 100vh;
   display: flex;
+  flex-direction: column;
   background: var(--bg);
   color: var(--fg);
   font: 13px/1.5 var(--font);
@@ -61,6 +62,9 @@ body {
   user-select: none;
   cursor: default;
 }
+/* O app inteiro numa linha — a faixa de baixo fica fora dela, porque
+   atravessa a janela toda, inclusive por baixo da barra de workspaces. */
+.shell { flex: 1; min-height: 0; display: flex; }
 .stack { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .spacer { flex: 1; }
 [hidden] { display: none !important; }
@@ -1401,7 +1405,7 @@ body.noside .side { display: none; }
 /* Flutua acima de tudo, inclusive do lançador: quem abriu o menu está mexendo
    nele agora. Fica em `fixed` para o submenu poder nascer dentro do painel e
    ainda assim se posicionar pela tela. */
-.menu {
+.menu, .upop {
   position: fixed; z-index: 30; min-width: 200px; padding: 5px;
   background: var(--bg-raised-2); border: 1px solid var(--line-ghost);
   border-radius: var(--r-lg); box-shadow: 0 20px 48px -12px rgb(0 0 0 / 0.85);
@@ -1443,3 +1447,120 @@ body.noside .side { display: none; }
   border: 1.5px dashed var(--accent); border-radius: var(--r-lg);
   background: rgb(255 107 61 / 0.06);
 }
+
+/* ---------- a faixa de baixo ---------- */
+
+/* Quanto da cota já foi, e o estado da máquina. Fina de propósito: é o rodapé
+   que se lê de canto de olho, e cada pixel dela sai da conversa. */
+.status {
+  flex: none; height: 26px; display: flex; align-items: center; gap: 14px;
+  padding: 0 10px; background: var(--bg-side);
+  border-top: 1px solid var(--line-side);
+  font-size: 11px; color: var(--fg-3); overflow: hidden;
+}
+.uchip {
+  display: flex; align-items: center; gap: 7px; height: 20px; padding: 0 6px;
+  border-radius: var(--r); background: none; color: var(--fg-3);
+  font-size: 11px; font-weight: 400; flex: none;
+}
+.uchip:hover { background: var(--bg-raised); color: var(--fg-2); }
+.utext { white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* O traço de quem ainda não tem número: fica, mas não puxa o olho. */
+.utext.dim { color: var(--line-ghost); }
+
+/* A barrinha: o traço cheio é quanto já foi. Cinza enquanto é informação,
+   quente quando começa a mandar no seu dia. */
+.meter {
+  width: 34px; height: 4px; flex: none; border-radius: 2px;
+  background: var(--bg-raised-3); overflow: hidden;
+}
+.meter.wide { width: 100%; }
+.meter > i { display: block; height: 100%; border-radius: 2px; background: var(--fg-3); }
+.meter.warn > i { background: var(--wait); }
+.meter.hot > i { background: var(--err); }
+.uchip:hover .meter > i { background: var(--fg-2); }
+.uchip:hover .meter.warn > i { background: var(--wait); }
+.uchip:hover .meter.hot > i { background: var(--err); }
+
+/* O painel do uso. Uma linha por janela, e os agentes empilhados: são dois
+   números por agente, e dois agentes — cabe tudo à vista. */
+.upop { min-width: 268px; padding: 10px 12px 12px; gap: 0; }
+.uhead { font-size: 12px; font-weight: 600; color: var(--fg); padding-bottom: 8px; }
+.uagent {
+  display: flex; align-items: center; gap: 7px; padding: 8px 0 5px;
+  border-top: 1px solid var(--line-raised);
+}
+.uagent .ic { flex: none; }
+.uname { font-size: 12px; font-weight: 600; color: var(--fg); flex: 1; }
+.uwhen { font-size: 11px; color: var(--fg-3); }
+.urow {
+  display: grid; grid-template-columns: 54px minmax(56px, 1fr) 34px auto;
+  align-items: center; gap: 8px; height: 22px;
+  font-size: 11px; color: var(--fg-2);
+}
+.upct { text-align: right; font-variant-numeric: tabular-nums; color: var(--fg); }
+.ureset { color: var(--fg-3); white-space: nowrap; }
+.uhead { display: flex; align-items: baseline; }
+.uaside { font-size: 11px; font-weight: 400; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.uempty { padding: 14px 0 16px; text-align: center; font-size: 11px; color: var(--fg-3); }
+
+/* A lista de processos e a de portas: mesma linha, colunas diferentes. */
+.upop.res { min-width: 380px; }
+.upop.port { min-width: 240px; }
+.prow {
+  display: grid; grid-template-columns: minmax(0, 1fr) 46px 44px 62px;
+  align-items: center; gap: 8px; height: 30px;
+  font-size: 11px; color: var(--fg-2);
+  border-top: 1px solid var(--line-raised);
+}
+.pname {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--fg);
+}
+/* De onde o processo veio: a aba, o terminal. Fica atrás do nome, na mesma
+   linha, porque duas linhas por processo fariam o painel virar tela. */
+.pname em { font-style: normal; color: var(--fg-3); }
+.pname em::before { content: " · "; }
+.spark { width: 46px; height: 14px; color: var(--fg-3); overflow: visible; }
+.pcpu, .prss { text-align: right; font-variant-numeric: tabular-nums; }
+.prss { color: var(--fg); }
+
+/* Limpar worktrees: a única ação do painel, e ela abre a folha que já existe. */
+.urow.act {
+  display: flex; align-items: center; justify-content: flex-start; gap: 6px;
+  width: 100%; height: 30px; margin-top: 4px; padding: 0 6px;
+  border-top: 1px solid var(--line-raised); border-radius: 0;
+  background: none; color: var(--fg); font-size: 12px; font-weight: 400;
+}
+.urow.act:hover { color: var(--fg); background: var(--bg-raised-3); border-radius: var(--r); }
+.urow.act .ic { margin-left: auto; color: var(--fg-3); }
+
+.prow.port {
+  grid-template-columns: 44px minmax(0, 1fr) 14px; cursor: default;
+  padding: 0 6px; border-radius: var(--r);
+}
+.prow.port:hover { background: var(--bg-raised-3); }
+.pport { font-variant-numeric: tabular-nums; color: var(--fg); font-weight: 600; }
+.prow.port .ic { color: var(--fg-3); }
+
+/* O pontinho do café: aceso é o Mac sendo segurado acordado agora. Apagado
+   continua na faixa, e não some — o lugar do estado tem que ser o mesmo
+   estando ligado ou não. */
+.dot { width: 5px; height: 5px; border-radius: 50%; background: var(--line-ghost); flex: none; }
+.dot.on { background: var(--done); }
+/* O menu do café: a explicação de cada modo vem embaixo do nome, e não na
+   ponta da linha, senão a linha fica com o dobro da largura do resto. */
+.menu.awake { min-width: 268px; }
+.menu.awake .mrow {
+  display: grid; height: auto; padding: 7px 9px; column-gap: 0; row-gap: 1px;
+  grid-template-columns: 1fr 16px;
+  grid-template-areas: "label check" "note check";
+  align-items: center;
+}
+.menu.awake .mg { display: none; }
+.menu.awake .ml { grid-area: label; }
+.menu.awake .mh {
+  grid-area: note; text-align: left; font-size: 11px; color: var(--fg-3);
+  white-space: normal;
+}
+.menu.awake .mc { grid-area: check; justify-self: end; }

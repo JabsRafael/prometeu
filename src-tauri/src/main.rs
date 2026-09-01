@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod agents;
+mod awake;
 mod browser;
 mod chat;
 mod codex;
@@ -10,6 +11,7 @@ mod github;
 mod i18n;
 mod linear;
 mod lock;
+mod machine;
 mod naming;
 mod paths;
 mod pty;
@@ -18,6 +20,7 @@ mod session;
 mod state;
 mod team;
 mod transcript;
+mod usage;
 
 use state::Board;
 use std::collections::{HashMap, HashSet};
@@ -86,6 +89,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             i18n::set_lang,
             agents::agents,
+            usage::usage,
+            machine::machine,
+            awake::set_awake,
             session::load_board,
             session::add_project,
             session::remove_project,
@@ -149,6 +155,10 @@ fn main() {
             team::team_config,
             team::team_config_set,
         ])
+        .setup(|app| {
+            machine::watch(app.handle().clone());
+            Ok(())
+        })
         .build(tauri::generate_context!())
         .expect("erro ao subir o Prometheus")
         .run(|app, event| {

@@ -453,6 +453,31 @@ export const PT = {
   "linear.connect.title":
     "Abre o Linear no navegador para você autorizar o Prometheus. Só leitura, e só neste Mac",
 
+  /* ---------- a faixa de baixo ---------- */
+
+  "status.usage": "Cotas",
+  "status.usage.none": "As cotas aparecem depois da primeira resposta do agente",
+  "status.window.session": "5 horas",
+  "status.window.weekly": "7 dias",
+  "status.window.fable": "Fable",
+  "status.resets": "zera em {when}",
+  "status.now": "agora",
+  "status.ago": "atualizado há {when}",
+  "status.justNow": "atualizado agora",
+  "status.awake": "Manter o Mac acordado",
+  "status.awake.on": "Sempre",
+  "status.awake.on.note": "Até o Prometheus fechar",
+  "status.awake.agent": "Com agente ativo",
+  "status.awake.agent.note": "Só enquanto algum agente estiver trabalhando",
+  "status.awake.off": "Desligado",
+  "status.awake.off.note": "Segue o repouso normal do macOS",
+  "status.res": "Memória e CPU",
+  "status.res.none": "Medindo…",
+  "status.res.clean": "Limpar worktrees",
+  "status.terms": "Terminais rodando",
+  "status.ports": "Portas",
+  "status.ports.none": "Nenhum Run com porta ativa",
+
   /* ---------- atualização ---------- */
 
   "update.ask": "Buscar atualizações",

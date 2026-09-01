@@ -13,12 +13,13 @@ import { icon } from "./icons";
 import * as links from "./links";
 import { current, fromBack, paint, t } from "./i18n";
 import * as issues from "./issues";
-import { dropFiles, loadAgents, openLauncher, type Draft } from "./launcher";
+import { dropFiles, installed, loadAgents, openLauncher, type Draft } from "./launcher";
 import * as menu from "./menu";
 import * as news from "./news";
 import * as rename from "./rename";
 import * as session from "./session";
 import * as settings from "./settings";
+import * as statusbar from "./statusbar";
 import * as team from "./team";
 import "./style.css";
 import type { Board, Issue, Workspace } from "./types";
@@ -219,6 +220,9 @@ function refresh() {
     }
   }
   ws.forget(alive);
+  // Só o quadro local decide se este Mac fica acordado. Um agente trabalhando
+  // num workspace compartilhado está rodando no Mac de outra pessoa.
+  statusbar.boardChanged(state);
   drawNav();
   draw();
 }
@@ -229,6 +233,17 @@ alert.init({ looking: ws.id });
 /// Script que morreu sozinho — terminou, ou quebrou. A aba volta para o botão
 /// de começar sem ninguém perguntar de tempos em tempos.
 listen<[string, number | null]>("pty-closed", ({ payload: [key] }) => dockbar.closed(key));
+
+/// A cota mudou: alguma aba, de qualquer workspace, acabou de falar com um
+/// agente. É a conta inteira, então a faixa de baixo se refaz sozinha.
+listen<statusbar.Usage>("usage", ({ payload }) => statusbar.showUsage(payload));
+invoke<statusbar.Usage>("usage").then(statusbar.showUsage).catch(() => {});
+
+/// O que o app está custando à máquina, de três em três segundos. Só chega
+/// quando muda: o quieto não redesenha nada.
+listen<statusbar.Machine>("machine", ({ payload }) => statusbar.showMachine(payload));
+statusbar.init({ say });
+invoke<statusbar.Machine>("machine").then(statusbar.showMachine).catch(() => {});
 
 /* ---------- arrastar arquivo para dentro do terminal ---------- */
 
@@ -456,7 +471,7 @@ void update.init(say);
 // Quais agentes existem nesta máquina: é o que o lançador oferece no rodapé.
 // Ninguém espera por isso para a tela aparecer — até a resposta chegar, o
 // lançador mostra só o Claude Code, que é o que o app era.
-void loadAgents();
+void loadAgents().then(() => statusbar.showAgents(installed()));
 // O time vem antes das configurações, que é onde ele aparece, e antes da barra
 // lateral, que vai mostrar o que os colegas compartilham.
 team.onError((m) => say(m, true));

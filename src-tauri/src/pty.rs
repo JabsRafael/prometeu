@@ -97,6 +97,12 @@ impl Pty {
     pub fn alive(&self) -> bool {
         self.alive.load(Ordering::Relaxed)
     }
+
+    /// O líder do grupo — é dele que a árvore de processos parte, e é por isso
+    /// que o `npm run dev` aparece com o `node` que ele subiu junto.
+    pub fn pid(&self) -> u32 {
+        self.pid
+    }
 }
 
 /// Manda um sinal para o **grupo** do processo, e não só para ele.

@@ -20,6 +20,17 @@ const PATHS = {
   "chevron-up": '<path d="m18 15-6-6-6 6"/>',
   square: '<rect width="14" height="14" x="5" y="5" rx="2"/>',
   terminal: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
+  coffee:
+    '<path d="M10 2v2"/><path d="M14 2v2"/><path d="M6 2v2"/>' +
+    '<path d="M4 8h14a1 1 0 0 1 1 1v2a4 4 0 0 1-4 4h-1a5 5 0 0 1-10 0V9a1 1 0 0 1 1-1Z"/>' +
+    '<path d="M19 9h1a3 3 0 0 1 0 6h-1"/><path d="M3 21h16"/>',
+  memory:
+    '<path d="M6 19v-3"/><path d="M10 19v-3"/><path d="M14 19v-3"/><path d="M18 19v-3"/>' +
+    '<path d="M8 11V9"/><path d="M16 11V9"/><path d="M12 11V9"/>' +
+    '<path d="M2 15h20"/><path d="M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4Z"/>',
+  plug:
+    '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/>' +
+    '<path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
   play: '<path d="M6 4.5v15l13-7.5Z"/>',
   // Seis barras que o CSS faz subir e descer: é o "tem coisa rodando" da aba.
   // Todas nascem centradas em y≈12, então uma origem só (`12px 12px`) serve
@@ -239,4 +250,25 @@ export function fileIcon(name: string, size = 16): string {
   const kind = fileKind(name);
   if (!kind) return icon("file", size);
   return `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${FILE_ICONS[kind]}</svg>`;
+}
+
+/* ---------- marcas ---------- */
+
+/// O selo de quem responde: a estrela da Anthropic e a flor da OpenAI, nas
+/// cores delas. Não são ícones de traço como o resto — marca desenhada com o
+/// `currentColor` do rodapé viraria mais um símbolo cinza numa faixa que já
+/// tem vários, e é justamente por aqui que se sabe de quem é o número.
+const BRANDS: Record<string, string> = {
+  claude:
+    '<g fill="#d97757" transform="translate(12 12)">' +
+    Array.from({ length: 8 }, (_, i) => `<rect x="-1.05" y="-9.5" width="2.1" height="19" rx="1.05" transform="rotate(${i * 22.5})"/>`).join("") +
+    "</g>",
+  codex:
+    '<path fill="#a4a09d" d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.911 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.98 4.182a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.91 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.998-2.9 6.056 6.056 0 0 0-.748-7.073zm-9.022 12.608a4.476 4.476 0 0 1-2.876-1.04l.142-.081 4.778-2.758a.795.795 0 0 0 .393-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.495 4.494zM3.6 18.305a4.471 4.471 0 0 1-.535-3.014l.142.085 4.783 2.758a.771.771 0 0 0 .78 0l5.843-3.368v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.499 4.499 0 0 1-6.14-1.646zM2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.677l5.814 3.354-2.02 1.168a.076.076 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.872zm16.597 3.856-5.834-3.388L15.119 7.2a.076.076 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.666zm2.01-3.023-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.41 9.23V6.897a.066.066 0 0 1 .028-.061l4.83-2.787a4.499 4.499 0 0 1 6.68 4.66zM8.307 12.863l-2.02-1.164a.08.08 0 0 1-.038-.057V6.074a4.499 4.499 0 0 1 7.375-3.454l-.142.08-4.778 2.76a.795.795 0 0 0-.393.68zm1.097-2.366 2.602-1.5 2.607 1.5v3l-2.597 1.5-2.607-1.5z"/>',
+};
+
+export function brand(name: string, size = 14): string {
+  const art = BRANDS[name];
+  if (!art) return icon("sparkles", size);
+  return `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${art}</svg>`;
 }
