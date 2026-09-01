@@ -689,6 +689,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
           windows: [
             { kind: "session", pct: 16, resets: now + 3 * 3600 + 14 * 60 },
             { kind: "weekly", pct: 78, resets: now + 3 * 86400 + 4 * 3600 },
+            { kind: "fable", pct: 72, resets: now + 3 * 86400 + 4 * 3600 },
           ],
           at: now - 4 * 60,
         },

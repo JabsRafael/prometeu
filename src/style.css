@@ -1451,8 +1451,7 @@ body.noside .side { display: none; }
 /* ---------- a faixa de baixo ---------- */
 
 /* Quanto da cota já foi, e o estado da máquina. Fina de propósito: é o rodapé
-   que se lê de canto de olho, e cada pixel dela sai da conversa. Some inteira
-   quando não há número nenhum — faixa vazia é ruído com borda. */
+   que se lê de canto de olho, e cada pixel dela sai da conversa. */
 .status {
   flex: none; height: 26px; display: flex; align-items: center; gap: 14px;
   padding: 0 10px; background: var(--bg-side);

@@ -36,12 +36,12 @@ describe("until", () => {
 
 describe("ago", () => {
   it("leitura recém-chegada não vira relógio", () => {
-    expect(ago(980, 1000)).toBe("agora mesmo");
+    expect(ago(980, 1000)).toBe("atualizado agora");
   });
 
   it("mais de um minuto vira quanto tempo faz", () => {
-    expect(ago(1000 - 4 * 60, 1000)).toBe("há 4m");
-    expect(ago(1000 - 96 * 60, 1000)).toBe("há 1h 36m");
+    expect(ago(1000 - 4 * 60, 1000)).toBe("atualizado há 4m");
+    expect(ago(1000 - 96 * 60, 1000)).toBe("atualizado há 1h 36m");
   });
 });
 

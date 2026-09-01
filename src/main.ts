@@ -220,7 +220,9 @@ function refresh() {
     }
   }
   ws.forget(alive);
-  statusbar.boardChanged(view());
+  // Só o quadro local decide se este Mac fica acordado. Um agente trabalhando
+  // num workspace compartilhado está rodando no Mac de outra pessoa.
+  statusbar.boardChanged(state);
   drawNav();
   draw();
 }

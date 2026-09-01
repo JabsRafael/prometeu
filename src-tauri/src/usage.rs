@@ -1,8 +1,9 @@
 //! Quanto da cota já foi.
 //!
 //! Os dois CLIs contam sozinhos e o app só escuta. O Claude Code manda um
-//! `rate_limit_event` a cada resposta, com a janela de 5 horas e a da semana
-//! (`utilization` de 0 a 1); o `codex app-server` manda
+//! `rate_limit_event` a cada resposta, com a janela de 5 horas, a da semana e,
+//! quando existe, a semanal do Fable (`utilization` de 0 a 1); o
+//! `codex app-server` manda
 //! `account/rateLimits/updated` quando muda, e responde
 //! `account/rateLimits/read` assim que a thread abre — senão a barra ficaria
 //! vazia esperando o primeiro turno.
@@ -23,8 +24,8 @@ use tauri::{AppHandle, Emitter};
 /// Uma janela de cota: quanto já foi (0 a 100) e quando ela zera.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Window {
-    /// `session` são as 5 horas, `weekly` são os 7 dias, `overage` é o extra
-    /// que só algumas contas têm. Quem traduz para a tela é o front.
+    /// `session` são as 5 horas, `weekly` são os 7 dias, `fable` é a janela
+    /// semanal própria do Fable. Quem traduz para a tela é o front.
     pub kind: String,
     pub pct: f64,
     /// Unix, em segundos. É o que vira "zera em 3h 14m".
@@ -71,7 +72,9 @@ fn claude_windows(info: &Value) -> Vec<Window> {
     [
         ("five_hour", "session"),
         ("seven_day", "weekly"),
-        ("seven_day_overage_included", "overage"),
+        // O nome do protocolo diz "overage included", mas esta é a cota
+        // semanal própria do Fable nos planos em que ele vem incluído.
+        ("seven_day_overage_included", "fable"),
     ]
     .iter()
     .filter_map(|(from, kind)| {
@@ -159,16 +162,22 @@ mod tests {
             "status": "allowed",
             "unifiedWindows": {
                 "five_hour": { "utilization": 0.22, "resetsAt": 1788238200u64 },
-                "seven_day": { "utilization": 0.5, "resetsAt": 1788501600u64 }
+                "seven_day": { "utilization": 0.5, "resetsAt": 1788501600u64 },
+                "seven_day_overage_included": {
+                    "utilization": 0.72,
+                    "resetsAt": 1788501600u64
+                }
             }
         });
         let windows = claude_windows(&info);
-        assert_eq!(windows.len(), 2);
+        assert_eq!(windows.len(), 3);
         assert_eq!(windows[0].kind, "session");
         // 0,22 é 22% — não 0,22%.
         assert!((windows[0].pct - 22.0).abs() < 0.001);
         assert_eq!(windows[1].kind, "weekly");
         assert_eq!(windows[1].resets, 1788501600);
+        assert_eq!(windows[2].kind, "fable");
+        assert!((windows[2].pct - 72.0).abs() < 0.001);
     }
 
     #[test]

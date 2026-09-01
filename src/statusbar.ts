@@ -108,7 +108,13 @@ export function showMachine(next: Machine) {
 
 /// O nome da janela na faixa. Curto de propósito: é o rótulo que cabe ao lado
 /// do número sem virar frase.
-const SHORT: Record<string, string> = { session: "5h", weekly: "7d", overage: "+" };
+// `overage` é como versões anteriores guardaram a janela do Fable no disco.
+const SHORT: Record<string, string> = {
+  session: "5h",
+  weekly: "7d",
+  fable: "Fable",
+  overage: "Fable",
+};
 
 function draw() {
   const bar = $("status");
@@ -319,7 +325,7 @@ const name = (agent: string) => (agent === "codex" ? "Codex" : "Claude");
 function kind(what: string): string {
   if (what === "session") return t("status.window.session");
   if (what === "weekly") return t("status.window.weekly");
-  if (what === "overage") return t("status.window.overage");
+  if (what === "fable" || what === "overage") return t("status.window.fable");
   return what;
 }
 
