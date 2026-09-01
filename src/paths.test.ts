@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { begin, typing } from "./paths";
+import { mentions, short, typing } from "./paths";
 
 describe("o caminho que está sendo escrito", () => {
   it("começa no @ que começa palavra", () => {
@@ -20,21 +20,31 @@ describe("o caminho que está sendo escrito", () => {
   });
 });
 
-describe("o + escreve o @ que abre a lista", () => {
-  it("na caixa vazia, e no fim do que já está escrito", () => {
-    expect(begin("", 0)).toEqual({ text: "@", cut: 1 });
-    expect(begin("veja ", 5)).toEqual({ text: "veja @", cut: 6 });
+describe("os anexos da fala viram menção", () => {
+  const root = "/Users/eu/wt/app";
+
+  it("o que está dentro do worktree vira caminho relativo", () => {
+    expect(mentions([`${root}/src/main.ts`], root)).toBe("@src/main.ts");
+    expect(short(`${root}/src/main.ts`, root)).toBe("src/main.ts");
   });
 
-  it("separa da palavra anterior", () => {
-    expect(begin("veja", 4)).toEqual({ text: "veja @", cut: 6 });
+  it("o de fora entra inteiro", () => {
+    expect(mentions(["/Users/eu/Desktop/tela.png"], root)).toBe("@/Users/eu/Desktop/tela.png");
   });
 
-  it("escreve onde o cursor está, e não no fim", () => {
-    expect(begin("veja  depois", 5)).toEqual({ text: "veja @ depois", cut: 6 });
+  it("vários, um espaço entre eles", () => {
+    expect(mentions([`${root}/a.ts`, "/tmp/b.ts"], root)).toBe("@a.ts @/tmp/b.ts");
   });
 
-  it("não põe um segundo @ em quem já está escrevendo um caminho", () => {
-    expect(begin("veja @app/mo", 12)).toEqual({ text: "veja @app/mo", cut: 12 });
+  it("espaço no nome vai entre aspas: a menção não acaba no meio", () => {
+    expect(mentions(["/Users/eu/Meus Arquivos/nota final.md"], root)).toBe('@"/Users/eu/Meus Arquivos/nota final.md"');
+  });
+
+  it("sem anexo não há menção nenhuma", () => {
+    expect(mentions([], root)).toBe("");
+  });
+
+  it("sem worktree, todo caminho entra inteiro", () => {
+    expect(mentions(["/tmp/a.ts"], null)).toBe("@/tmp/a.ts");
   });
 });
