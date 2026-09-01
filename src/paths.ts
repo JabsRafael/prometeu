@@ -92,3 +92,13 @@ export function dismiss() {
   if (picking && menu.isOpen()) menu.close();
   picking = null;
 }
+
+/// O "+" da caixa: escreve o "@" que abre a lista, onde o cursor está. Serve
+/// a quem não sabe do "@" — daí em diante os dois são a mesma coisa. Quem já
+/// estava escrevendo um caminho não ganha um segundo "@".
+export function begin(text: string, cut: number): { text: string; cut: number } {
+  if (typing(text, cut)) return { text, cut };
+  const before = text.slice(0, cut);
+  const sep = !before || /\s$/.test(before) ? "" : " ";
+  return { text: `${before}${sep}@${text.slice(cut)}`, cut: cut + sep.length + 1 };
+}

@@ -276,6 +276,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "chat.mode.agent": "Agent",
   "chat.mode.note": "Note",
   "chat.send": "Send",
+  "chat.addFile": "Point at a file in the workspace",
   "chat.copy": "Copy the reply",
   "chat.with": "{model}, {effort} effort — picked in the launcher",
   "chat.stop": "Stop",
