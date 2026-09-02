@@ -744,17 +744,32 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     case "mcp_remove":
       mcpHub = mcpHub.filter((s) => s.id !== args.id);
       return mcpHub;
-    // O teste de conexão. No navegador não há servidor para apertar a mão:
-    // devolve o que cada tipo devolveria — inclusive o 401, que é o caso que
-    // muda o que a tela diz.
-    case "mcp_test": {
+    // O exame do servidor. No navegador não há servidor para apertar a mão:
+    // devolve os passos que cada caso daria — inclusive o 401, que é o que
+    // muda o que a tela oferece depois.
+    case "mcp_check": {
       const server = args.server as McpServer;
       const url = String(server.config.url ?? "");
+      const step = (key: string, ok: boolean, note = "", detail = "") => ({ key, ok, note, detail });
       if (url.includes("notion") || url.includes("capim"))
-        return { ok: false, auth: true, tools: 0, name: "", detail: "" };
+        return {
+          steps: [step("connect", true, "401"), step("oauth", true), step("client", true)],
+          probe: { ok: false, auth: true, tools: 0, name: "", detail: "" },
+        };
       if (url.includes("quebrado"))
-        return { ok: false, auth: false, tools: 0, name: "", detail: "connection refused" };
-      return { ok: true, auth: false, tools: 9, name: server.id, detail: "" };
+        return {
+          steps: [step("connect", false, "", "connection refused")],
+          probe: { ok: false, auth: false, tools: 0, name: "", detail: "connection refused" },
+        };
+      const first = url ? "connect" : "spawn";
+      return {
+        steps: [
+          step(first, true, url ? "200" : ""),
+          step("handshake", true, server.id),
+          step("tools", true, "9"),
+        ],
+        probe: { ok: true, auth: false, tools: 9, name: server.id, detail: "" },
+      };
     }
     // No navegador não há navegador para abrir dentro do navegador: entrar
     // marca o servidor como conectado e pronto.

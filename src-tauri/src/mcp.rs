@@ -471,9 +471,9 @@ fn toml_key(s: &str) -> String {
     toml_str(s)
 }
 
-/* ---------- testar um servidor ---------- */
+/* ---------- examinar um servidor ---------- */
 
-/// O que o teste descobriu. É o Prometheus falando com o servidor, e não o
+/// O que o exame descobriu. É o Prometheus falando com o servidor, e não o
 /// `claude` — o que se quer saber é se o cadastro está certo, e um agente no
 /// meio só somaria um jeito de errar.
 #[derive(serde::Serialize, Default)]
@@ -491,9 +491,65 @@ pub struct Probe {
     pub detail: String,
 }
 
+/// Um passo do exame: o que se tentou, e como foi.
+///
+/// O exame é uma sequência — subir o processo (ou conectar), apertar a mão,
+/// listar as ferramentas, e num remoto que pede login descobrir onde
+/// autorizar. Um `bool` no fim não diz em qual delas parou, e é justamente
+/// isso que muda o que a pessoa tem que fazer: consertar o comando, pôr um
+/// cabeçalho, ou entrar.
+///
+/// Nada aqui é frase de tela: `key` é código (a tela traduz), `note` é o dado
+/// que o passo trouxe (o status HTTP, o nome do servidor, a conta de
+/// ferramentas) e `detail` é a causa crua de quando não deu.
+#[derive(serde::Serialize)]
+pub struct Step {
+    pub key: &'static str,
+    pub ok: bool,
+    pub note: String,
+    pub detail: String,
+}
+
+impl Step {
+    fn ok(key: &'static str, note: impl Into<String>) -> Self {
+        Step {
+            key,
+            ok: true,
+            note: note.into(),
+            detail: String::new(),
+        }
+    }
+
+    fn bad(key: &'static str, detail: impl Into<String>) -> Self {
+        Step {
+            key,
+            ok: false,
+            note: String::new(),
+            detail: detail.into(),
+        }
+    }
+}
+
+/// O exame inteiro: os passos, e o resumo com que a tela decide o que oferecer
+/// depois — gravar, entrar, ou voltar e consertar o que está escrito.
+#[derive(serde::Serialize, Default)]
+pub struct Check {
+    pub steps: Vec<Step>,
+    pub probe: Probe,
+}
+
+/// O que uma conversa com um servidor remoto rendeu.
+struct Http {
+    probe: Probe,
+    /// O `WWW-Authenticate` do `401`, quando veio: é por esse cabeçalho que a
+    /// descoberta do OAuth começa (`mcp_auth::discover`).
+    challenge: Option<String>,
+    steps: Vec<Step>,
+}
+
 /// Quanto se espera um servidor responder. Um stdio sobe `npx`, que baixa
 /// pacote na primeira vez; um remoto atravessa a internet. Passou disto, o
-/// problema é ele, e o teste tem que devolver a tela para quem clicou.
+/// problema é ele, e o exame tem que devolver a tela para quem clicou.
 const PROBE_WAIT: Duration = Duration::from_secs(25);
 
 /// A revisão do protocolo com que nos apresentamos. O servidor responde com a
@@ -514,17 +570,20 @@ fn hello() -> Value {
     })
 }
 
-/// Testa o servidor como ele está no formulário — antes de gravar, e sem
+/// Examina o servidor como ele está no formulário — antes de gravar, e sem
 /// depender de estar cadastrado em lugar nenhum.
 #[tauri::command]
-pub async fn mcp_test(server: Server) -> Probe {
+pub async fn mcp_check(server: Server) -> Check {
     // HTTP bloqueante e processo filho não podem rodar numa worker do runtime
     // async (ver `linear::blocking`).
-    tauri::async_runtime::spawn_blocking(move || probe(&server))
+    tauri::async_runtime::spawn_blocking(move || check(&server))
         .await
-        .unwrap_or_else(|e| Probe {
-            detail: e.to_string(),
-            ..Probe::default()
+        .unwrap_or_else(|e| Check {
+            probe: Probe {
+                detail: e.to_string(),
+                ..Probe::default()
+            },
+            ..Check::default()
         })
 }
 
@@ -541,8 +600,8 @@ pub async fn mcp_login(server: Server) -> Result<(), String> {
             .ok_or_else(|| i18n::t("err.mcp.auth.notRemote"))?
             .to_string();
         // Sem token de propósito: o que se quer aqui é justamente o `401`.
-        let (_, challenge) = probe_http(&url, &server.config, None);
-        mcp_auth::login(&server.id, &url, challenge.as_deref())
+        let http = probe_http(&url, &server.config, None);
+        mcp_auth::login(&server.id, &url, http.challenge.as_deref())
     })
     .await
     .map_err(|e| i18n::ta("err.mcp.auth.taskDied", &[("cause", e.to_string())]))?
@@ -559,36 +618,59 @@ pub fn mcp_logins() -> Vec<String> {
     mcp_auth::logged_in()
 }
 
-fn probe(server: &Server) -> Probe {
-    match server.config.get("url").and_then(Value::as_str) {
-        // Com o token de quem já entrou: testar depois do login tem que dizer
-        // "conectou", e não repetir "precisa de login".
-        Some(url) => probe_http(url, &server.config, mcp_auth::bearer(&server.id).as_deref()).0,
-        None => probe_stdio(&server.config),
+/// O exame de um servidor, passo a passo. Remoto que pede login ganha dois
+/// passos a mais: o cadastro já se provou certo, e o que falta saber é se o
+/// Prometheus consegue se autorizar nele — achar os endereços do OAuth, e ter
+/// onde registrar um cliente. Sem registro dinâmico o "Entrar" não teria como
+/// funcionar, e é melhor dizer isso aqui do que depois de abrir o navegador.
+fn check(server: &Server) -> Check {
+    let Some(url) = server.config.get("url").and_then(Value::as_str) else {
+        let (probe, steps) = probe_stdio(&server.config);
+        return Check { steps, probe };
+    };
+    // Com o token de quem já entrou: examinar depois do login tem que dizer
+    // "conectou", e não repetir "precisa de login".
+    let mut http = probe_http(url, &server.config, mcp_auth::bearer(&server.id).as_deref());
+    if http.probe.auth {
+        match mcp_auth::discover(url, http.challenge.as_deref()) {
+            Ok(ends) => {
+                http.steps.push(Step::ok("oauth", String::new()));
+                http.steps.push(match ends.register {
+                    Some(_) => Step::ok("client", String::new()),
+                    None => Step::bad("client", i18n::t("err.mcp.auth.noRegister")),
+                });
+            }
+            Err(why) => http.steps.push(Step::bad("oauth", why)),
+        }
+    }
+    Check {
+        steps: http.steps,
+        probe: http.probe,
     }
 }
 
 /// Um servidor remoto: `initialize` por POST, e depois `tools/list` com a
 /// sessão que ele devolveu. A resposta vem como JSON ou como um fluxo de
 /// eventos — os dois são o mesmo objeto, e `frame` desembrulha os dois.
-/// Devolve o que descobriu e, quando o servidor pediu login, o
-/// `WWW-Authenticate` dele — é por esse cabeçalho que a descoberta do OAuth
-/// começa (`mcp_auth::discover`).
-fn probe_http(url: &str, config: &Value, token: Option<&str>) -> (Probe, Option<String>) {
+fn probe_http(url: &str, config: &Value, token: Option<&str>) -> Http {
+    /// Parou no primeiro passo: nem chegou a ser uma conversa.
+    fn broke(key: &'static str, detail: String) -> Http {
+        Http {
+            probe: Probe {
+                detail: detail.clone(),
+                ..Probe::default()
+            },
+            challenge: None,
+            steps: vec![Step::bad(key, detail)],
+        }
+    }
+
     let client = match reqwest::blocking::Client::builder()
         .timeout(PROBE_WAIT)
         .build()
     {
         Ok(client) => client,
-        Err(e) => {
-            return (
-                Probe {
-                    detail: e.to_string(),
-                    ..Probe::default()
-                },
-                None,
-            )
-        }
+        Err(e) => return broke("connect", e.to_string()),
     };
     let headers = config
         .get("headers")
@@ -619,16 +701,9 @@ fn probe_http(url: &str, config: &Value, token: Option<&str>) -> (Probe, Option<
 
     let first = match post(&hello(), None) {
         Ok(response) => response,
-        Err(e) => {
-            return (
-                Probe {
-                    detail: e.to_string(),
-                    ..Probe::default()
-                },
-                None,
-            )
-        }
+        Err(e) => return broke("connect", e.to_string()),
     };
+    let code = first.status().as_u16().to_string();
     // 401 é o servidor dizendo "sei quem você quer ser, prove". O cadastro
     // está certo; o que falta é login, e isso a tela resolve de outro jeito.
     if first.status() == reqwest::StatusCode::UNAUTHORIZED {
@@ -637,13 +712,14 @@ fn probe_http(url: &str, config: &Value, token: Option<&str>) -> (Probe, Option<
             .get("www-authenticate")
             .and_then(|v| v.to_str().ok())
             .map(str::to_string);
-        return (
-            Probe {
+        return Http {
+            probe: Probe {
                 auth: true,
                 ..Probe::default()
             },
             challenge,
-        );
+            steps: vec![Step::ok("connect", code)],
+        };
     }
     let session = first
         .headers()
@@ -652,28 +728,30 @@ fn probe_http(url: &str, config: &Value, token: Option<&str>) -> (Probe, Option<
         .map(str::to_string);
     if !first.status().is_success() {
         let status = first.status();
-        return (
-            Probe {
-                detail: format!("{status} {}", short(&first.text().unwrap_or_default())),
-                ..Probe::default()
-            },
-            None,
+        return broke(
+            "connect",
+            format!("{status} {}", short(&first.text().unwrap_or_default())),
         );
     }
+    let mut steps = vec![Step::ok("connect", code)];
     let hello_body = first.text().unwrap_or_default();
     let Some(result) = frame(&hello_body) else {
-        return (
-            Probe {
-                detail: short(&hello_body),
+        let detail = short(&hello_body);
+        steps.push(Step::bad("handshake", detail.clone()));
+        return Http {
+            probe: Probe {
+                detail,
                 ..Probe::default()
             },
-            None,
-        );
+            challenge: None,
+            steps,
+        };
     };
     let name = result["result"]["serverInfo"]["name"]
         .as_str()
         .unwrap_or_default()
         .to_string();
+    steps.push(Step::ok("handshake", name.clone()));
 
     // O `initialized` não tem resposta: é o aviso de que o aperto de mão
     // acabou, e sem ele há servidor que recusa o resto.
@@ -684,23 +762,37 @@ fn probe_http(url: &str, config: &Value, token: Option<&str>) -> (Probe, Option<
     let listed = post(
         &json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }),
         session.as_deref(),
-    );
+    )
+    .and_then(|r| r.text());
     let tools = listed
+        .as_ref()
         .ok()
-        .and_then(|r| r.text().ok())
-        .and_then(|body| frame(&body))
+        .and_then(|body| frame(body))
         .and_then(|value| value["result"]["tools"].as_array().map(Vec::len))
         .unwrap_or(0);
-    (
-        Probe {
+    steps.push(tools_step(listed.err().map(|e| e.to_string()), tools));
+    Http {
+        probe: Probe {
             ok: true,
             auth: false,
             tools,
             name,
             detail: String::new(),
         },
-        None,
-    )
+        challenge: None,
+        steps,
+    }
+}
+
+/// O passo das ferramentas. Conectar e não oferecer ferramenta nenhuma não é
+/// sucesso na prática — o agente não ganha nada com um servidor assim, e o
+/// passo diz que não deu mesmo tendo apertado a mão.
+fn tools_step(failed: Option<String>, tools: usize) -> Step {
+    match (failed, tools) {
+        (Some(why), _) => Step::bad("tools", why),
+        (None, 0) => Step::bad("tools", String::new()),
+        (None, n) => Step::ok("tools", n.to_string()),
+    }
 }
 
 /// A resposta de um POST, seja ela JSON puro ou um fluxo de eventos — no fluxo,
@@ -716,14 +808,18 @@ fn frame(body: &str) -> Option<Value> {
 }
 
 /// Um servidor que roda aqui: sobe o processo, aperta a mão pelo stdin e conta
-/// as ferramentas. O processo morre no fim do teste — testar não é deixar nada
-/// de pé.
-fn probe_stdio(config: &Value) -> Probe {
+/// as ferramentas. O processo morre no fim do exame — examinar não é deixar
+/// nada de pé.
+fn probe_stdio(config: &Value) -> (Probe, Vec<Step>) {
     let Some(command) = config.get("command").and_then(Value::as_str) else {
-        return Probe {
-            detail: "sem command nem url".into(),
-            ..Probe::default()
-        };
+        let detail = "sem command nem url".to_string();
+        return (
+            Probe {
+                detail: detail.clone(),
+                ..Probe::default()
+            },
+            vec![Step::bad("spawn", detail)],
+        );
     };
     let mut cmd = Command::new(command);
     if let Some(args) = config.get("args").and_then(Value::as_array) {
@@ -737,7 +833,7 @@ fn probe_stdio(config: &Value) -> Probe {
         }
     }
     // Grupo próprio: o `npx` de um servidor vira `node`, e matar o pai sem o
-    // grupo deixaria o filho de pé depois do teste.
+    // grupo deixaria o filho de pé depois do exame.
     cmd.process_group(0)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -745,14 +841,20 @@ fn probe_stdio(config: &Value) -> Probe {
     let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(e) => {
-            return Probe {
-                detail: e.to_string(),
-                ..Probe::default()
-            }
+            return (
+                Probe {
+                    detail: e.to_string(),
+                    ..Probe::default()
+                },
+                vec![Step::bad("spawn", e.to_string())],
+            )
         }
     };
 
     let mut probe = Probe::default();
+    // Chegou a resposta do `tools/list` — que é diferente de ter chegado uma
+    // lista vazia, e de nunca ter chegado nada.
+    let mut answered = false;
     if let (Some(mut stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) {
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
@@ -789,6 +891,7 @@ fn probe_stdio(config: &Value) -> Probe {
                     if let Some(tools) = value["result"]["tools"].as_array() {
                         probe.tools = tools.len();
                         probe.ok = true;
+                        answered = true;
                         break;
                     }
                     if let Some(error) = value["error"]["message"].as_str() {
@@ -815,7 +918,20 @@ fn probe_stdio(config: &Value) -> Probe {
             })
             .unwrap_or_default();
     }
-    probe
+
+    // Os passos saem no fim porque o stderr, que é a explicação de quando não
+    // deu, só se lê depois de o processo morrer.
+    let mut steps = vec![Step::ok("spawn", String::new())];
+    if !probe.ok {
+        steps.push(Step::bad("handshake", probe.detail.clone()));
+        return (probe, steps);
+    }
+    steps.push(Step::ok("handshake", probe.name.clone()));
+    steps.push(tools_step(
+        (!answered).then(|| probe.detail.clone()),
+        probe.tools,
+    ));
+    (probe, steps)
 }
 
 /// O bastante de uma mensagem para caber numa linha da tela.
@@ -885,7 +1001,7 @@ mod tests {
             config: json!({ "command": "npx", "args": ["-y", "@modelcontextprotocol/server-everything"], "env": {} }),
             note: String::new(),
         };
-        let got = probe(&stdio);
+        let got = check(&stdio).probe;
         println!(
             "stdio: ok={} tools={} nome={} detalhe={}",
             got.ok, got.tools, got.name, got.detail
@@ -900,7 +1016,7 @@ mod tests {
             config: json!({ "type": "http", "url": "https://mcp.deepwiki.com/mcp" }),
             note: String::new(),
         };
-        let got = probe(&remoto);
+        let got = check(&remoto).probe;
         println!(
             "http: ok={} auth={} tools={} nome={} detalhe={}",
             got.ok, got.auth, got.tools, got.name, got.detail
@@ -914,7 +1030,7 @@ mod tests {
             config: json!({ "type": "http", "url": "https://mcp.notion.com/mcp" }),
             note: String::new(),
         };
-        let got = probe(&precisa_login);
+        let got = check(&precisa_login).probe;
         println!("login: auth={} detalhe={}", got.auth, got.detail);
         assert!(got.auth);
 
@@ -923,7 +1039,7 @@ mod tests {
             config: json!({ "command": "comando-que-nao-existe", "args": [], "env": {} }),
             note: String::new(),
         };
-        let got = probe(&nao_existe);
+        let got = check(&nao_existe).probe;
         assert!(!got.ok && !got.detail.is_empty());
     }
 

@@ -64,7 +64,7 @@ export type McpServer = {
   note: string;
 };
 
-/// O que o teste de um servidor descobriu. É o Prometheus falando JSON-RPC com
+/// O que o exame de um servidor descobriu. É o Prometheus falando JSON-RPC com
 /// ele — sem `claude` no meio, para o que se lê aqui ser sobre o cadastro e
 /// mais nada.
 export type McpProbe = {
@@ -76,6 +76,23 @@ export type McpProbe = {
   name: string;
   /// A causa crua, quando não deu. Vem do servidor ou do sistema.
   detail: string;
+};
+
+/// Um passo do exame, na ordem em que foi tentado. `key` é código — a tela
+/// traduz —, `note` é o dado que o passo trouxe (o status HTTP, o nome do
+/// servidor, a conta de ferramentas) e `detail` é a causa crua de quando não
+/// deu.
+export type McpStep = {
+  key: string;
+  ok: boolean;
+  note: string;
+  detail: string;
+};
+
+/// O exame inteiro: onde parou, e o resumo.
+export type McpCheck = {
+  steps: McpStep[];
+  probe: McpProbe;
 };
 
 export type Workspace = {

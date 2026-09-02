@@ -1,8 +1,8 @@
 import { invoke } from "./ipc";
 import { icon } from "./icons";
-import { fromBack, t } from "./i18n";
+import { fromBack, t, tn, type Key } from "./i18n";
 import * as menu from "./menu";
-import type { McpProbe, McpServer } from "./types";
+import type { McpCheck, McpServer, McpStep } from "./types";
 import { $, h, template } from "./util";
 
 /// O hub de MCP na tela: a lista de servidores em Configurações, e o seletor
@@ -242,210 +242,459 @@ async function save(server: McpServer) {
 
 /* ---------- o formulário ---------- */
 
-/// Um servidor, à mão. Dois formatos, porque são dois no CLI: um comando que
-/// roda aqui, ou uma URL. O que se digita vira o objeto que o Claude Code
-/// espera — quem escreve JSON é a tela, não a pessoa.
+/// O formulário enquanto está sendo preenchido. Vira `McpServer` na hora de
+/// examinar ou de gravar, e não antes: campo pela metade no meio da digitação
+/// é normal.
+export type Draft = {
+  stdio: boolean;
+  id: string;
+  cmd: string;
+  url: string;
+  /// Variáveis (stdio) ou cabeçalhos (remoto), na ordem em que a pessoa os
+  /// pôs. Em objeto a ordem seria a do JSON, e linha que salta de lugar
+  /// enquanto se digita é linha que se perde de vista.
+  pairs: [string, string][];
+  note: string;
+};
+
+export function toDraft(server: McpServer | null): Draft {
+  const config = server?.config ?? {};
+  return {
+    stdio: server ? kind(server) === "stdio" : true,
+    id: server?.id ?? "",
+    cmd: [config.command, ...((config.args as string[]) ?? [])].filter(Boolean).join(" "),
+    url: String(config.url ?? ""),
+    pairs: Object.entries((config.env ?? config.headers ?? {}) as Record<string, string>),
+    note: server?.note ?? "",
+  };
+}
+
+/// O que está no formulário, na forma que o CLI entende — quem escreve JSON é
+/// a tela, não a pessoa. `null` é campo faltando, e aí não há o que examinar
+/// nem o que gravar.
+export function toServer(d: Draft): McpServer | null {
+  const id = d.id.trim();
+  const parts = d.cmd.trim().split(/\s+/).filter(Boolean);
+  const url = d.url.trim();
+  if (!id || (d.stdio ? !parts.length : !url)) return null;
+  const pairs = Object.fromEntries(
+    d.pairs.map(([k, v]) => [k.trim(), v.trim()] as const).filter(([k]) => k),
+  );
+  return {
+    id,
+    config: d.stdio
+      ? { type: "stdio", command: parts[0], args: parts.slice(1), env: pairs }
+      : { type: "http", url, headers: pairs },
+    note: d.note.trim(),
+  };
+}
+
+/// Cadastrar um servidor em dois passos, como um assistente.
+///
+/// No primeiro, o que ninguém descobre por você: se é um programa daqui ou um
+/// endereço lá, o nome, e onde ele está. Sair do campo do endereço já manda o
+/// Prometheus falar com ele — subir o programa (ou bater na URL), apresentar-se,
+/// contar as ferramentas, e num remoto que pede login ver se dá para se
+/// autorizar nele. Cada uma dessas tentativas é uma linha na tela.
+///
+/// No segundo, o que depende do que o exame achou: entrar, os cabeçalhos ou as
+/// variáveis, e para que ele serve. Era tudo um formulário só, e o resultado
+/// do teste cabia numa linha do rodapé — "não conectou" e "conectou e pede
+/// login" apareciam no mesmo lugar, depois de tudo digitado, sem dizer em que
+/// ponto tinha parado.
+///
+/// Editar um servidor que já existe abre direto no segundo passo: o nome e o
+/// endereço já estão certos, e quem quiser mexer neles clica no resumo lá em
+/// cima e volta.
 function editor(server: McpServer | null) {
   const veil = $("veil");
-  const sheet = h("div", "sheet mcpedit");
-  sheet.innerHTML = `
-    <div class="sheettop"><b class="mt"></b></div>
-    <label class="fld"><span class="fl"></span><input id="m-id" spellcheck="false" /></label>
-    <div class="mkind">
-      <button class="ghost sw" id="m-stdio" role="switch"><span></span><i class="knob"></i></button>
-      <button class="ghost sw" id="m-url" role="switch"><span></span><i class="knob"></i></button>
-    </div>
-    <label class="fld" id="m-cmdfld"><span class="fl"></span><input id="m-cmd" spellcheck="false" /></label>
-    <label class="fld" id="m-urlfld"><span class="fl"></span><input id="m-url-v" spellcheck="false" /></label>
-    <label class="fld"><span class="fl"></span><textarea id="m-env" rows="3" spellcheck="false"></textarea></label>
-    <label class="fld"><span class="fl"></span><input id="m-note" spellcheck="false" /></label>
-    <div class="sheetbar">
-      <button class="ghost" id="m-test"></button>
-      <button class="ghost" id="m-login" hidden></button>
-      <span class="hint" id="m-hint"></span>
-      <button class="ghost" id="m-cancel"></button>
-      <button class="pri" id="m-save"></button>
-    </div>`;
-
-  const q = <T extends HTMLElement>(id: string) => sheet.querySelector(`#${id}`) as T;
-  const labels: [string, string][] = [
-    ["m-id", "mcp.field.name"],
-    ["m-cmdfld", "mcp.field.command"],
-    ["m-urlfld", "mcp.field.url"],
-    ["m-env", "mcp.field.env"],
-    ["m-note", "mcp.field.note"],
-  ];
-  for (const [id, key] of labels) {
-    const fld = q(id).closest(".fld") ?? q(id);
-    fld.querySelector(".fl")!.textContent = t(key as Parameters<typeof t>[0]);
-  }
-  sheet.querySelector(".mt")!.textContent = t(server ? "mcp.title.edit" : "mcp.title.new");
-  q("m-stdio").children[0].textContent = t("mcp.kind.stdio");
-  q("m-url").children[0].textContent = t("mcp.kind.url");
-  q("m-cancel").textContent = t("mcp.cancel");
-  q("m-save").textContent = t("mcp.save");
-  q("m-test").textContent = t("mcp.test");
-
-  let stdio = server ? kind(server) === "stdio" : true;
-  const drawKind = () => {
-    q("m-stdio").setAttribute("aria-checked", String(stdio));
-    q("m-stdio").classList.toggle("on", stdio);
-    q("m-url").setAttribute("aria-checked", String(!stdio));
-    q("m-url").classList.toggle("on", !stdio);
-    q("m-cmdfld").hidden = !stdio;
-    q("m-urlfld").hidden = stdio;
-  };
-  q("m-stdio").addEventListener("click", () => {
-    stdio = true;
-    drawKind();
-  });
-  q("m-url").addEventListener("click", () => {
-    stdio = false;
-    drawKind();
-  });
-  drawKind();
-
-  const config = server?.config ?? {};
-  q<HTMLInputElement>("m-id").value = server?.id ?? "";
-  q<HTMLInputElement>("m-cmd").value = [config.command, ...((config.args as string[]) ?? [])]
-    .filter(Boolean)
-    .join(" ");
-  q<HTMLInputElement>("m-url-v").value = String(config.url ?? "");
-  q<HTMLTextAreaElement>("m-env").value = pairsToText(
-    (config.env ?? config.headers ?? {}) as Record<string, string>,
+  const sheet = template(
+    "div",
+    "sheet mcpedit",
+    `<div class="sheettop"><b class="mt"></b></div><div class="mbody"></div><div class="sheetbar"></div>`,
   );
-  q<HTMLInputElement>("m-note").value = server?.note ?? "";
-  q<HTMLInputElement>("m-env").placeholder = t("mcp.field.env.hint");
+  const at = <T extends HTMLElement>(sel: string) => sheet.querySelector(sel) as T;
+  const draft = toDraft(server);
+  /// O último exame do que está no formulário, e `null` enquanto ninguém
+  /// examinou. Trocar de tipo joga fora: ele era sobre outro servidor.
+  let check: McpCheck | null = null;
+  let checking = false;
+  /// O botão da direita do rodapé, qualquer que seja o passo. Fica desligado
+  /// enquanto o exame corre — andar no meio dele seria andar sem o resultado.
+  let go: HTMLButtonElement | null = null;
 
   const hide = () => {
     veil.hidden = true;
     veil.replaceChildren();
   };
-  q("m-cancel").addEventListener("click", hide);
 
-  const hint = q("m-hint");
-  const show = (text: string, bad: boolean, title = "") => {
+  const hint = h("span", "hint");
+  const say = (text: string, bad = false) => {
     hint.textContent = text;
-    hint.title = title;
+    hint.title = text;
     hint.classList.toggle("bad", bad);
   };
 
-  /// O que está no formulário agora, na forma que o CLI entende. `null` é campo
-  /// faltando — e aí nem testar nem salvar fazem sentido.
-  const built = (): McpServer | null => {
-    const id = q<HTMLInputElement>("m-id").value.trim();
-    const pairs = textToPairs(q<HTMLTextAreaElement>("m-env").value);
-    const parts = q<HTMLInputElement>("m-cmd").value.trim().split(/\s+/).filter(Boolean);
-    const url = q<HTMLInputElement>("m-url-v").value.trim();
-    if (!id || (stdio ? !parts.length : !url)) return null;
-    return {
-      id,
-      config: stdio
-        ? { type: "stdio", command: parts[0], args: parts.slice(1), env: pairs }
-        : { type: "http", url, headers: pairs },
-      note: q<HTMLInputElement>("m-note").value.trim(),
-    };
+  /// O rodapé: sair à esquerda, o recado no meio, seguir à direita. Os dois
+  /// passos têm o mesmo desenho, e é o mesmo `hint` nos dois.
+  function foot(left: [Key, () => void], right: [Key, () => void]): HTMLButtonElement {
+    const back = h("button", "ghost", t(left[0]));
+    back.addEventListener("click", left[1]);
+    go = h("button", "pri", t(right[0])) as HTMLButtonElement;
+    go.addEventListener("click", right[1]);
+    go.disabled = checking;
+    at(".sheetbar").replaceChildren(back, hint, go);
+    return go;
+  }
+
+  /* ---------- primeiro passo: quem é, e onde ---------- */
+
+  /// Onde os passos do exame aparecem. Refeito por conta própria, e não com o
+  /// passo inteiro: redesenhar os campos tiraria o foco de quem acabou de sair
+  /// de um deles.
+  const checkBox = h("div", "mcheck");
+  const paintCheck = () => {
+    checkBox.hidden = !checking && !check;
+    checkBox.replaceChildren(...checkRows(draft, check, checking));
   };
 
-  // Entrar aparece quando o servidor pede login, e vira Sair depois que se
-  // entrou. Fica escondido enquanto ninguém testou: oferecer login para um
-  // servidor que não pede é oferecer um caminho que não existe.
-  const login = q<HTMLButtonElement>("m-login");
-  const drawLogin = (needs: boolean) => {
-    // Pelo nome que está no campo, e não pelo servidor que abriu a folha:
-    // cadastrar um novo e entrar nele acontece sem fechar isto aqui.
-    const inside = signedIn(q<HTMLInputElement>("m-id").value.trim());
-    login.hidden = !needs && !inside;
-    login.textContent = t(inside ? "mcp.logout" : "mcp.login");
-  };
-  drawLogin(false);
-  login.addEventListener("click", async () => {
-    const built_ = built();
-    if (!built_) return show(t("mcp.needFields"), true);
-    if (signedIn(built_.id)) {
-      await invoke("mcp_logout", { id: built_.id }).catch((e) => show(fromBack(e), true));
+  async function examine() {
+    const built = toServer(draft);
+    if (!built) return;
+    checking = true;
+    check = null;
+    say("");
+    if (go) go.disabled = true;
+    paintCheck();
+    try {
+      check = await invoke<McpCheck>("mcp_check", { server: built });
+    } catch (e) {
+      say(fromBack(e), true);
+    }
+    checking = false;
+    if (go) go.disabled = false;
+    paintCheck();
+    // O resultado nasce embaixo do que se acabou de digitar, e num corpo que
+    // rola isso é fora da tela — trazê-lo à vista é o que faz o exame ter
+    // servido para alguma coisa.
+    checkBox.scrollIntoView({ block: "end" });
+  }
+
+  function first() {
+    at(".mt").textContent = t(server ? "mcp.title.edit" : "mcp.title.new");
+    // Um servidor é um programa aqui ou um endereço lá — nunca os dois. A
+    // escolha troca o campo de baixo e o exame inteiro.
+    const kinds = h("div", "mkind");
+    const sw = (on: boolean, key: Key, pick: () => void) => {
+      const b = template("button", `ghost sw${on ? " on" : ""}`, `<span></span><i class="knob"></i>`);
+      b.setAttribute("role", "switch");
+      b.setAttribute("aria-checked", String(on));
+      b.children[0].textContent = t(key);
+      b.addEventListener("click", () => {
+        pick();
+        check = null;
+        first();
+      });
+      return b;
+    };
+    kinds.append(
+      sw(draft.stdio, "mcp.kind.stdio", () => (draft.stdio = true)),
+      sw(!draft.stdio, "mcp.kind.url", () => (draft.stdio = false)),
+    );
+    at(".mbody").replaceChildren(
+      h("p", "msay", t("mcp.intro")),
+      kinds,
+      field({
+        label: "mcp.field.name",
+        hint: "mcp.field.name.hint",
+        value: draft.id,
+        on: (v) => (draft.id = v),
+      }),
+      draft.stdio
+        ? field({
+            label: "mcp.field.command",
+            hint: "mcp.field.command.hint",
+            value: draft.cmd,
+            on: (v) => (draft.cmd = v),
+            done: examine,
+          })
+        : field({
+            label: "mcp.field.url",
+            hint: "mcp.field.url.hint",
+            value: draft.url,
+            on: (v) => (draft.url = v),
+            done: examine,
+          }),
+      checkBox,
+    );
+    // Trocar de passo começa do começo: o corpo rola, e herdar a rolagem do
+    // passo anterior deixaria o alto do novo escondido.
+    at(".mbody").scrollTop = 0;
+    paintCheck();
+    foot(["mcp.cancel", hide], ["mcp.next", advance]);
+  }
+
+  /// Continuar: quem ainda não examinou examina agora, porque o segundo passo
+  /// é escrito com o que o exame achou. Exame que deu errado não tranca o
+  /// caminho — pode ser a rede, e cadastrar para consertar depois é legítimo.
+  async function advance() {
+    if (!toServer(draft)) return say(t("mcp.needFields"), true);
+    if (!check) await examine();
+    second();
+  }
+
+  /* ---------- segundo passo: o que o exame deixou para decidir ---------- */
+
+  function second() {
+    at(".mt").textContent = t(server ? "mcp.title.edit" : "mcp.title.new");
+    at(".mbody").replaceChildren(
+      resume(),
+      // Login só existe em servidor remoto: um programa que roda aqui recebe
+      // o segredo por variável de ambiente, e não há a quem pedir consentimento.
+      ...(draft.stdio ? [] : [auth()]),
+      pairsSection(),
+      field({
+        label: "mcp.field.note",
+        hint: "mcp.field.note.hint",
+        value: draft.note,
+        on: (v) => (draft.note = v),
+      }),
+    );
+    at(".mbody").scrollTop = 0;
+    // Cancelar nos dois passos, e não "Voltar": voltar e corrigir é o resumo
+    // lá em cima, e fechar a folha tem que ser possível de onde se está —
+    // quem abriu para editar entra por aqui e não passou pelo primeiro passo.
+    foot(["mcp.cancel", hide], ["mcp.save", store]);
+  }
+
+  /// O que já foi decidido, no alto: o nome, onde ele está, e o que ele
+  /// respondeu. É botão porque voltar e corrigir tem que ser um clique.
+  function resume(): HTMLElement {
+    const row = template(
+      "button",
+      "mhead",
+      `<div class="txt"><b></b><span class="addr"></span><span class="said"></span></div><span class="pen"></span>`,
+    );
+    row.querySelector("b")!.textContent = draft.id.trim();
+    row.querySelector(".addr")!.textContent = (draft.stdio ? draft.cmd : draft.url).trim();
+    const said = check?.probe.ok
+      ? [check.probe.name, tn(check.probe.tools, "mcp.found.tools")].filter(Boolean).join(" · ")
+      : "";
+    row.querySelector(".said")!.textContent = said;
+    row.querySelector(".pen")!.innerHTML = icon("pencil", 14);
+    row.addEventListener("click", first);
+    return row;
+  }
+
+  /// Autenticação: o estado, e o botão que o muda. Não é uma escolha — quem
+  /// decide se pede login é o servidor, e o exame já perguntou. O que sobra
+  /// para a pessoa é entrar, ou sair.
+  function auth(): HTMLElement {
+    const inside = signedIn(draft.id.trim());
+    const asks = check?.probe.auth ?? false;
+    // Servidor que pede login mas não registra clientes na hora não tem
+    // entrada por aqui; o passo que falhou é que explica.
+    const open = asks && check!.steps.every((s) => s.ok);
+    const body: Key = inside
+      ? "mcp.auth.in"
+      : asks
+        ? open
+          ? "mcp.auth.needed"
+          : "mcp.auth.blocked"
+        : check?.probe.ok
+          ? "mcp.auth.no"
+          : "mcp.auth.unknown";
+    const box = section("mcp.auth", body);
+    // Entrar aparece para quem pediu login, e para quem ninguém examinou —
+    // tentar é barato, e o erro que vier diz mais do que esconder o botão.
+    if (inside || open || !check) {
+      const btn = h("button", "outline md", t(inside ? "mcp.logout" : "mcp.login")) as HTMLButtonElement;
+      btn.addEventListener("click", () => void enter(btn));
+      box.append(btn);
+    }
+    return box;
+  }
+
+  async function enter(btn: HTMLButtonElement) {
+    const built = toServer(draft);
+    if (!built) return say(t("mcp.needFields"), true);
+    if (signedIn(built.id)) {
+      try {
+        await invoke("mcp_logout", { id: built.id });
+      } catch (e) {
+        return say(fromBack(e), true);
+      }
       await refreshLogins();
-      drawLogin(true);
-      return;
+      return second();
     }
     // O servidor precisa estar cadastrado antes: o login é gravado pelo nome
     // dele, e um nome que ainda não existe no hub viraria login órfão.
-    login.disabled = true;
-    show(t("mcp.login.doing"), false);
-    try {
-      await save(built_);
-      await invoke("mcp_login", { server: built_ });
-      await refreshLogins();
-      show(t("mcp.login.ok"), false);
-      drawLogin(false);
-    } catch (e) {
-      show(fromBack(e), true);
-    }
-    login.disabled = false;
-  });
-
-  // Testar antes de salvar: sobe o servidor (ou bate na URL) e conta quantas
-  // ferramentas ele oferece. Quem responde é ele — não há agente no meio.
-  q("m-test").addEventListener("click", async () => {
-    const server = built();
-    if (!server) return show(t("mcp.needFields"), true);
-    const btn = q<HTMLButtonElement>("m-test");
     btn.disabled = true;
-    show(t("mcp.testing"), false);
+    say(t("mcp.login.doing"));
     try {
-      const got = await invoke<McpProbe>("mcp_test", { server });
-      show(...verdict(got));
-      drawLogin(got.auth);
+      await save(built);
+      await invoke("mcp_login", { server: built });
+      await refreshLogins();
+      say(t("mcp.login.ok"));
+      // O exame de antes dizia "pede login", e agora diria outra coisa:
+      // refazê-lo é o que faz a folha contar a verdade nova.
+      await examine();
+      second();
     } catch (e) {
-      show(fromBack(e), true);
+      say(fromBack(e), true);
+      btn.disabled = false;
     }
-    btn.disabled = false;
-  });
+  }
 
-  q("m-save").addEventListener("click", () => {
-    const server = built();
-    if (!server) return show(t("mcp.needFields"), true);
-    save(server)
+  /// Variáveis (stdio) ou cabeçalhos (remoto): uma linha por par, o nome de um
+  /// lado e o valor do outro. Era um `CHAVE=valor` por linha num campo de
+  /// texto, que é rápido de colar e fácil de errar — e remover um par era
+  /// editar texto.
+  function pairsSection(): HTMLElement {
+    const box = section(
+      draft.stdio ? "mcp.pairs.env" : "mcp.pairs.headers",
+      draft.stdio ? "mcp.pairs.env.body" : "mcp.pairs.headers.body",
+    );
+    const rows = h("div", "mpairs");
+    const paint = () => {
+      rows.replaceChildren(
+        ...draft.pairs.map((pair, i) =>
+          pairRow(pair, () => {
+            draft.pairs.splice(i, 1);
+            paint();
+          }),
+        ),
+      );
+    };
+    paint();
+    const add = template("button", "ghost md", `${icon("plus", 14)}<span></span>`);
+    add.children[1].textContent = t("mcp.pairs.add");
+    add.addEventListener("click", () => {
+      draft.pairs.push(["", ""]);
+      paint();
+      (rows.lastElementChild?.querySelector("input") as HTMLInputElement | null)?.focus();
+    });
+    box.append(rows, add);
+    return box;
+  }
+
+  /// Gravar. O que está escrito é o que vale — inclusive de um servidor que
+  /// não respondeu ao exame.
+  function store() {
+    const built = toServer(draft);
+    if (!built) return say(t("mcp.needFields"), true);
+    save(built)
       .then(hide)
-      .catch((e) => show(fromBack(e), true));
-  });
+      .catch((e) => say(fromBack(e), true));
+  }
 
+  if (server) second();
+  else first();
   veil.replaceChildren(sheet);
   veil.hidden = false;
-  q<HTMLInputElement>("m-id").focus();
+  // Só quem está cadastrando começa com o cursor no primeiro campo. Editar
+  // abre no segundo passo, e ali o primeiro campo é um que já está preenchido.
+  if (!server) at<HTMLInputElement>("input")?.focus();
 }
 
-/// O teste em uma linha. Conectar e não oferecer ferramenta nenhuma não é
-/// sucesso na prática: o agente não ganha nada com isso, e a linha diz.
-function verdict(got: McpProbe): [string, boolean, string] {
-  if (got.auth) return [t("mcp.test.auth"), true, t("mcp.test.auth.title")];
-  if (!got.ok) {
-    const text = got.detail ? t("mcp.test.fail", { detail: got.detail }) : t("mcp.test.failBlank");
-    // A causa crua costuma passar de uma linha; a linha mostra o começo, e o
-    // resto fica onde não atrapalha.
-    return [text, true, text];
-  }
-  if (!got.tools) return [t("mcp.test.empty"), true, ""];
-  const n = String(got.tools);
-  return [got.name ? t("mcp.test.okNamed", { name: got.name, n }) : t("mcp.test.ok", { n }), false, ""];
+function pairRow(pair: [string, string], drop: () => void): HTMLElement {
+  const row = h("div", "mpair");
+  const cell = (which: 0 | 1, place: Key) => {
+    const input = h("input", "") as HTMLInputElement;
+    input.spellcheck = false;
+    input.placeholder = t(place);
+    input.value = pair[which];
+    input.addEventListener("input", () => (pair[which] = input.value));
+    return input;
+  };
+  const x = template("button", "ico sm", icon("x", 14));
+  x.title = t("mcp.pairs.drop");
+  x.addEventListener("click", drop);
+  row.append(cell(0, "mcp.pairs.key"), cell(1, "mcp.pairs.value"), x);
+  return row;
 }
 
-/// `CHAVE=valor` por linha, que é como se lê uma variável de ambiente em
-/// qualquer lugar — e evita pedir JSON a quem só quer colar um token.
-function pairsToText(pairs: Record<string, string>): string {
-  return Object.entries(pairs)
-    .map(([k, v]) => `${k}=${v}`)
-    .join("\n");
+/// Um campo com o rótulo em cima e a explicação embaixo. A explicação fica
+/// escrita, e não num `placeholder`: `placeholder` desaparece justamente
+/// quando se digita, que é quando ele serviria.
+function field(o: {
+  label: Key;
+  hint: Key;
+  value: string;
+  on: (v: string) => void;
+  /// Saiu do campo tendo mudado o que estava escrito — o momento de examinar.
+  /// Não a cada tecla: o exame sobe processo e atravessa a rede.
+  done?: () => void;
+}): HTMLElement {
+  const box = template(
+    "label",
+    "fld",
+    `<span class="fl"></span><input spellcheck="false" /><span class="fh"></span>`,
+  );
+  box.querySelector(".fl")!.textContent = t(o.label);
+  box.querySelector(".fh")!.textContent = t(o.hint);
+  const input = box.querySelector("input")!;
+  input.value = o.value;
+  input.addEventListener("input", () => o.on(input.value));
+  if (o.done) input.addEventListener("change", o.done);
+  return box;
 }
 
-function textToPairs(text: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const line of text.split("\n")) {
-    const at = line.indexOf("=");
-    if (at <= 0) continue;
-    out[line.slice(0, at).trim()] = line.slice(at + 1).trim();
-  }
-  return out;
+/// Uma seção do segundo passo: o título, uma frase do que ela é, e o que ela
+/// tem dentro.
+function section(title: Key, body: Key): HTMLElement {
+  const box = template("div", "msect", `<b></b><span class="sb"></span>`);
+  box.children[0].textContent = t(title);
+  box.children[1].textContent = t(body);
+  return box;
+}
+
+/// A ordem em que o exame tenta as coisas. Serve para desenhar as linhas
+/// enquanto ele corre: o back devolve tudo de uma vez, e uma lista que só
+/// aparecesse no fim deixaria vinte segundos de tela parada. Os passos do
+/// OAuth não estão aqui porque só existem se o servidor pedir login — eles
+/// aparecem com a resposta.
+const AHEAD: Record<"stdio" | "url", string[]> = {
+  stdio: ["spawn", "handshake", "tools"],
+  url: ["connect", "handshake", "tools"],
+};
+
+function checkRows(draft: Draft, check: McpCheck | null, running: boolean): HTMLElement[] {
+  const keys = check ? check.steps.map((s) => s.key) : AHEAD[draft.stdio ? "stdio" : "url"];
+  const rows = keys.map((key, i) => stepRow(key, check?.steps[i] ?? null));
+  return [
+    h("b", "ch", t(running ? "mcp.check.doing" : "mcp.check.done")),
+    ...rows,
+    ...(check ? [verdict(check)] : []),
+  ];
+}
+
+function stepRow(key: string, step: McpStep | null): HTMLElement {
+  const row = template(
+    "div",
+    `crow${step ? (step.ok ? " ok" : " bad") : ""}`,
+    `<span class="cg"></span><div class="txt"><b></b><span></span></div><span class="cc"></span>`,
+  );
+  row.querySelector(".cg")!.innerHTML = step ? icon(step.ok ? "check" : "x", 14) : `<i class="spin"></i>`;
+  row.querySelector("b")!.textContent = t(`mcp.step.${key}` as Key);
+  row.querySelector(".txt span")!.textContent = !step
+    ? t("mcp.step.wait")
+    : step.ok
+      ? t("mcp.step.ok")
+      : // Ferramenta nenhuma é a única falha que o servidor não explica: ele
+        // respondeu, e a resposta estava vazia.
+        step.detail || t(key === "tools" ? "mcp.step.tools.none" : "mcp.step.fail");
+  row.querySelector(".cc")!.textContent = step?.note ?? "";
+  return row;
+}
+
+/// O fecho do exame: o que ele quer dizer para o passo seguinte.
+function verdict(check: McpCheck): HTMLElement {
+  const { ok, auth } = check.probe;
+  const box = template("div", `cnote${ok || auth ? "" : " bad"}`, `<span class="ic"></span><span></span>`);
+  box.querySelector(".ic")!.innerHTML = icon(ok || auth ? "check" : "x", 14);
+  box.children[1].textContent = t(ok ? "mcp.found.ok" : auth ? "mcp.found.auth" : "mcp.found.fail");
+  return box;
 }
 
 /* ---------- importar ---------- */

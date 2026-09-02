@@ -172,7 +172,7 @@ fn main() {
             mcp::mcp_save,
             mcp::mcp_remove,
             mcp::mcp_found,
-            mcp::mcp_test,
+            mcp::mcp_check,
             mcp::mcp_login,
             mcp::mcp_logout,
             mcp::mcp_logins,
