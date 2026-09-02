@@ -311,6 +311,9 @@ mod tests {
     #[test]
     fn resposta_estranha_e_catalogo_vazio() {
         assert!(parse_claude_models("nem json").is_empty());
-        assert!(parse_claude_models(r#"{"type":"control_response","response":{"subtype":"error"}}"#).is_empty());
+        assert!(parse_claude_models(
+            r#"{"type":"control_response","response":{"subtype":"error"}}"#
+        )
+        .is_empty());
     }
 }
