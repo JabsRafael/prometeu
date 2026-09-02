@@ -1,9 +1,10 @@
 //! Não deixar o Mac dormir.
 //!
-//! Quem faz isso no macOS é o `caffeinate`, que já vem instalado: enquanto ele
-//! está de pé, o sistema não entra em repouso por ociosidade. `-i` é só isso —
-//! a tela continua apagando na hora dela, que é o que se quer de uma máquina
-//! trabalhando sozinha de madrugada.
+//! Quem faz isso no macOS é o `caffeinate`, que já vem instalado. Enquanto ele
+//! está de pé, `-i` impede o repouso por ociosidade, `-d` mantém a tela ligada e
+//! `-s` cobre as demais tentativas de repouso enquanto o Mac está na tomada.
+//! Sem `-d`, a tela apagava normalmente e a escolha parecia não ter funcionado;
+//! sem `-s`, só o repouso estritamente classificado como ocioso era impedido.
 //!
 //! O `-w` do nosso próprio pid é o que faz isto não ter limpeza: o
 //! `caffeinate` espera o app terminar e sai junto. Mesmo o app morrendo de
@@ -42,7 +43,7 @@ pub fn set_awake(on: bool) -> Result<(), String> {
         (true, Some(alive)) => *child = Some(alive),
         (true, None) => {
             let spawned = Command::new("/usr/bin/caffeinate")
-                .args(["-i", "-w", &std::process::id().to_string()])
+                .args(["-d", "-i", "-s", "-w", &std::process::id().to_string()])
                 .spawn()
                 .map_err(|error| error.to_string())?;
             *child = Some(spawned);
@@ -64,10 +65,20 @@ mod tests {
     /// processo de teste por causa do `-w`, então nem falhando fica alguém
     /// segurando a máquina acordada.
     #[test]
-    fn liga_desliga_e_nao_sobe_dois() {
+    fn liga_tela_e_sistema_desliga_e_nao_sobe_dois() {
         set_awake(true).expect("caffeinate não subiu");
         let first = lock(running()).as_ref().map(|c| c.id());
         assert!(first.is_some());
+
+        // Não basta o filho existir: foi justamente usar só `-i` que deixou a
+        // tela apagar e fez a opção parecer quebrada para quem estava olhando.
+        let command = Command::new("/bin/ps")
+            .args(["-p", &first.unwrap().to_string(), "-o", "command="])
+            .output()
+            .expect("não leu o caffeinate");
+        let command = String::from_utf8_lossy(&command.stdout);
+        assert!(command.contains("caffeinate -d -i -s -w"), "{command}");
+
         set_awake(true).expect("segundo pedido");
         assert_eq!(lock(running()).as_ref().map(|c| c.id()), first);
 
