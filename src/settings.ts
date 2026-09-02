@@ -5,6 +5,7 @@ import { avatar, icon } from "./icons";
 import { LANGS, choose, chosen, fromBack, fromSystem, t, tn, type Key, type Lang } from "./i18n";
 import * as mcp from "./mcp";
 import * as menu from "./menu";
+import * as plugins from "./plugins";
 import * as news from "./news";
 import * as team from "./team";
 import type { LinearStatus } from "./types";
@@ -42,6 +43,9 @@ export async function init(context: Ctx) {
   mcp.onChange(() => {
     if (!$("settingsView").hidden) draw();
   });
+  plugins.onChange(() => {
+    if (!$("settingsView").hidden) draw();
+  });
   // Presença muda sozinha; a linha do time acompanha — menos enquanto você
   // digita num campo dela, que refazer a página apagaria.
   team.onChange(() => {
@@ -75,6 +79,12 @@ const PAGES: Page[] = [
     title: "settings.mcp",
     glyph: "plug",
     rows: () => mcp.settingsRows(),
+  },
+  {
+    id: "plugins",
+    title: "settings.plugins",
+    glyph: "puzzle",
+    rows: () => plugins.settingsRows(),
   },
   {
     id: "integracoes",

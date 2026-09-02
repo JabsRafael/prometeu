@@ -1613,93 +1613,93 @@ body.noside .side { display: none; }
 /* As linhas da lista são as mesmas de Configurações; o que é próprio daqui é o
    assistente de dois passos. O corpo rola e o rodapé não: o segundo passo tem
    resumo, seções e pares, e passa da altura da janela em tela pequena. */
-.sheet.mcpedit { width: min(560px, 100%); }
-.sheet.mcpedit .sheettop b { font-weight: 500; }
-.sheet.mcpedit .mbody {
+.sheet.hubedit { width: min(560px, 100%); }
+.sheet.hubedit .sheettop b { font-weight: 500; }
+.sheet.hubedit .mbody {
   display: flex; flex-direction: column; gap: 14px;
   padding: 14px; overflow-y: auto; min-height: 0; max-height: min(58vh, 560px);
 }
-.sheet.mcpedit .msay { color: var(--fg-2); font-size: 12.5px; line-height: 1.5; }
+.sheet.hubedit .msay { color: var(--fg-2); font-size: 12.5px; line-height: 1.5; }
 /* Cada campo diz para que serve, embaixo e por escrito: `placeholder`
    desaparece justamente quando se está digitando. */
-.sheet.mcpedit .fld { display: flex; flex-direction: column; gap: 6px; }
-.sheet.mcpedit .fld .fl { font-size: 11.5px; color: var(--fg-3); }
-.sheet.mcpedit .fld .fh { font-size: 11.5px; color: var(--fg-3); line-height: 1.45; }
-.sheet.mcpedit input {
+.sheet.hubedit .fld { display: flex; flex-direction: column; gap: 6px; }
+.sheet.hubedit .fld .fl { font-size: 11.5px; color: var(--fg-3); }
+.sheet.hubedit .fld .fh { font-size: 11.5px; color: var(--fg-3); line-height: 1.45; }
+.sheet.hubedit input {
   width: 100%; padding: 7px 9px; background: var(--bg); color: var(--fg);
   border: 1px solid var(--line); border-radius: var(--r);
   font-family: var(--mono); font-size: 12px;
 }
-.sheet.mcpedit input:focus-visible { outline: none; border-color: var(--line-raised); }
+.sheet.hubedit input:focus-visible { outline: none; border-color: var(--line-raised); }
 /* Um servidor é um programa aqui ou um endereço lá — nunca os dois. */
-.sheet.mcpedit .mkind { display: flex; gap: 8px; }
+.sheet.hubedit .mkind { display: flex; gap: 8px; }
 
 /* O exame, passo a passo. Uma linha por tentativa: o que se tentou, como foi,
    e o dado que ela trouxe (o status, o nome do servidor, a conta). */
-.sheet.mcpedit .mcheck { display: flex; flex-direction: column; gap: 2px; }
-.sheet.mcpedit .mcheck .ch { font-weight: 500; margin-bottom: 6px; }
-.sheet.mcpedit .crow {
+.sheet.hubedit .mcheck { display: flex; flex-direction: column; gap: 2px; }
+.sheet.hubedit .mcheck .ch { font-weight: 500; margin-bottom: 6px; }
+.sheet.hubedit .crow {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 10px; border-radius: var(--r); background: var(--bg);
 }
-.sheet.mcpedit .crow .cg {
+.sheet.hubedit .crow .cg {
   display: flex; flex: none; width: 16px; justify-content: center; color: var(--fg-3);
 }
-.sheet.mcpedit .crow.ok .cg { color: var(--done); }
-.sheet.mcpedit .crow.bad .cg { color: var(--err); }
-.sheet.mcpedit .crow .txt { flex: 1; min-width: 0; }
-.sheet.mcpedit .crow .txt b { display: block; font-weight: 400; }
-.sheet.mcpedit .crow .txt span {
+.sheet.hubedit .crow.ok .cg { color: var(--done); }
+.sheet.hubedit .crow.bad .cg { color: var(--err); }
+.sheet.hubedit .crow .txt { flex: 1; min-width: 0; }
+.sheet.hubedit .crow .txt b { display: block; font-weight: 400; }
+.sheet.hubedit .crow .txt span {
   display: block; font-size: 11.5px; color: var(--fg-3);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.sheet.mcpedit .crow.bad .txt span { color: var(--err); }
-.sheet.mcpedit .crow .cc {
+.sheet.hubedit .crow.bad .txt span { color: var(--err); }
+.sheet.hubedit .crow .cc {
   flex: none; max-width: 140px; padding: 2px 6px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   border-radius: var(--r); background: var(--bg-raised-2);
   font-family: var(--mono); font-size: 11px; color: var(--fg-3);
 }
-.sheet.mcpedit .crow .cc:empty { display: none; }
+.sheet.hubedit .crow .cc:empty { display: none; }
 /* O fecho do exame: o que ele quer dizer para o passo seguinte. */
-.sheet.mcpedit .cnote {
+.sheet.hubedit .cnote {
   display: flex; align-items: flex-start; gap: 10px; margin-top: 8px;
   padding: 10px; border-radius: var(--r); background: var(--bg);
   font-size: 12.5px; color: var(--fg-2); line-height: 1.45;
 }
-.sheet.mcpedit .cnote .ic { flex: none; color: var(--done); }
-.sheet.mcpedit .cnote.bad, .sheet.mcpedit .cnote.bad .ic { color: var(--err); }
+.sheet.hubedit .cnote .ic { flex: none; color: var(--done); }
+.sheet.hubedit .cnote.bad, .sheet.hubedit .cnote.bad .ic { color: var(--err); }
 
 /* O resumo do primeiro passo, no alto do segundo: clicar volta e corrige. */
-.sheet.mcpedit .mhead {
+.sheet.hubedit .mhead {
   display: flex; align-items: center; gap: 10px; width: 100%;
   /* Botão tem altura fixa por padrão, e aqui são três linhas dentro dele. */
   height: auto; padding: 10px; border: 1px solid var(--line); border-radius: var(--r);
   background: var(--bg); text-align: left; font-weight: 400;
 }
-.sheet.mcpedit .mhead:hover { background: var(--bg); border-color: var(--line-raised); }
-.sheet.mcpedit .mhead .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.sheet.mcpedit .mhead b { font-weight: 500; }
-.sheet.mcpedit .mhead .addr {
+.sheet.hubedit .mhead:hover { background: var(--bg); border-color: var(--line-raised); }
+.sheet.hubedit .mhead .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sheet.hubedit .mhead b { font-weight: 500; }
+.sheet.hubedit .mhead .addr {
   font-family: var(--mono); font-size: 11.5px; color: var(--fg-3);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.sheet.mcpedit .mhead .said { font-size: 11.5px; color: var(--fg-2); }
-.sheet.mcpedit .mhead .said:empty { display: none; }
-.sheet.mcpedit .mhead .pen { display: flex; flex: none; color: var(--fg-3); }
+.sheet.hubedit .mhead .said { font-size: 11.5px; color: var(--fg-2); }
+.sheet.hubedit .mhead .said:empty { display: none; }
+.sheet.hubedit .mhead .pen { display: flex; flex: none; color: var(--fg-3); }
 
 /* Uma seção do segundo passo: título, a frase do que ela é, e o que tem dentro. */
-.sheet.mcpedit .msect { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
-.sheet.mcpedit .msect > b { font-weight: 500; }
-.sheet.mcpedit .msect > .sb { font-size: 12px; color: var(--fg-3); line-height: 1.45; }
-.sheet.mcpedit .msect > button { margin-top: 2px; }
-.sheet.mcpedit .mpairs { display: flex; flex-direction: column; gap: 6px; width: 100%; }
-.sheet.mcpedit .mpairs:empty { display: none; }
-.sheet.mcpedit .mpair { display: flex; align-items: center; gap: 6px; }
-.sheet.mcpedit .mpair input:first-child { width: 34%; flex: none; }
-.sheet.mcpedit .mpair .ico.sm { flex: none; color: var(--fg-3); }
+.sheet.hubedit .msect { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.sheet.hubedit .msect > b { font-weight: 500; }
+.sheet.hubedit .msect > .sb { font-size: 12px; color: var(--fg-3); line-height: 1.45; }
+.sheet.hubedit .msect > button { margin-top: 2px; }
+.sheet.hubedit .mpairs { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.sheet.hubedit .mpairs:empty { display: none; }
+.sheet.hubedit .mpair { display: flex; align-items: center; gap: 6px; }
+.sheet.hubedit .mpair input:first-child { width: 34%; flex: none; }
+.sheet.hubedit .mpair .ico.sm { flex: none; color: var(--fg-3); }
 
 /* Sair à esquerda, o recado no meio, seguir à direita — nos dois passos. */
-.sheet.mcpedit .sheetbar { padding: 12px 14px; gap: 10px; border-top: 1px solid var(--line-raised); }
-.sheet.mcpedit .sheetbar .hint { flex: 1; min-width: 0; }
-.sheet.mcpedit .hint.bad { color: var(--err); }
+.sheet.hubedit .sheetbar { padding: 12px 14px; gap: 10px; border-top: 1px solid var(--line-raised); }
+.sheet.hubedit .sheetbar .hint { flex: 1; min-width: 0; }
+.sheet.hubedit .hint.bad { color: var(--err); }

@@ -216,6 +216,30 @@ pub fn set_workspace_mcp(
     publish(&app);
 }
 
+/// Trocar os plugins do workspace, pela mesma regra do MCP: eles entram quando
+/// a sessão sobe, então as abas caem aqui e a próxima fala as levanta de novo
+/// com a lista nova. O que se perde é o processo, não a conversa.
+#[tauri::command]
+pub fn set_workspace_plugins(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+    plugins: Option<Vec<String>>,
+) {
+    let tabs = {
+        let mut board = lock(&state.board);
+        let Some(ws) = board.workspace_mut(&id) else {
+            return;
+        };
+        ws.plugins = plugins;
+        ws.tabs.iter().map(|t| t.id.clone()).collect::<Vec<_>>()
+    };
+    for tab in tabs {
+        chat::kill(&state, &tab);
+    }
+    publish(&app);
+}
+
 /// Marcar como não lido à mão: dar de cara com a novidade e não poder lidar com
 /// ela agora é o caso mais comum de todos.
 #[tauri::command]
@@ -613,6 +637,10 @@ pub struct Launch {
     /// `None` é não impor nada ao CLI — ver `Workspace::mcp` e `mcp.rs`.
     #[serde(default)]
     pub mcp: Option<Vec<String>>,
+    /// Os plugins do Claude Code que esta conversa carrega, pelo nome no hub.
+    /// `None` é não impor nada — ver `Workspace::plugins` e `plugins.rs`.
+    #[serde(default)]
+    pub plugins: Option<Vec<String>>,
 }
 
 /// A escolha gravada na aba vira argumento do mesmo jeito que a do lançador —
@@ -625,6 +653,7 @@ impl From<Choice> for Launch {
             effort: c.effort,
             plan: false,
             mcp: None,
+            plugins: None,
         }
     }
 }
@@ -640,6 +669,7 @@ impl Workspace {
             effort: self.effort.clone(),
             plan: false,
             mcp: self.mcp.clone(),
+            plugins: self.plugins.clone(),
         }
     }
 
@@ -659,6 +689,7 @@ impl Workspace {
                 || self.launch(),
                 |choice| Launch {
                     mcp: self.mcp.clone(),
+                    plugins: self.plugins.clone(),
                     ..Launch::from(choice)
                 },
             )
@@ -818,6 +849,7 @@ pub fn create_workspace(
         model: draft.launch.model.clone(),
         effort: draft.launch.effort.clone(),
         mcp: draft.launch.mcp.clone(),
+        plugins: draft.launch.plugins.clone(),
         port,
         active: None,
         tabs: Vec::new(),
@@ -1243,6 +1275,13 @@ fn claude_args(id: &str, resume: bool, launch: &Launch) -> Vec<String> {
         Ok(None) => {}
         Err(error) => eprintln!("mcp de {id}: {error}"),
     }
+    // Os plugins escolhidos, um `--plugin-dir`/`--plugin-url` cada. São flags
+    // de sessão: não mexem no cadastro do CLI, e um plugin que ele já carrega
+    // sozinho não entra duas vezes — a deduplicação é por nome, e é dele. Sem
+    // escolha nenhuma nada vai, e vale o que o CLI já carregava. O Codex tem
+    // plugin, mas não por flag de sessão — por isso isto só existe aqui, e a
+    // tela esconde o seletor em workspace de GPT (ver `plugins.rs`).
+    args.extend(crate::plugins::args_for(launch.plugins.as_ref()));
     args
 }
 
@@ -1754,6 +1793,7 @@ mod tests {
             audience: None,
             preparing: false,
             mcp: None,
+            plugins: None,
             failed: None,
             model: String::new(),
             effort: String::new(),
@@ -1926,6 +1966,7 @@ mod tests {
     fn launch(model: &str, effort: &str, plan: bool) -> Launch {
         Launch {
             mcp: None,
+            plugins: None,
             agent: String::new(),
             model: model.into(),
             effort: effort.into(),
@@ -1958,6 +1999,17 @@ mod tests {
         assert!(std::path::Path::new(&args[at + 1]).exists());
         assert!(args.contains(&"--strict-mcp-config".to_string()));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Quem nunca escolheu plugin não recebe flag nenhuma: o CLI carrega o que
+    /// sempre carregou. A tradução de escolha em flag é do `plugins.rs`, e o
+    /// teste dela mora lá — aqui só o caso de não haver escolha, que é o de
+    /// todo quadro gravado antes disto existir.
+    #[test]
+    fn sem_escolha_nao_ha_flag_de_plugin() {
+        let args = claude_args("id", false, &launch("", "", false));
+        assert!(!args.contains(&"--plugin-dir".to_string()));
+        assert!(!args.contains(&"--plugin-url".to_string()));
     }
 
     /// Bypass e plan não convivem na mesma linha: `--dangerously-skip-permissions`
@@ -2014,6 +2066,7 @@ mod tests {
             audience: None,
             preparing: false,
             mcp: None,
+            plugins: None,
             failed: None,
             agent: String::new(),
             model: String::new(),
@@ -2433,6 +2486,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
             audience: None,
             preparing: false,
             mcp: None,
+            plugins: None,
             failed: None,
             model: String::new(),
             effort: String::new(),

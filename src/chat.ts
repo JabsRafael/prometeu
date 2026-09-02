@@ -19,9 +19,10 @@ import {
   toolLabel,
   wantsCard,
 } from "./chat-presentation";
-import { effortStep, modelLabel } from "./launcher";
+import { agentOf, effortStep, modelLabel } from "./launcher";
 import { md } from "./markdown";
 import * as mcp from "./mcp";
+import * as plugins from "./plugins";
 import * as commands from "./commands";
 import * as notes from "./notes";
 import * as paths from "./paths";
@@ -67,6 +68,8 @@ export type Info = {
   /// As ferramentas de MCP deste workspace. `null` é nunca ter escolhido — o
   /// CLI decide, como antes do hub existir.
   mcp: string[] | null;
+  /// Os plugins deste workspace, pela mesma regra do MCP.
+  plugins: string[] | null;
 };
 
 export type Ctx = {
@@ -926,6 +929,7 @@ export class ChatView {
              o processo, e a próxima fala o levanta retomando a sessão — a
              conversa continua de onde estava, com o que foi marcado agora. -->
         <button class="ghost sm mcpbtn" hidden><span></span></button>
+        <button class="ghost sm plugbtn" hidden><span></span></button>
         <button class="ico sm at" hidden></button>
         <button class="outline md quotesel" hidden></button>
         <span class="hint"></span>
@@ -1179,6 +1183,7 @@ export class ChatView {
     q(".hint").textContent = note ? "" : this.tl.compacting ? t("chat.compacting") : this.tl.busy ? t("chat.busy") : "";
     this.paintWith(info, note);
     this.paintMcp(info, note);
+    this.paintPlugins(info, note);
     // Falar com o agente é uma seta redonda, como no Conductor; deixar nota é
     // outra coisa, e continua dizendo o que faz.
     const send = q(".send");
@@ -1280,6 +1285,37 @@ export class ChatView {
         },
         at: () => ({ x: at.left, y: at.bottom + 4 }),
         locked: () => (working ? t("mcp.busy") : ""),
+      });
+    };
+  }
+
+  /// Os plugins desta conversa, e o botão que os troca. Tudo o que vale para
+  /// o de MCP vale aqui — inclusive derrubar o processo para a próxima fala
+  /// subir com a lista nova.
+  private paintPlugins(info: Info, note: boolean) {
+    const btn = this.box.querySelector<HTMLButtonElement>(".plugbtn")!;
+    const has = plugins.list().length > 0 || info.plugins !== null;
+    // Fora do Codex: a escolha vira flag do `claude`, e o Codex não a recebe.
+    btn.hidden =
+      note || !!info.remote || !info.workspace || !has || agentOf(info.model) === "codex";
+    if (btn.hidden) return;
+    const working = info.status === "rodando" || info.status === "querendo";
+    btn.innerHTML = `${icon("puzzle", 13)}<span></span>`;
+    btn.querySelector("span")!.textContent = plugins.label(info.plugins);
+    btn.classList.toggle("on", !!info.plugins?.length);
+    btn.title = t("plugin.title");
+    btn.onclick = () => {
+      const at = btn.getBoundingClientRect();
+      const workspace = info.workspace!;
+      plugins.openPicker({
+        chosen: () => this.ctx.info().plugins,
+        set: (ids) => {
+          void invoke("set_workspace_plugins", { id: workspace, plugins: ids }).catch((e) =>
+            this.ctx.say(fromBack(e), true),
+          );
+        },
+        at: () => ({ x: at.left, y: at.bottom + 4 }),
+        locked: () => (working ? t("plugin.busy") : ""),
       });
     };
   }

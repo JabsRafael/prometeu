@@ -15,6 +15,7 @@ import * as links from "./links";
 import { current, fromBack, paint, t } from "./i18n";
 import * as issues from "./issues";
 import * as mcp from "./mcp";
+import * as plugins from "./plugins";
 import { dropFiles, installed, loadAgents, openLauncher, type Draft } from "./launcher";
 import * as menu from "./menu";
 import * as news from "./news";
@@ -523,6 +524,9 @@ await team.init();
 // pequeno, e um seletor vazio no primeiro clique seria pior que esperar.
 mcp.init({ say });
 void mcp.load();
+// O hub de plugins, pela mesma razão e do mesmo jeito.
+plugins.init({ say });
+void plugins.load();
 // A tela de issues pergunta às configurações se há Linear; elas respondem
 // depois de saber, e por isso vêm antes.
 await settings.init({ say });
@@ -548,6 +552,7 @@ session.init(
       workspace: open,
       status: tab?.status ?? null,
       mcp: w?.mcp ?? null,
+      plugins: w?.plugins ?? null,
       pending: tab?.pending_prompt ?? null,
       worktree: w?.worktree ?? null,
       remote: w?.remote ? { name: team.nameOf(w.remote.owner), online: w.remote.online } : null,

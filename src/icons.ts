@@ -32,6 +32,8 @@ const PATHS = {
     '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/>' +
     '<path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
   play: '<path d="M6 4.5v15l13-7.5Z"/>',
+  puzzle:
+    '<path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/>',
   // Seis barras que o CSS faz subir e descer: é o "tem coisa rodando" da aba.
   // Todas nascem centradas em y≈12, então uma origem só (`12px 12px`) serve
   // para as seis — sem `transform-box`, que em traço de largura zero é terreno

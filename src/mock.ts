@@ -3,7 +3,7 @@
 /// `window.__TAURI_INTERNALS__` não existe — dentro do app não é carregado.
 import { encodeLive, encodeSnapshot } from "../relay/src/protocol";
 import * as team from "./team";
-import { hasWorktree, type Board, type Issue, type LinearStatus, type McpServer, type Pr, type Scripts, type Workspace } from "./types";
+import { hasWorktree, type Board, type Issue, type LinearStatus, type McpServer, type Plugin, type Pr, type Scripts, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
@@ -36,6 +36,7 @@ const ws = (
   model: "opus[1m]",
   effort: "high",
   mcp: null,
+  plugins: null,
   port: 3100,
   issue: null,
   cleaned: false,
@@ -415,6 +416,13 @@ let mcpHub: McpServer[] = [
   { id: "linear-server", config: { type: "http", url: "https://mcp.linear.app/mcp" }, note: "capim-backend" },
 ];
 
+/// O hub de plugins do navegador: um instalado por marketplace e um que
+/// alguém está escrevendo, que são os dois casos que a lista desenha.
+let pluginHub: Plugin[] = [
+  { id: "caveman", source: "~/.claude/plugins/cache/caveman/caveman", note: "caveman" },
+  { id: "ponytail", source: "~/dev/ponytail", note: "em construção" },
+];
+
 /// Em quais servidores já se entrou, no navegador.
 let mcpLogins: string[] = [];
 
@@ -787,6 +795,39 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
         { id: "metabase", config: { type: "http", url: "https://metabase.exemplo/mcp" }, note: "capim-backend" },
         { id: "n8n", config: { type: "stdio", command: "npx", args: ["-y", "n8n-mcp"], env: {} }, note: "" },
       ];
+    // O hub de plugins, do mesmo jeito que o de MCP.
+    case "plugin_hub":
+      return pluginHub;
+    case "plugin_save": {
+      const plugin = args.plugin as Plugin;
+      const at = pluginHub.findIndex((p) => p.id === plugin.id);
+      if (at < 0) pluginHub.push(plugin);
+      else pluginHub[at] = plugin;
+      return pluginHub;
+    }
+    case "plugin_remove":
+      pluginHub = pluginHub.filter((p) => p.id !== args.id);
+      return pluginHub;
+    // No navegador não há pasta para ler: o nome sai do fim do caminho, que é
+    // o que o `plugin.json` costuma dizer mesmo.
+    case "plugin_look": {
+      const source = String(args.source ?? "").trim();
+      const id = source.replace(/\/+$/, "").split("/").pop() ?? "";
+      return { id: id.replace(/\.zip$/, ""), source, note: "" };
+    }
+    case "plugin_found":
+      return [
+        { id: "rust-analyzer-lsp", source: "~/.claude/plugins/cache/claude-plugins-official/rust-analyzer-lsp", note: "claude-plugins-official" },
+      ];
+    case "set_workspace_plugins": {
+      const target = board.workspaces.find((x) => x.id === args.id);
+      if (target) {
+        target.plugins = args.plugins as string[] | null;
+        target.tabs.forEach((t) => (t.status = "desligada"));
+      }
+      emit("board", board);
+      return;
+    }
     case "set_workspace_mcp": {
       const target = board.workspaces.find((x) => x.id === args.id);
       if (target) {
