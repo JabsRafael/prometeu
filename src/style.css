@@ -558,11 +558,15 @@ main { flex: 1; min-height: 0; position: relative; }
 .ask .qbody { display: flex; flex-direction: column; gap: 6px; }
 .ask .qbody p { margin: 0; font-weight: 500; }
 .ask .opts { display: flex; flex-direction: column; gap: 4px; }
+/* A opção é botão, mas o texto dela é frase: o nowrap do botão sairia do card
+   e levaria a conversa inteira para o lado. */
 .ask .opt {
   height: auto; padding: 6px 10px; gap: 1px; text-align: left;
   display: flex; flex-direction: column; align-items: flex-start;
+  white-space: normal; overflow-wrap: anywhere;
   background: var(--bg-raised); border: 1px solid var(--line-raised); border-radius: var(--r); color: var(--fg);
 }
+.ask .opt > * { max-width: 100%; }
 .ask .opt:hover { background: var(--bg-raised-2); }
 .ask .opt.on { border-color: var(--accent); }
 .ask .opt b { font-weight: 500; }
@@ -1077,7 +1081,7 @@ body.noside .side { display: none; }
 .sw.on .knob { background: var(--tab-line); }
 .sw.on .knob::after { transform: translateX(11px); background: var(--pri-fg); }
 
-.sheettop .base { max-width: 280px; }
+.sheettop .base { min-width: 0; max-width: 280px; }
 .sheettop .base > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sheettop .base.open, .sheettop .base:not(.empty) { color: var(--fg); }
 .sheettop .base.empty { color: var(--fg-3); }
