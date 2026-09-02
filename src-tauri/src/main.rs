@@ -74,6 +74,10 @@ fn adopt_login_path() {
 
 fn main() {
     adopt_login_path();
+    // O reqwest vem sem TLS embutido (`rustls-no-provider`, ver Cargo.toml):
+    // o processo escolhe o provider uma vez, aqui, antes do primeiro Client —
+    // do poll de cota, do Linear ou do updater.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -159,6 +163,7 @@ fn main() {
         ])
         .setup(|app| {
             machine::watch(app.handle().clone());
+            usage::watch(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())

@@ -39,6 +39,10 @@ libc = "0.2"
 # já traz, com o provider `ring` dele — não entra dependência nova de verdade,
 # só features. Ver `linear.rs`.
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider"] }
+# O provider que o `rustls-no-provider` acima deixa de fora. Instalado uma vez
+# no boot (`main.rs`); sem isso o primeiro Client do reqwest entra em pânico.
+# É o `ring` que a árvore já tem — não entra dependência nova de verdade.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 # PKCE: o `code_challenge` é o SHA-256 do verifier em base64url.
 sha2 = "0.10"
 base64 = "0.22"

@@ -120,8 +120,8 @@ function draw() {
   const bar = $("status");
   bar.innerHTML = "";
   // Agente instalado e sem leitura continua na faixa, com um traço no lugar do
-  // número. Sumir pareceria defeito justamente na estreia: a cota do Claude
-  // Code só existe depois que ele responde, e não há onde perguntá-la antes.
+  // número. Sumir pareceria defeito justamente na estreia: até o primeiro poll
+  // do back responder (ou a primeira conversa), não há número nenhum.
   for (const agent of agents) {
     const windows = usage[agent]?.windows ?? [];
     bar.append(
