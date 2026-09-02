@@ -141,6 +141,55 @@ test("cria um workspace pelo launcher e acompanha o preparo até a conversa", as
   await expect(page.locator("#chatwrap .composer textarea")).toBeVisible();
 });
 
+test("a lista de issues cabe no lançador e deixa os títulos legíveis", async ({ page }) => {
+  await boot(page);
+
+  // Uma lista longa revela os dois limites do popup: a lateral da folha e o
+  // início do rodapé. O mock normal tem só cinco linhas e não força rolagem.
+  await page.evaluate(() => {
+    type Invoke = (command: string, args?: Record<string, unknown>, options?: unknown) => Promise<unknown>;
+    const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+    const original = internals.invoke;
+    internals.invoke = async function (command, args, options) {
+      const result = await original.call(this, command, args, options);
+      if (command !== "linear_issues") return result;
+      const found = result as { issues: Record<string, unknown>[]; fetched_at: number };
+      return {
+        ...found,
+        issues: Array.from({ length: 4 }, (_, batch) =>
+          found.issues.map((issue) => ({ ...issue, id: `${issue.id}-${batch}` })),
+        ).flat(),
+      };
+    };
+    return internals.invoke("linear_connect");
+  });
+  await expect(page.locator("#railbody .navitem", { hasText: "Issues" }).locator(".n")).toHaveText("20");
+
+  await page.locator("#railbody > button.navitem").first().click();
+  await page.locator("#d-issuebtn").click();
+  await expect(page.locator("#d-ipicker .prow")).toHaveCount(20);
+
+  const geometry = await page.evaluate(() => {
+    const rect = (selector: string) => document.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
+    const picker = rect("#d-ipicker");
+    const sheet = rect("#veil .sheet");
+    const foot = rect("#veil .sheetbar");
+    const id = rect("#d-ipicker .prow .iid");
+    const title = rect("#d-ipicker .prow > span:last-child");
+    return {
+      picker: { left: picker.left, right: picker.right, bottom: picker.bottom },
+      sheet: { left: sheet.left, right: sheet.right },
+      foot: { top: foot.top },
+      title: { width: title.width, gap: title.left - id.right },
+    };
+  });
+  expect(geometry.picker.left).toBeGreaterThanOrEqual(geometry.sheet.left);
+  expect(geometry.picker.right).toBeLessThanOrEqual(geometry.sheet.right);
+  expect(geometry.picker.bottom).toBeLessThanOrEqual(geometry.foot.top);
+  expect(geometry.title.width).toBeGreaterThan(200);
+  expect(geometry.title.gap).toBeGreaterThanOrEqual(8);
+});
+
 test("envia uma pergunta, responde o card e devolve o controle ao chat", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Ola");
