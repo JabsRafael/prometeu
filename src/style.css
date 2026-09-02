@@ -611,6 +611,11 @@ main { flex: 1; min-height: 0; position: relative; }
 .composer .mdl { display: inline-flex; align-items: center; gap: 6px; }
 .composer .mdl .ic { color: var(--fg-3); }
 .composer .with .effort { display: inline-flex; align-items: center; gap: 7px; color: var(--fg-3); }
+/* As ferramentas de MCP desta conversa. Diferente do modelo ao lado, este é
+   botão: trocar aqui derruba o processo, e a próxima fala o retoma. */
+.composer .mcpbtn { height: 22px; padding: 0 8px; gap: 6px; font-size: 12px; color: var(--fg-3); }
+.composer .mcpbtn .ic { color: var(--fg-3); }
+.composer .mcpbtn.on, .composer .mcpbtn.on .ic { color: var(--fg-2); }
 /* A seta redonda: falar com o agente é uma coisa só, e não precisa de rótulo. */
 .composer .send.round {
   width: 28px; height: 28px; padding: 0; border-radius: 50%;
@@ -1313,17 +1318,49 @@ body.noside .side { display: none; }
 
 /* Uma coluna centrada, como a página de conta do Conductor: cada ajuste é uma
    linha com o nome e a explicação à esquerda e a ação à direita. */
-.settings { overflow-y: auto; }
+.settings { overflow: hidden; }
 .setpage { width: min(760px, 100%); margin: 0 auto; padding: 40px 32px 64px; }
 .setpage h1 { font-size: 22px; font-weight: 600; margin: 0 0 28px; }
 .setpage h2 {
   font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
   color: var(--fg-3); margin: 24px 0 4px;
 }
+/* Configurações: a lista de páginas à esquerda, a página à direita. Numa
+   rolagem só, o que se procura ficava embaixo do que não se procurava. */
+.setwrap { flex: 1; min-width: 0; display: flex; align-items: stretch; height: 100%; overflow: hidden; }
+.setnav {
+  width: 208px; flex: none; padding: 40px 10px 24px; display: flex; flex-direction: column; gap: 2px;
+  height: 100%; overflow-y: auto; border-right: 1px solid var(--line);
+}
+.setnavitem {
+  display: flex; align-items: center; justify-content: flex-start; gap: 10px;
+  height: 32px; padding: 0 10px; width: 100%;
+  border: none; border-radius: var(--r); background: none; color: var(--fg-2);
+  font-size: 13px; text-align: left;
+}
+.setnavitem .ic { display: grid; place-items: center; color: var(--fg-3); }
+.setnavitem:hover { background: var(--bg-raised); color: var(--fg); }
+.setnavitem.on { background: var(--bg-raised); color: var(--fg); }
+.setnavitem.on .ic { color: var(--fg); }
+.setwrap .setpage { flex: 1; min-width: 0; max-width: 760px; height: 100%; overflow-y: auto; }
+
+/* Título de seção com o que se faz nela na outra ponta — o caso da lista que
+   cresce (os servidores de MCP). O que explica a seção vem logo abaixo, e não
+   dentro de uma linha: linha, aqui, é um item. */
+.setpage .sechead { display: flex; align-items: baseline; gap: 12px; margin: 24px 0 4px; }
+.setpage .sechead h2 { margin: 0; }
+.setpage .sechead .spacer { flex: 1; }
+.setpage .sechead .act { display: flex; gap: 4px; }
+.setpage .secsub { margin: 0 0 4px; color: var(--fg-2); }
 .setrow {
   display: flex; align-items: center; gap: 14px; padding: 16px 0;
   border-bottom: 1px solid var(--line);
 }
+.setrow.none { color: var(--fg-3); }
+/* A primeira linha de uma página que é uma lista: diz o que a lista é e traz
+   o que se faz nela. Sem ícone — não é um item. */
+.setrow.head { padding-top: 0; align-items: flex-start; }
+.setrow.head .txt span { color: var(--fg-2); }
 .setrow .glyph {
   width: 32px; height: 32px; flex: none; border-radius: var(--r-lg);
   background: var(--bg-raised); color: var(--fg); display: grid; place-items: center;
@@ -1568,3 +1605,29 @@ body.noside .side { display: none; }
   white-space: normal;
 }
 .menu.awake .mc { grid-area: check; justify-self: end; }
+
+/* ---------- o hub de MCP ---------- */
+
+/* As linhas são as mesmas de Configurações; só o formulário é novo. Campos um
+   embaixo do outro, porque o comando de um servidor stdio é longo e lado a
+   lado ninguém lê o que digitou. */
+.sheet.mcpedit { width: min(560px, 100%); padding-bottom: 4px; }
+.sheet.mcpedit .sheettop b { font-weight: 500; }
+.sheet.mcpedit .fld { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px 0; }
+.sheet.mcpedit .fld .fl { font-size: 11.5px; color: var(--fg-3); }
+.sheet.mcpedit .fld input, .sheet.mcpedit .fld textarea {
+  width: 100%; padding: 7px 9px; background: var(--bg); color: var(--fg);
+  border: 1px solid var(--line); border-radius: var(--r);
+  font-family: var(--mono); font-size: 12px; resize: vertical;
+}
+.sheet.mcpedit .fld textarea { min-height: 0; height: 66px; }
+.sheet.mcpedit .fld input:focus-visible, .sheet.mcpedit .fld textarea:focus-visible {
+  outline: none; border-color: var(--line-raised);
+}
+/* Um servidor é um comando aqui ou um endereço lá — nunca os dois. */
+.sheet.mcpedit .mkind { display: flex; gap: 8px; padding: 12px 14px 0; }
+/* Testar fica na ponta esquerda, longe de Salvar: são gestos diferentes, e o
+   resultado do teste aparece entre os dois. */
+.sheet.mcpedit .sheetbar { padding: 12px 14px; gap: 10px; }
+.sheet.mcpedit .sheetbar .hint { flex: 1; min-width: 0; }
+.sheet.mcpedit .hint.bad { color: var(--err); }

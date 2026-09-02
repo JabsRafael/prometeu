@@ -3,6 +3,7 @@ import { freshBranch } from "./branch";
 import { avatar, icon } from "./icons";
 import { paint, t } from "./i18n";
 import * as issues from "./issues";
+import * as mcp from "./mcp";
 import * as menu from "./menu";
 import { invoke } from "./ipc";
 import { template } from "./util";
@@ -43,6 +44,11 @@ export type Draft = {
   /// Nasce em plan mode: o agente lê e planeja, e o card "plano pronto" é o
   /// que o solta. Só desta primeira conversa.
   plan: boolean;
+  /// Quais servidores de MCP as conversas deste workspace enxergam. `null` é
+  /// não escolher — e aí o CLI decide, como decidia antes do hub existir. É o
+  /// que vale para quem nunca abriu o seletor: ligar a escolha sozinho tiraria
+  /// do agente o `~/.claude.json` que a pessoa já tinha.
+  mcp: string[] | null;
 };
 
 type Branches = { all: string[]; default: string };
@@ -184,6 +190,10 @@ const WORKTREE_KEY = "prometheus:worktree";
 const BRANCH_KEY = "prometheus:branch-nova";
 const MODEL_KEY = "prometheus:model";
 const EFFORT_KEY = "prometheus:effort";
+/// Os MCP da última vez. Escolher é trabalho manual e quase sempre se repete
+/// entre workspaces do mesmo tipo — mas só depois de escolher uma vez: sem
+/// nada guardado, o lançador não escolhe por ninguém.
+const MCP_KEY = "prometheus:mcp";
 
 /// Arquivo solto em cima do lançador aberto entra como anexo. É o `main.ts`
 /// quem vê o drop (o Tauri entrega caminho de verdade só pela webview), e é
@@ -233,6 +243,7 @@ export function openLauncher(board: Board, opts: Open) {
     model: rememberedModel(),
     effort: remembered(EFFORT_KEY, EFFORTS, "high"),
     plan: false,
+    mcp: rememberedMcp(),
   };
   // O modelo lembrado pode ser do Codex — e aí o agente vem com ele.
   draft.agent = isCodex(draft.model) ? "codex" : "";
@@ -266,6 +277,7 @@ export function openLauncher(board: Board, opts: Open) {
       <button id="d-model" class="ghost pick" data-t-title="launcher.model.title">${icon("sparkles", 14)}<span></span>${icon("chevron-down", 12)}</button>
       <button id="d-effort" class="ghost effort"><span class="bars"><i></i><i></i><i></i><i></i><i></i></span><span class="el"></span></button>
       <button id="d-plan" class="ghost">${icon("map", 14)}<span data-t="launcher.plan"></span></button>
+      <button id="d-mcp" class="ghost pick" data-t-title="mcp.title">${icon("plug", 14)}<span></span></button>
       <span class="hint" id="d-hint"></span>
       <button id="d-add" class="ico" data-t-title="launcher.attach">${icon("paperclip", 16)}</button>
       <button id="d-go" class="pri"><span data-t="launcher.go"></span> <kbd>↵</kbd></button>
@@ -465,6 +477,29 @@ export function openLauncher(board: Board, opts: Open) {
   });
   drawPlan();
 
+  // As ferramentas do agente. O botão só existe se houver hub: um seletor vazio
+  // é um botão que não faz nada, e o caminho para cadastrar é Configurações.
+  const mcpBtn = $<HTMLButtonElement>("d-mcp");
+  const drawMcp = () => {
+    mcpBtn.hidden = !mcp.list().length && draft.mcp === null;
+    mcpBtn.querySelector("span")!.textContent = mcp.label(draft.mcp);
+    mcpBtn.classList.toggle("on", !!draft.mcp?.length);
+  };
+  mcpBtn.addEventListener("click", () => {
+    const at = mcpBtn.getBoundingClientRect();
+    mcp.openPicker({
+      chosen: () => draft.mcp,
+      set: (ids) => {
+        draft.mcp = ids;
+        localStorage.setItem(MCP_KEY, JSON.stringify(ids));
+        drawMcp();
+      },
+      at: () => ({ x: at.left, y: at.bottom + 4 }),
+    });
+  });
+  const forgetMcp = mcp.onChange(drawMcp);
+  drawMcp();
+
   /* ---------- base da branch ---------- */
 
   // O repositório manda na lista, então trocar de projeto refaz a escolha: a
@@ -636,6 +671,7 @@ export function openLauncher(board: Board, opts: Open) {
   takeFiles = addFiles;
 
   const hide = () => {
+    forgetMcp();
     takeFiles = null;
     veil.replaceChildren();
     veil.hidden = true;
@@ -819,6 +855,20 @@ function dropdown(
   });
   draw();
   return draw;
+}
+
+/// Os MCP da última vez, filtrados pelo que o hub ainda tem: servidor removido
+/// do cadastro não pode voltar como escolha morta. Sem nada guardado é `null`,
+/// que é não escolher.
+function rememberedMcp(): string[] | null {
+  const saved = localStorage.getItem(MCP_KEY);
+  if (saved === null) return null;
+  try {
+    const ids = JSON.parse(saved) as string[];
+    return Array.isArray(ids) ? ids.filter((id) => mcp.known(id)) : null;
+  } catch {
+    return null;
+  }
 }
 
 /// O modelo da última vez, seja de qual agente for. Fora das duas listas ele não

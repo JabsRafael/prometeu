@@ -2,7 +2,8 @@ import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import * as alert from "./alert";
 import { avatar, icon } from "./icons";
-import { LANGS, choose, chosen, fromBack, fromSystem, t, tn, type Lang } from "./i18n";
+import { LANGS, choose, chosen, fromBack, fromSystem, t, tn, type Key, type Lang } from "./i18n";
+import * as mcp from "./mcp";
 import * as menu from "./menu";
 import * as news from "./news";
 import * as team from "./team";
@@ -37,6 +38,10 @@ export async function init(context: Ctx) {
   } catch {
     // Sem back (ou back velho) a tela continua de pé, só desconectada.
   }
+  // Cadastrar, importar ou remover um servidor muda a lista desta página.
+  mcp.onChange(() => {
+    if (!$("settingsView").hidden) draw();
+  });
   // Presença muda sozinha; a linha do time acompanha — menos enquanto você
   // digita num campo dela, que refazer a página apagaria.
   team.onChange(() => {
@@ -50,20 +55,79 @@ export async function init(context: Ctx) {
 /// O que o resto do app pergunta: tem Linear para puxar issue?
 export const linear = () => status;
 
+/// As páginas de Configurações. Uma lista à esquerda, uma página de cada vez à
+/// direita — o mesmo desenho do Conductor, e pelo mesmo motivo: numa rolagem
+/// só, o que se procura fica embaixo de coisa que não se procurava.
+///
+/// A ordem é a de quem chega: o que se mexe primeiro em cima, o que se mexe
+/// uma vez na vida embaixo.
+type Page = { id: string; title: Key; glyph: Parameters<typeof icon>[0]; rows: () => HTMLElement[] };
+
+const PAGES: Page[] = [
+  {
+    id: "geral",
+    title: "settings.page.general",
+    glyph: "settings",
+    rows: () => [langRow(), alert.settingsRow()],
+  },
+  {
+    id: "ferramentas",
+    title: "settings.mcp",
+    glyph: "plug",
+    rows: () => mcp.settingsRows(),
+  },
+  {
+    id: "integracoes",
+    title: "settings.integrations",
+    glyph: "linear",
+    rows: () => [linearRow()],
+  },
+  {
+    id: "time",
+    title: "settings.team",
+    glyph: "users",
+    rows: teamRows,
+  },
+  {
+    id: "app",
+    title: "settings.app",
+    glyph: "flame",
+    rows: () => [settingsRow(), news.settingsRow()],
+  },
+];
+
+/// Em qual página se estava. Gruda neste Mac: quem veio ajustar o MCP três
+/// vezes numa tarde não quer passar pela lista toda a cada vez.
+const PAGE_KEY = "prometheus:configuracoes";
+let open = localStorage.getItem(PAGE_KEY) ?? PAGES[0].id;
+
 export function draw() {
   const view = $("settingsView");
-  const page = template("div", "setpage", `<h1></h1><h2></h2>`);
-  page.children[0].textContent = t("settings.title");
-  page.children[1].textContent = t("settings.integrations");
-  page.append(linearRow());
-  const crew = h("h2", "", "");
-  crew.textContent = t("settings.team");
-  page.append(crew, ...teamRows());
-  const app = h("h2", "", "");
-  app.textContent = t("settings.app");
-  // A atualização vem antes do idioma: é o que se procura aqui com pressa.
-  page.append(app, settingsRow(), news.settingsRow(), langRow(), alert.settingsRow());
-  view.replaceChildren(page);
+  const page = PAGES.find((p) => p.id === open) ?? PAGES[0];
+
+  const nav = h("nav", "setnav");
+  nav.append(
+    ...PAGES.map((item) => {
+      const btn = template("button", "setnavitem", `<span class="ic"></span><span></span>`);
+      btn.querySelector(".ic")!.innerHTML = icon(item.glyph, 16);
+      btn.children[1].textContent = t(item.title);
+      btn.classList.toggle("on", item.id === page.id);
+      btn.addEventListener("click", () => {
+        open = item.id;
+        localStorage.setItem(PAGE_KEY, item.id);
+        draw();
+      });
+      return btn;
+    }),
+  );
+
+  const body = template("div", "setpage", `<h1></h1>`);
+  body.children[0].textContent = t(page.title);
+  body.append(...page.rows());
+
+  const wrap = h("div", "setwrap");
+  wrap.append(nav, body);
+  view.replaceChildren(wrap);
 }
 
 /// O idioma da tela. Guardado neste Mac e em mais lugar nenhum; sem escolha, o

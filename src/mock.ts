@@ -3,7 +3,7 @@
 /// `window.__TAURI_INTERNALS__` não existe — dentro do app não é carregado.
 import { encodeLive, encodeSnapshot } from "../relay/src/protocol";
 import * as team from "./team";
-import { hasWorktree, type Board, type Issue, type LinearStatus, type Pr, type Scripts, type Workspace } from "./types";
+import { hasWorktree, type Board, type Issue, type LinearStatus, type McpServer, type Pr, type Scripts, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
@@ -35,6 +35,7 @@ const ws = (
   // e sem eles o rodapé da conversa não teria o que desenhar.
   model: "opus[1m]",
   effort: "high",
+  mcp: null,
   port: 3100,
   issue: null,
   cleaned: false,
@@ -406,6 +407,17 @@ function pushLine(tab: string, o: unknown, keep = true) {
 /// "pergunta", uma pergunta com opções — os dois cards que existem para ver.
 let msgN = 0;
 /// O que o `/context` devolve (um de verdade, encurtado).
+/// O hub de MCP do navegador. Muda com o que se cadastra e remove na tela —
+/// é o que deixa a seção de Configurações ser usada de verdade sem back.
+let mcpHub: McpServer[] = [
+  { id: "capim-ds", config: { type: "stdio", command: "npx", args: ["-y", "@capim/ds-mcp"], env: {} }, note: "design system" },
+  { id: "notion", config: { type: "http", url: "https://mcp.notion.com/mcp" }, note: "" },
+  { id: "linear-server", config: { type: "http", url: "https://mcp.linear.app/mcp" }, note: "capim-backend" },
+];
+
+/// Em quais servidores já se entrou, no navegador.
+let mcpLogins: string[] = [];
+
 const CONTEXT_MD = "## Context Usage\n\n**Model:** claude-fable-5  \n**Tokens:** 20.2k / 1m (2%)\n\n### Estimated usage by category\n\n| Category | Tokens | Percentage |\n|----------|--------|------------|\n| System prompt | 4k | 0.4% |\n| System tools | 6.5k | 0.7% |\n| MCP tools (deferred) | 14.3k | 1.4% |\n| System tools (deferred) | 14k | 1.4% |\n| Custom agents | 368 | 0.0% |\n| Skills | 3k | 0.3% |\n| Messages | 6.3k | 0.6% |\n| Compact buffer | 3k | 0.3% |\n| Free space | 976.8k | 97.7% |\n\n### MCP Tools\n\n| Tool | Server | Tokens |\n|------|--------|--------|\n| mcp__capim-ds__get_components | capim-ds | 250 |\n| mcp__capim-ds__get_foundations | capim-ds | 209 |\n| mcp__capim-ds__get_icon_details | capim-ds | 168 |\n| mcp__capim-ds__get_illustration_details | capim-ds | 194 |\n| mcp__capim-ds__get_logo_details | capim-ds | 171 |\n| mcp__capim-ds__list_components | capim-ds | 130 |\n| mcp__capim-ds__list_icons | capim-ds | 107 |\n| mcp__capim-ds__list_illustrations | capim-ds | 120 |\n| mcp__capim-ds__list_logos | capim-ds | 112 |\n| mcp__claude_ai_Google_Drive__copy_file | claude_ai_Google_Drive | 444 |\n| mcp__claude_ai_Google_Drive__create_file | claude_ai_Google_Drive | 965 |\n| mcp__claude_ai_Google_Drive__download_file_content | claude_ai_Google_Drive | 433 |\n| mcp__claude_ai_Google_Drive__get_file_metadata | claude_ai_Google_Drive | 237 |\n| mcp__claude_ai_Google_Drive__get_file_permissions | claude_ai_Google_Drive | 143 |\n\n### Custom Agents\n\n| Agent Type | Source | Tokens |\n|------------|--------|--------|\n| caveman:cavecrew-builder | Plugin | 134 |\n| caveman:cavecrew-investigator | Plugin | 112 |\n| caveman:cavecrew-reviewer | Plugin | 122 |\n\n### Skills\n\n| Skill | Source | Tokens |\n|-------|--------|--------|\n| para-memory-files | User | ~190 |\n| caveman:cavecrew | Plugin (caveman) | ~190 |\n| caveman:caveman | Plugin (caveman) | ~140 |\n| caveman:caveman-commit | Plugin (caveman) | ~120 |\n| caveman:caveman-compress | Plugin (caveman) | ~120 |\n| caveman:caveman-help | Plugin (caveman) | ~70 |\n| caveman:caveman-review | Plugin (caveman) | ~110 |\n| caveman:caveman-stats | Plugin (caveman) | ~90 |\n| dataviz | Built-in | ~380 |\n| update-config | Built-in | ~240 |\n| keybindings-help | Built-in | ~80 |\n| code-review | Built-in | ~270 |\n| simplify | Built-in | ~60 |\n| fewer-permission-prompts | Built-in | ~60 |\n| loop | Built-in | ~120 |\n| schedule | Built-in | ~130 |\n| claude-api | Built-in | ~360 |\n| workflow-authoring | Built-in | ~80 |\n| run | Built-in | ~120 |\n| init | Built-in | ~20 |\n| security-review | Built-in | ~30 |";
 function sayInto(tab: string, text: string) {
   pushLine(tab, { type: "user", message: { role: "user", content: text }, ts: Date.now() });
@@ -707,6 +719,60 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     // No navegador não há Mac para segurar acordado: guarda e devolve.
     case "set_awake":
       return null;
+    // O hub de MCP com o que uma máquina de trabalho costuma ter: um servidor
+    // que roda aqui e dois remotos. É o bastante para ver o seletor com lista,
+    // a linha de cada tipo em Configurações e o botão da conversa.
+    case "mcp_hub":
+      return mcpHub;
+    case "mcp_save": {
+      const server = args.server as (typeof mcpHub)[number];
+      const at = mcpHub.findIndex((s) => s.id === server.id);
+      if (at < 0) mcpHub.push(server);
+      else mcpHub[at] = server;
+      return mcpHub;
+    }
+    case "mcp_remove":
+      mcpHub = mcpHub.filter((s) => s.id !== args.id);
+      return mcpHub;
+    // O teste de conexão. No navegador não há servidor para apertar a mão:
+    // devolve o que cada tipo devolveria — inclusive o 401, que é o caso que
+    // muda o que a tela diz.
+    case "mcp_test": {
+      const server = args.server as McpServer;
+      const url = String(server.config.url ?? "");
+      if (url.includes("notion") || url.includes("capim"))
+        return { ok: false, auth: true, tools: 0, name: "", detail: "" };
+      if (url.includes("quebrado"))
+        return { ok: false, auth: false, tools: 0, name: "", detail: "connection refused" };
+      return { ok: true, auth: false, tools: 9, name: server.id, detail: "" };
+    }
+    // No navegador não há navegador para abrir dentro do navegador: entrar
+    // marca o servidor como conectado e pronto.
+    case "mcp_logins":
+      return mcpLogins;
+    case "mcp_login":
+      mcpLogins = [...new Set([...mcpLogins, (args.server as McpServer).id])];
+      return null;
+    case "mcp_logout":
+      mcpLogins = mcpLogins.filter((id) => id !== args.id);
+      return null;
+    // O que haveria para importar do `~/.claude.json` desta máquina.
+    case "mcp_found":
+      return [
+        { id: "metabase", config: { type: "http", url: "https://metabase.exemplo/mcp" }, note: "capim-backend" },
+        { id: "n8n", config: { type: "stdio", command: "npx", args: ["-y", "n8n-mcp"], env: {} }, note: "" },
+      ];
+    case "set_workspace_mcp": {
+      const target = board.workspaces.find((x) => x.id === args.id);
+      if (target) {
+        target.mcp = args.mcp as string[] | null;
+        // Como no Rust: trocar de ferramenta derruba os processos das abas, e a
+        // próxima fala as levanta com a lista nova.
+        target.tabs.forEach((t) => (t.status = "desligada"));
+      }
+      emit("board", board);
+      return;
+    }
     case "machine":
       return {
         rss: 822 * 1024 * 1024,

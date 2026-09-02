@@ -14,6 +14,7 @@ import { icon } from "./icons";
 import * as links from "./links";
 import { current, fromBack, paint, t } from "./i18n";
 import * as issues from "./issues";
+import * as mcp from "./mcp";
 import { dropFiles, installed, loadAgents, openLauncher, type Draft } from "./launcher";
 import * as menu from "./menu";
 import * as news from "./news";
@@ -517,6 +518,11 @@ void loadAgents().then(() => statusbar.showAgents(installed()));
 // lateral, que vai mostrar o que os colegas compartilham.
 team.onError((m) => say(m, true));
 await team.init();
+// O hub de MCP: quem desenha a lista é Configurações, e quem a lê são os dois
+// seletores (lançador e conversa). Carrega junto com a tela — é um arquivo
+// pequeno, e um seletor vazio no primeiro clique seria pior que esperar.
+mcp.init({ say });
+void mcp.load();
 // A tela de issues pergunta às configurações se há Linear; elas respondem
 // depois de saber, e por isso vêm antes.
 await settings.init({ say });
@@ -541,6 +547,8 @@ session.init(
     return {
       workspace: open,
       status: tab?.status ?? null,
+      mcp: w?.mcp ?? null,
+      agent: w?.agent ?? "",
       pending: tab?.pending_prompt ?? null,
       remote: w?.remote ? { name: team.nameOf(w.remote.owner), online: w.remote.online } : null,
       team: !!team.status().config && !!w && (w.shared || !!w.remote),
