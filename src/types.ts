@@ -95,6 +95,10 @@ export type McpCheck = {
   probe: McpProbe;
 };
 
+/// Um plugin do Claude Code como o hub o guarda: o nome que ele declara, onde
+/// ele está (pasta, `.zip`, ou a URL de um `.zip`) e a linha embaixo do nome.
+export type Plugin = { id: string; source: string; note: string };
+
 export type Workspace = {
   id: string;
   title: string;
@@ -124,6 +128,10 @@ export type Workspace = {
   /// hub. `null` é workspace que nunca escolheu — e aí o CLI decide, como fazia
   /// antes do hub existir. Lista vazia é escolha: sessão sem MCP nenhum.
   mcp: string[] | null;
+  /// Quais plugins as conversas daqui carregam, pelo nome que têm no hub.
+  /// `null` é workspace que nunca escolheu — e aí o CLI carrega o que sempre
+  /// carregou. Lista vazia é escolha: nenhum plugin além disso.
+  plugins: string[] | null;
   /// Base das dez portas reservadas a este worktree.
   port: number | null;
   /// A issue do Linear de onde este trabalho saiu, se saiu de uma.

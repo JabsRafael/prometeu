@@ -248,6 +248,15 @@ pub struct Workspace {
     /// vazia é escolha de verdade, e quer dizer sessão sem MCP nenhum.
     #[serde(default)]
     pub mcp: Option<Vec<String>>,
+    /// Quais plugins do Claude Code as conversas daqui carregam, pelo nome que
+    /// eles têm no hub (`plugins.rs`). É do workspace pelo mesmo motivo do
+    /// MCP: o hook que segura o jeito de trabalhar é do trabalho, não da aba.
+    ///
+    /// `None` é workspace que nunca escolheu, e aí nada é passado ao CLI —
+    /// vale o que ele já carregava sozinho. Lista vazia é escolha, e quer
+    /// dizer nenhum plugin a mais do que isso.
+    #[serde(default)]
+    pub plugins: Option<Vec<String>>,
     #[serde(default)]
     pub tabs: Vec<Tab>,
     #[serde(default)]

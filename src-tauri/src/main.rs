@@ -17,6 +17,7 @@ mod mcp_auth;
 mod naming;
 mod oauth;
 mod paths;
+mod plugins;
 mod pty;
 mod scripts;
 mod session;
@@ -122,6 +123,7 @@ fn main() {
             session::cleanup_list,
             session::pin_workspace,
             session::set_workspace_mcp,
+            session::set_workspace_plugins,
             session::set_unread,
             session::set_shared,
             session::look_at,
@@ -176,6 +178,11 @@ fn main() {
             mcp::mcp_login,
             mcp::mcp_logout,
             mcp::mcp_logins,
+            plugins::plugin_hub,
+            plugins::plugin_save,
+            plugins::plugin_remove,
+            plugins::plugin_found,
+            plugins::plugin_look,
             linear::linear_status,
             linear::linear_connect,
             linear::linear_disconnect,

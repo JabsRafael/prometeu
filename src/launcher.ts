@@ -4,6 +4,7 @@ import { avatar, icon } from "./icons";
 import { paint, t } from "./i18n";
 import * as issues from "./issues";
 import * as mcp from "./mcp";
+import * as plugins from "./plugins";
 import * as menu from "./menu";
 import { invoke } from "./ipc";
 import { template } from "./util";
@@ -49,6 +50,9 @@ export type Draft = {
   /// que vale para quem nunca abriu o seletor: ligar a escolha sozinho tiraria
   /// do agente o `~/.claude.json` que a pessoa já tinha.
   mcp: string[] | null;
+  /// Quais plugins as conversas deste workspace carregam, pela mesma regra do
+  /// MCP: `null` é não escolher, e aí o CLI carrega o que sempre carregou.
+  plugins: string[] | null;
 };
 
 type Branches = { all: string[]; default: string };
@@ -224,6 +228,8 @@ const EFFORT_KEY = "prometheus:effort";
 /// entre workspaces do mesmo tipo — mas só depois de escolher uma vez: sem
 /// nada guardado, o lançador não escolhe por ninguém.
 const MCP_KEY = "prometheus:mcp";
+/// Os plugins da última vez, pela mesma razão do MCP.
+const PLUGIN_KEY = "prometheus:plugins";
 
 /// Arquivo solto em cima do lançador aberto entra como anexo. É o `main.ts`
 /// quem vê o drop (o Tauri entrega caminho de verdade só pela webview), e é
@@ -274,6 +280,7 @@ export function openLauncher(board: Board, opts: Open) {
     effort: remembered(EFFORT_KEY, EFFORTS, "high"),
     plan: false,
     mcp: rememberedMcp(),
+    plugins: rememberedPlugins(),
   };
   // O modelo lembrado pode ser do Codex — e aí o agente vem com ele.
   draft.agent = isCodex(draft.model) ? "codex" : "";
@@ -308,6 +315,7 @@ export function openLauncher(board: Board, opts: Open) {
       <button id="d-effort" class="ghost effort"><span class="bars"><i></i><i></i><i></i><i></i><i></i></span><span class="el"></span></button>
       <button id="d-plan" class="ghost">${icon("map", 14)}<span data-t="launcher.plan"></span></button>
       <button id="d-mcp" class="ghost pick" data-t-title="mcp.title">${icon("plug", 14)}<span></span></button>
+      <button id="d-plugins" class="ghost pick" data-t-title="plugin.title">${icon("puzzle", 14)}<span></span></button>
       <span class="hint" id="d-hint"></span>
       <button id="d-add" class="ico" data-t-title="launcher.attach">${icon("paperclip", 16)}</button>
       <button id="d-go" class="pri"><span data-t="launcher.go"></span> <kbd>↵</kbd></button>
@@ -456,6 +464,7 @@ export function openLauncher(board: Board, opts: Open) {
       draft.effort = fits(draft.effort);
       drawEffort();
       drawPlan();
+      drawPlugins();
       prompt.focus();
     },
   );
@@ -529,6 +538,31 @@ export function openLauncher(board: Board, opts: Open) {
   });
   const forgetMcp = mcp.onChange(drawMcp);
   drawMcp();
+
+  // Os plugins, do mesmo jeito e pelo mesmo motivo — e fora do Codex, que
+  // carrega plugin pelo cadastro dele e não por flag (ver `plugins.rs`): um
+  // botão que promete o que não acontece é pior que botão nenhum.
+  const plugBtn = $<HTMLButtonElement>("d-plugins");
+  const drawPlugins = () => {
+    plugBtn.hidden =
+      draft.agent === "codex" || (!plugins.list().length && draft.plugins === null);
+    plugBtn.querySelector("span")!.textContent = plugins.label(draft.plugins);
+    plugBtn.classList.toggle("on", !!draft.plugins?.length);
+  };
+  plugBtn.addEventListener("click", () => {
+    const at = plugBtn.getBoundingClientRect();
+    plugins.openPicker({
+      chosen: () => draft.plugins,
+      set: (ids) => {
+        draft.plugins = ids;
+        localStorage.setItem(PLUGIN_KEY, JSON.stringify(ids));
+        drawPlugins();
+      },
+      at: () => ({ x: at.left, y: at.bottom + 4 }),
+    });
+  });
+  const forgetPlugins = plugins.onChange(drawPlugins);
+  drawPlugins();
 
   /* ---------- base da branch ---------- */
 
@@ -702,6 +736,7 @@ export function openLauncher(board: Board, opts: Open) {
 
   const hide = () => {
     forgetMcp();
+    forgetPlugins();
     takeFiles = null;
     veil.replaceChildren();
     veil.hidden = true;
@@ -903,6 +938,19 @@ function rememberedMcp(): string[] | null {
   try {
     const ids = JSON.parse(saved) as string[];
     return Array.isArray(ids) ? ids.filter((id) => mcp.known(id)) : null;
+  } catch {
+    return null;
+  }
+}
+
+/// Os plugins da última vez, filtrados pelo que o hub ainda tem — a mesma
+/// regra do MCP, e pelo mesmo motivo.
+function rememberedPlugins(): string[] | null {
+  const saved = localStorage.getItem(PLUGIN_KEY);
+  if (saved === null) return null;
+  try {
+    const ids = JSON.parse(saved) as string[];
+    return Array.isArray(ids) ? ids.filter((id) => plugins.known(id)) : null;
   } catch {
     return null;
   }

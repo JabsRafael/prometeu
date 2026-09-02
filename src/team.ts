@@ -725,6 +725,7 @@ export function remotes(): Workspace[] {
       model: "",
       effort: "",
       mcp: null,
+      plugins: null,
       port: null,
       issue: s.issue ? { id: "", identifier: s.issue.identifier, title: s.issue.title, url: s.issue.url } : null,
       cleaned: false,

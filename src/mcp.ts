@@ -310,7 +310,7 @@ function editor(server: McpServer | null) {
   const veil = $("veil");
   const sheet = template(
     "div",
-    "sheet mcpedit",
+    "sheet hubedit",
     `<div class="sheettop"><b class="mt"></b></div><div class="mbody"></div><div class="sheetbar"></div>`,
   );
   const at = <T extends HTMLElement>(sel: string) => sheet.querySelector(sel) as T;

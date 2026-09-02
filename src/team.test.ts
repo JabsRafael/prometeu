@@ -64,6 +64,7 @@ function workspace(id: string, shared: boolean): Workspace {
     model: "",
     effort: "",
     mcp: null,
+    plugins: null,
     port: null,
     issue: null,
     cleaned: false,

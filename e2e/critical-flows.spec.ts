@@ -508,6 +508,21 @@ test("o filtro de fora de commit não faz repositório sumir da lista", async ({
   await expect(repos.first()).toContainText("tudo commitado");
 });
 
+/// O seletor de plugins é do Claude Code: a escolha vira `--plugin-dir`, que o
+/// Codex não recebe. Escolher um GPT no lançador é escolher o Codex, e o botão
+/// sai da tela em vez de ficar prometendo o que não acontece — o de MCP fica,
+/// porque aquele o Codex entende (`codex_config` em `mcp.rs`).
+test("escolher um GPT tira o seletor de plugins do lançador", async ({ page }) => {
+  await boot(page);
+  await page.locator("#rail button, #railbody .navitem").filter({ hasText: "Criar" }).first().click();
+  await expect(page.locator("#d-plugins")).toBeVisible();
+
+  await page.locator("#d-model").click();
+  await page.locator(".menu .mrow", { hasText: "GPT-5.6-Sol" }).first().click();
+  await expect(page.locator("#d-plugins")).toBeHidden();
+  await expect(page.locator("#d-mcp")).toBeVisible();
+});
+
 test("o filtro por time corta a lista de issues e as contagens seguem a busca", async ({ page }) => {
   await boot(page);
   await page.evaluate(async () => {
