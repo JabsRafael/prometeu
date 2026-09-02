@@ -145,8 +145,11 @@ test("a lista de issues cabe no lançador e deixa os títulos legíveis", async 
   await boot(page);
 
   // Uma lista longa revela os dois limites do popup: a lateral da folha e o
-  // início do rodapé. O mock normal tem só cinco linhas e não força rolagem.
-  await page.evaluate(() => {
+  // início do rodapé. O mock normal é curto demais e não força rolagem, então
+  // ele é repetido — quantas vezes sai do que o mock traz, para uma issue nova
+  // no mock não virar um número errado aqui.
+  const total = await page.evaluate(async () => {
+    const BATCHES = 4;
     type Invoke = (command: string, args?: Record<string, unknown>, options?: unknown) => Promise<unknown>;
     const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
     const original = internals.invoke;
@@ -156,18 +159,24 @@ test("a lista de issues cabe no lançador e deixa os títulos legíveis", async 
       const found = result as { issues: Record<string, unknown>[]; fetched_at: number };
       return {
         ...found,
-        issues: Array.from({ length: 4 }, (_, batch) =>
+        issues: Array.from({ length: BATCHES }, (_, batch) =>
           found.issues.map((issue) => ({ ...issue, id: `${issue.id}-${batch}` })),
         ).flat(),
       };
     };
-    return internals.invoke("linear_connect");
+    // Conectar primeiro: o mock recusa a busca enquanto o Linear está fora.
+    await internals.invoke("linear_connect");
+    const found = (await internals.invoke("linear_issues", { force: false })) as { issues: unknown[] };
+    return found.issues.length;
   });
-  await expect(page.locator("#railbody .navitem", { hasText: "Issues" }).locator(".n")).toHaveText("20");
+  // A lista precisa passar do que cabe na tela; é disso que o teste trata.
+  expect(total).toBeGreaterThanOrEqual(20);
+
+  await expect(page.locator("#railbody .navitem", { hasText: "Issues" }).locator(".n")).toHaveText(String(total));
 
   await page.locator("#railbody > button.navitem").first().click();
   await page.locator("#d-issuebtn").click();
-  await expect(page.locator("#d-ipicker .prow")).toHaveCount(20);
+  await expect(page.locator("#d-ipicker .prow")).toHaveCount(total);
 
   const geometry = await page.evaluate(() => {
     const rect = (selector: string) => document.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
