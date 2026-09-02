@@ -550,6 +550,7 @@ session.init(
       mcp: w?.mcp ?? null,
       agent: w?.agent ?? "",
       pending: tab?.pending_prompt ?? null,
+      worktree: w?.worktree ?? null,
       remote: w?.remote ? { name: team.nameOf(w.remote.owner), online: w.remote.online } : null,
       team: !!team.status().config && !!w && (w.shared || !!w.remote),
       // O modelo da aba, quando ela escolheu um; senão o do workspace. Quem
