@@ -15,6 +15,7 @@ const PATHS = {
   file:
     '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
   diff: '<path d="M12 3v14"/><path d="M5 10h14"/><path d="M5 21h14"/>',
+  filter: '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
   "chevron-right": '<path d="m9 18 6-6-6-6"/>',
   "chevron-down": '<path d="m6 9 6 6 6-6"/>',
   "chevron-up": '<path d="m18 15-6-6-6 6"/>',

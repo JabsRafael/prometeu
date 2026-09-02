@@ -449,3 +449,36 @@ test("o filtro de fora de commit não faz repositório sumir da lista", async ({
   await expect(repos.first()).toContainText("prometheus");
   await expect(repos.first()).toContainText("tudo commitado");
 });
+
+test("o filtro por time corta a lista de issues e as contagens seguem a busca", async ({ page }) => {
+  await boot(page);
+  await page.evaluate(async () => {
+    type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+    const invoke = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__.invoke;
+    await invoke("linear_connect");
+  });
+
+  const pills = page.locator("#iteams .tpill");
+  await expect(pills).toHaveCount(3, { timeout: 10_000 });
+  await expect(pills.first()).toHaveClass(/\bon\b/);
+  await expect(page.locator("#ilist .irow")).toHaveCount(7);
+
+  // Escolher um time deixa só as issues dele.
+  await pills.filter({ hasText: "INF" }).click();
+  await expect(page.locator("#ilist .irow")).toHaveCount(2);
+  await expect(page.locator("#ilist .irow .iid").first()).toContainText("INF-");
+
+  // Buscar não muda quais pílulas existem — muda quantas issues cada uma
+  // mostraria. O time escolhido continua escolhido.
+  await page.locator("#ibar input").fill("runner");
+  await expect(pills).toHaveCount(3);
+  await expect(pills.filter({ hasText: "INF" })).toHaveClass(/\bon\b/);
+  await expect(pills.filter({ hasText: "MOA" })).toContainText("0");
+  await expect(page.locator("#ilist .irow")).toHaveCount(1);
+
+  // E voltar para "Todos" devolve o que a busca achou em qualquer time.
+  await page.locator("#ibar input").fill("linear");
+  await expect(page.locator("#ilist .iempty")).toBeVisible();
+  await pills.first().click();
+  await expect(page.locator("#ilist .irow")).toHaveCount(1);
+});
