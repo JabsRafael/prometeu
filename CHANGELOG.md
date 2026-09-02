@@ -4,6 +4,21 @@ O que muda no Prometheus, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.4.15] - 2026-09-02
+
+### Novidades
+
+- **rodapé:** A cota aparece atualizada desde que o app abre, sem esperar conversa
+- **ferramentas:** Cadastrar servidor de MCP em dois passos, vendo cada etapa
+- **issues:** Filtrar a lista por time
+
+### Correções
+
+- **rodapé:** Manter a tela e o Mac acordados de verdade
+- **conversa:** Pergunta com opção longa não escapa mais do card
+- **lançador:** Mantém controles dentro da caixa com branches longas
+- **lançador:** Lista de issues volta a caber e mostrar os títulos
+
 ## [0.4.14] - 2026-09-02
 
 ### Novidades

@@ -141,6 +141,98 @@ test("cria um workspace pelo launcher e acompanha o preparo até a conversa", as
   await expect(page.locator("#chatwrap .composer textarea")).toBeVisible();
 });
 
+test("a lista de issues cabe no lançador e deixa os títulos legíveis", async ({ page }) => {
+  await boot(page);
+
+  // Uma lista longa revela os dois limites do popup: a lateral da folha e o
+  // início do rodapé. O mock normal é curto demais e não força rolagem, então
+  // ele é repetido — quantas vezes sai do que o mock traz, para uma issue nova
+  // no mock não virar um número errado aqui.
+  const total = await page.evaluate(async () => {
+    const BATCHES = 4;
+    type Invoke = (command: string, args?: Record<string, unknown>, options?: unknown) => Promise<unknown>;
+    const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+    const original = internals.invoke;
+    internals.invoke = async function (command, args, options) {
+      const result = await original.call(this, command, args, options);
+      if (command !== "linear_issues") return result;
+      const found = result as { issues: Record<string, unknown>[]; fetched_at: number };
+      return {
+        ...found,
+        issues: Array.from({ length: BATCHES }, (_, batch) =>
+          found.issues.map((issue) => ({ ...issue, id: `${issue.id}-${batch}` })),
+        ).flat(),
+      };
+    };
+    // Conectar primeiro: o mock recusa a busca enquanto o Linear está fora.
+    await internals.invoke("linear_connect");
+    const found = (await internals.invoke("linear_issues", { force: false })) as { issues: unknown[] };
+    return found.issues.length;
+  });
+  // A lista precisa passar do que cabe na tela; é disso que o teste trata.
+  expect(total).toBeGreaterThanOrEqual(20);
+
+  await expect(page.locator("#railbody .navitem", { hasText: "Issues" }).locator(".n")).toHaveText(String(total));
+
+  await page.locator("#railbody > button.navitem").first().click();
+  await page.locator("#d-issuebtn").click();
+  await expect(page.locator("#d-ipicker .prow")).toHaveCount(total);
+
+  const geometry = await page.evaluate(() => {
+    const rect = (selector: string) => document.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
+    const picker = rect("#d-ipicker");
+    const sheet = rect("#veil .sheet");
+    const foot = rect("#veil .sheetbar");
+    const id = rect("#d-ipicker .prow .iid");
+    const title = rect("#d-ipicker .prow > span:last-child");
+    return {
+      picker: { left: picker.left, right: picker.right, bottom: picker.bottom },
+      sheet: { left: sheet.left, right: sheet.right },
+      foot: { top: foot.top },
+      title: { width: title.width, gap: title.left - id.right },
+    };
+  });
+  expect(geometry.picker.left).toBeGreaterThanOrEqual(geometry.sheet.left);
+  expect(geometry.picker.right).toBeLessThanOrEqual(geometry.sheet.right);
+  expect(geometry.picker.bottom).toBeLessThanOrEqual(geometry.foot.top);
+  expect(geometry.title.width).toBeGreaterThan(200);
+  expect(geometry.title.gap).toBeGreaterThanOrEqual(8);
+});
+
+test("mantém os controles do lançador dentro da caixa com branch base longa", async ({ page }) => {
+  await page.setViewportSize({ width: 650, height: 800 });
+  await boot(page);
+
+  const branch = "origin/feature/nome-de-branch-comprido-o-bastante-para-precisar-de-reticencias";
+  await page.evaluate((longBranch) => {
+    type Invoke = (command: string, args?: Record<string, unknown>, options?: unknown) => Promise<unknown>;
+    const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+    const original = internals.invoke;
+    internals.invoke = function (command, args, options) {
+      if (command === "list_branches") return Promise.resolve({ all: [longBranch], default: longBranch });
+      return original.call(this, command, args, options);
+    };
+  }, branch);
+
+  await page.locator("#railbody > button.navitem").first().click();
+  await expect(page.locator("#d-basename")).toHaveText(branch);
+
+  const bounds = await page.locator(".sheettop").evaluate((top) => {
+    const branchName = top.querySelector<HTMLElement>("#d-basename")!;
+    const worktree = top.querySelector<HTMLElement>("#d-wt")!;
+    const topRect = top.getBoundingClientRect();
+    return {
+      topRight: topRect.right,
+      worktreeRight: worktree.getBoundingClientRect().right,
+      branchWidth: branchName.clientWidth,
+      branchContentWidth: branchName.scrollWidth,
+    };
+  });
+
+  expect(bounds.worktreeRight).toBeLessThanOrEqual(bounds.topRight);
+  expect(bounds.branchContentWidth).toBeGreaterThan(bounds.branchWidth);
+});
+
 test("envia uma pergunta, responde o card e devolve o controle ao chat", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Ola");
@@ -429,4 +521,37 @@ test("escolher um GPT tira o seletor de plugins do lançador", async ({ page }) 
   await page.locator(".menu .mrow", { hasText: "GPT-5.6-Sol" }).first().click();
   await expect(page.locator("#d-plugins")).toBeHidden();
   await expect(page.locator("#d-mcp")).toBeVisible();
+});
+
+test("o filtro por time corta a lista de issues e as contagens seguem a busca", async ({ page }) => {
+  await boot(page);
+  await page.evaluate(async () => {
+    type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+    const invoke = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__.invoke;
+    await invoke("linear_connect");
+  });
+
+  const pills = page.locator("#iteams .tpill");
+  await expect(pills).toHaveCount(3, { timeout: 10_000 });
+  await expect(pills.first()).toHaveClass(/\bon\b/);
+  await expect(page.locator("#ilist .irow")).toHaveCount(7);
+
+  // Escolher um time deixa só as issues dele.
+  await pills.filter({ hasText: "INF" }).click();
+  await expect(page.locator("#ilist .irow")).toHaveCount(2);
+  await expect(page.locator("#ilist .irow .iid").first()).toContainText("INF-");
+
+  // Buscar não muda quais pílulas existem — muda quantas issues cada uma
+  // mostraria. O time escolhido continua escolhido.
+  await page.locator("#ibar input").fill("runner");
+  await expect(pills).toHaveCount(3);
+  await expect(pills.filter({ hasText: "INF" })).toHaveClass(/\bon\b/);
+  await expect(pills.filter({ hasText: "MOA" })).toContainText("0");
+  await expect(page.locator("#ilist .irow")).toHaveCount(1);
+
+  // E voltar para "Todos" devolve o que a busca achou em qualquer time.
+  await page.locator("#ibar input").fill("linear");
+  await expect(page.locator("#ilist .iempty")).toBeVisible();
+  await pills.first().click();
+  await expect(page.locator("#ilist .irow")).toHaveCount(1);
 });

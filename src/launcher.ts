@@ -839,9 +839,16 @@ function picker(o: {
   const open = () => {
     marked = Math.max(o.rows().findIndex((r) => r.id === o.current()), 0);
     find.value = "";
-    // Ancorada no botão, não na folha: a lista cai de onde ela foi aberta.
-    el.style.left = `${btn.offsetLeft}px`;
+    // Ancorada no botão, mas sempre contida na folha. O botão de issue fica
+    // perto da direita, e uma lista cheia também não pode atravessar o rodapé.
     el.hidden = false;
+    const sheet = el.offsetParent as HTMLElement;
+    const edge = 12;
+    const width = Math.min(420, sheet.clientWidth - edge * 2);
+    el.style.left = `${Math.max(edge, Math.min(btn.offsetLeft, sheet.clientWidth - width - edge))}px`;
+    el.style.width = `${width}px`;
+    const foot = sheet.querySelector<HTMLElement>(".sheetbar")!;
+    el.style.maxHeight = `${Math.min(320, foot.offsetTop - el.offsetTop)}px`;
     btn.classList.add("open");
     draw();
     find.focus();

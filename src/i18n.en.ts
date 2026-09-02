@@ -161,6 +161,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "issues.group.show": "Show {group}",
   "issues.group.fold": "Collapse {group}",
   "issues.search": "Search by number, title or project…",
+  "issues.team": "Team",
+  "issues.team.all": "All",
   "issues.refresh": "Fetch from Linear again",
   "issues.busy": "searching…",
   "issues.updated": "updated {when}",
