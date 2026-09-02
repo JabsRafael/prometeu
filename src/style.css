@@ -1077,7 +1077,7 @@ body.noside .side { display: none; }
 .sw.on .knob { background: var(--tab-line); }
 .sw.on .knob::after { transform: translateX(11px); background: var(--pri-fg); }
 
-.sheettop .base { max-width: 280px; }
+.sheettop .base { min-width: 0; max-width: 280px; }
 .sheettop .base > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sheettop .base.open, .sheettop .base:not(.empty) { color: var(--fg); }
 .sheettop .base.empty { color: var(--fg-3); }
