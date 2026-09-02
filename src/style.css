@@ -1104,15 +1104,18 @@ body.noside .side { display: none; }
 .pfind input { border: none; background: none; padding: 0; height: 100%; }
 .pfind input:focus-visible { outline: none; }
 .plist { overflow-y: auto; padding: 6px; min-height: 0; }
-.prow {
+.picker .prow {
   display: flex; align-items: center; gap: 8px; width: 100%; height: 30px;
   padding: 0 8px; border-radius: var(--r); background: none; color: var(--fg-2);
   justify-content: flex-start; font-weight: 400;
 }
-.prow.on { background: var(--bg-raised-2); color: var(--fg); }
-.prow > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.prow .pc { width: 14px; flex: none; display: flex; color: var(--tab-line); }
-.prow .iid { font-family: var(--mono); font-size: 11.5px; color: var(--fg-3); flex: none; }
+.picker .prow.on { background: var(--bg-raised-2); color: var(--fg); }
+.picker .prow > span:last-child {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; text-align: left;
+}
+.picker .prow .pc { width: 14px; flex: none; display: flex; color: var(--tab-line); }
+.picker .prow .iid { font-family: var(--mono); font-size: 11.5px; color: var(--fg-3); flex: none; }
 .plist .none { padding: 10px 8px; font-size: 12px; color: var(--fg-3); }
 
 .sheet textarea {
@@ -1580,7 +1583,7 @@ body.noside .side { display: none; }
 /* A lista de processos e a de portas: mesma linha, colunas diferentes. */
 .upop.res { min-width: 380px; }
 .upop.port { min-width: 240px; }
-.prow {
+.upop .prow {
   display: grid; grid-template-columns: minmax(0, 1fr) 46px 44px 62px;
   align-items: center; gap: 8px; height: 30px;
   font-size: 11px; color: var(--fg-2);
@@ -1608,13 +1611,13 @@ body.noside .side { display: none; }
 .urow.act:hover { color: var(--fg); background: var(--bg-raised-3); border-radius: var(--r); }
 .urow.act .ic { margin-left: auto; color: var(--fg-3); }
 
-.prow.port {
+.upop .prow.port {
   grid-template-columns: 44px minmax(0, 1fr) 14px; cursor: default;
   padding: 0 6px; border-radius: var(--r);
 }
-.prow.port:hover { background: var(--bg-raised-3); }
+.upop .prow.port:hover { background: var(--bg-raised-3); }
 .pport { font-variant-numeric: tabular-nums; color: var(--fg); font-weight: 600; }
-.prow.port .ic { color: var(--fg-3); }
+.upop .prow.port .ic { color: var(--fg-3); }
 
 /* O pontinho do café: aceso é o Mac sendo segurado acordado agora. Apagado
    continua na faixa, e não some — o lugar do estado tem que ser o mesmo
