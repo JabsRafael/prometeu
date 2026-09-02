@@ -21,6 +21,7 @@ import {
 } from "./chat-presentation";
 import { effortStep, modelLabel } from "./launcher";
 import { md } from "./markdown";
+import * as mcp from "./mcp";
 import * as commands from "./commands";
 import * as notes from "./notes";
 import * as paths from "./paths";
@@ -63,6 +64,9 @@ export type Info = {
   /// a caixa não diz nada.
   model: string;
   effort: string;
+  /// As ferramentas de MCP deste workspace. `null` é nunca ter escolhido — o
+  /// CLI decide, como antes do hub existir.
+  mcp: string[] | null;
 };
 
 export type Ctx = {
@@ -918,6 +922,10 @@ export class ChatView {
           <span class="mdl"></span>
           <span class="effort"><span class="bars"><i></i><i></i><i></i><i></i><i></i></span><span class="el"></span></span>
         </span>
+        <!-- As ferramentas: aqui se troca, diferente do modelo. Trocar derruba
+             o processo, e a próxima fala o levanta retomando a sessão — a
+             conversa continua de onde estava, com o que foi marcado agora. -->
+        <button class="ghost sm mcpbtn" hidden><span></span></button>
         <button class="ico sm at" hidden></button>
         <button class="outline md quotesel" hidden></button>
         <span class="hint"></span>
@@ -1170,6 +1178,7 @@ export class ChatView {
             : t("chat.placeholder");
     q(".hint").textContent = note ? "" : this.tl.compacting ? t("chat.compacting") : this.tl.busy ? t("chat.busy") : "";
     this.paintWith(info, note);
+    this.paintMcp(info, note);
     // Falar com o agente é uma seta redonda, como no Conductor; deixar nota é
     // outra coisa, e continua dizendo o que faz.
     const send = q(".send");
@@ -1237,6 +1246,42 @@ export class ChatView {
     bars.querySelector<HTMLElement>(".el")!.textContent = step.label;
     bars.querySelectorAll(".bars i").forEach((bar, n) => bar.classList.toggle("lit", n <= step.step));
     bars.title = t("chat.with", { model: label, effort: step.label });
+  }
+
+  /// As ferramentas de MCP desta conversa, e o botão que as troca.
+  ///
+  /// Diferente do modelo, aqui se escolhe com a conversa andando: o MCP entra
+  /// quando o processo sobe, e derrubá-lo não perde nada — a sessão é o
+  /// transcript, e a próxima fala a retoma. Por isso o botão fecha enquanto o
+  /// agente trabalha: derrubar no meio de um turno jogaria o turno fora.
+  ///
+  /// Some na conversa de um colega (não é o meu processo), na nota, e onde não
+  /// há hub nem escolha — um botão que abre uma lista vazia é um botão que não
+  /// faz nada.
+  private paintMcp(info: Info, note: boolean) {
+    const btn = this.box.querySelector<HTMLButtonElement>(".mcpbtn")!;
+    const has = mcp.list().length > 0 || info.mcp !== null;
+    btn.hidden = note || !!info.remote || !info.workspace || !has;
+    if (btn.hidden) return;
+    const working = info.status === "rodando" || info.status === "querendo";
+    btn.innerHTML = `${icon("plug", 13)}<span></span>`;
+    btn.querySelector("span")!.textContent = mcp.label(info.mcp);
+    btn.classList.toggle("on", !!info.mcp?.length);
+    btn.title = t("mcp.title");
+    btn.onclick = () => {
+      const at = btn.getBoundingClientRect();
+      const workspace = info.workspace!;
+      mcp.openPicker({
+        chosen: () => this.ctx.info().mcp,
+        set: (ids) => {
+          void invoke("set_workspace_mcp", { id: workspace, mcp: ids }).catch((e) =>
+            this.ctx.say(fromBack(e), true),
+          );
+        },
+        at: () => ({ x: at.left, y: at.bottom + 4 }),
+        locked: () => (working ? t("mcp.busy") : ""),
+      });
+    };
   }
 
   /// O botão "Comentar a seleção", que só existe com time e seleção.

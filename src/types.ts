@@ -53,6 +53,31 @@ export type Repo = { path: string; name: string; worktree: string; base: string;
 export const repoLabel = (ws: Workspace) =>
   ws.repos.length > 1 ? ws.repos.map((r) => r.name).join(" + ") : ws.repo_name;
 
+/// Um servidor de MCP como o hub o guarda. `config` é o objeto que o Claude
+/// Code entende (`{"type":"http","url":…}`, `{"command":…,"args":[…]}`),
+/// guardado inteiro: a forma é do CLI, não nossa.
+export type McpServer = {
+  id: string;
+  config: Record<string, unknown>;
+  /// De onde veio, ou para que serve. Vazio, num importado, é o cadastro do
+  /// próprio usuário — a tela é que escreve isso.
+  note: string;
+};
+
+/// O que o teste de um servidor descobriu. É o Prometheus falando JSON-RPC com
+/// ele — sem `claude` no meio, para o que se lê aqui ser sobre o cadastro e
+/// mais nada.
+export type McpProbe = {
+  ok: boolean;
+  /// Respondeu 401: o cadastro está certo, falta login.
+  auth: boolean;
+  tools: number;
+  /// Como o servidor se chama.
+  name: string;
+  /// A causa crua, quando não deu. Vem do servidor ou do sistema.
+  detail: string;
+};
+
 export type Workspace = {
   id: string;
   title: string;
@@ -78,6 +103,10 @@ export type Workspace = {
   /// para as abas que vierem (⌘T, retomar). Vazio é o padrão do CLI.
   model: string;
   effort: string;
+  /// Quais servidores de MCP as conversas daqui enxergam, pelo nome que têm no
+  /// hub. `null` é workspace que nunca escolheu — e aí o CLI decide, como fazia
+  /// antes do hub existir. Lista vazia é escolha: sessão sem MCP nenhum.
+  mcp: string[] | null;
   /// Base das dez portas reservadas a este worktree.
   port: number | null;
   /// A issue do Linear de onde este trabalho saiu, se saiu de uma.

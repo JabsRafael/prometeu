@@ -63,6 +63,7 @@ function workspace(id: string, shared: boolean): Workspace {
     agent: "",
     model: "",
     effort: "",
+    mcp: null,
     port: null,
     issue: null,
     cleaned: false,

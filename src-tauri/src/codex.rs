@@ -56,6 +56,20 @@ pub fn spawn(
     let mut cmd = Command::new("codex");
     cmd.args(["app-server", "--enable", "default_mode_request_user_input"])
         .current_dir(worktree);
+    // As ferramentas escolhidas para este workspace. O Codex não tem
+    // `--mcp-config`: a tabela inteira vai por `-c`, e os segredos vão pelo
+    // ambiente deste processo — ver `mcp::codex_config`. Falhar aqui não
+    // derruba a conversa; ela sobe sem MCP, como sobe a de quem não escolheu.
+    match crate::mcp::codex_config(id, launch.mcp.as_ref()) {
+        Ok(Some((servers, env))) => {
+            cmd.args(["-c", &format!("mcp_servers={servers}")]);
+            for (key, value) in env {
+                cmd.env(key, value);
+            }
+        }
+        Ok(None) => {}
+        Err(error) => eprintln!("mcp do codex em {id}: {error}"),
+    }
     let log = paths::chat_log(id);
     let start = Start {
         cwd: worktree.display().to_string(),

@@ -39,6 +39,11 @@ libc = "0.2"
 # já traz, com o provider `ring` dele — não entra dependência nova de verdade,
 # só features. Ver `linear.rs`.
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider"] }
+# O `rustls-no-provider` do reqwest exige que alguém instale o provedor de
+# criptografia antes do primeiro cliente HTTPS. Até aqui quem instalava era o
+# plugin do updater, mas só ao checar atualização: quem falasse HTTPS antes
+# disso entrava em pânico. Ver `main.rs`.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # PKCE: o `code_challenge` é o SHA-256 do verifier em base64url.
 sha2 = "0.10"
 base64 = "0.22"

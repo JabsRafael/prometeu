@@ -186,6 +186,36 @@ pub fn pin_workspace(app: AppHandle, state: State<AppState>, id: String, pinned:
     publish(&app);
 }
 
+/// Trocar as ferramentas do agente com o trabalho já andando: marcar o Notion
+/// no meio da tarde, porque só agora deu para ver que vai precisar dele.
+///
+/// O MCP entra na sessão quando ela sobe, e não há como acrescentar um a um
+/// processo de pé. Mas a sessão não é o processo — é o transcript no disco
+/// (`chat.rs`) —, então derrubar o processo aqui não perde conversa nenhuma: a
+/// próxima fala o levanta de novo com `--resume` e a lista nova. Quem está no
+/// meio de um turno fica de fora: a tela não deixa marcar enquanto o agente
+/// trabalha, e derrubá-lo aqui jogaria o turno fora.
+#[tauri::command]
+pub fn set_workspace_mcp(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+    mcp: Option<Vec<String>>,
+) {
+    let tabs = {
+        let mut board = lock(&state.board);
+        let Some(ws) = board.workspace_mut(&id) else {
+            return;
+        };
+        ws.mcp = mcp;
+        ws.tabs.iter().map(|t| t.id.clone()).collect::<Vec<_>>()
+    };
+    for tab in tabs {
+        chat::kill(&state, &tab);
+    }
+    publish(&app);
+}
+
 /// Marcar como não lido à mão: dar de cara com a novidade e não poder lidar com
 /// ela agora é o caso mais comum de todos.
 #[tauri::command]
@@ -579,6 +609,10 @@ pub struct Launch {
     /// solta. Só vale para a conversa que o lançador abre.
     #[serde(default)]
     pub plan: bool,
+    /// Os servidores de MCP que esta conversa enxerga, pelo nome no hub.
+    /// `None` é não impor nada ao CLI — ver `Workspace::mcp` e `mcp.rs`.
+    #[serde(default)]
+    pub mcp: Option<Vec<String>>,
 }
 
 /// A escolha gravada na aba vira argumento do mesmo jeito que a do lançador —
@@ -590,6 +624,7 @@ impl From<Choice> for Launch {
             model: c.model,
             effort: c.effort,
             plan: false,
+            mcp: None,
         }
     }
 }
@@ -604,18 +639,29 @@ impl Workspace {
             model: self.model.clone(),
             effort: self.effort.clone(),
             plan: false,
+            mcp: self.mcp.clone(),
         }
     }
 
     /// Com o que uma aba sobe: o modelo que ela escolheu ao nascer, ou o do
     /// workspace. É o que separa retomar de recomeçar — a aba que nasceu no
     /// Sonnet volta no Sonnet, mesmo que as irmãs sejam de outro modelo.
+    /// O MCP não entra na conta da aba: a aba escolhe com quem fala, o
+    /// workspace escolhe o que o agente tem na mão. Aba do Sonnet e aba do Opus
+    /// no mesmo worktree veem os mesmos servidores — e desmarcar um vale para
+    /// as duas na próxima vez que subirem.
     pub fn launch_of(&self, tab: &str) -> Launch {
         self.tabs
             .iter()
             .find(|t| t.id == tab)
             .and_then(|t| t.choice.clone())
-            .map_or_else(|| self.launch(), Launch::from)
+            .map_or_else(
+                || self.launch(),
+                |choice| Launch {
+                    mcp: self.mcp.clone(),
+                    ..Launch::from(choice)
+                },
+            )
     }
 }
 
@@ -771,6 +817,7 @@ pub fn create_workspace(
         agent: draft.launch.agent.clone(),
         model: draft.launch.model.clone(),
         effort: draft.launch.effort.clone(),
+        mcp: draft.launch.mcp.clone(),
         port,
         active: None,
         tabs: Vec::new(),
@@ -1181,6 +1228,20 @@ fn claude_args(id: &str, resume: bool, launch: &Launch) -> Vec<String> {
     }
     if !launch.effort.trim().is_empty() {
         args.extend(["--effort".into(), launch.effort.trim().into()]);
+    }
+    // Os servidores escolhidos, e nada além deles: o `--strict-mcp-config` é o
+    // que faz o `~/.claude.json` do usuário parar de entrar por baixo. Sem
+    // escolha (workspace de antes disto existir) nem um nem outro vão, e o CLI
+    // decide como sempre decidiu. Falhar em escrever o arquivo não derruba a
+    // conversa — ela sobe sem MCP, que é a mesma perda de quem não escolheu.
+    match crate::mcp::config_for(id, launch.mcp.as_ref()) {
+        Ok(Some(path)) => args.extend([
+            "--mcp-config".into(),
+            path.display().to_string(),
+            "--strict-mcp-config".into(),
+        ]),
+        Ok(None) => {}
+        Err(error) => eprintln!("mcp de {id}: {error}"),
     }
     args
 }
@@ -1692,6 +1753,7 @@ mod tests {
             shared: false,
             audience: None,
             preparing: false,
+            mcp: None,
             failed: None,
             model: String::new(),
             effort: String::new(),
@@ -1863,11 +1925,39 @@ mod tests {
 
     fn launch(model: &str, effort: &str, plan: bool) -> Launch {
         Launch {
+            mcp: None,
             agent: String::new(),
             model: model.into(),
             effort: effort.into(),
             plan,
         }
+    }
+
+    /// Quem nunca escolheu MCP não recebe `--strict-mcp-config`: o CLI segue
+    /// decidindo sozinho, como fazia antes do hub existir. Quem escolheu recebe
+    /// o arquivo e o `--strict-…`, que é o que fecha a sessão no que foi
+    /// marcado.
+    #[test]
+    fn mcp_so_entra_quando_alguem_escolheu() {
+        let sem = claude_args("id", false, &launch("", "", false));
+        assert!(!sem.contains(&"--mcp-config".to_string()));
+        assert!(!sem.contains(&"--strict-mcp-config".to_string()));
+
+        let root = std::env::temp_dir().join(format!("prometheus-mcp-{}", uuid::Uuid::new_v4()));
+        std::env::set_var("PROMETHEUS_ROOT", &root);
+        let escolheu = Launch {
+            mcp: Some(vec!["notion".into()]),
+            ..launch("", "", false)
+        };
+        let args = claude_args("id", false, &escolheu);
+        std::env::remove_var("PROMETHEUS_ROOT");
+        let at = args
+            .iter()
+            .position(|a| a == "--mcp-config")
+            .expect("o arquivo");
+        assert!(std::path::Path::new(&args[at + 1]).exists());
+        assert!(args.contains(&"--strict-mcp-config".to_string()));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// Bypass e plan não convivem na mesma linha: `--dangerously-skip-permissions`
@@ -1923,6 +2013,7 @@ mod tests {
             shared: false,
             audience: None,
             preparing: false,
+            mcp: None,
             failed: None,
             agent: String::new(),
             model: String::new(),
@@ -2341,6 +2432,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
             shared: false,
             audience: None,
             preparing: false,
+            mcp: None,
             failed: None,
             model: String::new(),
             effort: String::new(),
