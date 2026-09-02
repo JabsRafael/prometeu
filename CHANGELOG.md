@@ -4,6 +4,21 @@ O que muda no Prometheus, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.4.14] - 2026-09-02
+
+### Novidades
+
+- **ferramentas:** O app cadastra servidores de MCP, testa e entra nos que pedem login
+- **ferramentas:** Escolha quais MCP o agente enxerga, e Configurações vira páginas
+- **ferramentas:** A escolha de MCP passa a valer também nas abas do Codex
+- **lançador:** Modelos do Claude Code acompanham o catálogo da conta
+
+### Correções
+
+- **navegador:** Janelas do app aparecem por cima da aba de navegador
+- **navegador:** Endereço digitado não escapa para o Chrome no primeiro redirecionamento
+- **navegador:** A aba navega de verdade, sem despejar os anúncios da página no navegador do computador
+
 ## [0.4.13] - 2026-09-01
 
 ### Novidades
