@@ -332,6 +332,17 @@ fn passthrough_stderr(line: &str) -> Option<String> {
 /// não grava neste formato por conta própria. `wire` recebe o stdin e devolve
 /// o cano de escrita e o tradutor de leitura — os dois lados de um mesmo
 /// protocolo, nascidos juntos.
+/// As `CLAUDE*` herdadas saem do comando — uma a uma, e não limpando o
+/// ambiente inteiro para recopiá-lo: quem chama já pôs no comando o que só ele
+/// sabe, e limpar apagaria isso junto.
+fn drop_claude_vars(cmd: &mut Command) {
+    for (key, _) in std::env::vars() {
+        if key.starts_with("CLAUDE") {
+            cmd.env_remove(key);
+        }
+    }
+}
+
 pub(crate) fn launch(
     app: &AppHandle,
     id: &str,
@@ -348,12 +359,12 @@ pub(crate) fn launch(
     // Um `claude` rodando dentro de outro herda CLAUDE_CODE_CHILD_SESSION e
     // desliga o salvamento do transcript — que é justamente o que a aba guarda
     // como ponteiro. O resto do ambiente vai inteiro: é dele que sai o PATH.
-    cmd.env_clear();
-    for (k, v) in std::env::vars() {
-        if !k.starts_with("CLAUDE") {
-            cmd.env(k, v);
-        }
-    }
+    //
+    // Tirar as `CLAUDE*` uma a uma, e não limpar tudo para recopiar: quem chama
+    // já pôs no comando o que só ele sabe — os segredos que os cabeçalhos de
+    // MCP do Codex viajam no ambiente para não cair em argumento de processo
+    // (`mcp::codex_config`) —, e limpar aqui apagava justamente isso.
+    drop_claude_vars(&mut cmd);
     // Grupo próprio: é o que deixa o `Drop` alcançar os netos.
     cmd.process_group(0);
 
@@ -1009,6 +1020,26 @@ pub fn chat_snapshot(state: State<AppState>, session: String) -> Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// O que o chamador põe no comando chega ao processo. O preparo do ambiente
+    /// limpava tudo e recopiava o do app para tirar as `CLAUDE*`, e apagava
+    /// junto o que só quem chama sabia — os segredos que o Codex recebe por
+    /// variável justamente para não passarem em argumento de processo. As
+    /// `CLAUDE*` herdadas continuam ficando de fora, que é o motivo de existir
+    /// este preparo.
+    #[test]
+    fn o_que_o_chamador_poe_no_ambiente_chega_ao_processo() {
+        std::env::set_var("CLAUDE_CODE_CHILD_SESSION", "1");
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").arg(
+            r#"printf '%s|%s' "$PROMETHEUS_MCP_X_AUTHORIZATION" "$CLAUDE_CODE_CHILD_SESSION""#,
+        );
+        cmd.env("PROMETHEUS_MCP_X_AUTHORIZATION", "Bearer abracadabra");
+        drop_claude_vars(&mut cmd);
+        let out = cmd.output().expect("o sh");
+        std::env::remove_var("CLAUDE_CODE_CHILD_SESSION");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "Bearer abracadabra|");
+    }
 
     #[test]
     fn fim_antigo_nao_fecha_o_processo_que_o_substituiu() {
