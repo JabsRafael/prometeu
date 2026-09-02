@@ -106,6 +106,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             i18n::set_lang,
             agents::agents,
+            agents::claude_models,
             usage::usage,
             machine::machine,
             awake::set_awake,
