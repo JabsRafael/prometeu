@@ -11,6 +11,7 @@ import {
 export const IPC_COMMANDS = [
   "add_project",
   "agents",
+  "claude_models",
   "archive_workspace",
   "browser_back",
   "browser_bounds",

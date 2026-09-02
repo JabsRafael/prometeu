@@ -57,9 +57,11 @@ type Branches = { all: string[]; default: string };
 /// que para a cada `Write` não trabalha enquanto você olha outra coisa, e é
 /// isso que permite acompanhar outras sessões enquanto ele trabalha.
 
-/// Os aliases que o `--model` aceita, com o nome que aparece na tela. Alias e
-/// não id completo de propósito: "opus" é sempre o Opus mais novo, e a lista
-/// não envelhece a cada release. `[1m]` é a janela de um milhão.
+/// A lista de sempre, hoje rede de segurança: o catálogo vivo vem do próprio
+/// `claude` (o `list_models` de `agents.rs`), e esta só desenha o dropdown
+/// enquanto ele não respondeu — ou se não responder. Também é ela que dá nome
+/// aos aliases gravados em workspace antigo (`opus[1m]` → "Opus · 1M"), que o
+/// catálogo de agora pode nem listar mais. `[1m]` é a janela de um milhão.
 ///
 /// Não há "modelo padrão" na lista: escolher é sempre escolher um nome, e o
 /// primeiro daqui é com quem se fala sem ter escolhido nada. Um `--model`
@@ -75,25 +77,40 @@ const MODELS: [string, string][] = [
   ["haiku", "Haiku"],
 ];
 
-/// Os agentes desta máquina. Os modelos do Codex não estão escritos aqui de
-/// propósito: o `codex` mantém o catálogo dele em `models_cache.json`, e ler
-/// dali é o que faz modelo novo da OpenAI aparecer no dropdown sem release do
-/// Prometheus. O que não está instalado não aparece — oferecer o Claude Code a
-/// quem só tem o Codex é oferecer uma sessão que morre ao subir.
-type CodexModel = { slug: string; name: string; efforts: string[] };
-type Agents = { claude: boolean; codex: CodexModel[] };
+/// Os agentes desta máquina. Nenhum catálogo está escrito aqui de propósito:
+/// o `codex` mantém o dele em `models_cache.json`, e o `claude` responde o
+/// dele quando perguntado (`list_models`) — é isso que faz modelo novo
+/// aparecer no dropdown sem release do Prometheus. O que não está instalado
+/// não aparece — oferecer o Claude Code a quem só tem o Codex é oferecer uma
+/// sessão que morre ao subir.
+type AgentModel = { slug: string; name: string; efforts: string[] };
+type Agents = { claude: boolean; codex: AgentModel[] };
 
 /// Enquanto a resposta não chega, o de antes: só o Claude Code. É o que o app
 /// era, e o lançador não pode esperar por disco para desenhar.
 let agents: Agents = { claude: true, codex: [] };
 
+/// O catálogo vivo do Claude Code. Vazio enquanto a resposta não veio — e o
+/// dropdown mostra a lista fixa, que continua certa: os aliases dela não
+/// envelhecem, só a lista de famílias.
+let claudeModels: AgentModel[] = [];
+
 /// Carregado uma vez por sessão do app: nem CLI se instala, nem catálogo muda
-/// enquanto a janela está aberta.
+/// enquanto a janela está aberta. O catálogo do Claude Code vem por trás, sem
+/// segurar o resto: é um processo que sobe e responde em segundos, e a faixa
+/// de agentes não pode esperar tanto.
 export async function loadAgents() {
   try {
     agents = await invoke<Agents>("agents");
   } catch {
     agents = { claude: true, codex: [] };
+  }
+  if (agents.claude) {
+    void invoke<AgentModel[]>("claude_models")
+      .then((models) => {
+        claudeModels = models;
+      })
+      .catch(() => {});
   }
 }
 
@@ -108,12 +125,17 @@ const isCodex = (model: string) => agents.codex.some((m) => m.slug === model);
 /// botão à parte para isso — nem no lançador, nem na barra de abas.
 export const agentOf = (model: string) => (isCodex(model) ? "codex" : "");
 
+/// Os modelos do Claude Code como o dropdown os lista: o catálogo vivo quando
+/// já chegou, a lista fixa enquanto não.
+const claudeItems = (): [string, string][] =>
+  claudeModels.length ? claudeModels.map((m) => [m.slug, m.name] as [string, string]) : MODELS;
+
 /// Os blocos do dropdown de modelo: os do Claude Code de um lado, os do Codex
 /// do outro, só os que esta máquina tem. A barra de abas abre a mesma lista —
 /// escolher com quem a conversa nova fala é a mesma escolha que o lançador faz.
 export function modelGroups(): Group[] {
   const groups: Group[] = [];
-  if (agents.claude) groups.push({ head: t("model.claude"), items: MODELS });
+  if (agents.claude) groups.push({ head: t("model.claude"), items: claudeItems() });
   if (agents.codex.length) {
     groups.push({
       head: t("model.codex"),
@@ -136,7 +158,7 @@ export function fitsEffort(model: string, effort: string): string {
 /// lista. Sem `claude` na máquina é o primeiro do Codex — senão o rodapé
 /// começaria apontando para um CLI que não existe.
 const fallbackModel = () =>
-  (agents.claude ? MODELS[0]?.[0] : agents.codex[0]?.slug) ?? "";
+  (agents.claude ? claudeItems()[0]?.[0] : agents.codex[0]?.slug) ?? "";
 
 /// A escada do esforço, na ordem em que o clique sobe. É o botão do Conductor:
 /// barras que acendem uma a uma, e depois da última volta ao Baixo — sem
@@ -156,21 +178,29 @@ const EFFORTS: [string, string][] = [
 
 /// A escada de degraus que um modelo aceita. O Codex chama `ultra` o que o
 /// Claude Code chama `ultracode`; o degrau é o mesmo, e o nome na tela é o do
-/// CLI que vai rodar.
+/// CLI que vai rodar. No catálogo do Claude Code, `ultracode` não é degrau que
+/// o CLI liste — é o `xhigh` com orquestração por cima, e quem tem um tem o
+/// outro. Modelo sem escada publicada (o Haiku de hoje, ou o catálogo que
+/// ainda não chegou) fica com a escada inteira, como sempre ficou.
 function ladderOf(model: string): [string, string][] {
   const codex = agents.codex.find((m) => m.slug === model);
-  if (!codex) return EFFORTS;
-  return EFFORTS.filter(([id]) => codex.efforts.includes(id === "ultracode" ? "ultra" : id)).map(
-    ([id, name]) => [id, id === "ultracode" ? t("effort.ultra") : name],
-  );
+  if (codex)
+    return EFFORTS.filter(([id]) => codex.efforts.includes(id === "ultracode" ? "ultra" : id)).map(
+      ([id, name]) => [id, id === "ultracode" ? t("effort.ultra") : name],
+    );
+  const claude = claudeModels.find((m) => m.slug === model);
+  if (!claude?.efforts.length) return EFFORTS;
+  return EFFORTS.filter(([id]) => claude.efforts.includes(id === "ultracode" ? "xhigh" : id));
 }
 
 /// O nome do modelo na tela — o mesmo do rodapé do lançador. É o que a caixa
 /// de escrever mostra embaixo: quem está lendo a conversa quer saber com quem
 /// está falando, e o alias (`opus[1m]`) não é isso.
 export function modelLabel(model: string): string {
-  const claude = MODELS.find(([id]) => id === model);
-  if (claude) return claude[1];
+  const alias = MODELS.find(([id]) => id === model);
+  if (alias) return alias[1];
+  const claude = claudeModels.find((m) => m.slug === model);
+  if (claude) return claude.name;
   return agents.codex.find((m) => m.slug === model)?.name ?? model;
 }
 

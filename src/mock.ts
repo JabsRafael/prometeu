@@ -692,6 +692,16 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
           { slug: "gpt-5.4", name: "GPT-5.4", efforts: ["low", "medium", "high", "xhigh"] },
         ],
       };
+    // O catálogo vivo do Claude Code, como o `list_models` o entrega depois do
+    // filtro do back. O Haiku sem escada é de verdade: o CLI não publica
+    // esforço para ele.
+    case "claude_models":
+      return [
+        { slug: "opus[1m]", name: "Opus (1M context)", efforts: ["low", "medium", "high", "xhigh", "max"] },
+        { slug: "claude-fable-5[1m]", name: "Fable", efforts: ["low", "medium", "high", "xhigh", "max"] },
+        { slug: "sonnet", name: "Sonnet", efforts: ["low", "medium", "high", "xhigh", "max"] },
+        { slug: "haiku", name: "Haiku", efforts: [] },
+      ];
     // A cota dos dois agentes, com números parecidos com os de um dia de
     // trabalho: é o que faz a faixa de baixo aparecer no navegador.
     case "usage": {

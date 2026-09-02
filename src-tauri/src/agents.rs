@@ -11,13 +11,17 @@
 //! é catálogo: quem está instalado, quais modelos o Codex oferece, e o nome
 //! que ele dá a cada degrau de esforço.
 //!
-//! A lista de modelos não está escrita aqui: o CLI mantém o catálogo em
-//! `models_cache.json`, e é dele que o lançador tira o que oferecer. Modelo novo
-//! da OpenAI aparece no dropdown sem release do Prometheus.
+//! A lista de modelos não está escrita aqui: cada CLI mantém o próprio
+//! catálogo — o `codex` num arquivo (`models_cache.json`), o `claude` numa
+//! pergunta (o control request `list_models`) — e é deles que o lançador tira o
+//! que oferecer. Modelo novo aparece no dropdown sem release do Prometheus.
 
 use crate::paths;
 use serde_json::Value;
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
+use std::time::Duration;
 
 /// Quais dos dois CLIs estão no PATH. É o `command -v` de um shell de login, e
 /// não um teste de arquivo: o `claude` e o `codex` moram onde o profile da
@@ -72,6 +76,120 @@ pub fn agents() -> Agents {
         claude,
         codex: if codex { codex_models() } else { vec![] },
     }
+}
+
+/// O catálogo do Claude Code, perguntado a ele mesmo: o `claude -p` responde
+/// ao control request `list_models` com a mesma lista do seletor `/model` —
+/// modelo novo da Anthropic entra no dropdown sem release do Prometheus, e
+/// modelo que a conta não tem nem aparece. É comando à parte do `agents` de
+/// propósito: isto sobe um processo e leva segundos, e a faixa de baixo não
+/// pode esperar por ele para dizer quais agentes existem.
+///
+/// Vazio é "não deu" — CLI antigo que não conhece o request, ou resposta que
+/// não veio — e aí o lançador fica com a lista fixa que sempre teve.
+#[tauri::command]
+pub async fn claude_models() -> Vec<Model> {
+    tauri::async_runtime::spawn_blocking(ask_claude_models)
+        .await
+        .unwrap_or_default()
+}
+
+fn ask_claude_models() -> Vec<Model> {
+    let mut cmd = Command::new("claude");
+    // Sem sessão gravada e sem hooks: isto é uma pergunta de catálogo, não uma
+    // conversa — não pode deixar transcript nem acordar hook de gente a cada
+    // janela que abre.
+    cmd.args([
+        "-p",
+        "--verbose",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--no-session-persistence",
+        "--settings",
+        r#"{"hooks":{}}"#,
+    ])
+    .current_dir(paths::home())
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::null());
+    // Como em `chat.rs`: um `claude` dentro de outro herda CLAUDE_* e muda de
+    // comportamento. O resto do ambiente vai inteiro — é dele que sai o PATH.
+    cmd.env_clear();
+    for (k, v) in std::env::vars() {
+        if !k.starts_with("CLAUDE") {
+            cmd.env(k, v);
+        }
+    }
+    let Ok(mut child) = cmd.spawn() else {
+        return vec![];
+    };
+    let (Some(mut stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+        let _ = child.kill();
+        return vec![];
+    };
+    let asked = stdin
+        .write_all(
+            b"{\"type\":\"control_request\",\"request_id\":\"models\",\"request\":{\"subtype\":\"list_models\"}}\n",
+        )
+        .is_ok();
+    // O stdin fica aberto até a resposta: fechar é encerrar a sessão antes dela.
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if line.contains("\"control_response\"") {
+                let _ = tx.send(parse_claude_models(&line));
+                return;
+            }
+        }
+        let _ = tx.send(vec![]);
+    });
+    let models = if asked {
+        rx.recv_timeout(Duration::from_secs(20)).unwrap_or_default()
+    } else {
+        vec![]
+    };
+    let _ = child.kill();
+    let _ = child.wait();
+    models
+}
+
+/// Lê a resposta do `list_models`. Fora ficam o "Default (recommended)" — no
+/// lançador escolher é sempre escolher um nome — e o que o CLI marca como
+/// `disabled`, que é anúncio de modelo pedindo CLI mais novo, não escolha.
+fn parse_claude_models(line: &str) -> Vec<Model> {
+    let Ok(v) = serde_json::from_str::<Value>(line) else {
+        return vec![];
+    };
+    v["response"]["response"]["models"]
+        .as_array()
+        .map(|models| {
+            models
+                .iter()
+                .filter(|m| m["value"].as_str() != Some("default"))
+                .filter(|m| m["disabled"].as_bool() != Some(true))
+                .filter_map(|m| {
+                    let slug = m["value"].as_str()?.to_string();
+                    let name = m["displayName"].as_str().unwrap_or(&slug).to_string();
+                    let efforts = m["supportedEffortLevels"]
+                        .as_array()
+                        .map(|ls| {
+                            ls.iter()
+                                .filter_map(Value::as_str)
+                                .map(str::to_string)
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    Some(Model {
+                        slug,
+                        name,
+                        efforts,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// O catálogo do Codex, filtrado pelo que ele mesmo marca como visível. Lista
@@ -156,5 +274,43 @@ mod tests {
     fn ultracode_vira_ultra() {
         assert_eq!(effort("ultracode"), "ultra");
         assert_eq!(effort("max"), "max");
+    }
+
+    // A resposta como o `claude` 2.1.251 a escreve, encurtada: o "Default" e o
+    // anúncio de modelo desabilitado ficam de fora, o resto vira catálogo.
+    #[test]
+    fn le_o_catalogo_do_claude() {
+        let line = r#"{"type":"control_response","response":{"subtype":"success","request_id":"models","response":{"models":[
+            {"value":"default","resolvedModel":"claude-opus-5[1m]","displayName":"Default (recommended)","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]},
+            {"value":"opus[1m]","resolvedModel":"claude-opus-5[1m]","displayName":"Opus (1M context)","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]},
+            {"value":"haiku","resolvedModel":"claude-haiku-4-5","displayName":"Haiku"},
+            {"value":"cc-update-required-1","resolvedModel":"cc-update-required-1","displayName":"Fable 5.1 (disabled)","disabled":true}
+        ]}}}"#;
+        let models = parse_claude_models(line);
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].slug, "opus[1m]");
+        assert_eq!(models[0].name, "Opus (1M context)");
+        assert_eq!(models[0].efforts, ["low", "medium", "high", "xhigh", "max"]);
+        assert_eq!(models[1].slug, "haiku");
+        assert!(models[1].efforts.is_empty());
+    }
+
+    /// Sobe o `claude` de verdade e pergunta o catálogo. Fora do `cargo test`
+    /// de sempre porque precisa do CLI instalado e leva segundos:
+    /// `cargo test -- --ignored pergunta`.
+    #[test]
+    #[ignore]
+    fn pergunta_o_catalogo_de_verdade() {
+        let models = ask_claude_models();
+        for m in &models {
+            println!("{} = {} [{}]", m.slug, m.name, m.efforts.join(","));
+        }
+        assert!(!models.is_empty());
+    }
+
+    #[test]
+    fn resposta_estranha_e_catalogo_vazio() {
+        assert!(parse_claude_models("nem json").is_empty());
+        assert!(parse_claude_models(r#"{"type":"control_response","response":{"subtype":"error"}}"#).is_empty());
     }
 }
