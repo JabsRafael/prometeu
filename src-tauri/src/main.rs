@@ -12,7 +12,10 @@ mod i18n;
 mod linear;
 mod lock;
 mod machine;
+mod mcp;
+mod mcp_auth;
 mod naming;
+mod oauth;
 mod paths;
 mod pty;
 mod scripts;
@@ -72,7 +75,21 @@ fn adopt_login_path() {
     }
 }
 
+/// Quem fala HTTPS aqui — o OAuth do Linear, o teste de um servidor de MCP, o
+/// updater — usa `reqwest` com `rustls-no-provider`, e essa combinação exige
+/// que o provedor de criptografia seja instalado antes do primeiro cliente. O
+/// plugin do updater instala um, mas só quando vai checar atualização: quem
+/// falasse HTTPS antes disso entrava em pânico dentro da thread do reqwest.
+/// Instalar aqui torna a ordem irrelevante.
+///
+/// Erro é "já havia um instalado", e nesse caso não há nada a fazer nem a
+/// dizer: o que se queria era que existisse um.
+fn install_crypto() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
 fn main() {
+    install_crypto();
     adopt_login_path();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -103,6 +120,7 @@ fn main() {
             session::cleanup_worktree,
             session::cleanup_list,
             session::pin_workspace,
+            session::set_workspace_mcp,
             session::set_unread,
             session::set_shared,
             session::look_at,
@@ -149,6 +167,14 @@ fn main() {
             chat::chat_control_remote,
             chat::chat_buffer,
             chat::chat_snapshot,
+            mcp::mcp_hub,
+            mcp::mcp_save,
+            mcp::mcp_remove,
+            mcp::mcp_found,
+            mcp::mcp_test,
+            mcp::mcp_login,
+            mcp::mcp_logout,
+            mcp::mcp_logins,
             linear::linear_status,
             linear::linear_connect,
             linear::linear_disconnect,

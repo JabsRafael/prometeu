@@ -239,6 +239,15 @@ pub struct Workspace {
     /// decide o que fazer com ela.
     #[serde(default)]
     pub failed: Option<String>,
+    /// Quais servidores de MCP as conversas daqui enxergam, pelo nome que eles
+    /// têm no hub (`mcp.rs`). É do workspace pelo mesmo motivo do modelo: a
+    /// ferramenta que o agente tem na mão é do trabalho, não da aba.
+    ///
+    /// `None` é workspace que nunca escolheu — todo quadro gravado antes disto
+    /// existir —, e aí nada é imposto ao CLI: vale o que ele já fazia. Lista
+    /// vazia é escolha de verdade, e quer dizer sessão sem MCP nenhum.
+    #[serde(default)]
+    pub mcp: Option<Vec<String>>,
     #[serde(default)]
     pub tabs: Vec<Tab>,
     #[serde(default)]
