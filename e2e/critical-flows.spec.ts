@@ -141,6 +141,40 @@ test("cria um workspace pelo launcher e acompanha o preparo até a conversa", as
   await expect(page.locator("#chatwrap .composer textarea")).toBeVisible();
 });
 
+test("mantém os controles do lançador dentro da caixa com branch base longa", async ({ page }) => {
+  await page.setViewportSize({ width: 650, height: 800 });
+  await boot(page);
+
+  const branch = "origin/feature/nome-de-branch-comprido-o-bastante-para-precisar-de-reticencias";
+  await page.evaluate((longBranch) => {
+    type Invoke = (command: string, args?: Record<string, unknown>, options?: unknown) => Promise<unknown>;
+    const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+    const original = internals.invoke;
+    internals.invoke = function (command, args, options) {
+      if (command === "list_branches") return Promise.resolve({ all: [longBranch], default: longBranch });
+      return original.call(this, command, args, options);
+    };
+  }, branch);
+
+  await page.locator("#railbody > button.navitem").first().click();
+  await expect(page.locator("#d-basename")).toHaveText(branch);
+
+  const bounds = await page.locator(".sheettop").evaluate((top) => {
+    const branchName = top.querySelector<HTMLElement>("#d-basename")!;
+    const worktree = top.querySelector<HTMLElement>("#d-wt")!;
+    const topRect = top.getBoundingClientRect();
+    return {
+      topRight: topRect.right,
+      worktreeRight: worktree.getBoundingClientRect().right,
+      branchWidth: branchName.clientWidth,
+      branchContentWidth: branchName.scrollWidth,
+    };
+  });
+
+  expect(bounds.worktreeRight).toBeLessThanOrEqual(bounds.topRight);
+  expect(bounds.branchContentWidth).toBeGreaterThan(bounds.branchWidth);
+});
+
 test("envia uma pergunta, responde o card e devolve o controle ao chat", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Ola");
