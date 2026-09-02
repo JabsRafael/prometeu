@@ -44,11 +44,16 @@ const KINDS: [string, string][] = [
 const FOLD = "prometheus:issues:grupo:";
 const folded = (kind: string) => localStorage.getItem(FOLD + kind) === "1";
 
+/// O time escolhido também gruda: quem atende dois times olha um de cada
+/// vez, e a escolha de hoje é a de amanhã. `""` é "todos".
+const TEAM = "prometheus:issues:time";
+
 let ctx: Ctx;
 let got: Issues | null = null;
 let loading = false;
 let error = "";
 let query = "";
+let team = localStorage.getItem(TEAM) ?? "";
 let visible = false;
 let find: HTMLInputElement;
 let meta: HTMLElement;
@@ -162,6 +167,11 @@ export function draw() {
 function drawList() {
   const list = $("ilist");
   list.replaceChildren();
+  // Sem lista na tela não há time para filtrar; `drawTeams` traz a linha de
+  // volta quando houver.
+  const teams = $("iteams");
+  teams.replaceChildren();
+  teams.hidden = true;
 
   if (!settings.linear().connected) {
     list.append(
@@ -176,10 +186,12 @@ function drawList() {
     return;
   }
 
-  const hits = got.issues.filter(matches);
+  const found = got.issues.filter(matches);
+  drawTeams(found);
+  const hits = team ? found.filter((i) => i.team === team) : found;
   if (!hits.length) {
     list.append(
-      query
+      query || team
         ? empty(t("issues.noMatch.title"), t("issues.noMatch.body"))
         : empty(t("issues.empty.title"), t("issues.empty.body")),
     );
@@ -208,6 +220,48 @@ function drawList() {
     if (shut) continue;
     for (const issue of mine) list.append(row(issue));
   }
+}
+
+/// A linha de times: uma pílula por time, com quantas issues ela mostra. Só
+/// aparece para quem tem issue em mais de um time — com um só, filtrar por
+/// ele não muda nada na tela.
+///
+/// As pílulas saem da lista inteira e as contagens do que a busca achou:
+/// assim a linha não muda de tamanho a cada letra digitada, e o número já diz
+/// quantas issues sobram se você clicar.
+function drawTeams(found: Issue[]) {
+  const box = $("iteams");
+  box.replaceChildren();
+  const keys = [...new Set(got!.issues.map((i) => i.team).filter(Boolean))].sort();
+  // O time pode ter sumido da lista desde a última vez; sem isso a tela
+  // ficaria vazia por causa de um filtro que não aparece mais.
+  if (team && !keys.includes(team)) pickTeam("");
+  box.hidden = keys.length < 2;
+  if (box.hidden) return;
+
+  const label = template("span", "tlabel", `${icon("filter", 13)}<span></span>`);
+  label.children[1].textContent = t("issues.team");
+  box.append(label);
+
+  const pills = h("div", "tpills");
+  for (const key of ["", ...keys]) {
+    const mine = key ? found.filter((i) => i.team === key) : found;
+    const pill = template("button", "tpill" + (key === team ? " on" : ""), `<span></span><span class="c"></span>`);
+    pill.children[0].textContent = key || t("issues.team.all");
+    pill.children[1].textContent = String(mine.length);
+    pill.addEventListener("click", () => {
+      pickTeam(key);
+      drawList();
+    });
+    pills.append(pill);
+  }
+  box.append(pills);
+}
+
+function pickTeam(key: string) {
+  team = key;
+  if (key) localStorage.setItem(TEAM, key);
+  else localStorage.removeItem(TEAM);
 }
 
 /// Um tipo de estado que o Linear inventar depois não pode sumir da lista.

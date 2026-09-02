@@ -379,6 +379,9 @@ const ISSUES: Issue[] = [
   issue("MOA-151", "Mostrar tokens de contexto no card", 3, TODO, "Quadro", 26),
   issue("MOA-149", "Atalho ⌘, para configurações", 4, TODO, null, 30),
   issue("MOA-120", "Explorar sync com Notion", 0, BACKLOG, "Integrações", 240),
+  // Um segundo time: é o que faz a linha de filtro por time aparecer.
+  issue("INF-88", "Runner self-hosted cai depois de duas horas ocioso", 1, DOING, "Infra", 3),
+  issue("INF-72", "Assinar o .dmg no CI sem pedir a senha do Keychain", 3, TODO, "Infra", 52),
 ];
 
 /// As linhas de cada conversa de mentira, numeradas como o back numera: o que

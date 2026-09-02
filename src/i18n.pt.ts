@@ -180,6 +180,8 @@ export const PT = {
   "issues.group.show": "Mostrar {group}",
   "issues.group.fold": "Recolher {group}",
   "issues.search": "Buscar por número, título ou projeto…",
+  "issues.team": "Time",
+  "issues.team.all": "Todos",
   "issues.refresh": "Buscar de novo no Linear",
   "issues.busy": "buscando…",
   "issues.updated": "atualizado {when}",

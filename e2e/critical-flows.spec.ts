@@ -145,8 +145,11 @@ test("a lista de issues cabe no lançador e deixa os títulos legíveis", async 
   await boot(page);
 
   // Uma lista longa revela os dois limites do popup: a lateral da folha e o
-  // início do rodapé. O mock normal tem só cinco linhas e não força rolagem.
-  await page.evaluate(() => {
+  // início do rodapé. O mock normal é curto demais e não força rolagem, então
+  // ele é repetido — quantas vezes sai do que o mock traz, para uma issue nova
+  // no mock não virar um número errado aqui.
+  const total = await page.evaluate(async () => {
+    const BATCHES = 4;
     type Invoke = (command: string, args?: Record<string, unknown>, options?: unknown) => Promise<unknown>;
     const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
     const original = internals.invoke;
@@ -156,18 +159,24 @@ test("a lista de issues cabe no lançador e deixa os títulos legíveis", async 
       const found = result as { issues: Record<string, unknown>[]; fetched_at: number };
       return {
         ...found,
-        issues: Array.from({ length: 4 }, (_, batch) =>
+        issues: Array.from({ length: BATCHES }, (_, batch) =>
           found.issues.map((issue) => ({ ...issue, id: `${issue.id}-${batch}` })),
         ).flat(),
       };
     };
-    return internals.invoke("linear_connect");
+    // Conectar primeiro: o mock recusa a busca enquanto o Linear está fora.
+    await internals.invoke("linear_connect");
+    const found = (await internals.invoke("linear_issues", { force: false })) as { issues: unknown[] };
+    return found.issues.length;
   });
-  await expect(page.locator("#railbody .navitem", { hasText: "Issues" }).locator(".n")).toHaveText("20");
+  // A lista precisa passar do que cabe na tela; é disso que o teste trata.
+  expect(total).toBeGreaterThanOrEqual(20);
+
+  await expect(page.locator("#railbody .navitem", { hasText: "Issues" }).locator(".n")).toHaveText(String(total));
 
   await page.locator("#railbody > button.navitem").first().click();
   await page.locator("#d-issuebtn").click();
-  await expect(page.locator("#d-ipicker .prow")).toHaveCount(20);
+  await expect(page.locator("#d-ipicker .prow")).toHaveCount(total);
 
   const geometry = await page.evaluate(() => {
     const rect = (selector: string) => document.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
@@ -497,4 +506,37 @@ test("o filtro de fora de commit não faz repositório sumir da lista", async ({
   await expect(repos.first()).toHaveClass(/\bquiet\b/);
   await expect(repos.first()).toContainText("prometheus");
   await expect(repos.first()).toContainText("tudo commitado");
+});
+
+test("o filtro por time corta a lista de issues e as contagens seguem a busca", async ({ page }) => {
+  await boot(page);
+  await page.evaluate(async () => {
+    type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+    const invoke = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__.invoke;
+    await invoke("linear_connect");
+  });
+
+  const pills = page.locator("#iteams .tpill");
+  await expect(pills).toHaveCount(3, { timeout: 10_000 });
+  await expect(pills.first()).toHaveClass(/\bon\b/);
+  await expect(page.locator("#ilist .irow")).toHaveCount(7);
+
+  // Escolher um time deixa só as issues dele.
+  await pills.filter({ hasText: "INF" }).click();
+  await expect(page.locator("#ilist .irow")).toHaveCount(2);
+  await expect(page.locator("#ilist .irow .iid").first()).toContainText("INF-");
+
+  // Buscar não muda quais pílulas existem — muda quantas issues cada uma
+  // mostraria. O time escolhido continua escolhido.
+  await page.locator("#ibar input").fill("runner");
+  await expect(pills).toHaveCount(3);
+  await expect(pills.filter({ hasText: "INF" })).toHaveClass(/\bon\b/);
+  await expect(pills.filter({ hasText: "MOA" })).toContainText("0");
+  await expect(page.locator("#ilist .irow")).toHaveCount(1);
+
+  // E voltar para "Todos" devolve o que a busca achou em qualquer time.
+  await page.locator("#ibar input").fill("linear");
+  await expect(page.locator("#ilist .iempty")).toBeVisible();
+  await pills.first().click();
+  await expect(page.locator("#ilist .irow")).toHaveCount(1);
 });
