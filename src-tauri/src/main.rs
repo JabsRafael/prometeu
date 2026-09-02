@@ -186,6 +186,7 @@ fn main() {
         ])
         .setup(|app| {
             machine::watch(app.handle().clone());
+            usage::watch(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())
