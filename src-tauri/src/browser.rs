@@ -10,9 +10,8 @@
 /// só esconde, e voltar mostra a mesma página onde estava.
 use crate::dock::ensure_port;
 use crate::{i18n, AppState};
-use std::collections::BTreeMap;
 use std::process::Command;
-use std::sync::Mutex;
+use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Rect, State, Url, WebviewBuilder,
     WebviewUrl,
@@ -38,49 +37,6 @@ fn allowed(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https")
 }
 
-/// O Run e nada mais: a máquina de quem está olhando. É este o endereço que a
-/// aba serve para ver.
-fn local(url: &Url) -> bool {
-    match url.host_str() {
-        Some(host) => {
-            host == "localhost"
-                || host == "127.0.0.1"
-                || host == "::1"
-                || host.ends_with(".localhost")
-        }
-        None => false,
-    }
-}
-
-/// O host que a pessoa escreveu na barra de cada aba. Quem digita um endereço
-/// pediu aquela página ali dentro — e o que ela abrir dali (um redirecionamento
-/// de login, outra rota do mesmo site) continua sendo ali. Link para outro
-/// host, não: esse é o navegador do sistema.
-static TYPED: Mutex<BTreeMap<String, String>> = Mutex::new(BTreeMap::new());
-
-fn typed(id: &str) -> Option<String> {
-    TYPED
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(id)
-        .cloned()
-}
-
-/// Mesmo site do host digitado: o próprio, ou subdomínio de um do outro.
-/// Quem digita `google.com` cai em `www.google.com` no primeiro redirecionamento,
-/// e um login em `accounts.google.com` volta para `google.com` — nada disso é
-/// sair do site que a pessoa pediu.
-fn same_site(typed: &str, host: &str) -> bool {
-    typed == host
-        || host.strip_suffix(typed).is_some_and(|p| p.ends_with('.'))
-        || typed.strip_suffix(host).is_some_and(|p| p.ends_with('.'))
-}
-
-/// Se a página fica na aba. O Run e o que a pessoa digitou ficam; o resto sai.
-fn inside(id: &str, url: &Url) -> bool {
-    local(url) || typed(id).is_some_and(|t| url.host_str().is_some_and(|h| same_site(&t, h)))
-}
-
 /// Abre no navegador do sistema. Só `http`/`https`: `open` com qualquer esquema
 /// é `open` com qualquer coisa — um `file:` abriria o Finder no seu disco, e um
 /// esquema de app abriria o app.
@@ -99,7 +55,7 @@ pub(crate) fn browse(url: &Url) -> Result<(), String> {
 
 /// Link clicado dentro do app — no texto do agente, por exemplo. A janela do
 /// Prometheus é o Prometheus: página de fora é assunto do navegador do sistema.
-/// A aba de dentro é só o Run.
+/// A aba de dentro nasce no Run; navegar para longe dele é escolha de quem usa.
 #[tauri::command]
 pub fn open_external(url: String) -> Result<(), String> {
     let parsed =
@@ -121,30 +77,31 @@ pub fn browser_open(app: AppHandle, state: State<AppState>, id: String) -> Resul
     }
     let window = app.get_window("main").ok_or_else(fail)?;
     let parsed = Url::parse(&url).map_err(|_| fail())?;
-    // A barra de endereço tem que acompanhar quem navega dentro da página — um
-    // link clicado, um redirecionamento de login. `on_navigation` conta cada
-    // uma; o resto (rota de SPA, que troca a URL sem carregar página) o front
-    // pega perguntando `browser_url` de vez em quando.
-    let to = app.clone();
+    // `on_navigation` dispara para cada frame da página — os iframes de anúncio
+    // e de login inclusive — e a plataforma não diz qual é o principal. Então a
+    // política é por esquema, e não por destino: `http`/`https` navega na aba,
+    // o resto não navega. Mandar "o que saiu do site" para fora daqui já abriu
+    // uma aba de navegador por anúncio da página.
+    //
+    // A barra de endereço acompanha pelo `on_page_load`, que é só do frame
+    // principal; rota de SPA (que troca a URL sem carregar página) o front pega
+    // perguntando `browser_url` de vez em quando.
     let of = id.clone();
     window
         .add_child(
-            WebviewBuilder::new(label(&id), WebviewUrl::External(parsed)).on_navigation(
-                move |url| {
-                    if !allowed(url) {
-                        return false;
+            WebviewBuilder::new(label(&id), WebviewUrl::External(parsed))
+                .on_navigation(allowed)
+                .on_page_load(move |view, payload| {
+                    if matches!(payload.event(), PageLoadEvent::Started) {
+                        let _ = view.emit("browser:url", (of.clone(), payload.url().to_string()));
                     }
-                    // Link que sai do Run vai para o navegador do sistema, e a
-                    // aba fica onde estava: quem clica num link do app espera a
-                    // página de fora abrir de fora.
-                    if !inside(&of, url) {
-                        let _ = browse(url);
-                        return false;
-                    }
-                    let _ = to.emit("browser:url", (of.clone(), url.to_string()));
-                    true
-                },
-            ),
+                })
+                // `window.open` e `target="_blank"` pedem outra janela — e outra
+                // janela é assunto do navegador do sistema; a aba fica onde está.
+                .on_new_window(move |url, _| {
+                    let _ = browse(&url);
+                    NewWindowResponse::Deny
+                }),
             LogicalPosition::new(0.0, 0.0),
             LogicalSize::new(0.0, 0.0),
         )
@@ -172,12 +129,6 @@ pub fn browser_navigate(app: AppHandle, id: String, url: String) -> Result<(), S
         return Err(bad());
     }
     let view = app.get_webview(&label(&id)).ok_or_else(bad)?;
-    let mut typed = TYPED.lock().unwrap_or_else(|e| e.into_inner());
-    match parsed.host_str() {
-        Some(host) if !local(&parsed) => typed.insert(id.clone(), host.to_string()),
-        _ => typed.remove(&id),
-    };
-    drop(typed);
     view.navigate(parsed).map_err(|_| bad())
 }
 
@@ -233,7 +184,6 @@ pub fn browser_reload(app: AppHandle, id: String) {
 /// não existe é memória e CPU à toa.
 #[tauri::command]
 pub fn browser_close(app: AppHandle, id: String) {
-    TYPED.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
     if let Some(view) = app.get_webview(&label(&id)) {
         let _ = view.close();
     }
@@ -245,60 +195,6 @@ mod tests {
     fn label_so_com_o_que_o_tauri_aceita() {
         assert_eq!(super::label("dock-1130"), "run-dock-1130");
         assert_eq!(super::label("porta 17.a"), "run-porta-17-a");
-    }
-
-    #[test]
-    fn a_aba_fica_no_run_e_manda_o_resto_para_fora() {
-        let run = tauri::Url::parse("http://localhost:3100/painel").unwrap();
-        let outro_local = tauri::Url::parse("http://127.0.0.1:5173/").unwrap();
-        let fora = tauri::Url::parse("https://github.com/gbrancaglione").unwrap();
-        assert!(super::inside("ws", &run));
-        assert!(super::inside("ws", &outro_local));
-        assert!(!super::inside("ws", &fora));
-    }
-
-    #[test]
-    fn o_que_a_pessoa_digitou_na_barra_fica_na_aba() {
-        let host = |id: &str, h: &str| {
-            super::TYPED
-                .lock()
-                .unwrap()
-                .insert(id.to_string(), h.to_string())
-        };
-        host("digitou", "github.com");
-        assert!(super::inside(
-            "digitou",
-            &tauri::Url::parse("https://github.com/gbrancaglione/prometheus").unwrap()
-        ));
-        // O redirecionamento para um subdomínio (www, login) continua no site.
-        assert!(super::inside(
-            "digitou",
-            &tauri::Url::parse("https://www.github.com/").unwrap()
-        ));
-        host("www", "www.google.com");
-        assert!(super::inside(
-            "www",
-            &tauri::Url::parse("https://google.com/").unwrap()
-        ));
-        // Host que só termina parecido não é subdomínio.
-        assert!(!super::inside(
-            "digitou",
-            &tauri::Url::parse("https://nothub.com/").unwrap()
-        ));
-        assert!(!super::inside(
-            "digitou",
-            &tauri::Url::parse("https://evilgithub.com/").unwrap()
-        ));
-        // Outra aba não herda o que se digitou nesta.
-        assert!(!super::inside(
-            "outra",
-            &tauri::Url::parse("https://github.com/").unwrap()
-        ));
-        // E um link para outro site sai da aba mesmo assim.
-        assert!(!super::inside(
-            "digitou",
-            &tauri::Url::parse("https://example.com/").unwrap()
-        ));
     }
 
     #[test]
