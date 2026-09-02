@@ -28,18 +28,14 @@
 
 use crate::i18n;
 use crate::lock::lock;
+use crate::oauth::{self, challenge, escape, form, now, random};
 use crate::paths;
-use base64::Engine;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::collections::HashMap;
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 /// O id do app OAuth "Prometheus" registrado no Linear. É público: é o que a
@@ -176,7 +172,7 @@ fn connect() -> Result<Auth, String> {
         escape(REDIRECT),
         challenge(&verifier),
     );
-    browse(&url)?;
+    oauth::browse(&url).map_err(|_| i18n::t("err.linear.noBrowser"))?;
 
     let code = wait_for_code(&listener, &state, Instant::now() + WAIT)?;
     let mut auth = exchange(&code, &verifier)?;
@@ -185,86 +181,27 @@ fn connect() -> Result<Auth, String> {
     Ok(auth)
 }
 
-/// Fica no socket até o navegador voltar com o `code`, ou até o prazo. O
-/// navegador pede outras coisas pelo caminho (`/favicon.ico`); tudo que não
-/// é o redirect ganha 404 e a espera continua.
+/// A espera é a genérica (`oauth::wait_for_code`); o que é do Linear é como
+/// cada recusa se chama na tela.
 fn wait_for_code(listener: &TcpListener, state: &str, deadline: Instant) -> Result<String, String> {
-    loop {
-        match listener.accept() {
-            Ok((mut stream, _)) => {
-                let _ = stream.set_nonblocking(false);
-                let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-                let mut buf = vec![0u8; 8192];
-                let n = stream.read(&mut buf).unwrap_or(0);
-                let Some(target) = request_target(&String::from_utf8_lossy(&buf[..n])) else {
-                    respond(&mut stream, "404 Not Found", "");
-                    continue;
-                };
-                let (route, query) = target.split_once('?').unwrap_or((&target, ""));
-                if route != "/linear" {
-                    respond(&mut stream, "404 Not Found", "");
-                    continue;
-                }
-                let q = parse_query(query);
-                // Mesmo uma resposta de erro pertence ao fluxo só depois de
-                // provar o state. Sem isto qualquer request local podia matar
-                // uma autorização que ainda estava esperando o navegador.
-                if q.get("state").map(String::as_str) != Some(state) {
-                    respond(&mut stream, "400 Bad Request", &page(false, ""));
-                    continue;
-                }
-                if let Some(err) = q.get("error") {
-                    let why = q.get("error_description").cloned().unwrap_or_default();
-                    respond(&mut stream, "200 OK", &page(false, &why));
-                    return Err(match err.as_str() {
-                        "access_denied" => i18n::t("err.linear.denied"),
-                        _ => i18n::ta(
-                            "err.linear.refused",
-                            &[("why", format!("{err} {why}").trim().to_string())],
-                        ),
-                    });
-                }
-                let Some(code) = q.get("code").filter(|c| !c.is_empty()) else {
-                    respond(&mut stream, "400 Bad Request", &page(false, ""));
-                    return Err(i18n::t("err.linear.noCode"));
-                };
-                respond(&mut stream, "200 OK", &page(true, ""));
-                return Ok(code.clone());
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                if Instant::now() > deadline {
-                    return Err(i18n::t("err.linear.timeout"));
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            Err(e) => {
-                return Err(i18n::ta(
-                    "err.linear.portDied",
-                    &[("port", PORT.to_string()), ("cause", e.to_string())],
-                ))
-            }
-        }
-    }
+    oauth::wait_for_code(listener, "/linear", state, deadline, &page).map_err(|denied| match denied
+    {
+        oauth::Denied::Refused => i18n::t("err.linear.denied"),
+        oauth::Denied::Error(why) => i18n::ta("err.linear.refused", &[("why", why)]),
+        oauth::Denied::NoCode => i18n::t("err.linear.noCode"),
+        oauth::Denied::Timeout => i18n::t("err.linear.timeout"),
+        oauth::Denied::Broken(cause) => i18n::ta(
+            "err.linear.portDied",
+            &[("port", PORT.to_string()), ("cause", cause)],
+        ),
+    })
 }
 
-fn respond(stream: &mut TcpStream, status: &str, body: &str) {
-    let _ = write!(
-        stream,
-        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\
-         Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'\r\n\
-         X-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    let _ = stream.flush();
-}
-
-/// A única página que o Prometheus serve: a que diz para fechar a aba.
-///
-/// É uma das poucas frases que o back escreve por inteiro: quem lê está no
-/// navegador, longe do catálogo do front. Duas linhas em cada idioma — não
-/// vale um segundo catálogo deste lado.
+/// O que a página do fim do fluxo diz, nos dois idiomas. O HTML é do
+/// `oauth::page`; daqui saem só as duas linhas — que são das poucas frases que
+/// o back escreve por inteiro, porque quem as lê está no navegador, longe do
+/// catálogo do front.
 fn page(ok: bool, why: &str) -> String {
-    let lang = html(&i18n::lang());
     let (title, text) = match (ok, i18n::pt()) {
         (true, true) => (
             "Linear conectado",
@@ -287,23 +224,7 @@ fn page(ok: bool, why: &str) -> String {
                 .to_string(),
         ),
     };
-    let title = html(title);
-    let text = html(&text);
-    format!(
-        "<!doctype html><html lang=\"{lang}\"><meta charset=\"utf-8\"><title>{title}</title>\
-         <body style=\"margin:0;height:100vh;display:grid;place-items:center;background:#141110;\
-         color:#eae8e6;font:16px/1.5 -apple-system,system-ui,sans-serif\">\
-         <div style=\"text-align:center\"><div style=\"font-size:22px;font-weight:600\">{title}</div>\
-         <div style=\"color:#a4a09d;margin-top:8px\">{text}</div></div></body></html>"
-    )
-}
-
-fn html(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
+    oauth::page(title, &text)
 }
 
 /// Troca o `code` pelo token. Sem `client_secret`: o verifier é a prova.
@@ -605,7 +526,7 @@ pub fn linear_open(url: String) -> Result<(), String> {
     if !url.starts_with("https://linear.app/") {
         return Err(i18n::t("err.linear.notALink"));
     }
-    browse(&url)
+    oauth::browse(&url).map_err(|_| i18n::t("err.linear.noBrowser"))
 }
 
 /* O formato do GraphQL, e a tradução para o nosso. */
@@ -691,118 +612,12 @@ impl From<Raw> for Issue {
 
 /* ---------- miudezas ---------- */
 
-fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
-/// 64 caracteres hexadecimais de duas UUIDs v4 — que saem do gerador seguro
-/// do sistema. Serve de `code_verifier` (43 a 128 caracteres, RFC 7636) e de
-/// `state`.
-fn random() -> String {
-    format!(
-        "{}{}",
-        uuid::Uuid::new_v4().simple(),
-        uuid::Uuid::new_v4().simple()
-    )
-}
-
-/// `code_challenge` S256: base64url sem `=` do SHA-256 do verifier.
-fn challenge(verifier: &str) -> String {
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
-}
-
-fn browse(url: &str) -> Result<(), String> {
-    let ok = Command::new("open")
-        .arg(url)
-        .status()
-        .map_err(i18n::io)?
-        .success();
-    ok.then_some(())
-        .ok_or_else(|| i18n::t("err.linear.noBrowser"))
-}
-
-/// Corpo `application/x-www-form-urlencoded`, que é como o OAuth fala. À mão
-/// porque é uma linha: o `.form()` do reqwest é uma feature a mais para isso.
-fn form(fields: &[(&str, &str)]) -> String {
-    fields
-        .iter()
-        .map(|(k, v)| format!("{}={}", escape(k), escape(v)))
-        .collect::<Vec<_>>()
-        .join("&")
-}
-
-/// Percent-encoding do que vai na URL e no corpo. O redirect precisa; o
-/// resto é hexadecimal e base64url, e passa intacto.
-fn escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() * 3);
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
-
-fn unescape(s: &str) -> String {
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'+' => out.push(b' '),
-            b'%' if i + 2 < bytes.len() => {
-                let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok();
-                match hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
-                    Some(b) => {
-                        out.push(b);
-                        i += 2;
-                    }
-                    None => out.push(b'%'),
-                }
-            }
-            b => out.push(b),
-        }
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-/// O alvo da primeira linha do pedido: `GET /linear?code=x HTTP/1.1` → `/linear?code=x`.
-fn request_target(req: &str) -> Option<String> {
-    let mut words = req.lines().next()?.split_whitespace();
-    let method = words.next()?;
-    let target = words.next()?;
-    (method == "GET").then(|| target.to_string())
-}
-
-fn parse_query(q: &str) -> HashMap<String, String> {
-    q.split('&')
-        .filter(|p| !p.is_empty())
-        .map(|p| {
-            let (k, v) = p.split_once('=').unwrap_or((p, ""));
-            (unescape(k), unescape(v))
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// O vetor de teste da RFC 7636, apêndice B.
-    #[test]
-    fn o_challenge_e_o_da_rfc() {
-        assert_eq!(
-            challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
-            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
-        );
-    }
+    // Estas eram daqui e agora são de todo fluxo de OAuth (`oauth.rs`); os
+    // testes ficaram porque o que eles conferem é o redirect do Linear.
+    use crate::oauth::{parse_query, request_target, unescape};
 
     #[test]
     fn o_verifier_tem_o_tamanho_da_rfc() {
