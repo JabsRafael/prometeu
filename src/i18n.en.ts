@@ -425,7 +425,6 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "mcp.count": "{n} MCP",
   "mcp.title": "Which MCP tools this conversation sees",
   "mcp.busy": "the agent is working — switching MCP restarts the conversation",
-  "mcp.codex": "the choice applies to Claude Code; Codex uses its own setup",
 
   "settings.title": "Settings",
   "settings.integrations": "Integrations",

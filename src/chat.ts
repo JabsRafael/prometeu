@@ -67,9 +67,6 @@ export type Info = {
   /// As ferramentas de MCP deste workspace. `null` é nunca ter escolhido — o
   /// CLI decide, como antes do hub existir.
   mcp: string[] | null;
-  /// Qual CLI roda aqui: a escolha de MCP é imposta ao Claude Code, e o Codex
-  /// segue com o cadastro dele. O botão diz isso em vez de mentir.
-  agent: string;
 };
 
 export type Ctx = {
@@ -1270,7 +1267,7 @@ export class ChatView {
     btn.innerHTML = `${icon("plug", 13)}<span></span>`;
     btn.querySelector("span")!.textContent = mcp.label(info.mcp);
     btn.classList.toggle("on", !!info.mcp?.length);
-    btn.title = t(info.agent === "codex" ? "mcp.codex" : "mcp.title");
+    btn.title = t("mcp.title");
     btn.onclick = () => {
       const at = btn.getBoundingClientRect();
       const workspace = info.workspace!;

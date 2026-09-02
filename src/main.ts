@@ -548,7 +548,6 @@ session.init(
       workspace: open,
       status: tab?.status ?? null,
       mcp: w?.mcp ?? null,
-      agent: w?.agent ?? "",
       pending: tab?.pending_prompt ?? null,
       worktree: w?.worktree ?? null,
       remote: w?.remote ? { name: team.nameOf(w.remote.owner), online: w.remote.online } : null,

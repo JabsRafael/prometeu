@@ -25,10 +25,13 @@
 //! `~/.claude.json` (o do usuário e o de cada projeto) e no `.mcp.json` de cada
 //! repositório, e oferece para importar. Ninguém recadastra o que já tem.
 //!
-//! O que o hub não faz: OAuth. Servidor remoto que pede consentimento continua
-//! sendo autenticado pelo CLI (`claude mcp`), e o hub só o marca ou desmarca.
-//! Ele também só vale para o Claude Code — o Codex tem o cadastro dele em
-//! `~/.codex/config.toml`, e uma aba de Codex continua vendo o que está lá.
+//! O que o hub não faz: OAuth. Servidor remoto que pede consentimento entra por
+//! `mcp_auth.rs`, que faz o OAuth e guarda o token.
+//!
+//! A escolha vale nos dois agentes. O Claude Code recebe `--mcp-config` e
+//! `--strict-mcp-config`; o Codex não tem isso, e recebe a mesma lista como
+//! `-c mcp_servers={…}` — ver `codex_config`, que é onde as duas formas de
+//! dizer a mesma coisa se separam.
 
 use crate::i18n;
 use crate::mcp_auth;
@@ -66,6 +69,13 @@ fn hub_path() -> PathBuf {
 /// disputar o mesmo nome.
 fn session_path(id: &str) -> PathBuf {
     paths::root().join("mcp").join(format!("{id}.json"))
+}
+
+/// O arquivo de variáveis de um servidor stdio no Codex. Ver `codex_config`.
+fn codex_env_path(id: &str, server: &str) -> PathBuf {
+    paths::root()
+        .join("mcp")
+        .join(format!("{id}.{}.env", slug(server)))
 }
 
 pub fn load() -> Vec<Server> {
@@ -287,6 +297,178 @@ fn config_body(
         servers.insert(server.id.clone(), config);
     }
     json!({ "mcpServers": servers })
+}
+
+/* ---------- o mesmo conjunto, do jeito do Codex ---------- */
+
+/// O Codex não lê `--mcp-config`: o cadastro dele é um `mcp_servers` no
+/// `config.toml`, e o que o app pode fazer é sobrescrevê-lo na linha de
+/// comando (`-c mcp_servers={…}`), do mesmo jeito que o nomeador já faz para
+/// rodar sem MCP nenhum. Sobrescrever a tabela inteira é o que dá aqui o mesmo
+/// que o `--strict-mcp-config` dá lá: a sessão vê o que foi marcado, e o
+/// `~/.codex/config.toml` não entra por baixo.
+///
+/// Devolve a tabela e as variáveis de ambiente que o processo do Codex precisa
+/// ter. As variáveis existem por um motivo: **segredo não vai em argumento de
+/// processo**, que qualquer um lê com `ps`.
+///
+///   - servidor remoto: `env_http_headers` diz "este cabeçalho vem desta
+///     variável", e o valor viaja no ambiente. Vale para o token do OAuth e
+///     para o cabeçalho que a pessoa digitou;
+///   - servidor que roda aqui: o `env` do Codex é literal, e o valor cairia no
+///     argumento. Então o comando vira `sh -c '. arquivo && exec "$@"'` com um
+///     arquivo `0600` — o caminho vai no argumento, o segredo não. Sem variável
+///     nenhuma (o caso comum) o comando vai direto, sem `sh` no meio.
+///
+/// `None` é workspace que nunca escolheu: nada é imposto, e o Codex segue com o
+/// cadastro dele.
+pub type CodexMcp = (String, Vec<(String, String)>);
+
+pub fn codex_config(id: &str, chosen: Option<&Vec<String>>) -> Result<Option<CodexMcp>, String> {
+    let Some(chosen) = chosen else {
+        return Ok(None);
+    };
+    let hub = load();
+    let mut env: Vec<(String, String)> = Vec::new();
+    let mut entries: Vec<String> = Vec::new();
+    for name in chosen {
+        let Some(server) = hub.iter().find(|s| &s.id == name) else {
+            continue;
+        };
+        let entry = match server.config.get("url").and_then(Value::as_str) {
+            Some(url) => remote_entry(server, url, &mut env),
+            None => local_entry(id, server)?,
+        };
+        entries.push(format!("{}={entry}", toml_key(&server.id)));
+    }
+    Ok(Some((format!("{{{}}}", entries.join(",")), env)))
+}
+
+impl Server {
+    fn args(&self) -> Vec<String> {
+        self.config
+            .get("args")
+            .and_then(Value::as_array)
+            .map(|args| {
+                args.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn env_pairs(&self) -> Vec<(String, String)> {
+        pairs(self.config.get("env"))
+    }
+}
+
+fn pairs(value: Option<&Value>) -> Vec<(String, String)> {
+    value
+        .and_then(Value::as_object)
+        .map(|map| {
+            map.iter()
+                .filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_string())))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// O nome da variável que carrega um cabeçalho até o Codex. Só maiúsculas e
+/// `_`: é o que um nome de variável aceita em qualquer shell.
+fn env_var_name(server: &str, header: &str) -> String {
+    format!(
+        "PROMETHEUS_MCP_{}_{}",
+        slug(server).to_uppercase().replace('-', "_"),
+        slug(header).to_uppercase().replace('-', "_")
+    )
+}
+
+fn remote_entry(server: &Server, url: &str, env: &mut Vec<(String, String)>) -> String {
+    let mut headers = pairs(server.config.get("headers"));
+    if let Some(token) = mcp_auth::bearer(&server.id) {
+        headers.retain(|(k, _)| !k.eq_ignore_ascii_case("authorization"));
+        headers.push(("Authorization".into(), format!("Bearer {token}")));
+    }
+    let mut fields = vec![format!("url={}", toml_str(url))];
+    if !headers.is_empty() {
+        let mapped: Vec<String> = headers
+            .into_iter()
+            .map(|(header, value)| {
+                let var = env_var_name(&server.id, &header);
+                let line = format!("{}={}", toml_key(&header), toml_str(&var));
+                env.push((var, value));
+                line
+            })
+            .collect();
+        fields.push(format!("env_http_headers={{{}}}", mapped.join(",")));
+    }
+    format!("{{{}}}", fields.join(","))
+}
+
+fn local_entry(id: &str, server: &Server) -> Result<String, String> {
+    let command = server
+        .config
+        .get("command")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let args = server.args();
+    let vars = server.env_pairs();
+    let (command, args) = if vars.is_empty() {
+        (command.to_string(), args)
+    } else {
+        let path = codex_env_path(id, &server.id);
+        let body = vars
+            .iter()
+            .map(|(k, v)| format!("export {k}='{}'\n", v.replace('\'', "'\\''")))
+            .collect::<String>();
+        paths::write_private(&path, &body)
+            .map_err(|cause| i18n::ta("err.mcp.session", &[("cause", cause)]))?;
+        // `"$@"` recebe o comando e os argumentos como estão: nada precisa ser
+        // citado dentro do script, e `exec` faz o `sh` desaparecer do caminho.
+        let script = format!(". '{}' && exec \"$@\"", path.display());
+        let mut wrapped = vec![
+            "-c".to_string(),
+            script,
+            "prometheus-mcp".to_string(),
+            command.to_string(),
+        ];
+        wrapped.extend(args);
+        ("/bin/sh".to_string(), wrapped)
+    };
+    let args = args
+        .iter()
+        .map(|a| toml_str(a))
+        .collect::<Vec<_>>()
+        .join(",");
+    Ok(format!("{{command={},args=[{args}]}}", toml_str(&command)))
+}
+
+/// Uma string TOML entre aspas. À mão porque é isto: o que vai dentro é
+/// caminho, nome e argumento — e escapar os dois caracteres que importam é
+/// menos do que uma dependência a mais.
+fn toml_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04X}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// Uma chave TOML. Nome de servidor e de cabeçalho podem ter `-` e `.`, então
+/// vai sempre entre aspas — é sempre válido.
+fn toml_key(s: &str) -> String {
+    toml_str(s)
 }
 
 /* ---------- testar um servidor ---------- */
@@ -743,6 +925,54 @@ mod tests {
         };
         let got = probe(&nao_existe);
         assert!(!got.ok && !got.detail.is_empty());
+    }
+
+    /// A tabela que o Codex recebe: o remoto com o cabeçalho vindo de variável,
+    /// e o que roda aqui embrulhado no `sh` só quando tem variável — que é o
+    /// que mantém segredo fora do argumento do processo.
+    #[test]
+    fn a_tabela_do_codex_nao_carrega_segredo() {
+        let root = std::env::temp_dir().join(format!("prometheus-codex-{}", uuid::Uuid::new_v4()));
+        std::env::set_var("PROMETHEUS_ROOT", &root);
+        let hub = vec![
+            Server {
+                id: "remoto".into(),
+                config: json!({ "type": "http", "url": "https://x/mcp", "headers": { "X-Key": "abracadabra" } }),
+                note: String::new(),
+            },
+            Server {
+                id: "aqui".into(),
+                config: json!({ "command": "npx", "args": ["-y", "coisa"], "env": { "TOKEN": "abracadabra" } }),
+                note: String::new(),
+            },
+            Server {
+                id: "simples".into(),
+                config: json!({ "command": "node", "args": ["s.js"], "env": {} }),
+                note: String::new(),
+            },
+        ];
+        let body = serde_json::to_string(&hub).expect("hub");
+        paths::write_private(&hub_path(), &body).expect("gravar hub");
+
+        let chosen = vec![
+            "remoto".to_string(),
+            "aqui".to_string(),
+            "simples".to_string(),
+        ];
+        let (table, env) = codex_config("aba", Some(&chosen))
+            .expect("sem erro")
+            .expect("há escolha");
+        std::env::remove_var("PROMETHEUS_ROOT");
+
+        // O segredo não aparece em lugar nenhum da linha de comando.
+        assert!(!table.contains("abracadabra"), "{table}");
+        // O cabeçalho vira variável, e é ela que carrega o valor.
+        assert!(table.contains("env_http_headers"), "{table}");
+        assert!(env.iter().any(|(_, v)| v == "abracadabra"));
+        // Com variável, o comando passa pelo `sh`; sem variável, vai direto.
+        assert!(table.contains("/bin/sh"), "{table}");
+        assert!(table.contains("\"node\",args=[\"s.js\"]"), "{table}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// Sem escolha nenhuma não há arquivo — é o workspace de antes desta

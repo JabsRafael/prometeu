@@ -462,7 +462,6 @@ export const PT = {
   "mcp.count": "{n} MCP",
   "mcp.title": "Quais ferramentas de MCP esta conversa enxerga",
   "mcp.busy": "o agente está trabalhando — trocar de MCP reinicia a conversa",
-  "mcp.codex": "a escolha vale para o Claude Code; o Codex usa o cadastro dele",
 
   "settings.title": "Configurações",
   "settings.integrations": "Integrações",
