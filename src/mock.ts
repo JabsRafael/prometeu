@@ -2,6 +2,7 @@
 /// a UI inteira roda com dados de amostra, sem subir o Tauri. Só entra quando
 /// `window.__TAURI_INTERNALS__` não existe — dentro do app não é carregado.
 import { encodeLive, encodeSnapshot } from "../relay/src/protocol";
+import { LegacyConversationAdapter } from "./conversation-legacy";
 import * as team from "./team";
 import { hasWorktree, type Board, type Choice, type Issue, type LinearStatus, type McpServer, type Plugin, type Pr, type Scripts, type Workspace } from "./types";
 
@@ -30,7 +31,7 @@ const ws = (
   archived: false,
   pinned: false,
   unread: false,
-  agent: "",
+  agent: "claude",
   // Modelo e esforço de mentira: é o que a caixa de escrever mostra embaixo,
   // e sem eles o rodapé da conversa não teria o que desenhar.
   model: "opus[1m]",
@@ -60,7 +61,7 @@ const board: Board = {
       { id: "t1", title: "conversa 1", status: "pronta", note: null, tokens: 57_000 },
       // Aba que nasceu com outro modelo que o do workspace: é o rodapé da
       // conversa mostrando o dela, e não o das irmãs.
-      { id: "t2", title: "conversa 2", status: "pronta", note: null, tokens: 112_400, pending_prompt: "O que tem nesse projeto aqui de legal?", choice: { agent: "", model: "sonnet", effort: "medium" } },
+      { id: "t2", title: "conversa 2", status: "pronta", note: null, tokens: 112_400, pending_prompt: "O que tem nesse projeto aqui de legal?", choice: { agent: "claude", model: "sonnet", effort: "medium" } },
     ]),
     ws("ui-2231", "p2", "prometheus", "Tela igual ao Conductor", "Fazendo", [
       { id: "t3", title: "conversa 1", status: "rodando", note: "Edit src/style.css", tokens: 23_800 },
@@ -266,8 +267,8 @@ const changes = [
   { path: "public/logo.png", added: 0, removed: 0, new_file: true, deleted: false, dirty: true, patch: "" },
 ];
 
-/// Uma conversa de mentira, no formato do stream: o que o `claude -p` teria
-/// escrito. É o que a tela desenha, e o que vai a um colega pelo relay.
+/// Um transcript legado de mentira, mantido como fixture de rollback. Eventos
+/// novos do mock são normalizados para V1 antes de chegar à tela ou ao relay.
 const line = (o: unknown) => JSON.stringify(o);
 const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 const SAMPLE =
@@ -390,6 +391,7 @@ const ISSUES: Issue[] = [
 /// `chat_snapshot` devolve o mesmo par — para o compartilhamento poder ser
 /// testado contra um relay de verdade sem subir o Tauri.
 const scrolls = new Map<string, { text: string; seq: number }>();
+const conversationAdapters = new Map<string, LegacyConversationAdapter>();
 const scrollOf = (tab: string) => {
   let s = scrolls.get(tab);
   if (!s) {
@@ -400,10 +402,14 @@ const scrollOf = (tab: string) => {
 };
 function pushLine(tab: string, o: unknown, keep = true) {
   const s = scrollOf(tab);
-  const text = line(o);
-  if (keep) s.text += text + "\n";
-  s.seq += 1;
-  emit("chat", [tab, text, s.seq]);
+  let adapter = conversationAdapters.get(tab);
+  if (!adapter) conversationAdapters.set(tab, (adapter = new LegacyConversationAdapter()));
+  for (const event of adapter.translate(o)) {
+    const text = line(event);
+    if (keep) s.text += text + "\n";
+    s.seq += 1;
+    emit("chat", [tab, text, s.seq]);
+  }
 }
 
 /// Uma fala: entra como o back a ecoa, e o agente de mentira responde
@@ -527,11 +533,11 @@ function sayInto(tab: string, text: string) {
 
 /// Uma resposta a card: a ferramenta "roda" e o turno termina.
 function controlInto(tab: string, frame: Record<string, any>) {
-  if (frame.type !== "control_response") return;
-  const req = String(frame.response?.request_id ?? "");
+  if (frame.v !== 1 || frame.type !== "request.respond") return;
+  const req = String(frame.requestId ?? "");
   const id = req.replace(/^req-/, "");
-  const denied = frame.response?.response?.behavior === "deny";
-  pushLine(tab, { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: `tu-${id}`, content: denied ? String(frame.response.response.message) : "ok", is_error: denied }] } });
+  const denied = frame.response?.outcome === "deny";
+  pushLine(tab, { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: `tu-${id}`, content: denied ? String(frame.response.message) : "ok", is_error: denied }] } });
   pushLine(tab, { type: "assistant", message: { id: `${id}b`, role: "assistant", content: [{ type: "text", text: denied ? "Certo, vou mudar o plano." : "Combinado. Seguindo." }] } });
   pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 400 });
 }
@@ -575,7 +581,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     }
     // Como o back: a última linha diz se há turno em andamento.
     case "chat_buffer":
-      return scrollOf(String(args.session)).text + line({ type: "prometheus", subtype: "state", busy: false }) + "\n";
+      return scrollOf(String(args.session)).text + line({ v: 1, type: "session.state", at: Date.now(), state: "ready" }) + "\n";
     case "chat_snapshot": {
       const s = scrollOf(String(args.session));
       return { text: s.text, seq: s.seq };
@@ -707,11 +713,45 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     // que se quer ver.
     case "agents":
       return {
-        claude: true,
-        codex: [
-          { slug: "gpt-5.6-sol", name: "GPT-5.6-Sol", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
-          { slug: "gpt-5.6-terra", name: "GPT-5.6-Terra", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
-          { slug: "gpt-5.4", name: "GPT-5.4", efforts: ["low", "medium", "high", "xhigh"] },
+        providers: [
+          {
+            id: "claude",
+            label: "Claude",
+            installed: true,
+            models: [],
+            capabilities: {
+              initialPlanMode: true,
+              workspaceMcpSelection: true,
+              workspacePluginSelection: true,
+              resume: true,
+              compact: true,
+              contextReport: true,
+              approvals: true,
+              userQuestions: true,
+              attachments: true,
+            },
+          },
+          {
+            id: "codex",
+            label: "Codex",
+            installed: true,
+            models: [
+              { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+              { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+              { id: "gpt-5.4", label: "GPT-5.4", efforts: ["low", "medium", "high", "xhigh"] },
+            ],
+            capabilities: {
+              initialPlanMode: false,
+              workspaceMcpSelection: true,
+              workspacePluginSelection: false,
+              resume: true,
+              compact: true,
+              contextReport: true,
+              approvals: true,
+              userQuestions: true,
+              attachments: true,
+            },
+          },
         ],
       };
     // O catálogo vivo do Claude Code, como o `list_models` o entrega depois do
@@ -719,10 +759,10 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     // esforço para ele.
     case "claude_models":
       return [
-        { slug: "opus[1m]", name: "Opus (1M context)", efforts: ["low", "medium", "high", "xhigh", "max"] },
-        { slug: "claude-fable-5[1m]", name: "Fable", efforts: ["low", "medium", "high", "xhigh", "max"] },
-        { slug: "sonnet", name: "Sonnet", efforts: ["low", "medium", "high", "xhigh", "max"] },
-        { slug: "haiku", name: "Haiku", efforts: [] },
+        { id: "opus[1m]", label: "Opus (1M context)", efforts: ["low", "medium", "high", "xhigh", "max"] },
+        { id: "claude-fable-5[1m]", label: "Fable", efforts: ["low", "medium", "high", "xhigh", "max"] },
+        { id: "sonnet", label: "Sonnet", efforts: ["low", "medium", "high", "xhigh", "max"] },
+        { id: "haiku", label: "Haiku", efforts: [] },
       ];
     // A cota dos dois agentes, com números parecidos com os de um dia de
     // trabalho: é o que faz a faixa de baixo aparecer no navegador.

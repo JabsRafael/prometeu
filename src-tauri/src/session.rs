@@ -1,6 +1,6 @@
 use crate::domain::Pr;
 use crate::lock::lock;
-use crate::state::{publish, Board, Choice, Project, Repo, Status, Tab, Workspace};
+use crate::state::{publish, Board, Choice, Project, ProviderId, Repo, Status, Tab, Workspace};
 use crate::{chat, dock, i18n, paths, scripts, AppState};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -647,11 +647,10 @@ pub struct Draft {
 /// que o workspace guarda para as próximas conversas são o mesmo conjunto.
 #[derive(serde::Deserialize, Clone, Default)]
 pub struct Launch {
-    /// Qual CLI sobe na aba: vazio (ou `claude`) é o Claude Code, `codex` é o
-    /// Codex. Sai do modelo escolhido no lançador, e não de um botão à parte —
-    /// escolher um GPT é escolher o Codex.
+    /// Qual CLI sobe na aba. Sai do catálogo do modelo escolhido no lançador,
+    /// e não de um botão à parte.
     #[serde(default)]
-    pub agent: String,
+    pub agent: ProviderId,
     /// Vazio é não passar `--model`: o Claude Code escolhe.
     #[serde(default)]
     pub model: String,
@@ -693,7 +692,7 @@ impl Workspace {
     /// do lançador.
     pub fn launch(&self) -> Launch {
         Launch {
-            agent: self.agent.clone(),
+            agent: self.agent,
             model: self.model.clone(),
             effort: self.effort.clone(),
             plan: false,
@@ -733,10 +732,10 @@ impl Workspace {
     /// do Codex, e o `thread/resume` do Codex não abre o transcript do Claude.
     /// Falar com um GPT numa conversa do Claude é abrir aba nova.
     pub fn retune(&mut self, tab: &str, choice: Choice) -> Result<(), String> {
-        if cli(&self.launch_of(tab).agent) != cli(&choice.agent) {
+        if self.launch_of(tab).agent != choice.agent {
             return Err(i18n::t("err.session.otherAgent"));
         }
-        let follows = cli(&choice.agent) == cli(&self.agent)
+        let follows = choice.agent == self.agent
             && choice.model == self.model
             && choice.effort == self.effort;
         let tab = self
@@ -746,17 +745,6 @@ impl Workspace {
             .ok_or_else(|| i18n::t("err.session.noTab"))?;
         tab.choice = (!follows).then_some(choice);
         Ok(())
-    }
-}
-
-/// Qual CLI um `agent` nomeia. Vazio e `claude` são o mesmo — é o que os
-/// `match` de spawn já leem, e comparar as strings cruas diria que uma aba
-/// gravada com `claude` fala com outro CLI que uma gravada com vazio.
-fn cli(agent: &str) -> &str {
-    if agent == "codex" {
-        "codex"
-    } else {
-        ""
     }
 }
 
@@ -909,7 +897,7 @@ pub fn create_workspace(
         audience: None,
         preparing: true,
         failed: None,
-        agent: draft.launch.agent.clone(),
+        agent: draft.launch.agent,
         model: draft.launch.model.clone(),
         effort: draft.launch.effort.clone(),
         mcp: draft.launch.mcp.clone(),
@@ -1218,12 +1206,12 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
     // por causa de uma conversa vazia seria pior. No Codex a pergunta é outra —
     // se ele já contou qual thread abriu —, porque o transcript dele não mora
     // num caminho que dê para adivinhar.
-    let (resume, handle) = match launch.agent.as_str() {
-        "codex" => (
+    let (resume, handle) = match launch.agent {
+        ProviderId::Codex => (
             agent_session.is_some(),
             crate::codex::spawn(app, tab, &worktree, agent_session, &launch)?,
         ),
-        _ => {
+        ProviderId::Claude => {
             let resume = paths::transcript(tab, &worktree).exists();
             (
                 resume,
@@ -1255,9 +1243,9 @@ fn spawn_tab(
 ) -> Result<Tab, String> {
     let id = uuid::Uuid::new_v4().to_string();
     // O modelo escolhido diz qual CLI sobe (ver `agents.rs`); a aba é a mesma.
-    let handle = match launch.agent.as_str() {
-        "codex" => crate::codex::spawn(app, &id, worktree, None, launch)?,
-        _ => chat::spawn(app, &id, worktree, claude_args(&id, false, launch))?,
+    let handle = match launch.agent {
+        ProviderId::Codex => crate::codex::spawn(app, &id, worktree, None, launch)?,
+        ProviderId::Claude => chat::spawn(app, &id, worktree, claude_args(&id, false, launch))?,
     };
     lock(&state.chats).insert(id.clone(), handle);
     // Quem chama põe a aba no quadro e só então libera a fala
@@ -1766,8 +1754,8 @@ pub fn list_branches(project: String) -> Branches {
 #[cfg(test)]
 mod tests {
     use super::{
-        claude_args, multi_pr_text, patch_map, pr_text, Choice, Launch, Pr, Repo, RepoPr, Tab,
-        Workspace,
+        claude_args, multi_pr_text, patch_map, pr_text, Choice, Launch, Pr, ProviderId, Repo,
+        RepoPr, Tab, Workspace,
     };
     use crate::dock::{is_terminal, multi_setup, quoted};
     use std::path::Path;
@@ -1847,7 +1835,7 @@ mod tests {
                 pr: None,
             }],
             stage: "Feito".into(),
-            agent: String::new(),
+            agent: ProviderId::Claude,
             archived: true,
             pinned: false,
             unread: false,
@@ -2031,7 +2019,7 @@ mod tests {
         Launch {
             mcp: None,
             plugins: None,
-            agent: String::new(),
+            agent: ProviderId::Claude,
             model: model.into(),
             effort: effort.into(),
             plan,
@@ -2132,7 +2120,7 @@ mod tests {
             mcp: None,
             plugins: None,
             failed: None,
-            agent: String::new(),
+            agent: ProviderId::Claude,
             model: String::new(),
             effort: String::new(),
             port: None,
@@ -2162,7 +2150,7 @@ mod tests {
     #[test]
     fn retomar_uma_aba_respeita_o_modelo_com_que_ela_nasceu() {
         let mut ws = bare();
-        ws.agent = String::new();
+        ws.agent = ProviderId::Claude;
         ws.model = "opus[1m]".into();
         ws.effort = "high".into();
         ws.tabs = vec![
@@ -2170,7 +2158,7 @@ mod tests {
             tab(
                 "propria",
                 Some(Choice {
-                    agent: "codex".into(),
+                    agent: ProviderId::Codex,
                     model: "gpt-5.6-sol".into(),
                     effort: "ultracode".into(),
                 }),
@@ -2182,16 +2170,13 @@ mod tests {
             (herda.model.as_str(), herda.effort.as_str()),
             ("opus[1m]", "high")
         );
-        assert_eq!(herda.agent, "");
+        assert_eq!(herda.agent, ProviderId::Claude);
 
         let propria = ws.launch_of("propria");
+        assert_eq!(propria.agent, ProviderId::Codex);
         assert_eq!(
-            (
-                propria.agent.as_str(),
-                propria.model.as_str(),
-                propria.effort.as_str()
-            ),
-            ("codex", "gpt-5.6-sol", "ultracode")
+            (propria.model.as_str(), propria.effort.as_str()),
+            ("gpt-5.6-sol", "ultracode")
         );
         // Plan mode é de uma fala, não da conversa: retomar nunca volta nele.
         assert!(!propria.plan);
@@ -2212,7 +2197,7 @@ mod tests {
         ws.tabs = vec![tab("aberta", None)];
 
         let choice = |model: &str, effort: &str| Choice {
-            agent: String::new(),
+            agent: ProviderId::Claude,
             model: model.into(),
             effort: effort.into(),
         };
@@ -2233,7 +2218,7 @@ mod tests {
 
         // O CLI não troca no meio da conversa.
         let gpt = Choice {
-            agent: "codex".into(),
+            agent: ProviderId::Codex,
             model: "gpt-5.6-sol".into(),
             effort: "high".into(),
         };
@@ -2580,7 +2565,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
             worktree: root.join("ws").display().to_string(),
             repos: repos.clone(),
             stage: "Fazendo".into(),
-            agent: String::new(),
+            agent: ProviderId::Claude,
             archived: false,
             pinned: false,
             unread: false,

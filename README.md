@@ -13,22 +13,31 @@ precisa de você), numa lista lateral que mantém cada trabalho à mão.
 
 Sessão é one-off: nasce, faz, morre. Sem passar artefato de uma sessão para outra.
 
+## Documentação do projeto
+
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) é o mapa das responsabilidades e fluxos.
+- [`docs/README.md`](docs/README.md) indexa contratos, decisões e operação.
+- [`AGENTS.md`](AGENTS.md) é a entrada curta para agentes que trabalham no repo.
+
+Este README descreve o produto e o comportamento visível. Contratos técnicos e
+decisões arquiteturais têm fonte de verdade em `docs/`.
+
 ## Como funciona
 
 Três camadas. Só a de cima é escrita com carinho.
 
 ```
 tela (TS)      lista, abas, a conversa desenhada            <- seu
-   ^  linha JSON                              v linha JSON
-back (Rust)    guarda as linhas, numera, repassa            <- cola
-                                              v stdin/stdout
+   ^  ConversationEventV1             v ConversationCommandV1
+back (Rust)    normaliza, guarda, numera e repassa           <- cola
+                                              v protocolo externo
 processo       `claude -p` (stream-json) ou `codex app-server` (JSON-RPC)
 ```
 
 O app **não reimplementa o agente**: roda o CLI de verdade, sem terminal, e
 cada coisa que acontece — o texto que ele escreve, a ferramenta que chama, o
-resultado dela, a permissão que pede — chega como uma linha de JSON. O back
-(`src-tauri/src/chat.rs`) guarda as linhas, numera e repassa; a tela as reduz
+resultado dela, a permissão que pede — vira uma linha V1 do Prometheus. O back
+(`src-tauri/src/chat.rs`) normaliza, guarda, numera e repassa; a tela as reduz
 a uma linha do tempo (`src/timeline.ts`, um reducer puro) e desenha
 (`src/chat.ts`): markdown, cards de ferramenta com o diff colorido, pensamento
 dobrado. O que a TUI faria com escape codes, aqui é um reducer em cima de JSON.
@@ -39,13 +48,16 @@ As fronteiras maiores ficam em módulos próprios: apresentação da conversa em
 `src/chat-presentation.ts`, índice de mudanças em `src/workspace-changes.ts`,
 transporte e controle remoto do time em `src/team-transport.ts` e
 `src/team-control.ts`; no back, Git/diff e leitura de arquivos ficam em
-`src-tauri/src/session/diff.rs` e `src-tauri/src/session/files.rs`.
+`src-tauri/src/session/diff.rs` e `src-tauri/src/session/files.rs`. O contrato
+da conversa e a compatibilidade com transcripts antigos ficam em
+`src/conversation.ts`, `src/conversation-legacy.ts` e
+`src-tauri/src/conversation.rs`.
 
 Escolher um modelo GPT no lançador troca o processo por trás da aba pelo
 `codex app-server`, e a tela não fica sabendo: `src-tauri/src/codex.rs` traduz
 cada notificação dele (`item/started`, `item/agentMessage/delta`,
-`turn/completed`…) para a linha stream-json equivalente, e cada linha da tela
-para a chamada dele (`turn/start`, `turn/interrupt`). O que o Codex faz
+`turn/completed`…) para eventos canônicos, e cada comando da tela para a
+chamada dele (`turn/start`, `turn/interrupt`). O que o Codex faz
 diferente — o id de thread que ele escolhe, a conversa que o app grava porque
 o rollout dele tem outra forma, os comandos de barra que são do app — está
 explicado no cabeçalho desse arquivo. O catálogo de modelos sai do
@@ -53,7 +65,7 @@ explicado no cabeçalho desse arquivo. O catálogo de modelos sai do
 
 ### O ida-e-volta
 
-1. Uma fala é uma linha `{"type":"user",…}` no stdin do processo. Ele fica de
+1. Uma fala é um comando `message.send`, traduzido na borda para o processo. Ele fica de
    pé entre um turno e outro — a sessão não é o processo, é o transcript no
    disco, e a próxima fala numa aba desligada o sobe de novo com `--resume`.
 2. O que ele escreve no stdout vai para a tela e para o buffer da aba, cada
@@ -293,6 +305,8 @@ Cobre o que erra calado:
   virando a linha inteira, o resultado achando a ferramenta, o card que fecha
   quando alguém responde, a compactação, as tarefas em segundo plano, o
   transcript reaberto que não pode terminar "chegando";
+- o protocolo V1 (`src/conversation.test.ts` e `conversation.rs`): parser,
+  equivalência de replay, evento desconhecido e espelho de rollback;
 - o tradutor do Codex (`codex.rs`) contra as formas que o app-server manda de
   verdade: a numeração dos blocos, o diff montado do `fileChange`, a pergunta
   que volta no id certo, o `/compact` com antes e depois, a retomada que cai

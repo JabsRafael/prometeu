@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import * as alert from "./alert";
+import { installed, loadAgents } from "./agents";
 import * as appmenu from "./appmenu";
 import * as archived from "./archived";
 import * as sidebar from "./sidebar";
@@ -16,7 +17,7 @@ import { current, fromBack, paint, t } from "./i18n";
 import * as issues from "./issues";
 import * as mcp from "./mcp";
 import * as plugins from "./plugins";
-import { dropFiles, installed, loadAgents, openLauncher, type Draft } from "./launcher";
+import { dropFiles, openLauncher, type Draft } from "./launcher";
 import * as menu from "./menu";
 import * as news from "./news";
 import * as rename from "./rename";
@@ -593,6 +594,7 @@ session.init(
       // O modelo da aba, quando ela escolheu um; senão o do workspace. Quem
       // responde é ter ou não `choice`, e não o modelo estar preenchido:
       // modelo vazio é uma escolha (o padrão do CLI), não a falta de uma.
+      agent: tab?.choice ? tab.choice.agent : (w?.agent ?? "claude"),
       model: tab?.choice ? tab.choice.model : (w?.model ?? ""),
       effort: tab?.choice ? tab.choice.effort : (w?.effort ?? ""),
     };

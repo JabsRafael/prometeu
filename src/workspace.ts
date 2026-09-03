@@ -657,7 +657,7 @@ function drawTabs(ws: Workspace) {
       (tab.tokens ? t("tab.tokens", { n: fmtTokens(tab.tokens) }) : "") +
       // O modelo só é dito quando é outro que o das irmãs: numa barra em que
       // todas falam com o mesmo, repetir o nome em cada uma não informa nada.
-      (tab.choice ? t("tab.model", { model: modelLabel(tab.choice.model) }) : "") +
+      (tab.choice ? t("tab.model", { model: modelLabel(tab.choice.model, tab.choice.agent) }) : "") +
       t("tab.rename");
     b.addEventListener("click", () => selectTab(ws.id, tab.id));
     if (!remote) {
@@ -779,8 +779,10 @@ function pickModel(at: HTMLElement, ws: Workspace) {
         checked: id === ws.model,
         // O esforço do workspace só serve se a escada do modelo escolhido o
         // tiver: sair do Sol para um modelo que para no xhigh cai no xhigh.
-        run: () =>
-          void newTab("", { agent: agentOf(id), model: id, effort: fitsEffort(id, ws.effort) }),
+        run: () => {
+          const agent = agentOf(id);
+          void newTab("", { agent, model: id, effort: fitsEffort(id, ws.effort, agent) });
+        },
       });
     }
   });

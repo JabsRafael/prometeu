@@ -60,7 +60,7 @@ function workspace(id: string, shared: boolean): Workspace {
     archived: false,
     pinned: false,
     unread: false,
-    agent: "",
+    agent: "claude",
     model: "",
     effort: "",
     mcp: null,
