@@ -52,6 +52,7 @@ export const currentSession = () => view.current();
 export const focus = () => view.focus();
 export const refresh = () => view.refresh();
 export const selection = () => view.selection();
-export const insert = (text: string) => view.insert(text);
+export const canAttachFiles = () => view.canAttachFiles();
+export const attachFiles = (paths: string[]) => view.attachFiles(paths);
 export const quoteSelection = () => view.quoteSelection();
 export const focusNote = (id: string) => view.focusNote(id);

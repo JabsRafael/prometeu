@@ -277,6 +277,38 @@ test("o @ na caixa completa um caminho do workspace", async ({ page }) => {
   await expect(page.locator("#chatwrap .feed")).not.toContainText("veja @app");
 });
 
+/// O evento nativo do Tauri traz o caminho verdadeiro, mas a posição final do
+/// drop pode vir deslocada no macOS. O alvo que já acendeu continua valendo, e
+/// o arquivo usa o mesmo rascunho de anexos do botão "+" — sem invadir o texto.
+test("arquivo solto na conversa vira anexo mesmo com a posição final imprecisa", async ({ page }) => {
+  await boot(page);
+  await openWorkspace(page, "Ola");
+
+  const composer = page.locator("#chatwrap .composer textarea");
+  await composer.fill("Compare com esta captura");
+  const at = await composer.boundingBox();
+  expect(at).not.toBeNull();
+
+  const path = "/Users/eu/Desktop/Captura de Tela.png";
+  await page.evaluate(({ path, x, y }) => {
+    const mock = (window as unknown as {
+      mock: { drop: (paths: string[], x: number, y: number, dropX: number, dropY: number) => void };
+    }).mock;
+    // O `over` está na caixa; o `drop` termina fora da viewport, como uma
+    // coordenada nativa deslocada pela barra da janela.
+    mock.drop([path], x, y, x, innerHeight + 100);
+  }, { path, x: at!.x + at!.width / 2, y: at!.y + at!.height / 2 });
+
+  await expect(page.locator("#chatwrap .cfiles .injchip")).toHaveCount(1);
+  await expect(page.locator("#chatwrap .cfiles .injchip")).toContainText("Captura de Tela.png");
+  await expect(composer).toHaveValue("Compare com esta captura");
+
+  await composer.press("Enter");
+  const bubble = page.locator("#chatwrap .turn.user .bubble").last();
+  await expect(bubble).toContainText("Compare com esta captura");
+  expect(await bubble.textContent()).toBe('@"/Users/eu/Desktop/Captura de Tela.png"\n\nCompare com esta captura');
+});
+
 /// Entre dois caminhos que combinam igual, o que o agente acabou de mexer vem
 /// na frente: no meio de um trabalho, o "@" quase sempre é sobre o arquivo que
 /// acabou de aparecer na conversa.
