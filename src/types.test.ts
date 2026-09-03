@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { use } from "./i18n";
-import { branchTaken, fmtTokens, heaviest, type Board, type Workspace } from "./types";
+import { branchTaken, firstTabProvider, fmtTokens, heaviest, type Board, type Workspace } from "./types";
 
 // `1,2M` é a vírgula decimal do português: o formato do número segue o idioma.
 use("pt-BR");
@@ -25,6 +25,28 @@ describe("heaviest", () => {
     } as unknown as Workspace;
     expect(heaviest(ws)?.id).toBe("c");
     expect(heaviest({ tabs: [] } as unknown as Workspace)).toBeUndefined();
+  });
+});
+
+describe("firstTabProvider", () => {
+  it("usa a escolha da primeira aba quando ela troca de provedor", () => {
+    const ws = {
+      agent: "claude",
+      tabs: [
+        {
+          choice: { agent: "codex", model: "gpt-5.6-sol", effort: "high" },
+        },
+        {
+          choice: { agent: "claude", model: "opus", effort: "high" },
+        },
+      ],
+    } as Workspace;
+    expect(firstTabProvider(ws)).toBe("codex");
+  });
+
+  it("cai no provedor do workspace sem override ou sem aba", () => {
+    expect(firstTabProvider({ agent: "codex", tabs: [{ choice: null }] } as Workspace)).toBe("codex");
+    expect(firstTabProvider({ agent: "claude", tabs: [] } as unknown as Workspace)).toBe("claude");
   });
 });
 

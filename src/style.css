@@ -192,7 +192,7 @@ body.norail .top .nav { margin-left: 0; }
 /* Novidade: o que aconteceu enquanto você olhava outra coisa. Negrito e branco,
    como e-mail não lido — sem mais um glifo na linha. */
 .navitem.sub.unread .lbl { color: var(--fg); font-weight: 600; }
-.navitem.sub .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; margin: 0 3px 0 5px; }
+.navitem.sub .provider { width: 13px; height: 13px; display: flex; flex: none; margin: 0 0 0 1px; }
 .navitem.sub .av { display: flex; margin-right: -2px; }
 .navitem.sub .av .avatar { width: 14px; height: 14px; border-radius: 3px; font-size: 9px; }
 /* A etapa mora na linha, agora que o grupo é o projeto: o anel diz em que pé
