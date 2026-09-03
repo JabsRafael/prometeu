@@ -9,14 +9,16 @@
 //! sessão não é o processo, é o transcript no disco, e ele sobrevive a tudo.
 //!
 //! O Codex entra pelo mesmo lugar: `codex.rs` traduz seu JSON-RPC diretamente.
-//! O Claude ainda usa o adapter legado de `conversation.rs`. Daqui para a
+//! O Claude usa o adapter stream-json de `claude.rs`. Daqui para a
 //! frente ninguém sabe qual dos dois está do outro lado: buffer, tela, relay e
 //! quadro leem o mesmo contrato.
 
 use crate::i18n;
 use crate::lock::lock;
 use crate::state::{publish, Note, Status, Workspace};
-use crate::{codex, conversation, paths, transcript, usage, AppState};
+use crate::{
+    claude, codex, conversation, conversation_rollback, paths, transcript, usage, AppState,
+};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::process::CommandExt;
@@ -104,7 +106,7 @@ pub struct Snapshot {
 /// O cano para dentro do processo. Cada variante possui a tradução de entrada
 /// do próprio provider e recebe o mesmo comando V1.
 pub enum Wire {
-    Claude(ChildStdin),
+    Claude(claude::Link),
     Codex(Arc<Mutex<codex::Link>>),
 }
 
@@ -163,7 +165,7 @@ impl Pump {
         let seq = match keep(&frame) {
             true => {
                 if let Some(log) = &self.log {
-                    if let Some(mirror) = conversation::legacy_mirror(&frame) {
+                    if let Some(mirror) = conversation_rollback::mirror(&frame) {
                         append(log, &mirror.to_string());
                     }
                     // O V1 vem depois do espelho: se o teto cortar o arquivo
@@ -240,15 +242,9 @@ impl Chat {
     /// pelo processo — o Codex respondendo a um comando que só o app conhece.
     pub fn write(&mut self, frame: &Value) -> Result<Vec<Value>, String> {
         match &mut self.wire {
-            Wire::Claude(stdin) => {
+            Wire::Claude(link) => {
                 let buffer = lock(&self.pump.sink).text.clone();
-                let provider = conversation::claude_command(frame, &buffer)
-                    .ok_or_else(|| i18n::t("err.team.bad"))?;
-                let mut line = provider.to_string();
-                line.push('\n');
-                stdin.write_all(line.as_bytes()).map_err(i18n::io)?;
-                stdin.flush().map_err(i18n::io)?;
-                Ok(vec![])
+                link.write(frame, &buffer)
             }
             Wire::Codex(link) => lock(link).write(frame),
         }
@@ -293,42 +289,6 @@ impl Drop for Chat {
 /// Tira a conversa do mapa — e, com isso, encerra o processo.
 pub fn kill(state: &AppState, id: &str) {
     lock(&state.chats).remove(id);
-}
-
-/// Sobe o `claude` numa conversa e bombeia a saída para a tela. Cada linha vai
-/// carimbada com o id da sessão e o número dela — a tela só desenha a conversa
-/// aberta, mas todas continuam correndo por trás, e o compartilhamento usa o
-/// número para casar linha com snapshot.
-pub fn spawn(
-    app: &AppHandle,
-    id: &str,
-    worktree: &Path,
-    args: Vec<String>,
-) -> Result<Chat, String> {
-    let mut cmd = Command::new("claude");
-    cmd.args(args).current_dir(worktree);
-    let seed = paths::transcript(id, worktree);
-    // A linha já é a linha: o `claude -p` fala o formato da tela.
-    let wire = |stdin| {
-        let mut adapter = conversation::LegacyAdapter::default();
-        (
-            Wire::Claude(stdin),
-            Box::new(move |line: &str| adapter.translate_line(line)) as Translate,
-        )
-    };
-    launch(
-        app,
-        id,
-        cmd,
-        &seed,
-        None,
-        "err.chat.spawn",
-        ProcessIo::new(passthrough_stderr, wire),
-    )
-}
-
-fn passthrough_stderr(line: &str) -> Option<String> {
-    Some(line.to_string())
 }
 
 /// Sobe um processo qualquer que fale com a conversa: o `claude` como está, ou

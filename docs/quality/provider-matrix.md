@@ -22,7 +22,7 @@ para virar capacidade contratual.
 | plan mode inicial | nativo por permission mode | indisponível | `session.rs`, `launcher.ts` |
 | texto em streaming | adaptado para V1 | adaptado para V1 | `conversation.test.ts`, `timeline.test.ts`, testes de `codex.rs` |
 | pensamento | adaptado para V1 | adaptado para V1 | `timeline.test.ts`, testes de `codex.rs` |
-| tool call e resultado | adaptado para V1 | adaptado para V1 | `conversation.test.ts`, testes de `conversation.rs`/`codex.rs` |
+| tool call e resultado | adaptado para V1 | adaptado para V1 | `conversation.test.ts`, testes de `claude.rs`/`codex.rs` |
 | perguntas ao usuário | nativo | adaptado de request JSON-RPC | `chat.ts`, testes de `codex.rs` |
 | pedidos de aprovação | nativo | adaptado | `chat.rs`, `codex.rs` |
 | interrupção | control request | `turn/interrupt` | `codex.rs`, testes Rust |
@@ -31,7 +31,7 @@ para virar capacidade contratual.
 | seleção de MCP por workspace | config do CLI | config montada pelo app | `mcp.rs`, `codex.rs` |
 | seleção de plugins por workspace | flags do Claude | indisponível | `plugins.rs`, `launcher.ts` |
 | anexos na fala | adaptado por caminho local | adaptado por caminho local | capability + `chat.ts`; falta teste transversal dedicado |
-| evento externo desconhecido | ignorado pelo adapter | ignorado pelo adapter | `conversation.test.ts`, testes de `conversation.rs`/`codex.rs` |
+| evento externo desconhecido | ignorado pelo adapter | ignorado pelo adapter | `conversation.test.ts`, testes de `claude.rs`/`codex.rs` |
 | compartilhamento ao vivo | V1 após normalização | V1 após normalização | `team*.test.ts`, E2E sobre mock |
 
 ## Regra para feature nova
