@@ -135,6 +135,8 @@ fn main() {
             session::find::find_paths,
             session::files::list_dir,
             session::files::read_file,
+            session::files::read_bytes,
+            session::files::file_stamp,
             session::files::write_file,
             dock::open_dock,
             dock::close_dock,

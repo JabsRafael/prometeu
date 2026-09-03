@@ -1,6 +1,7 @@
 import { invoke } from "./ipc";
 import { fromBack } from "./i18n";
 import { highlight } from "./highlight";
+import { decode, parse } from "./csv";
 import { fileIcon, icon } from "./icons";
 import { $ } from "./util";
 
@@ -88,6 +89,8 @@ export function init(onError: (m: string) => void, onSaved: (id: string) => void
 /// viewer está aberto, então o texto acompanha o agente editando; a rolagem
 /// só é mexida quando o conteúdo mudou de verdade.
 export async function show(id: string, path: string) {
+  const kind = /\.pdf$/i.test(path) ? "pdf" : /\.csv$/i.test(path) ? "csv" : null;
+  if (kind) return showBlob(id, path, kind);
   const k = key(id, path);
   const same = shown?.id === id && shown.path === path;
   // Escreveu e não salvou: o que está na tela é seu, não o do disco.
@@ -106,12 +109,8 @@ export async function show(id: string, path: string) {
   if (shown?.id === id && shown.path === path && drafts.has(k)) return;
   if (same && shown!.text === text && !error) return;
   shown = { id, path, text };
-
-  const cut = path.lastIndexOf("/");
-  const crumb = $("vcrumb");
-  crumb.innerHTML = `${fileIcon(path.slice(cut + 1), 14)}<span class="dir"></span><span class="nm"></span>`;
-  crumb.children[1].textContent = cut === -1 ? "" : path.slice(0, cut + 1);
-  crumb.children[2].textContent = path.slice(cut + 1);
+  crumb(path);
+  blob(false);
 
   // Arquivo que nem abriu — binário, grande demais — não se escreve: some a
   // caixa, e o `<pre>` conta o motivo no lugar do código.
@@ -140,6 +139,99 @@ export async function show(id: string, path: string) {
   paint();
   chrome();
   if (!same) $("vcode").scrollTo(0, 0);
+}
+
+function crumb(path: string) {
+  const cut = path.lastIndexOf("/");
+  const el = $("vcrumb");
+  el.innerHTML = `${fileIcon(path.slice(cut + 1), 14)}<span class="dir"></span><span class="nm"></span>`;
+  el.children[1].textContent = cut === -1 ? "" : path.slice(0, cut + 1);
+  el.children[2].textContent = path.slice(cut + 1);
+}
+
+/// PDF e CSV não são código: some a pilha de texto e entra o `#vfile`. O URL
+/// do PDF anterior é solto na troca — cada um segura o arquivo inteiro.
+let pdfUrl = "";
+function blob(on: boolean) {
+  $("vcode").hidden = on;
+  $("vfile").hidden = !on;
+  if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+  pdfUrl = "";
+  if (!on) $("vfile").replaceChildren();
+}
+
+/// PDF vai num iframe — o WebKit já desenha PDF com rolagem e zoom, página a
+/// página. CSV vira tabela. O arquivo só é relido quando o carimbo do disco
+/// muda: o quadro redesenha a cada ferramenta do agente, e reler dezenas de
+/// MB por evento travaria a janela.
+async function showBlob(id: string, path: string, kind: "pdf" | "csv") {
+  const same = shown?.id === id && shown.path === path;
+  const currentRequest = ++request;
+  let stamp = "";
+  let bytes: ArrayBuffer | null = null;
+  let error = "";
+  try {
+    stamp = await invoke<string>("file_stamp", { id, rel: path });
+    if (currentRequest !== request) return;
+    if (same && shown!.text === stamp) return;
+    bytes = await invoke<ArrayBuffer>("read_bytes", { id, rel: path });
+  } catch (e) {
+    error = fromBack(e);
+  }
+  if (currentRequest !== request) return;
+  shown = { id, path, text: stamp };
+  crumb(path);
+  chrome();
+  $("vgutter").textContent = "";
+  $("vpre").innerHTML = "";
+  box().hidden = true;
+  blob(!error);
+  if (error) {
+    $("vpre").innerHTML = `<span class="h-c"></span>`;
+    $("vpre").children[0].textContent = error;
+    return;
+  }
+  const into = $("vfile");
+  into.className = `vfile ${kind}`;
+  if (kind === "pdf") {
+    pdfUrl = URL.createObjectURL(new Blob([bytes!], { type: "application/pdf" }));
+    const frame = document.createElement("iframe");
+    frame.src = pdfUrl;
+    into.append(frame);
+    return;
+  }
+  table(into, parse(decode(bytes!)));
+}
+
+/// Cabeçalho fixo e as linhas entrando aos lotes conforme a rolagem chega ao
+/// fim: 100 mil linhas de uma vez travariam a janela no DOM.
+function table(into: HTMLElement, rows: string[][]) {
+  const [head, ...body] = rows;
+  const t = document.createElement("table");
+  const thead = t.createTHead().insertRow();
+  for (const h of head ?? []) thead.append(Object.assign(document.createElement("th"), { textContent: h }));
+  const tbody = t.createTBody();
+  const end = document.createElement("div");
+  into.append(t, end);
+  let at = 0;
+  const more = () => {
+    // Arrastou a barra até o fim: continua no fim depois do lote, um lote por
+    // quadro, até chegar na última linha de verdade — ou até subir de volta.
+    const bottom = into.scrollTop + into.clientHeight >= into.scrollHeight - 1;
+    const stop = Math.min(body.length, at + 500);
+    for (; at < stop; at++) {
+      const tr = tbody.insertRow();
+      for (let c = 0; c < head.length; c++) tr.insertCell().textContent = body[at][c] ?? "";
+    }
+    if (at >= body.length) return watch.disconnect();
+    if (bottom) {
+      into.scrollTop = into.scrollHeight;
+      requestAnimationFrame(more);
+    }
+  };
+  const watch = new IntersectionObserver((hits) => hits[0].isIntersecting && more(), { root: into });
+  more();
+  watch.observe(end);
 }
 
 function typed() {

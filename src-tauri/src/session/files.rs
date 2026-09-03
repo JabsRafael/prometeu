@@ -52,19 +52,58 @@ pub fn list_dir(state: State<AppState>, id: String, rel: String) -> Vec<Entry> {
     out
 }
 
-#[tauri::command]
-pub fn read_file(state: State<AppState>, id: String, rel: String) -> Result<String, String> {
-    let root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
-    let file = inside(&root, &rel)?;
+/// Resolve o arquivo dentro do worktree e recusa o que passa do limite: o
+/// conteúdo inteiro atravessa o IPC, e um arquivo enorme travaria a janela.
+fn open(state: &State<AppState>, id: &str, rel: &str, limit: u64) -> Result<PathBuf, String> {
+    let root = cwd_of(state, id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+    let file = inside(&root, rel)?;
     let meta = std::fs::metadata(&file).map_err(i18n::io)?;
-    if meta.len() > 2 * 1024 * 1024 {
+    if meta.len() > limit {
         return Err(i18n::ta(
             "err.session.tooBig",
             &[("kb", (meta.len() / 1024).to_string())],
         ));
     }
+    Ok(file)
+}
+
+#[tauri::command]
+pub fn read_file(state: State<AppState>, id: String, rel: String) -> Result<String, String> {
+    let file = open(&state, &id, &rel, 2 * 1024 * 1024)?;
     let bytes = std::fs::read(&file).map_err(i18n::io)?;
     String::from_utf8(bytes).map_err(|_| i18n::t("err.session.binary"))
+}
+
+/// Os bytes crus, para o que o viewer desenha sem ser texto: PDF e CSV. O
+/// limite é mais folgado que o do código porque ninguém edita esses — só lê.
+#[tauri::command]
+pub fn read_bytes(
+    state: State<AppState>,
+    id: String,
+    rel: String,
+) -> Result<tauri::ipc::Response, String> {
+    let file = open(&state, &id, &rel, 100 * 1024 * 1024)?;
+    let bytes = std::fs::read(&file).map_err(i18n::io)?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Carimbo barato (mtime + tamanho) para o viewer saber se vale reler um
+/// arquivo grande a cada evento do quadro.
+#[tauri::command]
+pub fn file_stamp(state: State<AppState>, id: String, rel: String) -> Result<String, String> {
+    let file = open(&state, &id, &rel, u64::MAX)?;
+    let meta = std::fs::metadata(&file).map_err(i18n::io)?;
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .unwrap_or_default();
+    Ok(format!(
+        "{}.{}-{}",
+        mtime.as_secs(),
+        mtime.subsec_nanos(),
+        meta.len()
+    ))
 }
 
 /// Grava o que a pessoa escreveu no viewer. `was` é o texto que ela abriu: se
