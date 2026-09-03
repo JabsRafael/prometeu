@@ -5,8 +5,8 @@
 //! (`item/started`, `item/agentMessage/delta`, `item/completed`,
 //! `turn/completed`…) e às vezes pergunta (`item/tool/requestUserInput`,
 //! `item/commandExecution/requestApproval`). Nada disso chega à tela como é:
-//! o `Link` traduz cada coisa e a borda comum fecha o
-//! `ConversationEventV1` que a mesma timeline reduz para todos os providers.
+//! o `Link` traduz cada coisa diretamente para `ConversationEventV1`, que a
+//! mesma timeline reduz para todos os providers.
 //! No sentido contrário, uma fala vira
 //! `turn/start`, uma resposta a pedido vira a resposta JSON-RPC, uma
 //! interrupção vira `turn/interrupt`.
@@ -80,12 +80,10 @@ pub fn spawn(
     let io = chat::ProcessIo::new(process_stderr, move |stdin| {
         let link = Arc::new(Mutex::new(Link::new(Box::new(stdin), start)));
         let reader = link.clone();
-        let mut adapter = conversation::LegacyAdapter::default();
         let translate = move |line: &str| {
             lock(&reader)
                 .on_line(line)
                 .iter()
-                .flat_map(|frame| adapter.translate(frame))
                 .map(|event| event.to_string())
                 .collect()
         };
@@ -167,8 +165,8 @@ pub struct Link {
     /// Os arquivos de cada `fileChange` aberto: é o que o pedido de aprovação
     /// dele não repete.
     patches: HashMap<String, Vec<String>>,
-    /// O índice do próximo bloco na mensagem deste turno — a linha `assistant`
-    /// da tela numera os blocos na ordem em que fecham, e o rascunho em
+    /// O índice do próximo bloco na mensagem deste turno — `assistant.block`
+    /// numera os blocos na ordem em que fecham, e o rascunho em
     /// streaming precisa nascer com o mesmo número.
     block: usize,
     message_open: bool,
@@ -216,66 +214,79 @@ impl Link {
 
     /* ---------- da tela para o Codex ---------- */
 
-    /// Uma linha da tela. Devolve o que ela rendeu sem ir ao processo.
+    /// Um comando V1 da tela. Devolve eventos V1 que ele rendeu sem ir ao
+    /// processo.
     pub fn write(&mut self, frame: &Value) -> Result<Vec<Value>, String> {
+        if frame["v"] != 1 {
+            return Err(i18n::t("err.team.bad"));
+        }
         match frame["type"].as_str() {
-            Some("user") => {
+            Some("message.send") => {
                 if let Some(cause) = &self.failed {
                     return Err(i18n::ta("err.codex.thread", &[("cause", cause.clone())]));
                 }
+                let text = frame["text"]
+                    .as_str()
+                    .ok_or_else(|| i18n::t("err.team.bad"))?;
                 if self.thread.is_none() {
                     self.queue.push(frame.clone());
                     return Ok(vec![]);
                 }
-                self.speak(&spoken(frame))
+                self.speak(text)
             }
-            Some("control_response") => {
-                let id = frame["response"]["request_id"]
+            Some("request.respond") => {
+                let id = frame["requestId"]
                     .as_str()
-                    .unwrap_or("")
+                    .ok_or_else(|| i18n::t("err.team.bad"))?
                     .to_string();
-                let Some(ask) = self.asks.remove(&id) else {
-                    return Ok(vec![]);
+                let Some(ask) = self.asks.get(&id) else {
+                    return Err(i18n::t("err.team.bad"));
                 };
-                let answer = &frame["response"]["response"];
-                let allowed = answer["behavior"].as_str() == Some("allow");
-                let result = match ask.kind {
+                let answer = &frame["response"];
+                let outcome = answer["outcome"]
+                    .as_str()
+                    .ok_or_else(|| i18n::t("err.team.bad"))?;
+                let allowed = outcome == "allow";
+                let result = match &ask.kind {
                     AskKind::Command | AskKind::Patch => {
+                        if !matches!(outcome, "allow" | "deny") {
+                            return Err(i18n::t("err.team.bad"));
+                        }
                         json!({ "decision": if allowed { "accept" } else { "decline" } })
                     }
                     AskKind::Input(questions) => {
-                        let given = &answer["updatedInput"]["answers"];
+                        if !matches!(outcome, "answer" | "deny") {
+                            return Err(i18n::t("err.team.bad"));
+                        }
+                        let given = &answer["answers"];
                         let mut answers = serde_json::Map::new();
                         for (question, qid) in questions {
                             let text = given[&question].as_str().unwrap_or("").trim().to_string();
                             let list: Vec<String> =
                                 if text.is_empty() { vec![] } else { vec![text] };
-                            answers.insert(qid, json!({ "answers": list }));
+                            answers.insert(qid.clone(), json!({ "answers": list }));
                         }
                         json!({ "answers": answers })
                     }
                 };
-                self.reply(&ask.rpc, result)?;
+                let rpc = ask.rpc.clone();
+                self.asks.remove(&id);
+                self.reply(&rpc, result)?;
                 Ok(vec![])
             }
-            // O `initialize` que o app manda ao subir o processo: o Claude Code
-            // responde com os comandos de barra que aceita; aqui a resposta é
-            // a lista dos que `slash` entende, na mesma forma.
-            Some("control_request") if frame["request"]["subtype"] == "initialize" => {
+            // A lista dos comandos que `slash` entende. É uma resposta local:
+            // o app-server não oferece esses comandos.
+            Some("commands.list") => {
                 let commands: Vec<Value> = SLASH
                     .iter()
-                    .map(|(name, pt, en)| json!({ "name": name, "description": i18n::pick(pt, en), "argumentHint": "" }))
+                    .map(|(name, pt, en)| json!({ "name": name, "description": i18n::pick(pt, en), "hint": "" }))
                     .collect();
-                Ok(vec![json!({
-                    "type": "control_response",
-                    "response": {
-                        "subtype": "success",
-                        "request_id": frame["request_id"],
-                        "response": { "commands": commands },
-                    },
-                })])
+                Ok(vec![canonical(
+                    "commands.updated",
+                    json!({ "commands": commands }),
+                )])
             }
-            Some("control_request") if frame["request"]["subtype"] == "interrupt" => {
+            Some("turn.interrupt") => {
                 if let (Some(thread), Some(turn)) = (self.thread.clone(), self.turn.clone()) {
                     self.call(
                         "turn/interrupt",
@@ -285,9 +296,10 @@ impl Link {
                 }
                 Ok(vec![])
             }
-            // Troca de modo de permissão é coisa do Claude Code: aqui o agente
-            // já roda solto.
-            _ => Ok(vec![]),
+            // O Codex já nasce com approvalPolicy `never`; esta capability não
+            // é oferecida para ele.
+            Some("permission.mode.set") if frame["mode"] == "bypass" => Ok(vec![]),
+            _ => Err(i18n::t("err.team.bad")),
         }
     }
 
@@ -322,23 +334,28 @@ impl Link {
                     json!({ "threadId": thread }),
                     Sent::Compact,
                 )?;
-                Ok(vec![stamp(
-                    json!({ "type": "system", "subtype": "status", "status": "compacting" }),
+                Ok(vec![canonical(
+                    "context.compaction",
+                    json!({ "state": "started", "detail": "" }),
                 )])
             }
             "context" => Ok(vec![
-                stamp(json!({
-                    "type": "assistant",
-                    "message": { "id": "context", "model": "<synthetic>", "content": [{ "type": "text", "text": self.context_report() }] },
-                })),
-                result(true, "", None),
+                canonical(
+                    "context.reported",
+                    json!({ "markdown": self.context_report() }),
+                ),
+                turn_completed("ok", "", None),
             ]),
             other => Ok(vec![
-                stderr(&i18n::pick(
-                    &format!("o Codex não tem o comando /{other}"),
-                    &format!("Codex has no /{other} command"),
-                )),
-                result(true, "", None),
+                notice(
+                    "error",
+                    "command.unsupported",
+                    &i18n::pick(
+                        &format!("o Codex não tem o comando /{other}"),
+                        &format!("Codex has no /{other} command"),
+                    ),
+                ),
+                turn_completed("ok", "", None),
             ]),
         }
     }
@@ -432,14 +449,14 @@ impl Link {
                     if resumed {
                         self.start.resume = None;
                         self.open_thread();
-                        return vec![stderr(&i18n::pick(
+                        return vec![notice("error", "provider.resume", &i18n::pick(
                             &format!("não deu para retomar a conversa no Codex ({cause}); esta é nova"),
                             &format!("could not resume the Codex conversation ({cause}); this one is new"),
                         ))];
                     }
                     self.failed = Some(cause.clone());
                     self.queue.clear();
-                    return vec![stderr(&cause)];
+                    return vec![notice("error", "provider.thread", &cause)];
                 }
                 let thread = msg["result"]["thread"]["id"]
                     .as_str()
@@ -447,8 +464,10 @@ impl Link {
                     .to_string();
                 self.model = msg["result"]["model"].as_str().unwrap_or("").to_string();
                 self.thread = Some(thread.clone());
-                let mut out =
-                    vec![json!({ "type": "prometheus", "subtype": "session", "session": thread })];
+                let mut out = vec![canonical(
+                    "session.identity",
+                    json!({ "providerSession": thread }),
+                )];
                 for frame in std::mem::take(&mut self.queue) {
                     if let Ok(more) = self.write(&frame) {
                         out.extend(more);
@@ -457,7 +476,10 @@ impl Link {
                 out
             }
             Some(Sent::Turn) => match error {
-                Some(cause) => vec![stderr(&cause), result(false, &cause, None)],
+                Some(cause) => vec![
+                    notice("error", "provider.turn", &cause),
+                    turn_completed("error", &cause, None),
+                ],
                 None => {
                     if let Some(turn) = msg["result"]["turn"]["id"].as_str() {
                         self.turn = Some(turn.to_string());
@@ -467,10 +489,11 @@ impl Link {
             },
             Some(Sent::Compact) => match error {
                 Some(cause) => vec![
-                    stamp(
-                        json!({ "type": "system", "subtype": "status", "status": null, "compact_result": "failed", "compact_error": cause }),
+                    canonical(
+                        "context.compaction",
+                        json!({ "state": "failed", "detail": cause }),
                     ),
-                    result(false, &cause, None),
+                    turn_completed("error", &cause, None),
                 ],
                 None => vec![],
             },
@@ -498,8 +521,8 @@ impl Link {
         }
     }
 
-    /// Um pedido do servidor: vira um card que espera resposta, com o
-    /// `request_id` que a tela devolve.
+    /// Um pedido do servidor vira um card que espera resposta, conservando o
+    /// id que voltará ao app-server.
     fn request(&mut self, rpc: Value, method: &str, params: &Value) -> Vec<Value> {
         let id = match &rpc {
             Value::String(s) => s.clone(),
@@ -556,12 +579,22 @@ impl Link {
                 return vec![];
             }
         };
+        let request_kind = if matches!(&kind, AskKind::Input(_)) {
+            "question"
+        } else {
+            "approval"
+        };
         self.asks.insert(id.clone(), Ask { rpc, kind });
-        vec![stamp(json!({
-            "type": "control_request",
-            "request_id": id,
-            "request": { "subtype": "can_use_tool", "tool_name": tool, "input": input, "tool_use_id": item },
-        }))]
+        vec![canonical(
+            "request.opened",
+            json!({
+                "requestId": id,
+                "kind": request_kind,
+                "toolId": if item.is_empty() { Value::Null } else { json!(item) },
+                "tool": tool,
+                "input": input,
+            }),
+        )]
     }
 
     fn notification(&mut self, method: &str, p: &Value) -> Vec<Value> {
@@ -595,7 +628,10 @@ impl Link {
                 match usage["last"]["totalTokens"].as_u64() {
                     Some(n) if n > 0 => {
                         self.ctx = Some(n);
-                        vec![json!({ "type": "prometheus", "subtype": "tokens", "tokens": n })]
+                        vec![canonical(
+                            "context.updated",
+                            json!({ "used": n, "window": self.window }),
+                        )]
                     }
                     _ => vec![],
                 }
@@ -610,10 +646,10 @@ impl Link {
                 out.push(match turn["status"].as_str() {
                     Some("failed") => {
                         let cause = turn["error"]["message"].as_str().unwrap_or("").to_string();
-                        result(false, &cause, ms)
+                        turn_completed("error", &cause, ms)
                     }
-                    Some("interrupted") => result(false, "", ms),
-                    _ => result(true, "", ms),
+                    Some("interrupted") => turn_completed("interrupted", "", ms),
+                    _ => turn_completed("ok", "", ms),
                 });
                 out
             }
@@ -627,9 +663,13 @@ impl Link {
                     ),
                     false => cause,
                 };
-                vec![stderr(&text)]
+                vec![notice("error", "provider.error", &text)]
             }
-            "warning" => p["message"].as_str().map(stderr).into_iter().collect(),
+            "warning" => p["message"]
+                .as_str()
+                .map(|message| notice("warning", "provider.warning", message))
+                .into_iter()
+                .collect(),
             _ => vec![],
         }
     }
@@ -680,8 +720,9 @@ impl Link {
             Some("imageView") => self.tool_use(&id, "Read", json!({ "file_path": item["path"] })),
             Some("contextCompaction") => {
                 self.compact_pre = self.ctx;
-                vec![stamp(
-                    json!({ "type": "system", "subtype": "status", "status": "compacting" }),
+                vec![canonical(
+                    "context.compaction",
+                    json!({ "state": "started", "detail": "" }),
                 )]
             }
             _ => vec![],
@@ -719,7 +760,7 @@ impl Link {
                 if let (false, Some(code)) = (ok, item["exitCode"].as_i64()) {
                     text = format!("{text}\n(exit {code})").trim().to_string();
                 }
-                vec![tool_result(&id, &text, !ok)]
+                vec![tool_completed(&id, &text, !ok)]
             }
             Some("fileChange") => {
                 self.patches.remove(&id);
@@ -728,7 +769,7 @@ impl Link {
                     .as_array()
                     .map(|cs| cs.iter().map(|c| patch(c, &self.start.cwd)).collect())
                     .unwrap_or_default();
-                vec![tool_result(&id, &diff.join("\n"), !ok)]
+                vec![tool_completed(&id, &diff.join("\n"), !ok)]
             }
             Some("mcpToolCall") => {
                 let failed = item["status"].as_str() == Some("failed") || !item["error"].is_null();
@@ -736,26 +777,26 @@ impl Link {
                     Some(m) => m.to_string(),
                     None => texts(&item["result"]["content"]),
                 };
-                vec![tool_result(&id, &text, failed)]
+                vec![tool_completed(&id, &text, failed)]
             }
             Some("dynamicToolCall") => {
                 let failed = item["success"].as_bool() == Some(false);
-                vec![tool_result(&id, &texts(&item["contentItems"]), failed)]
+                vec![tool_completed(&id, &texts(&item["contentItems"]), failed)]
             }
             Some("webSearch" | "collabAgentToolCall" | "imageView") => {
-                vec![tool_result(&id, "", false)]
+                vec![tool_completed(&id, "", false)]
             }
             Some("contextCompaction") => {
                 let post = self.ctx;
                 vec![
-                    stamp(
-                        json!({ "type": "system", "subtype": "status", "status": null, "compact_result": "success" }),
+                    canonical(
+                        "context.compaction",
+                        json!({ "state": "stopped", "detail": "" }),
                     ),
-                    stamp(json!({
-                        "type": "system",
-                        "subtype": "compact_boundary",
-                        "compact_metadata": { "trigger": "manual", "pre_tokens": self.compact_pre, "post_tokens": post },
-                    })),
+                    canonical(
+                        "context.compacted",
+                        json!({ "before": self.compact_pre, "after": post }),
+                    ),
                 ]
             }
             _ => vec![],
@@ -770,17 +811,20 @@ impl Link {
         let mut out = self.seal(None);
         if !self.message_open {
             self.message_open = true;
-            out.push(self.event(json!({ "type": "message_start", "message": { "id": self.msg(), "role": "assistant", "content": [] } })));
+            out.push(canonical(
+                "assistant.started",
+                json!({ "messageId": self.msg() }),
+            ));
         }
         let index = self.block;
         self.block += 1;
-        let block = if thinking {
-            json!({ "type": "thinking", "thinking": "" })
-        } else {
-            json!({ "type": "text", "text": "" })
-        };
-        out.push(self.event(
-            json!({ "type": "content_block_start", "index": index, "content_block": block }),
+        out.push(canonical(
+            "assistant.block.started",
+            json!({
+                "messageId": self.msg(),
+                "index": index,
+                "block": block_of("", thinking),
+            }),
         ));
         self.open = Some(Open {
             item: id.to_string(),
@@ -800,11 +844,15 @@ impl Link {
         };
         open.text.push_str(text);
         let (index, thinking) = (open.index, open.thinking);
-        let delta = match thinking {
-            true => json!({ "type": "thinking_delta", "thinking": text }),
-            false => json!({ "type": "text_delta", "text": text }),
-        };
-        vec![self.event(json!({ "type": "content_block_delta", "index": index, "delta": delta }))]
+        vec![canonical(
+            "assistant.delta",
+            json!({
+                "messageId": self.msg(),
+                "index": index,
+                "kind": if thinking { "thinking" } else { "text" },
+                "delta": text,
+            }),
+        )]
     }
 
     /// Fecha o bloco deste item com o texto final, ou entrega o bloco inteiro
@@ -813,22 +861,19 @@ impl Link {
         if self.open.as_ref().is_some_and(|o| o.item == id) {
             return self.seal(Some(text));
         }
+        let index = self.block;
         self.block += 1;
-        vec![self.assistant(block_of(&text, thinking))]
+        vec![self.assistant(index, block_of(&text, thinking))]
     }
 
-    /// Fecha o bloco aberto, se há um: o `content_block_stop` e a linha
-    /// `assistant` inteira que a tela guarda. `text` é o texto final; sem ele
-    /// vai o que chegou.
+    /// Fecha o bloco aberto com o evento autoritativo que a tela guarda.
+    /// `text` é o texto final; sem ele vai o que chegou.
     fn seal(&mut self, text: Option<String>) -> Vec<Value> {
         let Some(open) = self.open.take() else {
             return vec![];
         };
         let text = text.unwrap_or(open.text);
-        vec![
-            self.event(json!({ "type": "content_block_stop", "index": open.index })),
-            self.assistant(block_of(&text, open.thinking)),
-        ]
+        vec![self.assistant(open.index, block_of(&text, open.thinking))]
     }
 
     /// Uma ferramenta começando: o card já nasce inteiro, porque o Codex conta
@@ -836,21 +881,20 @@ impl Link {
     fn tool_use(&mut self, id: &str, name: &str, input: Value) -> Vec<Value> {
         let mut out = self.seal(None);
         self.message_open = true;
+        let index = self.block;
         self.block += 1;
-        out.push(
-            self.assistant(json!({ "type": "tool_use", "id": id, "name": name, "input": input })),
-        );
+        out.push(self.assistant(
+            index,
+            json!({ "kind": "tool", "id": id, "name": name, "input": input }),
+        ));
         out
     }
 
-    fn assistant(&self, block: Value) -> Value {
-        stamp(
-            json!({ "type": "assistant", "message": { "id": self.msg(), "role": "assistant", "content": [block] } }),
+    fn assistant(&self, index: usize, block: Value) -> Value {
+        canonical(
+            "assistant.block",
+            json!({ "messageId": self.msg(), "index": index, "block": block }),
         )
-    }
-
-    fn event(&self, event: Value) -> Value {
-        stamp(json!({ "type": "stream_event", "event": event }))
     }
 
     /// Todos os blocos de um turno são uma mensagem só na tela.
@@ -879,20 +923,14 @@ fn relative(path: &str, cwd: &str) -> String {
 /// que a entrega ao `usage`. Não vai para o transcript (ver `chat::keep`) —
 /// não é conversa.
 fn rate_limits(limits: &Value) -> Value {
-    json!({ "type": "prometheus", "subtype": "usage", "usage": limits })
+    canonical(
+        "usage.updated",
+        json!({ "provider": "codex", "usage": limits }),
+    )
 }
 
-fn now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
-
-/// Com a hora: o Codex não a põe nas linhas que a tela vai guardar, e é ela
-/// que ordena as notas do time entre os itens.
 /// Os comandos de barra que o tradutor entende (ver `slash`), com a descrição
-/// nas duas línguas. É a resposta ao `initialize` — a lista que a caixa
+/// nas duas línguas. É a resposta a `commands.list` — a lista que a caixa
 /// oferece ao escrever "/".
 const SLASH: [(&str, &str, &str); 2] = [
     (
@@ -907,49 +945,40 @@ const SLASH: [(&str, &str, &str); 2] = [
     ),
 ];
 
-fn stamp(mut frame: Value) -> Value {
-    frame["ts"] = json!(now());
-    frame
+fn canonical(kind: &str, fields: Value) -> Value {
+    conversation::event(kind, conversation::now(), fields)
 }
 
-fn stderr(text: &str) -> Value {
-    stamp(json!({ "type": "prometheus", "subtype": "stderr", "text": text }))
+fn notice(level: &str, code: &str, detail: &str) -> Value {
+    canonical(
+        "system.notice",
+        json!({ "level": level, "code": code, "detail": detail }),
+    )
 }
 
-fn result(ok: bool, text: &str, ms: Option<u64>) -> Value {
-    stamp(json!({
-        "type": "result",
-        "subtype": if ok { "success" } else { "error_during_execution" },
-        "is_error": !ok,
-        "result": text,
-        "duration_ms": ms,
-    }))
+fn turn_completed(outcome: &str, message: &str, duration_ms: Option<u64>) -> Value {
+    canonical(
+        "turn.completed",
+        json!({
+            "outcome": outcome,
+            "message": message,
+            "durationMs": duration_ms,
+            "costUsd": Value::Null,
+        }),
+    )
 }
 
-fn tool_result(id: &str, text: &str, error: bool) -> Value {
-    stamp(json!({
-        "type": "user",
-        "message": { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": id, "content": text, "is_error": error }] },
-    }))
+fn tool_completed(id: &str, output: &str, error: bool) -> Value {
+    canonical(
+        "tool.completed",
+        json!({ "toolId": id, "output": output, "error": error, "background": false }),
+    )
 }
 
 fn block_of(text: &str, thinking: bool) -> Value {
     match thinking {
-        true => json!({ "type": "thinking", "thinking": text }),
-        false => json!({ "type": "text", "text": text }),
-    }
-}
-
-/// O texto de uma fala da tela: string, ou blocos de texto.
-fn spoken(frame: &Value) -> String {
-    match &frame["message"]["content"] {
-        Value::String(s) => s.clone(),
-        Value::Array(blocks) => blocks
-            .iter()
-            .filter_map(|b| b["text"].as_str())
-            .collect::<Vec<_>>()
-            .join("\n\n"),
-        _ => String::new(),
+        true => json!({ "kind": "thinking", "text": text }),
+        false => json!({ "kind": "text", "text": text }),
     }
 }
 
@@ -1140,7 +1169,7 @@ mod tests {
     }
 
     fn user(text: &str) -> Value {
-        json!({ "type": "user", "message": { "role": "user", "content": text } })
+        json!({ "v": 1, "type": "message.send", "text": text })
     }
 
     #[test]
@@ -1149,8 +1178,9 @@ mod tests {
         assert_eq!(out.take()[0]["method"], "initialize");
         assert!(link.write(&user("oi")).unwrap().is_empty());
         let frames = opened(&mut link, &out);
-        assert_eq!(frames[0]["subtype"], "session");
-        assert_eq!(frames[0]["session"], "t-1");
+        assert_eq!(frames[0]["v"], 1);
+        assert_eq!(frames[0]["type"], "session.identity");
+        assert_eq!(frames[0]["providerSession"], "t-1");
         let sent = out.take();
         assert_eq!(sent[0]["method"], "turn/start");
         assert_eq!(sent[0]["params"]["threadId"], "t-1");
@@ -1162,24 +1192,23 @@ mod tests {
     fn initialize_responde_os_comandos_sem_ir_ao_processo() {
         let (mut link, out) = link(None);
         out.take();
-        let req = json!({ "type": "control_request", "request_id": "initialize", "request": { "subtype": "initialize" } });
+        let req = json!({ "v": 1, "type": "commands.list" });
         let frames = link.write(&req).unwrap();
         assert_eq!(frames.len(), 1);
-        assert_eq!(frames[0]["type"], "control_response");
-        assert_eq!(frames[0]["response"]["request_id"], "initialize");
-        let names: Vec<&str> = frames[0]["response"]["response"]["commands"]
+        assert_eq!(frames[0]["v"], 1);
+        assert_eq!(frames[0]["type"], "commands.updated");
+        let names: Vec<&str> = frames[0]["commands"]
             .as_array()
             .unwrap()
             .iter()
             .map(|c| c["name"].as_str().unwrap())
             .collect();
         assert_eq!(names, ["compact", "context"]);
-        assert!(
-            !frames[0]["response"]["response"]["commands"][0]["description"]
-                .as_str()
-                .unwrap()
-                .is_empty()
-        );
+        assert!(!frames[0]["commands"][0]["description"]
+            .as_str()
+            .unwrap()
+            .is_empty());
+        assert_eq!(frames[0]["commands"][0]["hint"], "");
         assert!(out.take().is_empty());
     }
 
@@ -1194,71 +1223,71 @@ mod tests {
         let frames = link.on_line(&format!(
             r#"{{"id":{id},"error":{{"code":1,"message":"no such thread"}}}}"#
         ));
-        assert_eq!(frames[0]["subtype"], "stderr");
+        assert_eq!(frames[0]["type"], "system.notice");
+        assert_eq!(frames[0]["code"], "provider.resume");
         assert_eq!(out.take()[0]["method"], "thread/start");
     }
 
     #[test]
-    fn um_turno_vira_rascunho_linha_inteira_e_result() {
+    fn um_turno_vira_rascunho_bloco_autoritativo_e_fim() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         link.on_line(
             r#"{"method":"turn/started","params":{"threadId":"t-1","turn":{"id":"turn-1"}}}"#,
         );
         let f = link.on_line(r#"{"method":"item/started","params":{"item":{"type":"agentMessage","id":"m1","text":""}}}"#);
-        assert_eq!(f[0]["event"]["type"], "message_start");
-        assert_eq!(f[0]["event"]["message"]["id"], "turn-1");
-        assert_eq!(f[1]["event"]["type"], "content_block_start");
-        assert_eq!(f[1]["event"]["index"], 0);
+        assert_eq!(f[0]["type"], "assistant.started");
+        assert_eq!(f[0]["messageId"], "turn-1");
+        assert_eq!(f[1]["type"], "assistant.block.started");
+        assert_eq!(f[1]["index"], 0);
         let f = link.on_line(
             r#"{"method":"item/agentMessage/delta","params":{"itemId":"m1","delta":"Ol"}}"#,
         );
-        assert_eq!(f[0]["event"]["delta"]["text"], "Ol");
+        assert_eq!(f[0]["type"], "assistant.delta");
+        assert_eq!(f[0]["kind"], "text");
+        assert_eq!(f[0]["delta"], "Ol");
         let f = link.on_line(r#"{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"m1","text":"Olá"}}}"#);
-        assert_eq!(f[0]["event"]["type"], "content_block_stop");
-        assert_eq!(f[1]["type"], "assistant");
-        assert_eq!(f[1]["message"]["id"], "turn-1");
-        assert_eq!(f[1]["message"]["content"][0]["text"], "Olá");
-        assert!(f[1]["ts"].is_number());
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0]["type"], "assistant.block");
+        assert_eq!(f[0]["messageId"], "turn-1");
+        assert_eq!(f[0]["block"]["kind"], "text");
+        assert_eq!(f[0]["block"]["text"], "Olá");
+        assert!(f[0]["at"].is_number());
         let f = link.on_line(r#"{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"completed","durationMs":900}}}"#);
-        assert_eq!(f[0]["type"], "result");
-        assert_eq!(f[0]["is_error"], false);
-        assert_eq!(f[0]["duration_ms"], 900);
+        assert_eq!(f[0]["type"], "turn.completed");
+        assert_eq!(f[0]["outcome"], "ok");
+        assert_eq!(f[0]["durationMs"], 900);
     }
 
     #[test]
-    fn a_borda_do_codex_entrega_eventos_v1() {
+    fn a_borda_do_codex_entrega_eventos_v1_sem_segunda_traducao() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
-        let mut adapter = conversation::LegacyAdapter::default();
         link.on_line(
             r#"{"method":"turn/started","params":{"threadId":"t-1","turn":{"id":"turn-1"}}}"#,
         );
-        let raw = link.on_line(r#"{"method":"item/started","params":{"item":{"type":"commandExecution","id":"c1","command":"ls","commandActions":[]}}}"#);
-        let started: Vec<Value> = raw
-            .iter()
-            .flat_map(|frame| adapter.translate(frame))
-            .collect();
+        let started = link.on_line(r#"{"method":"item/started","params":{"item":{"type":"commandExecution","id":"c1","command":"ls","commandActions":[]}}}"#);
         assert_eq!(started[0]["v"], 1);
         assert_eq!(started[0]["type"], "assistant.block");
         assert_eq!(started[0]["block"]["kind"], "tool");
 
-        let raw = link.on_line(r#"{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"c1","status":"completed","aggregatedOutput":"ok","exitCode":0}}}"#);
-        let completed: Vec<Value> = raw
-            .iter()
-            .flat_map(|frame| adapter.translate(frame))
-            .collect();
+        let completed = link.on_line(r#"{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"c1","status":"completed","aggregatedOutput":"ok","exitCode":0}}}"#);
         assert_eq!(completed[0]["type"], "tool.completed");
         assert_eq!(completed[0]["toolId"], "c1");
 
-        let raw = link.on_line(
+        let completed = link.on_line(
             r#"{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"completed"}}}"#,
         );
-        let completed: Vec<Value> = raw
-            .iter()
-            .flat_map(|frame| adapter.translate(frame))
-            .collect();
         assert_eq!(completed.last().unwrap()["type"], "turn.completed");
+    }
+
+    #[test]
+    fn evento_externo_desconhecido_e_ignorado_na_borda() {
+        let (mut link, out) = link(None);
+        opened(&mut link, &out);
+        assert!(link
+            .on_line(r#"{"method":"future/event","params":{"new":true}}"#)
+            .is_empty());
     }
 
     #[test]
@@ -1267,17 +1296,17 @@ mod tests {
         opened(&mut link, &out);
         link.on_line(r#"{"method":"turn/started","params":{"turn":{"id":"turn-1"}}}"#);
         let f = link.on_line(r#"{"method":"item/started","params":{"item":{"type":"commandExecution","id":"c1","command":"/bin/zsh -lc \"ls -la\"","commandActions":[{"type":"unknown","command":"ls -la"}],"status":"inProgress"}}}"#);
-        let block = &f[0]["message"]["content"][0];
-        assert_eq!(block["type"], "tool_use");
+        assert_eq!(f[0]["type"], "assistant.block");
+        let block = &f[0]["block"];
+        assert_eq!(block["kind"], "tool");
         assert_eq!(block["name"], "Bash");
         assert_eq!(block["id"], "c1");
         assert_eq!(block["input"]["command"], "ls -la");
         let f = link.on_line(r#"{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"c1","status":"completed","aggregatedOutput":"a.txt\n","exitCode":0}}}"#);
-        let res = &f[0]["message"]["content"][0];
-        assert_eq!(f[0]["type"], "user");
-        assert_eq!(res["tool_use_id"], "c1");
-        assert_eq!(res["content"], "a.txt\n");
-        assert_eq!(res["is_error"], false);
+        assert_eq!(f[0]["type"], "tool.completed");
+        assert_eq!(f[0]["toolId"], "c1");
+        assert_eq!(f[0]["output"], "a.txt\n");
+        assert_eq!(f[0]["error"], false);
     }
 
     /// O texto que estava chegando fecha antes de a ferramenta entrar: os
@@ -1292,15 +1321,16 @@ mod tests {
         );
         link.on_line(r#"{"method":"item/reasoning/summaryTextDelta","params":{"itemId":"r1","delta":"pensando"}}"#);
         let f = link.on_line(r#"{"method":"item/started","params":{"item":{"type":"commandExecution","id":"c1","command":"ls","commandActions":[]}}}"#);
-        assert_eq!(f[0]["event"]["type"], "content_block_stop");
-        assert_eq!(f[1]["message"]["content"][0]["thinking"], "pensando");
-        assert_eq!(f[2]["message"]["content"][0]["type"], "tool_use");
+        assert_eq!(f[0]["type"], "assistant.block");
+        assert_eq!(f[0]["block"]["kind"], "thinking");
+        assert_eq!(f[0]["block"]["text"], "pensando");
+        assert_eq!(f[1]["block"]["kind"], "tool");
         // O próximo texto nasce no índice 2: pensamento (0), ferramenta (1).
         let f = link.on_line(
             r#"{"method":"item/started","params":{"item":{"type":"agentMessage","id":"m1"}}}"#,
         );
-        assert_eq!(f[0]["event"]["type"], "content_block_start");
-        assert_eq!(f[0]["event"]["index"], 2);
+        assert_eq!(f[0]["type"], "assistant.block.started");
+        assert_eq!(f[0]["index"], 2);
     }
 
     #[test]
@@ -1308,16 +1338,16 @@ mod tests {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         let f = link.on_line(r#"{"id":7,"method":"item/tool/requestUserInput","params":{"itemId":"q1","questions":[{"id":"cor","header":"Cor","question":"Qual cor?","options":[{"label":"azul","description":"frio"}]}]}}"#);
-        assert_eq!(f[0]["type"], "control_request");
-        assert_eq!(f[0]["request_id"], "7");
-        assert_eq!(f[0]["request"]["tool_name"], "AskUserQuestion");
-        assert_eq!(
-            f[0]["request"]["input"]["questions"][0]["options"][0]["label"],
-            "azul"
-        );
+        assert_eq!(f[0]["type"], "request.opened");
+        assert_eq!(f[0]["requestId"], "7");
+        assert_eq!(f[0]["kind"], "question");
+        assert_eq!(f[0]["tool"], "AskUserQuestion");
+        assert_eq!(f[0]["input"]["questions"][0]["options"][0]["label"], "azul");
         link.write(&json!({
-            "type": "control_response",
-            "response": { "subtype": "success", "request_id": "7", "response": { "behavior": "allow", "updatedInput": { "answers": { "Qual cor?": "azul" } } } },
+            "v": 1,
+            "type": "request.respond",
+            "requestId": "7",
+            "response": { "outcome": "answer", "answers": { "Qual cor?": "azul" } },
         }))
         .unwrap();
         let sent = out.take();
@@ -1330,9 +1360,17 @@ mod tests {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         let f = link.on_line(r#"{"id":"r-9","method":"item/commandExecution/requestApproval","params":{"itemId":"c1","command":"rm -rf x"}}"#);
-        assert_eq!(f[0]["request"]["tool_name"], "Bash");
-        assert_eq!(f[0]["request"]["input"]["command"], "rm -rf x");
-        link.write(&json!({ "type": "control_response", "response": { "request_id": "r-9", "response": { "behavior": "deny" } } })).unwrap();
+        assert_eq!(f[0]["type"], "request.opened");
+        assert_eq!(f[0]["kind"], "approval");
+        assert_eq!(f[0]["tool"], "Bash");
+        assert_eq!(f[0]["input"]["command"], "rm -rf x");
+        link.write(&json!({
+            "v": 1,
+            "type": "request.respond",
+            "requestId": "r-9",
+            "response": { "outcome": "deny", "message": "não" },
+        }))
+        .unwrap();
         let sent = out.take();
         assert_eq!(sent[0]["id"], "r-9");
         assert_eq!(sent[0]["result"]["decision"], "decline");
@@ -1344,7 +1382,8 @@ mod tests {
         opened(&mut link, &out);
         link.on_line(r#"{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"totalTokens":20000},"modelContextWindow":258400}}}"#);
         let f = link.write(&user("/compact")).unwrap();
-        assert_eq!(f[0]["status"], "compacting");
+        assert_eq!(f[0]["type"], "context.compaction");
+        assert_eq!(f[0]["state"], "started");
         assert_eq!(out.take()[0]["method"], "thread/compact/start");
         link.on_line(r#"{"method":"turn/started","params":{"turn":{"id":"turn-c"}}}"#);
         link.on_line(
@@ -1352,10 +1391,11 @@ mod tests {
         );
         link.on_line(r#"{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"totalTokens":4000},"modelContextWindow":258400}}}"#);
         let f = link.on_line(r#"{"method":"item/completed","params":{"item":{"type":"contextCompaction","id":"k1"}}}"#);
-        assert_eq!(f[0]["compact_result"], "success");
-        assert_eq!(f[1]["subtype"], "compact_boundary");
-        assert_eq!(f[1]["compact_metadata"]["pre_tokens"], 20000);
-        assert_eq!(f[1]["compact_metadata"]["post_tokens"], 4000);
+        assert_eq!(f[0]["type"], "context.compaction");
+        assert_eq!(f[0]["state"], "stopped");
+        assert_eq!(f[1]["type"], "context.compacted");
+        assert_eq!(f[1]["before"], 20000);
+        assert_eq!(f[1]["after"], 4000);
     }
 
     #[test]
@@ -1363,15 +1403,16 @@ mod tests {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         let f = link.on_line(r#"{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"totalTokens":12300},"modelContextWindow":258400}}}"#);
-        assert_eq!(f[0]["subtype"], "tokens");
-        assert_eq!(f[0]["tokens"], 12300);
+        assert_eq!(f[0]["type"], "context.updated");
+        assert_eq!(f[0]["used"], 12300);
+        assert_eq!(f[0]["window"], 258400);
         let f = link.write(&user("/context")).unwrap();
-        assert_eq!(f[0]["message"]["model"], "<synthetic>");
-        let text = f[0]["message"]["content"][0]["text"].as_str().unwrap();
+        assert_eq!(f[0]["type"], "context.reported");
+        let text = f[0]["markdown"].as_str().unwrap();
         assert!(text.starts_with("## Context Usage"));
         assert!(text.contains("**Model:** gpt-5.4"));
         assert!(text.contains("**Tokens:** 12k / 258k (5%)"));
-        assert_eq!(f[1]["type"], "result");
+        assert_eq!(f[1]["type"], "turn.completed");
         assert!(out.take().is_empty(), "/context não vai ao processo");
     }
 
@@ -1380,9 +1421,10 @@ mod tests {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         let f = link.write(&user("/cost")).unwrap();
-        assert_eq!(f[0]["subtype"], "stderr");
-        assert!(f[0]["text"].as_str().unwrap().contains("/cost"));
-        assert_eq!(f[1]["type"], "result");
+        assert_eq!(f[0]["type"], "system.notice");
+        assert_eq!(f[0]["code"], "command.unsupported");
+        assert!(f[0]["detail"].as_str().unwrap().contains("/cost"));
+        assert_eq!(f[1]["type"], "turn.completed");
     }
 
     #[test]
@@ -1410,7 +1452,7 @@ mod tests {
     fn interromper_precisa_do_turno() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
-        let stop = json!({ "type": "control_request", "request_id": "x", "request": { "subtype": "interrupt" } });
+        let stop = json!({ "v": 1, "type": "turn.interrupt" });
         link.write(&stop).unwrap();
         assert!(out.take().is_empty());
         link.on_line(r#"{"method":"turn/started","params":{"turn":{"id":"turn-1"}}}"#);
@@ -1419,8 +1461,9 @@ mod tests {
         assert_eq!(sent[0]["method"], "turn/interrupt");
         assert_eq!(sent[0]["params"]["turnId"], "turn-1");
         let f = link.on_line(r#"{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"interrupted"}}}"#);
-        assert_eq!(f[0]["is_error"], true);
-        assert_eq!(f[0]["result"], "");
+        assert_eq!(f[0]["type"], "turn.completed");
+        assert_eq!(f[0]["outcome"], "interrupted");
+        assert_eq!(f[0]["message"], "");
     }
 
     /// Como o Codex manda: caminho absoluto, hunk cru na alteração, e o

@@ -47,9 +47,10 @@ Claude Code, que o leitor de compatibilidade adapta durante replay.
 ### Codex
 
 `codex.rs` inicia `codex app-server`, conversa por JSON-RPC e converte cada
-resposta, pedido ou notificação na borda. Antes de chegar ao caminho comum, a
-saída intermediária passa por `conversation.rs` e vira `ConversationEventV1`.
-O Prometheus grava esses eventos em seu próprio transcript.
+resposta, pedido ou notificação diretamente em `ConversationEventV1`. No
+sentido inverso, ele recebe `ConversationCommandV1` e monta o pedido JSON-RPC
+correspondente sem passar pelo formato stream-json do Claude. O Prometheus
+grava os eventos V1 em seu próprio transcript.
 
 ### Caminho comum
 
