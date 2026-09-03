@@ -459,10 +459,9 @@ impl LegacyAdapter {
     }
 }
 
-/// Traduz o comando comum para o protocolo de entrada legado que os adapters
-/// dos providers já sabem consumir. Durante o rollback, comandos antigos ainda
-/// atravessam sem alteração.
-pub fn provider_command(frame: &Value, buffer: &str) -> Option<Value> {
+/// Traduz o comando comum para a entrada stream-json do Claude. Durante o
+/// rollback, comandos antigos ainda atravessam sem alteração.
+pub fn claude_command(frame: &Value, buffer: &str) -> Option<Value> {
     if frame["v"] != 1 {
         return Some(frame.clone());
     }
@@ -767,7 +766,7 @@ mod tests {
             "requestId": "r1",
             "response": { "outcome": "allow" },
         });
-        let provider = provider_command(&command, &buffer).unwrap();
+        let provider = claude_command(&command, &buffer).unwrap();
         assert_eq!(
             provider.pointer("/response/response/updatedInput/command"),
             Some(&json!("rm arquivo"))
@@ -782,7 +781,7 @@ mod tests {
                 json!({ "requestId": "r1", "outcome": "allowed" })
             )
         );
-        assert!(provider_command(&command, &closed).is_none());
+        assert!(claude_command(&command, &closed).is_none());
     }
 
     #[test]

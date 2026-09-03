@@ -36,7 +36,7 @@ conteúdo compartilhado em texto legível pelo operador.
 | Frontend | TypeScript + Vite | interação, apresentação, timeline, estado efêmero de UI | lifecycle de processos e regras de filesystem |
 | Backend | Rust + Tauri | estado persistido, processos, Git, arquivos, IPC e tradução de agentes | regras visuais e tradução de interface |
 | Claude adapter | `chat.rs` + `conversation.rs` | executar `claude -p` e normalizar stream-json para V1 | decisões de apresentação |
-| Codex adapter | `codex.rs` + `conversation.rs` | converter JSON-RPC do app-server para V1 | DOM, estado do quadro ou relay |
+| Codex adapter | `codex.rs` | converter comandos V1 para JSON-RPC e JSON-RPC para eventos V1 | DOM, estado do quadro ou relay |
 | Relay | Worker + Durable Object | matrícula, presença, audiência, notas e encaminhamento | execução do agente ou acesso ao worktree |
 | Mock web | `src/mock.ts` | responder ao mesmo IPC para desenvolvimento e E2E da UI | substituir testes do backend Rust |
 
@@ -45,9 +45,9 @@ conteúdo compartilhado em texto legível pelo operador.
 A conversa usa um contrato pertencente ao Prometheus:
 
 ```text
-Claude stream-json ─> adapter ─────────────┐
+Claude stream-json ─> conversation.rs ─────┐
                                            ├─> ConversationEventV1 ─> Pump/relay ─> timeline.ts ─> chat.ts
-Codex JSON-RPC ─> codex.rs ─> adapter ─────┘
+Codex JSON-RPC ─> codex.rs ────────────────┘
 ```
 
 `chat.rs` guarda e numera linhas V1, emite atualizações e mantém o processo
@@ -84,7 +84,8 @@ Há três contratos que exigem compatibilidade explícita:
 O terceiro já possui uma fonte única tipada e validada em
 `relay/src/protocol.ts`. O primeiro tipa nomes de comandos, mas ainda não gera
 tipos de argumentos e respostas. O segundo usa os contratos V1 tipados no
-frontend e normalizados em `conversation.rs` no backend.
+frontend. `conversation.rs` adapta o stream-json do Claude e `codex.rs` adapta
+diretamente o JSON-RPC do Codex.
 
 ## Regras arquiteturais
 
@@ -97,7 +98,8 @@ frontend e normalizados em `conversation.rs` no backend.
 - Compatibilidade de transcript e board tem precedência sobre limpeza estética.
 - Diferenças de suporte visíveis na UI usam `AgentCapabilities`; dispatch por
   `ProviderId` fica no catálogo ou nos adapters. `npm run architecture:check`
-  protege essa fronteira nas telas principais.
+  protege essa fronteira nas telas principais e impede que o adapter Codex
+  volte a emitir stream-json legado.
 
 As regras detalhadas e o estado atual de cada uma estão em
 [`docs/architecture/dependency-rules.md`](docs/architecture/dependency-rules.md).

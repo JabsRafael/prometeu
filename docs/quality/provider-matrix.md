@@ -31,7 +31,7 @@ para virar capacidade contratual.
 | seleção de MCP por workspace | config do CLI | config montada pelo app | `mcp.rs`, `codex.rs` |
 | seleção de plugins por workspace | flags do Claude | indisponível | `plugins.rs`, `launcher.ts` |
 | anexos na fala | adaptado por caminho local | adaptado por caminho local | capability + `chat.ts`; falta teste transversal dedicado |
-| evento externo desconhecido | ignorado pelo adapter | ignorado pelo adapter | `conversation.test.ts`, testes de `conversation.rs` |
+| evento externo desconhecido | ignorado pelo adapter | ignorado pelo adapter | `conversation.test.ts`, testes de `conversation.rs`/`codex.rs` |
 | compartilhamento ao vivo | V1 após normalização | V1 após normalização | `team*.test.ts`, E2E sobre mock |
 
 ## Regra para feature nova

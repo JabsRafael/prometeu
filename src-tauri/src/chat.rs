@@ -1,17 +1,17 @@
 //! A conversa: comandos e eventos V1 em volta dos processos de agente.
 //!
-//! Não é um terminal. Cada protocolo externo é normalizado em
-//! `conversation.rs`; o app guarda eventos V1 e os repassa para a tela e para
-//! quem estiver olhando do outro lado do relay.
+//! Não é um terminal. Cada protocolo externo é normalizado no adapter de seu
+//! provider; o app guarda eventos V1 e os repassa para a tela e para quem
+//! estiver olhando do outro lado do relay.
 //!
 //! O que vai para dentro usa `ConversationCommandV1`: fala, resposta, modo e
 //! interrupção passam pelo mesmo cano. O processo fica de pé entre turnos — a
 //! sessão não é o processo, é o transcript no disco, e ele sobrevive a tudo.
 //!
-//! O Codex entra pelo mesmo lugar: o `codex app-server` fala JSON-RPC, e o
-//! `codex.rs` traduz JSON-RPC e `conversation.rs` fecha a normalização V1.
-//! Daqui para a frente ninguém sabe qual dos dois está do outro lado: buffer,
-//! tela, relay e quadro leem o mesmo contrato.
+//! O Codex entra pelo mesmo lugar: `codex.rs` traduz seu JSON-RPC diretamente.
+//! O Claude ainda usa o adapter legado de `conversation.rs`. Daqui para a
+//! frente ninguém sabe qual dos dois está do outro lado: buffer, tela, relay e
+//! quadro leem o mesmo contrato.
 
 use crate::i18n;
 use crate::lock::lock;
@@ -28,9 +28,9 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 /// Quanto de conversa fica em memória por aba. Linha de JSON é gorda — um
-/// `tool_result` carrega o arquivo inteiro que o agente leu —, então é bem mais
-/// que a rolagem de um terminal. Passou disto, o começo sai por linha inteira:
-/// meia linha de JSON não é nada.
+/// `tool.completed` carrega o arquivo inteiro que o agente leu —, então é bem
+/// mais que a rolagem de um terminal. Passou disto, o começo sai por linha
+/// inteira: meia linha de JSON não é nada.
 const KEEP: usize = 4 * 1024 * 1024;
 
 /// Do stdin fechado até insistir com SIGTERM, e daí até SIGKILL. O `claude`
@@ -101,8 +101,8 @@ pub struct Snapshot {
     pub seq: u64,
 }
 
-/// O cano para dentro do processo. O comando V1 já foi traduzido para a forma
-/// de entrada do provider antes de chegar aqui.
+/// O cano para dentro do processo. Cada variante possui a tradução de entrada
+/// do próprio provider e recebe o mesmo comando V1.
 pub enum Wire {
     Claude(ChildStdin),
     Codex(Arc<Mutex<codex::Link>>),
@@ -138,9 +138,9 @@ pub struct Pump {
     /// Este `Chat` foi derrubado: a thread que lê o processo velho para de
     /// emitir, senão os últimos suspiros dele sujariam a conversa do novo.
     gone: Arc<AtomicBool>,
-    /// Há um turno em andamento: uma fala entrou e o `result` não saiu. É o
-    /// que a tela precisa saber ao abrir a conversa — as linhas sozinhas não
-    /// dizem, porque o transcript não guarda `result`.
+    /// Há um turno em andamento: uma fala entrou e `turn.completed` não saiu. É
+    /// o que a tela precisa saber ao abrir a conversa — as linhas sozinhas não
+    /// dizem, porque o transcript não guarda todo estado efêmero do processo.
     turn: Arc<AtomicBool>,
     /// O `init` já passou por aqui (ver `react`).
     ready: Arc<AtomicBool>,
@@ -226,7 +226,6 @@ fn append(path: &Path, line: &str) {
 pub struct Chat {
     wire: Wire,
     pump: Pump,
-    normalize_echo: conversation::LegacyAdapter,
     pub buffer: Arc<Mutex<Lines>>,
     /// O processo ainda está rodando. A entrada continua no mapa depois de ele
     /// morrer — são as linhas dela que a aba mostra amanhã.
@@ -240,23 +239,19 @@ impl Chat {
     /// volta são linhas para a tela que a própria entrada produziu sem passar
     /// pelo processo — o Codex respondendo a um comando que só o app conhece.
     pub fn write(&mut self, frame: &Value) -> Result<Vec<Value>, String> {
-        let buffer = lock(&self.pump.sink).text.clone();
-        let provider = conversation::provider_command(frame, &buffer)
-            .ok_or_else(|| i18n::t("err.team.bad"))?;
-        let echo = match &mut self.wire {
+        match &mut self.wire {
             Wire::Claude(stdin) => {
+                let buffer = lock(&self.pump.sink).text.clone();
+                let provider = conversation::claude_command(frame, &buffer)
+                    .ok_or_else(|| i18n::t("err.team.bad"))?;
                 let mut line = provider.to_string();
                 line.push('\n');
                 stdin.write_all(line.as_bytes()).map_err(i18n::io)?;
                 stdin.flush().map_err(i18n::io)?;
-                vec![]
+                Ok(vec![])
             }
-            Wire::Codex(link) => lock(link).write(&provider)?,
-        };
-        Ok(echo
-            .iter()
-            .flat_map(|frame| self.normalize_echo.translate(frame))
-            .collect())
+            Wire::Codex(link) => lock(link).write(frame),
+        }
     }
 
     pub fn alive(&self) -> bool {
@@ -404,7 +399,6 @@ pub(crate) fn launch(
     };
     let mut chat = Chat {
         wire,
-        normalize_echo: conversation::LegacyAdapter::default(),
         buffer: pump.sink.clone(),
         alive: Arc::new(AtomicBool::new(true)),
         pid,
@@ -412,9 +406,9 @@ pub(crate) fn launch(
     };
     // A primeira linha para dentro é o `initialize` do protocolo: o processo
     // responde com os comandos de barra que aceita (nome, descrição), sem
-    // esperar fala nenhuma — o `init` do stream, que também os lista, só sai
-    // depois da primeira fala. É o que a caixa mostra ao escrever "/". O Codex
-    // responde por conta própria, no tradutor.
+    // esperar fala nenhuma — o `init` do stream do Claude, que também os lista,
+    // só sai depois da primeira fala. É o que a caixa mostra ao escrever "/".
+    // O Codex responde por conta própria no adapter.
     match chat.write(&json!({ "v": 1, "type": "commands.list" })) {
         Ok(echo) => {
             for frame in echo {
@@ -499,11 +493,10 @@ fn same_process(current: Option<&Arc<AtomicBool>>, ended: &Arc<AtomicBool>) -> b
 }
 
 /// O que vale guardar. Os deltas de streaming são o texto chegando letra a
-/// letra, e a linha `assistant` que vem logo atrás traz o bloco inteiro; os
+/// letra, e `assistant.block` logo atrás traz o bloco inteiro; os
 /// hooks e a contagem de tokens de pensamento são ruído de progresso. Tudo
-/// isso vai ao vivo para a tela — e só. O que o app diz a si mesmo (`tokens`,
-/// `session`, vindos do tradutor do Codex) é para o quadro, não para a tela:
-/// também não fica.
+/// isso vai ao vivo para a tela — e só. Contexto, identidade, comandos e uso
+/// também são eventos efêmeros destinados ao quadro, não ao transcript.
 fn keep(frame: &Value) -> bool {
     !matches!(
         frame["type"].as_str(),
@@ -538,8 +531,7 @@ fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool) {
             usage::claude(app, &frame["usage"])
         }
         Some("usage.updated") if frame["provider"] == "codex" => usage::codex(app, &frame["usage"]),
-        // O tradutor do Codex contando ao quadro o que o stream do Claude Code
-        // deixa no transcript: quanto a conversa pesa, e qual é a sessão do
+        // O adapter do Codex conta quanto a conversa pesa e qual é a sessão do
         // lado de lá.
         Some("context.updated") => {
             update(app, id, None, Note::Keep, frame["used"].as_u64());

@@ -49,7 +49,7 @@ Negativas:
 
 - `conversation.test.ts` demonstra replay equivalente entre legado e V1;
 - testes do reducer cobrem streaming, requests, background e compactação;
-- testes Rust cobrem a tradução do stream-json e a borda final do Codex;
+- testes Rust cobrem a tradução do stream-json e a tradução V1 direta do Codex;
 - parser e adapters descartam evento desconhecido isoladamente;
 - logs do Codex recebem espelho legado marcado, permitindo rollback sem
   reescrever transcripts.

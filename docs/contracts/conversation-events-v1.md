@@ -210,5 +210,5 @@ encerrar a janela de rollback suportada.
 - `src/conversation.test.ts`: parser, replay V1 e equivalência com legado;
 - `src/timeline.test.ts`: streaming, ferramentas, requests, background e compactação;
 - testes de `conversation.rs`: tradução, comandos, desconhecidos e rollback;
-- testes de `codex.rs`: protocolo JSON-RPC e saída V1 na borda;
+- testes de `codex.rs`: comandos V1, protocolo JSON-RPC e saída V1 direta;
 - testes de `chat.rs`: persistência, sequência e reconstrução segura de controle remoto.
