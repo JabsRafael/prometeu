@@ -262,14 +262,22 @@ export class ChatView {
     return sel.toString();
   }
 
-  /// Caminhos soltos em cima da conversa entram na caixa, como o Terminal faz.
-  insert(text: string) {
-    const a = this.area;
-    const cut = a.selectionStart;
-    a.value = `${a.value.slice(0, cut)}${text}${a.value.slice(cut)}`;
-    a.selectionStart = a.selectionEnd = cut + text.length;
-    this.grow();
-    a.focus();
+  /// Só a conversa local, no modo agente, consegue entregar um arquivo deste
+  /// Mac. É a mesma regra do botão "+" da caixa.
+  canAttachFiles(): boolean {
+    return !!this.key && this.mode === "agent" && !this.remote && !!this.ctx.info().workspace;
+  }
+
+  /// Arquivos escolhidos no Finder ou soltos em cima da conversa entram no
+  /// mesmo rascunho, sem mexer no texto que já estava sendo escrito.
+  attachFiles(paths: string[]): boolean {
+    if (!this.canAttachFiles()) return false;
+    const files = this.attached().slice();
+    for (const path of paths) if (path && !files.includes(path)) files.push(path);
+    if (this.key) this.files.set(this.key, files);
+    this.paintComposer();
+    this.area.focus();
+    return true;
   }
 
   /* ---------- as linhas ---------- */
@@ -1029,11 +1037,7 @@ export class ChatView {
     const root = this.ctx.info().worktree;
     const picked = await open({ multiple: true, title: t("chat.addFile.dialog"), defaultPath: root ?? undefined });
     const list = Array.isArray(picked) ? picked : picked ? [picked] : [];
-    const has = this.attached();
-    for (const p of list) if (p && !has.includes(p)) has.push(p);
-    if (this.key) this.files.set(this.key, has);
-    this.paintComposer();
-    this.area.focus();
+    this.attachFiles(list);
   }
 
   /// Os anexos desta conversa. Sem aba não há onde guardá-los.

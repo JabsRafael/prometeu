@@ -261,44 +261,62 @@ listen<statusbar.Machine>("machine", ({ payload }) => statusbar.showMachine(payl
 statusbar.init({ say });
 invoke<statusbar.Machine>("machine").then(statusbar.showMachine).catch(() => {});
 
-/* ---------- arrastar arquivo para dentro do terminal ---------- */
+/* ---------- arrastar arquivo para dentro da conversa ou do terminal ------ */
 
 /// O Tauri come os eventos de drag do HTML para entregar caminho de arquivo de
-/// verdade, então quem escuta é a webview, não o documento. Soltar escreve o
-/// caminho no pty — é o que o Terminal do macOS faz, e é assim que uma imagem
-/// chega no Claude Code.
+/// verdade, então quem escuta é a webview, não o documento. Na conversa o
+/// arquivo vira anexo da fala; no dock, o caminho ainda entra no pty como no
+/// Terminal do macOS.
 type Drag = { type: string; paths?: string[]; position?: { x: number; y: number } };
 
 /// Caminho vai escapado como o Terminal escapa ao soltar um arquivo: barra
 /// invertida em tudo que o shell leria como outra coisa.
 const escapePath = (p: string) => p.replace(/([\s!"#$&'()*,:;<>?[\\\]^`{|}~])/g, "\\$1");
 
-/// Onde o arquivo caiu: a conversa, o terminal do dock, ou lugar nenhum. Na
-/// conversa o caminho entra na caixa de escrever; no dock, no pty.
-type Drop = { host: HTMLElement; put: (text: string) => void } | null;
-function dropTarget(at?: { x: number; y: number }): Drop {
-  if (!at || !$("veil").hidden) return null;
-  const dpr = window.devicePixelRatio || 1;
-  const el = document.elementFromPoint(at.x / dpr, at.y / dpr);
+/// Onde o arquivo caiu: a conversa, o terminal do dock, ou lugar nenhum.
+type Drop = { host: HTMLElement; put: (paths: string[]) => void } | null;
+function targetFrom(el: Element | null): Drop {
   if (!el) return null;
   if (el.closest("#dock")) {
     const pty = dock.currentKey();
     if (!pty) return null;
     return {
       host: $("dock"),
-      put: (text) => void invoke("pty_write", { session: pty, data: text }).then(dock.focus).catch((e) => say(fromBack(e), true)),
+      put: (paths) => {
+        // Espaço no fim: o próximo arquivo, ou o que você for escrever, não cola.
+        const text = paths.map(escapePath).join(" ") + " ";
+        void invoke("pty_write", { session: pty, data: text }).then(dock.focus).catch((e) => say(fromBack(e), true));
+      },
     };
   }
-  if (el.closest("#chatwrap") && session.currentSession()) return { host: $("chatwrap"), put: session.insert };
+  if (el.closest("#chatwrap") && session.canAttachFiles()) return { host: $("chatwrap"), put: session.attachFiles };
   return null;
 }
 
-let dropHost: HTMLElement | null = null;
-function markDrop(host: HTMLElement | null) {
-  if (dropHost === host) return;
+function dropTarget(at?: { x: number; y: number }): Drop {
+  if (!at || !$("veil").hidden) return null;
+
+  // No macOS a posição do evento nativo pode carregar o deslocamento da barra
+  // da janela. O :hover vem da própria webview e, quando disponível, é a fonte
+  // mais fiel; a coordenada física continua sendo o fallback e cobre o mock.
+  const underMouse = [$("dock"), $("chatwrap")].find((el) => el.matches(":hover")) ?? null;
+  const hovered = targetFrom(underMouse);
+  if (hovered) return hovered;
+  const dpr = window.devicePixelRatio || 1;
+  return targetFrom(document.elementFromPoint(at.x / dpr, at.y / dpr));
+}
+
+let activeDrop: Drop = null;
+function markDrop(target: Drop) {
+  const host = target?.host ?? null;
+  const dropHost = activeDrop?.host ?? null;
+  if (dropHost === host) {
+    activeDrop = target;
+    return;
+  }
   dropHost?.classList.remove("dropping");
-  dropHost = host;
-  dropHost?.classList.add("dropping");
+  activeDrop = target;
+  host?.classList.add("dropping");
 }
 
 getCurrentWebview().onDragDropEvent(({ payload }) => {
@@ -308,18 +326,21 @@ getCurrentWebview().onDragDropEvent(({ payload }) => {
   // Lançador aberto: o arquivo vira anexo da primeira fala, e nada vai ao pty.
   if (!$("veil").hidden) {
     markDrop(null);
-    if (drag.type === "drop") dropFiles(drag.paths ?? []);
+    if (drag.type === "drop" && $("veil").querySelector("#d-prompt")) dropFiles(drag.paths ?? []);
     return;
   }
 
   const target = dropTarget(drag.position);
-  if (drag.type !== "drop") return markDrop(target?.host ?? null);
+  if (drag.type !== "drop") return markDrop(target);
 
+  // O alvo que a moldura mostrou manda. O Tauri tem casos em que a posição do
+  // `drop` final difere dos eventos `over`; recalculá-la e descartar o último
+  // alvo válido fazia o mesmo gesto funcionar ou não conforme o ponto exato.
+  const accepted = activeDrop ?? target;
   markDrop(null);
   const paths = drag.paths ?? [];
-  if (!target || !paths.length) return;
-  // Espaço no fim: o próximo arquivo, ou o que você for escrever, não cola.
-  target.put(paths.map(escapePath).join(" ") + " ");
+  if (!accepted || !paths.length) return;
+  accepted.put(paths);
 });
 
 /* ---------- ações ---------- */
