@@ -97,15 +97,27 @@ const hooks: sidebar.Hooks = {
   newWorkspace: (projectId) => launch(projectId),
 };
 
+/// Quadro que chegou enquanto o menu estava aberto e não foi desenhado. Sem
+/// isto, marcar um plugin no seletor da conversa não mudava nada na tela — o
+/// rodapé continuava dizendo o de antes até o próximo evento do back, que numa
+/// conversa parada podia não vir nunca.
+let missed = false;
+
 function draw() {
   // A barra é redesenhada a cada ferramenta que o agente usa. Refazer a linha
   // com um campo de renomear ou menu aberto apaga o texto ou tira o menu do
   // lugar no meio do clique.
-  if (rename.editing() || menu.isOpen()) return;
+  if (rename.editing() || menu.isOpen()) {
+    missed = true;
+    return;
+  }
+  missed = false;
   sidebar.render(view(), hooks);
   archived.draw();
   if (ws.id()) ws.draw();
 }
+
+menu.onClose(() => missed && draw());
 
 /* Histórico ← →: telas e workspaces visitados, como as setas do Conductor. Os
    ids das telas não colidem com id de workspace nenhum. */

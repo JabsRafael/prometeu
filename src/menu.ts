@@ -27,13 +27,24 @@ let sel: HTMLElement | null = null;
 
 export const isOpen = () => root !== null;
 
+/// Quem quer saber que o painel fechou. O app não se redesenha com um menu
+/// aberto — refazer a lista embaixo tiraria o painel do lugar no meio do
+/// clique —, e o que ficou para trás precisa acontecer quando ele sai.
+const closers = new Set<() => void>();
+export const onClose = (fn: () => void) => closers.add(fn);
+
 export function close() {
+  const was = root !== null;
   root?.remove();
   root = null;
   sel = null;
   document.removeEventListener("mousedown", onDown, true);
   document.removeEventListener("keydown", onKey, true);
   window.removeEventListener("blur", close);
+  // Reabrir o mesmo menu — o seletor que se remarca a cada clique — passa por
+  // aqui e não é fechar: o aviso sai no tique seguinte, e só se ninguém tiver
+  // aberto outro painel nesse meio-tempo.
+  if (was) setTimeout(() => root === null && closers.forEach((fn) => fn()), 0);
 }
 
 function onDown(e: MouseEvent) {

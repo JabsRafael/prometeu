@@ -419,6 +419,10 @@ let mcpHub: McpServer[] = [
   { id: "linear-server", config: { type: "http", url: "https://mcp.linear.app/mcp" }, note: "capim-backend" },
 ];
 
+/// Quantas vezes a escolha de MCP ou de plugin foi gravada. É o que um teste
+/// olha para saber se marcar três coisas seguidas virou uma gravação só.
+let writes = 0;
+
 /// Uma linha do que o agente que escreve o plugin está fazendo.
 type Step = { kind: string; text: string };
 
@@ -884,7 +888,10 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
         target.plugins = args.plugins as string[] | null;
         target.tabs.forEach((t) => (t.status = "desligada"));
       }
-      emit("board", board);
+      writes++;
+      // No app o quadro volta pela ponte, um tique depois — e é essa volta que
+      // o seletor não pode ficar esperando para mover a marca.
+      setTimeout(() => emit("board", board), 0);
       return;
     }
     case "set_workspace_mcp": {
@@ -895,7 +902,8 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
         // próxima fala as levanta com a lista nova.
         target.tabs.forEach((t) => (t.status = "desligada"));
       }
-      emit("board", board);
+      writes++;
+      setTimeout(() => emit("board", board), 0);
       return;
     }
     case "machine":
@@ -1335,6 +1343,8 @@ w.__TAURI_INTERNALS__ = {
 w.mock = {
   /// Uma linha na conversa de mentira, como se o processo tivesse escrito.
   line: (tab: string, o: unknown) => pushLine(tab, o),
+  /// Quantas gravações de MCP/plugin o back de mentira recebeu.
+  writes: () => writes,
   /// O que o time diz agora — para dirigir a tela de fora e ver o que ela viu.
   team: () => ({ status: team.status(), remotes: team.remotes() }),
   presence: (online: boolean) => {

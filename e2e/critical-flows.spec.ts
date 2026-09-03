@@ -615,3 +615,35 @@ test("instala um plugin pelo endereço do repositório", async ({ page }) => {
   await expect(page.locator(".setrow", { hasText: "muitos-plugins-um" })).toBeVisible();
   await expect(page.locator(".setrow", { hasText: "muitos-plugins-dois" })).toHaveCount(0);
 });
+
+/// Marcar plugin numa conversa que já existe: a marca é da tela, e não da
+/// resposta do back. Cada gravação derruba o processo da conversa e republica
+/// o quadro inteiro; esperar por ela para mover a marca fazia o menu parecer
+/// travado — e marcar três coisas seguidas fazia isso três vezes.
+test("marcar plugins na conversa responde na hora e grava uma vez só", async ({ page }) => {
+  await boot(page);
+  await openWorkspace(page, "Ola");
+
+  await page.locator(".plugbtn").click();
+  const row = (name: string) => page.locator(".menu .mrow").filter({ hasText: name }).first();
+  await row("caveman").click();
+  // O quadro ainda não voltou, e a marca já está no lugar novo.
+  await expect(row("caveman").locator(".mc svg")).toBeVisible();
+  await row("ponytail").click();
+  await expect(row("caveman").locator(".mc svg")).toBeVisible();
+  await expect(row("ponytail").locator(".mc svg")).toBeVisible();
+
+  // Fechado o menu, a tela alcança o quadro: os dois cliques viraram uma
+  // gravação, e o rodapé conta os dois.
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".plugbtn")).toContainText("2 plugins");
+  expect(await page.evaluate(() => (window as unknown as { mock: { writes: () => number } }).mock.writes())).toBe(1);
+
+  // Mexer no MCP logo em seguida é outra gravação, e não a mesma: uma espera
+  // não pode engolir a outra.
+  await page.locator(".mcpbtn").click();
+  await page.locator(".menu .mrow").filter({ hasText: "capim-ds" }).first().click();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".mcpbtn")).toContainText("capim-ds");
+  await expect(page.locator(".plugbtn")).toContainText("2 plugins");
+});

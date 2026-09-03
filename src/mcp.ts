@@ -85,9 +85,13 @@ type Pick = {
   locked?: () => string;
 };
 
-export function openPicker(p: Pick) {
+/// `live` é o que a pessoa acabou de marcar e ainda não voltou do back — a
+/// mesma razão do seletor de plugins (ver `plugins.ts`): marcar derruba o
+/// processo e republica o quadro, e até isso dar a volta `p.chosen()` responde
+/// o de antes.
+export function openPicker(p: Pick, live?: string[]) {
   const lock = p.locked?.() ?? "";
-  const chosen = p.chosen() ?? [];
+  const chosen = live ?? p.chosen() ?? [];
   const items: menu.Item[] = [];
   if (lock) {
     items.push({ label: lock, disabled: true }, "sep");
@@ -102,9 +106,11 @@ export function openPicker(p: Pick) {
       checked: on,
       disabled: !!lock,
       run: () => {
-        p.set(on ? chosen.filter((id) => id !== server.id) : [...chosen, server.id]);
-        // O menu do app fecha ao escolher; marcar vários é reabrir.
-        openPicker(p);
+        const next = on ? chosen.filter((id) => id !== server.id) : [...chosen, server.id];
+        p.set(next);
+        // O menu do app fecha ao escolher; marcar vários é reabrir — com o que
+        // ela acabou de marcar.
+        openPicker(p, next);
       },
     });
   }
@@ -115,8 +121,9 @@ export function openPicker(p: Pick) {
       checked: true,
       disabled: !!lock,
       run: () => {
-        p.set(chosen.filter((c) => c !== id));
-        openPicker(p);
+        const next = chosen.filter((c) => c !== id);
+        p.set(next);
+        openPicker(p, next);
       },
     });
   }
@@ -126,7 +133,7 @@ export function openPicker(p: Pick) {
       disabled: !chosen.length,
       run: () => {
         p.set([]);
-        openPicker(p);
+        openPicker(p, []);
       },
     });
   }
