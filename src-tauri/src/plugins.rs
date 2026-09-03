@@ -768,7 +768,8 @@ fn watch(run: u64) {
 /// e é o próprio manifesto que diz o nome e a descrição que vão para o hub,
 /// como em qualquer plugin cadastrado à mão.
 fn born(dir: &Path, slug: &str) -> Result<(), String> {
-    let manifest = read_json(&manifest_path(dir)).ok_or_else(|| i18n::t("err.plugin.made.empty"))?;
+    let manifest =
+        read_json(&manifest_path(dir)).ok_or_else(|| i18n::t("err.plugin.made.empty"))?;
     let text = |key: &str| {
         manifest
             .get(key)
@@ -989,10 +990,19 @@ mod tests {
         assert_eq!(git_url("JuliusBrussee/caveman"), git);
         assert_eq!(git_url("github.com/JuliusBrussee/caveman"), git);
         assert_eq!(git_url("https://github.com/JuliusBrussee/caveman/"), git);
-        assert_eq!(git_url("https://github.com/JuliusBrussee/caveman/tree/main"), git);
+        assert_eq!(
+            git_url("https://github.com/JuliusBrussee/caveman/tree/main"),
+            git
+        );
         // O que já é endereço de git vai como veio.
-        assert_eq!(git_url("git@github.com:dietrichgebert/ponytail.git"), "git@github.com:dietrichgebert/ponytail.git");
-        assert_eq!(git_url("https://gitlab.com/time/x.git"), "https://gitlab.com/time/x.git");
+        assert_eq!(
+            git_url("git@github.com:dietrichgebert/ponytail.git"),
+            "git@github.com:dietrichgebert/ponytail.git"
+        );
+        assert_eq!(
+            git_url("https://gitlab.com/time/x.git"),
+            "https://gitlab.com/time/x.git"
+        );
         // E o que não é endereço nenhum não vira um.
         assert!(git_url("  ").is_empty());
         assert!(git_url("caveman").is_empty());
@@ -1001,8 +1011,14 @@ mod tests {
     /// A pasta do clone tem o nome do repositório, com ou sem `.git`.
     #[test]
     fn a_pasta_tem_o_nome_do_repositorio() {
-        assert_eq!(repo_name("https://github.com/JuliusBrussee/caveman"), "caveman");
-        assert_eq!(repo_name("git@github.com:dietrichgebert/ponytail.git"), "ponytail");
+        assert_eq!(
+            repo_name("https://github.com/JuliusBrussee/caveman"),
+            "caveman"
+        );
+        assert_eq!(
+            repo_name("git@github.com:dietrichgebert/ponytail.git"),
+            "ponytail"
+        );
     }
 
     /// O que o clone traz: o repositório que é o plugin, o marketplace que
@@ -1042,13 +1058,19 @@ mod tests {
         )
         .unwrap();
         let found = plugins_in(&many, "https://exemplo/muitos");
-        assert_eq!(found.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["a"]);
+        assert_eq!(
+            found.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+            ["a"]
+        );
 
         // Sem manifesto e sem marketplace, uma pasta abaixo ainda é achada.
         let loose = root.join("solto");
         manifest(&loose.join("plugins").join("c"), "c");
         assert_eq!(
-            plugins_in(&loose, "").iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+            plugins_in(&loose, "")
+                .iter()
+                .map(|p| p.id.as_str())
+                .collect::<Vec<_>>(),
             ["c"]
         );
 
@@ -1074,7 +1096,10 @@ mod tests {
         assert_eq!(found.plugins.len(), 1);
         assert_eq!(found.plugins[0].id, "caveman");
         assert!(found.plugins[0].note.len() > 10);
-        assert_eq!(found.plugins[0].from, "https://github.com/JuliusBrussee/caveman");
+        assert_eq!(
+            found.plugins[0].from,
+            "https://github.com/JuliusBrussee/caveman"
+        );
         assert!(manifest_path(Path::new(&found.plugins[0].source)).exists());
 
         // E ele entrou no hub, com a linha de comando que a sessão vai receber.
@@ -1124,14 +1149,20 @@ mod tests {
         let dir = Path::new("/tmp/plug");
         let wrote = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":"/tmp/plug/skills/x/SKILL.md"}}]}}"#;
         let wrote = step(dir, wrote).unwrap();
-        assert_eq!((wrote.kind.as_str(), wrote.text.as_str()), ("file", "skills/x/SKILL.md"));
+        assert_eq!(
+            (wrote.kind.as_str(), wrote.text.as_str()),
+            ("file", "skills/x/SKILL.md")
+        );
 
         let read = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/tmp/plug/x"}}]}}"#;
         assert!(step(dir, read).is_none());
 
         let said = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"\n  Vou começar pelo manifesto.\nDepois as skills."}]}}"#;
         let said = step(dir, said).unwrap();
-        assert_eq!((said.kind.as_str(), said.text.as_str()), ("say", "Vou começar pelo manifesto."));
+        assert_eq!(
+            (said.kind.as_str(), said.text.as_str()),
+            ("say", "Vou começar pelo manifesto.")
+        );
 
         // O resto do stream não é progresso de ninguém, e linha que não é JSON
         // não pode derrubar a leitura.
