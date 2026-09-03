@@ -420,6 +420,17 @@ export const PT = {
   /* ---------- MCP ---------- */
 
   "settings.page.general": "Geral",
+  "settings.defaults": "Padrões",
+  "settings.defaults.model": "Modelo",
+  "settings.defaults.model.body": "Com quem os workspaces novos falam. No lançador dá para trocar, e a troca vale só para aquele workspace.",
+  "settings.defaults.effort": "Esforço",
+  "settings.defaults.effort.body": "Quanto o agente pensa antes de responder. Modelo que não chega neste degrau abre no mais alto que ele tem.",
+  "settings.defaults.mcp": "Ferramentas (MCP)",
+  "settings.defaults.plugins": "Plugins",
+  "settings.defaults.mcp.body": "Quais servidores os workspaces novos enxergam. Sem escolha, quem decide é o CLI.",
+  "settings.defaults.plugins.body": "Quais plugins os workspaces novos carregam. Sem escolha, o CLI carrega o que sempre carregou.",
+  "settings.defaults.unset": "Não escolher",
+  "settings.defaults.unset.title": "Voltar a deixar o CLI decidir",
   "settings.mcp": "Ferramentas (MCP)",
   "settings.mcp.body": "O que os agentes podem usar. Cada workspace escolhe quais entram.",
   "mcp.add": "Cadastrar servidor",

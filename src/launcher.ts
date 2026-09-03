@@ -238,17 +238,22 @@ export function effortStep(model: string, effort: string): { label: string; step
 }
 
 /// A escolha do worktree gruda entre lançamentos: quem trabalha de um jeito
-/// trabalha do mesmo jeito amanhã, e refazer o clique toda vez cansa. Modelo e
-/// esforço também; plan mode não — é decisão de uma tarefa, não de um jeito.
+/// trabalha do mesmo jeito amanhã, e refazer o clique toda vez cansa. Plan mode
+/// não — é decisão de uma tarefa, não de um jeito.
 const WORKTREE_KEY = "prometheus:worktree";
 const BRANCH_KEY = "prometheus:branch-nova";
+
+/// Com que modelo, esforço, MCP e plugins o lançador abre. Isto é escolha, e
+/// não lembrança: quem quiser mudar vai em Configurações → Padrões. Antes eles
+/// grudavam sozinhos — a última escolha virava a próxima —, e experimentar um
+/// modelo numa tarefa mudava calado o começo de todas as outras.
+///
+/// Trocar dentro do lançador vale para aquele workspace e mais nada. As chaves
+/// são as mesmas de quando grudavam sozinhos: quem já usava o app começa com o
+/// que estava usando como padrão.
 const MODEL_KEY = "prometheus:model";
 const EFFORT_KEY = "prometheus:effort";
-/// Os MCP da última vez. Escolher é trabalho manual e quase sempre se repete
-/// entre workspaces do mesmo tipo — mas só depois de escolher uma vez: sem
-/// nada guardado, o lançador não escolhe por ninguém.
 const MCP_KEY = "prometheus:mcp";
-/// Os plugins da última vez, pela mesma razão do MCP.
 const PLUGIN_KEY = "prometheus:plugins";
 
 /// Arquivo solto em cima do lançador aberto entra como anexo. É o `main.ts`
@@ -296,13 +301,14 @@ export function openLauncher(board: Board, opts: Open) {
     inject: [],
     issue: seed ? { id: seed.id, identifier: seed.identifier, title: seed.title, url: seed.url } : null,
     agent: "",
-    model: rememberedModel(),
-    effort: remembered(EFFORT_KEY, EFFORTS, "high"),
+    model: defaultModel(),
+    effort: "",
     plan: false,
-    mcp: rememberedMcp(),
-    plugins: rememberedPlugins(),
+    mcp: defaultMcp(),
+    plugins: defaultPlugins(),
   };
-  // O modelo lembrado pode ser do Codex — e aí o agente vem com ele.
+  draft.effort = defaultEffort(draft.model);
+  // O modelo padrão pode ser do Codex — e aí o agente vem com ele.
   draft.agent = isCodex(draft.model) ? "codex" : "";
 
   const sheet = document.createElement("div");
@@ -477,7 +483,6 @@ export function openLauncher(board: Board, opts: Open) {
     (id) => {
       draft.model = id;
       draft.agent = agentOf(id);
-      localStorage.setItem(MODEL_KEY, id);
       // O Codex não tem plan mode por linha de comando, e cada modelo tem a
       // sua escada de esforço: trocar de modelo pode invalidar as duas coisas.
       if (draft.agent === "codex") draft.plan = false;
@@ -506,7 +511,6 @@ export function openLauncher(board: Board, opts: Open) {
     const stairs = ladder();
     const step = stairs.findIndex(([id]) => id === draft.effort);
     draft.effort = stairs[(step + 1) % stairs.length][0];
-    localStorage.setItem(EFFORT_KEY, draft.effort);
     drawEffort();
     prompt.focus();
   });
@@ -550,7 +554,6 @@ export function openLauncher(board: Board, opts: Open) {
       chosen: () => draft.mcp,
       set: (ids) => {
         draft.mcp = ids;
-        localStorage.setItem(MCP_KEY, JSON.stringify(ids));
         drawMcp();
       },
       at: () => ({ x: at.left, y: at.bottom + 4 }),
@@ -575,7 +578,6 @@ export function openLauncher(board: Board, opts: Open) {
       chosen: () => draft.plugins,
       set: (ids) => {
         draft.plugins = ids;
-        localStorage.setItem(PLUGIN_KEY, JSON.stringify(ids));
         drawPlugins();
       },
       at: () => ({ x: at.left, y: at.bottom + 4 }),
@@ -949,49 +951,73 @@ function dropdown(
   return draw;
 }
 
-/// Os MCP da última vez, filtrados pelo que o hub ainda tem: servidor removido
-/// do cadastro não pode voltar como escolha morta. Sem nada guardado é `null`,
-/// que é não escolher.
-function rememberedMcp(): string[] | null {
-  const saved = localStorage.getItem(MCP_KEY);
+/* ---------- os padrões, que Configurações escolhe ---------- */
+
+/// Os MCP padrão, filtrados pelo que o hub ainda tem: servidor removido do
+/// cadastro não pode voltar como escolha morta. Sem nada escolhido é `null`,
+/// que é não escolher — e aí o CLI decide, como decidia antes do hub existir.
+export function defaultMcp(): string[] | null {
+  return storedList(MCP_KEY, mcp.known);
+}
+
+export function setDefaultMcp(ids: string[] | null) {
+  store(MCP_KEY, ids);
+}
+
+/// Os plugins padrão, pela mesma regra do MCP e pelo mesmo motivo.
+export function defaultPlugins(): string[] | null {
+  return storedList(PLUGIN_KEY, plugins.known);
+}
+
+export function setDefaultPlugins(ids: string[] | null) {
+  store(PLUGIN_KEY, ids);
+}
+
+function storedList(key: string, known: (id: string) => boolean): string[] | null {
+  const saved = localStorage.getItem(key);
   if (saved === null) return null;
   try {
     const ids = JSON.parse(saved) as string[];
-    return Array.isArray(ids) ? ids.filter((id) => mcp.known(id)) : null;
+    return Array.isArray(ids) ? ids.filter(known) : null;
   } catch {
     return null;
   }
 }
 
-/// Os plugins da última vez, filtrados pelo que o hub ainda tem — a mesma
-/// regra do MCP, e pelo mesmo motivo.
-function rememberedPlugins(): string[] | null {
-  const saved = localStorage.getItem(PLUGIN_KEY);
-  if (saved === null) return null;
-  try {
-    const ids = JSON.parse(saved) as string[];
-    return Array.isArray(ids) ? ids.filter((id) => plugins.known(id)) : null;
-  } catch {
-    return null;
-  }
+/// `null` apaga a escolha: volta a ser o CLI quem decide.
+function store(key: string, ids: string[] | null) {
+  if (ids === null) localStorage.removeItem(key);
+  else localStorage.setItem(key, JSON.stringify(ids));
 }
 
-/// O modelo da última vez, seja de qual agente for. Fora das duas listas ele não
-/// vale: um alias que saiu de circulação, ou um GPT lembrado numa máquina onde o
-/// Codex não está mais, não pode virar modelo inválido por lembrança.
-function rememberedModel(): string {
+/// O modelo padrão, seja de qual agente for. Fora das duas listas ele não vale:
+/// um alias que saiu de circulação, ou um GPT escolhido numa máquina onde o
+/// Codex não está mais, não pode virar modelo inválido por lembrança — e aí
+/// vale o primeiro da lista.
+export function defaultModel(): string {
   const saved = localStorage.getItem(MODEL_KEY) ?? "";
   const known = (agents.claude && MODELS.some(([id]) => id === saved)) || isCodex(saved);
   return known ? saved : fallbackModel();
 }
 
-/// O que ficou gravado da última vez — desde que ainda exista na lista. Um
-/// alias que saiu de circulação não pode virar `--model` inválido por
-/// lembrança.
-function remembered(key: string, list: [string, string][], fallback = "") {
-  const saved = localStorage.getItem(key) ?? "";
-  return list.some(([id]) => id === saved) ? saved : fallback;
+export function setDefaultModel(id: string) {
+  localStorage.setItem(MODEL_KEY, id);
 }
+
+/// O esforço padrão, no degrau mais próximo que a escada deste modelo tem: o
+/// padrão é um só, e o modelo com que se abre pode não chegar até ele.
+export function defaultEffort(model: string): string {
+  const saved = localStorage.getItem(EFFORT_KEY) ?? "";
+  return fitsEffort(model, EFFORTS.some(([id]) => id === saved) ? saved : "high");
+}
+
+export function setDefaultEffort(id: string) {
+  localStorage.setItem(EFFORT_KEY, id);
+}
+
+/// A escada de degraus deste modelo, para quem desenha um seletor de esforço
+/// fora do lançador — a página de Padrões.
+export const effortLadder = ladderOf;
 
 /// A primeira fala de um workspace que nasce de uma issue: a issue inteira,
 /// e depois o que você digitou. O agente lê a descrição como o pedido, e a

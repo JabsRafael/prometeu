@@ -3,6 +3,19 @@ import { listen } from "@tauri-apps/api/event";
 import * as alert from "./alert";
 import { avatar, icon } from "./icons";
 import { LANGS, choose, chosen, fromBack, fromSystem, t, tn, type Key, type Lang } from "./i18n";
+import {
+  defaultEffort,
+  defaultMcp,
+  defaultModel,
+  defaultPlugins,
+  effortLadder,
+  modelGroups,
+  modelLabel,
+  setDefaultEffort,
+  setDefaultMcp,
+  setDefaultModel,
+  setDefaultPlugins,
+} from "./launcher";
 import * as mcp from "./mcp";
 import * as menu from "./menu";
 import * as plugins from "./plugins";
@@ -73,6 +86,12 @@ const PAGES: Page[] = [
     title: "settings.page.general",
     glyph: "settings",
     rows: () => [langRow(), alert.settingsRow()],
+  },
+  {
+    id: "padroes",
+    title: "settings.defaults",
+    glyph: "sparkles",
+    rows: defaultsRows,
   },
   {
     id: "ferramentas",
@@ -173,6 +192,148 @@ function langRow(): HTMLElement {
     );
   });
   row.querySelector(".act")!.append(btn);
+  return row;
+}
+
+/* ---------- padrões ---------- */
+
+/// Com o que o lançador abre: modelo, esforço, MCP e plugins. Antes isto era
+/// lembrança — a última escolha do lançador virava o começo da próxima —, e
+/// experimentar um modelo numa tarefa mudava calado todas as seguintes. Agora
+/// é escolha, e mora aqui; o lançador continua trocando, só que para aquele
+/// workspace e mais nada.
+function defaultsRows(): HTMLElement[] {
+  return [modelRow(), effortRow(), mcpRow(), pluginRow()];
+}
+
+/// Uma linha de Padrões: o que ela escolhe, o que isso quer dizer, e o botão
+/// que abre o seletor. Devolve o botão junto porque quem marca vários (MCP,
+/// plugins) reescreve o rótulo sem refazer a página — o menu fica aberto, e
+/// refazer a página tiraria de baixo dele o botão em que ele se ancora.
+function pickRow(
+  glyph: Parameters<typeof icon>[0],
+  title: Key,
+  body: Key,
+): { row: HTMLElement; btn: HTMLButtonElement } {
+  const row = template(
+    "div",
+    "setrow",
+    `<span class="glyph">${icon(glyph, 18)}</span><div class="txt"><b></b><span></span></div><div class="act"></div>`,
+  );
+  row.querySelector(".txt b")!.textContent = t(title);
+  row.querySelector(".txt span")!.textContent = t(body);
+  const btn = template("button", "ghost md pick", `<span></span>${icon("chevron-down", 12)}`) as HTMLButtonElement;
+  row.querySelector(".act")!.append(btn);
+  return { row, btn };
+}
+
+function modelRow(): HTMLElement {
+  const { row, btn } = pickRow("sparkles", "settings.defaults.model", "settings.defaults.model.body");
+  btn.children[0].textContent = modelLabel(defaultModel());
+  btn.addEventListener("click", () => {
+    const at = btn.getBoundingClientRect();
+    const blocks = modelGroups();
+    const items: menu.Item[] = [];
+    blocks.forEach((block, n) => {
+      if (n) items.push("sep");
+      if (block.head && blocks.length > 1) items.push({ label: block.head, disabled: true });
+      for (const [id, name] of block.items) {
+        items.push({
+          label: name,
+          checked: id === defaultModel(),
+          run: () => {
+            setDefaultModel(id);
+            // O esforço é um degrau da escada do modelo, e a escada mudou: a
+            // linha de baixo precisa se redesenhar junto.
+            draw();
+          },
+        });
+      }
+    });
+    menu.openAt({ x: at.left, y: at.bottom + 4 }, items);
+  });
+  return row;
+}
+
+/// O esforço padrão é um só, e a escada é a do modelo padrão — trocar de
+/// modelo no lançador aproxima o degrau do que aquele modelo aceita.
+function effortRow(): HTMLElement {
+  const { row, btn } = pickRow("signal", "settings.defaults.effort", "settings.defaults.effort.body");
+  const stairs = effortLadder(defaultModel());
+  const now = defaultEffort(defaultModel());
+  btn.children[0].textContent = stairs.find(([id]) => id === now)?.[1] ?? now;
+  btn.addEventListener("click", () => {
+    const at = btn.getBoundingClientRect();
+    menu.openAt(
+      { x: at.left, y: at.bottom + 4 },
+      stairs.map(([id, name]) => ({
+        label: name,
+        checked: id === now,
+        run: () => {
+          setDefaultEffort(id);
+          draw();
+        },
+      })),
+    );
+  });
+  return row;
+}
+
+function mcpRow(): HTMLElement {
+  const { row, btn } = pickRow("plug", "settings.defaults.mcp", "settings.defaults.mcp.body");
+  const unset = h("button", "ghost md", t("settings.defaults.unset")) as HTMLButtonElement;
+  unset.title = t("settings.defaults.unset.title");
+  const paintRow = () => {
+    const chosen = defaultMcp();
+    btn.children[0].textContent = mcp.label(chosen);
+    unset.hidden = chosen === null;
+  };
+  btn.addEventListener("click", () => {
+    const at = btn.getBoundingClientRect();
+    mcp.openPicker({
+      chosen: defaultMcp,
+      set: (ids) => {
+        setDefaultMcp(ids);
+        paintRow();
+      },
+      at: () => ({ x: at.left, y: at.bottom + 4 }),
+    });
+  });
+  unset.addEventListener("click", () => {
+    setDefaultMcp(null);
+    paintRow();
+  });
+  row.querySelector(".act")!.prepend(unset);
+  paintRow();
+  return row;
+}
+
+function pluginRow(): HTMLElement {
+  const { row, btn } = pickRow("puzzle", "settings.defaults.plugins", "settings.defaults.plugins.body");
+  const unset = h("button", "ghost md", t("settings.defaults.unset")) as HTMLButtonElement;
+  unset.title = t("settings.defaults.unset.title");
+  const paintRow = () => {
+    const chosen = defaultPlugins();
+    btn.children[0].textContent = plugins.label(chosen);
+    unset.hidden = chosen === null;
+  };
+  btn.addEventListener("click", () => {
+    const at = btn.getBoundingClientRect();
+    plugins.openPicker({
+      chosen: defaultPlugins,
+      set: (ids) => {
+        setDefaultPlugins(ids);
+        paintRow();
+      },
+      at: () => ({ x: at.left, y: at.bottom + 4 }),
+    });
+  });
+  unset.addEventListener("click", () => {
+    setDefaultPlugins(null);
+    paintRow();
+  });
+  row.querySelector(".act")!.prepend(unset);
+  paintRow();
   return row;
 }
 
