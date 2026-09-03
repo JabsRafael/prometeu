@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { invoke } from "./ipc";
 import { icon } from "./icons";
 import { fromBack, t, type Key } from "./i18n";
@@ -17,6 +18,10 @@ import { $, h, template } from "./util";
 /// O cadastro mora no back e esta é a cópia que a janela desenha; ela é refeita
 /// a cada gravação, porque o back devolve a lista inteira depois de gravar —
 /// nunca há duas verdades.
+///
+/// Instalar também é daqui: a folha pede o endereço de um repositório, o back
+/// clona numa pasta do Prometheus e cadastra o que veio. Criar um plugin do
+/// zero é o outro caminho, e a folha dele fica ao lado.
 
 let hub: Plugin[] = [];
 let loaded = false;
@@ -148,15 +153,21 @@ function aboutRow(): HTMLElement {
   );
   row.querySelector(".txt span")!.textContent = t("settings.plugins.body");
 
-  const add = template("button", "outline md", `<span></span>`) as HTMLButtonElement;
+  // Instalar o que já existe é o que quase todo mundo vem fazer aqui; criar um
+  // do zero e apontar para uma pasta são os dois casos raros, e ficam ao lado.
+  const get = template("button", "outline md", `<span></span>`) as HTMLButtonElement;
+  get.children[0].textContent = t("plugin.install");
+  get.addEventListener("click", () => installer());
+
+  const make = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
+  make.children[0].textContent = t("plugin.make");
+  make.addEventListener("click", () => maker());
+
+  const add = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
   add.children[0].textContent = t("plugin.add");
   add.addEventListener("click", () => editor(null));
 
-  const bring = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
-  bring.children[0].textContent = t("plugin.import");
-  bring.addEventListener("click", () => void importer(bring));
-
-  row.querySelector(".act")!.append(add, bring);
+  row.querySelector(".act")!.append(get, make, add);
   return row;
 }
 
@@ -176,24 +187,59 @@ function pluginRow(plugin: Plugin): HTMLElement {
   row.querySelector(".txt b")!.textContent = plugin.id;
   row.querySelector(".txt span")!.textContent = subtitle(plugin);
 
+  const act = row.querySelector(".act")!;
+  // Atualizar é o `git pull` da pasta clonada: só existe para o que veio de um
+  // endereço, e some para o plugin apontado à mão.
+  if (plugin.made && plugin.from) {
+    const up = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
+    up.children[0].textContent = t("plugin.update");
+    up.addEventListener("click", () => {
+      up.disabled = true;
+      ctx.say(t("plugin.updating", { name: plugin.id }));
+      invoke<Plugin[]>("plugin_update", { id: plugin.id })
+        .then((fresh) => {
+          hub = fresh;
+          // A lista some e nasce de novo com o `announce`; a única notícia do
+          // que aconteceu é esta linha, porque atualizar não muda nada na tela.
+          ctx.say(t("plugin.updated", { name: plugin.id }));
+          announce();
+        })
+        .catch((e) => {
+          up.disabled = false;
+          ctx.say(fromBack(e), true);
+        });
+    });
+    act.append(up);
+  }
+
   const edit = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
   edit.children[0].textContent = t("plugin.edit");
   edit.addEventListener("click", () => editor(plugin));
 
   const drop = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
   drop.children[0].textContent = t("plugin.remove");
-  drop.addEventListener("click", () => void remove(plugin));
+  drop.addEventListener("click", () => {
+    // O que nasceu aqui sai do disco junto: apagar arquivo pergunta antes.
+    if (!plugin.made) return void remove(plugin);
+    const at = drop.getBoundingClientRect();
+    menu.openAt({ x: at.left, y: at.bottom + 4 }, [
+      { label: t("plugin.remove.made"), danger: true, run: () => void remove(plugin) },
+    ]);
+  });
 
-  row.querySelector(".act")!.append(edit, drop);
+  act.append(edit, drop);
   return row;
 }
 
 const remote = (source: string) => /^https?:\/\//.test(source.trim());
 
-/// A linha de baixo: de onde ele vem, e para que serve.
+/// A linha de baixo: de onde ele vem, e para que serve. Para o que foi
+/// instalado, "de onde" é o endereço — a pasta do clone não diz nada a
+/// ninguém.
 function subtitle(plugin: Plugin): string {
+  const where = plugin.from?.trim() || plugin.source;
   const note = plugin.note.trim();
-  return note ? `${plugin.source} · ${note}` : plugin.source;
+  return note ? `${where} · ${note}` : where;
 }
 
 async function remove(plugin: Plugin) {
@@ -203,6 +249,12 @@ async function remove(plugin: Plugin) {
   } catch (e) {
     ctx.say(fromBack(e), true);
   }
+}
+
+/// Depois de uma criação: quem gravou foi o back, e a lista daqui está velha.
+async function refresh() {
+  hub = await invoke<Plugin[]>("plugin_hub");
+  announce();
 }
 
 async function save(plugin: Plugin) {
@@ -225,7 +277,12 @@ function editor(plugin: Plugin | null) {
     `<div class="sheettop"><b class="mt"></b></div><div class="mbody"></div><div class="sheetbar"></div>`,
   );
   const at = <T extends HTMLElement>(sel: string) => sheet.querySelector(sel) as T;
-  const draft: Plugin = { id: plugin?.id ?? "", source: plugin?.source ?? "", note: plugin?.note ?? "" };
+  const draft: Plugin = {
+    id: plugin?.id ?? "",
+    source: plugin?.source ?? "",
+    note: plugin?.note ?? "",
+    made: plugin?.made ?? false,
+  };
 
   const hide = () => {
     veil.hidden = true;
@@ -289,7 +346,7 @@ function editor(plugin: Plugin | null) {
 
   function store() {
     if (!draft.id.trim() || !draft.source.trim()) return say(t("plugin.needFields"), true);
-    save({ id: draft.id.trim(), source: draft.source.trim(), note: draft.note.trim() })
+    save({ id: draft.id.trim(), source: draft.source.trim(), note: draft.note.trim(), made: draft.made })
       .then(hide)
       .catch((e) => say(fromBack(e), true));
   }
@@ -324,31 +381,295 @@ function field(o: {
   return box;
 }
 
-/* ---------- importar ---------- */
+/* ---------- instalar ---------- */
 
-/// O que o `claude plugin install` já pôs nesta máquina e ainda não está no
-/// hub. Vem do back, que lê o cadastro do CLI — e não mexe nele.
-async function importer(btn: HTMLElement) {
-  let found: Plugin[] = [];
-  try {
-    found = await invoke<Plugin[]>("plugin_found");
-  } catch (e) {
-    ctx.say(fromBack(e), true);
-    return;
-  }
-  const at = btn.getBoundingClientRect();
-  if (!found.length) {
-    menu.openAt({ x: at.left, y: at.bottom + 4 }, [{ label: t("plugin.import.none"), disabled: true }]);
-    return;
-  }
-  menu.openAt(
-    { x: at.left, y: at.bottom + 4 },
-    found.map((plugin) => ({
-      label: plugin.id,
-      hint: plugin.note.trim() || t("plugin.origin.local"),
-      run: () => {
-        save(plugin).catch((e) => ctx.say(fromBack(e), true));
-      },
-    })),
+/// O que um endereço trouxe, como o back conta.
+type Found = { dir: string; plugins: Plugin[]; saved: boolean };
+
+/// Instalar um plugin que já existe. Uma caixa: o endereço do repositório. O
+/// repositório que é um plugin entra direto; o que traz vários vira uma lista
+/// para marcar — e fechar sem marcar nada desfaz o clone, para o disco não
+/// guardar o que ninguém escolheu.
+function installer() {
+  const veil = $("veil");
+  const sheet = template(
+    "div",
+    "sheet hubedit",
+    `<div class="sheettop"><b class="mt"></b></div><div class="mbody"></div><div class="sheetbar"></div>`,
   );
+  const at = <T extends HTMLElement>(sel: string) => sheet.querySelector(sel) as T;
+  let source = "";
+  let busy = false;
+  let found: Found | null = null;
+  const chosen = new Set<string>();
+
+  const hide = () => {
+    // O clone que ninguém escolheu não fica no disco.
+    if (found && !found.saved) void invoke("plugin_scrap", { dir: found.dir });
+    veil.hidden = true;
+    veil.replaceChildren();
+  };
+
+  const hint = h("span", "hint");
+  const say = (text: string, bad = false) => {
+    hint.textContent = text;
+    hint.title = text;
+    hint.classList.toggle("bad", bad);
+  };
+
+  async function go() {
+    if (!source.trim()) return say(t("plugin.install.needSource"), true);
+    busy = true;
+    say(t("plugin.install.working"));
+    paint();
+    try {
+      const got = await invoke<Found>("plugin_install", { source });
+      busy = false;
+      if (got.saved) {
+        await refresh();
+        found = null;
+        hide();
+        return;
+      }
+      found = got;
+      for (const plugin of got.plugins) chosen.add(plugin.id);
+      say("");
+      paint();
+    } catch (e) {
+      busy = false;
+      say(fromBack(e), true);
+      paint();
+    }
+  }
+
+  /// Guardar o que foi marcado. Cada um é um cadastro, e o que sobrou no clone
+  /// fica lá: é o mesmo repositório, e escolher de novo não baixa de novo.
+  async function keep() {
+    const picked = found?.plugins.filter((p) => chosen.has(p.id)) ?? [];
+    if (!picked.length) return hide();
+    try {
+      for (const plugin of picked) await save(plugin);
+      if (found) found.saved = true;
+      hide();
+    } catch (e) {
+      say(fromBack(e), true);
+    }
+  }
+
+  function paint() {
+    at(".mt").textContent = t("plugin.install.title");
+    at(".mbody").replaceChildren(...(found ? pick() : ask()));
+    at(".sheetbar").replaceChildren(...bar());
+  }
+
+  function ask(): HTMLElement[] {
+    return [
+      h("p", "msay", t("plugin.install.intro")),
+      field({
+        label: "plugin.install.field",
+        hint: "plugin.install.field.hint",
+        value: source,
+        on: (v) => (source = v),
+        done: () => void go(),
+      }),
+    ];
+  }
+
+  /// A escolha, quando o repositório é um marketplace.
+  function pick(): HTMLElement[] {
+    const list = h("div", "mpick", "");
+    for (const plugin of found?.plugins ?? []) {
+      const line = template(
+        "label",
+        "mpickrow",
+        `<input type="checkbox" /><div class="txt"><b></b><span></span></div>`,
+      );
+      const box = line.querySelector("input")!;
+      box.checked = chosen.has(plugin.id);
+      box.addEventListener("change", () => {
+        if (box.checked) chosen.add(plugin.id);
+        else chosen.delete(plugin.id);
+      });
+      line.querySelector("b")!.textContent = plugin.id;
+      line.querySelector("span")!.textContent = plugin.note;
+      list.append(line);
+    }
+    return [h("p", "msay", t("plugin.install.pick")), list];
+  }
+
+  function bar(): HTMLElement[] {
+    const back = h("button", "ghost", t("plugin.cancel"));
+    back.addEventListener("click", hide);
+    const go2 = h("button", "pri", t(found ? "plugin.install.add" : "plugin.install.go"));
+    go2.addEventListener("click", () => void (found ? keep() : go()));
+    (go2 as HTMLButtonElement).disabled = busy;
+    return [back, hint, go2];
+  }
+
+  paint();
+  veil.replaceChildren(sheet);
+  veil.hidden = false;
+  at<HTMLInputElement>("input")?.focus();
+}
+
+/* ---------- criar ---------- */
+
+/// Uma linha do que o agente está fazendo: `file` é um arquivo que ele acabou
+/// de escrever, e a frase à volta é desta tela; `say` é palavra dele, e fica
+/// como veio.
+type Step = { kind: string; text: string };
+
+/// As últimas linhas, e só: a folha mostra que ele está trabalhando, não o
+/// histórico do que ele fez.
+const STEPS = 8;
+
+/// Criar um plugin aqui dentro. A folha tem dois estados: o pedido — o nome e
+/// o que ele deve fazer — e o trabalho, que leva minutos e por isso mostra
+/// cada arquivo que sai, em vez de um relógio.
+function maker() {
+  const veil = $("veil");
+  const sheet = template(
+    "div",
+    "sheet hubedit",
+    `<div class="sheettop"><b class="mt"></b></div><div class="mbody"></div><div class="sheetbar"></div>`,
+  );
+  const at = <T extends HTMLElement>(sel: string) => sheet.querySelector(sel) as T;
+  const draft = { name: "", ask: "" };
+  /// A corrida em andamento. `null` é a folha ainda no pedido — antes de
+  /// começar, e de volta a ele se o agente falhar.
+  let run: number | null = null;
+  let steps: Step[] = [];
+  const off: (() => void)[] = [];
+  let gone = false;
+
+  const hide = () => {
+    gone = true;
+    for (const stop of off.splice(0)) stop();
+    veil.hidden = true;
+    veil.replaceChildren();
+  };
+
+  const hint = h("span", "hint");
+  const say = (text: string, bad = false) => {
+    hint.textContent = text;
+    hint.title = text;
+    hint.classList.toggle("bad", bad);
+  };
+
+  /// Os ouvintes ficam de pé enquanto a folha existe, e cada um só olha a sua
+  /// corrida — qual é, a resposta do pedido conta. Fechar a folha antes de o
+  /// ouvinte nascer o desliga assim que ele nasce.
+  const hear = <T,>(event: string, fn: (payload: T) => void) => {
+    void listen<T>(event, ({ payload }) => fn(payload)).then((stop) =>
+      gone ? stop() : off.push(stop),
+    );
+  };
+  hear<[number, Step]>("plugin-make", ([id, step]) => {
+    if (id !== run) return;
+    steps = [...steps, step].slice(-STEPS);
+    paint();
+  });
+  hear<[number, string]>("plugin-made", ([id, error]) => {
+    if (id !== run) return;
+    // O que falhou volta para o pedido com o que estava escrito: o nome e o
+    // parágrafo custaram a sair, e digitá-los de novo seria castigo.
+    if (error) {
+      run = null;
+      steps = [];
+      paint();
+      say(fromBack(error), true);
+      return;
+    }
+    void refresh().finally(hide);
+  });
+
+  async function start() {
+    if (!draft.name.trim() || !draft.ask.trim()) return say(t("plugin.make.needFields"), true);
+    say("");
+    try {
+      const made = await invoke<{ run: number; slug: string }>("plugin_make", {
+        name: draft.name,
+        ask: draft.ask,
+      });
+      run = made.run;
+      paint();
+    } catch (e) {
+      say(fromBack(e), true);
+    }
+  }
+
+  function stop() {
+    if (run !== null) void invoke("plugin_make_stop", { run });
+    hide();
+  }
+
+  /// O pedido: o nome, e o parágrafo que vira o plugin.
+  function ask(): HTMLElement[] {
+    return [
+      h("p", "msay", t("plugin.make.intro")),
+      field({
+        label: "plugin.make.field.name",
+        hint: "plugin.make.field.name.hint",
+        value: draft.name,
+        on: (v) => (draft.name = v),
+      }),
+      area({
+        label: "plugin.make.field.ask",
+        hint: "plugin.make.field.ask.hint",
+        value: draft.ask,
+        on: (v) => (draft.ask = v),
+      }),
+    ];
+  }
+
+  /// O trabalho, enquanto ele acontece. Sem passo nenhum ainda, a folha diz que
+  /// está esperando — a primeira linha do agente demora.
+  function working(): HTMLElement[] {
+    const list = h("div", "mrun", "");
+    if (!steps.length) list.append(h("div", "mstep wait", t("plugin.make.working")));
+    for (const step of steps) {
+      list.append(
+        h("div", "mstep", step.kind === "file" ? t("plugin.make.wrote", { file: step.text }) : step.text),
+      );
+    }
+    return [list];
+  }
+
+  function paint() {
+    at(".mt").textContent = t("plugin.make.title");
+    at(".mbody").replaceChildren(...(run === null ? ask() : working()));
+    if (run === null) {
+      const back = h("button", "ghost", t("plugin.cancel"));
+      back.addEventListener("click", hide);
+      const go = h("button", "pri", t("plugin.make.go"));
+      go.addEventListener("click", () => void start());
+      at(".sheetbar").replaceChildren(back, hint, go);
+      return;
+    }
+    const halt = h("button", "ghost", t("plugin.make.stop"));
+    halt.addEventListener("click", stop);
+    say(t("plugin.make.working"));
+    at(".sheetbar").replaceChildren(halt, hint);
+  }
+
+  paint();
+  veil.replaceChildren(sheet);
+  veil.hidden = false;
+  at<HTMLInputElement>("input")?.focus();
+}
+
+/// O campo grande. O pedido é um parágrafo — num campo de uma linha alguém
+/// escreveria uma frase, e uma frase não descreve um jeito de trabalhar.
+function area(o: { label: Key; hint: Key; value: string; on: (v: string) => void }): HTMLElement {
+  const box = template(
+    "label",
+    "fld",
+    `<span class="fl"></span><textarea rows="6" spellcheck="true"></textarea><span class="fh"></span>`,
+  );
+  box.querySelector(".fl")!.textContent = t(o.label);
+  box.querySelector(".fh")!.textContent = t(o.hint);
+  const input = box.querySelector("textarea")!;
+  input.value = o.value;
+  input.addEventListener("input", () => o.on(input.value));
+  return box;
 }

@@ -97,7 +97,16 @@ export type McpCheck = {
 
 /// Um plugin do Claude Code como o hub o guarda: o nome que ele declara, onde
 /// ele está (pasta, `.zip`, ou a URL de um `.zip`) e a linha embaixo do nome.
-export type Plugin = { id: string; source: string; note: string };
+/// `made` é o que está numa pasta do Prometheus — clonado ou escrito por ele —,
+/// e é o único que remover apaga do disco; `from` é o endereço de onde ele
+/// veio, que é o que dá sentido a atualizar.
+export type Plugin = {
+  id: string;
+  source: string;
+  note: string;
+  made?: boolean;
+  from?: string;
+};
 
 export type Workspace = {
   id: string;

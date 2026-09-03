@@ -419,12 +419,19 @@ let mcpHub: McpServer[] = [
   { id: "linear-server", config: { type: "http", url: "https://mcp.linear.app/mcp" }, note: "capim-backend" },
 ];
 
+/// Uma linha do que o agente que escreve o plugin está fazendo.
+type Step = { kind: string; text: string };
+
 /// O hub de plugins do navegador: um instalado por marketplace e um que
 /// alguém está escrevendo, que são os dois casos que a lista desenha.
 let pluginHub: Plugin[] = [
-  { id: "caveman", source: "~/.claude/plugins/cache/caveman/caveman", note: "caveman" },
+  { id: "caveman", source: "~/.prometheus/plugins/caveman", note: "fala curto e sem enfeite", made: true, from: "https://github.com/JuliusBrussee/caveman" },
   { id: "ponytail", source: "~/dev/ponytail", note: "em construção" },
 ];
+
+/// A corrida da criação, no navegador: os passos saem de um relógio, e não de
+/// um agente.
+let pluginRun = 0;
 
 /// Em quais servidores já se entrou, no navegador.
 let mcpLogins: string[] = [];
@@ -818,10 +825,59 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       const id = source.replace(/\/+$/, "").split("/").pop() ?? "";
       return { id: id.replace(/\.zip$/, ""), source, note: "" };
     }
-    case "plugin_found":
-      return [
-        { id: "rust-analyzer-lsp", source: "~/.claude/plugins/cache/claude-plugins-official/rust-analyzer-lsp", note: "claude-plugins-official" },
+    // Instalar, sem git nenhum: o repositório cujo nome termina em `-plugins`
+    // faz as vezes de marketplace, que é o caso em que a folha pergunta qual;
+    // qualquer outro é um plugin só, e entra direto.
+    case "plugin_install": {
+      const url = String(args.source ?? "").trim().replace(/\/+$/, "");
+      const name = (url.split(/[/:]/).pop() ?? "").replace(/\.git$/, "");
+      if (!name) throw "i18n:" + JSON.stringify({ code: "err.plugin.noSource" });
+      const dir = `~/.prometheus/plugins/${name}`;
+      const from = url.includes("://") || url.includes("@") ? url : `https://github.com/${url}`;
+      if (name.endsWith("-plugins")) {
+        return {
+          dir,
+          saved: false,
+          plugins: [
+            { id: `${name}-um`, source: `${dir}/plugins/um`, note: "o primeiro do repositório", made: true, from },
+            { id: `${name}-dois`, source: `${dir}/plugins/dois`, note: "o segundo do repositório", made: true, from },
+          ],
+        };
+      }
+      const plugin: Plugin = { id: name, source: dir, note: `plugin de ${url}`, made: true, from };
+      pluginHub = [...pluginHub.filter((p) => p.id !== name), plugin].sort((a, b) => a.id.localeCompare(b.id));
+      return { dir, saved: true, plugins: [plugin] };
+    }
+    case "plugin_update":
+      return pluginHub;
+    case "plugin_scrap":
+      return;
+
+    // Criar um plugin, sem agente nenhum: os passos chegam de meio em meio
+    // segundo, e no fim ele está no hub — que é o que a folha precisa mostrar.
+    case "plugin_make": {
+      const slug = String(args.name ?? "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
+      const run = ++pluginRun;
+      const steps: Step[] = [
+        { kind: "say", text: "Vou começar pelo manifesto." },
+        { kind: "file", text: ".claude-plugin/plugin.json" },
+        { kind: "file", text: `skills/${slug}/SKILL.md` },
+        { kind: "file", text: "hooks/hooks.json" },
       ];
+      steps.forEach((step, i) => setTimeout(() => emit("plugin-make", [run, step]), 500 * (i + 1)));
+      setTimeout(() => {
+        pluginHub.push({ id: slug, source: `~/.prometheus/plugins/${slug}`, note: String(args.ask ?? "").slice(0, 60), made: true });
+        emit("plugin-made", [run, ""]);
+      }, 500 * (steps.length + 1));
+      return { run, slug };
+    }
+    case "plugin_make_stop":
+      return;
     case "set_workspace_plugins": {
       const target = board.workspaces.find((x) => x.id === args.id);
       if (target) {
