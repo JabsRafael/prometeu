@@ -715,9 +715,16 @@ main { flex: 1; min-height: 0; position: relative; }
 .vfile { flex: 1; min-height: 0; overflow: auto; padding: 0 12px 24px; }
 .vfile.pdf { overflow: hidden; padding: 12px 0 0; }
 .vfile iframe { width: 100%; height: 100%; border: 0; }
-.vfile table { margin-top: 12px; border-collapse: collapse; font-size: 12.5px; white-space: nowrap; }
-.vfile th, .vfile td { padding: 3px 10px; border: 1px solid var(--line-raised); text-align: left; }
-.vfile th { position: sticky; top: 0; background: var(--bg-raised); color: var(--fg); font-weight: 600; }
+/* Bordas separadas, não colapsadas: a colapsada fica do lado de fora da
+   célula e não gruda com o cabeçalho — sobrava uma fresta de 1px com linha
+   passando. Aqui cada célula carrega a sua e o cabeçalho tapa tudo. */
+.vfile table { margin-top: 12px; border-collapse: separate; border-spacing: 0; font-size: 12.5px; white-space: nowrap; }
+.vfile th, .vfile td {
+  padding: 3px 10px; text-align: left;
+  border-right: 1px solid var(--line-raised); border-bottom: 1px solid var(--line-raised);
+}
+.vfile th:first-child, .vfile td:first-child { border-left: 1px solid var(--line-raised); }
+.vfile th { position: sticky; top: 0; border-top: 1px solid var(--line-raised); background: var(--bg-raised); color: var(--fg); font-weight: 600; }
 .vfile td { color: var(--fg-2); }
 .h-c { color: #7f848e; font-style: italic; }
 .h-s { color: #98c379; }
