@@ -5,6 +5,7 @@ mod awake;
 mod browser;
 mod chat;
 mod codex;
+mod conversation;
 mod dock;
 mod domain;
 mod github;

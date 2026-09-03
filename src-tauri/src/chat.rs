@@ -1,28 +1,22 @@
-//! A conversa: o `claude -p` falando stream-json por stdin e stdout.
+//! A conversa: comandos e eventos V1 em volta dos processos de agente.
 //!
-//! Não é um terminal. O Claude Code roda em modo headless e cada coisa que
-//! acontece — o texto que ele escreve, a ferramenta que chama, o resultado
-//! dela, a permissão que pede — chega como uma linha de JSON. O app guarda as
-//! linhas, repassa cada uma para a tela e para quem estiver olhando do outro
-//! lado do relay, e é a tela quem desenha. O que uma TUI faria com escape
-//! codes, aqui é um reducer em cima de JSON (`src/timeline.ts`).
+//! Não é um terminal. Cada protocolo externo é normalizado em
+//! `conversation.rs`; o app guarda eventos V1 e os repassa para a tela e para
+//! quem estiver olhando do outro lado do relay.
 //!
-//! O que vai para dentro é a mesma coisa ao contrário: uma fala é uma linha
-//! `{"type":"user",…}`, uma resposta a pedido de permissão é um
-//! `control_response`, interromper é um `control_request`. Tudo pelo mesmo
-//! cano, e o processo fica de pé entre um turno e outro — a sessão não é o
-//! processo, é o transcript no disco, e ele sobrevive a tudo.
+//! O que vai para dentro usa `ConversationCommandV1`: fala, resposta, modo e
+//! interrupção passam pelo mesmo cano. O processo fica de pé entre turnos — a
+//! sessão não é o processo, é o transcript no disco, e ele sobrevive a tudo.
 //!
 //! O Codex entra pelo mesmo lugar: o `codex app-server` fala JSON-RPC, e o
-//! `codex.rs` traduz cada notificação dele para uma destas linhas — e cada
-//! linha da tela para uma chamada dele. Daqui para a frente ninguém sabe qual
-//! dos dois está do outro lado: o buffer, a tela, o relay e o quadro leem o
-//! mesmo formato.
+//! `codex.rs` traduz JSON-RPC e `conversation.rs` fecha a normalização V1.
+//! Daqui para a frente ninguém sabe qual dos dois está do outro lado: buffer,
+//! tela, relay e quadro leem o mesmo contrato.
 
 use crate::i18n;
 use crate::lock::lock;
 use crate::state::{publish, Note, Status, Workspace};
-use crate::{codex, paths, transcript, usage, AppState};
+use crate::{codex, conversation, paths, transcript, usage, AppState};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::process::CommandExt;
@@ -107,16 +101,15 @@ pub struct Snapshot {
     pub seq: u64,
 }
 
-/// O cano para dentro do processo. No Claude Code é o stdin, e a linha vai
-/// como está; no Codex é o tradutor, que faz da linha uma chamada JSON-RPC.
+/// O cano para dentro do processo. O comando V1 já foi traduzido para a forma
+/// de entrada do provider antes de chegar aqui.
 pub enum Wire {
     Claude(ChildStdin),
     Codex(Arc<Mutex<codex::Link>>),
 }
 
-/// O que cada linha que sai do processo vira para a tela. O Claude Code já
-/// fala o formato da tela (a linha é a linha); o Codex precisa de tradução, e
-/// uma notificação dele pode virar várias linhas, ou nenhuma.
+/// O que cada linha que sai do processo vira em eventos V1. Uma notificação
+/// externa pode virar várias linhas canônicas, ou nenhuma.
 pub type Translate = Box<dyn FnMut(&str) -> Vec<String> + Send>;
 
 /// As diferenças de protocolo na borda do processo: quais linhas de stderr
@@ -170,6 +163,12 @@ impl Pump {
         let seq = match keep(&frame) {
             true => {
                 if let Some(log) = &self.log {
+                    if let Some(mirror) = conversation::legacy_mirror(&frame) {
+                        append(log, &mirror.to_string());
+                    }
+                    // O V1 vem depois do espelho: se o teto cortar o arquivo
+                    // entre os dois, a versão atual ainda preserva o evento
+                    // canônico em vez de ficar apenas com a linha que ignora.
                     append(log, text);
                 }
                 lock(&self.sink).absorb(text)
@@ -182,11 +181,13 @@ impl Pump {
         let _ = self
             .app
             .emit("chat", (self.id.clone(), text.to_string(), seq));
-        // O turno acaba no `result` — e pode começar sem fala, quando uma
+        // O turno acaba no evento final — e pode começar sem fala, quando uma
         // tarefa em segundo plano termina e o agente reage a ela.
         match frame["type"].as_str() {
-            Some("result") => self.turn.store(false, Ordering::Relaxed),
-            Some("assistant") => self.turn.store(true, Ordering::Relaxed),
+            Some("turn.completed") => self.turn.store(false, Ordering::Relaxed),
+            Some("assistant.block" | "assistant.started") => {
+                self.turn.store(true, Ordering::Relaxed)
+            }
             _ => {}
         }
         react(&self.app, &self.id, &frame, &self.ready);
@@ -225,6 +226,7 @@ fn append(path: &Path, line: &str) {
 pub struct Chat {
     wire: Wire,
     pump: Pump,
+    normalize_echo: conversation::LegacyAdapter,
     pub buffer: Arc<Mutex<Lines>>,
     /// O processo ainda está rodando. A entrada continua no mapa depois de ele
     /// morrer — são as linhas dela que a aba mostra amanhã.
@@ -238,16 +240,23 @@ impl Chat {
     /// volta são linhas para a tela que a própria entrada produziu sem passar
     /// pelo processo — o Codex respondendo a um comando que só o app conhece.
     pub fn write(&mut self, frame: &Value) -> Result<Vec<Value>, String> {
-        match &mut self.wire {
+        let buffer = lock(&self.pump.sink).text.clone();
+        let provider = conversation::provider_command(frame, &buffer)
+            .ok_or_else(|| i18n::t("err.team.bad"))?;
+        let echo = match &mut self.wire {
             Wire::Claude(stdin) => {
-                let mut line = frame.to_string();
+                let mut line = provider.to_string();
                 line.push('\n');
                 stdin.write_all(line.as_bytes()).map_err(i18n::io)?;
                 stdin.flush().map_err(i18n::io)?;
-                Ok(vec![])
+                vec![]
             }
-            Wire::Codex(link) => lock(link).write(frame),
-        }
+            Wire::Codex(link) => lock(link).write(&provider)?,
+        };
+        Ok(echo
+            .iter()
+            .flat_map(|frame| self.normalize_echo.translate(frame))
+            .collect())
     }
 
     pub fn alive(&self) -> bool {
@@ -306,9 +315,10 @@ pub fn spawn(
     let seed = paths::transcript(id, worktree);
     // A linha já é a linha: o `claude -p` fala o formato da tela.
     let wire = |stdin| {
+        let mut adapter = conversation::LegacyAdapter::default();
         (
             Wire::Claude(stdin),
-            Box::new(|line: &str| vec![line.to_string()]) as Translate,
+            Box::new(move |line: &str| adapter.translate_line(line)) as Translate,
         )
     };
     launch(
@@ -394,6 +404,7 @@ pub(crate) fn launch(
     };
     let mut chat = Chat {
         wire,
+        normalize_echo: conversation::LegacyAdapter::default(),
         buffer: pump.sink.clone(),
         alive: Arc::new(AtomicBool::new(true)),
         pid,
@@ -404,7 +415,7 @@ pub(crate) fn launch(
     // esperar fala nenhuma — o `init` do stream, que também os lista, só sai
     // depois da primeira fala. É o que a caixa mostra ao escrever "/". O Codex
     // responde por conta própria, no tradutor.
-    match chat.write(&json!({ "type": "control_request", "request_id": "initialize", "request": { "subtype": "initialize" } })) {
+    match chat.write(&json!({ "v": 1, "type": "commands.list" })) {
         Ok(echo) => {
             for frame in echo {
                 pump.feed(&frame.to_string());
@@ -427,7 +438,12 @@ pub(crate) fn launch(
                     continue;
                 }
                 pump.feed(
-                    &json!({ "type": "prometheus", "subtype": "stderr", "text": line }).to_string(),
+                    &conversation::event(
+                        "system.notice",
+                        conversation::now(),
+                        json!({ "level": "error", "code": "provider.stderr", "detail": line }),
+                    )
+                    .to_string(),
                 );
             }
         });
@@ -489,15 +505,21 @@ fn same_process(current: Option<&Arc<AtomicBool>>, ended: &Arc<AtomicBool>) -> b
 /// `session`, vindos do tradutor do Codex) é para o quadro, não para a tela:
 /// também não fica.
 fn keep(frame: &Value) -> bool {
-    match frame["type"].as_str() {
-        Some("stream_event") | Some("rate_limit_event") => false,
-        Some("system") => !matches!(
-            frame["subtype"].as_str(),
-            Some("hook_started" | "hook_response" | "thinking_tokens")
-        ),
-        Some("prometheus") => matches!(frame["subtype"].as_str(), Some("stderr")),
-        _ => true,
-    }
+    !matches!(
+        frame["type"].as_str(),
+        Some(
+            "assistant.started"
+                | "assistant.block.started"
+                | "assistant.delta"
+                | "tool.input.delta"
+                | "context.compaction"
+                | "context.updated"
+                | "session.state"
+                | "session.identity"
+                | "commands.updated"
+                | "usage.updated"
+        )
+    )
 }
 
 /// O que cada linha conta ao quadro. É o que os hooks contavam antes, lido
@@ -505,45 +527,48 @@ fn keep(frame: &Value) -> bool {
 /// sessão, o fim do turno.
 fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool) {
     match frame["type"].as_str() {
-        // O `init` só sai depois de a primeira fala entrar — não serve de
-        // aviso de "pode falar". Quem libera a fala é `ready`, no spawn. Aqui
-        // é só a confirmação, uma vez, para o caso de a fala ter ficado presa
-        // no setup e o setup já ter acabado.
-        Some("system") if frame["subtype"] == "init" && !ready.swap(true, Ordering::Relaxed) => {
+        // A resposta ao pedido inicial traz os comandos e confirma que o cano
+        // de controle está pronto.
+        Some("commands.updated") if !ready.swap(true, Ordering::Relaxed) => {
             ready_now(app, id);
         }
         // Quanto da cota já foi. Vem a cada pedido ao modelo, é da conta e não
         // da sessão, e quem guarda é o `usage` — a barra de baixo é uma só.
-        Some("rate_limit_event") => usage::claude(app, &frame["rate_limit_info"]),
-        Some("prometheus") if frame["subtype"] == "usage" => {
-            usage::codex(app, &frame["usage"]);
+        Some("usage.updated") if frame["provider"] == "claude" => {
+            usage::claude(app, &frame["usage"])
         }
+        Some("usage.updated") if frame["provider"] == "codex" => usage::codex(app, &frame["usage"]),
         // O tradutor do Codex contando ao quadro o que o stream do Claude Code
         // deixa no transcript: quanto a conversa pesa, e qual é a sessão do
         // lado de lá.
-        Some("prometheus") if frame["subtype"] == "tokens" => {
-            update(app, id, None, Note::Keep, frame["tokens"].as_u64());
+        Some("context.updated") => {
+            update(app, id, None, Note::Keep, frame["used"].as_u64());
         }
-        Some("prometheus") if frame["subtype"] == "session" => {
-            if let Some(session) = frame["session"].as_str() {
+        Some("session.identity") => {
+            if let Some(session) = frame["providerSession"].as_str() {
                 remember_session(app, id, session);
             }
         }
-        Some("assistant") => {
-            let blocks = frame["message"]["content"].as_array();
-            let tool = blocks.and_then(|b| b.iter().find(|c| c["type"] == "tool_use"));
-            match tool {
-                Some(t) => update(app, id, Some(Status::Rodando), Note::Set(activity(t)), None),
+        Some("assistant.block") => {
+            let block = &frame["block"];
+            match block["kind"].as_str() {
+                Some("tool") => update(
+                    app,
+                    id,
+                    Some(Status::Rodando),
+                    Note::Set(activity(block)),
+                    None,
+                ),
                 None => update(app, id, Some(Status::Rodando), Note::Keep, None),
+                _ => update(app, id, Some(Status::Rodando), Note::Keep, None),
             }
         }
         // Um pedido de permissão — e AskUserQuestion e ExitPlanMode, que passam
         // por aqui mesmo em bypass. O quadro fica sabendo que a sessão parou
         // esperando alguém; quem responde é a tela.
-        Some("control_request") if frame["request"]["subtype"] == "can_use_tool" => {
-            let req = &frame["request"];
-            let note = match req["tool_name"].as_str() {
-                Some("AskUserQuestion") => req["input"]["questions"][0]["question"]
+        Some("request.opened") => {
+            let note = match frame["tool"].as_str() {
+                Some("AskUserQuestion") => frame["input"]["questions"][0]["question"]
                     .as_str()
                     .map(str::to_string)
                     .unwrap_or_else(|| i18n::t("note.question")),
@@ -556,7 +581,9 @@ fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool) {
         // Parou. Deixar a última ferramenta escrita aqui fazia o card dizer
         // "pronta" embaixo de uma linha que parecia trabalho acontecendo agora.
         // Parar é também quando a conversa cresceu: é a hora de ler quanto.
-        Some("result") => update(app, id, Some(Status::Pronta), Note::Clear, context(app, id)),
+        Some("turn.completed") => {
+            update(app, id, Some(Status::Pronta), Note::Clear, context(app, id))
+        }
         _ => {}
     }
 }
@@ -681,7 +708,7 @@ pub fn send_prompt(app: &AppHandle, session: &str, prefix: Option<String>) {
         };
         format!("{}{p}", prefix.unwrap_or_default())
     };
-    match say(app, &state, session, &prompt) {
+    match say(&state, session, &prompt) {
         Ok(()) => publish(app),
         Err(error) => {
             // O processo pode morrer entre a conferência e a escrita. A fala
@@ -702,15 +729,14 @@ pub fn send_prompt(app: &AppHandle, session: &str, prefix: Option<String>) {
     }
 }
 
-/// Uma fala, no formato do stream — com a hora, que o Claude Code não põe
-/// nas linhas que emite. O stream não ecoa o que entra, então quem a guarda e
+/// Uma fala no contrato V1, com a hora. O processo não ecoa o que entra, então quem a guarda e
 /// a repassa à tela (e ao colega olhando) é o app, na hora de mandar.
 fn user(text: &str) -> Value {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
-    json!({ "type": "user", "message": { "role": "user", "content": text }, "ts": ts })
+    json!({ "v": 1, "type": "user.message", "at": ts, "content": [{ "kind": "text", "text": text }] })
 }
 
 /// Uma linha para dentro do processo. O que volta é o que ela produziu sem
@@ -727,16 +753,13 @@ fn write(state: &AppState, session: &str, frame: &Value) -> Result<(Pump, Vec<Va
 }
 
 /// Uma fala para dentro, e a mesma fala para fora: no buffer e na tela.
-fn say(app: &AppHandle, state: &AppState, session: &str, text: &str) -> Result<(), String> {
+fn say(state: &AppState, session: &str, text: &str) -> Result<(), String> {
     let frame = user(text);
-    let (pump, echo) = write(state, session, &frame)?;
+    let command = json!({ "v": 1, "type": "message.send", "text": text });
+    let (pump, echo) = write(state, session, &command)?;
     pump.turn.store(true, Ordering::Relaxed);
     let line = frame.to_string();
-    let seq = lock(&pump.sink).absorb(&line);
-    if let Some(log) = &pump.log {
-        append(log, &line);
-    }
-    let _ = app.emit("chat", (session.to_string(), line, seq));
+    pump.feed(&line);
     // O que a fala rendeu sem ir ao processo vem depois dela, na ordem.
     for frame in echo {
         pump.feed(&frame.to_string());
@@ -777,7 +800,7 @@ pub fn chat_send(
     let up = lock(&state.chats).get(&session).is_some_and(|c| c.alive());
     let ready = lock(&state.ready).contains(&session);
     if !queued && up && ready {
-        say(&app, &state, &session, &text)?;
+        say(&state, &session, &text)?;
         update(&app, &session, Some(Status::Rodando), Note::Clear, None);
         return Ok(());
     }
@@ -834,6 +857,9 @@ fn wake(up: bool, ready: bool, setup: bool) -> Wake {
 #[tauri::command]
 pub fn chat_control(state: State<AppState>, session: String, frame: Value) -> Result<(), String> {
     let (pump, echo) = write(&state, &session, &frame)?;
+    if let Some(event) = closed_request(&frame) {
+        pump.feed(&event.to_string());
+    }
     for frame in echo {
         pump.feed(&frame.to_string());
     }
@@ -861,14 +887,72 @@ pub fn chat_control_remote(
     };
     let safe = sanitize_remote_control(&buffer, &frame).ok_or_else(|| i18n::t("err.team.bad"))?;
     let (pump, echo) = write(&state, &session, &safe)?;
+    if let Some(event) = closed_request(&safe) {
+        pump.feed(&event.to_string());
+    }
     for frame in echo {
         pump.feed(&frame.to_string());
     }
     Ok(())
 }
 
+fn closed_request(command: &Value) -> Option<Value> {
+    (command["v"] == 1 && command["type"] == "request.respond").then(|| {
+        let outcome = match command["response"]["outcome"].as_str() {
+            Some("allow") => "allowed",
+            Some("deny") => "denied",
+            Some("answer") => "answered",
+            _ => "cancelled",
+        };
+        conversation::event(
+            "request.closed",
+            conversation::now(),
+            json!({ "requestId": command["requestId"], "outcome": outcome }),
+        )
+    })
+}
+
 fn sanitize_remote_control(buffer: &str, frame: &Value) -> Option<Value> {
     match frame.get("type")?.as_str()? {
+        "turn.interrupt" if frame["v"] == 1 => Some(json!({ "v": 1, "type": "turn.interrupt" })),
+        "request.respond" if frame["v"] == 1 => {
+            let id = bounded(frame.get("requestId")?, 128)?;
+            let request = request_in(buffer, id)?;
+            let response = frame.get("response")?;
+            let clean = match response.get("outcome")?.as_str()? {
+                "allow"
+                    if request.get("tool_name").and_then(Value::as_str)
+                        != Some("AskUserQuestion") =>
+                {
+                    json!({ "outcome": "allow" })
+                }
+                "answer"
+                    if request.get("tool_name").and_then(Value::as_str)
+                        == Some("AskUserQuestion") =>
+                {
+                    let answers = answers_for(
+                        &request["input"],
+                        &json!({ "answers": response.get("answers")? }),
+                    )?;
+                    json!({ "outcome": "answer", "answers": answers["answers"] })
+                }
+                "deny" => json!({
+                    "outcome": "deny",
+                    "message": response
+                        .get("message")
+                        .and_then(|value| bounded(value, 4 * 1024))
+                        .unwrap_or("Denied by a teammate"),
+                }),
+                _ => return None,
+            };
+            Some(json!({
+                "v": 1,
+                "type": "request.respond",
+                "requestId": id,
+                "response": clean,
+            }))
+        }
+        // Compatibilidade com colegas ainda na versão anterior.
         "control_request" => {
             let id = bounded(frame.get("request_id")?, 128)?;
             (frame.pointer("/request/subtype")?.as_str()? == "interrupt").then(|| {
@@ -921,13 +1005,29 @@ fn bounded(value: &Value, max: usize) -> Option<&str> {
 }
 
 fn request_in(buffer: &str, id: &str) -> Option<Value> {
-    buffer.lines().rev().find_map(|line| {
-        let frame = serde_json::from_str::<Value>(line).ok()?;
-        (frame.get("type")?.as_str()? == "control_request"
-            && frame.get("request_id")?.as_str()? == id
-            && frame.pointer("/request/subtype")?.as_str()? == "can_use_tool")
-            .then(|| frame.get("request").cloned())?
-    })
+    for line in buffer.lines().rev() {
+        let Ok(frame) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if frame["v"] == 1 && frame["type"] == "request.closed" && frame["requestId"] == id {
+            return None;
+        }
+        if frame["v"] == 1 && frame["type"] == "request.opened" && frame["requestId"] == id {
+            return Some(json!({
+                "subtype": "can_use_tool",
+                "tool_name": frame["tool"],
+                "tool_use_id": frame["toolId"],
+                "input": frame["input"],
+            }));
+        }
+        if frame["type"] == "control_request"
+            && frame["request_id"] == id
+            && frame["request"]["subtype"] == "can_use_tool"
+        {
+            return Some(frame["request"].clone());
+        }
+    }
+    None
 }
 
 fn answers_for(input: &Value, updated: &Value) -> Option<Value> {
@@ -995,7 +1095,14 @@ fn snapshot(state: &AppState, session: &str) -> Snapshot {
             None => (String::new(), 0, false),
         },
     };
-    text.push_str(&json!({ "type": "prometheus", "subtype": "state", "busy": busy }).to_string());
+    text.push_str(
+        &conversation::event(
+            "session.state",
+            conversation::now(),
+            json!({ "state": if busy { "busy" } else { "ready" } }),
+        )
+        .to_string(),
+    );
     text.push('\n');
     Snapshot { text, seq }
 }
@@ -1003,9 +1110,9 @@ fn snapshot(state: &AppState, session: &str) -> Snapshot {
 /// Onde a conversa de uma aba dorme: o transcript do Claude Code, que ele
 /// mesmo escreve, ou o que o app gravou do Codex.
 pub fn transcript_of(ws: &Workspace, session: &str) -> PathBuf {
-    match ws.agent.as_str() {
-        "codex" => paths::chat_log(session),
-        _ => paths::transcript(session, Path::new(&ws.worktree)),
+    match ws.agent {
+        crate::state::ProviderId::Codex => paths::chat_log(session),
+        crate::state::ProviderId::Claude => paths::transcript(session, Path::new(&ws.worktree)),
     }
 }
 
@@ -1088,23 +1195,20 @@ mod tests {
     #[test]
     fn guarda_o_que_a_tela_precisa_amanha() {
         let f = |s: &str| serde_json::from_str::<Value>(s).unwrap();
-        assert!(keep(&f(r#"{"type":"assistant"}"#)));
-        assert!(keep(&f(r#"{"type":"user"}"#)));
-        assert!(keep(&f(r#"{"type":"result"}"#)));
-        assert!(keep(&f(r#"{"type":"control_request"}"#)));
-        assert!(keep(&f(r#"{"type":"system","subtype":"init"}"#)));
-        assert!(keep(&f(
-            r#"{"type":"system","subtype":"compact_boundary"}"#
-        )));
-        assert!(!keep(&f(r#"{"type":"stream_event"}"#)));
-        assert!(!keep(&f(r#"{"type":"rate_limit_event"}"#)));
-        assert!(!keep(&f(r#"{"type":"system","subtype":"hook_started"}"#)));
-        assert!(!keep(&f(
-            r#"{"type":"system","subtype":"thinking_tokens"}"#
-        )));
-        assert!(keep(&f(r#"{"type":"prometheus","subtype":"stderr"}"#)));
-        assert!(!keep(&f(r#"{"type":"prometheus","subtype":"tokens"}"#)));
-        assert!(!keep(&f(r#"{"type":"prometheus","subtype":"session"}"#)));
+        assert!(keep(&f(r#"{"v":1,"type":"assistant.block"}"#)));
+        assert!(keep(&f(r#"{"v":1,"type":"user.message"}"#)));
+        assert!(keep(&f(r#"{"v":1,"type":"tool.completed"}"#)));
+        assert!(keep(&f(r#"{"v":1,"type":"request.opened"}"#)));
+        assert!(keep(&f(r#"{"v":1,"type":"turn.completed"}"#)));
+        assert!(keep(&f(r#"{"v":1,"type":"context.compacted"}"#)));
+        assert!(keep(&f(r#"{"v":1,"type":"system.notice"}"#)));
+        assert!(!keep(&f(r#"{"v":1,"type":"assistant.started"}"#)));
+        assert!(!keep(&f(r#"{"v":1,"type":"assistant.block.started"}"#)));
+        assert!(!keep(&f(r#"{"v":1,"type":"assistant.delta"}"#)));
+        assert!(!keep(&f(r#"{"v":1,"type":"tool.input.delta"}"#)));
+        assert!(!keep(&f(r#"{"v":1,"type":"context.updated"}"#)));
+        assert!(!keep(&f(r#"{"v":1,"type":"session.identity"}"#)));
+        assert!(!keep(&f(r#"{"v":1,"type":"usage.updated"}"#)));
     }
 
     #[test]
@@ -1203,5 +1307,41 @@ mod tests {
         assert!(
             sanitize_remote_control(&buffer, &response(json!({ "Comando?": "rm -rf" }))).is_none()
         );
+    }
+
+    #[test]
+    fn controle_v1_remoto_reconstroi_resposta_sem_confiar_no_cliente() {
+        let request = conversation::event(
+            "request.opened",
+            1,
+            json!({
+                "requestId": "ask-v1",
+                "kind": "question",
+                "toolId": "tool-v1",
+                "tool": "AskUserQuestion",
+                "input": { "questions": [{ "question": "Cor?" }] },
+            }),
+        );
+        let answer = json!({
+            "v": 1,
+            "type": "request.respond",
+            "requestId": "ask-v1",
+            "response": { "outcome": "answer", "answers": { "Cor?": "azul" } },
+        });
+        let safe = sanitize_remote_control(&(request.to_string() + "\n"), &answer).unwrap();
+        assert_eq!(safe["response"]["answers"]["Cor?"], "azul");
+
+        let invented = json!({
+            "v": 1,
+            "type": "request.respond",
+            "requestId": "ask-v1",
+            "response": { "outcome": "answer", "answers": { "Comando?": "rm -rf" } },
+        });
+        assert!(sanitize_remote_control(&(request.to_string() + "\n"), &invented).is_none());
+        assert!(sanitize_remote_control(
+            "",
+            &json!({ "v": 1, "type": "permission.mode.set", "mode": "bypass" })
+        )
+        .is_none());
     }
 }

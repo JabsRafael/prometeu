@@ -7,17 +7,19 @@ describe("controle remoto do time", () => {
   });
 
   it("aceita apenas interrupção e resposta limitada", () => {
-    const interrupt = { type: "control_request", request_id: "r1", request: { subtype: "interrupt" } };
+    const interrupt = { v: 1, type: "turn.interrupt" };
     const answer = {
-      type: "control_response",
-      response: { subtype: "success", request_id: "r2", response: { behavior: "allow" } },
+      v: 1,
+      type: "request.respond",
+      requestId: "r2",
+      response: { outcome: "allow" },
     };
     expect(remoteControl(JSON.stringify(interrupt)).frame).toEqual(interrupt);
     expect(remoteControl(JSON.stringify(answer)).frame).toEqual(answer);
   });
 
   it("engole controles inventados sem transformá-los em prompt", () => {
-    expect(remoteControl(JSON.stringify({ type: "control_request", request_id: "r", request: { subtype: "set_permission_mode" } })))
+    expect(remoteControl(JSON.stringify({ v: 1, type: "permission.mode.set", mode: "bypass" })))
       .toEqual({ recognized: true, frame: null });
     expect(remoteControl(JSON.stringify({ type: "control_magic" }))).toEqual({ recognized: true, frame: null });
   });

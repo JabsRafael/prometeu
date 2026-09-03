@@ -1,4 +1,5 @@
 import { openCleanup } from "./cleanup";
+import type { AgentDescriptor } from "./agents";
 import { brand, icon } from "./icons";
 import { fromBack, t } from "./i18n";
 import * as menu from "./menu";
@@ -34,7 +35,7 @@ const HOT = 90;
 let usage: Usage = {};
 /// Quais agentes desenhar, tenham leitura ou não. Até o back responder, o de
 /// antes: o app era só o Claude Code.
-let agents = ["claude"];
+let agents: Pick<AgentDescriptor, "id" | "label">[] = [{ id: "claude", label: "Claude" }];
 let machine: Machine = { rss: 0, cpu: 0, procs: [], terms: 0, ports: [] };
 let say: (text: string, isError?: boolean) => void = () => {};
 
@@ -93,8 +94,8 @@ export function showUsage(next: Usage) {
 }
 
 /// Quais CLIs estão instalados nesta máquina.
-export function showAgents(have: { claude: boolean; codex: boolean }) {
-  agents = [...(have.claude ? ["claude"] : []), ...(have.codex ? ["codex"] : [])];
+export function showAgents(have: readonly AgentDescriptor[]) {
+  agents = have.map(({ id, label }) => ({ id, label }));
   draw();
 }
 
@@ -123,11 +124,11 @@ function draw() {
   // número. Sumir pareceria defeito justamente na estreia: até o primeiro poll
   // do back responder (ou a primeira conversa), não há número nenhum.
   for (const agent of agents) {
-    const windows = usage[agent]?.windows ?? [];
+    const windows = usage[agent.id]?.windows ?? [];
     bar.append(
       chip(
         "usage",
-        brand(agent) +
+        brand(agent.id) +
           (windows.length
             ? meter(Math.max(...windows.map((w) => w.pct))) +
               `<span class="utext">${windows
@@ -294,15 +295,15 @@ const head = (title: string, aside = "") =>
 function usagePanel(): string {
   return (
     head(t("status.usage")) +
-    agents.map((agent) => card(agent, usage[agent])).join("")
+    agents.map((agent) => card(agent, usage[agent.id])).join("")
   );
 }
 
 /// Um agente no painel: o nome, de quando é a leitura, e uma linha por janela.
 /// Sem leitura, a frase que explica por que ainda não há número.
-function card(agent: string, data?: Agent): string {
+function card(agent: Pick<AgentDescriptor, "id" | "label">, data?: Agent): string {
   const head =
-    `<div class="uagent">${brand(agent)}<span class="uname">${name(agent)}</span>` +
+    `<div class="uagent">${brand(agent.id)}<span class="uname">${agent.label}</span>` +
     `<span class="uwhen">${data ? ago(data.at) : ""}</span></div>`;
   if (!data?.windows.length) return head + `<div class="uempty">${t("status.usage.none")}</div>`;
   return (
@@ -318,9 +319,6 @@ function card(agent: string, data?: Agent): string {
       .join("")
   );
 }
-
-/// Nome do agente é nome próprio: não passa pelo catálogo.
-const name = (agent: string) => (agent === "codex" ? "Codex" : "Claude");
 
 function kind(what: string): string {
   if (what === "session") return t("status.window.session");

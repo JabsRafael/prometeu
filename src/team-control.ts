@@ -11,6 +11,27 @@ export function remoteControl(data: string): RemoteControl {
     if (!value || typeof value !== "object" || typeof value.type !== "string") {
       return { recognized: false, frame: null };
     }
+    if (value.v === 1) {
+      if (value.type === "turn.interrupt") return { recognized: true, frame: value };
+      if (value.type === "request.respond") {
+        const response = value.response;
+        const answers = response?.answers;
+        const ok =
+          typeof value.requestId === "string" &&
+          value.requestId.length > 0 &&
+          value.requestId.length <= 128 &&
+          (response?.outcome === "allow" ||
+            (response?.outcome === "deny" && typeof response.message === "string") ||
+            (response?.outcome === "answer" &&
+              answers &&
+              typeof answers === "object" &&
+              Object.values(answers).every((answer) => typeof answer === "string"))) &&
+          data.length <= 64 * 1024;
+        return { recognized: true, frame: ok ? value : null };
+      }
+      return { recognized: true, frame: null };
+    }
+    // Leitor de rollback para clientes ainda na versão anterior.
     if (value.type === "control_request") {
       const ok = typeof value.request_id === "string" && value.request_id.length <= 128 && value.request?.subtype === "interrupt";
       return { recognized: true, frame: ok ? value : null };

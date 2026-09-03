@@ -16,6 +16,33 @@ use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
+/// Identidade persistida do runtime de agente. Antes deste tipo, Claude era
+/// gravado como string vazia; o `Deserialize` abaixo aceita esse legado e
+/// normaliza a próxima gravação para `"claude"`. Valor desconhecido também cai
+/// no default durante a migração, para uma versão nova não inutilizar o board
+/// inteiro ao ser aberto por uma versão antiga do app.
+#[derive(Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ProviderId {
+    #[default]
+    Claude,
+    Codex,
+}
+
+impl<'de> Deserialize<'de> for ProviderId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Ok(match value.as_str() {
+            "codex" => Self::Codex,
+            "" | "claude" => Self::Claude,
+            _ => Self::default(),
+        })
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
@@ -71,7 +98,7 @@ pub enum Note {
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct Choice {
     #[serde(default)]
-    pub agent: String,
+    pub agent: ProviderId,
     #[serde(default)]
     pub model: String,
     #[serde(default)]
@@ -191,12 +218,12 @@ pub struct Workspace {
     /// padrão — só de quadro antigo: o lançador sempre escolhe um.
     #[serde(default)]
     pub effort: String,
-    /// Qual CLI roda nas abas daqui: vazio (ou `claude`) é o Claude Code,
-    /// `codex` é o Codex da OpenAI. Sai do modelo escolhido no lançador — quem
+    /// Qual CLI roda nas abas daqui. Boards antigos em que vazio significava
+    /// Claude são normalizados por `ProviderId`. Sai do modelo escolhido no lançador — quem
     /// escolhe um GPT escolheu o Codex —, e é do workspace pelo mesmo motivo do
     /// modelo: ⌘T e retomar nascem com o agente das irmãs.
     #[serde(default)]
-    pub agent: String,
+    pub agent: ProviderId,
     /// Base das dez portas reservadas a este worktree — `$PROMETHEUS_PORT` até
     /// `+9`. Guardada e não calculada: o script tem que achar a mesma porta na
     /// segunda vez que roda, e dois worktrees do mesmo projeto não podem
@@ -725,6 +752,20 @@ mod tests {
         assert_eq!(recovered.stages, vec!["Fazendo"]);
         assert_eq!(recovered.workspaces[0].id, "w");
         std::fs::remove_dir_all(current.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn provider_legado_e_normalizado_sem_quebrar_o_board() {
+        let vazio = board_json(r#","agent":"""#);
+        let explicito = board_json(r#","agent":"codex""#);
+        let futuro = board_json(r#","agent":"provider-ainda-desconhecido""#);
+
+        assert_eq!(vazio.workspaces[0].agent, ProviderId::Claude);
+        assert_eq!(explicito.workspaces[0].agent, ProviderId::Codex);
+        assert_eq!(futuro.workspaces[0].agent, ProviderId::Claude);
+
+        let normalized = serde_json::to_value(vazio).unwrap();
+        assert_eq!(normalized["workspaces"][0]["agent"], "claude");
     }
 
     /// O app fechou no meio de montar um worktree. Voltar dizendo "montando"

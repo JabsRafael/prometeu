@@ -6,6 +6,11 @@ export type { Member } from "../relay/src/protocol";
 
 export type Status = "rodando" | "querendo" | "pronta" | "desligada";
 
+/// Identidade estável do runtime. Modelo e provider são conceitos diferentes:
+/// o catálogo associa os dois, e o restante da aplicação carrega esta escolha
+/// explicitamente em vez de inferi-la de um nome solto.
+export type ProviderId = "claude" | "codex";
+
 /// Como cada estado se chama na tela. Um lugar só: estava escrito igual no
 /// quadro e no cabeçalho, e duas cópias de um rótulo é uma cópia que um dia
 /// deixa de bater com a outra. O valor em si é do protocolo — é o que o back
@@ -36,7 +41,7 @@ export type Tab = {
 /// Com quem uma conversa fala: qual CLI sobe, com que modelo e com quanto
 /// esforço. Os três andam juntos porque escolher um GPT é escolher o Codex, e
 /// cada modelo tem a sua escada de esforço.
-export type Choice = { agent: string; model: string; effort: string };
+export type Choice = { agent: ProviderId; model: string; effort: string };
 
 export type Project = { id: string; name: string; path: string };
 
@@ -127,8 +132,9 @@ export type Workspace = {
   archived: boolean;
   pinned: boolean;
   unread: boolean;
-  /// Qual CLI roda nas abas daqui: vazio é o Claude Code, `codex` é o Codex.
-  agent: string;
+  /// Qual CLI roda nas abas daqui. Boards antigos com vazio são normalizados
+  /// pelo Rust para `claude` quando carregados.
+  agent: ProviderId;
   /// Modelo e esforço das conversas daqui, escolhidos no lançador e válidos
   /// para as abas que vierem (⌘T, retomar). Vazio é o padrão do CLI.
   model: string;

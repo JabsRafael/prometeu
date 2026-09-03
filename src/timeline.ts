@@ -1,52 +1,32 @@
 import { parseContext, type Report } from "./context";
-
-/// A conversa como a tela a desenha, a partir das linhas que o `claude -p`
-/// escreve em stream-json — e das mesmas linhas em repouso, no transcript.
-///
-/// É um reducer: entra uma linha de JSON, sai a lista de itens atualizada e
-/// quais itens mudaram. Sem DOM, sem Tauri, sem rede — é por isso que dá para
-/// testar com um punhado de strings, e é a mesma conta nos dois lados do
-/// relay: o dono e o colega desenham a mesma coisa a partir dos mesmos bytes.
-///
-/// O que o stream manda, e o que se faz com cada coisa:
-///
-/// - `user` — a fala da pessoa, ou o resultado de uma ferramenta (que vai
-///   parar dentro do bloco da ferramenta, não numa fala).
-/// - `assistant` — um bloco por linha (texto, pensamento, ferramenta), todos
-///   com o mesmo `message.id`: viram um item só.
-/// - `stream_event` — o mesmo bloco chegando letra a letra, antes da linha
-///   `assistant` inteira. Desenha o rascunho; a linha inteira o substitui.
-/// - `control_request` — pedido de permissão, pergunta, plano: um card que
-///   espera resposta.
-/// - `result` — o fim do turno.
-/// - `system` — o começo (`init`), a compactação, as tarefas em segundo
-///   plano (`task_started`, `background_tasks_changed`, `task_notification`),
-///   e ruído que se ignora.
+import {
+  parseConversationEvent,
+  type AnyConversationEventV1,
+  type AssistantBlock,
+  type BackgroundTask,
+  type InputContent,
+  type SlashCommand,
+} from "./conversation";
+import { LegacyConversationAdapter } from "./conversation-legacy";
 
 export type ToolBlock = {
   kind: "tool";
   id: string;
   name: string;
   input: unknown;
-  /// O JSON do input chegando em pedaços, antes de dar para ler inteiro.
   json: string;
   result: string | null;
   error: boolean;
-  /// O resultado chegou (ou o bloco foi finalizado sem resultado ainda).
   done: boolean;
-  /// O resultado veio, mas a ferramenta continua rodando em segundo plano
-  /// (`run_in_background`): o aviso de que acabou vem depois, como `system`.
   background: boolean;
 };
 
-/// Uma tarefa em segundo plano, do jeito que o Claude Code a lista.
 export type Task = { id: string; description: string; toolUseId: string | null };
 export type Block = { kind: "text"; text: string } | { kind: "thinking"; text: string } | ToolBlock;
 
 export type Ask = {
   kind: "ask";
   ts: number;
-  /// O `request_id` — é com ele que a resposta volta.
   id: string;
   tool: string;
   input: Record<string, unknown>;
@@ -60,520 +40,376 @@ export type Item =
   | Ask
   | { kind: "result"; ts: number; error: boolean; text: string; cost: number | null; ms: number | null }
   | { kind: "system"; ts: number; text: string; error: boolean; what?: "compacted" | "summary"; tokens?: [number, number] }
-  /// O `/context`: um relatório, não uma fala do agente.
   | { kind: "context"; ts: number; report: Report };
 
-type Line = Record<string, any>;
+export type Command = SlashCommand;
 
-/// Um comando de barra, como o agente o descreve: `/name`, o que faz, e a
-/// dica do que vai depois (`<model>`), quando há.
-export type Command = { name: string; description: string; hint: string };
-
+/// Estado apresentável derivado exclusivamente do contrato de conversa.
+/// O adapter legado existe somente para replay de transcripts anteriores ao V1.
 export class Timeline {
   items: Item[] = [];
-  /// Um turno em andamento: a fala foi, e o `result` ainda não veio.
   busy = false;
   compacting = false;
-  /// O que roda em segundo plano agora, pela lista que o Claude Code manda.
   tasks = new Map<string, Task>();
-  /// Os comandos de barra que o agente aceita: a resposta ao `initialize`
-  /// que o back manda ao subir o processo (ver `chat.rs`), com nome e
-  /// descrição. O `init` do stream, que só sai depois da primeira fala, diz
-  /// quais deles são de terminal (`exit`, `color`) — esses saem da lista.
   commands: Command[] = [];
-  private terminal = new Set<string>();
-  /// A ferramenta de cada `tool_use_id`, para o resultado achar o bloco.
+
+  private legacy = new LegacyConversationAdapter();
   private tools = new Map<string, { item: number; block: number }>();
-  /// A skill que acabou de ser chamada: o corpo dela vem na linha seguinte, e
-  /// vai para dentro do card em vez de virar uma fala.
-  private skill: { id: string; item: number; block: number } | null = null;
-  private lastTs = 0;
-  /// Mensagens que deixaram de estar chegando por causa da linha de agora —
-  /// mudaram, e a tela precisa saber, mesmo não sendo o item da linha.
   private settled: number[] = [];
 
-  /// Os pedidos esperando resposta.
   get pending(): Ask[] {
-    return this.items.filter((i): i is Ask => i.kind === "ask" && !i.answered);
+    return this.items.filter((item): item is Ask => item.kind === "ask" && !item.answered);
   }
 
-  /// Todas as linhas de um buffer ou snapshot, de uma vez. Linha que não é
-  /// JSON (o começo cortado de um buffer que passou do teto) é pulada.
   load(text: string, now = Date.now()) {
     for (const line of text.split("\n")) {
       if (line.trim()) this.push(line, now);
     }
   }
 
-  /// Uma linha. Devolve os índices dos itens que mudaram — é o que a tela
-  /// redesenha, em vez da conversa inteira a cada letra.
   push(line: string, now = Date.now()): number[] {
-    let o: Line;
+    let value: unknown;
     try {
-      o = JSON.parse(line);
+      value = JSON.parse(line);
     } catch {
       return [];
     }
-    if (!o || typeof o !== "object") return [];
-    // Subagentes escrevem no mesmo cano com o pai marcado; a conversa é a de
-    // cima. O que eles fizeram aparece no resultado da ferramenta Task.
-    if (o.isSidechain || o.parent_tool_use_id) return [];
-    const ts = this.when(o, now);
+    const canonical = parseConversationEvent(value);
+    const events = canonical ? [canonical] : this.legacy.translate(value, now);
     this.settled = [];
-    const touched = this.reduce(o, ts);
-    return this.settled.length ? [...new Set([...this.settled, ...touched])] : touched;
+    const touched = events.flatMap((event) => this.reduce(event));
+    return [...new Set([...this.settled, ...touched])];
   }
 
-  private reduce(o: Line, ts: number): number[] {
-    switch (o.type) {
-      case "user":
-        return this.user(o, ts);
-      case "assistant":
-        return this.assistant(o, ts);
-      case "stream_event":
-        return this.stream(o, ts);
-      case "control_request":
-        return this.ask(o, ts);
-      case "result":
-        return this.result(o, ts);
-      case "system":
-        return this.system(o, ts);
-      case "control_response":
-        return this.answered(o);
-      case "prometheus":
-        if (o.subtype === "stderr") return [this.add({ kind: "system", ts, text: String(o.text), error: true })];
-        // O fim de um buffer: o back diz se há turno em andamento. Sem turno,
-        // nada está chegando — por mais que as linhas pareçam dizer que sim.
-        if (o.subtype === "state" && !o.busy) return this.idle();
+  private reduce(event: AnyConversationEventV1): number[] {
+    switch (event.type) {
+      case "user.message": {
+        const text = inputText(event.content);
+        if (!text.trim()) return [];
+        this.busy = true;
+        return [this.add({ kind: "user", ts: event.at, text })];
+      }
+      case "assistant.started": {
+        if (this.findAssistant(event.messageId) !== -1) return [];
+        this.busy = true;
+        return [
+          this.add({
+            kind: "assistant",
+            ts: event.at,
+            msg: event.messageId,
+            blocks: [],
+            streaming: true,
+            next: 0,
+          }),
+        ];
+      }
+      case "assistant.block.started":
+        return this.startBlock(event.messageId, event.index, event.block);
+      case "assistant.delta":
+        return this.appendDelta(event.messageId, event.index, event.kind, event.delta);
+      case "tool.input.delta":
+        return this.appendToolInput(event.messageId, event.index, event.delta);
+      case "assistant.block":
+        return this.commitBlock(event.messageId, event.index, event.block, event.at);
+      case "tool.completed":
+        return this.completeTool(event.toolId, event.output, event.error, event.background);
+      case "request.opened":
+        return this.openRequest(event);
+      case "request.closed":
+        return this.answer(event.requestId);
+      case "turn.completed":
+        return this.completeTurn(event);
+      case "context.compaction":
+        this.compacting = event.state === "started";
+        return event.state === "failed"
+          ? [this.add({ kind: "system", ts: event.at, text: event.detail || "compact failed", error: true })]
+          : [];
+      case "context.compacted": {
+        this.compacting = false;
+        const tokens: [number, number] | undefined =
+          event.before !== null && event.after !== null ? [event.before, event.after] : undefined;
+        return [
+          this.add({
+            kind: "system",
+            ts: event.at,
+            text: "compacted",
+            error: false,
+            what: "compacted",
+            tokens,
+          }),
+        ];
+      }
+      case "background.changed":
+        return this.changeBackground(event.tasks);
+      case "system.notice":
+        return event.detail
+          ? [this.add({ kind: "system", ts: event.at, text: event.detail, error: event.level === "error" })]
+          : [];
+      case "system.summary":
+        return [this.add({ kind: "system", ts: event.at, text: event.text, error: false, what: "summary" })];
+      case "context.reported": {
+        const report = parseContext(event.markdown);
+        return report ? [this.add({ kind: "context", ts: event.at, report })] : [];
+      }
+      case "session.state":
+        if (event.state === "busy" || event.state === "waiting") {
+          this.busy = true;
+          return [];
+        }
+        return event.state === "ready" || event.state === "stopped" ? this.idle() : [];
+      case "commands.updated":
+        this.commands = event.commands;
         return [];
-      default:
+      case "context.updated":
+      case "session.identity":
+      case "usage.updated":
         return [];
     }
   }
 
-  /// A hora de uma linha: a do transcript, a que o app carimbou ao mandar a
-  /// fala, ou — ao vivo, sem nenhuma — agora. Nunca antes da anterior, para as
-  /// notas do time entrarem no lugar certo entre os itens.
-  private when(o: Line, now: number): number {
-    let ts = typeof o.ts === "number" ? o.ts : o.timestamp ? Date.parse(o.timestamp) : NaN;
-    if (!Number.isFinite(ts)) ts = this.lastTs || now;
-    this.lastTs = Math.max(this.lastTs, ts);
-    return ts;
-  }
-
   private add(item: Item): number {
-    // Fala nova, ou mensagem nova do agente: o que estava chegando letra a
-    // letra acabou — o `result` só fecha o turno, não cada mensagem.
     if (item.kind === "user" || item.kind === "assistant") this.settle();
     this.items.push(item);
     return this.items.length - 1;
   }
 
-  /// Nada está acontecendo: nenhuma mensagem chegando, nenhum pedido aberto,
-  /// nenhum turno. Devolve o que mudou.
+  private settle() {
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      const item = this.items[i];
+      if (item.kind === "assistant" && item.streaming) {
+        item.streaming = false;
+        this.settled.push(i);
+      } else if (item.kind === "assistant") {
+        break;
+      }
+    }
+  }
+
   private idle(): number[] {
-    const touched: number[] = [];
     this.busy = false;
     this.compacting = false;
-    this.items.forEach((it, i) => {
-      if (it.kind === "assistant" && it.streaming) {
-        it.streaming = false;
-        touched.push(i);
+    const touched: number[] = [];
+    this.items.forEach((item, index) => {
+      if (item.kind === "assistant" && item.streaming) {
+        item.streaming = false;
+        touched.push(index);
       }
-      if (it.kind === "ask" && !it.answered) {
-        it.answered = true;
-        touched.push(i);
+      if (item.kind === "ask" && !item.answered) {
+        item.answered = true;
+        touched.push(index);
       }
     });
     return touched;
   }
 
-  /// Nenhuma mensagem do agente continua "chegando" antes daqui.
-  private settle() {
-    for (let i = this.items.length - 1; i >= 0; i--) {
-      const it = this.items[i];
-      if (it.kind === "assistant" && it.streaming) {
-        it.streaming = false;
-        this.settled.push(i);
-      } else if (it.kind === "assistant") break;
+  private findAssistant(messageId: string): number {
+    for (let index = this.items.length - 1; index >= 0; index--) {
+      const item = this.items[index];
+      if (item.kind === "assistant") return item.msg === messageId ? index : -1;
+      if (item.kind === "user" || item.kind === "result") return -1;
     }
+    return -1;
   }
 
-  private user(o: Line, ts: number): number[] {
-    // O corpo de uma skill: o Claude Code o injeta como se fosse fala, logo
-    // depois do resultado da ferramenta Skill. É o que a skill mandou fazer —
-    // vai para dentro do card dela, não para a conversa.
-    const skill = this.skillBody(o);
-    if (skill) return skill;
-    // `isMeta` é o que o Claude Code injeta por conta própria — saída de
-    // comando, lembrete de sistema. Não foi ninguém que falou.
-    if (o.isMeta) return [];
-    const content = o.message?.content;
-    if (typeof content === "string") {
-      if (!content.trim()) return [];
-      return this.spoken(content, ts, !!o.isCompactSummary);
+  private assistant(messageId: string, at: number): { index: number; item: Extract<Item, { kind: "assistant" }> } {
+    let index = this.findAssistant(messageId);
+    if (index === -1) {
+      index = this.add({
+        kind: "assistant",
+        ts: at,
+        msg: messageId,
+        blocks: [],
+        streaming: true,
+        next: 0,
+      });
     }
-    if (!Array.isArray(content)) return [];
-    const touched: number[] = [];
-    const texts: string[] = [];
-    for (const block of content) {
-      if (block?.type === "tool_result") {
-        const at = this.tools.get(block.tool_use_id);
-        if (!at) continue;
-        const item = this.items[at.item];
-        if (item.kind !== "assistant") continue;
-        const tool = item.blocks[at.block];
-        if (tool?.kind !== "tool") continue;
-        tool.result = resultText(block.content);
-        tool.error = !!block.is_error;
-        tool.done = true;
-        touched.push(at.item);
-        // "Launching skill: x" é só o aviso de que a skill entrou; o que ela
-        // diz vem na linha seguinte.
-        this.skill = tool.name === "Skill" && !tool.error ? { id: block.tool_use_id, ...at } : null;
-        // O resultado de uma ferramenta que pedia permissão é a resposta ao
-        // pedido — de quem quer que tenha respondido.
-        for (const ask of this.items) {
-          if (ask.kind === "ask" && ask.toolUseId === block.tool_use_id) ask.answered = true;
-        }
-      } else if (block?.type === "text" && typeof block.text === "string") {
-        texts.push(block.text);
-      } else if (block?.type === "image") {
-        texts.push("[imagem]");
+    return { index, item: this.items[index] as Extract<Item, { kind: "assistant" }> };
+  }
+
+  private startBlock(messageId: string, index: number, source: AssistantBlock): number[] {
+    const found = this.findAssistant(messageId);
+    if (found === -1) return [];
+    const item = this.items[found];
+    if (item.kind !== "assistant" || !item.streaming || index < item.next) return [];
+    const block = viewBlock(source);
+    item.blocks[index] = block;
+    if (block.kind === "tool") this.tools.set(block.id, { item: found, block: index });
+    this.busy = true;
+    return [found];
+  }
+
+  private appendDelta(messageId: string, index: number, kind: "text" | "thinking", delta: string): number[] {
+    const found = this.findAssistant(messageId);
+    if (found === -1) return [];
+    const item = this.items[found];
+    if (item.kind !== "assistant" || !item.streaming || index < item.next) return [];
+    const block = item.blocks[index];
+    if (!block || block.kind !== kind) return [];
+    block.text += delta;
+    return [found];
+  }
+
+  private appendToolInput(messageId: string, index: number, delta: string): number[] {
+    const found = this.findAssistant(messageId);
+    if (found === -1) return [];
+    const item = this.items[found];
+    if (item.kind !== "assistant" || !item.streaming || index < item.next) return [];
+    const block = item.blocks[index];
+    if (!block || block.kind !== "tool") return [];
+    block.json += delta;
+    block.input = tryJson(block.json) ?? block.input;
+    return [found];
+  }
+
+  private commitBlock(messageId: string, index: number, source: AssistantBlock, at: number): number[] {
+    const found = this.assistant(messageId, at);
+    const block = viewBlock(source);
+    const draft = found.item.blocks[index];
+    if (block.kind === "thinking" && !block.text && draft?.kind === "thinking") block.text = draft.text;
+    found.item.blocks[index] = block;
+    found.item.next = Math.max(found.item.next, index + 1);
+    found.item.streaming = true;
+    if (block.kind === "tool") this.tools.set(block.id, { item: found.index, block: index });
+    this.busy = true;
+    return [found.index];
+  }
+
+  private completeTool(toolId: string, output: string, error: boolean, background: boolean): number[] {
+    const location = this.tools.get(toolId);
+    if (!location) return [];
+    const item = this.items[location.item];
+    if (item.kind !== "assistant") return [];
+    const tool = item.blocks[location.block];
+    if (!tool || tool.kind !== "tool") return [];
+    tool.result = output;
+    tool.error = error;
+    tool.done = true;
+    tool.background = background;
+    const touched = [location.item];
+    this.items.forEach((candidate, index) => {
+      if (candidate.kind === "ask" && candidate.toolUseId === toolId && !candidate.answered) {
+        candidate.answered = true;
+        touched.push(index);
       }
-    }
-    if (texts.length) touched.push(...this.spoken(texts.join("\n\n"), ts, !!o.isCompactSummary));
+    });
     return touched;
   }
 
-  /// O texto que a skill trouxe, se esta linha for ele: vem logo depois do
-  /// resultado da ferramenta Skill, marcado como injetado pelo próprio Claude
-  /// Code (`isSynthetic` ao vivo, `isMeta` no transcript — que ainda diz de
-  /// qual ferramenta veio). Vira o resultado do card, e some da conversa.
-  private skillBody(o: Line): number[] | null {
-    const at = this.skill;
-    if (!at || (!o.isSynthetic && !o.isMeta)) return null;
-    const from = typeof o.sourceToolUseID === "string" ? o.sourceToolUseID : null;
-    if (from && from !== at.id) return null;
-    const content = o.message?.content;
-    const text = typeof content === "string" ? content : Array.isArray(content) ? textOf(content) : "";
-    if (!text.trim()) return null;
-    this.skill = null;
-    const item = this.items[at.item];
-    if (item?.kind !== "assistant") return null;
-    const tool = item.blocks[at.block];
-    if (tool?.kind !== "tool") return null;
-    tool.result = text;
-    return [at.item];
-  }
-
-  /// Texto numa linha `user`. Nem tudo é fala: o Claude Code também escreve
-  /// ali o eco de um comando (`/compact`), o resumo com que a conversa
-  /// continua depois de compactar, e o aviso de tarefa que acabou — no
-  /// transcript; ao vivo o aviso vem como `system`.
-  private spoken(text: string, ts: number, summary: boolean): number[] {
-    if (/^\s*<(command-name|local-command-stdout|local-command-caveat)>/.test(text)) return [];
-    if (summary || text.startsWith("This session is being continued from a previous conversation")) {
-      return [this.add({ kind: "system", ts, text, error: false, what: "summary" })];
-    }
-    const task = /^\s*<task-notification>/.test(text) ? /<summary>([\s\S]*?)<\/summary>/.exec(text) : null;
-    if (task) return [this.add({ kind: "system", ts, text: task[1].trim(), error: false })];
-    this.busy = true;
-    return [this.add({ kind: "user", ts, text })];
-  }
-
-  /// A linha `assistant` inteira de um bloco. Cai em cima do rascunho que o
-  /// streaming desenhou — o n-ésimo bloco finalizado é o de índice n — ou
-  /// entra no fim, quando não houve rascunho (transcript, ou colega que abriu
-  /// a conversa no meio).
-  private assistant(o: Line, ts: number): number[] {
-    // O agente já falou: o que a skill tinha a dizer, se era para vir, veio.
-    this.skill = null;
-    const msg = String(o.message?.id ?? o.uuid ?? "");
-    const content = Array.isArray(o.message?.content) ? o.message.content : [];
-    // Resposta sintética: o Claude Code respondendo a um comando (`/context`,
-    // `/cost`), sem modelo. O `/context` tem desenho próprio.
-    if (o.message?.model === "<synthetic>") {
-      const text = content.find((c: Line) => c?.type === "text")?.text;
-      const report = typeof text === "string" ? parseContext(text) : null;
-      if (report) return [this.add({ kind: "context", ts, report })];
-    }
-    let at = this.findAssistant(msg);
-    if (at === -1) at = this.add({ kind: "assistant", ts, msg, blocks: [], streaming: true, next: 0 });
-    const item = this.items[at];
-    if (item.kind !== "assistant") return [];
-    this.busy = true;
-    for (const raw of content) {
-      const block = toBlock(raw);
-      if (!block) continue;
-      const index = item.next++;
-      // O pensamento inteiro vem vazio na linha `assistant` (e no transcript):
-      // o texto só existe nos deltas. O rascunho é o que se tem; fica.
-      const draft = item.blocks[index];
-      if (block.kind === "thinking" && !block.text && draft?.kind === "thinking") block.text = draft.text;
-      item.blocks[index] = block;
-      if (block.kind === "tool") this.tools.set(block.id, { item: at, block: index });
-    }
-    return [at];
-  }
-
-  private findAssistant(msg: string): number {
-    for (let i = this.items.length - 1; i >= 0; i--) {
-      const it = this.items[i];
-      if (it.kind === "assistant") return it.msg === msg ? i : -1;
-      // Uma fala ou um resultado no meio: a mensagem acabou; a próxima linha
-      // com o mesmo id (uma retomada) é outra.
-      if (it.kind === "user" || it.kind === "result") return -1;
-    }
-    return -1;
-  }
-
-  /// O rascunho. `message_start` abre o item; cada bloco entra pelo índice
-  /// que o próprio evento traz; os deltas somam. Delta sem item aberto — o
-  /// colega chegou no meio — é descartado: a linha inteira vem logo atrás.
-  private stream(o: Line, ts: number): number[] {
-    const ev = o.event;
-    if (!ev) return [];
-    if (ev.type === "message_start") {
-      const msg = String(ev.message?.id ?? "");
-      if (this.findAssistant(msg) !== -1) return [];
-      this.busy = true;
-      return [this.add({ kind: "assistant", ts, msg, blocks: [], streaming: true, next: 0 })];
-    }
-    const at = this.streamingAt();
-    if (at === -1) return [];
-    const item = this.items[at];
-    if (item.kind !== "assistant") return [];
-    const index = Number(ev.index);
-    switch (ev.type) {
-      case "content_block_start": {
-        if (index < item.next) return [];
-        const block = toBlock(ev.content_block);
-        if (!block) return [];
-        item.blocks[index] = block;
-        if (block.kind === "tool") this.tools.set(block.id, { item: at, block: index });
-        return [at];
-      }
-      case "content_block_delta": {
-        if (index < item.next) return [];
-        const block = item.blocks[index];
-        const d = ev.delta ?? {};
-        if (!block) return [];
-        if (block.kind === "text" && d.type === "text_delta") block.text += String(d.text ?? "");
-        else if (block.kind === "thinking" && d.type === "thinking_delta") block.text += String(d.thinking ?? "");
-        else if (block.kind === "tool" && d.type === "input_json_delta") {
-          block.json += String(d.partial_json ?? "");
-          block.input = tryJson(block.json) ?? block.input;
-        } else return [];
-        return [at];
-      }
-      case "content_block_stop": {
-        const block = item.blocks[index];
-        if (block?.kind === "tool" && block.json) block.input = tryJson(block.json) ?? block.input;
-        return block ? [at] : [];
-      }
-      case "message_stop":
-        return [];
-      default:
-        return [];
-    }
-  }
-
-  private streamingAt(): number {
-    for (let i = this.items.length - 1; i >= 0; i--) {
-      const it = this.items[i];
-      if (it.kind === "assistant") return it.streaming ? i : -1;
-    }
-    return -1;
-  }
-
-  private ask(o: Line, ts: number): number[] {
-    const req = o.request ?? {};
-    if (req.subtype !== "can_use_tool") return [];
-    const id = String(o.request_id ?? "");
-    if (!id || this.items.some((i) => i.kind === "ask" && i.id === id)) return [];
+  private openRequest(event: Extract<AnyConversationEventV1, { type: "request.opened" }>): number[] {
+    if (this.items.some((item) => item.kind === "ask" && item.id === event.requestId)) return [];
     this.busy = true;
     return [
       this.add({
         kind: "ask",
-        ts,
-        id,
-        tool: String(req.tool_name ?? ""),
-        input: typeof req.input === "object" && req.input ? req.input : {},
-        toolUseId: req.tool_use_id ? String(req.tool_use_id) : null,
+        ts: event.at,
+        id: event.requestId,
+        tool: event.tool ?? "",
+        input: event.input,
+        toolUseId: event.toolId,
         answered: false,
       }),
     ];
   }
 
-  /// Respondido daqui: o card fecha antes de o stream confirmar.
   answer(id: string): number[] {
-    const at = this.items.findIndex((i) => i.kind === "ask" && i.id === id);
-    if (at === -1) return [];
-    (this.items[at] as Ask).answered = true;
-    return [at];
+    const index = this.items.findIndex((item) => item.kind === "ask" && item.id === id);
+    if (index === -1) return [];
+    const ask = this.items[index] as Ask;
+    if (ask.answered) return [];
+    ask.answered = true;
+    return [index];
   }
 
-  private result(o: Line, ts: number): number[] {
+  private completeTurn(event: Extract<AnyConversationEventV1, { type: "turn.completed" }>): number[] {
     this.busy = false;
+    this.compacting = false;
     const touched: number[] = [];
-    for (let i = this.items.length - 1; i >= 0; i--) {
-      const it = this.items[i];
-      if (it.kind === "assistant" && it.streaming) {
-        it.streaming = false;
-        touched.push(i);
+    for (let index = this.items.length - 1; index >= 0; index--) {
+      const item = this.items[index];
+      if (item.kind === "assistant" && item.streaming) {
+        item.streaming = false;
+        touched.push(index);
       }
-      if (it.kind === "ask" && !it.answered) {
-        it.answered = true;
-        touched.push(i);
+      if (item.kind === "ask" && !item.answered) {
+        item.answered = true;
+        touched.push(index);
       }
-      if (it.kind === "user") break;
+      if (item.kind === "user") break;
     }
-    const error = !!o.is_error;
-    const errors: string[] = Array.isArray(o.errors) ? o.errors.map(String) : [];
-    const text = errors.length ? errors.join("\n") : error && typeof o.result === "string" ? o.result : "";
-    // Um turno que terminou bem não precisa de linha nenhuma: o texto do
-    // agente já é o fim. Erro, sim — e interrupção é um erro sem texto.
-    if (error || text) {
+    if (event.outcome !== "ok" || event.message) {
       touched.push(
         this.add({
           kind: "result",
-          ts,
-          error,
-          text,
-          cost: typeof o.total_cost_usd === "number" ? o.total_cost_usd : null,
-          ms: typeof o.duration_ms === "number" ? o.duration_ms : null,
+          ts: event.at,
+          error: event.outcome !== "ok",
+          text: event.message,
+          cost: event.costUsd,
+          ms: event.durationMs,
         }),
       );
     }
     return touched;
   }
 
-  /// A resposta do processo a um pedido do app. A que interessa é a do
-  /// `initialize`: a lista de comandos de barra. As outras (permissão,
-  /// interrupção) não têm nada para a tela.
-  private answered(o: Line): number[] {
-    const list: unknown = o.response?.response?.commands;
-    if (!Array.isArray(list)) return [];
-    this.commands = list
-      .filter((c): c is Line => !!c && typeof c.name === "string" && !this.terminal.has(c.name))
-      .map((c) => ({ name: c.name, description: String(c.description ?? ""), hint: String(c.argumentHint ?? "") }));
-    return [];
-  }
-
-  private system(o: Line, ts: number): number[] {
-    switch (o.subtype) {
-      case "init": {
-        const terminal: unknown[] = Array.isArray(o.terminal_slash_commands) ? o.terminal_slash_commands : [];
-        this.terminal = new Set(terminal.filter((c): c is string => typeof c === "string"));
-        this.commands = this.commands.filter((c) => !this.terminal.has(c.name));
-        return [];
-      }
-      case "status":
-        this.compacting = o.status === "compacting";
-        if (o.compact_result === "failed") {
-          return [this.add({ kind: "system", ts, text: String(o.compact_error ?? "compact failed"), error: true })];
-        }
-        return [];
-      case "compact_boundary": {
-        this.compacting = false;
-        const m = o.compact_metadata ?? {};
-        const tokens: [number, number] | undefined =
-          typeof m.pre_tokens === "number" && typeof m.post_tokens === "number" ? [m.pre_tokens, m.post_tokens] : undefined;
-        return [this.add({ kind: "system", ts, text: "compacted", error: false, what: "compacted", tokens })];
-      }
-      case "task_started": {
-        const id = String(o.task_id ?? "");
-        if (!id) return [];
-        const toolUseId = typeof o.tool_use_id === "string" ? o.tool_use_id : null;
-        this.tasks.set(id, { id, description: String(o.description ?? ""), toolUseId });
-        return this.mark(toolUseId, true);
-      }
-      case "background_tasks_changed": {
-        // A lista inteira, de novo: o que saiu dela acabou.
-        const now = new Map<string, Task>();
-        for (const raw of Array.isArray(o.tasks) ? o.tasks : []) {
-          const id = String(raw?.task_id ?? "");
-          if (!id) continue;
-          now.set(id, this.tasks.get(id) ?? { id, description: String(raw.description ?? ""), toolUseId: null });
-        }
-        const touched: number[] = [];
-        for (const [id, task] of this.tasks) if (!now.has(id)) touched.push(...this.mark(task.toolUseId, false));
-        this.tasks = now;
-        return touched;
-      }
-      case "task_notification": {
-        const id = String(o.task_id ?? "");
-        const task = this.tasks.get(id);
-        this.tasks.delete(id);
-        const toolUseId = typeof o.tool_use_id === "string" ? o.tool_use_id : (task?.toolUseId ?? null);
-        const touched = this.mark(toolUseId, false);
-        const text = String(o.summary ?? "").trim();
-        if (text) touched.push(this.add({ kind: "system", ts, text, error: o.status !== "completed" }));
-        return touched;
-      }
-      default:
-        return [];
+  private changeBackground(tasks: BackgroundTask[]): number[] {
+    const next = new Map(
+      tasks.map((task) => [
+        task.id,
+        { id: task.id, description: task.description, toolUseId: task.toolId },
+      ]),
+    );
+    const touched: number[] = [];
+    for (const [id, task] of this.tasks) {
+      if (!next.has(id)) touched.push(...this.mark(task.toolUseId, false));
     }
+    for (const task of next.values()) touched.push(...this.mark(task.toolUseId, true));
+    this.tasks = next;
+    return [...new Set(touched)];
   }
 
-  /// A ferramenta de um `tool_use_id` (se está na tela) passa a rodar em
-  /// segundo plano, ou deixa de rodar.
-  private mark(toolUseId: string | null, background: boolean): number[] {
-    const at = toolUseId ? this.tools.get(toolUseId) : undefined;
-    if (!at) return [];
-    const item = this.items[at.item];
+  private mark(toolId: string | null, background: boolean): number[] {
+    const location = toolId ? this.tools.get(toolId) : undefined;
+    if (!location) return [];
+    const item = this.items[location.item];
     if (item.kind !== "assistant") return [];
-    const tool = item.blocks[at.block];
-    if (tool?.kind !== "tool" || tool.background === background) return [];
+    const tool = item.blocks[location.block];
+    if (!tool || tool.kind !== "tool" || tool.background === background) return [];
     tool.background = background;
-    return [at.item];
+    return [location.item];
   }
 }
 
-function toBlock(raw: Line | undefined): Block | null {
-  if (!raw || typeof raw !== "object") return null;
-  switch (raw.type) {
+function inputText(content: InputContent[]): string {
+  return content
+    .map((part) => {
+      if (part.kind === "text") return part.text;
+      if (part.kind === "image") return "[imagem]";
+      return "[arquivo: " + part.name + "]";
+    })
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function viewBlock(block: AssistantBlock): Block {
+  switch (block.kind) {
     case "text":
-      return { kind: "text", text: String(raw.text ?? "") };
+      return { kind: "text", text: block.text };
     case "thinking":
-      return { kind: "thinking", text: String(raw.thinking ?? "") };
-    case "tool_use":
+      return { kind: "thinking", text: block.text };
+    case "tool":
       return {
         kind: "tool",
-        id: String(raw.id ?? ""),
-        name: String(raw.name ?? ""),
-        input: raw.input ?? {},
+        id: block.id,
+        name: block.name,
+        input: block.input,
         json: "",
         result: null,
         error: false,
         done: false,
         background: false,
       };
-    default:
-      return null;
   }
 }
-
-/// O que uma ferramenta devolveu, como texto: vem como string, ou como lista
-/// de blocos (texto e imagem).
-function resultText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((c) => (c?.type === "text" ? String(c.text ?? "") : c?.type === "image" ? "[imagem]" : ""))
-    .filter(Boolean)
-    .join("\n");
-}
-
-/// Só o texto de uma lista de blocos.
-function textOf(content: Line[]): string {
-  return content
-    .filter((b) => b?.type === "text")
-    .map((b) => String(b.text ?? ""))
-    .join("\n\n");
-}
-
 function tryJson(text: string): unknown {
   try {
     return JSON.parse(text);
@@ -621,7 +457,6 @@ export function touched(items: Item[], most = 12): string[] {
   }
   return out;
 }
-
 const FILE_TOOLS = new Set(["Read", "Edit", "Write", "NotebookEdit", "MultiEdit"]);
 
 /* ---------- a conversa em pedaços de tela ---------- */

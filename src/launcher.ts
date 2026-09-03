@@ -1,4 +1,15 @@
 import { open } from "@tauri-apps/plugin-dialog";
+import {
+  capabilitiesOf,
+  descriptors,
+  effortsOf,
+  installed,
+  isKnownModel,
+  modelLabelOf,
+  modelsOf,
+  providerOfModel,
+  usesNativeUltraLabel,
+} from "./agents";
 import { freshBranch } from "./branch";
 import { avatar, icon } from "./icons";
 import { paint, t } from "./i18n";
@@ -8,7 +19,7 @@ import * as plugins from "./plugins";
 import * as menu from "./menu";
 import { invoke } from "./ipc";
 import { template } from "./util";
-import { branchTaken, type Board, type Issue, type IssueRef, type Workspace } from "./types";
+import { branchTaken, type Board, type Issue, type IssueRef, type ProviderId, type Workspace } from "./types";
 
 export type Draft = {
   project: string;
@@ -32,9 +43,9 @@ export type Draft = {
   /// A issue do Linear de onde o workspace sai, quando sai de uma: o nome, a
   /// branch e a primeira fala nascem dela.
   issue: IssueRef | null;
-  /// Qual CLI roda nas abas: vazio é o Claude Code, `codex` é o Codex. Não é
-  /// escolha à parte — sai do modelo, porque escolher um GPT é escolher o Codex.
-  agent: string;
+  /// Qual CLI roda nas abas. Não é escolha à parte — sai do modelo, porque o
+  /// catálogo já associa explicitamente cada modelo ao seu provider.
+  agent: ProviderId;
   /// O modelo: um alias do Claude Code (`opus`, `sonnet[1m]`…) ou um slug do
   /// Codex (`gpt-5.6-sol`). Sempre um dos dois — não há "deixa o CLI escolher"
   /// para escolher. Vale para o workspace inteiro.
@@ -61,81 +72,9 @@ type Branches = { all: string[]; default: string };
 /// que para a cada `Write` não trabalha enquanto você olha outra coisa, e é
 /// isso que permite acompanhar outras sessões enquanto ele trabalha.
 
-/// A lista de sempre, hoje rede de segurança: o catálogo vivo vem do próprio
-/// `claude` (o `list_models` de `agents.rs`), e esta só desenha o dropdown
-/// enquanto ele não respondeu — ou se não responder. Também é ela que dá nome
-/// aos aliases gravados em workspace antigo (`opus[1m]` → "Opus · 1M"), que o
-/// catálogo de agora pode nem listar mais. `[1m]` é a janela de um milhão.
-///
-/// Não há "modelo padrão" na lista: escolher é sempre escolher um nome, e o
-/// primeiro daqui é com quem se fala sem ter escolhido nada. Um `--model`
-/// vazio ainda existe no back — é o que quadro gravado antes disto traz —,
-/// mas não é mais coisa que se possa escolher.
-const MODELS: [string, string][] = [
-  ["fable", "Fable"],
-  ["fable[1m]", "Fable · 1M"],
-  ["opus", "Opus"],
-  ["opus[1m]", "Opus · 1M"],
-  ["sonnet", "Sonnet"],
-  ["sonnet[1m]", "Sonnet · 1M"],
-  ["haiku", "Haiku"],
-];
-
-/// Os agentes desta máquina. Nenhum catálogo está escrito aqui de propósito:
-/// o `codex` mantém o dele em `models_cache.json`, e o `claude` responde o
-/// dele quando perguntado (`list_models`) — é isso que faz modelo novo
-/// aparecer no dropdown sem release do Prometheus. O que não está instalado
-/// não aparece — oferecer o Claude Code a quem só tem o Codex é oferecer uma
-/// sessão que morre ao subir.
-type AgentModel = { slug: string; name: string; efforts: string[] };
-type Agents = { claude: boolean; codex: AgentModel[] };
-
-/// Enquanto a resposta não chega, o de antes: só o Claude Code. É o que o app
-/// era, e o lançador não pode esperar por disco para desenhar.
-let agents: Agents = { claude: true, codex: [] };
-
-/// O catálogo vivo do Claude Code. Vazio enquanto a resposta não veio — e o
-/// dropdown mostra a lista fixa, que continua certa: os aliases dela não
-/// envelhecem, só a lista de famílias.
-let claudeModels: AgentModel[] = [];
-
-/// Carregado uma vez por sessão do app: nem CLI se instala, nem catálogo muda
-/// enquanto a janela está aberta. O catálogo do Claude Code vem por trás, sem
-/// segurar o resto: é um processo que sobe e responde em segundos, e a faixa
-/// de agentes não pode esperar tanto.
-export async function loadAgents() {
-  try {
-    agents = await invoke<Agents>("agents");
-  } catch {
-    agents = { claude: true, codex: [] };
-  }
-  if (agents.claude) {
-    void invoke<AgentModel[]>("claude_models")
-      .then((models) => {
-        claudeModels = models;
-      })
-      .catch(() => {});
-  }
-}
-
-/// Quais CLIs existem nesta máquina. A faixa de baixo mostra a cota de cada um
-/// — inclusive antes de haver leitura, porque um agente instalado e sem número
-/// ainda é um agente instalado.
-export const installed = () => ({ claude: agents.claude, codex: agents.codex.length > 0 });
-
-const isCodex = (model: string) => agents.codex.some((m) => m.slug === model);
-
 /// Qual CLI um modelo escolhe: escolher um GPT é escolher o Codex, e não há
 /// botão à parte para isso — nem no lançador, nem na barra de abas.
-export const agentOf = (model: string) => (isCodex(model) ? "codex" : "");
-
-/// Os modelos do Claude Code como o dropdown os lista: o catálogo vivo quando
-/// já chegou, a lista fixa enquanto não.
-const claudeItems = (): [string, string][] =>
-  claudeModels.length ? claudeModels.map((m) => [m.slug, m.name] as [string, string]) : MODELS;
-
-/// Vazio e `claude` nomeiam o mesmo CLI — é a mesma conta do `cli` do back.
-const cliOf = (agent: string) => (agent === "codex" ? "codex" : "");
+export const agentOf = providerOfModel;
 
 /// Os blocos do dropdown de modelo: os do Claude Code de um lado, os do Codex
 /// do outro, só os que esta máquina tem. A barra de abas abre a mesma lista —
@@ -145,26 +84,21 @@ const cliOf = (agent: string) => (agent === "codex" ? "codex" : "");
 /// modelo é uma coisa e trocar de CLI é outra — o `--resume` do Claude Code
 /// não abre a thread do Codex, e oferecer um GPT ali seria oferecer o fim da
 /// conversa. Sem `only`, os dois blocos: é o do lançador e o do "+".
-export function modelGroups(only?: string): Group[] {
-  const want = only === undefined ? null : cliOf(only);
-  const groups: Group[] = [];
-  if (agents.claude && want !== "codex") {
-    groups.push({ head: t("model.claude"), items: claudeItems() });
-  }
-  if (agents.codex.length && want !== "") {
-    groups.push({
-      head: t("model.codex"),
-      items: agents.codex.map((m) => [m.slug, m.name] as [string, string]),
-    });
-  }
-  return groups;
+export function modelGroups(only?: ProviderId): Group[] {
+  return installed()
+    .filter((provider) => only === undefined || provider.id === only)
+    .map((provider) => ({
+      head: provider.label,
+      items: modelsOf(provider.id).map((model) => [model.id, model.label] as [string, string]),
+    }))
+    .filter((group) => group.items.length > 0);
 }
 
 /// O degrau mais próximo que a escada deste modelo tem. Sair do Sol (que vai
 /// até o `ultra`) para um modelo que para no `xhigh` não pode deixar para trás
 /// um esforço que o CLI recusa.
-export function fitsEffort(model: string, effort: string): string {
-  const stairs = ladderOf(model);
+export function fitsEffort(model: string, effort: string, provider = providerOfModel(model)): string {
+  const stairs = ladderOf(model, provider);
   if (stairs.some(([id]) => id === effort)) return effort;
   return stairs[stairs.length - 1]?.[0] ?? "high";
 }
@@ -173,7 +107,7 @@ export function fitsEffort(model: string, effort: string): string {
 /// lista. Sem `claude` na máquina é o primeiro do Codex — senão o rodapé
 /// começaria apontando para um CLI que não existe.
 const fallbackModel = () =>
-  (agents.claude ? claudeItems()[0]?.[0] : agents.codex[0]?.slug) ?? "";
+  installed().flatMap((provider) => modelsOf(provider.id))[0]?.id ?? "";
 
 /// A escada do esforço, na ordem em que o clique sobe. É o botão do Conductor:
 /// barras que acendem uma a uma, e depois da última volta ao Baixo — sem
@@ -197,41 +131,39 @@ const EFFORTS: [string, string][] = [
 /// o CLI liste — é o `xhigh` com orquestração por cima, e quem tem um tem o
 /// outro. Modelo sem escada publicada (o Haiku de hoje, ou o catálogo que
 /// ainda não chegou) fica com a escada inteira, como sempre ficou.
-function ladderOf(model: string): [string, string][] {
-  const codex = agents.codex.find((m) => m.slug === model);
-  if (codex)
-    return EFFORTS.filter(([id]) => codex.efforts.includes(id === "ultracode" ? "ultra" : id)).map(
-      ([id, name]) => [id, id === "ultracode" ? t("effort.ultra") : name],
-    );
-  const claude = claudeModels.find((m) => m.slug === model);
-  if (!claude?.efforts.length) return EFFORTS;
-  return EFFORTS.filter(([id]) => claude.efforts.includes(id === "ultracode" ? "xhigh" : id));
+function ladderOf(model: string, provider = providerOfModel(model)): [string, string][] {
+  const accepted = effortsOf(provider, model);
+  if (!accepted.length) return EFFORTS;
+  return EFFORTS.filter(([id]) => accepted.includes(id)).map(([id, name]) => [
+    id,
+    id === "ultracode" ? t(usesNativeUltraLabel(provider) ? "effort.ultra" : "effort.ultracode") : name,
+  ]);
 }
 
 /// O nome do modelo na tela — o mesmo do rodapé do lançador. É o que a caixa
 /// de escrever mostra embaixo: quem está lendo a conversa quer saber com quem
 /// está falando, e o alias (`opus[1m]`) não é isso.
-export function modelLabel(model: string): string {
-  const alias = MODELS.find(([id]) => id === model);
-  if (alias) return alias[1];
-  const claude = claudeModels.find((m) => m.slug === model);
-  if (claude) return claude.name;
-  return agents.codex.find((m) => m.slug === model)?.name ?? model;
+export function modelLabel(model: string, provider?: ProviderId): string {
+  return modelLabelOf(model, provider);
 }
 
 /// O degrau seguinte da escada deste modelo, dando a volta depois do último:
 /// é o clique do botão de esforço, no lançador e na conversa de pé. Esforço
 /// que a escada não tem cai no primeiro degrau.
-export function nextEffort(model: string, effort: string): string {
-  const stairs = ladderOf(model);
+export function nextEffort(model: string, effort: string, provider = providerOfModel(model)): string {
+  const stairs = ladderOf(model, provider);
   const step = stairs.findIndex(([id]) => id === effort);
   return stairs[(step + 1) % stairs.length]?.[0] ?? effort;
 }
 
 /// O esforço como as barrinhas o desenham: em que degrau está, e de quantos.
 /// Esforço que a escada deste modelo não tem não acende barra nenhuma.
-export function effortStep(model: string, effort: string): { label: string; step: number; total: number } | null {
-  const stairs = ladderOf(model);
+export function effortStep(
+  model: string,
+  effort: string,
+  provider = providerOfModel(model),
+): { label: string; step: number; total: number } | null {
+  const stairs = ladderOf(model, provider);
   const step = stairs.findIndex(([id]) => id === effort);
   if (step === -1) return null;
   return { label: stairs[step][1], step, total: stairs.length };
@@ -300,7 +232,7 @@ export function openLauncher(board: Board, opts: Open) {
     prompt: "",
     inject: [],
     issue: seed ? { id: seed.id, identifier: seed.identifier, title: seed.title, url: seed.url } : null,
-    agent: "",
+    agent: "claude",
     model: defaultModel(),
     effort: "",
     plan: false,
@@ -308,8 +240,16 @@ export function openLauncher(board: Board, opts: Open) {
     plugins: defaultPlugins(),
   };
   draft.effort = defaultEffort(draft.model);
-  // O modelo padrão pode ser do Codex — e aí o agente vem com ele.
-  draft.agent = isCodex(draft.model) ? "codex" : "";
+  // O modelo padrão traz o provider que o catálogo associou a ele.
+  draft.agent = agentOf(draft.model);
+  const conformCapabilities = () => {
+    const capabilities = capabilitiesOf(draft.agent);
+    if (!capabilities.initialPlanMode) draft.plan = false;
+    if (!capabilities.workspaceMcpSelection) draft.mcp = null;
+    if (!capabilities.workspacePluginSelection) draft.plugins = null;
+    if (!capabilities.attachments) draft.inject = [];
+  };
+  conformCapabilities();
 
   const sheet = document.createElement("div");
   sheet.className = "sheet";
@@ -476,6 +416,14 @@ export function openLauncher(board: Board, opts: Open) {
 
   // Escolher devolve o cursor ao texto: modelo e esforço são acessórios da
   // frase, e clicar neles não pode tirar você dela.
+  const drawAttach = () => {
+    const supported = capabilitiesOf(draft.agent).attachments;
+    $<HTMLButtonElement>("d-add").hidden = !supported;
+    if (!supported) {
+      $("d-inj").hidden = true;
+      $("d-inj").replaceChildren();
+    }
+  };
   const drawModel = dropdown(
     $("d-model"),
     modelGroups,
@@ -483,13 +431,14 @@ export function openLauncher(board: Board, opts: Open) {
     (id) => {
       draft.model = id;
       draft.agent = agentOf(id);
-      // O Codex não tem plan mode por linha de comando, e cada modelo tem a
-      // sua escada de esforço: trocar de modelo pode invalidar as duas coisas.
-      if (draft.agent === "codex") draft.plan = false;
+      // Trocar de provider/modelo pode invalidar features e esforço atuais.
+      conformCapabilities();
       draft.effort = fits(draft.effort);
       drawEffort();
       drawPlan();
+      drawMcp();
       drawPlugins();
+      drawAttach();
       prompt.focus();
     },
   );
@@ -516,9 +465,9 @@ export function openLauncher(board: Board, opts: Open) {
   });
 
   /// A escada de degraus que o modelo de agora aceita.
-  const ladder = () => ladderOf(draft.model);
+  const ladder = () => ladderOf(draft.model, draft.agent);
 
-  const fits = (level: string) => fitsEffort(draft.model, level);
+  const fits = (level: string) => fitsEffort(draft.model, level, draft.agent);
 
   draft.effort = fits(draft.effort);
   drawEffort();
@@ -526,9 +475,7 @@ export function openLauncher(board: Board, opts: Open) {
 
   const plan = $<HTMLButtonElement>("d-plan");
   const drawPlan = () => {
-    // O Codex não nasce em plan mode por flag: o botão sai da tela em vez de
-    // ficar ali prometendo o que não acontece.
-    plan.hidden = draft.agent === "codex";
+    plan.hidden = !capabilitiesOf(draft.agent).initialPlanMode;
     plan.classList.toggle("on", draft.plan);
     plan.setAttribute("aria-pressed", String(draft.plan));
     plan.title = t(draft.plan ? "launcher.plan.on" : "launcher.plan.off");
@@ -539,12 +486,15 @@ export function openLauncher(board: Board, opts: Open) {
     prompt.focus();
   });
   drawPlan();
+  drawAttach();
 
   // As ferramentas do agente. O botão só existe se houver hub: um seletor vazio
   // é um botão que não faz nada, e o caminho para cadastrar é Configurações.
   const mcpBtn = $<HTMLButtonElement>("d-mcp");
   const drawMcp = () => {
-    mcpBtn.hidden = !mcp.list().length && draft.mcp === null;
+    mcpBtn.hidden =
+      !capabilitiesOf(draft.agent).workspaceMcpSelection ||
+      (!mcp.list().length && draft.mcp === null);
     mcpBtn.querySelector("span")!.textContent = mcp.label(draft.mcp);
     mcpBtn.classList.toggle("on", !!draft.mcp?.length);
   };
@@ -562,13 +512,13 @@ export function openLauncher(board: Board, opts: Open) {
   const forgetMcp = mcp.onChange(drawMcp);
   drawMcp();
 
-  // Os plugins, do mesmo jeito e pelo mesmo motivo — e fora do Codex, que
-  // carrega plugin pelo cadastro dele e não por flag (ver `plugins.rs`): um
-  // botão que promete o que não acontece é pior que botão nenhum.
+  // Os plugins, do mesmo jeito e pelo mesmo motivo. O descriptor diz se o
+  // runtime sabe receber a seleção por workspace.
   const plugBtn = $<HTMLButtonElement>("d-plugins");
   const drawPlugins = () => {
     plugBtn.hidden =
-      draft.agent === "codex" || (!plugins.list().length && draft.plugins === null);
+      !capabilitiesOf(draft.agent).workspacePluginSelection ||
+      (!plugins.list().length && draft.plugins === null);
     plugBtn.querySelector("span")!.textContent = plugins.label(draft.plugins);
     plugBtn.classList.toggle("on", !!draft.plugins?.length);
   };
@@ -747,6 +697,7 @@ export function openLauncher(board: Board, opts: Open) {
     );
   };
   const addFiles = (paths: string[]) => {
+    if (!capabilitiesOf(draft.agent).attachments) return;
     draft.inject.push(...paths.filter((p) => p && !draft.inject.includes(p)));
     drawInject();
   };
@@ -996,7 +947,10 @@ function store(key: string, ids: string[] | null) {
 /// vale o primeiro da lista.
 export function defaultModel(): string {
   const saved = localStorage.getItem(MODEL_KEY) ?? "";
-  const known = (agents.claude && MODELS.some(([id]) => id === saved)) || isCodex(saved);
+  const provider = providerOfModel(saved);
+  const known = descriptors().some(
+    (candidate) => candidate.id === provider && candidate.installed && isKnownModel(candidate.id, saved),
+  );
   return known ? saved : fallbackModel();
 }
 

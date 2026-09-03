@@ -1,6 +1,8 @@
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { capabilitiesOf } from "./agents";
+import type { ConversationCommandV1, RequestResponse } from "./conversation";
 import { icon } from "./icons";
 import { fromBack, t, tn } from "./i18n";
 import { diffHtml, isDiff } from "./highlight";
@@ -19,7 +21,7 @@ import {
   toolLabel,
   wantsCard,
 } from "./chat-presentation";
-import { agentOf, effortStep, fitsEffort, modelGroups, modelLabel, nextEffort } from "./launcher";
+import { effortStep, fitsEffort, modelGroups, modelLabel, nextEffort } from "./launcher";
 import { md } from "./markdown";
 import * as mcp from "./mcp";
 import * as menu from "./menu";
@@ -29,7 +31,7 @@ import * as notes from "./notes";
 import * as paths from "./paths";
 import * as team from "./team";
 import { pieces, summary, Timeline, touched, type Ask, type Block, type Command, type Item, type Piece, type ToolBlock } from "./timeline";
-import type { Choice, Status } from "./types";
+import type { Choice, ProviderId, Status } from "./types";
 import { h, template } from "./util";
 
 /// A conversa na tela: a timeline desenhada, e a caixa de escrever embaixo.
@@ -37,7 +39,7 @@ import { h, template } from "./util";
 /// Não é um terminal. O que chega é uma linha de JSON por vez (`chat.rs`), o
 /// `Timeline` diz o que ela mudou, e só isso é redesenhado. O que sai é uma
 /// fala, uma resposta a um card (permissão, pergunta, plano) ou uma
-/// interrupção — pelo mesmo cano, na mesma forma.
+/// interrupção — por `ConversationCommandV1` no mesmo cano.
 ///
 /// A conversa de um colega é a mesma tela: as linhas vêm do relay em vez do
 /// back, e o que se escreve vai para o Mac dele em vez do processo daqui.
@@ -64,6 +66,7 @@ export type Info = {
   /// Com quem se está falando: o modelo e o esforço desta conversa — o que a
   /// aba escolheu (ao nascer, ou depois, no rodapé da caixa), ou o do
   /// workspace. Vazio é o padrão do CLI, e aí a caixa não diz nada.
+  agent: ProviderId;
   model: string;
   effort: string;
   /// As ferramentas de MCP deste workspace. `null` é nunca ter escolhido — o
@@ -262,14 +265,29 @@ export class ChatView {
     return sel.toString();
   }
 
-  /// Caminhos soltos em cima da conversa entram na caixa, como o Terminal faz.
-  insert(text: string) {
-    const a = this.area;
-    const cut = a.selectionStart;
-    a.value = `${a.value.slice(0, cut)}${text}${a.value.slice(cut)}`;
-    a.selectionStart = a.selectionEnd = cut + text.length;
-    this.grow();
-    a.focus();
+  /// Só a conversa local, no modo agente, consegue entregar um arquivo deste
+  /// Mac. É a mesma regra do botão "+" da caixa.
+  canAttachFiles(): boolean {
+    const info = this.ctx.info();
+    return (
+      !!this.key &&
+      this.mode === "agent" &&
+      !this.remote &&
+      !!info.workspace &&
+      capabilitiesOf(info.agent).attachments
+    );
+  }
+
+  /// Arquivos escolhidos no Finder ou soltos em cima da conversa entram no
+  /// mesmo rascunho, sem mexer no texto que já estava sendo escrito.
+  attachFiles(paths: string[]): boolean {
+    if (!this.canAttachFiles()) return false;
+    const files = this.attached().slice();
+    for (const path of paths) if (path && !files.includes(path)) files.push(path);
+    if (this.key) this.files.set(this.key, files);
+    this.paintComposer();
+    this.area.focus();
+    return true;
   }
 
   /* ---------- as linhas ---------- */
@@ -753,15 +771,15 @@ export class ChatView {
       // O "sim" solta o agente: vira bypass antes de responder, senão a
       // primeira ferramenta do plano já pergunta de novo.
       this.control({
-        type: "control_request",
-        request_id: crypto.randomUUID(),
-        request: { subtype: "set_permission_mode", mode: "bypassPermissions" },
+        v: 1,
+        type: "permission.mode.set",
+        mode: "bypass",
       });
-      this.respond(ask, { behavior: "allow", updatedInput: ask.input });
+      this.respond(ask, { outcome: "allow" });
     });
     const asking = h("button", "outline md", t("chat.plan.ask"));
     asking.title = t("chat.plan.ask.title");
-    asking.addEventListener("click", () => this.respond(ask, { behavior: "allow", updatedInput: ask.input }));
+    asking.addEventListener("click", () => this.respond(ask, { outcome: "allow" }));
     const no = h("button", "ghost md", t("chat.plan.no"));
     row.append(go, asking, no);
     el.append(row);
@@ -781,7 +799,7 @@ export class ChatView {
       const text = area.value.trim();
       if (!text) return;
       this.feedback = null;
-      this.respond(ask, { behavior: "deny", message: text });
+      this.respond(ask, { outcome: "deny", message: text });
     };
     fb.querySelector("button")!.addEventListener("click", send);
     area.addEventListener("keydown", (e) => {
@@ -822,7 +840,7 @@ export class ChatView {
         const picked = answers[q.question] ?? [];
         out[q.question] = [...picked, ...(typed ? [typed] : [])].join(", ");
       }
-      this.respond(ask, { behavior: "allow", updatedInput: { ...ask.input, answers: out } });
+      this.respond(ask, { outcome: "answer", answers: out });
     });
     row.append(h("span", "spacer"), go);
 
@@ -898,39 +916,39 @@ export class ChatView {
     el.append(inputView(ask.tool, ask.input));
     const row = h("div", "row");
     const yes = h("button", "pri md", t("chat.perm.yes"));
-    yes.addEventListener("click", () => this.respond(ask, { behavior: "allow", updatedInput: ask.input }));
+    yes.addEventListener("click", () => this.respond(ask, { outcome: "allow" }));
     const always = h("button", "outline md", t("chat.perm.always"));
     always.addEventListener("click", () => {
       this.control({
-        type: "control_request",
-        request_id: crypto.randomUUID(),
-        request: { subtype: "set_permission_mode", mode: "bypassPermissions" },
+        v: 1,
+        type: "permission.mode.set",
+        mode: "bypass",
       });
-      this.respond(ask, { behavior: "allow", updatedInput: ask.input });
+      this.respond(ask, { outcome: "allow" });
     });
     const no = h("button", "ghost md", t("chat.perm.no"));
-    no.addEventListener("click", () => this.respond(ask, { behavior: "deny", message: t("chat.perm.denied") }));
+    no.addEventListener("click", () => this.respond(ask, { outcome: "deny", message: t("chat.perm.denied") }));
     row.append(yes, always, no);
     el.append(row);
     return el;
   }
 
-  private respond(ask: Ask, response: unknown) {
-    this.control({ type: "control_response", response: { subtype: "success", request_id: ask.id, response } });
+  private respond(ask: Ask, response: RequestResponse) {
+    this.control({ v: 1, type: "request.respond", requestId: ask.id, response });
     this.sync(new Set(this.tl.answer(ask.id)));
     this.paintComposer();
   }
 
   /// Uma linha de controle para o processo — daqui, ou pelo relay até o Mac
   /// do dono, que a repassa (ver `team.ts`).
-  private control(frame: unknown) {
+  private control(frame: ConversationCommandV1) {
     if (!this.key) return;
     if (this.remote) team.write(JSON.stringify(frame));
     else invoke("chat_control", { session: this.key, frame }).catch((e) => this.ctx.say(fromBack(e), true));
   }
 
   private interrupt() {
-    this.control({ type: "control_request", request_id: crypto.randomUUID(), request: { subtype: "interrupt" } });
+    this.control({ v: 1, type: "turn.interrupt" });
   }
 
   /* ---------- a caixa ---------- */
@@ -1029,11 +1047,7 @@ export class ChatView {
     const root = this.ctx.info().worktree;
     const picked = await open({ multiple: true, title: t("chat.addFile.dialog"), defaultPath: root ?? undefined });
     const list = Array.isArray(picked) ? picked : picked ? [picked] : [];
-    const has = this.attached();
-    for (const p of list) if (p && !has.includes(p)) has.push(p);
-    if (this.key) this.files.set(this.key, has);
-    this.paintComposer();
-    this.area.focus();
+    this.attachFiles(list);
   }
 
   /// Os anexos desta conversa. Sem aba não há onde guardá-los.
@@ -1165,23 +1179,30 @@ export class ChatView {
   /// modelo — os comandos são quase todos os mesmos de uma conversa para
   /// outra — e, antes de qualquer uma, os dois que o app conhece por si.
   private commands(): Command[] {
-    const key = `prometheus:comandos:${this.ctx.info().model}`;
+    const info = this.ctx.info();
+    const capabilities = capabilitiesOf(info.agent);
+    const supported = (command: Command) =>
+      (command.name !== "compact" || capabilities.compact) &&
+      (command.name !== "context" || capabilities.contextReport);
+    const key = `prometheus:comandos:${info.agent}:${info.model}`;
     const live = this.tl.commands;
     if (live.length) {
       localStorage.setItem(key, JSON.stringify(live));
-      return live;
+      return live.filter(supported);
     }
     try {
       const seen: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
       if (Array.isArray(seen) && seen.length) {
-        return seen.filter((c): c is Command => !!c && typeof c.name === "string" && typeof c.description === "string");
+        return seen
+          .filter((c): c is Command => !!c && typeof c.name === "string" && typeof c.description === "string")
+          .filter(supported);
       }
     } catch {
       /* lista velha ilegível: é como se não houvesse */
     }
     return [
-      { name: "compact", description: t("chat.cmd.compact"), hint: "" },
-      { name: "context", description: t("chat.cmd.context"), hint: "" },
+      ...(capabilities.compact ? [{ name: "compact", description: t("chat.cmd.compact"), hint: "" }] : []),
+      ...(capabilities.contextReport ? [{ name: "context", description: t("chat.cmd.context"), hint: "" }] : []),
     ];
   }
 
@@ -1199,7 +1220,8 @@ export class ChatView {
     // O "+" aponta arquivo para o agente daqui: não há o que apontar numa
     // nota, nem na conversa de um colega — quem lê o arquivo é o agente que
     // roda no Mac dele, e o Finder daqui é outro disco.
-    q(".addfile").hidden = note || this.remote || !info.workspace;
+    q(".addfile").hidden =
+      note || this.remote || !info.workspace || !capabilitiesOf(info.agent).attachments;
     q(".stop").hidden = note || !this.tl.busy;
     this.box.classList.toggle("note", note);
     this.box.classList.toggle("busy", !note && this.tl.busy);
@@ -1285,7 +1307,7 @@ export class ChatView {
   /// Na conversa de um colega os dois viram texto: o processo é do Mac dele.
   private paintWith(info: Info, note: boolean) {
     const el = this.box.querySelector<HTMLElement>(".with")!;
-    const label = info.model ? modelLabel(info.model) : "";
+    const label = info.model ? modelLabel(info.model, info.agent) : "";
     el.hidden = note || !label;
     if (el.hidden) return;
     const working = info.status === "rodando" || info.status === "querendo";
@@ -1301,7 +1323,7 @@ export class ChatView {
     model.disabled = fixed || working;
     model.onclick = () => this.pickModel(model, info);
 
-    const step = effortStep(info.model, info.effort);
+    const step = effortStep(info.model, info.effort, info.agent);
     const bars = el.querySelector<HTMLButtonElement>(".effort")!;
     bars.hidden = !step;
     if (!step) return;
@@ -1310,7 +1332,11 @@ export class ChatView {
     bars.querySelectorAll(".bars i").forEach((bar, n) => bar.classList.toggle("lit", n <= step.step));
     bars.disabled = fixed || working;
     bars.onclick = () =>
-      this.retune(info, { agent: agentOf(info.model), model: info.model, effort: nextEffort(info.model, info.effort) });
+      this.retune(info, {
+        agent: info.agent,
+        model: info.model,
+        effort: nextEffort(info.model, info.effort, info.agent),
+      });
   }
 
   /// A lista de modelos desta conversa: a mesma do lançador, restrita ao CLI
@@ -1319,7 +1345,7 @@ export class ChatView {
   /// xhigh, como no "+".
   private pickModel(at: HTMLElement, info: Info) {
     const box = at.getBoundingClientRect();
-    const blocks = modelGroups(agentOf(info.model));
+    const blocks = modelGroups(info.agent);
     const items: menu.Item[] = [];
     blocks.forEach((block, n) => {
       if (n) items.push("sep");
@@ -1329,7 +1355,11 @@ export class ChatView {
           label: name,
           checked: id === info.model,
           run: () =>
-            this.retune(info, { agent: agentOf(id), model: id, effort: fitsEffort(id, info.effort) }),
+            this.retune(info, {
+              agent: info.agent,
+              model: id,
+              effort: fitsEffort(id, info.effort, info.agent),
+            }),
         });
       }
     });
@@ -1360,7 +1390,12 @@ export class ChatView {
   private paintMcp(info: Info, note: boolean) {
     const btn = this.box.querySelector<HTMLButtonElement>(".mcpbtn")!;
     const has = mcp.list().length > 0 || info.mcp !== null;
-    btn.hidden = note || !!info.remote || !info.workspace || !has;
+    btn.hidden =
+      note ||
+      !!info.remote ||
+      !info.workspace ||
+      !capabilitiesOf(info.agent).workspaceMcpSelection ||
+      !has;
     if (btn.hidden) return;
     const working = info.status === "rodando" || info.status === "querendo";
     btn.innerHTML = `${icon("plug", 13)}<span></span>`;
@@ -1391,9 +1426,12 @@ export class ChatView {
   private paintPlugins(info: Info, note: boolean) {
     const btn = this.box.querySelector<HTMLButtonElement>(".plugbtn")!;
     const has = plugins.list().length > 0 || info.plugins !== null;
-    // Fora do Codex: a escolha vira flag do `claude`, e o Codex não a recebe.
     btn.hidden =
-      note || !!info.remote || !info.workspace || !has || agentOf(info.model) === "codex";
+      note ||
+      !!info.remote ||
+      !info.workspace ||
+      !has ||
+      !capabilitiesOf(info.agent).workspacePluginSelection;
     if (btn.hidden) return;
     const working = info.status === "rodando" || info.status === "querendo";
     btn.innerHTML = `${icon("puzzle", 13)}<span></span>`;

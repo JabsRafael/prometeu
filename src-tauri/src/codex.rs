@@ -5,9 +5,9 @@
 //! (`item/started`, `item/agentMessage/delta`, `item/completed`,
 //! `turn/completed`…) e às vezes pergunta (`item/tool/requestUserInput`,
 //! `item/commandExecution/requestApproval`). Nada disso chega à tela como é:
-//! o `Link` traduz cada coisa para a linha equivalente do stream-json do
-//! Claude Code, e a tela desenha o Codex com o mesmo reducer que desenha o
-//! Claude (`src/timeline.ts`). No sentido contrário, uma fala vira
+//! o `Link` traduz cada coisa e a borda comum fecha o
+//! `ConversationEventV1` que a mesma timeline reduz para todos os providers.
+//! No sentido contrário, uma fala vira
 //! `turn/start`, uma resposta a pedido vira a resposta JSON-RPC, uma
 //! interrupção vira `turn/interrupt`.
 //!
@@ -35,7 +35,7 @@
 
 use crate::lock::lock;
 use crate::session::Launch;
-use crate::{agents, chat, i18n, paths};
+use crate::{agents, chat, conversation, i18n, paths};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::Write;
@@ -80,11 +80,13 @@ pub fn spawn(
     let io = chat::ProcessIo::new(process_stderr, move |stdin| {
         let link = Arc::new(Mutex::new(Link::new(Box::new(stdin), start)));
         let reader = link.clone();
+        let mut adapter = conversation::LegacyAdapter::default();
         let translate = move |line: &str| {
             lock(&reader)
                 .on_line(line)
                 .iter()
-                .map(Value::to_string)
+                .flat_map(|frame| adapter.translate(frame))
+                .map(|event| event.to_string())
                 .collect()
         };
         (
@@ -1222,6 +1224,41 @@ mod tests {
         assert_eq!(f[0]["type"], "result");
         assert_eq!(f[0]["is_error"], false);
         assert_eq!(f[0]["duration_ms"], 900);
+    }
+
+    #[test]
+    fn a_borda_do_codex_entrega_eventos_v1() {
+        let (mut link, out) = link(None);
+        opened(&mut link, &out);
+        let mut adapter = conversation::LegacyAdapter::default();
+        link.on_line(
+            r#"{"method":"turn/started","params":{"threadId":"t-1","turn":{"id":"turn-1"}}}"#,
+        );
+        let raw = link.on_line(r#"{"method":"item/started","params":{"item":{"type":"commandExecution","id":"c1","command":"ls","commandActions":[]}}}"#);
+        let started: Vec<Value> = raw
+            .iter()
+            .flat_map(|frame| adapter.translate(frame))
+            .collect();
+        assert_eq!(started[0]["v"], 1);
+        assert_eq!(started[0]["type"], "assistant.block");
+        assert_eq!(started[0]["block"]["kind"], "tool");
+
+        let raw = link.on_line(r#"{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"c1","status":"completed","aggregatedOutput":"ok","exitCode":0}}}"#);
+        let completed: Vec<Value> = raw
+            .iter()
+            .flat_map(|frame| adapter.translate(frame))
+            .collect();
+        assert_eq!(completed[0]["type"], "tool.completed");
+        assert_eq!(completed[0]["toolId"], "c1");
+
+        let raw = link.on_line(
+            r#"{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"completed"}}}"#,
+        );
+        let completed: Vec<Value> = raw
+            .iter()
+            .flat_map(|frame| adapter.translate(frame))
+            .collect();
+        assert_eq!(completed.last().unwrap()["type"], "turn.completed");
     }
 
     #[test]

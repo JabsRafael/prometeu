@@ -260,7 +260,7 @@ fn ports(state: &tauri::State<AppState>) -> Vec<Port> {
             })
         })
         .collect();
-    ports.sort_by(|a, b| a.port.cmp(&b.port));
+    ports.sort_by_key(|process| process.port);
     ports
 }
 
