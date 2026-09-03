@@ -134,13 +134,24 @@ export const agentOf = (model: string) => (isCodex(model) ? "codex" : "");
 const claudeItems = (): [string, string][] =>
   claudeModels.length ? claudeModels.map((m) => [m.slug, m.name] as [string, string]) : MODELS;
 
+/// Vazio e `claude` nomeiam o mesmo CLI — é a mesma conta do `cli` do back.
+const cliOf = (agent: string) => (agent === "codex" ? "codex" : "");
+
 /// Os blocos do dropdown de modelo: os do Claude Code de um lado, os do Codex
 /// do outro, só os que esta máquina tem. A barra de abas abre a mesma lista —
 /// escolher com quem a conversa nova fala é a mesma escolha que o lançador faz.
-export function modelGroups(): Group[] {
+///
+/// `only` restringe a um CLI: é o seletor da conversa de pé, onde trocar de
+/// modelo é uma coisa e trocar de CLI é outra — o `--resume` do Claude Code
+/// não abre a thread do Codex, e oferecer um GPT ali seria oferecer o fim da
+/// conversa. Sem `only`, os dois blocos: é o do lançador e o do "+".
+export function modelGroups(only?: string): Group[] {
+  const want = only === undefined ? null : cliOf(only);
   const groups: Group[] = [];
-  if (agents.claude) groups.push({ head: t("model.claude"), items: claudeItems() });
-  if (agents.codex.length) {
+  if (agents.claude && want !== "codex") {
+    groups.push({ head: t("model.claude"), items: claudeItems() });
+  }
+  if (agents.codex.length && want !== "") {
     groups.push({
       head: t("model.codex"),
       items: agents.codex.map((m) => [m.slug, m.name] as [string, string]),
@@ -206,6 +217,15 @@ export function modelLabel(model: string): string {
   const claude = claudeModels.find((m) => m.slug === model);
   if (claude) return claude.name;
   return agents.codex.find((m) => m.slug === model)?.name ?? model;
+}
+
+/// O degrau seguinte da escada deste modelo, dando a volta depois do último:
+/// é o clique do botão de esforço, no lançador e na conversa de pé. Esforço
+/// que a escada não tem cai no primeiro degrau.
+export function nextEffort(model: string, effort: string): string {
+  const stairs = ladderOf(model);
+  const step = stairs.findIndex(([id]) => id === effort);
+  return stairs[(step + 1) % stairs.length]?.[0] ?? effort;
 }
 
 /// O esforço como as barrinhas o desenham: em que degrau está, e de quantos.

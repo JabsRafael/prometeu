@@ -523,6 +523,36 @@ test("escolher um GPT tira o seletor de plugins do lançador", async ({ page }) 
   await expect(page.locator("#d-mcp")).toBeVisible();
 });
 
+/// Trocar de modelo com a conversa de pé: a escolha entra na aba, o processo
+/// cai e a caixa passa a dizer que escrever retoma. O esforço sobe um degrau
+/// por clique, como no rodapé do lançador. Sair do CLI não se oferece — a
+/// lista só tem os modelos do agente que já está de pé, porque o `--resume` do
+/// Claude Code não abre a thread do Codex.
+test("trocar o modelo de uma conversa de pé desliga o processo e mantém a aba", async ({ page }) => {
+  await boot(page);
+  await openWorkspace(page, "Ola");
+
+  const model = page.locator(".composer .mdl");
+  const effort = page.locator(".composer .effort");
+  await expect(model).toContainText("Opus · 1M");
+  await expect(effort).toContainText("Alto");
+
+  await model.click();
+  await expect(page.locator(".menu .mrow", { hasText: "GPT-5.6-Sol" })).toHaveCount(0);
+  await page.locator(".menu .mrow", { hasText: "Sonnet" }).first().click();
+
+  await expect(model).toContainText("Sonnet");
+  await expect(page.locator(".composer textarea")).toHaveAttribute(
+    "placeholder",
+    /escrever retoma/,
+  );
+  // A aba continua ali: o que caiu foi o processo, não a conversa.
+  await expect(page.locator("#tabbar .tab").first()).toContainText("conversa 1");
+
+  await effort.click();
+  await expect(effort).toContainText("Muito alto");
+});
+
 test("o filtro por time corta a lista de issues e as contagens seguem a busca", async ({ page }) => {
   await boot(page);
   await page.evaluate(async () => {

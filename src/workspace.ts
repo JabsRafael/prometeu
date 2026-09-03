@@ -763,8 +763,9 @@ function drawTabs(ws: Workspace) {
 }
 
 /// A lista de modelos do "+": a mesma do lançador, com o do workspace marcado.
-/// Escolher abre a conversa já falando com ele — não há um passo entre a
-/// escolha e a aba, porque modelo não se troca com a conversa de pé.
+/// Escolher abre a conversa já falando com ele. É por aqui que se sai do CLI
+/// das irmãs: trocar de modelo dentro de uma conversa (o rodapé da caixa) só
+/// anda dentro do CLI que já está de pé, porque o transcript é de um só.
 function pickModel(at: HTMLElement, ws: Workspace) {
   const box = at.getBoundingClientRect();
   const blocks = modelGroups();

@@ -3,7 +3,7 @@
 /// `window.__TAURI_INTERNALS__` não existe — dentro do app não é carregado.
 import { encodeLive, encodeSnapshot } from "../relay/src/protocol";
 import * as team from "./team";
-import { hasWorktree, type Board, type Issue, type LinearStatus, type McpServer, type Plugin, type Pr, type Scripts, type Workspace } from "./types";
+import { hasWorktree, type Board, type Choice, type Issue, type LinearStatus, type McpServer, type Plugin, type Pr, type Scripts, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
@@ -827,6 +827,24 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       if (target) {
         target.plugins = args.plugins as string[] | null;
         target.tabs.forEach((t) => (t.status = "desligada"));
+      }
+      emit("board", board);
+      return;
+    }
+    // Trocar o modelo ou o esforço de uma conversa de pé: a escolha entra na
+    // aba e o processo cai, como no Rust — e escolher de volta o do workspace
+    // apaga a escolha, para a aba voltar a acompanhá-lo.
+    case "set_tab_choice": {
+      const target = board.workspaces.find((x) => x.id === args.id);
+      const tab = target?.tabs.find((t) => t.id === args.tab);
+      if (target && tab) {
+        const choice = args.choice as Choice;
+        const follows =
+          choice.agent === target.agent &&
+          choice.model === target.model &&
+          choice.effort === target.effort;
+        tab.choice = follows ? null : choice;
+        tab.status = "desligada";
       }
       emit("board", board);
       return;

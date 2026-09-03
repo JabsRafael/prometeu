@@ -124,6 +124,7 @@ fn main() {
             session::pin_workspace,
             session::set_workspace_mcp,
             session::set_workspace_plugins,
+            session::set_tab_choice,
             session::set_unread,
             session::set_shared,
             session::look_at,
