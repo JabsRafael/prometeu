@@ -1670,6 +1670,37 @@ body.noside .side { display: none; }
   font-family: var(--mono); font-size: 12px;
 }
 .sheet.hubedit input:focus-visible { outline: none; border-color: var(--line-raised); }
+/* O pedido de um plugin é um parágrafo, e o campo tem que parecer os outros —
+   o `textarea` da conversa é sem borda e alto, e aqui nenhum dos dois serve. */
+.sheet.hubedit textarea {
+  width: 100%; padding: 7px 9px; min-height: 0; resize: vertical;
+  background: var(--bg); color: var(--fg);
+  border: 1px solid var(--line); border-radius: var(--r);
+  font-family: var(--mono); font-size: 12px; line-height: 1.5;
+}
+.sheet.hubedit textarea:focus-visible { outline: none; border-color: var(--line-raised); }
+/* A escolha, quando o repositório traz mais de um plugin: uma linha por
+   plugin, com o que ele diz de si embaixo do nome. */
+.sheet.hubedit .mpick { display: flex; flex-direction: column; gap: 4px; }
+.sheet.hubedit .mpickrow {
+  display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
+  padding: 8px 10px; border-radius: var(--r); background: var(--bg);
+}
+.sheet.hubedit .mpickrow:hover { background: var(--bg-raised-2); }
+.sheet.hubedit .mpickrow input { width: auto; flex: none; margin: 2px 0 0; padding: 0; }
+.sheet.hubedit .mpickrow .txt { min-width: 0; }
+.sheet.hubedit .mpickrow b { display: block; font-size: 12.5px; font-weight: 500; }
+.sheet.hubedit .mpickrow span { display: block; font-size: 11.5px; color: var(--fg-3); line-height: 1.45; }
+
+/* O agente escrevendo: uma linha por arquivo que sai. A última é a de baixo, e
+   é para ela que o olho vai. */
+.sheet.hubedit .mrun { display: flex; flex-direction: column; gap: 4px; min-height: 132px; }
+.sheet.hubedit .mstep {
+  padding: 6px 10px; border-radius: var(--r); background: var(--bg);
+  font-family: var(--mono); font-size: 11.5px; color: var(--fg-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sheet.hubedit .mstep.wait { color: var(--fg-3); font-family: inherit; font-size: 12.5px; }
 /* Um servidor é um programa aqui ou um endereço lá — nunca os dois. */
 .sheet.hubedit .mkind { display: flex; gap: 8px; }
 

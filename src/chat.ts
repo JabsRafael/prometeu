@@ -78,6 +78,36 @@ export type Ctx = {
   info: () => Info;
 };
 
+/* ---------- marcar MCP e plugin sem derrubar a conversa a cada clique ------ */
+
+/// Gravar a escolha de MCP ou de plugin derruba o processo da conversa e faz o
+/// back republicar o quadro — que redesenha o app inteiro. A cada clique isso é
+/// caro, e marcar três coisas seguidas fazia três vezes. A marca na tela é na
+/// hora (o menu se redesenha com o que a pessoa acabou de marcar); o back ouve
+/// quando a mão para.
+const SETTLE = 300;
+/// Uma escolha pendente por assunto: mexer no MCP e nos plugins na mesma
+/// respiração são duas gravações, e uma não pode engolir a outra.
+const settling = new Map<string, () => void>();
+let settleAt: number | undefined;
+
+function settleWrite(what: string, fn: () => void) {
+  settling.set(what, fn);
+  clearTimeout(settleAt);
+  settleAt = window.setTimeout(settleNow, SETTLE);
+}
+
+/// Grava agora o que estava esperando. Falar é o momento em que esperar deixa
+/// de ser economia e passa a ser corrida: a fala sobe o processo, e a gravação
+/// atrasada o derrubaria em seguida.
+function settleNow() {
+  clearTimeout(settleAt);
+  settleAt = undefined;
+  const runs = [...settling.values()];
+  settling.clear();
+  for (const run of runs) run();
+}
+
 export class ChatView {
   private feed!: HTMLElement;
   private box!: HTMLElement;
@@ -1088,6 +1118,9 @@ export class ChatView {
   }
 
   private send() {
+    // O que foi marcado no seletor e ainda não foi gravado vai agora: a fala
+    // sobe o processo, e a gravação atrasada o derrubaria em seguida.
+    settleNow();
     const text = this.area.value.trim();
     const files = this.mode === "note" ? [] : this.attached();
     if ((!text && !files.length) || !this.key) return;
@@ -1340,9 +1373,11 @@ export class ChatView {
       mcp.openPicker({
         chosen: () => this.ctx.info().mcp,
         set: (ids) => {
-          void invoke("set_workspace_mcp", { id: workspace, mcp: ids }).catch((e) =>
-            this.ctx.say(fromBack(e), true),
-          );
+          settleWrite("mcp", () => {
+            void invoke("set_workspace_mcp", { id: workspace, mcp: ids }).catch((e) =>
+              this.ctx.say(fromBack(e), true),
+            );
+          });
         },
         at: () => ({ x: at.left, y: at.bottom + 4 }),
         locked: () => (working ? t("mcp.busy") : ""),
@@ -1371,9 +1406,11 @@ export class ChatView {
       plugins.openPicker({
         chosen: () => this.ctx.info().plugins,
         set: (ids) => {
-          void invoke("set_workspace_plugins", { id: workspace, plugins: ids }).catch((e) =>
-            this.ctx.say(fromBack(e), true),
-          );
+          settleWrite("plugins", () => {
+            void invoke("set_workspace_plugins", { id: workspace, plugins: ids }).catch((e) =>
+              this.ctx.say(fromBack(e), true),
+            );
+          });
         },
         at: () => ({ x: at.left, y: at.bottom + 4 }),
         locked: () => (working ? t("plugin.busy") : ""),

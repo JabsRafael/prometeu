@@ -585,3 +585,95 @@ test("o filtro por time corta a lista de issues e as contagens seguem a busca", 
   await pills.first().click();
   await expect(page.locator("#ilist .irow")).toHaveCount(1);
 });
+
+/// Instalar plugin era assunto de fora do app: instalar no CLI, e depois
+/// importar. Agora é daqui — nome, o que ele deve fazer, e um agente escreve a
+/// pasta. O que este teste guarda é o caminho inteiro: o pedido, o que o
+/// agente vai escrevendo (que é o que faz a espera parecer trabalho) e o
+/// plugin já na lista no fim.
+test("cria um plugin pelo Prometheus e ele entra na lista", async ({ page }) => {
+  await boot(page);
+  await page.locator("#settings").click();
+  await page.locator(".setnavitem", { hasText: "Plugins" }).click();
+  await page.locator(".setrow.head button", { hasText: "Criar plugin" }).click();
+
+  await page.locator(".sheet.hubedit input").fill("Diário do dia");
+  await page.locator(".sheet.hubedit textarea").fill("Um comando que resume o dia num arquivo datado.");
+  await page.locator(".sheetbar button", { hasText: "Criar" }).click();
+
+  // Enquanto ele escreve, a folha mostra o que está saindo — e o pedido sai da
+  // frente, para ninguém achar que ainda pode mexer nele.
+  await expect(page.locator(".sheet.hubedit .mstep").first()).toBeVisible();
+  await expect(page.locator(".sheet.hubedit textarea")).toHaveCount(0);
+  await expect(page.locator(".sheet.hubedit .mstep", { hasText: "plugin.json" })).toBeVisible();
+
+  // No fim a folha fecha sozinha e o plugin está cadastrado, com a pasta do
+  // Prometheus como origem.
+  await expect(page.locator(".sheet.hubedit")).toHaveCount(0);
+  const row = page.locator(".setrow", { hasText: "diario-do-dia" });
+  await expect(row).toBeVisible();
+  await expect(row).toContainText("~/.prometheus/plugins/diario-do-dia");
+});
+
+/// Instalar plugin era assunto de fora do app: instalar no CLI e importar
+/// depois. Agora é o endereço do repositório e mais nada — e o repositório que
+/// traz vários pergunta quais antes de cadastrar.
+test("instala um plugin pelo endereço do repositório", async ({ page }) => {
+  await boot(page);
+  await page.locator("#settings").click();
+  await page.locator(".setnavitem", { hasText: "Plugins" }).click();
+
+  await page.locator(".setrow.head button", { hasText: "Instalar plugin" }).click();
+  await page.locator(".sheet.hubedit input").fill("gbrancaglione/exemplo");
+  await page.locator(".sheetbar button", { hasText: "Instalar" }).click();
+
+  // Um plugin só não é escolha: ele entra e a folha fecha.
+  await expect(page.locator(".sheet.hubedit")).toHaveCount(0);
+  const row = page.locator(".setrow", { hasText: "exemplo" });
+  await expect(row).toContainText("github.com/gbrancaglione/exemplo");
+  await expect(row.locator("button", { hasText: "Atualizar" })).toBeVisible();
+
+  // O repositório com vários pergunta quais — e só entra o que foi marcado.
+  await page.locator(".setrow.head button", { hasText: "Instalar plugin" }).click();
+  await page.locator(".sheet.hubedit input").fill("acme/muitos-plugins");
+  await page.locator(".sheetbar button", { hasText: "Instalar" }).click();
+  await expect(page.locator(".mpickrow")).toHaveCount(2);
+  await page.locator(".mpickrow", { hasText: "muitos-plugins-dois" }).locator("input").uncheck();
+  await page.locator(".sheetbar button", { hasText: "Adicionar" }).click();
+
+  await expect(page.locator(".sheet.hubedit")).toHaveCount(0);
+  await expect(page.locator(".setrow", { hasText: "muitos-plugins-um" })).toBeVisible();
+  await expect(page.locator(".setrow", { hasText: "muitos-plugins-dois" })).toHaveCount(0);
+});
+
+/// Marcar plugin numa conversa que já existe: a marca é da tela, e não da
+/// resposta do back. Cada gravação derruba o processo da conversa e republica
+/// o quadro inteiro; esperar por ela para mover a marca fazia o menu parecer
+/// travado — e marcar três coisas seguidas fazia isso três vezes.
+test("marcar plugins na conversa responde na hora e grava uma vez só", async ({ page }) => {
+  await boot(page);
+  await openWorkspace(page, "Ola");
+
+  await page.locator(".plugbtn").click();
+  const row = (name: string) => page.locator(".menu .mrow").filter({ hasText: name }).first();
+  await row("caveman").click();
+  // O quadro ainda não voltou, e a marca já está no lugar novo.
+  await expect(row("caveman").locator(".mc svg")).toBeVisible();
+  await row("ponytail").click();
+  await expect(row("caveman").locator(".mc svg")).toBeVisible();
+  await expect(row("ponytail").locator(".mc svg")).toBeVisible();
+
+  // Fechado o menu, a tela alcança o quadro: os dois cliques viraram uma
+  // gravação, e o rodapé conta os dois.
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".plugbtn")).toContainText("2 plugins");
+  expect(await page.evaluate(() => (window as unknown as { mock: { writes: () => number } }).mock.writes())).toBe(1);
+
+  // Mexer no MCP logo em seguida é outra gravação, e não a mesma: uma espera
+  // não pode engolir a outra.
+  await page.locator(".mcpbtn").click();
+  await page.locator(".menu .mrow").filter({ hasText: "capim-ds" }).first().click();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".mcpbtn")).toContainText("capim-ds");
+  await expect(page.locator(".plugbtn")).toContainText("2 plugins");
+});
