@@ -153,6 +153,8 @@ function crumb(path: string) {
 /// do PDF anterior é solto na troca — cada um segura o arquivo inteiro.
 let pdfUrl = "";
 function blob(on: boolean) {
+  // O nome já está na aba, e não há o que salvar: só o conteúdo.
+  $("vbar").hidden = on;
   $("vcode").hidden = on;
   $("vfile").hidden = !on;
   if (pdfUrl) URL.revokeObjectURL(pdfUrl);
@@ -218,7 +220,9 @@ function table(into: HTMLElement, rows: string[][]) {
   const more = () => {
     // Arrastou a barra até o fim: continua no fim depois do lote, um lote por
     // quadro, até chegar na última linha de verdade — ou até subir de volta.
-    const bottom = into.scrollTop + into.clientHeight >= into.scrollHeight - 1;
+    // `scrollTop > 0`: sem isso, o container vazio ou curto conta como "no
+    // fim" e a cadeia carregaria o arquivo inteiro sem ninguém rolar.
+    const bottom = into.scrollTop > 0 && into.scrollTop + into.clientHeight >= into.scrollHeight - 1;
     const stop = Math.min(body.length, at + 500);
     for (; at < stop; at++) {
       const tr = tbody.insertRow();
