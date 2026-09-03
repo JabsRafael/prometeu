@@ -17,6 +17,7 @@
 //! que oferecer. Modelo novo aparece no dropdown sem release do Prometheus.
 
 use crate::paths;
+use crate::state::ProviderId;
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -48,23 +49,83 @@ fn home() -> PathBuf {
 }
 
 /// Um modelo como o lançador o mostra.
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct Model {
-    pub slug: String,
-    pub name: String,
+    pub id: String,
+    pub label: String,
     /// Os níveis de esforço que este modelo aceita — o Sol vai até `ultra`, o
     /// 5.4 para no `xhigh`. O lançador não deixa escolher o que o CLI recusaria.
     pub efforts: Vec<String>,
 }
 
-/// O que o lançador tem para oferecer.
+/// Features que o restante do app pode oferecer sem conhecer o provider. O
+/// nome é o do contrato TypeScript; serde faz a travessia em camelCase.
+#[derive(serde::Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentCapabilities {
+    pub initial_plan_mode: bool,
+    pub workspace_mcp_selection: bool,
+    pub workspace_plugin_selection: bool,
+    pub resume: bool,
+    pub compact: bool,
+    pub context_report: bool,
+    pub approvals: bool,
+    pub user_questions: bool,
+    pub attachments: bool,
+}
+
+/// Um runtime descoberto, seu catálogo e o que esta versão consegue fazer com
+/// ele. A UI recebe os dois providers inclusive quando não estão instalados;
+/// assim ausência e catálogo momentaneamente vazio continuam coisas distintas.
+#[derive(serde::Serialize)]
+pub struct AgentDescriptor {
+    pub id: ProviderId,
+    pub label: String,
+    pub installed: bool,
+    pub models: Vec<Model>,
+    pub capabilities: AgentCapabilities,
+}
+
 #[derive(serde::Serialize)]
 pub struct Agents {
-    /// O `claude` está instalado. Falso esconde a lista de modelos dele — e o
-    /// "Modelo padrão", que é dele também.
-    pub claude: bool,
-    /// Os modelos do Codex. Vazio é "não há Codex aqui", e some do dropdown.
-    pub codex: Vec<Model>,
+    pub providers: Vec<AgentDescriptor>,
+}
+
+fn capabilities(id: ProviderId) -> AgentCapabilities {
+    let common = AgentCapabilities {
+        initial_plan_mode: false,
+        workspace_mcp_selection: true,
+        workspace_plugin_selection: false,
+        resume: true,
+        compact: true,
+        context_report: true,
+        approvals: true,
+        user_questions: true,
+        // O app injeta caminhos locais na fala; ambos os runtimes podem lê-los
+        // no mesmo worktree. Não é upload nem payload binário do provider.
+        attachments: true,
+    };
+    match id {
+        ProviderId::Claude => AgentCapabilities {
+            initial_plan_mode: true,
+            workspace_plugin_selection: true,
+            ..common
+        },
+        ProviderId::Codex => common,
+    }
+}
+
+fn descriptor(id: ProviderId, installed: bool, models: Vec<Model>) -> AgentDescriptor {
+    AgentDescriptor {
+        id,
+        label: match id {
+            ProviderId::Claude => "Claude".into(),
+            ProviderId::Codex => "Codex".into(),
+        },
+        installed,
+        models,
+        capabilities: capabilities(id),
+    }
 }
 
 /// Roda uma vez por sessão do app: nem CLI se instala, nem catálogo muda com a
@@ -73,8 +134,14 @@ pub struct Agents {
 pub fn agents() -> Agents {
     let (claude, codex) = installed();
     Agents {
-        claude,
-        codex: if codex { codex_models() } else { vec![] },
+        providers: vec![
+            descriptor(ProviderId::Claude, claude, vec![]),
+            descriptor(
+                ProviderId::Codex,
+                codex,
+                if codex { codex_models() } else { vec![] },
+            ),
+        ],
     }
 }
 
@@ -170,8 +237,8 @@ fn parse_claude_models(line: &str) -> Vec<Model> {
                 .filter(|m| m["value"].as_str() != Some("default"))
                 .filter(|m| m["disabled"].as_bool() != Some(true))
                 .filter_map(|m| {
-                    let slug = m["value"].as_str()?.to_string();
-                    let name = m["displayName"].as_str().unwrap_or(&slug).to_string();
+                    let id = m["value"].as_str()?.to_string();
+                    let label = m["displayName"].as_str().unwrap_or(&id).to_string();
                     let efforts = m["supportedEffortLevels"]
                         .as_array()
                         .map(|ls| {
@@ -181,11 +248,7 @@ fn parse_claude_models(line: &str) -> Vec<Model> {
                                 .collect()
                         })
                         .unwrap_or_default();
-                    Some(Model {
-                        slug,
-                        name,
-                        efforts,
-                    })
+                    Some(Model { id, label, efforts })
                 })
                 .collect()
         })
@@ -209,8 +272,8 @@ fn codex_models() -> Vec<Model> {
                 .iter()
                 .filter(|m| m["visibility"].as_str() == Some("list"))
                 .filter_map(|m| {
-                    let slug = m["slug"].as_str()?.to_string();
-                    let name = m["display_name"].as_str().unwrap_or(&slug).to_string();
+                    let id = m["slug"].as_str()?.to_string();
+                    let label = m["display_name"].as_str().unwrap_or(&id).to_string();
                     let efforts = m["supported_reasoning_levels"]
                         .as_array()
                         .map(|ls| {
@@ -220,11 +283,7 @@ fn codex_models() -> Vec<Model> {
                                 .collect()
                         })
                         .unwrap_or_default();
-                    Some(Model {
-                        slug,
-                        name,
-                        efforts,
-                    })
+                    Some(Model { id, label, efforts })
                 })
                 .collect()
         })
@@ -288,10 +347,10 @@ mod tests {
         ]}}}"#;
         let models = parse_claude_models(line);
         assert_eq!(models.len(), 2);
-        assert_eq!(models[0].slug, "opus[1m]");
-        assert_eq!(models[0].name, "Opus (1M context)");
+        assert_eq!(models[0].id, "opus[1m]");
+        assert_eq!(models[0].label, "Opus (1M context)");
         assert_eq!(models[0].efforts, ["low", "medium", "high", "xhigh", "max"]);
-        assert_eq!(models[1].slug, "haiku");
+        assert_eq!(models[1].id, "haiku");
         assert!(models[1].efforts.is_empty());
     }
 
@@ -303,7 +362,7 @@ mod tests {
     fn pergunta_o_catalogo_de_verdade() {
         let models = ask_claude_models();
         for m in &models {
-            println!("{} = {} [{}]", m.slug, m.name, m.efforts.join(","));
+            println!("{} = {} [{}]", m.id, m.label, m.efforts.join(","));
         }
         assert!(!models.is_empty());
     }
@@ -315,5 +374,23 @@ mod tests {
             r#"{"type":"control_response","response":{"subtype":"error"}}"#
         )
         .is_empty());
+    }
+
+    #[test]
+    fn capacidades_sao_do_descriptor_e_nao_da_tela() {
+        let claude = descriptor(ProviderId::Claude, true, vec![]);
+        let codex = descriptor(ProviderId::Codex, true, vec![]);
+
+        assert!(claude.capabilities.initial_plan_mode);
+        assert!(claude.capabilities.workspace_plugin_selection);
+        assert!(!codex.capabilities.initial_plan_mode);
+        assert!(!codex.capabilities.workspace_plugin_selection);
+        assert!(codex.capabilities.workspace_mcp_selection);
+        assert!(codex.capabilities.resume);
+
+        let json = serde_json::to_value(codex).unwrap();
+        assert_eq!(json["id"], "codex");
+        assert_eq!(json["capabilities"]["initialPlanMode"], false);
+        assert_eq!(json["capabilities"]["workspaceMcpSelection"], true);
     }
 }

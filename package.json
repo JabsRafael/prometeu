@@ -19,9 +19,11 @@
     "test:web": "vitest run",
     "test:e2e": "playwright test",
     "test:rust": "cd src-tauri && cargo test --workspace --all-targets",
+    "docs:check": "node scripts/check-docs.mjs",
+    "architecture:check": "node scripts/check-architecture.mjs",
     "format:check": "cd src-tauri && cargo fmt --all -- --check",
     "lint:rust": "cd src-tauri && cargo clippy --workspace --all-targets --all-features -- -D warnings",
-    "check": "npm run format:check && npm run build && npm test && npm run lint:rust",
+    "check": "npm run docs:check && npm run architecture:check && npm run format:check && npm run build && npm test && npm run lint:rust",
     "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true",
     "relay:dev": "wrangler dev --config relay/wrangler.toml --port 8787",
     "relay:deploy": "wrangler deploy --config relay/wrangler.toml"

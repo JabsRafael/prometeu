@@ -721,7 +721,7 @@ export function remotes(): Workspace[] {
       unread: false,
       // O protocolo do relay não conta com que agente o colega trabalha, e o
       // card remoto não mostra modelo: nada aqui é decidido por isto.
-      agent: "",
+      agent: "claude",
       model: "",
       effort: "",
       mcp: null,

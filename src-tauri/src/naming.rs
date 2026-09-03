@@ -88,11 +88,11 @@ pub fn rename_later(app: &AppHandle, id: &str, prompt: &str, fallback: &str, lau
 /// instalado, sessão sem login, rede fora — é só ficar com o nome que já estava
 /// lá: nomear não é um serviço que possa falhar na cara de ninguém.
 fn ask(prompt: &str, launch: &Launch) -> Option<String> {
-    match launch.agent.as_str() {
+    match launch.agent {
         // O mais barato do catálogo do Codex, e o modelo do workspace só se não
         // houver catálogo para consultar: nomear é uma frase, e o modelo do
         // trabalho é caro e mais lento para dizer cinco palavras.
-        "codex" => {
+        crate::state::ProviderId::Codex => {
             let model = crate::agents::codex_namer_model();
             ask_codex(
                 prompt,
@@ -103,7 +103,7 @@ fn ask(prompt: &str, launch: &Launch) -> Option<String> {
                 },
             )
         }
-        _ => ask_claude(prompt),
+        crate::state::ProviderId::Claude => ask_claude(prompt),
     }
 }
 
