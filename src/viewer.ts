@@ -157,7 +157,8 @@ function blob(on: boolean) {
   $("vfile").hidden = !on;
   if (pdfUrl) URL.revokeObjectURL(pdfUrl);
   pdfUrl = "";
-  if (!on) $("vfile").replaceChildren();
+  // Sempre: trocar de PDF para CSV sem limpar deixaria o iframe em cima da tabela.
+  $("vfile").replaceChildren();
 }
 
 /// PDF vai num iframe — o WebKit já desenha PDF com rolagem e zoom, página a

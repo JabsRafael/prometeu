@@ -157,10 +157,15 @@ const tree: Record<string, { name: string; path: string; dir: boolean }[]> = {
   })),
   "app/adapters": ["transcriber.rb", "waha.rb"].map((name) => ({ name, path: `app/adapters/${name}`, dir: false })),
   bin: ["brakeman", "ci", "dev", "rails", "rake", "rubocop", "setup"].map((name) => ({ name, path: `bin/${name}`, dir: false })),
-  docs: [{ name: "clientes.csv", path: "docs/clientes.csv", dir: false }],
+  docs: [
+    { name: "clientes.csv", path: "docs/clientes.csv", dir: false },
+    { name: "regras.pdf", path: "docs/regras.pdf", dir: false },
+  ],
 };
 
 const files: Record<string, string> = {
+  "docs/regras.pdf":
+    "%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>",
   // Excel em pt-BR: `;` de separador, vírgula decimal, campo com quebra dentro.
   "docs/clientes.csv": [
     "id;nome;cidade;total",
