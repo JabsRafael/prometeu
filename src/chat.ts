@@ -19,16 +19,17 @@ import {
   toolLabel,
   wantsCard,
 } from "./chat-presentation";
-import { agentOf, effortStep, modelLabel } from "./launcher";
+import { agentOf, effortStep, fitsEffort, modelGroups, modelLabel, nextEffort } from "./launcher";
 import { md } from "./markdown";
 import * as mcp from "./mcp";
+import * as menu from "./menu";
 import * as plugins from "./plugins";
 import * as commands from "./commands";
 import * as notes from "./notes";
 import * as paths from "./paths";
 import * as team from "./team";
 import { pieces, summary, Timeline, touched, type Ask, type Block, type Command, type Item, type Piece, type ToolBlock } from "./timeline";
-import type { Status } from "./types";
+import type { Choice, Status } from "./types";
 import { h, template } from "./util";
 
 /// A conversa na tela: a timeline desenhada, e a caixa de escrever embaixo.
@@ -61,8 +62,8 @@ export type Info = {
   /// não existe no relay.
   team: boolean;
   /// Com quem se está falando: o modelo e o esforço desta conversa — o que a
-  /// aba escolheu ao nascer, ou o do workspace. Vazio é o padrão do CLI, e aí
-  /// a caixa não diz nada.
+  /// aba escolheu (ao nascer, ou depois, no rodapé da caixa), ou o do
+  /// workspace. Vazio é o padrão do CLI, e aí a caixa não diz nada.
   model: string;
   effort: string;
   /// As ferramentas de MCP deste workspace. `null` é nunca ter escolhido — o
@@ -919,11 +920,12 @@ export class ChatView {
         <!-- O "+" abre o Finder: qualquer arquivo do Mac vira menção na fala. -->
         <button class="ico sm addfile" hidden></button>
         <!-- Com quem se fala, como no rodapé do lançador: o modelo e o degrau
-             de esforço desta conversa. Aqui só se lê — modelo não se troca com
-             a conversa de pé; escolhe-se ao abrir a aba, na setinha do "+". -->
+             de esforço desta conversa, e onde se troca os dois no meio dela.
+             Trocar derruba o processo, e a próxima fala o retoma — o mesmo
+             que o seletor de MCP ao lado faz. -->
         <span class="with" hidden>
-          <span class="mdl"></span>
-          <span class="effort"><span class="bars"><i></i><i></i><i></i><i></i><i></i></span><span class="el"></span></span>
+          <button class="ghost mdl"></button>
+          <button class="ghost effort"><span class="bars"><i></i><i></i><i></i><i></i><i></i></span><span class="el"></span></button>
         </span>
         <!-- As ferramentas: aqui se troca, diferente do modelo. Trocar derruba
              o processo, e a próxima fala o levanta retomando a sessão — a
@@ -1233,24 +1235,83 @@ export class ChatView {
   }
 
   /// Com quem se está falando, embaixo da caixa: o modelo e o degrau de
-  /// esforço desta conversa — o dela, quando a aba nasceu com um escolhido, ou
-  /// o do workspace. Aqui só se lê, e por isso não é botão: trocar é abrir aba
-  /// nova. Nota não vai para modelo nenhum: some.
+  /// esforço desta conversa — o dela, quando a aba escolheu um, ou o do
+  /// workspace. Nota não vai para modelo nenhum: some.
+  ///
+  /// Aqui também se troca, como no rodapé do lançador: o modelo abre a lista,
+  /// o esforço sobe um degrau por clique. A troca fica gravada na aba, derruba
+  /// o processo e a próxima fala o retoma com as flags novas — a conversa
+  /// continua de onde estava, falando com outro. É por isso que os botões
+  /// fecham enquanto o agente trabalha: derrubar no meio de um turno jogaria o
+  /// turno fora.
+  ///
+  /// Só os modelos do CLI que já está de pé entram na lista: o `--resume` do
+  /// Claude Code não abre a thread do Codex, nem o contrário. Sair para um GPT
+  /// é abrir aba nova, na setinha do "+".
+  ///
+  /// Na conversa de um colega os dois viram texto: o processo é do Mac dele.
   private paintWith(info: Info, note: boolean) {
     const el = this.box.querySelector<HTMLElement>(".with")!;
     const label = info.model ? modelLabel(info.model) : "";
     el.hidden = note || !label;
     if (el.hidden) return;
-    el.querySelector<HTMLElement>(".mdl")!.innerHTML = `${icon("sparkles", 13)}<span></span>`;
-    el.querySelector<HTMLElement>(".mdl span")!.textContent = label;
+    const working = info.status === "rodando" || info.status === "querendo";
+    // Sem workspace (a conversa ainda está subindo) não há a quem pedir a
+    // troca; com colega, o processo é dele.
+    const fixed = !!info.remote || !info.workspace;
+    el.classList.toggle("ro", fixed);
+    el.title = fixed ? "" : working ? t("chat.with.busy") : t("chat.with.pick");
+
+    const model = el.querySelector<HTMLButtonElement>(".mdl")!;
+    model.innerHTML = `${icon("sparkles", 13)}<span></span>`;
+    model.querySelector("span")!.textContent = label;
+    model.disabled = fixed || working;
+    model.onclick = () => this.pickModel(model, info);
+
     const step = effortStep(info.model, info.effort);
-    const bars = el.querySelector<HTMLElement>(".effort")!;
+    const bars = el.querySelector<HTMLButtonElement>(".effort")!;
     bars.hidden = !step;
     if (!step) return;
     bars.classList.toggle("ultra", info.effort === "ultracode");
     bars.querySelector<HTMLElement>(".el")!.textContent = step.label;
     bars.querySelectorAll(".bars i").forEach((bar, n) => bar.classList.toggle("lit", n <= step.step));
-    bars.title = t("chat.with", { model: label, effort: step.label });
+    bars.disabled = fixed || working;
+    bars.onclick = () =>
+      this.retune(info, { agent: agentOf(info.model), model: info.model, effort: nextEffort(info.model, info.effort) });
+  }
+
+  /// A lista de modelos desta conversa: a mesma do lançador, restrita ao CLI
+  /// que está de pé, com o de agora marcado. O esforço vai junto porque cada
+  /// modelo tem a sua escada — sair do Sol para um que para no xhigh cai no
+  /// xhigh, como no "+".
+  private pickModel(at: HTMLElement, info: Info) {
+    const box = at.getBoundingClientRect();
+    const blocks = modelGroups(agentOf(info.model));
+    const items: menu.Item[] = [];
+    blocks.forEach((block, n) => {
+      if (n) items.push("sep");
+      if (block.head && blocks.length > 1) items.push({ label: block.head, disabled: true });
+      for (const [id, name] of block.items) {
+        items.push({
+          label: name,
+          checked: id === info.model,
+          run: () =>
+            this.retune(info, { agent: agentOf(id), model: id, effort: fitsEffort(id, info.effort) }),
+        });
+      }
+    });
+    menu.openAt({ x: box.left, y: box.bottom + 4 }, items);
+  }
+
+  /// Grava a escolha na aba e derruba o processo dela. Escolher o que já está
+  /// não mexe em nada: não há por que desligar uma conversa para deixá-la
+  /// igual.
+  private retune(info: Info, choice: Choice) {
+    if (choice.model === info.model && choice.effort === info.effort) return;
+    if (!info.workspace || !this.key) return;
+    void invoke("set_tab_choice", { id: info.workspace, tab: this.key, choice }).catch((e) =>
+      this.ctx.say(fromBack(e), true),
+    );
   }
 
   /// As ferramentas de MCP desta conversa, e o botão que as troca.

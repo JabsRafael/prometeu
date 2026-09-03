@@ -82,6 +82,7 @@ export const IPC_COMMANDS = [
   "set_lang",
   "set_shared",
   "set_stage",
+  "set_tab_choice",
   "set_unread",
   "set_workspace_mcp",
   "set_workspace_plugins",

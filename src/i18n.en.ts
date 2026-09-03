@@ -281,7 +281,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "chat.addFile": "Point the agent at a file",
   "chat.addFile.dialog": "Files to point the agent at",
   "chat.copy": "Copy the reply",
-  "chat.with": "{model}, {effort} effort — picked in the launcher",
+  "chat.with.pick": "who this conversation talks to — switching stops the process, and the next message resumes it",
+  "chat.with.busy": "the agent is working — you can switch models once it stops",
   "chat.stop": "Stop",
   "chat.busy": "the agent is working — Esc to interrupt",
   "chat.compacting": "compacting context…",
@@ -687,6 +688,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.session.noWorktree": "the worktree is gone: {path}",
   "err.session.noWorkspace": "the workspace is gone",
   "err.session.noTab": "conversation not found",
+  "err.session.otherAgent":
+    "this conversation belongs to another agent — to talk to that model, open a new conversation",
   "err.session.noBase": "the base branch '{base}' does not exist in {path}",
   "err.session.noPort": "workspace with no port",
   "err.session.noPr": "no open PR for this branch",

@@ -308,7 +308,8 @@ export const PT = {
   "chat.addFile": "Apontar um arquivo para o agente",
   "chat.addFile.dialog": "Arquivos para apontar ao agente",
   "chat.copy": "Copiar a resposta",
-  "chat.with": "{model}, esforço {effort} — escolhidos no lançador",
+  "chat.with.pick": "com quem esta conversa fala — trocar desliga o processo, e a próxima fala retoma",
+  "chat.with.busy": "o agente está trabalhando — dá para trocar de modelo quando ele parar",
   "chat.stop": "Parar",
   "chat.busy": "o agente está trabalhando — Esc para interromper",
   "chat.compacting": "compactando o contexto…",
@@ -735,6 +736,8 @@ export const PT = {
   "err.session.noWorktree": "worktree sumiu: {path}",
   "err.session.noWorkspace": "workspace sumiu",
   "err.session.noTab": "aba não encontrada",
+  "err.session.otherAgent":
+    "essa conversa é de outro agente — para falar com esse modelo, abra uma conversa nova",
   "err.session.noBase": "a branch base '{base}' não existe em {path}",
   "err.session.noPort": "workspace sem porta",
   "err.session.noPr": "não achei um PR aberto para esta branch",

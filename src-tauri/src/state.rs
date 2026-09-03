@@ -97,10 +97,12 @@ pub struct Tab {
     /// conversa que ainda não respondeu, ou quadro gravado antes disto existir.
     #[serde(default)]
     pub tokens: Option<u64>,
-    /// O modelo desta conversa, quando quem abriu a aba escolheu um diferente
-    /// do que o workspace usa. `None` é seguir o do workspace — o que faz ⌘T, e
-    /// o que toda aba gravada antes disto existir traz. Retomar a aba respeita
-    /// o que está aqui: o transcript é de um modelo só.
+    /// O modelo desta conversa, quando ela fala com um diferente do que o
+    /// workspace usa — escolhido ao abrir a aba, ou depois, no rodapé da caixa
+    /// (`Workspace::retune`). `None` é seguir o do workspace: é o que faz ⌘T, o
+    /// que toda aba gravada antes disto existir traz, e o que volta a valer
+    /// quando alguém escolhe de novo o modelo do workspace. Retomar a aba
+    /// respeita o que está aqui.
     #[serde(default)]
     pub choice: Option<Choice>,
 }

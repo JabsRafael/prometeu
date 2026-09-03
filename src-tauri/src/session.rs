@@ -240,6 +240,35 @@ pub fn set_workspace_plugins(
     publish(&app);
 }
 
+/// Trocar com quem uma conversa que já começou fala: o modelo e o esforço
+/// desta aba, pela mesma regra do MCP e dos plugins. As flags entram quando o
+/// processo sobe, então ele cai aqui e a próxima fala o levanta com `--resume`
+/// e as novas — o transcript é o mesmo, e o que muda é quem o lê daqui para a
+/// frente.
+///
+/// Trocar de CLI no meio não: o transcript do Claude Code o Codex não retoma,
+/// nem o contrário. Quem barra é a tela, que só oferece os modelos do CLI que
+/// já está de pé; aqui a conta é refeita porque comando é porta de entrada.
+#[tauri::command]
+pub fn set_tab_choice(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+    tab: String,
+    choice: Choice,
+) -> Result<(), String> {
+    {
+        let mut board = lock(&state.board);
+        let ws = board
+            .workspace_mut(&id)
+            .ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+        ws.retune(&tab, choice)?;
+    }
+    chat::kill(&state, &tab);
+    publish(&app);
+    Ok(())
+}
+
 /// Marcar como não lido à mão: dar de cara com a novidade e não poder lidar com
 /// ela agora é o caso mais comum de todos.
 #[tauri::command]
@@ -673,9 +702,9 @@ impl Workspace {
         }
     }
 
-    /// Com o que uma aba sobe: o modelo que ela escolheu ao nascer, ou o do
-    /// workspace. É o que separa retomar de recomeçar — a aba que nasceu no
-    /// Sonnet volta no Sonnet, mesmo que as irmãs sejam de outro modelo.
+    /// Com o que uma aba sobe: o modelo que ela escolheu, ou o do workspace.
+    /// É o que separa retomar de recomeçar — a aba que nasceu no Sonnet volta
+    /// no Sonnet, mesmo que as irmãs sejam de outro modelo.
     /// O MCP não entra na conta da aba: a aba escolhe com quem fala, o
     /// workspace escolhe o que o agente tem na mão. Aba do Sonnet e aba do Opus
     /// no mesmo worktree veem os mesmos servidores — e desmarcar um vale para
@@ -693,6 +722,41 @@ impl Workspace {
                     ..Launch::from(choice)
                 },
             )
+    }
+
+    /// Troca o modelo e o esforço de uma conversa de pé. O que fica gravado é a
+    /// escolha da aba (`Tab::choice`), que é onde já morava "esta conversa fala
+    /// com outro" — e escolher de volta o do workspace apaga a escolha, para
+    /// que a aba volte a acompanhar o workspace em vez de congelar o de hoje.
+    ///
+    /// Trocar de CLI é recusado: o `--resume` do Claude Code não abre a thread
+    /// do Codex, e o `thread/resume` do Codex não abre o transcript do Claude.
+    /// Falar com um GPT numa conversa do Claude é abrir aba nova.
+    pub fn retune(&mut self, tab: &str, choice: Choice) -> Result<(), String> {
+        if cli(&self.launch_of(tab).agent) != cli(&choice.agent) {
+            return Err(i18n::t("err.session.otherAgent"));
+        }
+        let follows = cli(&choice.agent) == cli(&self.agent)
+            && choice.model == self.model
+            && choice.effort == self.effort;
+        let tab = self
+            .tabs
+            .iter_mut()
+            .find(|t| t.id == tab)
+            .ok_or_else(|| i18n::t("err.session.noTab"))?;
+        tab.choice = (!follows).then_some(choice);
+        Ok(())
+    }
+}
+
+/// Qual CLI um `agent` nomeia. Vazio e `claude` são o mesmo — é o que os
+/// `match` de spawn já leem, e comparar as strings cruas diria que uma aba
+/// gravada com `claude` fala com outro CLI que uma gravada com vazio.
+fn cli(agent: &str) -> &str {
+    if agent == "codex" {
+        "codex"
+    } else {
+        ""
     }
 }
 
@@ -2135,6 +2199,46 @@ mod tests {
         // Aba que não está no quadro — fechada entre o pedido e a resposta —
         // cai no do workspace, e não num modelo inventado.
         assert_eq!(ws.launch_of("sumiu").model, "opus[1m]");
+    }
+
+    /// Trocar o modelo de uma conversa de pé grava a escolha na aba, e voltar
+    /// ao do workspace apaga a escolha em vez de congelar o de hoje. Trocar de
+    /// CLI é recusado: o transcript de um o outro não retoma.
+    #[test]
+    fn trocar_o_modelo_de_uma_conversa_grava_na_aba() {
+        let mut ws = bare();
+        ws.model = "opus[1m]".into();
+        ws.effort = "high".into();
+        ws.tabs = vec![tab("aberta", None)];
+
+        let choice = |model: &str, effort: &str| Choice {
+            agent: String::new(),
+            model: model.into(),
+            effort: effort.into(),
+        };
+
+        ws.retune("aberta", choice("sonnet", "medium")).unwrap();
+        let launch = ws.launch_of("aberta");
+        assert_eq!(
+            (launch.model.as_str(), launch.effort.as_str()),
+            ("sonnet", "medium")
+        );
+        // As irmãs que seguem o workspace não foram junto.
+        assert_eq!(ws.model, "opus[1m]");
+
+        // De volta ao do workspace: a aba volta a segui-lo, e não guarda uma
+        // cópia do que ele é hoje.
+        ws.retune("aberta", choice("opus[1m]", "high")).unwrap();
+        assert!(ws.tabs[0].choice.is_none());
+
+        // O CLI não troca no meio da conversa.
+        let gpt = Choice {
+            agent: "codex".into(),
+            model: "gpt-5.6-sol".into(),
+            effort: "high".into(),
+        };
+        assert!(ws.retune("aberta", gpt).is_err());
+        assert!(ws.retune("sumiu", choice("sonnet", "high")).is_err());
     }
 
     /// O que faz a conversa ser JSON dos dois lados, e o pedido de permissão
