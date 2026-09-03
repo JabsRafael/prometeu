@@ -710,10 +710,12 @@ main { flex: 1; min-height: 0; position: relative; }
 }
 /* PDF e CSV no lugar do código. O PDF rola dentro do iframe; a tabela rola
    nos dois sentidos aqui, com o cabeçalho grudado no topo. */
-.vfile { flex: 1; min-height: 0; overflow: auto; padding: 12px 12px 24px; }
+/* Sem padding em cima: o cabeçalho gruda na borda do scroll, e com padding
+   as linhas passariam por essa faixa acima dele. O respiro é margem da tabela. */
+.vfile { flex: 1; min-height: 0; overflow: auto; padding: 0 12px 24px; }
 .vfile.pdf { overflow: hidden; padding: 12px 0 0; }
 .vfile iframe { width: 100%; height: 100%; border: 0; }
-.vfile table { border-collapse: collapse; font-size: 12.5px; white-space: nowrap; }
+.vfile table { margin-top: 12px; border-collapse: collapse; font-size: 12.5px; white-space: nowrap; }
 .vfile th, .vfile td { padding: 3px 10px; border: 1px solid var(--line-raised); text-align: left; }
 .vfile th { position: sticky; top: 0; background: var(--bg-raised); color: var(--fg); font-weight: 600; }
 .vfile td { color: var(--fg-2); }
