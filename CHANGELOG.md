@@ -4,6 +4,20 @@ O que muda no Prometheus, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.4.19] - 2026-09-04
+
+### Novidades
+
+- **sidebar:** Mostra o provedor dos workspaces
+- **viewer:** Abrir PDF e CSV na tela, direto da árvore de arquivos
+
+### Correções
+
+- **viewer:** Trocar de PDF para CSV não deixa o PDF em cima da tabela
+- **viewer:** Cabeçalho do CSV gruda no topo sem linha passando por cima
+- **viewer:** Some a fresta de 1px acima do cabeçalho do CSV ao rolar
+- **viewer:** PDF e CSV mostram só o conteúdo, e reabrir o CSV começa do topo
+
 ## [0.4.18] - 2026-09-03
 
 ### Novidades
