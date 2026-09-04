@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { use } from "./i18n";
-import { ago, bytes, span, until } from "./statusbar";
+import { ago, bytes, groups, span, until, type Window } from "./statusbar";
 
 beforeEach(() => use("pt-BR"));
 
@@ -55,5 +55,24 @@ describe("bytes", () => {
   it("processo que ainda não pegou memória nenhuma", () => {
     expect(bytes(0)).toBe("0 B");
     expect(bytes(900)).toBe("900 B");
+  });
+});
+
+describe("groups", () => {
+  it("segrega as janelas do Codex por cota sem mudar a ordem", () => {
+    const windows: Window[] = [
+      { kind: "weekly", pct: 6, resets: 30, scope: "general" },
+      { kind: "session", pct: 1, resets: 10, scope: "spark", label: "Spark" },
+      { kind: "weekly", pct: 0, resets: 40, scope: "spark", label: "Spark" },
+    ];
+    expect(groups(windows)).toEqual([
+      ["general", [windows[0]]],
+      ["spark", [windows[1], windows[2]]],
+    ]);
+  });
+
+  it("trata o snapshot persistido antigo como cota geral", () => {
+    const window: Window = { kind: "session", pct: 4, resets: 10 };
+    expect(groups([window])).toEqual([["general", [window]]]);
   });
 });

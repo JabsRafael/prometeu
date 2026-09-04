@@ -36,6 +36,17 @@ pub struct Window {
     pub pct: f64,
     /// Unix, em segundos. É o que vira "zera em 3h 14m".
     pub resets: u64,
+    /// Bucket estável da cota. Ausente é o formato antigo, em que cada agente
+    /// tinha uma única cota. `general` é a cota comum; outros ids separam
+    /// limites próprios de modelo ou feature sem levar o payload do provider
+    /// até o frontend.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    /// Nome que o provider dá ao bucket, quando há um. É dado externo e a UI
+    /// escapa antes de mostrar; `scope` continua sendo a identidade usada para
+    /// mesclar updates esparsos.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 /// O que se sabe de um agente, e de quando.
@@ -69,7 +80,12 @@ pub fn claude(app: &AppHandle, info: &Value) {
 
 /// O `rateLimits` do `account/rateLimits/{read,updated}`.
 pub fn codex(app: &AppHandle, limits: &Value) {
-    note(app, "codex", codex_windows(limits));
+    let (windows, complete) = codex_windows(limits);
+    if complete {
+        note(app, "codex", windows);
+    } else {
+        note_codex_update(app, windows);
+    }
 }
 
 /// `utilization` do Claude Code vai de 0 a 1 — os 0,5 da semana são 50%.
@@ -89,25 +105,67 @@ fn claude_windows(info: &Value) -> Vec<Window> {
             kind: (*kind).to_string(),
             pct: (window["utilization"].as_f64()? * 100.0).clamp(0.0, 100.0),
             resets: window["resetsAt"].as_u64()?,
+            scope: None,
+            label: None,
         })
     })
     .collect()
 }
 
-/// `usedPercent` do Codex já vem de 0 a 100. A janela dele vem em minutos e
-/// não em nome: 300 é a sessão, o resto é a semana.
-fn codex_windows(limits: &Value) -> Vec<Window> {
+/// O snapshot completo novo traz um mapa por `limitId`; versões anteriores
+/// traziam só `rateLimits`. Uma notificação continua sendo um único snapshot
+/// esparso, por isso o booleano diz se pode substituir o estado inteiro.
+fn codex_windows(value: &Value) -> (Vec<Window>, bool) {
+    if value.get("rateLimits").is_none() {
+        return (codex_snapshot_windows(value, None), false);
+    }
+
+    let mut windows = vec![];
+    if let Some(by_id) = value["rateLimitsByLimitId"].as_object() {
+        for (id, snapshot) in by_id {
+            windows.extend(codex_snapshot_windows(snapshot, Some(id)));
+        }
+    }
+    // O mapa é a visão autoritativa. Se o CLI antigo não o mandar, cai para o
+    // bucket histórico em vez de duplicar a mesma cota.
+    if windows.is_empty() {
+        windows.extend(codex_snapshot_windows(&value["rateLimits"], None));
+    }
+    (windows, true)
+}
+
+fn codex_snapshot_windows(snapshot: &Value, map_id: Option<&String>) -> Vec<Window> {
+    let id = snapshot["limitId"].as_str().or(map_id.map(String::as_str));
+    let scope = match id {
+        None | Some("codex") => "general".to_string(),
+        Some(id) => id.to_string(),
+    };
+    let label = snapshot["limitName"].as_str().map(str::to_string);
     [("primary", "session"), ("secondary", "weekly")]
         .iter()
-        .filter_map(|(from, kind)| {
-            let window = &limits[from];
+        .filter_map(|(from, fallback)| {
+            let window = &snapshot[from];
             Some(Window {
-                kind: (*kind).to_string(),
+                kind: codex_kind(
+                    window["windowDurationMins"].as_u64().map(|mins| mins * 60),
+                    fallback,
+                ),
                 pct: window["usedPercent"].as_f64()?.clamp(0.0, 100.0),
                 resets: window["resetsAt"].as_u64()?,
+                scope: Some(scope.clone()),
+                label: label.clone(),
             })
         })
         .collect()
+}
+
+fn codex_kind(seconds: Option<u64>, fallback: &str) -> String {
+    match seconds {
+        Some(18_000) => "session".to_string(),
+        Some(604_800) => "weekly".to_string(),
+        Some(seconds) => format!("duration:{seconds}"),
+        None => fallback.to_string(),
+    }
 }
 
 /* ---------- o poll ---------- */
@@ -126,7 +184,7 @@ pub fn watch(app: AppHandle) {
             note(&app, "claude", claude_api_windows(&info));
         }
         if let Some(reply) = fetch_codex() {
-            note(&app, "codex", codex_api_windows(&reply["rate_limit"]));
+            note(&app, "codex", codex_api_windows(&reply));
         }
         std::thread::sleep(POLL);
     });
@@ -223,25 +281,50 @@ fn claude_api_windows(info: &Value) -> Vec<Window> {
                 kind: kind.to_string(),
                 pct: limit["percent"].as_f64()?.clamp(0.0, 100.0),
                 resets: rfc3339(limit["resets_at"].as_str()?)?,
+                scope: None,
+                label: None,
             })
         })
         .collect()
 }
 
-/// O `rate_limit` da resposta do endpoint do Codex: as mesmas duas janelas do
-/// app-server, com outros nomes e o reset já em unix.
-fn codex_api_windows(rate: &Value) -> Vec<Window> {
+/// O endpoint do Codex separa a cota comum, limites extras por modelo/feature
+/// e revisão de código. Cada janela declara a duração; `primary` deixou de
+/// significar necessariamente 5 horas em planos novos.
+fn codex_api_windows(reply: &Value) -> Vec<Window> {
+    let mut windows = codex_api_bucket(&reply["rate_limit"], "general", None);
+    if let Some(additional) = reply["additional_rate_limits"].as_array() {
+        for limit in additional {
+            let id = limit["metered_feature"]
+                .as_str()
+                .or(limit["normal_model_slug"].as_str())
+                .unwrap_or("additional");
+            let label = limit["limit_name"].as_str();
+            windows.extend(codex_api_bucket(&limit["rate_limit"], id, label));
+        }
+    }
+    if !reply["code_review_rate_limit"].is_null() {
+        let review = &reply["code_review_rate_limit"];
+        let rate = review.get("rate_limit").unwrap_or(review);
+        windows.extend(codex_api_bucket(rate, "code_review", None));
+    }
+    windows
+}
+
+fn codex_api_bucket(rate: &Value, scope: &str, label: Option<&str>) -> Vec<Window> {
     [
         ("primary_window", "session"),
         ("secondary_window", "weekly"),
     ]
     .iter()
-    .filter_map(|(from, kind)| {
+    .filter_map(|(from, fallback)| {
         let window = &rate[from];
         Some(Window {
-            kind: (*kind).to_string(),
+            kind: codex_kind(window["limit_window_seconds"].as_u64(), fallback),
             pct: window["used_percent"].as_f64()?.clamp(0.0, 100.0),
             resets: window["reset_at"].as_u64()?,
+            scope: Some(scope.to_string()),
+            label: label.map(str::to_string),
         })
     })
     .collect()
@@ -303,6 +386,59 @@ fn note(app: &AppHandle, agent: &str, windows: Vec<Window>) {
     drop(all);
     write(&snapshot);
     let _ = app.emit("usage", &snapshot);
+}
+
+/// A notificação do app-server atualiza um bucket por vez. Preserva os outros
+/// buckets e, dentro do mesmo bucket, a janela que não veio neste update.
+/// Campos de apresentação ausentes também herdam o snapshot completo.
+fn merge_codex(old: &[Window], mut updates: Vec<Window>) -> Vec<Window> {
+    if updates.is_empty() {
+        return old.to_vec();
+    }
+    // Um Codex antigo não dá identidade ao bucket. Nesse formato não há como
+    // distinguir update esparso de snapshot; mantém a semântica antiga.
+    if updates.iter().any(|window| window.scope.is_none()) {
+        return updates;
+    }
+    for update in &mut updates {
+        if update.label.is_none() {
+            update.label = old
+                .iter()
+                .find(|window| same_scope(window, update))
+                .and_then(|window| window.label.clone());
+        }
+    }
+    let mut merged: Vec<Window> = old
+        .iter()
+        .filter(|window| {
+            !updates
+                .iter()
+                .any(|update| same_scope(update, window) && update.kind == window.kind)
+        })
+        .cloned()
+        .collect();
+    merged.extend(updates);
+    merged.sort_by_key(|window| {
+        old.iter()
+            .position(|known| same_scope(known, window) && known.kind == window.kind)
+            .unwrap_or(old.len())
+    });
+    merged
+}
+
+fn same_scope(a: &Window, b: &Window) -> bool {
+    a.scope.as_deref().unwrap_or("general") == b.scope.as_deref().unwrap_or("general")
+}
+
+fn note_codex_update(app: &AppHandle, windows: Vec<Window>) {
+    if windows.is_empty() {
+        return;
+    }
+    let current = lock(state())
+        .get("codex")
+        .map(|agent| agent.windows.clone())
+        .unwrap_or_default();
+    note(app, "codex", merge_codex(&current, windows));
 }
 
 fn path() -> std::path::PathBuf {
@@ -389,17 +525,33 @@ mod tests {
     }
 
     #[test]
-    fn poll_do_codex_traduz_as_duas_janelas() {
+    fn poll_do_codex_separa_cota_geral_e_modelo() {
         let reply = json!({
-            "primary_window": { "used_percent": 4, "limit_window_seconds": 18000, "reset_at": 1788330820u64 },
-            "secondary_window": { "used_percent": 18, "limit_window_seconds": 604800, "reset_at": 1788789678u64 }
+            "rate_limit": {
+                "primary_window": { "used_percent": 6, "limit_window_seconds": 604800, "reset_at": 1789079183u64 },
+                "secondary_window": null
+            },
+            "additional_rate_limits": [{
+                "limit_name": "GPT-5.3-Codex-Spark",
+                "metered_feature": "codex_bengalfox",
+                "rate_limit": {
+                    "primary_window": { "used_percent": 1, "limit_window_seconds": 18000, "reset_at": 1788503277u64 },
+                    "secondary_window": { "used_percent": 0, "limit_window_seconds": 604800, "reset_at": 1789090077u64 }
+                }
+            }],
+            "code_review_rate_limit": null
         });
         let windows = codex_api_windows(&reply);
-        assert_eq!(windows.len(), 2);
-        assert_eq!(windows[0].kind, "session");
-        assert!((windows[0].pct - 4.0).abs() < 0.001);
-        assert_eq!(windows[1].kind, "weekly");
-        assert_eq!(windows[1].resets, 1788789678);
+        assert_eq!(windows.len(), 3);
+        // `primary` não é sinônimo de 5 horas: no plano novo a cota geral é
+        // uma única janela semanal.
+        assert_eq!(windows[0].kind, "weekly");
+        assert_eq!(windows[0].scope.as_deref(), Some("general"));
+        assert!((windows[0].pct - 6.0).abs() < 0.001);
+        assert_eq!(windows[1].kind, "session");
+        assert_eq!(windows[1].scope.as_deref(), Some("codex_bengalfox"));
+        assert_eq!(windows[1].label.as_deref(), Some("GPT-5.3-Codex-Spark"));
+        assert_eq!(windows[2].kind, "weekly");
     }
 
     #[test]
@@ -423,11 +575,90 @@ mod tests {
             "primary": { "usedPercent": 0, "windowDurationMins": 300, "resetsAt": 1788245287u64 },
             "secondary": { "usedPercent": 13, "windowDurationMins": 10080, "resetsAt": 1788789678u64 }
         });
-        let windows = codex_windows(&limits);
+        let (windows, complete) = codex_windows(&limits);
+        assert!(!complete);
         assert_eq!(windows.len(), 2);
         assert_eq!(windows[0].kind, "session");
         assert!((windows[0].pct - 0.0).abs() < 0.001);
         assert!((windows[1].pct - 13.0).abs() < 0.001);
         assert_eq!(windows[1].resets, 1788789678);
+    }
+
+    #[test]
+    fn codex_prefere_snapshot_com_todos_os_buckets() {
+        let limits = json!({
+            "rateLimits": {
+                "limitId": "codex",
+                "primary": { "usedPercent": 6, "windowDurationMins": 10080, "resetsAt": 1789079183u64 }
+            },
+            "rateLimitsByLimitId": {
+                "codex": {
+                    "limitId": "codex",
+                    "primary": { "usedPercent": 6, "windowDurationMins": 10080, "resetsAt": 1789079183u64 }
+                },
+                "codex_bengalfox": {
+                    "limitId": "codex_bengalfox",
+                    "limitName": "GPT-5.3-Codex-Spark",
+                    "primary": { "usedPercent": 1, "windowDurationMins": 300, "resetsAt": 1788503277u64 },
+                    "secondary": { "usedPercent": 0, "windowDurationMins": 10080, "resetsAt": 1789090077u64 }
+                }
+            }
+        });
+        let (windows, complete) = codex_windows(&limits);
+        assert!(complete);
+        assert_eq!(windows.len(), 3);
+        assert_eq!(windows[0].scope.as_deref(), Some("general"));
+        assert_eq!(windows[0].kind, "weekly");
+        assert_eq!(windows[1].scope.as_deref(), Some("codex_bengalfox"));
+        assert_eq!(windows[1].kind, "session");
+    }
+
+    #[test]
+    fn update_esparso_do_codex_preserva_outros_buckets_e_janelas() {
+        let full = json!({
+            "rateLimits": {},
+            "rateLimitsByLimitId": {
+                "codex": {
+                    "limitId": "codex",
+                    "primary": { "usedPercent": 6, "windowDurationMins": 10080, "resetsAt": 1789079183u64 }
+                },
+                "spark": {
+                    "limitId": "spark",
+                    "limitName": "Spark",
+                    "primary": { "usedPercent": 1, "windowDurationMins": 300, "resetsAt": 1788503277u64 },
+                    "secondary": { "usedPercent": 2, "windowDurationMins": 10080, "resetsAt": 1789090077u64 }
+                }
+            }
+        });
+        let (old, _) = codex_windows(&full);
+        let (update, complete) = codex_windows(&json!({
+            "limitId": "spark",
+            "primary": { "usedPercent": 9, "windowDurationMins": 300, "resetsAt": 1788504277u64 }
+        }));
+        assert!(!complete);
+        let merged = merge_codex(&old, update);
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[0].scope.as_deref(), Some("general"));
+        assert_eq!(merged[1].pct, 9.0);
+        assert_eq!(merged[1].label.as_deref(), Some("Spark"));
+        assert_eq!(merged[2].kind, "weekly");
+        assert_eq!(merged[2].pct, 2.0);
+    }
+
+    #[test]
+    fn usage_antigo_sem_scope_continua_legivel() {
+        let window: Window = serde_json::from_value(json!({
+            "kind": "session", "pct": 4, "resets": 1788330820u64
+        }))
+        .unwrap();
+        assert_eq!(window.scope, None);
+        assert_eq!(window.label, None);
+        let (update, _) = codex_windows(&json!({
+            "limitId": "codex",
+            "primary": { "usedPercent": 7, "windowDurationMins": 300, "resetsAt": 1788331820u64 }
+        }));
+        let merged = merge_codex(&[window], update);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].pct, 7.0);
     }
 }
