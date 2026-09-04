@@ -68,6 +68,10 @@ desenvolvimento reutiliza seu client id anterior para não desativar a feature.
 Antes da primeira release pública, ele deve ser substituído por um cadastro do
 Prometeu; até lá, a tela de consentimento do Linear pode mostrar a marca antiga.
 
+Atualização de implementação em 2026-09-04: a exceção foi encerrada. O
+Prometeu passou a usar seu próprio cadastro OAuth antes da primeira release
+pública, preservando o fluxo Authorization Code com PKCE e o escopo de leitura.
+
 ## Evidência
 
 - testes de `paths.rs` cobrem as raízes novas;

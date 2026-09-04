@@ -2,9 +2,8 @@
 //!
 //! Não há servidor do Prometeu no meio. O app OAuth foi registrado uma vez
 //! no Linear — é o `CLIENT_ID` abaixo, público por definição — e cada pessoa
-//! só clica em "Conectar", aprova no navegador e volta. Temporariamente esse
-//! id ainda pertence ao cadastro do produto anterior; o consentimento externo
-//! pode mostrar a marca antiga até existir um cadastro próprio do Prometeu.
+//! só clica em "Conectar", aprova no navegador e volta. O cadastro pertence
+//! ao Prometeu e o `client_id` público identifica essa integração no Linear.
 //!
 //! O que substitui o `client_secret`, que num `.app` qualquer um extrai, é o
 //! PKCE: um segredo aleatório gerado na hora, que nunca sai deste processo.
@@ -41,10 +40,9 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
-/// Id temporário do cadastro OAuth anterior. É público: não abre nada sem o
-/// consentimento. Trocar pelo id do Prometeu não exige migrar token local,
-/// porque esta linha usa uma raiz de estado nova.
-pub const CLIENT_ID: &str = "f5450b36b19aab8193b7d8da649231be";
+/// Id público do cadastro OAuth do Prometeu. Não abre nada sem o consentimento
+/// da pessoa e o verifier PKCE gerado localmente.
+pub const CLIENT_ID: &str = "31c6d308b9f6d485d04c04ed94c26071";
 const PORT: u16 = 17420;
 const REDIRECT: &str = "http://localhost:17420/linear";
 const AUTHORIZE: &str = "https://linear.app/oauth/authorize";
