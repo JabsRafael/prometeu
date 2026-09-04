@@ -18,7 +18,7 @@ import { $ } from "./util";
 /// Na faixa cabe o número; o resto abre no clique. Um painel por assunto, e
 /// nenhum deles com submenu: são poucas linhas, e todas cabem à vista.
 
-export type Window = { kind: string; pct: number; resets: number };
+export type Window = { kind: string; pct: number; resets: number; scope?: string; label?: string };
 export type Agent = { windows: Window[]; at: number };
 export type Usage = Record<string, Agent>;
 
@@ -117,6 +117,11 @@ const SHORT: Record<string, string> = {
   overage: "Fable",
 };
 
+function shortKind(what: string): string {
+  const duration = /^duration:(\d+)$/.exec(what);
+  return duration ? span(Number(duration[1])) : (SHORT[what] ?? what);
+}
+
 function draw() {
   const bar = $("status");
   bar.innerHTML = "";
@@ -132,7 +137,7 @@ function draw() {
           (windows.length
             ? meter(Math.max(...windows.map((w) => w.pct))) +
               `<span class="utext">${windows
-                .map((w) => `${SHORT[w.kind] ?? w.kind} ${Math.round(w.pct)}%`)
+                .map((w) => `${shortKind(w.kind)} ${Math.round(w.pct)}%`)
                 .join(" · ")}</span>`
             : '<span class="utext dim">—</span>'),
         windows.length ? t("status.usage") : t("status.usage.none"),
@@ -306,24 +311,52 @@ function card(agent: Pick<AgentDescriptor, "id" | "label">, data?: Agent): strin
     `<div class="uagent">${brand(agent.id)}<span class="uname">${agent.label}</span>` +
     `<span class="uwhen">${data ? ago(data.at) : ""}</span></div>`;
   if (!data?.windows.length) return head + `<div class="uempty">${t("status.usage.none")}</div>`;
-  return (
-    head +
-    data.windows
-      .map(
-        (w) =>
-          `<div class="urow"><span class="ukind">${kind(w.kind)}</span>` +
-          meter(w.pct, true) +
-          `<span class="upct">${Math.round(w.pct)}%</span>` +
-          `<span class="ureset">${t("status.resets", { when: until(w.resets) })}</span></div>`,
-      )
-      .join("")
-  );
+  const grouped = data.windows.some((window) => window.scope)
+    ? groups(data.windows)
+        .map(
+          ([scope, windows]) =>
+            `<div class="ugroup">${esc(scopeTitle(scope, windows[0]?.label))}</div>` + rows(windows),
+        )
+        .join("")
+    : rows(data.windows);
+  return head + grouped;
+}
+
+function rows(windows: Window[]): string {
+  return windows
+    .map(
+      (w) =>
+        `<div class="urow"><span class="ukind">${kind(w.kind)}</span>` +
+        meter(w.pct, true) +
+        `<span class="upct">${Math.round(w.pct)}%</span>` +
+        `<span class="ureset">${t("status.resets", { when: until(w.resets) })}</span></div>`,
+    )
+    .join("");
+}
+
+/// Mantém a ordem entregue pelo backend e reúne as janelas do mesmo bucket.
+/// Exportada para testar a compatibilidade com snapshots antigos sem `scope`.
+export function groups(windows: Window[]): [string, Window[]][] {
+  const grouped = new Map<string, Window[]>();
+  for (const window of windows) {
+    const scope = window.scope ?? "general";
+    grouped.set(scope, [...(grouped.get(scope) ?? []), window]);
+  }
+  return [...grouped];
+}
+
+function scopeTitle(scope: string, label?: string): string {
+  if (scope === "general") return t("status.scope.general");
+  if (scope === "code_review") return t("status.scope.codeReview");
+  return label || scope;
 }
 
 function kind(what: string): string {
   if (what === "session") return t("status.window.session");
   if (what === "weekly") return t("status.window.weekly");
   if (what === "fable" || what === "overage") return t("status.window.fable");
+  const duration = /^duration:(\d+)$/.exec(what);
+  if (duration) return t("status.window.duration", { when: span(Number(duration[1])) });
   return what;
 }
 

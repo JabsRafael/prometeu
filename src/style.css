@@ -1582,8 +1582,8 @@ body.noside .side { display: none; }
 .uchip:hover .meter.warn > i { background: var(--wait); }
 .uchip:hover .meter.hot > i { background: var(--err); }
 
-/* O painel do uso. Uma linha por janela, e os agentes empilhados: são dois
-   números por agente, e dois agentes — cabe tudo à vista. */
+/* O painel do uso. Uma linha por janela; planos com buckets próprios de
+   modelo ganham subtítulos para não misturar cotas independentes. */
 .upop { min-width: 268px; padding: 10px 12px 12px; gap: 0; }
 .uhead { font-size: 12px; font-weight: 600; color: var(--fg); padding-bottom: 8px; }
 .uagent {
@@ -1593,6 +1593,10 @@ body.noside .side { display: none; }
 .uagent .ic { flex: none; }
 .uname { font-size: 12px; font-weight: 600; color: var(--fg); flex: 1; }
 .uwhen { font-size: 11px; color: var(--fg-3); }
+.ugroup {
+  padding: 7px 0 2px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: 10px; font-weight: 600; color: var(--fg-3);
+}
 .urow {
   display: grid; grid-template-columns: 54px minmax(56px, 1fr) 34px auto;
   align-items: center; gap: 8px; height: 22px;

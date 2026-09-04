@@ -796,8 +796,21 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
         },
         codex: {
           windows: [
-            { kind: "session", pct: 0, resets: now + 4 * 3600 + 55 * 60 },
-            { kind: "weekly", pct: 13, resets: now + 6 * 86400 + 12 * 3600 },
+            { kind: "weekly", pct: 6, resets: now + 6 * 86400 + 20 * 3600, scope: "general" },
+            {
+              kind: "session",
+              pct: 1,
+              resets: now + 4 * 3600 + 55 * 60,
+              scope: "codex_bengalfox",
+              label: "GPT-5.3-Codex-Spark",
+            },
+            {
+              kind: "weekly",
+              pct: 0,
+              resets: now + 6 * 86400 + 23 * 3600,
+              scope: "codex_bengalfox",
+              label: "GPT-5.3-Codex-Spark",
+            },
           ],
           at: now - 96 * 60,
         },

@@ -40,6 +40,13 @@ escolhido pelo chamador e os argumentos são `InvokeArgs`.
 | `plugin-made` | `plugins.rs` | `[run, error]` |
 | `browser:url` | `browser.rs` | `[workspace, url]` |
 
+O snapshot do evento e comando `usage` é um mapa por provider. Cada entrada
+tem `{ windows, at }`; cada janela tem `{ kind, pct, resets, scope?, label? }`.
+`scope` identifica cotas independentes para que atualizações esparsas de um
+modelo não apaguem as demais, e `label` é texto externo opcional para exibição.
+Consumidores devem aceitar os dois campos ausentes por compatibilidade com o
+cache anterior.
+
 Eventos Tauri são dinâmicos; o generic passado a `listen<T>` não valida o
 payload Rust em build time. Um evento novo precisa de teste do emissor e do
 consumidor.

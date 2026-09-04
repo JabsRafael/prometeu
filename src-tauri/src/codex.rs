@@ -440,7 +440,10 @@ impl Link {
             // faixa dele — que é exatamente o que se quer dizer.
             Some(Sent::Usage) => match error {
                 Some(_) => vec![],
-                None => vec![rate_limits(&msg["result"]["rateLimits"])],
+                // O resultado completo contém `rateLimitsByLimitId` nas
+                // versões novas. Entregar só o bucket legado apagaria as
+                // cotas separadas por modelo antes de chegarem ao `usage`.
+                None => vec![rate_limits(&msg["result"])],
             },
             Some(Sent::Thread { resumed }) => {
                 if let Some(cause) = error {
@@ -1210,6 +1213,21 @@ mod tests {
             .is_empty());
         assert_eq!(frames[0]["commands"][0]["hint"], "");
         assert!(out.take().is_empty());
+    }
+
+    #[test]
+    fn leitura_de_cota_entrega_o_snapshot_multibucket_inteiro() {
+        let (mut link, out) = link(None);
+        out.take();
+        link.on_line(r#"{"id":1,"result":{}}"#);
+        let sent = out.take();
+        let (id, _) = call_id(&sent, "account/rateLimits/read");
+        let frames = link.on_line(&format!(
+            r#"{{"id":{id},"result":{{"rateLimits":{{"limitId":"codex"}},"rateLimitsByLimitId":{{"codex":{{"limitId":"codex"}},"spark":{{"limitId":"spark","limitName":"Spark"}}}}}}}}"#
+        ));
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0]["type"], "usage.updated");
+        assert!(frames[0]["usage"]["rateLimitsByLimitId"]["spark"].is_object());
     }
 
     #[test]

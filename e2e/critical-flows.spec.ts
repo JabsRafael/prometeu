@@ -12,6 +12,22 @@ async function openWorkspace(page: Page, title: string) {
   await expect(page.locator("#crumb")).toContainText(title);
 }
 
+test("separa a cota geral das janelas próprias de um modelo Codex", async ({ page }) => {
+  await boot(page);
+  const usage = page.locator('#status .uchip[title="Cotas"]');
+  await expect(usage).toHaveCount(2);
+  await usage.nth(1).click();
+
+  const panel = page.locator(".upop.usage");
+  const general = panel.locator(".ugroup", { hasText: "Geral" });
+  const spark = panel.locator(".ugroup", { hasText: "GPT-5.3-Codex-Spark" });
+  await expect(general).toBeVisible();
+  await expect(general.locator("xpath=following-sibling::*[1]")).toContainText("7 dias");
+  await expect(spark).toBeVisible();
+  await expect(spark.locator("xpath=following-sibling::*[1]")).toContainText("5 horas");
+  await expect(spark.locator("xpath=following-sibling::*[2]")).toContainText("7 dias");
+});
+
 test("o topo local fica estável e não trata workspace comum como compartilhado", async ({ page }) => {
   await boot(page);
   const railWorkspace = page.locator("#railbody .navitem.sub", { hasText: "Ola" });
