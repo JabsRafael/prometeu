@@ -388,7 +388,7 @@ test("a tela de Mudanças não monta o diff que ninguém está vendo", async ({ 
     internals.invoke = async function (command, args, options) {
       if (command === "workspace_diff") {
         return [
-          { name: "prometheus", base: "origin/main", ahead: 9, unpushed: 0, dirty: 0, files: files("um", 60) },
+          { name: "prometeu", base: "origin/main", ahead: 9, unpushed: 0, dirty: 0, files: files("um", 60) },
           { name: "njord", base: "origin/develop", ahead: 3, unpushed: 0, dirty: 0, files: files("dois", 50) },
         ];
       }
@@ -536,7 +536,7 @@ test("o filtro de fora de commit não faz repositório sumir da lista", async ({
       if (command === "workspace_diff") {
         return [
           // Tudo commitado: é este que sumia quando o filtro ligava.
-          { name: "prometheus", base: "origin/main", ahead: 9, unpushed: 0, dirty: 0, files: files("um", 8, false) },
+          { name: "prometeu", base: "origin/main", ahead: 9, unpushed: 0, dirty: 0, files: files("um", 8, false) },
           { name: "njord", base: "origin/develop", ahead: 4, unpushed: 0, dirty: 2, files: files("dois", 2, true) },
         ];
       }
@@ -557,7 +557,7 @@ test("o filtro de fora de commit não faz repositório sumir da lista", async ({
   await expect(page.locator("#difflist .diffrow")).toHaveCount(2);
   await expect(repos).toHaveCount(2);
   await expect(repos.first()).toHaveClass(/\bquiet\b/);
-  await expect(repos.first()).toContainText("prometheus");
+  await expect(repos.first()).toContainText("prometeu");
   await expect(repos.first()).toContainText("tudo commitado");
 });
 
@@ -644,7 +644,7 @@ test("o filtro por time corta a lista de issues e as contagens seguem a busca", 
 /// pasta. O que este teste guarda é o caminho inteiro: o pedido, o que o
 /// agente vai escrevendo (que é o que faz a espera parecer trabalho) e o
 /// plugin já na lista no fim.
-test("cria um plugin pelo Prometheus e ele entra na lista", async ({ page }) => {
+test("cria um plugin pelo Prometeu e ele entra na lista", async ({ page }) => {
   await boot(page);
   await page.locator("#settings").click();
   await page.locator(".setnavitem", { hasText: "Plugins" }).click();
@@ -661,11 +661,11 @@ test("cria um plugin pelo Prometheus e ele entra na lista", async ({ page }) => 
   await expect(page.locator(".sheet.hubedit .mstep", { hasText: "plugin.json" })).toBeVisible();
 
   // No fim a folha fecha sozinha e o plugin está cadastrado, com a pasta do
-  // Prometheus como origem.
+  // Prometeu como origem.
   await expect(page.locator(".sheet.hubedit")).toHaveCount(0);
   const row = page.locator(".setrow", { hasText: "diario-do-dia" });
   await expect(row).toBeVisible();
-  await expect(row).toContainText("~/.prometheus/plugins/diario-do-dia");
+  await expect(row).toContainText("~/.prometeu/plugins/diario-do-dia");
 });
 
 /// Instalar plugin era assunto de fora do app: instalar no CLI e importar

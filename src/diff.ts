@@ -153,7 +153,7 @@ function none(text: string): HTMLElement {
 /// "visto" servir para acompanhar o agente, e não só para arrumar a lista.
 /// Fica no localStorage: fechar o app não pode apagar o que você já leu.
 const seenOf = new Map<string, Record<string, string>>();
-const seenKey = (id: string) => `prometheus:visto:${id}`;
+const seenKey = (id: string) => `prometeu:visto:${id}`;
 
 function seenMap(id: string): Record<string, string> {
   let m = seenOf.get(id);
@@ -213,11 +213,11 @@ export function pruneSeen(alive: Set<string>) {
   const gone: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    if (k?.startsWith("prometheus:visto:") && !alive.has(k.slice("prometheus:visto:".length))) gone.push(k);
+    if (k?.startsWith("prometeu:visto:") && !alive.has(k.slice("prometeu:visto:".length))) gone.push(k);
   }
   for (const k of gone) {
     localStorage.removeItem(k);
-    seenOf.delete(k.slice("prometheus:visto:".length));
+    seenOf.delete(k.slice("prometeu:visto:".length));
   }
 }
 

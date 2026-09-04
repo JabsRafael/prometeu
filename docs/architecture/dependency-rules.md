@@ -37,14 +37,15 @@ para decidir ownership e direção de dependência durante mudanças incrementai
 1. Protocolos de Claude, Codex ou outro fornecedor aparecem somente no adapter
    correspondente e em fixtures daquele adapter.
 2. O core recebe `ConversationCommand` e produz `ConversationEvent`, ambos do
-   Prometheus.
+   Prometeu.
 3. Um provider novo implementa o mesmo port e passa pela suíte de conformidade.
 4. Eventos desconhecidos não derrubam uma sessão; ficam observáveis e são
    ignorados de forma compatível até terem tradução explícita.
 
-O leitor de transcript legado e a projeção temporária de rollback são exceções
-explícitas à primeira regra. Ficam isolados em `conversation-legacy.ts` e
-`conversation_rollback.rs`, sem alcançar a timeline nem os adapters de runtime.
+O leitor de transcript legado é exceção explícita à primeira regra. Fica
+isolado em `conversation-legacy.ts` e no caminho de replay do adapter Claude,
+sem alcançar a timeline nem o protocolo canônico. O Prometeu não produz novas
+linhas no formato legado.
 
 ## Fronteiras que justificam interfaces
 

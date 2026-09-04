@@ -16,8 +16,8 @@ Status: contrato atual.
 
 ## Raiz do app
 
-Em release, a raiz padrão é `~/.prometheus`. Em debug, `~/.prometheus-dev`.
-`PROMETHEUS_ROOT` pode substituir a raiz, principalmente em testes e instâncias
+Em release, a raiz padrão é `~/.prometeu`. Em debug, `~/.prometeu-dev`.
+`PROMETEU_ROOT` pode substituir a raiz, principalmente em testes e instâncias
 isoladas.
 
 | Dado | Caminho | Ownership |
@@ -26,9 +26,14 @@ isoladas.
 | backup do quadro | ao lado de `board.json` | `state.rs` |
 | time e credencial | `<root>/team.json` | `team.rs` |
 | último snapshot de cotas | `<root>/usage.json` | `usage.rs` |
-| transcript V1 do Codex + espelho de rollback | `<root>/chats/<tab>.jsonl` | `chat.rs` |
+| transcript V1 do Codex | `<root>/chats/<tab>.jsonl` | `chat.rs` |
 
-Worktrees ficam em `~/prometheus/worktrees[-dev]/...`, fora da raiz de estado.
+Worktrees ficam em `~/prometeu/worktrees[-dev]/...`, fora da raiz de estado.
+
+O Prometeu não procura nem escreve automaticamente nas raízes do Prometheus.
+Os dois aplicativos podem permanecer instalados e abertos sem compartilhar
+quadro, credenciais, plugins, transcripts ou worktrees. Uma importação futura
+será uma operação explícita, com backup e sem apagar a origem.
 
 ## Board
 
@@ -66,7 +71,7 @@ deriva do caminho do worktree. O arquivo pode não existir até a primeira fala.
 
 ### Codex
 
-O rollout nativo do Codex não é usado pela UI. O Prometheus grava os eventos V1
+O rollout nativo do Codex não é usado pela UI. O Prometeu grava os eventos V1
 mostrados em `<root>/chats/<tab>.jsonl`; `Tab.agent_session` guarda a thread
 opaca necessária para `thread/resume`.
 
@@ -78,9 +83,9 @@ streaming podem ser numerados sem serem persistidos quando a forma completa os
 substitui.
 
 `ConversationEventV1` mantém leitura do stream-json legado. Não há migração
-destrutiva em lugar. Eventos persistentes do Codex também recebem uma projeção
-legada `prometheusV1Mirror`: a versão atual a ignora, enquanto uma versão
-anterior ignora o V1 e continua lendo o histórico após rollback.
+destrutiva em lugar. O leitor reconhece e ignora a marca histórica
+`prometheusV1Mirror`, necessária para uma importação futura de logs do produto
+anterior; logs novos do Prometeu gravam somente o evento V1 canônico.
 
 ## Segredos e logs
 

@@ -66,6 +66,6 @@ export default {
       return stub.fetch(req);
     }
 
-    return new Response("prometheus-relay", { status: 404 });
+    return new Response("prometeu-relay", { status: 404 });
   },
 } satisfies ExportedHandler<Env>;

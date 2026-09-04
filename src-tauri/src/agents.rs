@@ -14,7 +14,7 @@
 //! A lista de modelos não está escrita aqui: cada CLI mantém o próprio
 //! catálogo — o `codex` num arquivo (`models_cache.json`), o `claude` numa
 //! pergunta (o control request `list_models`) — e é deles que o lançador tira o
-//! que oferecer. Modelo novo aparece no dropdown sem release do Prometheus.
+//! que oferecer. Modelo novo aparece no dropdown sem release do Prometeu.
 
 use crate::paths;
 use crate::state::ProviderId;
@@ -147,7 +147,7 @@ pub fn agents() -> Agents {
 
 /// O catálogo do Claude Code, perguntado a ele mesmo: o `claude -p` responde
 /// ao control request `list_models` com a mesma lista do seletor `/model` —
-/// modelo novo da Anthropic entra no dropdown sem release do Prometheus, e
+/// modelo novo da Anthropic entra no dropdown sem release do Prometeu, e
 /// modelo que a conta não tem nem aparece. É comando à parte do `agents` de
 /// propósito: isto sobe um processo e leva segundos, e a faixa de baixo não
 /// pode esperar por ele para dizer quais agentes existem.

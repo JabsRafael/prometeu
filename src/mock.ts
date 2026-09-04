@@ -24,9 +24,9 @@ const ws = (
   project,
   repo: `/Users/gustavo/dev/${repo}`,
   repo_name: repo,
-  branch: `prometheus/${id}`,
-  worktree: `~/.prometheus/worktrees/${repo}/prometheus-${id}`,
-  repos: [{ path: `/Users/gustavo/dev/${repo}`, name: repo, worktree: `~/.prometheus/worktrees/${repo}/prometheus-${id}`, base: "origin/main", pr: null }],
+  branch: `prometeu/${id}`,
+  worktree: `~/prometeu/worktrees/${repo}/prometeu-${id}`,
+  repos: [{ path: `/Users/gustavo/dev/${repo}`, name: repo, worktree: `~/prometeu/worktrees/${repo}/prometeu-${id}`, base: "origin/main", pr: null }],
   stage,
   archived: false,
   pinned: false,
@@ -54,7 +54,7 @@ const board: Board = {
   stages: ["Preparando", "Fazendo", "Code review", "Travado", "Feito"],
   projects: [
     { id: "p1", name: "njord", path: "/Users/gustavo/dev/njord" },
-    { id: "p2", name: "prometheus", path: "/Users/gustavo/dev/prometheus" },
+    { id: "p2", name: "prometeu", path: "/Users/gustavo/dev/prometeu" },
   ],
   workspaces: [
     ws("sessao-0929", "p1", "njord", "Ola", "Fazendo", [
@@ -63,31 +63,31 @@ const board: Board = {
       // conversa mostrando o dela, e não o das irmãs.
       { id: "t2", title: "conversa 2", status: "pronta", note: null, tokens: 112_400, pending_prompt: "O que tem nesse projeto aqui de legal?", choice: { agent: "claude", model: "sonnet", effort: "medium" } },
     ]),
-    ws("ui-2231", "p2", "prometheus", "Tela igual ao Conductor", "Fazendo", [
+    ws("ui-2231", "p2", "prometeu", "Tela igual ao Conductor", "Fazendo", [
       { id: "t3", title: "conversa 1", status: "rodando", note: "Edit src/style.css", tokens: 23_800 },
     ]),
     // Dois repositórios na mesma branch: é aqui que a lista de mudanças ganha
     // uma seção por repo.
     Object.assign(
-      ws("portal-1217", "p2", "prometheus", "Contratação pelo portal", "Fazendo", [
+      ws("portal-1217", "p2", "prometeu", "Contratação pelo portal", "Fazendo", [
         { id: "t9", title: "conversa 1", status: "rodando", note: "Edit app/models/entry.rb", tokens: 31_000 },
       ]),
       {
-        worktree: "~/.prometheus/worktrees/prometheus+njord/prometheus-portal-1217",
-        // Um PR por repositório: o do njord já entrou, o do prometheus ainda
+        worktree: "~/prometeu/worktrees/prometeu+njord/prometeu-portal-1217",
+        // Um PR por repositório: o do njord já entrou, o do prometeu ainda
         // não — e é por isso que a barra não oferece "Concluir".
         repos: [
           {
-            path: "/Users/gustavo/dev/prometheus",
-            name: "prometheus",
-            worktree: "~/.prometheus/worktrees/prometheus+njord/prometheus-portal-1217/prometheus",
+            path: "/Users/gustavo/dev/prometeu",
+            name: "prometeu",
+            worktree: "~/prometeu/worktrees/prometeu+njord/prometeu-portal-1217/prometeu",
             base: "origin/main",
             pr: { number: 51, title: "feat(portal): contratação pelo portal", isDraft: false, state: "OPEN" },
           },
           {
             path: "/Users/gustavo/dev/njord",
             name: "njord",
-            worktree: "~/.prometheus/worktrees/prometheus+njord/prometheus-portal-1217/njord",
+            worktree: "~/prometeu/worktrees/prometeu+njord/prometeu-portal-1217/njord",
             base: "origin/develop",
             pr: { number: 12, title: "feat: origem da entrada", isDraft: false, state: "MERGED" },
           },
@@ -96,14 +96,14 @@ const board: Board = {
     ),
     // Uma pergunta esperando você é justamente o que vira novidade.
     Object.assign(
-      ws("icone-2140", "p2", "prometheus", "Ícone do app", "Code review", [
+      ws("icone-2140", "p2", "prometeu", "Ícone do app", "Code review", [
         { id: "t4", title: "conversa 1", status: "querendo", note: "Qual tamanho de ícone você quer gerar?", tokens: 8_100 },
       ]),
       { unread: true, pr: { number: 42, title: "feat(quadro): ícone do app", isDraft: false, state: "OPEN" } },
     ),
     // PR mergeado: é este que mostra o selo no card e o "Concluir" na barra.
     Object.assign(
-      ws("dock-1130", "p2", "prometheus", "Porta do dock por worktree", "Code review", [
+      ws("dock-1130", "p2", "prometeu", "Porta do dock por worktree", "Code review", [
         { id: "t5", title: "conversa 1", status: "pronta", note: null, tokens: 44_200 },
       ]),
       { pr: { number: 40, title: "feat(dock): porta por worktree", isDraft: false, state: "MERGED" } },
@@ -123,7 +123,7 @@ const board: Board = {
     ),
     // Worktree devolvido: o card que sobrou de um trabalho que acabou.
     Object.assign(
-      ws("idioma-1348", "p2", "prometheus", "O app fala inglês", "Feito", [
+      ws("idioma-1348", "p2", "prometeu", "O app fala inglês", "Feito", [
         { id: "t6", title: "conversa 1", status: "desligada", note: null, tokens: 91_000 },
       ]),
       {
@@ -300,7 +300,7 @@ const SAMPLE =
             { name: "cost", description: "Show the total cost and duration of the current session", argumentHint: "" },
             { name: "color", description: "Set the color of the session", argumentHint: "" },
             { name: "open-pr", description: "Abre um PR da branch atual — empurra, escreve título e corpo e acompanha os checks até o fim (project)", argumentHint: "" },
-            { name: "release", description: "Solta uma versão nova do Prometheus — confere os commits, corta a tag, acompanha o CI e publica a draft (project)", argumentHint: "" },
+            { name: "release", description: "Solta uma versão nova do Prometeu — confere os commits, corta a tag, acompanha o CI e publica a draft (project)", argumentHint: "" },
             { name: "caveman:caveman", description: "(caveman) Ultra-compressed communication mode. Cuts token usage ~75% by speaking like caveman while keeping full technical accuracy.", argumentHint: "" },
             { name: "caveman:caveman-commit", description: "(caveman) Ultra-compressed commit message generator. Cuts noise from commit messages while preserving intent and reasoning.", argumentHint: "" },
           ],
@@ -329,7 +329,7 @@ const scripts: Record<string, Scripts> = {
     inherited: false,
     setup: "bin/setup",
     runs: [
-      { name: "web", command: "bin/dev --port $PROMETHEUS_PORT" },
+      { name: "web", command: "bin/dev --port $PROMETEU_PORT" },
       { name: "worker", command: "bin/jobs" },
     ],
     archive: null,
@@ -337,10 +337,10 @@ const scripts: Record<string, Scripts> = {
     port: 3100,
   },
   "ui-2231": {
-    file: ".prometheus/settings.toml",
+    file: ".prometeu/settings.toml",
     inherited: true,
     setup: "npm install",
-    runs: [{ name: "run", command: "npm run dev -- --port $PROMETHEUS_PORT" }],
+    runs: [{ name: "run", command: "npm run dev -- --port $PROMETEU_PORT" }],
     archive: null,
     copy: [".env"],
     port: 3110,
@@ -388,7 +388,7 @@ const DOING: [string, string, string] = ["In Progress", "started", "#f2c94c"];
 const TODO: [string, string, string] = ["Todo", "unstarted", "#e2e2e2"];
 const BACKLOG: [string, string, string] = ["Backlog", "backlog", "#bec2c8"];
 const ISSUES: Issue[] = [
-  issue("MOA-142", "Conectar o Linear ao Prometheus", 2, DOING, "Integrações", 1, "Aba de issues e criar workspace a partir de uma delas."),
+  issue("MOA-142", "Conectar o Linear ao Prometeu", 2, DOING, "Integrações", 1, "Aba de issues e criar workspace a partir de uma delas."),
   issue("MOA-137", "[Quadro] Card arrastado entre colunas perde a etapa quando o mouse solta fora da coluna (drop + reordenar)", 1, DOING, "Quadro", 5),
   issue("MOA-151", "Mostrar tokens de contexto no card", 3, TODO, "Quadro", 26),
   issue("MOA-149", "Atalho ⌘, para configurações", 4, TODO, null, 30),
@@ -447,7 +447,7 @@ type Step = { kind: string; text: string };
 /// O hub de plugins do navegador: um instalado por marketplace e um que
 /// alguém está escrevendo, que são os dois casos que a lista desenha.
 let pluginHub: Plugin[] = [
-  { id: "caveman", source: "~/.prometheus/plugins/caveman", note: "fala curto e sem enfeite", made: true, from: "https://github.com/JuliusBrussee/caveman" },
+  { id: "caveman", source: "~/.prometeu/plugins/caveman", note: "fala curto e sem enfeite", made: true, from: "https://github.com/JuliusBrussee/caveman" },
   { id: "ponytail", source: "~/dev/ponytail", note: "em construção" },
 ];
 
@@ -906,7 +906,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       const url = String(args.source ?? "").trim().replace(/\/+$/, "");
       const name = (url.split(/[/:]/).pop() ?? "").replace(/\.git$/, "");
       if (!name) throw "i18n:" + JSON.stringify({ code: "err.plugin.noSource" });
-      const dir = `~/.prometheus/plugins/${name}`;
+      const dir = `~/.prometeu/plugins/${name}`;
       const from = url.includes("://") || url.includes("@") ? url : `https://github.com/${url}`;
       if (name.endsWith("-plugins")) {
         return {
@@ -945,7 +945,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       ];
       steps.forEach((step, i) => setTimeout(() => emit("plugin-make", [run, step]), 500 * (i + 1)));
       setTimeout(() => {
-        pluginHub.push({ id: slug, source: `~/.prometheus/plugins/${slug}`, note: String(args.ask ?? "").slice(0, 60), made: true });
+        pluginHub.push({ id: slug, source: `~/.prometeu/plugins/${slug}`, note: String(args.ask ?? "").slice(0, 60), made: true });
         emit("plugin-made", [run, ""]);
       }, 500 * (steps.length + 1));
       return { run, slug };
@@ -999,7 +999,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
         rss: 822 * 1024 * 1024,
         cpu: 3.4,
         procs: [
-          { kind: "app", name: "Prometheus", detail: "", rss: 640 * 1024 * 1024, cpu: 0.8,
+          { kind: "app", name: "Prometeu", detail: "", rss: 640 * 1024 * 1024, cpu: 0.8,
             hist: [0.4, 0.6, 1.2, 0.9, 0.7, 2.1, 1.4, 0.8, 0.6, 0.8] },
           { kind: "chat", name: "Tela igual ao Conductor", detail: "Conversa 1", rss: 128 * 1024 * 1024, cpu: 2.2,
             hist: [0, 0, 4.5, 8.2, 6.1, 3.3, 1.2, 2.8, 5.4, 2.2] },
@@ -1035,7 +1035,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       const extras: string[] = draft.extras ?? [];
       if (extras.length) {
         const names = [repo, ...extras.map((p: string) => board.projects.find((x) => x.id === p)?.name ?? p)];
-        fresh.worktree = `~/prometheus/worktrees/${names.join("+")}/prometheus-${id}`;
+        fresh.worktree = `~/prometeu/worktrees/${names.join("+")}/prometeu-${id}`;
         fresh.repos = [draft.project, ...extras].map((p: string, i: number) => ({
           path: String(p),
           name: names[i],
@@ -1080,9 +1080,9 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
         .filter(([k]) => k.startsWith(`${args.id}:`))
         .map(([k, alive]) => ({ kind: k.split(":")[1], alive }));
     case "create_scripts_file":
-      return ".prometheus/settings.toml";
+      return ".prometeu/settings.toml";
     case "scripts_prompt":
-      return "Descubra como preparar e como rodar este projeto, e escreva isso em `.prometheus/settings.toml`.";
+      return "Descubra como preparar e como rodar este projeto, e escreva isso em `.prometeu/settings.toml`.";
     // No navegador puro, abrir de fora é abrir uma aba do próprio navegador.
     case "open_external":
       window.open(String(args.url), "_blank", "noreferrer");

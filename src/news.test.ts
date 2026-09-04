@@ -8,7 +8,7 @@ use("pt-BR");
 
 const CHANGELOG = `# Changelog
 
-O que muda no Prometheus, versão a versão, para quem usa o app.
+O que muda no Prometeu, versão a versão, para quem usa o app.
 
 ## [0.4.8] - 2026-08-31
 

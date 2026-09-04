@@ -1,4 +1,4 @@
-# Prometheus — guia para agentes
+# Prometeu — guia para agentes
 
 Este arquivo é o mapa curto do repositório. A fonte de verdade detalhada fica
 em `ARCHITECTURE.md` e em `docs/`; não copie documentos inteiros para cá.

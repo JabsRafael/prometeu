@@ -69,7 +69,7 @@ configuração própria por `scripts/app.sh`; isso evita colisão de `board.json
 porta Vite. Não substitua essa inicialização por um `tauri dev` direto sem
 entender o isolamento.
 
-O `.prometheus/settings.toml` deste repositório oferece o próprio app e o mock
+O `.prometeu/settings.toml` deste repositório oferece o próprio app e o mock
 como scripts de dogfooding.
 
 ## Captura de fixtures de agentes

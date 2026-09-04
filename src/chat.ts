@@ -1184,7 +1184,7 @@ export class ChatView {
     const supported = (command: Command) =>
       (command.name !== "compact" || capabilities.compact) &&
       (command.name !== "context" || capabilities.contextReport);
-    const key = `prometheus:comandos:${info.agent}:${info.model}`;
+    const key = `prometeu:comandos:${info.agent}:${info.model}`;
     const live = this.tl.commands;
     if (live.length) {
       localStorage.setItem(key, JSON.stringify(live));

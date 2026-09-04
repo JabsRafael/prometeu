@@ -1,16 +1,16 @@
 ---
-description: Solta uma versão nova do Prometheus — confere os commits, corta a tag, acompanha o CI e publica a draft
+description: Solta uma versão nova do Prometeu — confere os commits, corta a tag, acompanha o CI e publica a draft
 argument-hint: [versão | publish]
 allowed-tools: Bash(git:*), Bash(gh:*), Bash(sh scripts/release.sh:*), Bash(node_modules/.bin/git-cliff:*), Bash(cat:*), Bash(node:*), Read
 ---
 
-Você vai soltar uma versão do Prometheus. O fluxo tem duas metades, e entre
+Você vai soltar uma versão do Prometeu. O fluxo tem duas metades, e entre
 elas existe uma pessoa:
 
 1. **cortar** — `sh scripts/release.sh [versão]` calcula o número a partir dos
    commits, gera a seção do `CHANGELOG.md`, commita, tagueia, empurra e
    acompanha o CI, que constrói assinado e deixa uma release **draft** em
-   `gbrancaglione/prometheus-releases`.
+   `gbrancaglione/prometeu-releases`.
 2. **publicar** — depois que o usuário instalou o `.dmg` da draft e conferiu,
    `sh scripts/release.sh publish` tira a draft do ar e o updater passa a
    entregá-la.
@@ -80,7 +80,7 @@ reaproveita.
 ### 4. Depois
 
 Diga ao usuário a URL da draft e o que falta: baixar o `.dmg`, instalar por
-cima, abrir, e então `/release publish`. Quem já tem o Prometheus instalado só
+cima, abrir, e então `/release publish`. Quem já tem o Prometeu instalado só
 fica sabendo depois do publish — no rodapé, ao abrir o app ou em até seis
 horas.
 

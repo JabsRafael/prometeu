@@ -20,7 +20,7 @@ import { $, h, template } from "./util";
 /// nunca há duas verdades.
 ///
 /// Instalar também é daqui: a folha pede o endereço de um repositório, o back
-/// clona numa pasta do Prometheus e cadastra o que veio. Criar um plugin do
+/// clona numa pasta do Prometeu e cadastra o que veio. Criar um plugin do
 /// zero é o outro caminho, e a folha dele fica ao lado.
 
 let hub: Plugin[] = [];
@@ -273,7 +273,7 @@ async function save(plugin: Plugin) {
 /* ---------- o formulário ---------- */
 
 /// Cadastrar um plugin é dizer onde ele está — o resto o próprio plugin já
-/// declara. Por isso a origem vem primeiro e sair dela manda o Prometheus ler o
+/// declara. Por isso a origem vem primeiro e sair dela manda o Prometeu ler o
 /// `plugin.json`: o nome e a descrição aparecem preenchidos, e quem quiser
 /// muda. Uma folha só, e não os dois passos do MCP: aqui não há processo para
 /// subir nem rede para atravessar.

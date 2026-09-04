@@ -51,9 +51,10 @@ Eventos Tauri são dinâmicos; o generic passado a `listen<T>` não valida o
 payload Rust em build time. Um evento novo precisa de teste do emissor e do
 consumidor.
 
-`chat_snapshot.text` pode misturar linhas V1 e legado durante a janela de
-compatibilidade. `Timeline` valida V1 e envia o restante ao leitor legado; as
-projeções `prometheusV1Mirror` são ignoradas pelo leitor atual.
+`chat_snapshot.text` pode misturar linhas V1 e legado depois de uma importação.
+`Timeline` valida V1 e envia o restante ao leitor legado; projeções históricas
+`prometheusV1Mirror` são ignoradas pelo leitor atual. O Prometeu não produz
+essas projeções em logs novos.
 
 ## Checklist de mudança
 

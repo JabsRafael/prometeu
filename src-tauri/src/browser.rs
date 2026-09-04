@@ -54,7 +54,7 @@ pub(crate) fn browse(url: &Url) -> Result<(), String> {
 }
 
 /// Link clicado dentro do app — no texto do agente, por exemplo. A janela do
-/// Prometheus é o Prometheus: página de fora é assunto do navegador do sistema.
+/// Prometeu é o Prometeu: página de fora é assunto do navegador do sistema.
 /// A aba de dentro nasce no Run; navegar para longe dele é escolha de quem usa.
 #[tauri::command]
 pub fn open_external(url: String) -> Result<(), String> {

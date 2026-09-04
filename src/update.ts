@@ -288,7 +288,7 @@ export function settingsRow(): HTMLElement {
     "setrow",
     `<span class="glyph">${icon("rotate", 18)}</span><div class="txt"><b></b><span></span></div><div class="act"></div>`,
   );
-  el.querySelector("b")!.textContent = ver ? `Prometheus ${ver}` : "Prometheus";
+  el.querySelector("b")!.textContent = ver ? `Prometeu ${ver}` : "Prometeu";
   // Ler o que vem antes de decidir baixar: só aparece quando há notas, e some
   // sozinho na fase seguinte.
   const link = h("button", "ghost md notes") as HTMLButtonElement;

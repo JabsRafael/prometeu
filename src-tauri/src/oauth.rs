@@ -1,6 +1,6 @@
 //! O OAuth que não é de ninguém: o que dois fluxos diferentes fazem igual.
 //!
-//! O Prometheus tem dois. O do Linear (`linear.rs`) é o clássico: um app
+//! O Prometeu tem dois. O do Linear (`linear.rs`) é o clássico: um app
 //! registrado uma vez, endpoints escritos no código, escopo fixo. O de um
 //! servidor de MCP (`mcp_auth.rs`) não tem nada disso — os endereços saem de
 //! uma descoberta a partir do 401, e o cliente é registrado na hora, no
@@ -214,7 +214,7 @@ pub fn respond(stream: &mut TcpStream, status: &str, body: &str) {
     let _ = stream.flush();
 }
 
-/// A única página que o Prometheus serve: a que diz para fechar a aba. O
+/// A única página que o Prometeu serve: a que diz para fechar a aba. O
 /// título e a linha vêm de quem chamou, já no idioma da pessoa.
 pub fn page(title: &str, text: &str) -> String {
     let lang = html(&i18n::lang());

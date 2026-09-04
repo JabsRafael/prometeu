@@ -224,7 +224,7 @@ pub struct Workspace {
     /// modelo: ⌘T e retomar nascem com o agente das irmãs.
     #[serde(default)]
     pub agent: ProviderId,
-    /// Base das dez portas reservadas a este worktree — `$PROMETHEUS_PORT` até
+    /// Base das dez portas reservadas a este worktree — `$PROMETEU_PORT` até
     /// `+9`. Guardada e não calculada: o script tem que achar a mesma porta na
     /// segunda vez que roda, e dois worktrees do mesmo projeto não podem
     /// disputar a mesma. Nasce vazia em quadro gravado antes disto existir, e é
@@ -692,7 +692,7 @@ mod tests {
 
     fn temporary_board_path() -> std::path::PathBuf {
         std::env::temp_dir()
-            .join(format!("prometheus-board-{}", uuid::Uuid::new_v4()))
+            .join(format!("prometeu-board-{}", uuid::Uuid::new_v4()))
             .join("board.json")
     }
 

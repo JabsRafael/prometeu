@@ -2,7 +2,7 @@
   <img src="docs/icon.png" alt="" width="128" height="128">
 </p>
 
-<h1 align="center">Prometheus</h1>
+<h1 align="center">Prometeu</h1>
 
 Sessões de agente — Claude Code ou Codex — organizadas por workspace, cada uma
 no seu worktree.
@@ -36,7 +36,7 @@ processo       `claude -p` (stream-json) ou `codex app-server` (JSON-RPC)
 
 O app **não reimplementa o agente**: roda o CLI de verdade, sem terminal, e
 cada coisa que acontece — o texto que ele escreve, a ferramenta que chama, o
-resultado dela, a permissão que pede — vira uma linha V1 do Prometheus. O back
+resultado dela, a permissão que pede — vira uma linha V1 do Prometeu. O back
 (`src-tauri/src/chat.rs`) normaliza, guarda, numera e repassa; a tela as reduz
 a uma linha do tempo (`src/timeline.ts`, um reducer puro) e desenha
 (`src/chat.ts`): markdown, cards de ferramenta com o diff colorido, pensamento
@@ -122,7 +122,7 @@ o mesmo card, e a resposta viaja até o Mac do dono.
 
 A do Claude Code é o transcript dele, `~/.claude/projects/<slug>/<id>.jsonl`
 — o app não escreve nele, só lê para reabrir a aba e para contar quanto o
-contexto pesa. A do Codex o app grava, em `~/.prometheus/chats/<aba>.jsonl`,
+contexto pesa. A do Codex o app grava, em `~/.prometeu/chats/<aba>.jsonl`,
 nas mesmas linhas que a tela desenhou: o rollout do Codex tem outra forma, e o
 id da thread dele fica no estado do workspace para o `thread/resume`.
 
@@ -130,13 +130,13 @@ id da thread dele fica no estado do workspace para o `thread/resume`.
 
 Worktree separado só serve para editar até a hora de **testar**: worktree novo
 vem sem nada que o `.gitignore` esconde — dependências, `.env`, banco, build.
-Por isso o repositório declara três comandos, em `.prometheus/settings.toml`
+Por isso o repositório declara três comandos, em `.prometeu/settings.toml`
 (ou no `.conductor/settings.toml` que ele já tinha):
 
 ```toml
 [scripts]
 setup   = "npm install"                        # quando um worktree nasce
-run     = "npm run dev -- --port $PROMETHEUS_PORT"   # o botão Run
+run     = "npm run dev -- --port $PROMETEU_PORT"   # o botão Run
 archive = "docker compose down"                # antes de arquivar
 ```
 
@@ -150,30 +150,30 @@ assim, com um aviso na frente.
 
 ```toml
 [scripts.run.web]
-command = "bin/dev --port $PROMETHEUS_PORT"
+command = "bin/dev --port $PROMETEU_PORT"
 default = true
 ```
 
-No ambiente de todo script: `$PROMETHEUS_WORKSPACE_PATH`, `$PROMETHEUS_ROOT_PATH`,
-`$PROMETHEUS_WORKSPACE_NAME` e `$PROMETHEUS_PORT` — mais os mesmos nomes com
+No ambiente de todo script: `$PROMETEU_WORKSPACE_PATH`, `$PROMETEU_ROOT_PATH`,
+`$PROMETEU_WORKSPACE_NAME` e `$PROMETEU_PORT` — mais os mesmos nomes com
 prefixo `CONDUCTOR_`, para um settings.toml copiado de lá funcionar sem edição.
 E `$PORT`, com o mesmo valor: é a convenção que Rails, Next, Express e o
 Procfile do Heroku já leem, então um `npm run dev` digitado no terminal do dock
 sobe na porta do worktree sem script nenhum.
 
 **A porta é o detalhe que faz a coisa toda funcionar.** Cada workspace guarda
-dez portas suas, `$PROMETHEUS_PORT` até `+9`. Porta fixa no script faz o segundo
+dez portas suas, `$PROMETEU_PORT` até `+9`. Porta fixa no script faz o segundo
 worktree não subir — e não subir dois é justamente não conseguir comparar duas
 mudanças. A porta sai do caminho do worktree, então o mesmo worktree ganha a
-mesma porta em qualquer Prometheus — o instalado e o `tauri dev` de cada
+mesma porta em qualquer Prometeu — o instalado e o `tauri dev` de cada
 worktree têm estados separados, e sem isso cada um entregava 3100 para o seu.
 
-Worktree sem o arquivo usa o do clone de origem. É o que faz um `.prometheus/`
+Worktree sem o arquivo usa o do clone de origem. É o que faz um `.prometeu/`
 no `.gitignore` — configuração sua, num repositório de empresa — continuar
 valendo em todo worktree que nasce dele; "Abrir o settings.toml" nesse worktree
 copia o herdado para lá, e a cópia passa a mandar.
 
-Nada disso é descoberto: o repositório declara. O que o Prometheus faz é não
+Nada disso é descoberto: o repositório declara. O que o Prometeu faz é não
 deixar isso virar trabalho manual — a aba **Setup** de um repo que não declara
 nada oferece **Perguntar ao agente**, que abre uma conversa com o prompt pronto
 para o Claude Code ler o repositório e escrever o arquivo.
@@ -216,7 +216,7 @@ máquina local o app só aceita HTTPS/WSS; para conteúdo que o operador do rela
 não possa ler, ainda é preciso hospedar o seu próprio relay.
 
 Quem fala com o relay é o **front**: ele já recebe toda linha de toda
-conversa e já sabe falar nelas. O back só guarda `~/.prometheus/team.json`
+conversa e já sabe falar nelas. O back só guarda `~/.prometeu/team.json`
 (`0600`, com segredo do convite e credencial individual) e a marca de
 "compartilhado" no workspace.
 
@@ -295,13 +295,13 @@ PORT=1421 npm run dev  # …e em outra porta, para dois lado a lado
 
 Aponte um repositório git e um nome de branch, e clique em **Criar sessão**.
 
-### Dois Prometheus ao mesmo tempo
+### Dois Prometeu ao mesmo tempo
 
 `npm run app` passa por `scripts/app.sh`, que dá a este worktree porta e
-`~/.prometheus-dev-<workspace>` próprios. Sem isso duas coisas colidem: a
+`~/.prometeu-dev-<workspace>` próprios. Sem isso duas coisas colidem: a
 porta do vite (`strictPort`, e o segundo não sobe) e o `board.json`.
 
-O `.prometheus/settings.toml` deste repositório é o dogfooding: `run.app` sobe o
+O `.prometeu/settings.toml` deste repositório é o dogfooding: `run.app` sobe o
 app de verdade deste worktree, e `run.browser` abre a mesma UI no Chrome sobre o
 `src/mock.ts`. O segundo testa a tela e não o Rust, mas é o único caminho que um
 Playwright dirige — a webview do Tauri no macOS é WKWebView e não fala CDP.

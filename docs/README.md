@@ -1,4 +1,4 @@
-# Documentação do Prometheus
+# Documentação do Prometeu
 
 Este diretório é a fonte de verdade técnica do projeto. `AGENTS.md` funciona
 como índice curto para agentes e `README.md` apresenta o produto.
@@ -14,7 +14,7 @@ como índice curto para agentes e `README.md` apresenta o produto.
 ## Contratos
 
 - [`contracts/conversation-events-v1.md`](contracts/conversation-events-v1.md):
-  protocolo canônico pertencente ao Prometheus.
+  protocolo canônico pertencente ao Prometeu.
 - [`contracts/agent-runtime.md`](contracts/agent-runtime.md): descoberta,
   capacidades e port de execução dos agentes.
 - [`contracts/ipc.md`](contracts/ipc.md): fronteira TypeScript/Rust.
@@ -30,6 +30,8 @@ como índice curto para agentes e `README.md` apresenta o produto.
   normalização dos protocolos de agentes — aceita.
 - [`decisions/0003-agent-capabilities.md`](decisions/0003-agent-capabilities.md):
   disponibilidade de features por capacidades — aceita.
+- [`decisions/0004-prometeu-independent-identity.md`](decisions/0004-prometeu-independent-identity.md):
+  identidade, persistência e release independentes do produto anterior — aceita.
 
 ## Qualidade e operação
 

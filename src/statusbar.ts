@@ -42,7 +42,7 @@ let say: (text: string, isError?: boolean) => void = () => {};
 /// Quando não deixar o Mac dormir. A escolha é deste Mac e fica nele, como a
 /// do idioma — não é coisa que se sincronize entre máquinas.
 type Awake = "on" | "agent" | "off";
-const AWAKE_STORE = "prometheus:acordado";
+const AWAKE_STORE = "prometeu:acordado";
 const AWAKE: Awake[] = ["on", "agent", "off"];
 let awake: Awake = read();
 /// Há agente trabalhando agora. Sai do quadro, e é o que decide o modo

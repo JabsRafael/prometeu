@@ -40,8 +40,9 @@ export class LegacyConversationAdapter {
         return [this.turn(o, at)];
       case "system":
         return this.system(o, at);
+      // Discriminante histórico: somente leitura para uma importação futura.
       case "prometheus":
-        return this.prometheus(o, at);
+        return this.legacyApp(o, at);
       case "rate_limit_event":
         return [this.event("usage.updated", at, { provider: "claude", usage: o.rate_limit_info })];
       default:
@@ -266,7 +267,7 @@ export class LegacyConversationAdapter {
     }
   }
 
-  private prometheus(o: Line, at: number): AnyConversationEventV1[] {
+  private legacyApp(o: Line, at: number): AnyConversationEventV1[] {
     switch (o.subtype) {
       case "stderr":
         return [this.event("system.notice", at, { level: "error", code: "provider.stderr", detail: String(o.text ?? "") })];

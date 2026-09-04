@@ -1,6 +1,6 @@
 /// O nome da branch de um workspace novo.
 
-/// Palavras, não relógio. `prometheus/0901-1601` só dizia o minuto em que o
+/// Palavras, não relógio. `prometeu/0901-1601` só dizia o minuto em que o
 /// workspace nasceu: abrir três de uma vez dava três nomes iguais (o segundo
 /// virava `-2`, o terceiro `-3`, e nenhum dizia nada), e o mesmo dia-mês volta
 /// igualzinho no ano que vem. Um par de palavras se distingue de longe e ainda
@@ -34,12 +34,12 @@ export function pair(rand: () => number = Math.random) {
 /// no fim fecha a conta — sem ele, a busca poderia não terminar.
 ///
 /// `taken` é o que o `list_branches` devolve, local e remota na mesma lista:
-/// `origin/prometheus/…` conta como tomado.
+/// `origin/prometeu/…` conta como tomado.
 export function freshBranch(taken: string[], rand: () => number = Math.random) {
   const has = (name: string) => taken.some((b) => b === name || b.endsWith(`/${name}`));
   let base = "";
   for (let tentativa = 0; tentativa < 20; tentativa++) {
-    base = `prometheus/${pair(rand)}`;
+    base = `prometeu/${pair(rand)}`;
     if (!has(base)) return base;
   }
   for (let n = 2; ; n++) {

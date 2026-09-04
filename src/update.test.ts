@@ -159,7 +159,7 @@ describe("updater", () => {
     await vi.advanceTimersByTimeAsync(9_000);
     await second;
     expect(w.last()).toMatchObject({ text: "Reiniciar para atualizar", disabled: false });
-    expect(w.said[w.said.length - 1]).toMatch(/feche e abra o Prometheus.*0\.2\.0/);
+    expect(w.said[w.said.length - 1]).toMatch(/feche e abra o Prometeu.*0\.2\.0/);
   });
 
   it("reinício que o back recusa avisa o erro", async () => {

@@ -111,7 +111,7 @@ fn ask(prompt: &str, launch: &Launch) -> Option<String> {
 /// `-o` escreve exatamente a última mensagem num arquivo — o que evita ter de
 /// separar a resposta do resto do que ele desenha no terminal.
 fn ask_codex(prompt: &str, model: &str) -> Option<String> {
-    let out = std::env::temp_dir().join(format!("prometheus-nome-{}.txt", uuid::Uuid::new_v4()));
+    let out = std::env::temp_dir().join(format!("prometeu-nome-{}.txt", uuid::Uuid::new_v4()));
     let mut cmd = Command::new("codex");
     cmd.args([
         "exec",

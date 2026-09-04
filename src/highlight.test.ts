@@ -44,7 +44,7 @@ describe("highlight", () => {
 
   it("markdown não pinta Constante em prosa", () => {
     // Palavra com maiúscula é Constante em código e nome próprio em texto.
-    expect(classes(highlight("O Prometheus roda o Claude Code.", "x.md"))).toEqual([]);
+    expect(classes(highlight("O Prometeu roda o Claude Code.", "x.md"))).toEqual([]);
     expect(classes(highlight("# Título", "x.md"))).toEqual(["k"]);
   });
 });
