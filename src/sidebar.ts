@@ -26,6 +26,7 @@ export type Hooks = {
   unread: (id: string, unread: boolean) => void;
   reveal: (id: string) => void;
   copyPath: (ws: Workspace) => void;
+  toDesk: () => void;
   toIssues: () => void;
   toArchived: () => void;
   /// Quantas issues a aba tem para mostrar — `null` é "sem Linear", e o
@@ -36,8 +37,10 @@ export type Hooks = {
   newWorkspace: (projectId?: string) => void;
 };
 
-/// O que fica "aberto" quando a tela é a de issues: nenhum workspace.
-/// Não colide com id de workspace nenhum.
+/// O que fica "aberto" quando a tela é a mesa: nenhum workspace. Não colide
+/// com id de workspace nenhum.
+export const DESK = "@mesa";
+/// A tela de issues, pela mesma regra.
 export const ISSUES = "@issues";
 /// A tela dos arquivados, pela mesma regra.
 export const ARCHIVED = "@arquivados";
@@ -145,7 +148,14 @@ function renderRail(board: Board, hooks: Hooks) {
   create.addEventListener("click", () => hooks.newWorkspace());
   rail.append(create);
 
-  // As issues no seu nome, do Linear. É a tela inicial: de onde o trabalho sai.
+  // A mesa: todas as conversas de uma vez. É a tela inicial.
+  const desk = template("button", "navitem" + (openId === DESK ? " on" : ""), `${icon("terminal")}<span></span>`);
+  desk.children[1].textContent = t("rail.desk");
+  desk.title = t("rail.desk.title");
+  desk.addEventListener("click", hooks.toDesk);
+  rail.append(desk);
+
+  // As issues no seu nome, do Linear: de onde o trabalho sai.
   const issues = template(
     "button",
     "navitem" + (openId === ISSUES ? " on" : ""),

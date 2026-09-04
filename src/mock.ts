@@ -1474,10 +1474,11 @@ w.mock = {
     for (const s of fakes) (s as unknown as { presence: () => void }).presence();
   },
   /// Simula soltar arquivos num ponto da tela — o mesmo evento que o Tauri
-  /// manda quando você arrasta de fora para dentro da janela.
+  /// manda quando você arrasta de fora para dentro da janela. Em pontos
+  /// lógicos, como o wry do macOS manda de verdade (ver `dropTarget` no main).
   drop: (paths: string[], x = innerWidth / 2, y = innerHeight / 2, dropX = x, dropY = y) => {
-    emit("tauri://drag-over", { position: { x: x * devicePixelRatio, y: y * devicePixelRatio } });
-    emit("tauri://drag-drop", { paths, position: { x: dropX * devicePixelRatio, y: dropY * devicePixelRatio } });
+    emit("tauri://drag-over", { position: { x, y } });
+    emit("tauri://drag-drop", { paths, position: { x: dropX, y: dropY } });
   },
   over: (position: { x: number; y: number }) => emit("tauri://drag-over", { position }),
 };

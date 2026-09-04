@@ -52,6 +52,16 @@
       </header>
 
       <main>
+        <!-- A mesa: todas as conversas de uma vez, uma por quadro. É a tela
+             inicial. Desenhada por `desk.ts`. -->
+        <section id="deskView" class="view desk" hidden>
+          <div class="listmain">
+            <!-- Todas as conversas, na ordem da mesa: clicar recolhe ou traz de volta. -->
+            <div class="subbar tabbar" id="deskbar"></div>
+            <div class="tiles" id="tiles"></div>
+          </div>
+        </section>
+
         <!-- Issues do Linear no seu nome, e o atalho para virar workspace.
              Desenhada por `issues.ts`. -->
         <section id="issuesView" class="view issues" hidden>

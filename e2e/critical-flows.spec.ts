@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 async function boot(page: Page) {
   await page.goto("/");
-  await expect(page.locator("#issuesView")).toBeVisible();
+  await expect(page.locator("#deskView")).toBeVisible();
   await expect(page.locator("#railbody .navitem.sub").first()).toBeVisible();
 }
 
@@ -596,8 +596,9 @@ test("trocar o modelo de uma conversa de pé desliga o processo e mantém a aba"
   await boot(page);
   await openWorkspace(page, "Ola");
 
-  const model = page.locator(".composer .mdl");
-  const effort = page.locator(".composer .effort");
+  // Só a caixa do workspace: os quadros da mesa continuam no DOM, escondidos.
+  const model = page.locator("#chatwrap .composer .mdl");
+  const effort = page.locator("#chatwrap .composer .effort");
   await expect(model).toContainText("Opus · 1M");
   await expect(effort).toContainText("Alto");
 
@@ -606,7 +607,7 @@ test("trocar o modelo de uma conversa de pé desliga o processo e mantém a aba"
   await page.locator(".menu .mrow", { hasText: "Sonnet" }).first().click();
 
   await expect(model).toContainText("Sonnet");
-  await expect(page.locator(".composer textarea")).toHaveAttribute(
+  await expect(page.locator("#chatwrap .composer textarea")).toHaveAttribute(
     "placeholder",
     /escrever retoma/,
   );
@@ -624,6 +625,8 @@ test("o filtro por time corta a lista de issues e as contagens seguem a busca", 
     const invoke = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__.invoke;
     await invoke("linear_connect");
   });
+  await page.locator("#railbody .navitem", { hasText: "Issues" }).click();
+  await expect(page.locator("#issuesView")).toBeVisible();
 
   const pills = page.locator("#iteams .tpill");
   await expect(pills).toHaveCount(3, { timeout: 10_000 });
@@ -742,7 +745,10 @@ test("marcar plugins na conversa responde na hora e grava uma vez só", async ({
   await boot(page);
   await openWorkspace(page, "Ola");
 
-  await page.locator(".plugbtn").click();
+  // Só a caixa do workspace: os quadros da mesa continuam no DOM, escondidos.
+  const plugbtn = page.locator("#chatwrap .plugbtn");
+  const mcpbtn = page.locator("#chatwrap .mcpbtn");
+  await plugbtn.click();
   const row = (name: string) => page.locator(".menu .mrow").filter({ hasText: name }).first();
   await row("caveman").click();
   // O quadro ainda não voltou, e a marca já está no lugar novo.
@@ -754,14 +760,222 @@ test("marcar plugins na conversa responde na hora e grava uma vez só", async ({
   // Fechado o menu, a tela alcança o quadro: os dois cliques viraram uma
   // gravação, e o rodapé conta os dois.
   await page.keyboard.press("Escape");
-  await expect(page.locator(".plugbtn")).toContainText("2 plugins");
+  await expect(plugbtn).toContainText("2 plugins");
   expect(await page.evaluate(() => (window as unknown as { mock: { writes: () => number } }).mock.writes())).toBe(1);
 
   // Mexer no MCP logo em seguida é outra gravação, e não a mesma: uma espera
   // não pode engolir a outra.
-  await page.locator(".mcpbtn").click();
+  await mcpbtn.click();
   await page.locator(".menu .mrow").filter({ hasText: "capim-ds" }).first().click();
   await page.keyboard.press("Escape");
-  await expect(page.locator(".mcpbtn")).toContainText("capim-ds");
-  await expect(page.locator(".plugbtn")).toContainText("2 plugins");
+  await expect(mcpbtn).toContainText("capim-ds");
+  await expect(plugbtn).toContainText("2 plugins");
+});
+
+/// A mesa é a tela inicial: um quadro por conversa de pé, cada um com a sua
+/// caixa. O que este teste guarda é que dá para responder dali sem entrar no
+/// workspace, e que ordem, tamanho e o que foi recolhido ficam — inclusive
+/// depois de recarregar.
+test("a mesa mostra cada conversa num quadro, responde dali e guarda a ordem", async ({ page }) => {
+  await boot(page);
+  const tiles = page.locator("#tiles .tile");
+  await expect(tiles).toHaveCount(6);
+  await expect(page.locator("#railbody .navitem", { hasText: "Mesa" })).toHaveClass(/\bon\b/);
+
+  // Arquivado, limpo e do colega ficam de fora; o que está de pé entra.
+  await expect(page.locator('#tiles .tile[data-tab="t7"]')).toHaveCount(0);
+  const first = page.locator('#tiles .tile[data-tab="t1"]');
+  await expect(first.locator(".tile-head")).toContainText("Ola");
+  await expect(first.locator(".feed .turn")).not.toHaveCount(0);
+
+  // Responder no quadro é responder na conversa.
+  const composer = first.locator(".composer textarea");
+  await composer.fill("Oi da mesa");
+  await composer.press("Enter");
+  await expect(first.locator(".feed")).toContainText("Entendi: Oi da mesa");
+  await expect(page.locator('#tiles .tile[data-tab="t3"] .feed')).not.toContainText("Oi da mesa");
+
+  // Arrastar o primeiro quadro para depois do segundo troca os dois de lugar.
+  // No meio do gesto, o fantasma segue o cursor e o quadro vira a vaga.
+  const head = first.locator(".tile-head");
+  const target = page.locator('#tiles .tile[data-tab="t2"]');
+  const from = (await head.boundingBox())!;
+  const to = (await target.boundingBox())!;
+  await page.mouse.move(from.x + 40, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(to.x + to.width * 0.75, to.y + 20, { steps: 8 });
+  await expect(page.locator(".tile.ghost")).toHaveCount(1);
+  await expect(first).toHaveClass(/\bdragging\b/);
+  await page.mouse.up();
+  await expect(page.locator(".tile.ghost")).toHaveCount(0);
+  await expect(first).not.toHaveClass(/\bdragging\b/);
+  await expect(tiles.nth(0)).toHaveAttribute("data-tab", "t2");
+  await expect(tiles.nth(1)).toHaveAttribute("data-tab", "t1");
+
+  await page.reload();
+  await expect(page.locator("#tiles .tile").nth(0)).toHaveAttribute("data-tab", "t2");
+
+  // A alça do canto estica o quadro, e o tamanho fica.
+  const tile = page.locator('#tiles .tile[data-tab="t1"]');
+  const box = (await tile.boundingBox())!;
+  const grip = (await tile.locator(".tile-grip").boundingBox())!;
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + grip.width / 2 - 120, grip.y + grip.height / 2 - 60, { steps: 6 });
+  await page.mouse.up();
+  const width = () => page.locator('#tiles .tile[data-tab="t1"]').evaluate((el) => el.offsetWidth);
+  expect(await width()).toBeLessThan(box.width - 100);
+  await page.reload();
+  await expect(page.locator("#tiles .tile")).toHaveCount(6);
+  expect(await width()).toBeLessThan(box.width - 100);
+
+  // A faixa de cima recolhe um quadro e o traz de volta; recolhido fica.
+  const chip = page.locator('#deskbar .tab[data-tab="t3"]');
+  await expect(chip).toHaveClass(/\bon\b/);
+  await chip.click();
+  await expect(page.locator('#tiles .tile[data-tab="t3"]')).toBeHidden();
+  await expect(chip).not.toHaveClass(/\bon\b/);
+  await page.reload();
+  await expect(page.locator('#tiles .tile[data-tab="t3"]')).toBeHidden();
+  await page.locator('#deskbar .tab[data-tab="t3"]').click();
+  await expect(page.locator('#tiles .tile[data-tab="t3"]')).toBeVisible();
+  // O botão do cabeçalho recolhe também.
+  await page.locator('#tiles .tile[data-tab="t3"] .tmin').click();
+  await expect(page.locator('#tiles .tile[data-tab="t3"]')).toBeHidden();
+
+  // A seta do quadro entra no workspace, já naquela conversa.
+  await page.locator('#tiles .tile[data-tab="t2"] .topen').click();
+  await expect(page.locator("#wsView")).toBeVisible();
+  await expect(page.locator("#tabbar .tab.on")).toHaveAttribute("data-tab", "t2");
+  await expect(page.locator("#deskView")).toBeHidden();
+});
+
+/// Na mesa, o arquivo solto cai no quadro debaixo do cursor — e só nele. É o
+/// mesmo anexo da conversa do workspace, com o mesmo caminho na fala.
+test("arquivo solto num quadro da mesa vira anexo daquela conversa", async ({ page }) => {
+  await boot(page);
+  const tile = page.locator('#tiles .tile[data-tab="t3"]');
+  const composer = tile.locator(".composer textarea");
+  await composer.fill("Olha esta captura");
+  const at = (await tile.locator(".feed").boundingBox())!;
+
+  const path = "/Users/eu/Desktop/Captura de Tela.png";
+  await page.evaluate(({ path, x, y }) => {
+    const mock = (window as unknown as {
+      mock: { drop: (paths: string[], x: number, y: number, dropX: number, dropY: number) => void };
+    }).mock;
+    mock.drop([path], x, y, x, y);
+  }, { path, x: at.x + at.width / 2, y: at.y + at.height / 2 });
+
+  await expect(tile.locator(".cfiles .injchip")).toHaveCount(1);
+  await expect(tile.locator(".cfiles .injchip")).toContainText("Captura de Tela.png");
+  await expect(page.locator('#tiles .tile[data-tab="t1"] .cfiles .injchip')).toHaveCount(0);
+  await expect(composer).toHaveValue("Olha esta captura");
+
+  await composer.press("Enter");
+  const bubble = tile.locator(".turn.user .bubble").last();
+  await expect(bubble).toContainText("Olha esta captura");
+  expect(await bubble.textContent()).toBe('@"/Users/eu/Desktop/Captura de Tela.png"\n\nOlha esta captura');
+});
+
+/// A mesma aba pode desligar e ligar na mesa enquanto um `chat_buffer` antigo
+/// ainda viaja. O número da ligação, e não só o id da aba, decide qual resposta
+/// pode desenhar: senão o snapshot antigo é anexado ao novo e duplica tudo.
+test("a mesa ignora um snapshot atrasado da mesma conversa", async ({ page }) => {
+  await boot(page);
+  await page.locator('#tiles .tile[data-tab="t1"] .topen').click();
+  await expect(page.locator("#wsView")).toBeVisible();
+
+  await page.evaluate(() => {
+    const mock = (window as unknown as { mock: { line: (tab: string, line: unknown) => void } }).mock;
+    mock.line("t1", { type: "user", message: { role: "user", content: "SNAPSHOT_ANTIGO" } });
+  });
+  await expect(page.locator('#chatwrap .bubble', { hasText: "SNAPSHOT_ANTIGO" })).toBeVisible();
+
+  await page.evaluate(() => {
+    type Invoke = (command: string, args?: Record<string, unknown>, options?: unknown) => Promise<unknown>;
+    type WindowWithDelay = Window & {
+      __TAURI_INTERNALS__: { invoke: Invoke };
+      deskSnapshotCaptured?: boolean;
+      deskSnapshotReturned?: boolean;
+    };
+    const w = window as WindowWithDelay;
+    const original = w.__TAURI_INTERNALS__.invoke;
+    let first = true;
+    w.__TAURI_INTERNALS__.invoke = async function (command, args, options) {
+      if (first && command === "chat_buffer" && args?.session === "t1") {
+        first = false;
+        const snapshot = await original.call(this, command, args, options);
+        w.deskSnapshotCaptured = true;
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        w.deskSnapshotReturned = true;
+        return snapshot;
+      }
+      return original.call(this, command, args, options);
+    };
+  });
+
+  await page.locator("#railbody .navitem", { hasText: "Mesa" }).click();
+  await expect.poll(() => page.evaluate(() => !!(window as Window & { deskSnapshotCaptured?: boolean }).deskSnapshotCaptured)).toBe(true);
+  await page.locator("#railbody .navitem", { hasText: "Issues" }).click();
+  await page.evaluate(() => {
+    const mock = (window as unknown as { mock: { line: (tab: string, line: unknown) => void } }).mock;
+    mock.line("t1", { type: "user", message: { role: "user", content: "SNAPSHOT_NOVO" } });
+  });
+  await page.locator("#railbody .navitem", { hasText: "Mesa" }).click();
+
+  const tile = page.locator('#tiles .tile[data-tab="t1"]');
+  await expect(tile.locator(".bubble", { hasText: "SNAPSHOT_NOVO" })).toHaveCount(1);
+  await expect(tile.locator(".bubble", { hasText: "SNAPSHOT_ANTIGO" })).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => !!(window as Window & { deskSnapshotReturned?: boolean }).deskSnapshotReturned)).toBe(true);
+  await expect(tile.locator(".bubble", { hasText: "SNAPSHOT_ANTIGO" })).toHaveCount(1);
+});
+
+/// O debounce junta cliques no mesmo seletor, mas a escolha pertence a um
+/// workspace. Dois quadros mexidos na mesma respiração precisam gravar os dois.
+test("a mesa grava escolhas rápidas de MCP em workspaces diferentes", async ({ page }) => {
+  await boot(page);
+  const first = page.locator('#tiles .tile[data-tab="t1"] .mcpbtn');
+  const second = page.locator('#tiles .tile[data-tab="t5"] .mcpbtn');
+  await expect(first).toBeVisible();
+  await expect(second).toBeVisible();
+
+  await page.evaluate(() => {
+    const choose = (button: string, name: string) => {
+      document.querySelector<HTMLButtonElement>(button)!.click();
+      [...document.querySelectorAll<HTMLButtonElement>(".menu .mrow")]
+        .find((row) => row.textContent?.includes(name))!
+        .click();
+    };
+    choose('#tiles .tile[data-tab="t1"] .mcpbtn', "capim-ds");
+    choose('#tiles .tile[data-tab="t5"] .mcpbtn', "notion");
+  });
+  await page.keyboard.press("Escape");
+
+  await expect(first).toContainText("capim-ds");
+  await expect(second).toContainText("notion");
+  await expect.poll(() => page.evaluate(() => (window as unknown as { mock: { writes: () => number } }).mock.writes())).toBe(2);
+});
+
+/// Mesa e workspace são duas apresentações da mesma conversa. O que ainda não
+/// foi enviado — texto e arquivos — atravessa a seta junto com ela.
+test("a mesa mantém rascunho e anexo ao abrir o workspace", async ({ page }) => {
+  await boot(page);
+  const tile = page.locator('#tiles .tile[data-tab="t1"]');
+  const draft = "Continuar esta fala no workspace";
+  await tile.locator(".composer textarea").fill(draft);
+  const at = (await tile.locator(".feed").boundingBox())!;
+  await page.evaluate(({ x, y }) => {
+    (window as unknown as { mock: { drop: (paths: string[], x: number, y: number) => void } }).mock.drop(
+      ["/Users/eu/Desktop/contexto.txt"],
+      x,
+      y,
+    );
+  }, { x: at.x + at.width / 2, y: at.y + at.height / 2 });
+  await expect(tile.locator(".cfiles .injchip")).toContainText("contexto.txt");
+
+  await tile.locator(".topen").click();
+  await expect(page.locator("#wsView")).toBeVisible();
+  await expect(page.locator("#chatwrap .composer textarea")).toHaveValue(draft);
+  await expect(page.locator("#chatwrap .cfiles .injchip")).toContainText("contexto.txt");
 });

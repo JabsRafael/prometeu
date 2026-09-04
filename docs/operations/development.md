@@ -9,7 +9,7 @@
 
 ```sh
 npm install
-npx playwright install chromium
+npx playwright install chromium webkit
 ```
 
 ## Modos de execução

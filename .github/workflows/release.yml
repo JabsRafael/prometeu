@@ -62,7 +62,7 @@ jobs:
       - run: npm ci
 
       - name: navegador dos testes de fluxo
-        run: npx playwright install chromium
+        run: npx playwright install chromium webkit
 
       # Não assina nem publica uma versão que diverge dos mesmos gates da CI.
       - run: npm run check

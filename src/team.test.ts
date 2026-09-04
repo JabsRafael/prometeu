@@ -19,7 +19,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   ),
 }));
 
-const { init, boardChanged, notesOf, onError, useTransport } = await import("./team");
+const { init, boardChanged, notesOf, onChange, onError, setName, useTransport } = await import("./team");
 
 /// O relay de mentira: guarda o que o app mandou e deixa o teste responder.
 class Relay {
@@ -162,5 +162,19 @@ describe("erro do relay", () => {
     relay.says({ t: "error", code: "tooBig" });
 
     expect(fail).toHaveBeenCalledWith(t("err.team.tooBig"));
+  });
+});
+
+describe("ouvintes", () => {
+  it("deixa uma tela removida parar de ouvir mudanças", async () => {
+    const changed = vi.fn();
+    const stop = onChange(changed);
+
+    await setName("Primeiro nome");
+    expect(changed).toHaveBeenCalledTimes(1);
+
+    stop();
+    await setName("Segundo nome");
+    expect(changed).toHaveBeenCalledTimes(1);
   });
 });

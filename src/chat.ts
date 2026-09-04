@@ -94,8 +94,10 @@ const SETTLE = 300;
 const settling = new Map<string, () => void>();
 let settleAt: number | undefined;
 
-function settleWrite(what: string, fn: () => void) {
-  settling.set(what, fn);
+function settleWrite(what: string, workspace: string, fn: () => void) {
+  // A escolha é do workspace. Com várias caixas na mesa, usar só o assunto
+  // fazia um clique em outro workspace substituir silenciosamente o primeiro.
+  settling.set(`${what}\u0000${workspace}`, fn);
   clearTimeout(settleAt);
   settleAt = window.setTimeout(settleNow, SETTLE);
 }
@@ -111,6 +113,17 @@ function settleNow() {
   for (const run of runs) run();
 }
 
+/* ---------- estado efêmero que pertence à conversa, não à tela ----------- */
+
+/// A mesa e o workspace desenham a mesma conversa em `ChatView`s diferentes.
+/// Rascunho, anexos e o lado do toggle precisam, portanto, morar acima da
+/// instância: entrar no workspace não pode fazer a fala parecer que sumiu.
+const drafts = {
+  modes: new Map<string, "agent" | "note">(),
+  says: new Map<string, string>(),
+  files: new Map<string, string[]>(),
+};
+
 export class ChatView {
   private feed!: HTMLElement;
   private box!: HTMLElement;
@@ -118,6 +131,11 @@ export class ChatView {
   private ctx!: Ctx;
   private key: string | null = null;
   private remote = false;
+  /// Invalida também uma segunda ligação para a mesma chave. Comparar apenas
+  /// `key` não distingue o snapshot velho do novo depois de sair e voltar.
+  private attachVersion = 0;
+  private disposed = false;
+  private cleanup: (() => void)[] = [];
   private tl = new Timeline();
   /// Os pedaços que estão na tela, e o nó de cada um — na mesma ordem.
   private shown: Piece[] = [];
@@ -130,18 +148,6 @@ export class ChatView {
   private partial = "";
   private decoder = new TextDecoder("utf-8");
   private mode: "agent" | "note" = "agent";
-  /// Em que lado do toggle cada workspace estava. Escolher "nota" é sobre
-  /// aquele workspace — trocar de aba e voltar encontra o que estava escolhido
-  /// ali, com o rascunho junto, e não o do último workspace visitado.
-  private modes = new Map<string, "agent" | "note">();
-  /// A fala pela metade de cada aba. O que se escreve é daquela conversa:
-  /// trocar de aba no meio de uma frase e voltar encontra a frase onde ela
-  /// ficou, e a aba de destino encontra a dela — não a de onde se veio.
-  private says = new Map<string, string>();
-  /// Os arquivos anexados a cada conversa, esperando a fala em que vão. Como
-  /// a fala pela metade, são da aba: trocar de aba e voltar reencontra o que
-  /// se tinha anexado ali.
-  private files = new Map<string, string[]>();
   private feedback: string | null = null;
   /// Itens que mudaram desde o último quadro. O stream manda uma linha por
   /// token; redesenhar a cada uma trava a tela — um quadro por vez basta.
@@ -158,25 +164,33 @@ export class ChatView {
 
   open(host: HTMLElement, ctx: Ctx) {
     this.ctx = ctx;
+    this.disposed = false;
     this.feed = h("div", "feed");
     this.box = h("div", "composer");
     host.append(this.feed, this.box);
     this.buildComposer();
 
-    listen<[string, string, number]>("chat", ({ payload: [session, line] }) => {
+    void listen<[string, string, number]>("chat", ({ payload: [session, line] }) => {
       if (session !== this.key || this.remote) return;
       this.absorb(line);
+    }).then((unlisten) => {
+      // A aba pode ter sumido enquanto o registro atravessava o IPC.
+      if (this.disposed) unlisten();
+      else this.cleanup.push(unlisten);
     });
     // Nota nova — de um colega, ou a própria voltando do relay — entra no
     // fim da conversa. Segue a mesma regra do stream: a rolagem acompanha se
     // já estava no fim; e a nota que acabou de sair daqui é vista sempre.
-    team.onChange(() => {
+    const teamChanged = () => {
       const stick = this.arrived() || this.stuck();
       if (this.key) this.paintNotes();
       this.paintComposer();
       if (stick) this.feed.scrollTop = this.feed.scrollHeight;
-    });
-    document.addEventListener("selectionchange", () => this.paintQuoteButton());
+    };
+    this.cleanup.push(team.onChange(teamChanged));
+    const selectionChanged = () => this.paintQuoteButton();
+    document.addEventListener("selectionchange", selectionChanged);
+    this.cleanup.push(() => document.removeEventListener("selectionchange", selectionChanged));
   }
 
   /* ---------- ligar e desligar ---------- */
@@ -184,13 +198,15 @@ export class ChatView {
   /// Uma conversa daqui: a rolagem que o back guardou, e daí em diante as
   /// linhas ao vivo.
   async attach(key: string) {
+    if (this.disposed) return;
+    const version = ++this.attachVersion;
     this.stash();
     this.key = key;
     this.remote = false;
     this.reset();
     this.restoreMode();
     const text = await invoke<string>("chat_buffer", { session: key });
-    if (this.key !== key) return;
+    if (this.disposed || version !== this.attachVersion || this.key !== key) return;
     this.tl.load(text);
     this.renderAll();
   }
@@ -198,6 +214,8 @@ export class ChatView {
   /// A conversa de um colega: as linhas que vieram dele. Daqui em diante os
   /// bytes chegam por `remoteWrite`.
   attachRemote(key: string, bytes: Uint8Array) {
+    if (this.disposed) return;
+    this.attachVersion++;
     this.stash();
     this.key = key;
     this.remote = true;
@@ -219,12 +237,30 @@ export class ChatView {
   }
 
   detach() {
+    this.attachVersion++;
     this.stash();
     this.key = null;
     this.remote = false;
     this.reset();
     this.restoreMode();
     this.paintComposer();
+  }
+
+  /// Uma tela escondida pode voltar e por isso só `detach`; um quadro cuja aba
+  /// deixou de existir termina aqui, junto com ouvintes que o reteriam para
+  /// sempre mesmo depois de o DOM sair.
+  dispose(forget = false) {
+    if (this.disposed) return;
+    const key = this.key;
+    this.detach();
+    // Arquivar ou limpar só tira o quadro da mesa; fechar a aba tira também o
+    // rascunho dela. Quem conhece essa diferença é o dono da coleção.
+    if (forget && key) {
+      drafts.says.delete(key);
+      drafts.files.delete(key);
+    }
+    this.disposed = true;
+    for (const stop of this.cleanup.splice(0)) stop();
   }
 
   private reset() {
@@ -284,7 +320,7 @@ export class ChatView {
     if (!this.canAttachFiles()) return false;
     const files = this.attached().slice();
     for (const path of paths) if (path && !files.includes(path)) files.push(path);
-    if (this.key) this.files.set(this.key, files);
+    if (this.key) drafts.files.set(this.key, files);
     this.paintComposer();
     this.area.focus();
     return true;
@@ -1052,7 +1088,7 @@ export class ChatView {
 
   /// Os anexos desta conversa. Sem aba não há onde guardá-los.
   private attached(): string[] {
-    return (this.key && this.files.get(this.key)) || [];
+    return (this.key && drafts.files.get(this.key)) || [];
   }
 
   /// A lista de caminhos do "@". Só na conversa daqui: a de um colega roda no
@@ -1074,18 +1110,18 @@ export class ChatView {
   /// workspace, mas a fala é da aba — e no meio de uma troca só a chave antiga
   /// ainda está aqui; o workspace de `info()` já pode ser o de destino.
   private stash() {
-    if (this.mode === "agent" && this.key) this.says.set(this.key, this.area.value);
+    if (this.mode === "agent" && this.key) drafts.says.set(this.key, this.area.value);
   }
 
   private stashed(): string {
-    return (this.key && this.says.get(this.key)) || "";
+    return (this.key && drafts.says.get(this.key)) || "";
   }
 
   /// Aba fechada leva junto a fala que ficou pela metade nela, e os anexos
   /// que esperavam por ela.
   forget(alive: Set<string>) {
-    for (const key of this.says.keys()) if (!alive.has(key)) this.says.delete(key);
-    for (const key of this.files.keys()) if (!alive.has(key)) this.files.delete(key);
+    for (const key of drafts.says.keys()) if (!alive.has(key)) drafts.says.delete(key);
+    for (const key of drafts.files.keys()) if (!alive.has(key)) drafts.files.delete(key);
   }
 
   private grow() {
@@ -1100,7 +1136,7 @@ export class ChatView {
     if (this.mode === "note" && ws) notes.draftOf(ws).text = this.area.value;
     else this.stash();
     this.mode = mode;
-    if (ws) this.modes.set(ws, mode);
+    if (ws) drafts.modes.set(ws, mode);
     this.area.value = mode === "note" ? (ws ? notes.draftOf(ws).text : "") : this.stashed();
     this.grow();
     this.paintComposer();
@@ -1113,7 +1149,7 @@ export class ChatView {
   /// junto.
   private restoreMode() {
     const ws = this.ctx.info().workspace;
-    const mode = (ws && this.modes.get(ws)) || "agent";
+    const mode = (ws && drafts.modes.get(ws)) || "agent";
     this.area.value = mode === "note" ? (ws ? notes.draftOf(ws).text : "") : this.stashed();
     this.mode = mode;
     this.grow();
@@ -1164,8 +1200,8 @@ export class ChatView {
     const said = [paths.mentions(files, info.worktree), text].filter(Boolean).join("\n\n");
     if (this.remote) team.write(said);
     else invoke("chat_send", { session: this.key, text: said }).catch((e) => this.ctx.say(fromBack(e), true));
-    this.says.delete(this.key);
-    this.files.delete(this.key);
+    drafts.says.delete(this.key);
+    drafts.files.delete(this.key);
     this.area.value = "";
     commands.dismiss();
     paths.dismiss();
@@ -1281,7 +1317,7 @@ export class ChatView {
         chip.children[1].addEventListener("click", () => {
           const files = this.attached().slice();
           files.splice(i, 1);
-          if (this.key) this.files.set(this.key, files);
+          if (this.key) drafts.files.set(this.key, files);
           this.paintComposer();
         });
         return chip;
@@ -1408,7 +1444,7 @@ export class ChatView {
       mcp.openPicker({
         chosen: () => this.ctx.info().mcp,
         set: (ids) => {
-          settleWrite("mcp", () => {
+          settleWrite("mcp", workspace, () => {
             void invoke("set_workspace_mcp", { id: workspace, mcp: ids }).catch((e) =>
               this.ctx.say(fromBack(e), true),
             );
@@ -1444,7 +1480,7 @@ export class ChatView {
       plugins.openPicker({
         chosen: () => this.ctx.info().plugins,
         set: (ids) => {
-          settleWrite("plugins", () => {
+          settleWrite("plugins", workspace, () => {
             void invoke("set_workspace_plugins", { id: workspace, plugins: ids }).catch((e) =>
               this.ctx.say(fromBack(e), true),
             );

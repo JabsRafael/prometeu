@@ -113,7 +113,7 @@ As regras detalhadas e o estado atual de cada uma estão em
 | Área | Entradas principais |
 | --- | --- |
 | boot e coordenação da UI | `src/main.ts`, `src/workspace.ts`, `src/session.ts` |
-| conversa | `src/chat.ts`, `src/timeline.ts`, `src/chat-presentation.ts` |
+| conversa | `src/chat.ts`, `src/timeline.ts`, `src/chat-presentation.ts`, `src/desk.ts` |
 | agentes | `src/agents.ts`, `src/launcher.ts`, `src-tauri/src/agents.rs`, `src-tauri/src/claude.rs`, `src-tauri/src/codex.rs` |
 | workspaces | `src-tauri/src/session.rs`, `src-tauri/src/state.rs` |
 | Git e arquivos | `src/viewer.ts`, `src/csv.ts`, `src-tauri/src/session/diff.rs`, `src-tauri/src/session/files.rs` |

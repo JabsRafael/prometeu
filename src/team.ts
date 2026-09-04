@@ -128,7 +128,10 @@ let retry = 0;
 let pinger = 0;
 
 const listeners = new Set<() => void>();
-export const onChange = (cb: () => void) => void listeners.add(cb);
+export const onChange = (cb: () => void) => {
+  listeners.add(cb);
+  return () => void listeners.delete(cb);
+};
 const changed = () => listeners.forEach((cb) => cb());
 
 let fail: ((text: string) => void) | null = null;

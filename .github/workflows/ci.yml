@@ -40,7 +40,7 @@ jobs:
       - run: npm ci
 
       - name: navegador dos testes de fluxo
-        run: npx playwright install chromium
+        run: npx playwright install chromium webkit
 
       # Inclui formato, type-check, build do dist/ exigido pelo Tauri, testes
       # web/Rust e Clippy com todos os targets.

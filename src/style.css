@@ -1817,3 +1817,86 @@ body.noside .side { display: none; }
 .sheet.hubedit .sheetbar { padding: 12px 14px; gap: 10px; border-top: 1px solid var(--line-raised); }
 .sheet.hubedit .sheetbar .hint { flex: 1; min-width: 0; }
 .sheet.hubedit .hint.bad { color: var(--err); }
+
+/* ---------- a mesa ---------- */
+
+/* Todas as conversas de uma vez, cada uma no seu quadro: quatro por tela de
+   saída. A alça do canto muda o tamanho, o cabeçalho arrasta para trocar de
+   lugar, e a faixa de cima recolhe e traz de volta — tudo fica (`desk.ts`).
+
+   A cara é de terminal — monoespaçada, moldura fina, a fala da pessoa como
+   prompt —, nas cores de sempre do app. Só aqui: a conversa do workspace
+   continua com a leitura larga. */
+.desk .listmain { font-family: var(--mono); }
+.desk .tab { position: relative; font-family: var(--mono); font-size: 12px; padding-left: 12px; }
+/* O sublinhado para antes do risco: dois chips acesos lado a lado são dois
+   traços, e não um só. */
+.desk .tab.on { box-shadow: none; }
+.desk .tab.on::after { content: ""; position: absolute; left: 10px; right: 8px; bottom: 0; height: 2px; background: var(--accent); }
+.desk .tab + .tab.on::after { left: 22px; }
+/* Um risco curto entre as conversas: todas em mono e cinza, é o que deixa
+   contar quantas há na faixa. */
+.desk .tab + .tab::before { content: ""; width: 1px; height: 14px; margin-right: 6px; background: var(--line-ghost); flex: none; }
+.tiles {
+  flex: 1; min-height: 0; overflow: auto; padding: 12px;
+  display: flex; flex-wrap: wrap; align-items: flex-start; align-content: flex-start; gap: 12px;
+}
+.tile {
+  position: relative; flex: none; width: calc(50% - 6px); height: calc(50% - 6px);
+  min-width: 320px; min-height: 200px; max-width: 100%;
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--bg); border: 1px solid var(--line-raised); border-radius: var(--r-lg);
+}
+/* Arrastando: o quadro de verdade vira a vaga tracejada, e o fantasma — só o
+   cabeçalho numa moldura do mesmo tamanho — segue o cursor por cima de tudo. */
+.tile.dragging { pointer-events: none; opacity: .4; border-style: dashed; border-color: var(--line-ghost); }
+.tile.ghost {
+  position: fixed; z-index: 30; pointer-events: none; margin: 0; opacity: .92;
+  background: var(--bg-side); border-color: var(--line-ghost); box-shadow: 0 12px 32px rgba(0, 0, 0, .55);
+}
+.tile.sizing { user-select: none; }
+.tile-head {
+  flex: none; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 4px 0 12px;
+  background: var(--bg-side); border-bottom: 1px solid var(--line-raised);
+  cursor: grab; user-select: none; touch-action: none; font-size: 12px; color: var(--fg-3);
+}
+.tile-head:active { cursor: grabbing; }
+.tile-head b, .tile-head .ttab { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile-head b { font-weight: 500; color: var(--fg); }
+.tile-head .ttab { color: var(--fg-3); }
+.tile-head .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+.tile-head .tmin, .tile-head .topen { opacity: .5; }
+.tile:hover .tile-head .tmin, .tile:hover .tile-head .topen { opacity: 1; }
+/* A alça: no canto, por cima da caixa. Escura até a mão chegar perto. */
+.tile-grip {
+  position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; z-index: 2;
+  display: flex; align-items: flex-end; justify-content: flex-end; padding: 0 3px 3px 0;
+  cursor: nwse-resize; color: var(--fg-3); touch-action: none;
+}
+.tile-grip:hover, .tile.sizing .tile-grip { color: var(--fg); }
+
+/* O que está escrito: tudo em monoespaçada, do tamanho de um terminal, na
+   largura inteira do quadro. A fala da pessoa é a linha de prompt; a do
+   agente vem embaixo, como saída. */
+.tile .feed { padding: 10px 12px 4px; gap: 10px; font-size: 12.5px; }
+.tile .feed > * { max-width: none; }
+.tile .feed .nohint { margin-top: 10vh; font-size: 12px; }
+.tile .md { font-size: 12.5px; line-height: 1.55; }
+.tile .md h1, .tile .md h2, .tile .md h3, .tile .md h4 { font-size: 12.5px; }
+.tile .turn.user { justify-content: flex-start; margin-top: 6px; }
+.tile .turn.user.wait { align-items: flex-start; }
+.tile .turn.user .bubble { max-width: none; padding: 0; border-radius: 0; background: none; font-size: 12.5px; }
+.tile .turn.user .bubble::before { content: "❯ "; color: var(--accent); }
+.tile .meta { font-size: 11px; }
+.tile .think, .tile .sys, .tile .working .wlabel { font-size: 12px; }
+
+/* A caixa: a última linha do terminal. Uma linha, como o prompt; cresce com o
+   que se escreve. Os seletores do rodapé quebram linha em vez de empurrar a
+   seta para fora do quadro. */
+.tile .composer { width: calc(100% - 16px); margin: 4px 0 8px; padding: 6px 10px; border-radius: var(--r-lg); }
+.tile .composer textarea { font-family: var(--mono); font-size: 12.5px; min-height: 22px; }
+.tile .composer .crow { flex-wrap: wrap; row-gap: 4px; }
+.tile .composer .crow, .tile .composer .hint, .tile .composer .with button, .tile .composer .mcpbtn, .tile .composer .plugbtn { font-family: var(--mono); font-size: 11.5px; }
+.tile .composer .hint { display: none; }
+.tile .composer .send { margin-left: auto; }
+.tile .composer .send.round { width: 24px; height: 24px; }
