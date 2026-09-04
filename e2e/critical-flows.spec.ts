@@ -44,9 +44,11 @@ test("separa a cota geral das janelas próprias de um modelo Codex", async ({ pa
 test("o topo local fica estável e não trata workspace comum como compartilhado", async ({ page }) => {
   await boot(page);
   const railWorkspace = page.locator("#railbody .navitem.sub", { hasText: "Ola" });
-  await expect(railWorkspace.locator(".provider svg")).toBeVisible();
+  await expect(railWorkspace.locator(".provider image")).toBeVisible();
   await expect(railWorkspace.locator(".dot")).toHaveCount(0);
+  await expect(railWorkspace.locator(".st")).toHaveCount(0);
   await expect(railWorkspace).toHaveAttribute("title", /Claude Code/);
+  await expect(railWorkspace).not.toHaveAttribute("title", /Fazendo/);
   await expect(railWorkspace).not.toHaveAttribute("title", /Pronta|Rodando|Desligada/);
   await openWorkspace(page, "Ola");
 

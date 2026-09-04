@@ -1,6 +1,7 @@
 /// Ícones Lucide desenhados inline: sem fonte de ícone, sem pacote. Cada um é
 /// só o miolo do <svg>; tamanho e cor vêm do CSS (`currentColor`).
 const PROMETEU_MARK = new URL("./prometeu.svg", import.meta.url).href;
+const CLAUDE_MARK = new URL("./claude.svg", import.meta.url).href;
 
 const PATHS = {
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
@@ -259,14 +260,11 @@ export function fileIcon(name: string, size = 16): string {
 
 /* ---------- marcas ---------- */
 
-/// O selo de quem responde: a estrela da Anthropic e a flor da OpenAI, nas
+/// O selo de quem responde: o Claude Spark oficial e a flor da OpenAI, nas
 /// cores delas. Não são ícones de traço como o resto: a marca precisa continuar
 /// reconhecível tanto na lista de workspaces quanto no consumo do rodapé.
 const BRANDS: Record<string, string> = {
-  claude:
-    '<g fill="#d97757" transform="translate(12 12)">' +
-    Array.from({ length: 8 }, (_, i) => `<rect x="-1.05" y="-9.5" width="2.1" height="19" rx="1.05" transform="rotate(${i * 22.5})"/>`).join("") +
-    "</g>",
+  claude: `<image href="${CLAUDE_MARK}" width="24" height="24"/>`,
   codex:
     '<path fill="#a4a09d" d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.911 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.98 4.182a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.91 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.998-2.9 6.056 6.056 0 0 0-.748-7.073zm-9.022 12.608a4.476 4.476 0 0 1-2.876-1.04l.142-.081 4.778-2.758a.795.795 0 0 0 .393-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.495 4.494zM3.6 18.305a4.471 4.471 0 0 1-.535-3.014l.142.085 4.783 2.758a.771.771 0 0 0 .78 0l5.843-3.368v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.499 4.499 0 0 1-6.14-1.646zM2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.677l5.814 3.354-2.02 1.168a.076.076 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.872zm16.597 3.856-5.834-3.388L15.119 7.2a.076.076 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.666zm2.01-3.023-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.41 9.23V6.897a.066.066 0 0 1 .028-.061l4.83-2.787a4.499 4.499 0 0 1 6.68 4.66zM8.307 12.863l-2.02-1.164a.08.08 0 0 1-.038-.057V6.074a4.499 4.499 0 0 1 7.375-3.454l-.142.08-4.778 2.76a.795.795 0 0 0-.393.68zm1.097-2.366 2.602-1.5 2.607 1.5v3l-2.597 1.5-2.607-1.5z"/>',
 };
