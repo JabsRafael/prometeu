@@ -1,9 +1,9 @@
-import { avatar, icon, stageIcon } from "./icons";
+import { avatar, brand, icon, stageIcon } from "./icons";
 import { stage as stageName, t } from "./i18n";
 import * as menu from "./menu";
 import * as team from "./team";
 import * as rename from "./rename";
-import { hasWorktree, repoLabel, stateLabel, statusOf, type Board, type Workspace } from "./types";
+import { firstTabProvider, hasWorktree, repoLabel, type Board, type Workspace } from "./types";
 import { h, template } from "./util";
 
 /// Ações disponíveis na lista lateral e no menu de um workspace.
@@ -288,12 +288,12 @@ function renderGroup(
 
   const total = board.stages.length;
   for (const ws of list) {
+    const provider = firstTabProvider(ws);
     const b = template(
       "button",
       "navitem sub" + (ws.id === openId ? " on" : "") + (ws.unread ? " unread" : ""),
-      `<i class="dot"></i><span class="lbl"></span><span class="n"></span>`,
+      `<span class="provider">${brand(provider, 13)}</span><span class="lbl"></span><span class="n"></span>`,
     );
-    (b.children[0] as HTMLElement).style.background = `var(--dot-${statusOf(ws)})`;
     b.children[1].textContent = ws.title;
     b.children[2].textContent = ws.tabs.length > 1 ? `${ws.tabs.length}` : "";
     b.addEventListener("click", () => hooks.open(ws));
@@ -301,13 +301,16 @@ function renderGroup(
     // porque o anel é a posição na sua lista de etapas.
     if (ws.remote) {
       const owner = team.nameOf(ws.remote.owner);
-      b.title = `${owner} · ${ws.repo_name} · ${ws.branch} · ${stateLabel(ws)}`;
-      b.children[0].after(template("span", "av", avatar(owner)));
+      b.title = `${owner} · ${ws.repo_name} · ${ws.branch}`;
+      // O relay não anuncia o provedor. O avatar do dono ocupa a identidade da
+      // linha sem inventar Claude para um workspace que pode estar no Codex.
+      b.children[0].className = "av";
+      b.children[0].innerHTML = avatar(owner);
       if (!ws.remote.online) b.classList.add("off");
       rail.append(b);
       continue;
     }
-    b.title = `${repoLabel(ws)} · ${ws.branch} · ${stageName(ws.stage)} · ${stateLabel(ws)}`;
+    b.title = `${repoLabel(ws)} · ${ws.branch} · ${stageName(ws.stage)} · ${t(`model.${provider}`)}`;
     // A etapa saiu do cabeçalho e virou o anel da linha: o grupo é o projeto,
     // e continua dando para ler de longe o que está em qual etapa.
     const at = board.stages.indexOf(ws.stage);

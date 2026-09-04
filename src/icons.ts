@@ -258,9 +258,8 @@ export function fileIcon(name: string, size = 16): string {
 /* ---------- marcas ---------- */
 
 /// O selo de quem responde: a estrela da Anthropic e a flor da OpenAI, nas
-/// cores delas. Não são ícones de traço como o resto — marca desenhada com o
-/// `currentColor` do rodapé viraria mais um símbolo cinza numa faixa que já
-/// tem vários, e é justamente por aqui que se sabe de quem é o número.
+/// cores delas. Não são ícones de traço como o resto: a marca precisa continuar
+/// reconhecível tanto na lista de workspaces quanto no consumo do rodapé.
 const BRANDS: Record<string, string> = {
   claude:
     '<g fill="#d97757" transform="translate(12 12)">' +
