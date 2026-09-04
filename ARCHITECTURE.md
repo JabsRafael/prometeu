@@ -35,7 +35,7 @@ conteúdo compartilhado em texto legível pelo operador.
 | --- | --- | --- | --- |
 | Frontend | TypeScript + Vite | interação, apresentação, timeline, estado efêmero de UI | lifecycle de processos e regras de filesystem |
 | Backend | Rust + Tauri | estado persistido, processos, Git, arquivos, IPC e tradução de agentes | regras visuais e tradução de interface |
-| Claude adapter | `chat.rs` + `conversation.rs` | executar `claude -p` e normalizar stream-json para V1 | decisões de apresentação |
+| Claude adapter | `claude.rs` | converter comandos V1 para stream-json e stream-json para eventos V1 | DOM, estado do quadro ou relay |
 | Codex adapter | `codex.rs` | converter comandos V1 para JSON-RPC e JSON-RPC para eventos V1 | DOM, estado do quadro ou relay |
 | Relay | Worker + Durable Object | matrícula, presença, audiência, notas e encaminhamento | execução do agente ou acesso ao worktree |
 | Mock web | `src/mock.ts` | responder ao mesmo IPC para desenvolvimento e E2E da UI | substituir testes do backend Rust |
@@ -45,7 +45,7 @@ conteúdo compartilhado em texto legível pelo operador.
 A conversa usa um contrato pertencente ao Prometheus:
 
 ```text
-Claude stream-json ─> conversation.rs ─────┐
+Claude stream-json ─> claude.rs ───────────┐
                                            ├─> ConversationEventV1 ─> Pump/relay ─> timeline.ts ─> chat.ts
 Codex JSON-RPC ─> codex.rs ────────────────┘
 ```
@@ -84,8 +84,9 @@ Há três contratos que exigem compatibilidade explícita:
 O terceiro já possui uma fonte única tipada e validada em
 `relay/src/protocol.ts`. O primeiro tipa nomes de comandos, mas ainda não gera
 tipos de argumentos e respostas. O segundo usa os contratos V1 tipados no
-frontend. `conversation.rs` adapta o stream-json do Claude e `codex.rs` adapta
-diretamente o JSON-RPC do Codex.
+frontend. `claude.rs` adapta o stream-json do Claude e `codex.rs` adapta
+diretamente o JSON-RPC do Codex; ambos dependem das primitivas canônicas de
+`conversation.rs`.
 
 ## Regras arquiteturais
 
@@ -110,7 +111,7 @@ As regras detalhadas e o estado atual de cada uma estão em
 | --- | --- |
 | boot e coordenação da UI | `src/main.ts`, `src/workspace.ts`, `src/session.ts` |
 | conversa | `src/chat.ts`, `src/timeline.ts`, `src/chat-presentation.ts` |
-| agentes | `src/agents.ts`, `src/launcher.ts`, `src-tauri/src/agents.rs`, `src-tauri/src/chat.rs`, `src-tauri/src/codex.rs` |
+| agentes | `src/agents.ts`, `src/launcher.ts`, `src-tauri/src/agents.rs`, `src-tauri/src/claude.rs`, `src-tauri/src/codex.rs` |
 | workspaces | `src-tauri/src/session.rs`, `src-tauri/src/state.rs` |
 | Git e arquivos | `src-tauri/src/session/diff.rs`, `src-tauri/src/session/files.rs` |
 | MCP e plugins | `src/mcp.ts`, `src/plugins.ts`, `src-tauri/src/mcp.rs`, `src-tauri/src/plugins.rs` |

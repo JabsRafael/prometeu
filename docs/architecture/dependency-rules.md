@@ -15,7 +15,7 @@ apenas para aumentar o número de camadas.
 | apresentação | `chat.ts`, `workspace.ts`, `sidebar.ts` | view models, casos de uso e contratos IPC |
 | domínio derivado | `timeline.ts`, `workspace-changes.ts`, `relay/src/logic.ts` | tipos de domínio e funções puras |
 | aplicação | `session.rs`, coordenação em `main.ts` | domínio e ports externos |
-| adapters | `codex.rs`, `chat.rs`, IPC, relay transport, Git/files | protocolos externos e contratos do core |
+| adapters | `claude.rs`, `codex.rs`, IPC, relay transport, Git/files | protocolos externos e contratos do core |
 
 Os diretórios atuais não representam essas camadas literalmente. A tabela serve
 para decidir ownership e direção de dependência durante mudanças incrementais.
@@ -42,8 +42,9 @@ para decidir ownership e direção de dependência durante mudanças incrementai
 4. Eventos desconhecidos não derrubam uma sessão; ficam observáveis e são
    ignorados de forma compatível até terem tradução explícita.
 
-O leitor de transcript legado é a exceção explícita à primeira regra e fica
-isolado em `conversation-legacy.ts`/`conversation.rs`, sem alcançar a timeline.
+O leitor de transcript legado e a projeção temporária de rollback são exceções
+explícitas à primeira regra. Ficam isolados em `conversation-legacy.ts` e
+`conversation_rollback.rs`, sem alcançar a timeline nem os adapters de runtime.
 
 ## Fronteiras que justificam interfaces
 

@@ -40,9 +40,10 @@ de resume não compartilham identidade.
 
 ### Claude
 
-`chat.rs` inicia `claude -p` com entrada e saída `stream-json` e normaliza cada
-linha em `conversation.rs`. O processo também grava o transcript nativo do
-Claude Code, que o leitor de compatibilidade adapta durante replay.
+`claude.rs` inicia `claude -p`, converte `ConversationCommandV1` para sua
+entrada `stream-json` e normaliza cada linha de saída em
+`ConversationEventV1`. O processo também grava o transcript nativo do Claude
+Code, que o leitor de compatibilidade adapta durante replay.
 
 ### Codex
 

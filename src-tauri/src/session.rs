@@ -1215,7 +1215,7 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
             let resume = paths::transcript(tab, &worktree).exists();
             (
                 resume,
-                chat::spawn(app, tab, &worktree, claude_args(tab, resume, &launch))?,
+                crate::claude::spawn(app, tab, &worktree, claude_args(tab, resume, &launch))?,
             )
         }
     };
@@ -1245,7 +1245,9 @@ fn spawn_tab(
     // O modelo escolhido diz qual CLI sobe (ver `agents.rs`); a aba é a mesma.
     let handle = match launch.agent {
         ProviderId::Codex => crate::codex::spawn(app, &id, worktree, None, launch)?,
-        ProviderId::Claude => chat::spawn(app, &id, worktree, claude_args(&id, false, launch))?,
+        ProviderId::Claude => {
+            crate::claude::spawn(app, &id, worktree, claude_args(&id, false, launch))?
+        }
     };
     lock(&state.chats).insert(id.clone(), handle);
     // Quem chama põe a aba no quadro e só então libera a fala

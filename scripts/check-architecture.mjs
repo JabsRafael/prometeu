@@ -51,12 +51,32 @@ for (const pattern of legacyCodex) {
   }
 }
 
+/// O contrato canônico não volta a conhecer o protocolo de um provider. A
+/// projeção de rollback possui módulo próprio e não é uma dependência do core.
+const conversation = await readFile("src-tauri/src/conversation.rs", "utf8");
+for (const pattern of [
+  /"(?:stream_event|control_request|control_response|tool_use|tool_result|rate_limit_event)"/g,
+  /"type"\s*:\s*"(?:user|assistant|result|system|prometheus)"/g,
+  /\b(?:LegacyAdapter|claude_command|legacy_mirror)\b/g,
+]) {
+  for (const match of conversation.matchAll(pattern)) {
+    const line = conversation.slice(0, match.index).split("\n").length;
+    failures.push(`src-tauri/src/conversation.rs:${line}: protocolo externo no core canônico: ${match[0]}`);
+  }
+}
+
+const chat = await readFile("src-tauri/src/chat.rs", "utf8");
+for (const match of chat.matchAll(/Command::new\s*\(\s*"(?:claude|codex)"/g)) {
+  const line = chat.slice(0, match.index).split("\n").length;
+  failures.push(`src-tauri/src/chat.rs:${line}: processo de provider fora do adapter: ${match[0]}`);
+}
+
 if (failures.length) {
   console.error(failures.join("\n"));
   console.error("Mantenha decisões nominais e protocolos externos nas respectivas fronteiras de provider.");
   process.exitCode = 1;
 } else {
   console.log(
-    `${presentation.length} componentes sem condicionais nominais; timeline e adapter Codex respeitam a fronteira canônica`,
+    `${presentation.length} componentes sem condicionais nominais; core e adapters respeitam a fronteira canônica`,
   );
 }
