@@ -1463,7 +1463,9 @@ body.noside .side { display: none; }
   background: var(--bg); border: 1px solid var(--line-raised); border-radius: var(--r-lg);
   color: var(--fg);
 }
-.sheet.migration .migration-check input { flex: none; margin-top: 2px; accent-color: var(--accent); }
+.sheet.migration .migration-check input {
+  width: auto; flex: none; margin: 2px 0 0; padding: 0; accent-color: var(--accent);
+}
 .sheet.migration .sheetbar { border-top: 1px solid var(--line-raised); }
 .sheet.migration .sheetbar .hint { text-align: left; }
 
