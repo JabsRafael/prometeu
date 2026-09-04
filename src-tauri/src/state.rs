@@ -119,11 +119,14 @@ pub struct Tab {
     pub status: Status,
     pub note: Option<String>,
     pub pending_prompt: Option<String>,
-    /// Tokens de contexto na última resposta — quão cheia a janela está.
-    /// Atualizado quando o agente para (`Stop`), que é quando muda. Vazio é
-    /// conversa que ainda não respondeu, ou quadro gravado antes disto existir.
+    /// Estimativa incremental dos tokens usados nesta conversa. Nunca diminui:
+    /// depois de compactar, o novo contexto continua somando ao anterior.
     #[serde(default)]
     pub tokens: Option<u64>,
+    /// Último tamanho de contexto observado. É o cursor usado para somar apenas
+    /// o crescimento; uma queda indica compactação e começa outro trecho.
+    #[serde(default)]
+    pub context_tokens: Option<u64>,
     /// O modelo desta conversa, quando ela fala com um diferente do que o
     /// workspace usa — escolhido ao abrir a aba, ou depois, no rodapé da caixa
     /// (`Workspace::retune`). `None` é seguir o do workspace: é o que faz ⌘T, o
@@ -132,6 +135,24 @@ pub struct Tab {
     /// respeita o que está aqui.
     #[serde(default)]
     pub choice: Option<Choice>,
+}
+
+impl Tab {
+    pub fn observe_tokens(&mut self, current: u64) {
+        if current == 0 {
+            return;
+        }
+        // `tokens` sem cursor vem de uma versão antiga, onde ele guardava o
+        // contexto atual. Tratar o valor como ambos preserva o número e evita
+        // contá-lo duas vezes na primeira observação depois da atualização.
+        let previous = self.context_tokens.or(self.tokens).unwrap_or(0);
+        let added = match current >= previous {
+            true => current - previous,
+            false => current,
+        };
+        self.tokens = Some(self.tokens.unwrap_or(0).saturating_add(added));
+        self.context_tokens = Some(current);
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -442,6 +463,7 @@ impl Board {
                     note: None,
                     pending_prompt: None,
                     tokens: None,
+                    context_tokens: None,
                     choice: None,
                 });
             }
@@ -871,5 +893,33 @@ mod tests {
             board.workspaces[0].tabs[0].status,
             Status::Desligada
         ));
+    }
+
+    #[test]
+    fn tokens_somam_o_contexto_depois_de_compactar() {
+        let mut board = board_json(
+            r#","tabs":[{"id":"t1","title":"conversa","status":"pronta","note":null,"pending_prompt":null}]"#,
+        );
+        let tab = &mut board.workspaces[0].tabs[0];
+
+        for current in [10_000, 20_000, 4_000, 12_000] {
+            tab.observe_tokens(current);
+        }
+
+        assert_eq!(tab.tokens, Some(32_000));
+        assert_eq!(tab.context_tokens, Some(12_000));
+    }
+
+    #[test]
+    fn tokens_antigos_viram_inicio_do_contador_sem_duplicar() {
+        let mut board = board_json(
+            r#","tabs":[{"id":"t1","title":"conversa","status":"pronta","note":null,"pending_prompt":null,"tokens":20000}]"#,
+        );
+        let tab = &mut board.workspaces[0].tabs[0];
+
+        tab.observe_tokens(24_000);
+        assert_eq!(tab.tokens, Some(24_000));
+        tab.observe_tokens(3_000);
+        assert_eq!(tab.tokens, Some(27_000));
     }
 }

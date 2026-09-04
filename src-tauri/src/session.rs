@@ -1271,6 +1271,7 @@ fn spawn_tab(
         note: None,
         pending_prompt,
         tokens: None,
+        context_tokens: None,
         choice,
     })
 }
@@ -2167,6 +2168,7 @@ mod tests {
             note: None,
             pending_prompt: None,
             tokens: None,
+            context_tokens: None,
             choice,
         }
     }

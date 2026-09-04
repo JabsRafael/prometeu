@@ -72,8 +72,13 @@ finalizar o manifesto.
 
 `Board` contém projetos, estágios e workspaces. `Workspace` contém repositórios,
 branch, worktree, configuração de agente, MCP/plugins, compartilhamento e abas.
-`Tab` contém identidade, status, fala pendente, tokens, override de modelo e a
-identidade externa usada para resume quando necessário.
+`Tab.tokens` guarda uma estimativa incremental dos tokens usados na conversa;
+`Tab.context_tokens` guarda o último contexto observado para somar somente o
+crescimento. Quando o contexto cai após compactação, o novo valor inicia outro
+trecho e soma ao total. Boards antigos sem `context_tokens` tratam `tokens` como
+total e cursor inicial, sem duplicar o valor. A aba também contém identidade,
+status, fala pendente, override de modelo e identidade externa usada para
+resume quando necessário.
 
 Ao carregar:
 

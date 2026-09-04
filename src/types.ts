@@ -28,9 +28,10 @@ export type Tab = {
   title: string;
   status: Status;
   note: string | null;
-  /// Tokens de contexto na última resposta: quão cheia está a janela. Vazio é
-  /// conversa que ainda não respondeu.
+  /// Estimativa incremental dos tokens usados nesta conversa.
   tokens: number | null;
+  /// Último contexto observado; cursor persistido do contador no backend.
+  context_tokens?: number | null;
   /// A fala que ainda não foi: espera o setup do worktree terminar.
   pending_prompt?: string | null;
   /// O modelo desta conversa, quando quem a abriu escolheu um diferente do que
@@ -374,11 +375,6 @@ export function worst(ws: Workspace): Tab | undefined {
 
 export function statusOf(ws: Workspace): Status {
   return worst(ws)?.status ?? "desligada";
-}
-
-/// A conversa mais pesada do workspace — é a que está mais perto de compactar.
-export function heaviest(ws: Workspace): Tab | undefined {
-  return ws.tabs.filter((t) => t.tokens).sort((a, b) => b.tokens! - a.tokens!)[0];
 }
 
 /// `57k`, `1,2M`: o tamanho que cabe numa pastilha. Abaixo de mil é o número.

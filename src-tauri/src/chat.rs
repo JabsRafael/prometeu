@@ -605,8 +605,8 @@ fn update(app: &AppHandle, session: &str, status: Option<Status>, note: Note, to
             Note::Set(n) => tab.note = Some(n),
             Note::Keep => {}
         }
-        if tokens.is_some() {
-            tab.tokens = tokens;
+        if let Some(tokens) = tokens {
+            tab.observe_tokens(tokens);
         }
     }
     publish(app);
