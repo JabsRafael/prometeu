@@ -4,6 +4,18 @@ O que muda no Prometeu, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.5.0] - 2026-09-04
+
+### Novidades
+
+- **Quebra:** **marca:** Apresenta o Prometeu como aplicativo independente
+- **plugins:** Leva o marketplace de workspace ao Codex
+
+### Correções
+
+- **cotas:** Exibe limites do codex por modelo
+- **linear:** Usa cadastro OAuth do Prometeu
+
 As versões até 0.4.19 pertencem ao Prometheus e permanecem abaixo como
 histórico. O Prometeu tem identidade, instalação e linha de releases próprias.
 
