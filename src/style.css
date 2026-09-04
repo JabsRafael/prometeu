@@ -168,9 +168,9 @@ body.norail .top .nav { margin-left: 0; }
 .navitem:hover { background: var(--bg-raised); }
 .navitem.on { background: var(--bg-raised-2); color: var(--fg); }
 .navitem > span:first-of-type, .navitem .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Com o avatar e o anel da etapa na frente, quem estica é o rótulo — e o
-   `first-of-type` acima pegaria o glifo. Mesmo peso, escrito depois: este vence. */
-.navitem > span.av, .navitem > span.st { flex: none; }
+/* Com o avatar na frente, quem estica é o rótulo — e o `first-of-type` acima
+   pegaria o glifo. Mesmo peso, escrito depois: este vence. */
+.navitem > span.av { flex: none; }
 .navitem .n { font-size: 12px; color: var(--fg-3); flex: none; }
 .navitem.brand { color: var(--fg); font-weight: 500; }
 /* Alguém te marcou: acende como o card não lido acende. */
@@ -195,9 +195,6 @@ body.norail .top .nav { margin-left: 0; }
 .navitem.sub .provider { width: 13px; height: 13px; display: flex; flex: none; margin: 0 0 0 1px; }
 .navitem.sub .av { display: flex; margin-right: -2px; }
 .navitem.sub .av .avatar { width: 14px; height: 14px; border-radius: 3px; font-size: 9px; }
-/* A etapa mora na linha, agora que o grupo é o projeto: o anel diz em que pé
-   está sem tirar espaço do título. */
-.navitem.sub .st { display: flex; color: var(--fg-3); margin-right: -2px; }
 
 /* Grupo por projeto: o cabeçalho da lista, com o avatar do repositório, a
    conta e o + de criar ali dentro. O chevron e o + só aparecem no hover —

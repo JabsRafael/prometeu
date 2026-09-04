@@ -196,9 +196,8 @@ function renderRail(board: Board, hooks: Hooks) {
     rail.append(h("div", "railhint", t("rail.noProjects")));
   }
 
-  // Um grupo por projeto: a lista é do repositório, e a etapa vira o anel na
-  // frente da linha. Com vários repos começando com a mesma letra, o avatar
-  // sozinho não dizia de qual workspace era — o cabeçalho diz.
+  // Um grupo por projeto: com vários repos começando com a mesma letra, o
+  // avatar sozinho não dizia de qual workspace era — o cabeçalho diz.
   const stageAt = (ws: Workspace) => board.stages.indexOf(ws.stage);
   for (const project of board.projects) {
     const mine = live.filter((w) => w.project === project.id && !w.pinned);
@@ -303,7 +302,6 @@ function renderGroup(
   rail.append(head);
   if (shut) return;
 
-  const total = board.stages.length;
   for (const ws of list) {
     const provider = firstTabProvider(ws);
     const b = template(
@@ -314,8 +312,7 @@ function renderGroup(
     b.children[1].textContent = ws.title;
     b.children[2].textContent = ws.tabs.length > 1 ? `${ws.tabs.length}` : "";
     b.addEventListener("click", () => hooks.open(ws));
-    // Workspace de colega: o avatar é dele, e a etapa é a dele — não vira anel,
-    // porque o anel é a posição na sua lista de etapas.
+    // Workspace de colega usa o avatar do dono como identidade.
     if (ws.remote) {
       const owner = team.nameOf(ws.remote.owner);
       b.title = `${owner} · ${ws.repo_name} · ${ws.branch}`;
@@ -327,11 +324,7 @@ function renderGroup(
       rail.append(b);
       continue;
     }
-    b.title = `${repoLabel(ws)} · ${ws.branch} · ${stageName(ws.stage)} · ${t(`model.${provider}`)}`;
-    // A etapa saiu do cabeçalho e virou o anel da linha: o grupo é o projeto,
-    // e continua dando para ler de longe o que está em qual etapa.
-    const at = board.stages.indexOf(ws.stage);
-    b.children[0].after(template("span", "st", stageIcon(at, total, 13)));
+    b.title = `${repoLabel(ws)} · ${ws.branch} · ${t(`model.${provider}`)}`;
     if (opts.avatars) b.children[0].after(template("span", "av", avatar(ws.repo_name)));
     attachMenu(b, ws, board, hooks, b, "sub");
     rail.append(b);
