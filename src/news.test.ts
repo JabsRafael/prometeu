@@ -109,4 +109,20 @@ describe("localize", () => {
   it("título que não é de seção passa intacto", () => {
     expect(localize("### Outra coisa\n")).toBe("### Outra coisa\n");
   });
+
+  it("escolhe só o bloco do idioma nas notas bilíngues", () => {
+    const body = `<!-- lang:pt-BR -->
+### Novidades
+
+- Abre conversas
+<!-- lang:en -->
+### New
+
+- Opens conversations
+<!-- lang:end -->`;
+    use("en");
+    expect(localize(body)).toBe("### New\n\n- Opens conversations");
+    use("pt-BR");
+    expect(localize(body)).toBe("### Novidades\n\n- Abre conversas");
+  });
 });

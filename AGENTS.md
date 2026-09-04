@@ -102,6 +102,12 @@ tipo(escopo): descrição
 `feat`, `fix` e `perf` aparecem no changelog. Use descrição voltada ao que a
 pessoa percebe, em minúscula e sem ponto final. Detalhes internos pertencem ao
 corpo ou a commits `refactor`, `test`, `docs`, `chore`, `ci`, `build` e `style`.
+Commits `feat`, `fix`, `perf` e `revert` também levam no rodapé a mesma linha
+pública em inglês, incluindo o escopo traduzido quando houver:
+
+```text
+Release-EN: **launcher:** Shows effort and model in footer
+```
 
 Release é feita por `sh scripts/release.sh`; não crie tag nem publique artefato
 sem pedido explícito. Veja `docs/operations/release.md`.

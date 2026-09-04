@@ -13,11 +13,8 @@ case "$MSG" in
 esac
 
 TYPES='feat|fix|perf|refactor|docs|test|chore|ci|build|style|revert'
-if printf '%s\n' "$MSG" | grep -Eq "^($TYPES)(\([^)]+\))?!?: [^ ]"; then
-  exit 0
-fi
-
-cat >&2 <<FIM
+if ! printf '%s\n' "$MSG" | grep -Eq "^($TYPES)(\([^)]+\))?!?: [^ ]"; then
+  cat >&2 <<FIM
 commit recusado — a primeira linha precisa ser "tipo(escopo): descrição":
 
   $MSG
@@ -28,6 +25,19 @@ ex.:   feat(lançador): esforço e modelo no rodapé
        chore: atualizar dependências
 
 A descrição de feat, fix e perf vira uma linha do changelog para quem usa o
-app: diga o que a pessoa vê, não o que o código faz. Ver CLAUDE.md.
+app: diga o que a pessoa vê, não o que o código faz. Ver AGENTS.md.
 FIM
-exit 1
+  exit 1
+fi
+
+if printf '%s\n' "$MSG" | grep -Eq '^(feat|fix|perf|revert)(\([^)]+\))?!?:' \
+    && ! git interpret-trailers --parse < "$1" | grep -Eq '^Release-EN: .'; then
+  cat >&2 <<FIM
+commit recusado — $MSG precisa da linha pública em inglês no rodapé:
+
+  Release-EN: **launcher:** Shows effort and model in footer
+
+Inclua escopo traduzido entre ** quando houver. Ver AGENTS.md.
+FIM
+  exit 1
+fi

@@ -24,13 +24,26 @@ body = """
 {%- else -%}
 ## [Unreleased]
 {%- endif %}
+<!-- lang:pt-BR -->
 {% for group, commits in commits | group_by(attribute="group") %}
-### {{ group | striptags | trim }}
+### {{ group | striptags | trim | split(pat="|") | first }}
 {% for commit in commits %}
 - {% if commit.breaking %}**Quebra:** {% endif %}{% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | split(pat="
 ") | first | trim | upper_first }}
 {%- endfor %}
 {% endfor %}
+<!-- lang:en -->
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | split(pat="|") | last }}
+{% for commit in commits %}
+{% for footer in commit.footers %}
+{% if footer.token == "Release-EN" %}
+- {% if commit.breaking %}**Breaking:** {% endif %}{{ footer.value | trim | upper_first }}
+{%- endif %}
+{%- endfor %}
+{%- endfor %}
+{% endfor %}
+<!-- lang:end -->
 """
 footer = ""
 trim = false
@@ -58,12 +71,12 @@ commit_parsers = [
   { message = "^chore\\(release\\)", skip = true },
   { message = "^Marcar a versão", skip = true },
   { message = "^Merge ", skip = true },
-  { message = "^feat", group = "<!-- 0 -->Novidades" },
-  { message = "^fix", group = "<!-- 1 -->Correções" },
-  { message = "^perf", group = "<!-- 2 -->Desempenho" },
-  { message = "^revert", group = "<!-- 3 -->Revertido" },
+  { message = "^feat", group = "<!-- 0 -->Novidades|New" },
+  { message = "^fix", group = "<!-- 1 -->Correções|Fixes" },
+  { message = "^perf", group = "<!-- 2 -->Desempenho|Performance" },
+  { message = "^revert", group = "<!-- 3 -->Revertido|Reverted" },
   { message = "^(chore|ci|build|docs|test|style|refactor)(\\(|:|!)", skip = true },
-  { message = ".*", group = "<!-- 4 -->Outros" },
+  { message = ".*", group = "<!-- 4 -->Outros|Other" },
 ]
 
 [bump]

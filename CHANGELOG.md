@@ -6,6 +6,8 @@ commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela
 
 ## [0.5.2] - 2026-09-04
 
+<!-- lang:pt-BR -->
+
 ### Novidades
 
 - **projetos:** Permite remover projeto
@@ -13,11 +15,30 @@ commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela
 - **marca:** Adota nova identidade visual
 - **sidebar:** Usa marca oficial e oculta etapa
 - **mesa:** Mostra todas as conversas de pé na tela inicial
+- **distribuição:** Assina o app e publica notas em português e inglês
 
 ### Correções
 
 - **migração:** Mantém o texto da confirmação dentro da caixa
 - **conversa:** Recolhe erros técnicos contínuos
+
+<!-- lang:en -->
+
+### New
+
+- **projects:** Allows projects to be removed
+- **conversation:** Shows accumulated tokens per session
+- **brand:** Adopts new visual identity
+- **sidebar:** Uses official brand and hides stage
+- **desk:** Shows all active conversations on home screen
+- **distribution:** Signs app and publishes notes in Portuguese and English
+
+### Fixes
+
+- **migration:** Keeps confirmation text inside box
+- **conversation:** Collapses continuous technical errors
+
+<!-- lang:end -->
 
 ## [0.5.1] - 2026-09-04
 

@@ -10,6 +10,10 @@ tipo(escopo): descrição
 
 `feat`, `fix` e `perf` aparecem no changelog. Durante a série 0.x, mudanças
 normais sobem patch e breaking changes sobem minor conforme `cliff.toml`.
+Esses tipos e `revert` incluem um rodapé `Release-EN` com a linha pública em
+inglês. O `git-cliff` usa a descrição em português e esse rodapé para gerar uma
+única seção de versão bilíngue. Marcadores HTML permitem que o app mostre só o
+idioma escolhido, enquanto o GitHub mostra os dois.
 
 O hook `.githooks/commit-msg` valida localmente e o job `commits` verifica cada
 commit do PR.
@@ -72,10 +76,12 @@ atualizar instalações existentes.
 
 Essa assinatura protege o updater. A distribuição no macOS também usa o
 certificado `Developer ID Application: Gustavo Brancaglione (6MQT6A482B)` do
-Keychain do runner e notarização Apple. A CI usa os Secrets `APPLE_ID` e
-`APPLE_PASSWORD`; o segundo contém uma senha específica de app, nunca a senha
-normal da conta Apple. O job falha antes do build se certificado ou Secrets
-estiverem ausentes. Depois do upload, `stapler` e `spctl` validam o DMG.
+Keychain e notarização Apple. A CI importa uma cópia `.p12` em um Keychain
+temporário usando `APPLE_CERTIFICATE` e `APPLE_CERTIFICATE_PASSWORD`, depois o
+remove. A notarização usa `APPLE_ID` e `APPLE_PASSWORD`; o segundo contém uma
+senha específica de app, nunca a senha normal da conta Apple. O job falha antes
+do build se certificado ou Secrets estiverem ausentes. Depois do upload,
+`stapler` e `spctl` validam o DMG.
 
 Não execute corte, tag, push ou publicação como parte de uma tarefa comum sem
 pedido explícito.

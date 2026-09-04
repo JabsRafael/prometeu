@@ -89,6 +89,8 @@ const SECTIONS: Record<string, Key> = {
 };
 
 export function localize(body: string): string {
+  const marked = [...body.matchAll(/<!-- lang:(pt-BR|en) -->\s*([\s\S]*?)(?=<!-- lang:|$)/g)];
+  if (marked.length) return marked.find((part) => part[1] === locale())?.[2].trim() ?? "";
   return body.replace(/^### (.+)$/gm, (line, name: string) => {
     const key = SECTIONS[name.trim()];
     return key ? `### ${t(key)}` : line;

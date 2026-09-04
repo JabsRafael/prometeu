@@ -23,6 +23,8 @@
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD   a senha dela
 #   APPLE_ID                              e-mail da conta Apple
 #   APPLE_PASSWORD                        senha específica de app para notarização
+#   APPLE_CERTIFICATE                     Developer ID Application em .p12/base64
+#   APPLE_CERTIFICATE_PASSWORD            senha do .p12
 name: Release
 
 on:
@@ -90,16 +92,37 @@ jobs:
           fi
           { echo "notes<<FIM_DAS_NOTAS"; printf '%s\n' "$NOTES"; echo "FIM_DAS_NOTAS"; } >> "$GITHUB_OUTPUT"
 
-      - name: credenciais Apple disponíveis
+      - name: importar certificado Apple
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           [ -n "$APPLE_ID" ] || { echo "::error::falta o secret APPLE_ID"; exit 1; }
           [ -n "$APPLE_PASSWORD" ] || { echo "::error::falta o secret APPLE_PASSWORD"; exit 1; }
-          security find-identity -v -p codesigning \
+          [ -n "$APPLE_CERTIFICATE" ] || { echo "::error::falta o secret APPLE_CERTIFICATE"; exit 1; }
+          [ -n "$APPLE_CERTIFICATE_PASSWORD" ] || { echo "::error::falta o secret APPLE_CERTIFICATE_PASSWORD"; exit 1; }
+
+          CERTIFICATE_PATH="$RUNNER_TEMP/prometeu-developer-id.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/prometeu-signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 32)
+          ORIGINAL_KEYCHAIN=$(security default-keychain -d user | tr -d '"')
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security default-keychain -d user -s "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -k "$KEYCHAIN_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          rm -f "$CERTIFICATE_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
             | grep -F '"Developer ID Application: Gustavo Brancaglione (6MQT6A482B)"' >/dev/null \
-            || { echo "::error::certificado Developer ID Application não está no Keychain do runner"; exit 1; }
+            || { echo "::error::o .p12 não contém o Developer ID Application esperado"; exit 1; }
+          echo "APPLE_BUILD_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "APPLE_ORIGINAL_KEYCHAIN=$ORIGINAL_KEYCHAIN" >> "$GITHUB_ENV"
 
       - name: build assinado → draft em prometeu-releases
         if: github.ref_type == 'tag'
@@ -161,6 +184,16 @@ jobs:
             src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
           if-no-files-found: error
           retention-days: 7
+
+      - name: remover Keychain temporário
+        if: always()
+        run: |
+          if [ -n "${APPLE_ORIGINAL_KEYCHAIN:-}" ]; then
+            security default-keychain -d user -s "$APPLE_ORIGINAL_KEYCHAIN"
+          fi
+          if [ -n "${APPLE_BUILD_KEYCHAIN:-}" ]; then
+            security delete-keychain "$APPLE_BUILD_KEYCHAIN" || true
+          fi
 
   verify:
     name: conferir a draft
