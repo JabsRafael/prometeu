@@ -12,6 +12,19 @@ async function openWorkspace(page: Page, title: string) {
   await expect(page.locator("#crumb")).toContainText(title);
 }
 
+test("remove projeto sem apagar seus workspaces", async ({ page }) => {
+  await boot(page);
+
+  const project = page.locator("#railbody .group", { hasText: "njord" });
+  await project.hover();
+  await project.locator('button[title="Ações de njord"]').click();
+  await page.locator(".menu .mrow", { hasText: "Remover projeto" }).click();
+
+  await expect(project).toHaveCount(0);
+  await expect(page.locator("#railbody .group", { hasText: "Sem projeto" })).toBeVisible();
+  await expect(page.locator("#railbody .navitem.sub", { hasText: "Ola" })).toBeVisible();
+});
+
 test("separa a cota geral das janelas próprias de um modelo Codex", async ({ page }) => {
   await boot(page);
   const usage = page.locator('#status .uchip[title="Cotas"]');

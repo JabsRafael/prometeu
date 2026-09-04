@@ -81,6 +81,7 @@ export const IPC_COMMANDS = [
   "read_bytes",
   "read_file",
   "refresh_prs",
+  "remove_project",
   "remove_workspace",
   "rename_tab",
   "rename_workspace",

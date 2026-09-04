@@ -95,6 +95,7 @@ const hooks: sidebar.Hooks = {
     if (typeof dir !== "string") return;
     invoke("add_project", { path: dir }).catch((e) => say(fromBack(e), true));
   },
+  removeProject: (id) => invoke("remove_project", { id }),
   newWorkspace: (projectId) => launch(projectId),
 };
 

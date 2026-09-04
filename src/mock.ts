@@ -603,6 +603,10 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     }
     case "load_board":
       return board;
+    case "remove_project":
+      board.projects = board.projects.filter((project) => project.id !== args.id);
+      emit("board", board);
+      return;
     case "legacy_import_plan":
       return legacyPlan();
     case "legacy_import_run":

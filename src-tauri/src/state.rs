@@ -421,6 +421,18 @@ impl Board {
     /// que sai de uma variável de ambiente — e ambiente é global, enquanto o
     /// cargo roda cada teste numa thread.
     pub(crate) fn revive(&mut self) {
+        // Só projeto ausente em workspace legado deve voltar ao catálogo.
+        // Projeto removido deixa o id explícito no workspace e continua fora.
+        let legacy_projects: Vec<Project> = self
+            .workspaces
+            .iter()
+            .filter(|ws| ws.project.is_empty())
+            .map(|ws| Project {
+                id: ws.repo.clone(),
+                name: ws.repo_name.clone(),
+                path: ws.repo.clone(),
+            })
+            .collect();
         for ws in &mut self.workspaces {
             // O app fechou no meio da montagem. A thread que montava morreu com
             // o processo, então continuar dizendo "montando" seria esperar por
@@ -488,15 +500,10 @@ impl Board {
             }
         }
 
-        // Repositório que já tem workspace é projeto, mesmo que nunca tenha sido
-        // registrado à mão.
-        for ws in self.workspaces.clone() {
-            if !self.projects.iter().any(|p| p.path == ws.repo) {
-                self.projects.push(Project {
-                    id: ws.repo.clone(),
-                    name: ws.repo_name.clone(),
-                    path: ws.repo.clone(),
-                });
+        // Quadro anterior ao catálogo ganha projetos a partir dos workspaces.
+        for project in legacy_projects {
+            if !self.projects.iter().any(|p| p.path == project.path) {
+                self.projects.push(project);
             }
         }
     }
@@ -804,6 +811,18 @@ mod tests {
         assert_eq!(ws.tabs[0].id, "w");
         assert_eq!(ws.active.as_deref(), Some("w"));
         assert!(ws.failed.is_none());
+    }
+
+    #[test]
+    fn revive_distingue_projeto_legado_de_removido() {
+        let mut legacy = board_json("");
+        legacy.revive();
+        assert_eq!(legacy.projects[0].id, "/r");
+
+        let mut removed = board_json(r#", "project":"/r""#);
+        removed.revive();
+        assert!(removed.projects.is_empty());
+        assert_eq!(removed.workspaces[0].project, "/r");
     }
 
     /// Quadro gravado por uma versão em que workspace tinha um repositório só:
