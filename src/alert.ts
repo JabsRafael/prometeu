@@ -10,7 +10,7 @@ import { template } from "./util";
 ///
 /// Dois avisos, e nenhum deles é uma notificação do sistema: um "pling" curto,
 /// e a bolinha no ícone do Dock com quantas coisas esperam resposta. O som
-/// tem chavinha em Configurações (guardada neste Mac, `prometheus:som`); a
+/// tem chavinha em Configurações (guardada neste Mac, `prometeu:som`); a
 /// bolinha não — ela é o que o Dock já faz por qualquer app, e só some quando
 /// não há nada esperando.
 ///
@@ -20,7 +20,7 @@ import { template } from "./util";
 /// `ws.unread` (ele sabe qual workspace está na tela, não se a janela está na
 /// frente); a segunda só a tela sabe, e fica aqui — até você olhar de novo.
 
-const SOUND_KEY = "prometheus:som";
+const SOUND_KEY = "prometeu:som";
 
 /// Ligado por padrão: quem não quer, desliga.
 export const soundOn = () => localStorage.getItem(SOUND_KEY) !== "0";

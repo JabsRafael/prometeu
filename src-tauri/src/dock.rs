@@ -47,7 +47,7 @@ pub fn open_dock(
     }
 
     // O shell também recebe as variáveis do contrato: conferir o que o script
-    // vai ver é `echo $PROMETHEUS_PORT`, e não ler o código do Prometheus.
+    // vai ver é `echo $PROMETEU_PORT`, e não ler o código do Prometeu.
     if is_terminal(&kind) {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
         let mut cmd = CommandBuilder::new(shell);
@@ -203,7 +203,7 @@ pub(crate) fn quoted(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
-/// O que subir num pty do dock: qual aba, o que rodar nela, e o que o Prometheus
+/// O que subir num pty do dock: qual aba, o que rodar nela, e o que o Prometeu
 /// escreve antes de o processo abrir a boca.
 struct Script<'a> {
     kind: &'a str,
@@ -444,7 +444,7 @@ pub fn workspace_scripts(state: State<AppState>, id: String) -> ScriptsView {
     ScriptsView { scripts, port }
 }
 
-/// Escreve o exemplo comentado em `.prometheus/settings.toml` e devolve o
+/// Escreve o exemplo comentado em `.prometeu/settings.toml` e devolve o
 /// caminho relativo, para o front abrir no visualizador. Nunca sobrescreve:
 /// arquivo que já existe só é apontado — inclusive o do Conductor, que é onde a
 /// pessoa vai querer mexer se é lá que a configuração dela mora.

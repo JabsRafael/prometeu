@@ -45,13 +45,13 @@ export const PT = {
 
   /* ---------- menu do Mac ---------- */
 
-  "menu.app.about": "Sobre o Prometheus",
+  "menu.app.about": "Sobre o Prometeu",
   "menu.app.settings": "Configurações…",
   "menu.app.services": "Serviços",
-  "menu.app.hide": "Ocultar o Prometheus",
+  "menu.app.hide": "Ocultar o Prometeu",
   "menu.app.hideOthers": "Ocultar os outros",
   "menu.app.showAll": "Mostrar tudo",
-  "menu.app.quit": "Sair do Prometheus",
+  "menu.app.quit": "Sair do Prometeu",
   "menu.file": "Arquivo",
   "menu.file.newWorkspace": "Novo workspace",
   "menu.file.newChat": "Conversa nova",
@@ -412,7 +412,7 @@ export const PT = {
   "dock.setup.start": "Rodar setup",
   "dock.run.idle.title": "Nada rodando",
   "dock.run.idle.body": "Teste sua mudança aqui.",
-  "dock.run.idle.port": "Teste sua mudança aqui. $PROMETHEUS_PORT é {port}.",
+  "dock.run.idle.port": "Teste sua mudança aqui. $PROMETEU_PORT é {port}.",
   "dock.run.start": "Iniciar Run",
 
   /* ---------- configurações ---------- */
@@ -475,7 +475,7 @@ export const PT = {
   "mcp.found.tools.other": "{n} ferramentas",
   "mcp.auth": "Autenticação",
   "mcp.auth.in": "Você entrou neste servidor. O token fica nesta máquina, e cada sessão o recebe pronto.",
-  "mcp.auth.needed": "Este servidor pede login. O Prometheus se registra nele e abre o navegador para você aprovar.",
+  "mcp.auth.needed": "Este servidor pede login. O Prometeu se registra nele e abre o navegador para você aprovar.",
   "mcp.auth.no": "Este servidor não pediu login.",
   "mcp.auth.unknown": "Ninguém verificou ainda se este servidor pede login.",
   "mcp.auth.blocked": "Este servidor pede login, mas não registra clientes na hora — não há como entrar por aqui.",
@@ -507,7 +507,7 @@ export const PT = {
   "plugin.add": "Apontar para uma pasta",
   "plugin.install": "Instalar plugin",
   "plugin.install.title": "Instalar um plugin",
-  "plugin.install.intro": "Cole o endereço do repositório. O Prometheus baixa numa pasta dele e cadastra — depois é só marcar o plugin nos workspaces que vão usá-lo.",
+  "plugin.install.intro": "Cole o endereço do repositório. O Prometeu baixa numa pasta dele e cadastra — depois é só marcar o plugin nos workspaces que vão usá-lo.",
   "plugin.install.field": "Endereço do repositório",
   "plugin.install.field.hint": "github.com/JuliusBrussee/caveman, ou só JuliusBrussee/caveman. Outro servidor de git serve pelo endereço de clone.",
   "plugin.install.go": "Instalar",
@@ -520,7 +520,7 @@ export const PT = {
   "plugin.updated": "{name} está atualizado",
   "plugin.make": "Criar plugin",
   "plugin.make.title": "Criar um plugin",
-  "plugin.make.intro": "Diga o que ele deve fazer. Um agente escreve o plugin — a skill, o comando, o hook — numa pasta do Prometheus, e ele aparece aqui pronto para entrar nos workspaces.",
+  "plugin.make.intro": "Diga o que ele deve fazer. Um agente escreve o plugin — a skill, o comando, o hook — numa pasta do Prometeu, e ele aparece aqui pronto para entrar nos workspaces.",
   "plugin.make.field.name": "Nome",
   "plugin.make.field.name.hint": "Vira o nome da pasta e o nome que o agente vê. Sem acento e sem espaço: \"Revisão de front\" fica revisao-de-front.",
   "plugin.make.field.ask": "O que ele deve fazer",
@@ -538,7 +538,7 @@ export const PT = {
   "plugin.title.edit": "Editar plugin",
   "plugin.intro": "Um pacote de skill, comando, agente e hook. É o hook que segura um jeito de trabalhar a cada fala, em vez de a instrução ir se dissolvendo na conversa.",
   "plugin.field.source": "Onde ele está",
-  "plugin.field.source.hint": "A pasta do plugin nesta máquina, um .zip, ou o endereço de um .zip. É para o plugin que você mesmo escreve num repositório seu — o que o Prometheus cria já entra na lista sozinho.",
+  "plugin.field.source.hint": "A pasta do plugin nesta máquina, um .zip, ou o endereço de um .zip. É para o plugin que você mesmo escreve num repositório seu — o que o Prometeu cria já entra na lista sozinho.",
   "plugin.field.name": "Nome",
   "plugin.field.name.hint": "O nome que o próprio plugin declara. Vem preenchido quando dá para ler o plugin.json.",
   "plugin.field.note": "Para que serve",
@@ -633,7 +633,7 @@ export const PT = {
   "linear.pitch": "Conecte para criar workspaces a partir das suas issues.",
   "linear.connect": "Conectar Linear",
   "linear.connect.title":
-    "Abre o Linear no navegador para você autorizar o Prometheus. Só leitura, e só neste Mac",
+    "Abre o Linear no navegador para você autorizar o Prometeu. Só leitura, e só neste Mac",
 
   /* ---------- a faixa de baixo ---------- */
 
@@ -651,7 +651,7 @@ export const PT = {
   "status.justNow": "atualizado agora",
   "status.awake": "Manter o Mac acordado",
   "status.awake.on": "Sempre",
-  "status.awake.on.note": "Mac e tela acordados até o Prometheus fechar",
+  "status.awake.on.note": "Mac e tela acordados até o Prometeu fechar",
   "status.awake.agent": "Com agente ativo",
   "status.awake.agent.note": "Mac e tela acordados enquanto algum agente trabalhar",
   "status.awake.off": "Desligado",
@@ -686,13 +686,13 @@ export const PT = {
   "update.failed": "não deu para atualizar: {err}",
   "update.restartFailed": "não deu para reiniciar: {err}",
   "update.stuck":
-    "o app não reiniciou sozinho — feche e abra o Prometheus, a {version} já está instalada",
+    "o app não reiniciou sozinho — feche e abra o Prometeu, a {version} já está instalada",
   "update.notes": "Ver o que vem",
 
   /* ---------- novidades ---------- */
 
   "news.title": "Novidades",
-  "news.sub.app": "Prometheus {version}",
+  "news.sub.app": "Prometeu {version}",
   "news.sub.fresh": "O que entrou até a {version}",
   "news.sub.next": "O que vem na {version}",
   "news.close": "Fechar",
@@ -741,7 +741,7 @@ export const PT = {
   "err.linear.taskDied": "a tarefa do Linear morreu: {cause}",
   "err.linear.port": "não deu para abrir a porta {port} para o Linear responder: {cause}",
   "err.linear.portDied": "a porta {port} parou de responder: {cause}",
-  "err.linear.denied": "você não autorizou o Prometheus no Linear",
+  "err.linear.denied": "você não autorizou o Prometeu no Linear",
   "err.linear.refused": "o Linear recusou: {why}",
   "err.linear.mismatch": "a resposta do Linear não bate com o pedido — tente de novo",
   "err.linear.noCode": "o Linear voltou sem o código de autorização",
@@ -783,7 +783,7 @@ export const PT = {
     "o app fechou enquanto o worktree montava; a pasta pode ter ficado pela metade",
   "err.cleanup.notArchived": "arquive este trabalho antes de limpar o worktree",
   "err.cleanup.isRepo": "este workspace mexe no próprio clone, e não num worktree",
-  "err.cleanup.badRoot": "a pasta deste workspace não é uma raiz multi-repo criada pelo Prometheus",
+  "err.cleanup.badRoot": "a pasta deste workspace não é uma raiz multi-repo criada pelo Prometeu",
   "err.cleanup.dirty": "há {n} arquivos com mudanças fora de commit",
   "err.cleanup.unmerged": "'{branch}' tem trabalho que não entrou no alvo",
   "err.session.outside": "caminho fora do worktree",

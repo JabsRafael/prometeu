@@ -484,7 +484,7 @@ pub fn cleanup_worktree(
         }
         let _ = git(&repo, &["worktree", "prune"]);
     }
-    // A pasta que reunia os worktrees é do Prometheus: sem eles, só sobra o
+    // A pasta que reunia os worktrees é do Prometeu: sem eles, só sobra o
     // que o app escreveu nela, e ela vai junto.
     if ws.multi() {
         let _ = std::fs::remove_dir_all(&ws.worktree);
@@ -1778,7 +1778,7 @@ mod tests {
     /// do repositório rodou.
     #[test]
     fn check_so_deixa_sair_o_que_ja_entrou_e_esta_limpo() {
-        let root = std::env::temp_dir().join(format!("prometheus-clean-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("prometeu-clean-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let (origin, local) = (root.join("origin"), root.join("clone"));
         std::fs::create_dir_all(&origin).unwrap();
@@ -1910,7 +1910,7 @@ mod tests {
         assert!(super::check(&ws).unwrap_err().contains("dirty"));
 
         // A pasta agregadora, que o app apaga com `remove_dir_all`, só vale no
-        // formato exato criado pelo Prometheus e com os worktrees como filhos.
+        // formato exato criado pelo Prometeu e com os worktrees como filhos.
         let names: Vec<String> = ws.repos.iter().map(|repo| repo.name.clone()).collect();
         let multi = super::paths::multi_dir(&names, &ws.branch);
         ws.worktree = multi.display().to_string();
@@ -2038,14 +2038,14 @@ mod tests {
         assert!(!sem.contains(&"--mcp-config".to_string()));
         assert!(!sem.contains(&"--strict-mcp-config".to_string()));
 
-        let root = std::env::temp_dir().join(format!("prometheus-mcp-{}", uuid::Uuid::new_v4()));
-        std::env::set_var("PROMETHEUS_ROOT", &root);
+        let root = std::env::temp_dir().join(format!("prometeu-mcp-{}", uuid::Uuid::new_v4()));
+        std::env::set_var("PROMETEU_ROOT", &root);
         let escolheu = Launch {
             mcp: Some(vec!["notion".into()]),
             ..launch("", "", false)
         };
         let args = claude_args("id", false, &escolheu);
-        std::env::remove_var("PROMETHEUS_ROOT");
+        std::env::remove_var("PROMETEU_ROOT");
         let at = args
             .iter()
             .position(|a| a == "--mcp-config")
@@ -2297,7 +2297,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
     /// que exista, sobra o que está fora de commit.
     #[test]
     fn o_diff_contra_a_base_junta_commit_e_fora_de_commit() {
-        let root = std::env::temp_dir().join(format!("prometheus-diff-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("prometeu-diff-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         let run = |args: &[&str]| {
@@ -2353,7 +2353,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         // Com a branch empurrada, o mesmo commit deixa de contar: é o que a tela
         // usa para dizer "tudo empurrado" em vez de oferecer atualizar o PR.
         let remoto =
-            std::env::temp_dir().join(format!("prometheus-diff-remoto-{}", std::process::id()));
+            std::env::temp_dir().join(format!("prometeu-diff-remoto-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&remoto);
         let out = Command::new("git")
             .args(["init", "-q", "--bare"])
@@ -2374,7 +2374,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
     /// onde a branch nasce, e que `origin/main` é o padrão que o clone gravou.
     #[test]
     fn a_branch_nova_sai_da_base_escolhida() {
-        let root = std::env::temp_dir().join(format!("prometheus-base-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("prometeu-base-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let (origin, local) = (root.join("origin"), root.join("clone"));
         std::fs::create_dir_all(&origin).unwrap();
@@ -2467,7 +2467,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
     /// está, e a tentativa não pode deixar pasta vazia para trás.
     #[test]
     fn branch_aberta_em_outra_pasta_recusa_sem_deixar_pasta() {
-        let root = std::env::temp_dir().join(format!("prometheus-busy-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("prometeu-busy-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let repo = root.join("code-rules");
         std::fs::create_dir_all(&repo).unwrap();
@@ -2529,16 +2529,16 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
     /// rodando o comando de verdade num `sh` e lendo o que cada um escreveu.
     #[test]
     fn setup_de_varios_repos_roda_cada_um_na_sua_pasta() {
-        let root = std::env::temp_dir().join(format!("prometheus-multi-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("prometeu-multi-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let mk = |name: &str, setup: &str| {
             let repo = root.join("clones").join(name);
             let wt = root.join("ws").join(name);
-            std::fs::create_dir_all(repo.join(".prometheus")).unwrap();
+            std::fs::create_dir_all(repo.join(".prometeu")).unwrap();
             std::fs::create_dir_all(&wt).unwrap();
             // String literal do TOML: o comando tem aspas duplas dentro.
             std::fs::write(
-                repo.join(".prometheus/settings.toml"),
+                repo.join(".prometeu/settings.toml"),
                 format!("[scripts]\nsetup = '{setup}'\n"),
             )
             .unwrap();
@@ -2551,11 +2551,8 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
             }
         };
         let repos = vec![
-            mk(
-                "back end",
-                "echo \"$PROMETHEUS_WORKSPACE_PATH\" > saida.txt",
-            ),
-            mk("front", "echo \"$PROMETHEUS_ROOT_PATH:$PORT\" > saida.txt"),
+            mk("back end", "echo \"$PROMETEU_WORKSPACE_PATH\" > saida.txt"),
+            mk("front", "echo \"$PROMETEU_ROOT_PATH:$PORT\" > saida.txt"),
         ];
         let ws = super::Workspace {
             id: "w".into(),
@@ -2605,9 +2602,9 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         assert_eq!(read(&repos[1]).trim(), format!("{}:3100", repos[1].path));
 
         // Só um com setup ainda é uma aba; nenhum, não.
-        std::fs::remove_file(Path::new(&repos[1].path).join(".prometheus/settings.toml")).unwrap();
+        std::fs::remove_file(Path::new(&repos[1].path).join(".prometeu/settings.toml")).unwrap();
         assert!(multi_setup(&ws).unwrap().1.contains("back end"));
-        std::fs::remove_file(Path::new(&repos[0].path).join(".prometheus/settings.toml")).unwrap();
+        std::fs::remove_file(Path::new(&repos[0].path).join(".prometeu/settings.toml")).unwrap();
         assert!(multi_setup(&ws).is_none());
 
         let _ = std::fs::remove_dir_all(&root);

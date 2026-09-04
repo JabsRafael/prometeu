@@ -4,7 +4,7 @@ pub fn home() -> PathBuf {
     dirs::home_dir().expect("sem HOME")
 }
 
-/// O que separa o app de dev do app instalado, em todo caminho que o Prometheus
+/// O que separa o app de dev do app instalado, em todo caminho que o Prometeu
 /// escreve. Sem isto os dois mexem no mesmo quadro e nos mesmos worktrees.
 ///
 /// `cfg!` resolve em tempo de compilação: `tauri dev` compila em debug, `tauri
@@ -17,12 +17,12 @@ fn suffix() -> &'static str {
     }
 }
 
-/// Raiz de tudo que o Prometheus escreve fora do repositório do usuário.
+/// Raiz de tudo que o Prometeu escreve fora do repositório do usuário.
 pub fn root() -> PathBuf {
-    if let Ok(p) = std::env::var("PROMETHEUS_ROOT") {
+    if let Ok(p) = std::env::var("PROMETEU_ROOT") {
         return PathBuf::from(p);
     }
-    home().join(format!(".prometheus{}", suffix()))
+    home().join(format!(".prometeu{}", suffix()))
 }
 
 /// O time de que este app faz parte, com o segredo — só o dono lê. Quem fala
@@ -94,14 +94,14 @@ pub fn write_private(target: &Path, body: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Worktrees ficam fora de `.prometheus` porque o usuário abre esses diretórios no editor.
+/// Worktrees ficam fora de `.prometeu` porque o usuário abre esses diretórios no editor.
 ///
 /// O sufixo também vale aqui: dois apps criando worktree para a mesma branch do
 /// mesmo repo colidiriam no mesmo diretório — e o transcript, que o Claude Code
 /// nomeia pelo caminho do cwd, seria o mesmo arquivo para as duas sessões.
 pub fn worktree_dir(repo_name: &str, branch: &str) -> PathBuf {
     home()
-        .join("prometheus")
+        .join("prometeu")
         .join(format!("worktrees{}", suffix()))
         .join(repo_name)
         .join(dir_name(branch))
@@ -114,7 +114,7 @@ pub fn worktree_dir(repo_name: &str, branch: &str) -> PathBuf {
 /// no Finder o que é.
 pub fn multi_dir(names: &[String], branch: &str) -> PathBuf {
     home()
-        .join("prometheus")
+        .join("prometeu")
         .join(format!("worktrees{}", suffix()))
         .join(names.join("+"))
         .join(dir_name(branch))
@@ -181,9 +181,9 @@ mod tests {
 
     #[test]
     fn slug_troca_tudo_que_nao_e_alfanumerico() {
-        let path = transcript("abc", Path::new("/Users/ana/.prometheus/wt/x_1"));
+        let path = transcript("abc", Path::new("/Users/ana/.prometeu/wt/x_1"));
         assert!(
-            path.ends_with("-Users-ana--prometheus-wt-x-1/abc.jsonl"),
+            path.ends_with("-Users-ana--prometeu-wt-x-1/abc.jsonl"),
             "{}",
             path.display()
         );
@@ -224,8 +224,7 @@ mod tests {
     fn estado_privado_nasce_com_permissoes_restritas_e_troca_atomicamente() {
         use std::os::unix::fs::PermissionsExt;
 
-        let root =
-            std::env::temp_dir().join(format!("prometheus-private-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("prometeu-private-{}", uuid::Uuid::new_v4()));
         let file = root.join("nested/state.json");
         write_private(&file, "primeiro").unwrap();
         write_private(&file, "segundo").unwrap();

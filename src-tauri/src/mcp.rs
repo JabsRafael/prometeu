@@ -9,7 +9,7 @@
 //! sem usar nenhuma (o `context.ts` mostra a conta). E o alcance: o agente
 //! roda solto, e um workspace de Rails não precisa poder escrever no Notion.
 //!
-//! O hub é a lista de servidores que o Prometheus guarda, e a escolha é do
+//! O hub é a lista de servidores que o Prometeu guarda, e a escolha é do
 //! workspace — como o modelo e o esforço já são. Na hora de subir a conversa,
 //! os escolhidos viram um arquivo e o `claude` recebe `--mcp-config` mais
 //! `--strict-mcp-config`: a sessão vê exatamente o que foi marcado, e mais
@@ -17,7 +17,7 @@
 //! nada é passado, e vale o que o CLI sempre fez.
 //!
 //! O arquivo gerado tem segredo dentro (chave de API, header de autorização),
-//! e por isso é `write_private` — `0600`, em `~/.prometheus`. É também o motivo
+//! e por isso é `write_private` — `0600`, em `~/.prometeu`. É também o motivo
 //! de ser arquivo e não texto no comando: argumento de processo qualquer um lê
 //! com `ps`, e `--mcp-config` aceita os dois.
 //!
@@ -46,7 +46,7 @@ use std::time::{Duration, Instant};
 /// Um servidor como o hub o guarda. `config` é o objeto do `mcpServers` como o
 /// Claude Code o entende — guardado inteiro, e não em campos nossos, porque a
 /// forma é dele: um `type` novo do CLI passa por aqui sem release do
-/// Prometheus.
+/// Prometeu.
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct Server {
     /// O nome do servidor, que é a chave dentro de `mcpServers` e o prefixo de
@@ -378,7 +378,7 @@ fn pairs(value: Option<&Value>) -> Vec<(String, String)> {
 /// `_`: é o que um nome de variável aceita em qualquer shell.
 fn env_var_name(server: &str, header: &str) -> String {
     format!(
-        "PROMETHEUS_MCP_{}_{}",
+        "PROMETEU_MCP_{}_{}",
         slug(server).to_uppercase().replace('-', "_"),
         slug(header).to_uppercase().replace('-', "_")
     )
@@ -430,7 +430,7 @@ fn local_entry(id: &str, server: &Server) -> Result<String, String> {
         let mut wrapped = vec![
             "-c".to_string(),
             script,
-            "prometheus-mcp".to_string(),
+            "prometeu-mcp".to_string(),
             command.to_string(),
         ];
         wrapped.extend(args);
@@ -473,7 +473,7 @@ fn toml_key(s: &str) -> String {
 
 /* ---------- examinar um servidor ---------- */
 
-/// O que o exame descobriu. É o Prometheus falando com o servidor, e não o
+/// O que o exame descobriu. É o Prometeu falando com o servidor, e não o
 /// `claude` — o que se quer saber é se o cadastro está certo, e um agente no
 /// meio só somaria um jeito de errar.
 #[derive(serde::Serialize, Default)]
@@ -565,7 +565,7 @@ fn hello() -> Value {
         "params": {
             "protocolVersion": PROTOCOL,
             "capabilities": {},
-            "clientInfo": { "name": "Prometheus", "version": env!("CARGO_PKG_VERSION") }
+            "clientInfo": { "name": "Prometeu", "version": env!("CARGO_PKG_VERSION") }
         }
     })
 }
@@ -620,7 +620,7 @@ pub fn mcp_logins() -> Vec<String> {
 
 /// O exame de um servidor, passo a passo. Remoto que pede login ganha dois
 /// passos a mais: o cadastro já se provou certo, e o que falta saber é se o
-/// Prometheus consegue se autorizar nele — achar os endereços do OAuth, e ter
+/// Prometeu consegue se autorizar nele — achar os endereços do OAuth, e ter
 /// onde registrar um cliente. Sem registro dinâmico o "Entrar" não teria como
 /// funcionar, e é melhor dizer isso aqui do que depois de abrir o navegador.
 fn check(server: &Server) -> Check {
@@ -1048,8 +1048,8 @@ mod tests {
     /// que mantém segredo fora do argumento do processo.
     #[test]
     fn a_tabela_do_codex_nao_carrega_segredo() {
-        let root = std::env::temp_dir().join(format!("prometheus-codex-{}", uuid::Uuid::new_v4()));
-        std::env::set_var("PROMETHEUS_ROOT", &root);
+        let root = std::env::temp_dir().join(format!("prometeu-codex-{}", uuid::Uuid::new_v4()));
+        std::env::set_var("PROMETEU_ROOT", &root);
         let hub = vec![
             Server {
                 id: "remoto".into(),
@@ -1078,7 +1078,7 @@ mod tests {
         let (table, env) = codex_config("aba", Some(&chosen))
             .expect("sem erro")
             .expect("há escolha");
-        std::env::remove_var("PROMETHEUS_ROOT");
+        std::env::remove_var("PROMETEU_ROOT");
 
         // O segredo não aparece em lugar nenhum da linha de comando.
         assert!(!table.contains("abracadabra"), "{table}");

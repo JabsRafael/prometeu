@@ -1,10 +1,13 @@
 //! Conexão com o Linear: OAuth 2.0 com PKCE, inteira no Mac de quem usa.
 //!
-//! Não há servidor do Prometheus no meio. O app OAuth foi registrado uma vez
+//! Não há servidor do Prometeu no meio. O app OAuth foi registrado uma vez
 //! no Linear — é o `CLIENT_ID` abaixo, público por definição — e cada pessoa
-//! só clica em "Conectar", aprova no navegador e volta. O que substitui o
-//! `client_secret`, que num `.app` qualquer um extrai, é o PKCE: um segredo
-//! aleatório gerado na hora, que nunca sai deste processo.
+//! só clica em "Conectar", aprova no navegador e volta. Temporariamente esse
+//! id ainda pertence ao cadastro do produto anterior; o consentimento externo
+//! pode mostrar a marca antiga até existir um cadastro próprio do Prometeu.
+//!
+//! O que substitui o `client_secret`, que num `.app` qualquer um extrai, é o
+//! PKCE: um segredo aleatório gerado na hora, que nunca sai deste processo.
 //!
 //! O fluxo, na ordem:
 //!
@@ -13,7 +16,7 @@
 //!   3. o Linear devolve o navegador para `localhost:17420/linear?code=…`;
 //!   4. troca o `code` pelo token em `api.linear.app/oauth/token`, provando
 //!      com o verifier que quem pede é quem começou;
-//!   5. guarda em `~/.prometheus/linear.json`, que só o dono lê, e avisa a
+//!   5. guarda em `~/.prometeu/linear.json`, que só o dono lê, e avisa a
 //!      tela pelo evento `linear`.
 //!
 //! A porta é fixa porque o Linear exige o redirect exato que foi registrado
@@ -23,7 +26,7 @@
 //! O token vale 24h e vem com um `refresh_token`; `token()` renova sozinho
 //! antes de cada uso. Fica num arquivo e não no Keychain de propósito: o
 //! `.app` não é assinado pela Apple, então cada atualização seria um binário
-//! novo aos olhos do Keychain — e um "Prometheus quer usar sua senha" a cada
+//! novo aos olhos do Keychain — e um "Prometeu quer usar sua senha" a cada
 //! versão. O escopo é só leitura.
 
 use crate::i18n;
@@ -38,8 +41,9 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
-/// O id do app OAuth "Prometheus" registrado no Linear. É público: é o que a
-/// tela de consentimento mostra, e não abre nada sem o consentimento.
+/// Id temporário do cadastro OAuth anterior. É público: não abre nada sem o
+/// consentimento. Trocar pelo id do Prometeu não exige migrar token local,
+/// porque esta linha usa uma raiz de estado nova.
 pub const CLIENT_ID: &str = "f5450b36b19aab8193b7d8da649231be";
 const PORT: u16 = 17420;
 const REDIRECT: &str = "http://localhost:17420/linear";
@@ -205,21 +209,21 @@ fn page(ok: bool, why: &str) -> String {
     let (title, text) = match (ok, i18n::pt()) {
         (true, true) => (
             "Linear conectado",
-            "Pode fechar esta aba e voltar ao Prometheus.".to_string(),
+            "Pode fechar esta aba e voltar ao Prometeu.".to_string(),
         ),
         (true, false) => (
             "Linear connected",
-            "You can close this tab and go back to Prometheus.".to_string(),
+            "You can close this tab and go back to Prometeu.".to_string(),
         ),
         (false, true) => (
             "Não deu",
-            format!("O Linear não autorizou o Prometheus. {why}")
+            format!("O Linear não autorizou o Prometeu. {why}")
                 .trim()
                 .to_string(),
         ),
         (false, false) => (
             "Did not work",
-            format!("Linear did not authorize Prometheus. {why}")
+            format!("Linear did not authorize Prometeu. {why}")
                 .trim()
                 .to_string(),
         ),

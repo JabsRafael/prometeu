@@ -16,9 +16,7 @@
 use crate::i18n;
 use crate::lock::lock;
 use crate::state::{publish, Note, Status, Workspace};
-use crate::{
-    claude, codex, conversation, conversation_rollback, paths, transcript, usage, AppState,
-};
+use crate::{claude, codex, conversation, paths, transcript, usage, AppState};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::process::CommandExt;
@@ -165,12 +163,6 @@ impl Pump {
         let seq = match keep(&frame) {
             true => {
                 if let Some(log) = &self.log {
-                    if let Some(mirror) = conversation_rollback::mirror(&frame) {
-                        append(log, &mirror.to_string());
-                    }
-                    // O V1 vem depois do espelho: se o teto cortar o arquivo
-                    // entre os dois, a versão atual ainda preserva o evento
-                    // canônico em vez de ficar apenas com a linha que ignora.
                     append(log, text);
                 }
                 lock(&self.sink).absorb(text)
@@ -1090,10 +1082,9 @@ mod tests {
     fn o_que_o_chamador_poe_no_ambiente_chega_ao_processo() {
         std::env::set_var("CLAUDE_CODE_CHILD_SESSION", "1");
         let mut cmd = Command::new("sh");
-        cmd.arg("-c").arg(
-            r#"printf '%s|%s' "$PROMETHEUS_MCP_X_AUTHORIZATION" "$CLAUDE_CODE_CHILD_SESSION""#,
-        );
-        cmd.env("PROMETHEUS_MCP_X_AUTHORIZATION", "Bearer abracadabra");
+        cmd.arg("-c")
+            .arg(r#"printf '%s|%s' "$PROMETEU_MCP_X_AUTHORIZATION" "$CLAUDE_CODE_CHILD_SESSION""#);
+        cmd.env("PROMETEU_MCP_X_AUTHORIZATION", "Bearer abracadabra");
         drop_claude_vars(&mut cmd);
         let out = cmd.output().expect("o sh");
         std::env::remove_var("CLAUDE_CODE_CHILD_SESSION");

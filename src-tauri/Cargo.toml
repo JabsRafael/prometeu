@@ -1,15 +1,15 @@
 [package]
-name = "prometheus"
+name = "prometeu"
 version = "0.4.19"
 edition = "2021"
 rust-version = "1.88"
 # Cargo não aceita espaço em nome de bin, e de todo modo não é daqui que sai o
 # nome no Dock: quem manda é o CFBundleName do Info.plist que o tauri-build
 # embute no binário. Ver `tauri.dev.conf.json` para o nome durante o dev.
-default-run = "Prometheus"
+default-run = "Prometeu"
 
 [[bin]]
-name = "Prometheus"
+name = "Prometeu"
 path = "src/main.rs"
 
 [build-dependencies]

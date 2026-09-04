@@ -1,4 +1,4 @@
-/// Link para fora do app. A janela do Prometheus é o Prometheus: clicar num
+/// Link para fora do app. A janela do Prometeu é o Prometeu: clicar num
 /// link do texto do agente abre o navegador do computador, e não navega a tela
 /// para longe do app. A aba de navegador de dentro (`browser.ts`) continua
 /// sendo só o Run.

@@ -3,7 +3,7 @@
 Status: contrato vigente desde 2026-09-03.
 
 Claude e Codex possuem protocolos externos diferentes. Os adapters traduzem
-ambos para eventos e comandos pertencentes ao Prometheus antes de buffer, IPC,
+ambos para eventos e comandos pertencentes ao Prometeu antes de buffer, IPC,
 persistência nova ou colaboração. As fontes executáveis do contrato são
 `src/conversation.ts` e `src-tauri/src/conversation.rs`.
 
@@ -192,18 +192,17 @@ Modelo, esforço, MCP e plugins configuram a sessão fora deste contrato.
 - modo irrestrito não pode ser ativado remotamente;
 - eventos não concedem acesso a filesystem por si mesmos.
 
-## Persistência, migração e rollback
+## Persistência e legado
 
 Transcripts anteriores não são reescritos. `LegacyConversationAdapter` traduz
 linhas antigas durante o replay, fora do reducer. O transcript do Claude
 continua pertencendo ao CLI; eventos ao vivo já chegam normalizados.
 
-No log administrado pelo Prometheus para Codex, cada evento V1 persistente
-ganha uma projeção legada marcada com `prometheusV1Mirror`. A versão atual
-ignora essa projeção; uma versão anterior ignora o evento V1 e lê o espelho.
-Assim rollback não exige converter nem regravar o histórico. O espelho é
-compatibilidade temporária e só pode ser removido em outro ADR, depois de
-encerrar a janela de rollback suportada.
+O Prometeu grava apenas o evento V1 no log administrado para Codex. O leitor
+continua ignorando projeções marcadas com `prometheusV1Mirror` e traduzindo o
+discriminante legado `type: "prometheus"`; esses nomes pertencem ao formato
+histórico do produto anterior e não são emitidos em logs novos. A mudança da
+política de rollback está registrada no ADR 0004.
 
 ## Evidência
 
@@ -211,6 +210,5 @@ encerrar a janela de rollback suportada.
 - `src/timeline.test.ts`: streaming, ferramentas, requests, background e compactação;
 - testes de `claude.rs`: tradução stream-json, comandos e desconhecidos;
 - testes de `conversation.rs`: envelope V1;
-- testes de `conversation_rollback.rs`: projeção e leitura após rollback;
 - testes de `codex.rs`: comandos V1, protocolo JSON-RPC e saída V1 direta;
 - testes de `chat.rs`: persistência, sequência e reconstrução segura de controle remoto.

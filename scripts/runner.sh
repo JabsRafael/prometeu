@@ -1,5 +1,5 @@
 #!/bin/sh
-# O runner self-hosted do CI é este Mac: ~/actions-runner, de pé como serviço
+# O runner self-hosted do CI é este Mac: ~/actions-runner-prometeu, de pé como serviço
 # de login (launchd), registrado no repositório. Este script confere se o
 # GitHub o vê online e, se não, sobe o serviço — para ninguém empurrar tag ou
 # abrir PR e ficar com o job na fila sem perceber (a fila espera 24h e falha).
@@ -15,8 +15,8 @@
 # workflows de forks desativados, pois jobs de PR executam código do branch.
 set -eu
 
-REPO=gbrancaglione/prometheus
-DIR=$HOME/actions-runner
+REPO=gbrancaglione/prometeu
+DIR=$HOME/actions-runner-prometeu
 
 status() { gh api "repos/$REPO/actions/runners" --jq '.runners[] | "\(.name): \(.status)\(if .busy then ", ocupado" else "" end)"'; }
 online() { status 2>/dev/null | grep -q ": online"; }

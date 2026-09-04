@@ -1,4 +1,4 @@
-//! Os scripts que um repositório declara para o Prometheus: o que rodar quando
+//! Os scripts que um repositório declara para o Prometeu: o que rodar quando
 //! um worktree nasce (`setup`), o que sobe o projeto (`run`), e o que limpar
 //! quando ele é arquivado (`archive`).
 //!
@@ -7,16 +7,16 @@
 //! `.env`, banco, build. Sem um `setup`, todo worktree nasce quebrado.
 //!
 //! Nada aqui é descoberto sozinho, e está tudo bem: o repositório declara. O que
-//! o Prometheus faz é não deixar isso virar trabalho manual — o botão
+//! o Prometeu faz é não deixar isso virar trabalho manual — o botão
 //! "Perguntar ao agente" manda o próprio Claude Code ler o repo e escrever o
 //! arquivo.
 //!
-//! Lê `.prometheus/settings.toml` e cai para `.conductor/settings.toml`: quem já
+//! Lê `.prometeu/settings.toml` e cai para `.conductor/settings.toml`: quem já
 //! usa Conductor não configura nada de novo. Vale um só — o primeiro que existir
 //! manda, para não juntar metade de cada.
 //!
 //! Worktree que não tem arquivo nenhum usa o do clone de onde saiu. É comum o
-//! `.prometheus/` estar no `.gitignore` — configuração pessoal, num repositório
+//! `.prometeu/` estar no `.gitignore` — configuração pessoal, num repositório
 //! de empresa —, e aí todo worktree nascia sem setup e sem Run, e quem queria
 //! subir o projeto digitava `npm run dev` à mão: porta fixa, e o segundo
 //! worktree derrubava o primeiro.
@@ -30,13 +30,13 @@ use crate::i18n;
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 
-/// Na ordem em que são procurados. O do Prometheus vem primeiro para quem quiser
+/// Na ordem em que são procurados. O do Prometeu vem primeiro para quem quiser
 /// um comando diferente aqui sem mexer no que o Conductor lê.
-pub const FILES: [&str; 2] = [".prometheus/settings.toml", ".conductor/settings.toml"];
+pub const FILES: [&str; 2] = [".prometeu/settings.toml", ".conductor/settings.toml"];
 
 /// O que escrever quando não há arquivo nenhum. Comentado, porque este arquivo é
-/// o contrato inteiro entre o repositório e o Prometheus.
-pub const TEMPLATE: &str = r#"# Scripts que o Prometheus roda neste repositório.
+/// o contrato inteiro entre o repositório e o Prometeu.
+pub const TEMPLATE: &str = r#"# Scripts que o Prometeu roda neste repositório.
 #
 # `setup`   roda sozinho quando um worktree nasce; a primeira fala do agente espera por ele
 # `run`     é o botão Run
@@ -44,17 +44,17 @@ pub const TEMPLATE: &str = r#"# Scripts que o Prometheus roda neste repositório
 #
 # Rodam com `/bin/sh -lc`, com o worktree como diretório atual, e recebem:
 #
-#   $PROMETHEUS_WORKSPACE_PATH  o worktree onde o script está rodando
-#   $PROMETHEUS_ROOT_PATH       o repositório de onde ele saiu
-#   $PROMETHEUS_WORKSPACE_NAME  o nome deste workspace
-#   $PROMETHEUS_PORT            porta reservada só para ele, mais nove até +9
+#   $PROMETEU_WORKSPACE_PATH  o worktree onde o script está rodando
+#   $PROMETEU_ROOT_PATH       o repositório de onde ele saiu
+#   $PROMETEU_WORKSPACE_NAME  o nome deste workspace
+#   $PROMETEU_PORT            porta reservada só para ele, mais nove até +9
 #   $PORT                       a mesma porta, para o que já respeita a convenção
 #
-# Porta fixa faz dois worktrees brigarem — use $PROMETHEUS_PORT.
+# Porta fixa faz dois worktrees brigarem — use $PROMETEU_PORT.
 
 [scripts]
 setup = "npm install"
-run = "npm run dev -- --port $PROMETHEUS_PORT"
+run = "npm run dev -- --port $PROMETEU_PORT"
 
 # O que cada worktree novo recebe do clone de origem, antes do setup: o que o
 # `.gitignore` esconde e nenhum script reconstrói. Sem esta lista vai o `.env` da
@@ -76,7 +76,7 @@ struct Table {
 }
 
 /// `[worktree]` do settings.toml. Separado de `[scripts]` porque não é script:
-/// é o que o Prometheus faz *antes* de qualquer um deles rodar.
+/// é o que o Prometeu faz *antes* de qualquer um deles rodar.
 #[derive(Deserialize, Default)]
 struct WorktreeTable {
     /// `None` é "não declarou", e vale o automático de `auto`. `Some(vec![])` é
@@ -345,9 +345,9 @@ pub fn report(notes: &[Copied]) -> Option<String> {
     Some(out)
 }
 
-/// O contrato com o script. Os nomes do Conductor vão junto com os do Prometheus
+/// O contrato com o script. Os nomes do Conductor vão junto com os do Prometeu
 /// para que um `.conductor/settings.toml` copiado de outro projeto funcione sem
-/// edição — e para que quem escreve para o Prometheus não precise citar o outro.
+/// edição — e para que quem escreve para o Prometeu não precise citar o outro.
 ///
 /// `PORT` vai solto também: é a convenção que Rails, Next, Express e o Procfile
 /// do Heroku já respeitam. Com ela, um `npm run dev` digitado no terminal do
@@ -365,7 +365,7 @@ pub fn env(worktree: &Path, repo: &Path, name: &str, port: Option<u16>) -> Vec<(
         .into_iter()
         .flat_map(|(key, value)| {
             [
-                (format!("PROMETHEUS_{key}"), value.clone()),
+                (format!("PROMETEU_{key}"), value.clone()),
                 (format!("CONDUCTOR_{key}"), value),
             ]
         })
@@ -376,16 +376,16 @@ pub fn env(worktree: &Path, repo: &Path, name: &str, port: Option<u16>) -> Vec<(
     out
 }
 
-/// Dez portas por workspace, como no Conductor: `$PROMETHEUS_PORT` até `+9`.
+/// Dez portas por workspace, como no Conductor: `$PROMETEU_PORT` até `+9`.
 ///
 /// A base é sempre múltipla de dez, então a conta que o script faz
-/// (`$((PROMETHEUS_PORT + 1))`) nunca cai na faixa do vizinho. `taken` são as
+/// (`$((PROMETEU_PORT + 1))`) nunca cai na faixa do vizinho. `taken` são as
 /// bases que outros workspaces já guardaram — o teste de `bind` sozinho não
 /// bastaria, porque workspace parado não segura porta nenhuma e a base dele
 /// seria entregue de novo.
 ///
 /// A procura começa num ponto que sai do caminho do worktree, e não sempre da
-/// primeira. Cada Prometheus de pé — o instalado e cada `tauri dev` — tem o seu
+/// primeira. Cada Prometeu de pé — o instalado e cada `tauri dev` — tem o seu
 /// quadro, e quadros que não se conhecem começando todos de 3100 entregavam a
 /// mesma porta para worktrees diferentes; o `bind` só pega o vizinho enquanto
 /// ele está rodando. Com o ponto de partida vindo do caminho, worktrees
@@ -446,11 +446,11 @@ pub fn ask_prompt(file: &str) -> String {
     format!(
         r#"Descubra como preparar e como rodar este projeto, e escreva isso em `{file}`.
 
-O Prometheus roda cada trabalho num worktree git separado. Worktree novo vem sem
+O Prometeu roda cada trabalho num worktree git separado. Worktree novo vem sem
 nada que o `.gitignore` esconde: dependências, `.env`, banco, build. O `setup` é
 o que transforma o worktree num lugar onde dá para trabalhar; o `run` é o que
 sobe o projeto para eu ver a mudança funcionando. O que nenhum comando
-reconstrói — segredo, chave — vai em `[worktree] copy`, e o Prometheus copia do
+reconstrói — segredo, chave — vai em `[worktree] copy`, e o Prometeu copia do
 clone de origem antes do setup.
 
 Leia o README, os manifestos de pacote e os scripts do repositório antes de
@@ -475,13 +475,13 @@ Regras:
   esconde e nenhum comando refaz. Não escreva `cp` no `setup` para isso: a cópia
   acontece antes dele, nunca sobrescreve, e aparece na aba Setup. Omita a seção
   inteira se o `.env` da raiz é o único caso — esse já vai sozinho.
-- `run` precisa ficar em primeiro plano — sem `&`, sem `--daemon`. O Prometheus
+- `run` precisa ficar em primeiro plano — sem `&`, sem `--daemon`. O Prometeu
   mostra a saída num terminal e mata o processo quando eu peço.
-- Se o projeto abre porta, use `$PROMETHEUS_PORT`. Ela é reservada só para este
+- Se o projeto abre porta, use `$PROMETEU_PORT`. Ela é reservada só para este
   worktree; porta fixa faz dois worktrees brigarem. Há mais nove, de
-  `$PROMETHEUS_PORT`+1 a +9. `$PORT` vale o mesmo, para o que já lê a convenção.
-- Outras variáveis: `$PROMETHEUS_WORKSPACE_PATH`, `$PROMETHEUS_ROOT_PATH`,
-  `$PROMETHEUS_WORKSPACE_NAME`.
+  `$PROMETEU_PORT`+1 a +9. `$PORT` vale o mesmo, para o que já lê a convenção.
+- Outras variáveis: `$PROMETEU_WORKSPACE_PATH`, `$PROMETEU_ROOT_PATH`,
+  `$PROMETEU_WORKSPACE_NAME`.
 - Nada destrutivo fora do worktree, e nada de rede além do que instalar
   dependência exige.
 
@@ -516,10 +516,8 @@ mod tests {
     }
 
     fn tmp(name: &str) -> Tmp {
-        let dir = std::env::temp_dir().join(format!(
-            "prometheus-scripts-{name}-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("prometeu-scripts-{name}-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         Tmp(dir)
     }
@@ -529,14 +527,14 @@ mod tests {
         let dir = tmp("tres");
         write(
             &dir,
-            ".prometheus/settings.toml",
+            ".prometeu/settings.toml",
             "[scripts]\nsetup = \"npm i\"\nrun = \"npm dev\"\narchive = \"rm -rf tmp\"\n",
         );
         let s = read(&dir);
         assert_eq!(s.setup.as_deref(), Some("npm i"));
         assert_eq!(s.run(None).unwrap().command, "npm dev");
         assert_eq!(s.archive.as_deref(), Some("rm -rf tmp"));
-        assert_eq!(s.file.as_deref(), Some(".prometheus/settings.toml"));
+        assert_eq!(s.file.as_deref(), Some(".prometeu/settings.toml"));
     }
 
     /// A forma que o Conductor documenta em `[scripts.run.<nome>]` não pode
@@ -564,10 +562,10 @@ default = true
         assert_eq!(s.run(Some("api")).unwrap().command, "bin/api");
     }
 
-    /// O do Prometheus ganha, e não se mistura com o do Conductor: metade de
+    /// O do Prometeu ganha, e não se mistura com o do Conductor: metade de
     /// cada arquivo seria pior que qualquer um dos dois inteiro.
     #[test]
-    fn prometheus_tem_prioridade_e_nao_mistura() {
+    fn prometeu_tem_prioridade_e_nao_mistura() {
         let dir = tmp("prioridade");
         write(
             &dir,
@@ -576,7 +574,7 @@ default = true
         );
         write(
             &dir,
-            ".prometheus/settings.toml",
+            ".prometeu/settings.toml",
             "[scripts]\nrun = \"novo\"\n",
         );
         let s = read(&dir);
@@ -589,10 +587,10 @@ default = true
     #[test]
     fn toml_quebrado_nao_explode() {
         let dir = tmp("quebrado");
-        write(&dir, ".prometheus/settings.toml", "[scripts\nsetup = ");
+        write(&dir, ".prometeu/settings.toml", "[scripts\nsetup = ");
         let s = read(&dir);
         assert!(s.setup.is_none() && s.runs.is_empty());
-        assert_eq!(s.file.as_deref(), Some(".prometheus/settings.toml"));
+        assert_eq!(s.file.as_deref(), Some(".prometeu/settings.toml"));
     }
 
     #[test]
@@ -609,20 +607,16 @@ default = true
         let wt = tmp("herda-wt");
         write(
             &repo,
-            ".prometheus/settings.toml",
+            ".prometeu/settings.toml",
             "[scripts]\nsetup = \"npm i\"\nrun = \"npm dev\"\n",
         );
 
         let s = read_for(&wt, &repo);
         assert!(s.inherited);
         assert_eq!(s.run(None).unwrap().command, "npm dev");
-        assert_eq!(s.file.as_deref(), Some(".prometheus/settings.toml"));
+        assert_eq!(s.file.as_deref(), Some(".prometeu/settings.toml"));
 
-        write(
-            &wt,
-            ".prometheus/settings.toml",
-            "[scripts]\nrun = \"meu\"\n",
-        );
+        write(&wt, ".prometeu/settings.toml", "[scripts]\nrun = \"meu\"\n");
         let s = read_for(&wt, &repo);
         assert!(!s.inherited);
         assert_eq!(s.run(None).unwrap().command, "meu");
@@ -638,13 +632,13 @@ default = true
 
     /// O settings.toml deste repositório é o caso mais torto que existe: `setup`
     /// solto no `[scripts]`, dois runs em tabela, e um `command` de várias
-    /// linhas. Se ele deixar de ser lido, o Prometheus para de conseguir rodar o
-    /// Prometheus — e isso não pode falhar em silêncio.
+    /// linhas. Se ele deixar de ser lido, o Prometeu para de conseguir rodar o
+    /// Prometeu — e isso não pode falhar em silêncio.
     #[test]
     fn o_proprio_repositorio_e_lido() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         let s = read(root);
-        assert_eq!(s.file.as_deref(), Some(".prometheus/settings.toml"));
+        assert_eq!(s.file.as_deref(), Some(".prometeu/settings.toml"));
         assert_eq!(s.setup.as_deref(), Some("npm install"));
         assert_eq!(s.run(None).unwrap().name, "app");
         assert!(s
@@ -658,7 +652,7 @@ default = true
     fn env_traz_os_dois_prefixos_e_o_port_solto() {
         let pairs = env(Path::new("/wt"), Path::new("/repo"), "x", Some(3100));
         let get = |k: &str| pairs.iter().find(|(a, _)| a == k).map(|(_, b)| b.clone());
-        assert_eq!(get("PROMETHEUS_PORT").as_deref(), Some("3100"));
+        assert_eq!(get("PROMETEU_PORT").as_deref(), Some("3100"));
         assert_eq!(get("CONDUCTOR_PORT").as_deref(), Some("3100"));
         assert_eq!(get("PORT").as_deref(), Some("3100"));
         assert_eq!(get("CONDUCTOR_WORKSPACE_PATH").as_deref(), Some("/wt"));
@@ -772,13 +766,13 @@ default = true
     }
 
     /// A lista do clone vale no worktree que herda o arquivo dele — é o caso
-    /// inteiro: `.prometheus/` no `.gitignore` e `.env` também.
+    /// inteiro: `.prometeu/` no `.gitignore` e `.env` também.
     #[test]
     fn copia_vem_junto_com_o_arquivo_herdado() {
         let repo = tmp("copia-herda-repo");
         write(
             &repo,
-            ".prometheus/settings.toml",
+            ".prometeu/settings.toml",
             "[scripts]\nrun = \"x\"\n\n[worktree]\ncopy = [\"segredo\"]\n",
         );
         write(&repo, "segredo", "s");
@@ -795,11 +789,7 @@ default = true
     #[test]
     fn copia_vazia_desliga_o_automatico() {
         let repo = tmp("vazia-repo");
-        write(
-            &repo,
-            ".prometheus/settings.toml",
-            "[worktree]\ncopy = []\n",
-        );
+        write(&repo, ".prometeu/settings.toml", "[worktree]\ncopy = []\n");
         write(&repo, ".env", "x");
         let wt = tmp("vazia-wt");
         assert!(read_for(&wt, &repo).copy.is_empty());
@@ -827,8 +817,8 @@ default = true
     /// máquina, e é por isso que a prova é sobre o ponto de partida.
     #[test]
     fn porta_sai_do_caminho_do_worktree() {
-        let a = Path::new("/Users/ana/prometheus/worktrees/app/feat-a");
-        let b = Path::new("/Users/ana/prometheus/worktrees/app/feat-b");
+        let a = Path::new("/Users/ana/prometeu/worktrees/app/feat-a");
+        let b = Path::new("/Users/ana/prometeu/worktrees/app/feat-b");
         assert_ne!(port_start(a), port_start(b));
         for p in [a, b] {
             assert!(port_start(p) < SLOTS, "{}", port_start(p));

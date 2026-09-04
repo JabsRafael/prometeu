@@ -128,7 +128,7 @@ export function attachMenu(node: HTMLElement, ws: Workspace, board: Board, hooks
 /* ---------- sidebar: Criar · Issues · workspaces por projeto ---------- */
 
 /// Grupo recolhido gruda: quem não olha "Feito" hoje não olha amanhã.
-const FOLD = "prometheus:grupo:";
+const FOLD = "prometeu:grupo:";
 const folded = (name: string) => localStorage.getItem(FOLD + name) === "1";
 
 function renderRail(board: Board, hooks: Hooks) {
@@ -136,7 +136,7 @@ function renderRail(board: Board, hooks: Hooks) {
   rail.replaceChildren();
   const live = board.workspaces.filter((w) => !w.archived && !w.remote);
 
-  rail.append(template("div", "navitem brand", `${icon("flame")}<span>Prometheus</span>`));
+  rail.append(template("div", "navitem brand", `${icon("flame")}<span>Prometeu</span>`));
 
   const create = template("button", "navitem", `${icon("plus")}<span></span>`);
   create.children[1].textContent = t("rail.create");

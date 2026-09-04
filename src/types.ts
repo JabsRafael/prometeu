@@ -69,7 +69,7 @@ export type McpServer = {
   note: string;
 };
 
-/// O que o exame de um servidor descobriu. É o Prometheus falando JSON-RPC com
+/// O que o exame de um servidor descobriu. É o Prometeu falando JSON-RPC com
 /// ele — sem `claude` no meio, para o que se lê aqui ser sobre o cadastro e
 /// mais nada.
 export type McpProbe = {
@@ -102,7 +102,7 @@ export type McpCheck = {
 
 /// Um plugin do Claude Code como o hub o guarda: o nome que ele declara, onde
 /// ele está (pasta, `.zip`, ou a URL de um `.zip`) e a linha embaixo do nome.
-/// `made` é o que está numa pasta do Prometheus — clonado ou escrito por ele —,
+/// `made` é o que está numa pasta do Prometeu — clonado ou escrito por ele —,
 /// e é o único que remover apaga do disco; `from` é o endereço de onde ele
 /// veio, que é o que dá sentido a atualizar.
 export type Plugin = {
@@ -258,14 +258,14 @@ export const termKind = (n: number): DockKind => (n === 1 ? "terminal" : `termin
 /// `✗ saiu com código` no fim, que é o que a aba mostra.
 export type DockState = { kind: DockKind; alive: boolean };
 
-/// O que o repositório declara em `.prometheus/settings.toml` (ou no
+/// O que o repositório declara em `.prometeu/settings.toml` (ou no
 /// `.conductor/settings.toml` que ele já tinha), mais a porta deste worktree.
 export type Scripts = {
   /// Qual arquivo respondeu. `null` é "este repo não declara nada" — e é o que
   /// faz a aba desenhar o convite em vez de um terminal mudo.
   file: string | null;
   /// O arquivo é o do clone de origem, porque este worktree não tem o seu. É
-  /// comum `.prometheus/` estar no `.gitignore`: sem herdar, todo worktree
+  /// comum `.prometeu/` estar no `.gitignore`: sem herdar, todo worktree
   /// nascia sem Run. "Abrir o settings.toml" nesse caso copia o herdado para cá.
   inherited: boolean;
   setup: string | null;

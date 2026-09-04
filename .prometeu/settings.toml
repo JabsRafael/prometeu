@@ -1,13 +1,13 @@
-# O Prometheus rodando o Prometheus. Este arquivo é o próprio dogfooding: se
+# O Prometeu rodando o Prometeu. Este arquivo é o próprio dogfooding: se
 # testar uma mudança daqui num worktree separado não funcionar, é sinal de que a
 # feature não está pronta.
 #
 # Variáveis disponíveis nos scripts:
 #
-#   $PROMETHEUS_WORKSPACE_PATH  o worktree onde o script roda
-#   $PROMETHEUS_ROOT_PATH       o repositório de onde ele saiu
-#   $PROMETHEUS_WORKSPACE_NAME  o nome deste workspace
-#   $PROMETHEUS_PORT            porta reservada só para ele, mais nove até +9
+#   $PROMETEU_WORKSPACE_PATH  o worktree onde o script roda
+#   $PROMETEU_ROOT_PATH       o repositório de onde ele saiu
+#   $PROMETEU_WORKSPACE_NAME  o nome deste workspace
+#   $PROMETEU_PORT            porta reservada só para ele, mais nove até +9
 #   $PORT                       a mesma porta, para o que já respeita a convenção
 
 [scripts]
@@ -16,7 +16,7 @@
 setup = "npm install"
 
 # O app de verdade deste worktree, isolado do que estiver instalado e de qualquer
-# outro worktree: porta e `~/.prometheus-dev-<workspace>` próprios. É o teste
+# outro worktree: porta e `~/.prometeu-dev-<workspace>` próprios. É o teste
 # honesto — Tauri, PTY e agentes de verdade.
 [scripts.run.app]
 command = "sh scripts/app.sh"
@@ -34,12 +34,12 @@ default = true
 # quando o vite nem sobe — porta ocupada, dependência faltando.
 [scripts.run.browser]
 command = """
-PORT=$PROMETHEUS_PORT npx vite &
+PORT=$PROMETEU_PORT npx vite &
 VITE=$!
-until curl -sf "http://localhost:$PROMETHEUS_PORT" >/dev/null; do
+until curl -sf "http://localhost:$PROMETEU_PORT" >/dev/null; do
   kill -0 "$VITE" 2>/dev/null || exit 1
   sleep 0.2
 done
-open -a "Google Chrome" "http://localhost:$PROMETHEUS_PORT"
+open -a "Google Chrome" "http://localhost:$PROMETEU_PORT"
 wait
 """

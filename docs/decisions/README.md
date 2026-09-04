@@ -34,5 +34,6 @@ Status: Proposto
 | ADR | Estado | Assunto |
 | --- | --- | --- |
 | [0001](0001-repository-knowledge.md) | Aceito | conhecimento do repositório como fonte de verdade |
-| [0002](0002-canonical-conversation-protocol.md) | Aceito | protocolo canônico de conversa |
+| [0002](0002-canonical-conversation-protocol.md) | Aceito; espelho substituído | protocolo canônico de conversa |
 | [0003](0003-agent-capabilities.md) | Aceito | features dirigidas por capacidades |
+| [0004](0004-prometeu-independent-identity.md) | Aceito | identidade independente do Prometeu |

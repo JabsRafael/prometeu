@@ -127,7 +127,7 @@ const PAGES: Page[] = [
 
 /// Em qual página se estava. Gruda neste Mac: quem veio ajustar o MCP três
 /// vezes numa tarde não quer passar pela lista toda a cada vez.
-const PAGE_KEY = "prometheus:configuracoes";
+const PAGE_KEY = "prometeu:configuracoes";
 let open = localStorage.getItem(PAGE_KEY) ?? PAGES[0].id;
 
 export function draw() {

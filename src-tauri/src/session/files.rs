@@ -138,7 +138,7 @@ mod tests {
 
     fn tmp(name: &str) -> std::path::PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("prometheus-files-{name}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("prometeu-files-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir

@@ -199,7 +199,7 @@ impl Link {
         let _ = link.call(
             "initialize",
             json!({
-                "clientInfo": { "name": "prometheus", "title": "Prometheus", "version": env!("CARGO_PKG_VERSION") },
+                "clientInfo": { "name": "prometeu", "title": "Prometeu", "version": env!("CARGO_PKG_VERSION") },
                 "capabilities": { "experimentalApi": true },
             }),
             Sent::Init,
@@ -578,7 +578,7 @@ impl Link {
                 )
             }
             _ => {
-                let _ = self.refuse(&rpc, "unsupported by prometheus");
+                let _ = self.refuse(&rpc, "unsupported by prometeu");
                 return vec![];
             }
         };

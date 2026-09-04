@@ -154,10 +154,8 @@ mod tests {
     /// não acha nada e a leitura inteira tem que achar.
     #[test]
     fn cauda_vazia_cai_para_o_arquivo_inteiro() {
-        let path = std::env::temp_dir().join(format!(
-            "prometheus-transcript-{}.jsonl",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("prometeu-transcript-{}.jsonl", std::process::id()));
         let filler = format!(
             r#"{{"type":"user","message":{{"content":"{}"}}}}"#,
             "x".repeat(100_000)

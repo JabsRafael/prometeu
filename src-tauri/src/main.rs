@@ -7,7 +7,6 @@ mod chat;
 mod claude;
 mod codex;
 mod conversation;
-mod conversation_rollback;
 mod dock;
 mod domain;
 mod github;
@@ -207,7 +206,7 @@ fn main() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("erro ao subir o Prometheus")
+        .expect("erro ao subir o Prometeu")
         .run(|app, event| {
             // A gravação do quadro é adiada para não pesar no caminho quente.
             // Sair é o único momento em que não existe "daqui a pouco".

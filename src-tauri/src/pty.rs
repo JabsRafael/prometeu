@@ -29,7 +29,7 @@ pub type OnExit = Box<dyn FnOnce(Option<u32>) + Send>;
 #[derive(Default)]
 pub struct Dock {
     pub on_exit: Option<OnExit>,
-    /// Texto que o Prometheus escreveu, e não o processo: o que a aba Setup diz
+    /// Texto que o Prometeu escreveu, e não o processo: o que a aba Setup diz
     /// ter copiado do clone. Entra antes de a thread de leitura começar, e não
     /// depois de `spawn` voltar, para não se intercalar com os primeiros bytes
     /// do comando.

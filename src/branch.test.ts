@@ -21,14 +21,14 @@ describe("pair", () => {
 describe("freshBranch", () => {
   it("nasce com nome de palavras, sem data nem horário", () => {
     const nome = freshBranch([]);
-    expect(nome).toMatch(/^prometheus\/[a-z]+-[a-z]+$/);
+    expect(nome).toMatch(/^prometeu\/[a-z]+-[a-z]+$/);
   });
 
   it("nome de branch que já existe no repo não é oferecido de novo", () => {
     const primeiro = freshBranch([], dado(0, 0));
     const outro = freshBranch([primeiro], dado(0, 0, 0.5, 0.5));
     expect(outro).not.toBe(primeiro);
-    expect(outro).toMatch(/^prometheus\/[a-z]+-[a-z]+$/);
+    expect(outro).toMatch(/^prometeu\/[a-z]+-[a-z]+$/);
   });
 
   it("branch só no remoto também conta como tomada", () => {

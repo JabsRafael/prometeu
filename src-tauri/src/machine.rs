@@ -9,7 +9,7 @@
 //! Daí a árvore. Um `ps` por tique traz o mundo inteiro; daqui sai o mapa de
 //! pai para filhos, e cada raiz que o app conhece (ele mesmo, cada conversa,
 //! cada terminal) leva a soma da própria subárvore. A raiz do app desconta as
-//! outras, senão o Prometheus apareceria carregando os agentes que já estão
+//! outras, senão o Prometeu apareceria carregando os agentes que já estão
 //! logo abaixo dele na lista.
 //!
 //! CPU é a diferença entre dois tiques, e não o `%CPU` do `ps` — aquele é a
@@ -199,7 +199,7 @@ fn roots(state: &tauri::State<AppState>) -> Vec<Root> {
     let mut roots = vec![Root {
         pid: std::process::id(),
         kind: "app",
-        name: "Prometheus".to_string(),
+        name: "Prometeu".to_string(),
         detail: String::new(),
     }];
     for (id, chat) in lock(&state.chats).iter() {

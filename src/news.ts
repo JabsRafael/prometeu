@@ -26,7 +26,7 @@ let version = "";
 
 /// Onde fica a última versão cujas novidades você já viu. Neste Mac e em mais
 /// lugar nenhum, como o idioma.
-const KEY = "prometheus:novidades";
+const KEY = "prometeu:novidades";
 const seen = () => localStorage.getItem(KEY);
 const markSeen = (v: string) => localStorage.setItem(KEY, v);
 

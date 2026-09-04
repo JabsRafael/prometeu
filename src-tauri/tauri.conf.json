@@ -1,9 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Prometheus",
-  "mainBinaryName": "Prometheus",
+  "productName": "Prometeu",
+  "mainBinaryName": "Prometeu",
   "version": "0.4.19",
-  "identifier": "dev.prometheus.app",
+  "identifier": "co.prometeu.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Prometheus",
+        "title": "Prometeu",
         "width": 1320,
         "height": 860,
         "minWidth": 900,
@@ -48,9 +48,9 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/gbrancaglione/prometheus-releases/releases/latest/download/latest.json"
+        "https://github.com/gbrancaglione/prometeu-releases/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYxMjM3N0I1MDk2NzJFMUYKUldRZkxtY0p0WGNqWWFrVEl5Ujh0MGI4dmpuQk1HeWVNZHlLOEwyRFYzVlJ5VmNVQUE0RzRFY08K",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZFNzE0NTE0MzdBQkU4QwpSV1NNdm5wRFVSVG5ENDRCSFdUMGg4SzBDcjBNbkE3ekdNL2M5VVZZSWE2ZG5sY3dqUlZjaVJwZgo=",
       "windows": {
         "installMode": "passive"
       }

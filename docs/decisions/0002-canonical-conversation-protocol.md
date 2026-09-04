@@ -1,7 +1,7 @@
 # ADR 0002 — Protocolo canônico de conversa
 
 Data: 2026-09-03
-Status: Aceito
+Status: Aceito; política de espelho substituída pelo ADR 0004
 
 ## Contexto
 
@@ -62,3 +62,6 @@ Negativas:
   explícita por `commands.list`;
 - notice traduzido e apresentável aparece; tipo externo desconhecido é no-op;
 - o espelho `prometheusV1Mirror` é temporário, mas sua remoção exige novo ADR.
+
+O ADR 0004 encerrou a emissão desse espelho na linha independente do Prometeu.
+Os tokens legados continuam aceitos somente para leitura e importação futura.

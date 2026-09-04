@@ -1,7 +1,7 @@
 # Dispara na tag `v*` que o scripts/release.sh empurra. Constrói o app no
 # runner self-hosted (o Mac de quem desenvolve — ver CLAUDE.md), assina com a
 # chave que vive em Secrets e cria uma release **draft** em
-# gbrancaglione/prometheus-releases, com as notas tiradas da seção da versão
+# gbrancaglione/prometeu-releases, com as notas tiradas da seção da versão
 # no CHANGELOG.md.
 #
 # Draft é o portão: o updater lê `releases/latest/download/latest.json`, e o
@@ -17,9 +17,9 @@
 #
 # Secrets que este workflow espera (ver CLAUDE.md):
 #   RELEASES_TOKEN                       PAT com Contents: read/write no
-#                                        prometheus-releases — o GITHUB_TOKEN
+#                                        prometeu-releases — o GITHUB_TOKEN
 #                                        do job não alcança outro repositório
-#   TAURI_SIGNING_PRIVATE_KEY            conteúdo de ~/.tauri/prometheus.key
+#   TAURI_SIGNING_PRIVATE_KEY            conteúdo de ~/.tauri/prometeu.key
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD   a senha dela
 name: Release
 
@@ -32,7 +32,7 @@ permissions:
   contents: read
 
 env:
-  REPO: gbrancaglione/prometheus-releases
+  REPO: gbrancaglione/prometeu-releases
 
 jobs:
   build:
@@ -88,7 +88,7 @@ jobs:
           fi
           { echo "notes<<FIM_DAS_NOTAS"; printf '%s\n' "$NOTES"; echo "FIM_DAS_NOTAS"; } >> "$GITHUB_OUTPUT"
 
-      - name: build assinado → draft em prometheus-releases
+      - name: build assinado → draft em prometeu-releases
         if: github.ref_type == 'tag'
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
@@ -109,7 +109,7 @@ jobs:
           TAURI_BUNDLER_DMG_IGNORE_CI: "false"
         with:
           owner: gbrancaglione
-          repo: prometheus-releases
+          repo: prometeu-releases
           releaseCommitish: main
           tagName: ${{ github.ref_name }}
           releaseName: ${{ steps.notes.outputs.version }}
@@ -133,7 +133,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: github.ref_type != 'tag'
         with:
-          name: Prometheus_${{ steps.notes.outputs.version }}_${{ github.sha }}
+          name: Prometeu_${{ steps.notes.outputs.version }}_${{ github.sha }}
           path: |
             src-tauri/target/release/bundle/dmg/*.dmg
             src-tauri/target/release/bundle/macos/*.app.tar.gz

@@ -300,7 +300,7 @@ export function toServer(d: Draft): McpServer | null {
 ///
 /// No primeiro, o que ninguém descobre por você: se é um programa daqui ou um
 /// endereço lá, o nome, e onde ele está. Sair do campo do endereço já manda o
-/// Prometheus falar com ele — subir o programa (ou bater na URL), apresentar-se,
+/// Prometeu falar com ele — subir o programa (ou bater na URL), apresentar-se,
 /// contar as ferramentas, e num remoto que pede login ver se dá para se
 /// autorizar nele. Cada uma dessas tentativas é uma linha na tela.
 ///

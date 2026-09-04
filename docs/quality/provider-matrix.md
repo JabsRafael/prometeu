@@ -7,7 +7,7 @@ para virar capacidade contratual.
 ## Legenda
 
 - **Nativo:** o CLI já fala a forma consumida hoje.
-- **Adaptado:** o Prometheus converte ou implementa a feature.
+- **Adaptado:** o Prometeu converte ou implementa a feature.
 - **Indisponível:** a UI não oferece porque o provider não suporta o fluxo.
 - **A confirmar:** falta fixture ou teste dedicado.
 

@@ -48,7 +48,7 @@ fn read(rel: &str) -> String {
 }
 
 /// Todo `invoke("nome")` e `invoke<T>("nome")` de `src/*.ts`, tirando os
-/// `plugin:*` que são do próprio Tauri e não do Prometheus.
+/// `plugin:*` que são do próprio Tauri e não do Prometeu.
 fn invoked() -> BTreeSet<String> {
     let mut found = BTreeSet::new();
     for entry in std::fs::read_dir(repo().join("src")).unwrap() {

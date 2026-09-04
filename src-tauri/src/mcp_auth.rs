@@ -9,12 +9,12 @@
 //!   2. esses metadados dizem qual é o authorization server;
 //!   3. o `.well-known` dele diz onde autorizar, onde trocar o token e onde
 //!      registrar um cliente;
-//!   4. o Prometheus se registra ali na hora — registro dinâmico, RFC 7591 —,
+//!   4. o Prometeu se registra ali na hora — registro dinâmico, RFC 7591 —,
 //!      e o `client_id` que sai disso é guardado e reusado;
 //!   5. daí é o de sempre: navegador, consentimento, `code` no socket local,
 //!      troca por token com PKCE.
 //!
-//! Quem usa o token depois **não é o Prometheus**: é o `claude` da conversa. O
+//! Quem usa o token depois **não é o Prometeu**: é o `claude` da conversa. O
 //! app põe o `Authorization: Bearer …` nos cabeçalhos do servidor ao escrever
 //! o `--mcp-config` da sessão (`mcp::config_body`), e renova antes de escrever.
 //! O CLI nunca sabe que houve OAuth — para ele é um servidor com um cabeçalho.
@@ -293,7 +293,7 @@ pub fn login(id: &str, url: &str, challenge_header: Option<&str>) -> Result<(), 
     store(&all)
 }
 
-/// Registro dinâmico: o Prometheus não é um app cadastrado no servidor de
+/// Registro dinâmico: o Prometeu não é um app cadastrado no servidor de
 /// ninguém, então ele se apresenta na hora e recebe um `client_id`. Servidor
 /// que não aceita isto precisa de um cliente feito à mão — e aí o caminho é
 /// outro, que a tela explica.
@@ -302,7 +302,7 @@ fn register(ends: &Endpoints) -> Result<String, String> {
         return Err(i18n::t("err.mcp.auth.noRegister"));
     };
     let body = serde_json::json!({
-        "client_name": "Prometheus",
+        "client_name": "Prometeu",
         "redirect_uris": [REDIRECT],
         "grant_types": ["authorization_code", "refresh_token"],
         "response_types": ["code"],
@@ -416,21 +416,21 @@ fn page(ok: bool, why: &str) -> String {
     let (title, text) = match (ok, i18n::pt()) {
         (true, true) => (
             "Conectado",
-            "Pode fechar esta aba e voltar ao Prometheus.".to_string(),
+            "Pode fechar esta aba e voltar ao Prometeu.".to_string(),
         ),
         (true, false) => (
             "Connected",
-            "You can close this tab and go back to Prometheus.".to_string(),
+            "You can close this tab and go back to Prometeu.".to_string(),
         ),
         (false, true) => (
             "Não deu",
-            format!("O servidor não autorizou o Prometheus. {why}")
+            format!("O servidor não autorizou o Prometeu. {why}")
                 .trim()
                 .to_string(),
         ),
         (false, false) => (
             "Did not work",
-            format!("The server did not authorize Prometheus. {why}")
+            format!("The server did not authorize Prometeu. {why}")
                 .trim()
                 .to_string(),
         ),

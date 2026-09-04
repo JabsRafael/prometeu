@@ -10,12 +10,12 @@
 //!
 //! Até aqui quem decidia isso era o CLI, e só ele: plugin de escopo `user`
 //! entra em toda sessão, em todo workspace, sempre; plugin de escopo de
-//! projeto nunca entra, porque o worktree que o Prometheus cria é um caminho
+//! projeto nunca entra, porque o worktree que o Prometeu cria é um caminho
 //! que o cadastro do CLI não conhece. Nenhum dos dois é o que se quer — o
 //! plugin de revisão de front não tem o que fazer num workspace de Rails, e o
 //! que o time combinou para um repositório tem que valer no worktree dele.
 //!
-//! O hub é a lista de plugins que o Prometheus guarda, e a escolha é do
+//! O hub é a lista de plugins que o Prometeu guarda, e a escolha é do
 //! workspace — como o modelo, o esforço e o MCP já são. Na hora de subir a
 //! conversa cada escolhido vira um `--plugin-dir` (pasta ou `.zip` desta
 //! máquina) ou um `--plugin-url` (um `.zip` na rede): flags de sessão, que não
@@ -27,7 +27,7 @@
 //!
 //! Instalar é daqui, e não de fora. `plugin_install` recebe o endereço de um
 //! repositório — `github.com/JuliusBrussee/caveman`, ou só o
-//! `JuliusBrussee/caveman` —, clona em `~/.prometheus/plugins/` e cadastra o
+//! `JuliusBrussee/caveman` —, clona em `~/.prometeu/plugins/` e cadastra o
 //! que veio dentro: o próprio repositório, quando ele é o plugin, ou os
 //! plugins que o `marketplace.json` dele lista. Depois é `plugin_update`, que
 //! é o `git pull` da mesma pasta. Ninguém precisa instalar nada no CLI antes —
@@ -73,7 +73,7 @@ pub struct Plugin {
     /// De onde veio, ou para que serve. Livre — é a linha embaixo do nome.
     #[serde(default)]
     pub note: String,
-    /// Se a pasta dele é do Prometheus — quer dizer, se o app a clonou ou a
+    /// Se a pasta dele é do Prometeu — quer dizer, se o app a clonou ou a
     /// escreveu. É o que decide se remover apaga arquivo ou só tira da lista:
     /// pasta que alguém escreveu não é do app para apagar.
     #[serde(default)]
@@ -85,7 +85,7 @@ pub struct Plugin {
 }
 
 /// Onde o cadastro mora. Sem segredo dentro (é caminho e URL), mas fica
-/// privado como o resto do `~/.prometheus`.
+/// privado como o resto do `~/.prometeu`.
 fn hub_path() -> PathBuf {
     paths::root().join("plugins.json")
 }
@@ -135,7 +135,7 @@ pub fn plugin_save(plugin: Plugin) -> Result<Vec<Plugin>, String> {
     Ok(plugins)
 }
 
-/// Tira do cadastro — e apaga a pasta, se ela for a que o Prometheus criou:
+/// Tira do cadastro — e apaga a pasta, se ela for a que o Prometeu criou:
 /// ela só existe por causa deste cadastro, e deixá-la seria guardar no escuro
 /// o que a tela já não mostra. Plugin cadastrado à mão só sai da lista; a
 /// pasta é de quem a escreveu.
@@ -182,7 +182,7 @@ fn check_source(source: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// O que o Prometheus consegue ler de uma origem antes de gravá-la: o nome e a
+/// O que o Prometeu consegue ler de uma origem antes de gravá-la: o nome e a
 /// descrição que o próprio plugin declara. É o que preenche o formulário
 /// sozinho — ninguém tem que copiar à mão um nome que já está escrito no
 /// disco.
@@ -297,7 +297,7 @@ pub struct Found {
     pub saved: bool,
 }
 
-/// Instala: clona o repositório numa pasta do Prometheus e olha o que veio.
+/// Instala: clona o repositório numa pasta do Prometeu e olha o que veio.
 /// É `async` porque clonar leva segundos, e a janela não pode parar enquanto
 /// isso acontece.
 #[tauri::command(async)]
@@ -337,7 +337,7 @@ pub fn plugin_install(source: String) -> Result<Found, String> {
 }
 
 /// Desfaz o clone que ninguém escolheu — a folha fechada sem marcar nada. Só
-/// apaga dentro da pasta do Prometheus, e só o que não está no hub.
+/// apaga dentro da pasta do Prometeu, e só o que não está no hub.
 #[tauri::command]
 pub fn plugin_scrap(dir: String) {
     let dir = PathBuf::from(expand(&dir));
@@ -346,7 +346,7 @@ pub fn plugin_scrap(dir: String) {
     }
 }
 
-/// Atualizar é o `git pull` da pasta que o Prometheus clonou, e só
+/// Atualizar é o `git pull` da pasta que o Prometeu clonou, e só
 /// `--ff-only`: se alguém mexeu no plugin à mão, o certo é dizer que não deu,
 /// e não desmanchar o que a pessoa escreveu. A descrição é relida depois — é
 /// dela que sai a linha embaixo do nome, e ela envelhece junto com o plugin.
@@ -572,7 +572,7 @@ fn read_plugin(dir: &Path, from: &str) -> Plugin {
 
 /* ---------- criar um plugin aqui dentro ---------- */
 
-/// A pasta de que o Prometheus é dono: um plugin por subpasta, com o nome
+/// A pasta de que o Prometeu é dono: um plugin por subpasta, com o nome
 /// dele. Fora dela ficam os que alguém escreve num repositório seu e cadastra
 /// à mão — e é por isso que remover só apaga arquivo quando o plugin nasceu
 /// aqui.
@@ -948,7 +948,7 @@ mod tests {
     /// silêncio de uma sessão que subiu sem ele.
     #[test]
     fn pasta_sem_manifesto_e_recusada() {
-        let dir = std::env::temp_dir().join(format!("prometheus-plug-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("prometeu-plug-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         assert!(check_source(&dir.display().to_string()).is_err());
 
@@ -1027,7 +1027,7 @@ mod tests {
     /// fora — instalá-la é instalar o endereço dela.
     #[test]
     fn o_clone_diz_quais_plugins_vieram() {
-        let root = std::env::temp_dir().join(format!("prometheus-inst-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("prometeu-inst-{}", uuid::Uuid::new_v4()));
         let manifest = |at: &Path, name: &str| {
             std::fs::create_dir_all(at.join(".claude-plugin")).unwrap();
             std::fs::write(
@@ -1087,9 +1087,9 @@ mod tests {
     #[test]
     #[ignore]
     fn instala_de_verdade() {
-        let root = std::env::temp_dir().join(format!("prometheus-net-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("prometeu-net-{}", uuid::Uuid::new_v4()));
         // Só este teste roda quando se pede `--ignored`; o env é do processo.
-        std::env::set_var("PROMETHEUS_ROOT", &root);
+        std::env::set_var("PROMETEU_ROOT", &root);
 
         let found = plugin_install("JuliusBrussee/caveman".into()).unwrap();
         assert!(found.saved);
@@ -1113,10 +1113,10 @@ mod tests {
         assert!(plugin_install("https://github.com/JuliusBrussee/caveman".into()).is_err());
         plugin_update("caveman".into()).unwrap();
 
-        // Remover leva a pasta junto, porque ela é do Prometheus.
+        // Remover leva a pasta junto, porque ela é do Prometeu.
         plugin_remove("caveman".into()).unwrap();
         assert!(!store().join("caveman").exists());
-        std::env::remove_var("PROMETHEUS_ROOT");
+        std::env::remove_var("PROMETEU_ROOT");
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -1174,7 +1174,7 @@ mod tests {
     /// hub — é o que separa "o agente escreveu" de "o agente respondeu".
     #[test]
     fn pasta_sem_manifesto_nao_vira_plugin() {
-        let dir = std::env::temp_dir().join(format!("prometheus-made-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("prometeu-made-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         assert!(born(&dir, "exemplo").is_err());
         std::fs::remove_dir_all(&dir).ok();

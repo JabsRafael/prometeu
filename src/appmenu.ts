@@ -42,7 +42,7 @@ export async function install(run: (a: Action) => void) {
   const menu = await Menu.new({
     items: await Promise.all([
       // A primeira é a do nome do app, onde o Mac espera Sobre, Ocultar e Sair.
-      bar("Prometheus", [
+      bar("Prometeu", [
         os({ About: null }, "menu.app.about"),
         os("Separator"),
         our("ajustes", "menu.app.settings", "CmdOrCtrl+,"),

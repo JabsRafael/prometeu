@@ -24,6 +24,12 @@ O repositório deve permanecer privado e workflows de forks desativados enquanto
 o runner self-hosted estiver registrado: checkout, npm e testes executam código
 do branch.
 
+No bootstrap desta nova linha, o GitHub Actions permanece desativado até haver
+um runner dedicado em `~/actions-runner-prometeu` e um `RELEASES_TOKEN`
+limitado a escrever em `gbrancaglione/prometeu-releases`. Não copie o token
+amplo usado pelo `gh` local para o workflow. Depois de configurar os dois,
+reative Actions e rode primeiro um `workflow_dispatch`, sem tag.
+
 ## Criar release
 
 ```sh
@@ -59,8 +65,10 @@ defeito precisa ser corrigida por uma versão seguinte.
 ## Chaves
 
 A chave privada de assinatura nunca entra no repositório. A cópia local fica
-em `~/.tauri/prometheus.key`, com senha no Keychain; a CI usa Secrets do
-repositório. Perder ambas impede atualizar instalações existentes.
+em `~/.tauri/prometeu.key`; sua senha fica no Keychain sob o serviço
+`prometeu-tauri-signing`. A CI usa os Secrets `TAURI_SIGNING_PRIVATE_KEY` e
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Perder a cópia local e os Secrets impede
+atualizar instalações existentes.
 
 Não execute corte, tag, push ou publicação como parte de uma tarefa comum sem
 pedido explícito.

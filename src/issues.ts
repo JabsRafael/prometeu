@@ -41,12 +41,12 @@ const KINDS: [string, string][] = [
 /// Grupo recolhido gruda: quem tem 40 issues em "A fazer" fecha o grupo uma
 /// vez e ele continua fechado amanhã. Buscar ignora isso — quem procura quer
 /// ver o que achou.
-const FOLD = "prometheus:issues:grupo:";
+const FOLD = "prometeu:issues:grupo:";
 const folded = (kind: string) => localStorage.getItem(FOLD + kind) === "1";
 
 /// O time escolhido também gruda: quem atende dois times olha um de cada
 /// vez, e a escolha de hoje é a de amanhã. `""` é "todos".
-const TEAM = "prometheus:issues:time";
+const TEAM = "prometeu:issues:time";
 
 let ctx: Ctx;
 let got: Issues | null = null;

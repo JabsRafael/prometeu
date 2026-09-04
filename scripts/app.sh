@@ -4,23 +4,23 @@
 # Duas coisas colidem quando dois worktrees rodam `tauri dev` ao mesmo tempo:
 #
 #   a porta do vite    `strictPort` na 1420, e o segundo simplesmente não sobe
-#   ~/.prometheus-dev  o mesmo board.json e os mesmos worktrees para os dois
+#   ~/.prometeu-dev  o mesmo board.json e os mesmos worktrees para os dois
 #
-# As duas saem do ambiente. `PROMETHEUS_PORT` e `PROMETHEUS_WORKSPACE_NAME` já
+# As duas saem do ambiente. `PROMETEU_PORT` e `PROMETEU_WORKSPACE_NAME` já
 # vêm preenchidos quando este script é o `run` do settings.toml — é assim que o
-# Prometheus roda o Prometheus. Do terminal, vale o padrão, e nada muda em
+# Prometeu roda o Prometeu. Do terminal, vale o padrão, e nada muda em
 # relação a antes.
 set -eu
 cd "$(dirname "$0")/.."
 
-PORT=${PROMETHEUS_PORT:-1420}
-NAME=${PROMETHEUS_WORKSPACE_NAME:-}
-ROOT=${PROMETHEUS_ROOT:-"$HOME/.prometheus-dev${NAME:+-$NAME}"}
+PORT=${PROMETEU_PORT:-1420}
+NAME=${PROMETEU_WORKSPACE_NAME:-}
+ROOT=${PROMETEU_ROOT:-"$HOME/.prometeu-dev${NAME:+-$NAME}"}
 
 export PORT
-export PROMETHEUS_ROOT="$ROOT"
+export PROMETEU_ROOT="$ROOT"
 
-echo "Prometheus dev · vite em $PORT · raiz em $ROOT"
+echo "Prometeu dev · vite em $PORT · raiz em $ROOT"
 
 # O `devUrl` do tauri.conf.json tem a porta escrita. O segundo `--config` é um
 # patch JSON fundido por cima do primeiro, na ordem em que aparecem.

@@ -172,8 +172,8 @@ export function effortStep(
 /// A escolha do worktree gruda entre lançamentos: quem trabalha de um jeito
 /// trabalha do mesmo jeito amanhã, e refazer o clique toda vez cansa. Plan mode
 /// não — é decisão de uma tarefa, não de um jeito.
-const WORKTREE_KEY = "prometheus:worktree";
-const BRANCH_KEY = "prometheus:branch-nova";
+const WORKTREE_KEY = "prometeu:worktree";
+const BRANCH_KEY = "prometeu:branch-nova";
 
 /// Com que modelo, esforço, MCP e plugins o lançador abre. Isto é escolha, e
 /// não lembrança: quem quiser mudar vai em Configurações → Padrões. Antes eles
@@ -183,10 +183,10 @@ const BRANCH_KEY = "prometheus:branch-nova";
 /// Trocar dentro do lançador vale para aquele workspace e mais nada. As chaves
 /// são as mesmas de quando grudavam sozinhos: quem já usava o app começa com o
 /// que estava usando como padrão.
-const MODEL_KEY = "prometheus:model";
-const EFFORT_KEY = "prometheus:effort";
-const MCP_KEY = "prometheus:mcp";
-const PLUGIN_KEY = "prometheus:plugins";
+const MODEL_KEY = "prometeu:model";
+const EFFORT_KEY = "prometeu:effort";
+const MCP_KEY = "prometeu:mcp";
+const PLUGIN_KEY = "prometeu:plugins";
 
 /// Arquivo solto em cima do lançador aberto entra como anexo. É o `main.ts`
 /// quem vê o drop (o Tauri entrega caminho de verdade só pela webview), e é

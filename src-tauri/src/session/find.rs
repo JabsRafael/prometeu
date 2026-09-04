@@ -795,7 +795,7 @@ mod tests {
     /// fim mesmo o git nunca listando pasta.
     #[test]
     fn a_varredura_e_o_que_o_git_conhece() {
-        let root = std::env::temp_dir().join(format!("prometheus-paths-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("prometeu-paths-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("app/models")).unwrap();
         std::fs::create_dir_all(root.join("node_modules/x")).unwrap();

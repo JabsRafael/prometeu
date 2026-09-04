@@ -1,4 +1,4 @@
-# Prometheus
+# Prometeu
 
 @AGENTS.md
 

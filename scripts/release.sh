@@ -1,5 +1,5 @@
 #!/bin/sh
-# Solta uma versão nova do Prometheus.
+# Solta uma versão nova do Prometeu.
 #
 #   sh scripts/release.sh              versão calculada dos commits
 #   sh scripts/release.sh 0.2.0        versão escolhida à mão
@@ -7,7 +7,7 @@
 #
 # Daqui sai só o que é decisão de gente: o número, o changelog e a tag. O build
 # assinado é do CI (.github/workflows/release.yml), que deixa uma release
-# **draft** em gbrancaglione/prometheus-releases. Entre a draft e quem usa o
+# **draft** em gbrancaglione/prometeu-releases. Entre a draft e quem usa o
 # app existe uma pessoa: instala o .dmg, abre, confere — e só então `publish`.
 # O updater não tem rollback (só instala versão maior que a atual), então
 # versão ruim publicada se conserta com a seguinte. Por isso o portão.
@@ -17,13 +17,13 @@
 # commit direito (ver CLAUDE.md). O número também: feat e fix sobem o patch
 # enquanto a versão é 0.x, mudança que quebra sobe o minor (cliff.toml).
 #
-# A chave de assinatura não passa por aqui. Ela mora em ~/.tauri/prometheus.key
+# A chave de assinatura não passa por aqui. Ela mora em ~/.tauri/prometeu.key
 # (senha no Keychain) e, para o CI, nos Secrets do repositório. Perder as duas
 # cópias significa nunca mais atualizar quem já instalou — guarde num cofre.
 set -eu
 cd "$(dirname "$0")/.."
 
-REPO=gbrancaglione/prometheus-releases
+REPO=gbrancaglione/prometeu-releases
 
 die() { echo "$*" >&2; exit 1; }
 # O bin direto: `npx --no git-cliff --flag` deixa o npm engolir o --flag como
@@ -87,13 +87,13 @@ p = pathlib.Path("src-tauri/Cargo.toml")
 p.write_text(re.sub(r'(?m)^version = "[^"]+"', f'version = "{v}"', p.read_text(), count=1))
 
 p = pathlib.Path("src-tauri/Cargo.lock")
-p.write_text(re.sub(r'(name = "prometheus"\nversion = )"[^"]+"', rf'\1"{v}"', p.read_text(), count=1))
+p.write_text(re.sub(r'(name = "prometeu"\nversion = )"[^"]+"', rf'\1"{v}"', p.read_text(), count=1))
 PY
 
   cliff --unreleased --tag "v$VERSION" --prepend CHANGELOG.md
   cat -s CHANGELOG.md > CHANGELOG.md.tmp && mv CHANGELOG.md.tmp CHANGELOG.md
 
-  LOG=$(mktemp -t prometheus-test)
+  LOG=$(mktemp -t prometeu-test)
   npm test >"$LOG" 2>&1 || { cat "$LOG"; rm -f "$LOG"; die "testes vermelhos — nada foi commitado"; }
   rm -f "$LOG"
 
@@ -101,7 +101,7 @@ PY
   git commit -qm "chore(release): v$VERSION"
   # `--cleanup=whitespace`: o padrão apaga linha que começa com #, e os
   # títulos do markdown começam com #.
-  git tag -a "v$VERSION" --cleanup=whitespace -m "Prometheus $VERSION" -m "$NOTES"
+  git tag -a "v$VERSION" --cleanup=whitespace -m "Prometeu $VERSION" -m "$NOTES"
   git push -q origin main "v$VERSION"
 
   echo
@@ -150,9 +150,9 @@ publish() {
   [ "$DRAFT" = true ] || die "$TAG já está publicada"
 
   ASSETS=$(gh release view "$TAG" -R "$REPO" --json assets -q '.assets[].name')
-  for want in "Prometheus_${VERSION}_aarch64.dmg" \
-              "Prometheus_${VERSION}_aarch64.app.tar.gz" \
-              "Prometheus_${VERSION}_aarch64.app.tar.gz.sig" \
+  for want in "Prometeu_${VERSION}_aarch64.dmg" \
+              "Prometeu_${VERSION}_aarch64.app.tar.gz" \
+              "Prometeu_${VERSION}_aarch64.app.tar.gz.sig" \
               latest.json; do
     printf '%s\n' "$ASSETS" | grep -qx "$want" || die "falta $want na draft — o CI terminou inteiro?"
   done
@@ -162,7 +162,7 @@ publish() {
 
   gh release edit "$TAG" -R "$REPO" --draft=false --latest
   echo
-  echo "$VERSION no ar. Quem já tem o Prometheus aberto vê o aviso no rodapé em até seis horas,"
+  echo "$VERSION no ar. Quem já tem o Prometeu aberto vê o aviso no rodapé em até seis horas,"
   echo "e na hora se fechar e abrir de novo."
 }
 

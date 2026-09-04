@@ -3,7 +3,7 @@
 Status: contrato vigente; identidade/capabilities implementados pelo ADR 0003
 e eventos canônicos implementados pelo ADR 0002.
 
-Este contrato define a fronteira entre o Prometheus e um CLI de agente. Ele não
+Este contrato define a fronteira entre o Prometeu e um CLI de agente. Ele não
 é uma API para modelos de linguagem: descreve processos locais que possuem
 catálogo, sessão, protocolo e capacidades próprias.
 
@@ -84,7 +84,7 @@ Semântica dos valores opcionais:
   do CLI;
 - lista vazia significa uma escolha explícita por nenhum item;
 - `resume` é uma identidade opaca aceita pelo provider. Pode ter sido escolhida
-  pelo Prometheus, como no Claude, ou devolvida pelo provider, como no Codex.
+  pelo Prometeu, como no Claude, ou devolvida pelo provider, como no Codex.
 
 O core valida `SessionLaunch` contra as capacidades antes de iniciar o adapter.
 O adapter não deve corrigir silenciosamente uma combinação inválida.

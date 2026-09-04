@@ -29,7 +29,7 @@ export type PluralKey = Stem<Key>;
 
 export type Params = Record<string, string | number>;
 
-const STORE = "prometheus:idioma";
+const STORE = "prometeu:idioma";
 
 /// O que o back manda no lugar de uma frase: `i18n:` e um JSON com o código e
 /// os pedaços que entram nos buracos. Ver `src-tauri/src/i18n.rs`.

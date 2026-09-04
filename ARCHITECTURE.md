@@ -1,11 +1,11 @@
-# Arquitetura do Prometheus
+# Arquitetura do Prometeu
 
 Este documento é o mapa do sistema atual. Detalhes de protocolo ficam em
 `docs/contracts/`; decisões futuras aparecem como ADRs com status explícito.
 
 ## Objetivo do sistema
 
-O Prometheus é um app desktop que organiza sessões de agentes por workspace.
+O Prometeu é um app desktop que organiza sessões de agentes por workspace.
 Cada workspace pode ter um worktree isolado, várias abas de conversa, terminais
 de apoio e compartilhamento ao vivo com um time.
 
@@ -16,13 +16,13 @@ seus protocolos e apresenta o trabalho como uma conversa comum.
 
 ```mermaid
 flowchart LR
-    person[Pessoa] --> ui[Prometheus — TypeScript]
+    person[Pessoa] --> ui[Prometeu — TypeScript]
     ui <--> back[Backend Tauri — Rust]
     back <--> claude[Claude Code CLI]
     back <--> codex[Codex app-server]
     back <--> local[Git, arquivos e processos locais]
     ui <--> relay[Relay — Cloudflare Worker + Durable Object]
-    relay <--> peer[Prometheus de outro membro]
+    relay <--> peer[Prometeu de outro membro]
 ```
 
 O processo do agente e os arquivos do workspace têm as permissões do usuário
@@ -42,7 +42,7 @@ conteúdo compartilhado em texto legível pelo operador.
 
 ## Fluxo principal atual
 
-A conversa usa um contrato pertencente ao Prometheus:
+A conversa usa um contrato pertencente ao Prometeu:
 
 ```text
 Claude stream-json ─> claude.rs ───────────┐
@@ -65,9 +65,9 @@ Veja [`docs/architecture/conversation-flow.md`](docs/architecture/conversation-f
 - `src-tauri/src/state.rs` possui o quadro persistido: projetos, workspaces,
   abas, escolhas e metadados.
 - A sessão lógica é o transcript. O processo é descartável e pode ser retomado.
-- Claude grava seu próprio transcript; o Prometheus grava as linhas traduzidas
-  do Codex em `~/.prometheus/chats/`.
-- O estado do time fica em `~/.prometheus/team.json`, com permissão privada.
+- Claude grava seu próprio transcript; o Prometeu grava as linhas traduzidas
+  do Codex em `~/.prometeu/chats/`.
+- O estado do time fica em `~/.prometeu/team.json`, com permissão privada.
 - O relay persiste apenas dados necessários para colaboração e membros offline.
 
 Formatos e compatibilidade estão em

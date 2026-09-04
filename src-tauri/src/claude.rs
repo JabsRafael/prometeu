@@ -2,7 +2,7 @@
 //!
 //! O processo recebe comandos no formato do Claude e produz eventos próprios.
 //! Este módulo traduz ambos os sentidos na fronteira do processo; tudo que
-//! entrega a `chat::Pump` já pertence ao Prometheus.
+//! entrega a `chat::Pump` já pertence ao Prometeu.
 
 use crate::conversation::{event, now};
 use crate::{chat, i18n, paths};
@@ -118,7 +118,8 @@ impl Adapter {
                 }),
             )],
             Some("system") => self.system(value, at),
-            Some("prometheus") => self.prometheus(value, at),
+            // Discriminante histórico: somente leitura para uma importação futura.
+            Some("prometheus") => self.legacy_app(value, at),
             Some("rate_limit_event") => vec![event(
                 "usage.updated",
                 at,
@@ -463,7 +464,7 @@ impl Adapter {
         }
     }
 
-    fn prometheus(&self, value: &Value, at: u64) -> Vec<Value> {
+    fn legacy_app(&self, value: &Value, at: u64) -> Vec<Value> {
         let mapped = match value["subtype"].as_str() {
             Some("stderr") => event(
                 "system.notice",
