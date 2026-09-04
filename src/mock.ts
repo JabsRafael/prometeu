@@ -158,9 +158,21 @@ const tree: Record<string, { name: string; path: string; dir: boolean }[]> = {
   })),
   "app/adapters": ["transcriber.rb", "waha.rb"].map((name) => ({ name, path: `app/adapters/${name}`, dir: false })),
   bin: ["brakeman", "ci", "dev", "rails", "rake", "rubocop", "setup"].map((name) => ({ name, path: `bin/${name}`, dir: false })),
+  docs: [
+    { name: "clientes.csv", path: "docs/clientes.csv", dir: false },
+    { name: "regras.pdf", path: "docs/regras.pdf", dir: false },
+  ],
 };
 
 const files: Record<string, string> = {
+  "docs/regras.pdf":
+    "%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>",
+  // Excel em pt-BR: `;` de separador, vírgula decimal, campo com quebra dentro.
+  "docs/clientes.csv": [
+    "id;nome;cidade;total",
+    ...Array.from({ length: 3000 }, (_, i) => `${i + 1};"Cliente ${i + 1}";São Paulo;${i * 7},50`),
+    '3001;"Nome, com vírgula";"Rio de\nJaneiro";0,00',
+  ].join("\n"),
   "app/adapters/transcriber.rb": `class Transcriber
   MODEL = "gemini-3.6-flash".freeze
 
@@ -638,6 +650,11 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
         )
         .slice(0, 40);
     }
+    case "file_stamp":
+      return "0";
+    case "read_bytes":
+      if (args.rel in files) return new TextEncoder().encode(files[args.rel]).buffer;
+      throw `i18n:${JSON.stringify({ code: "err.session.binary" })}`;
     case "read_file":
       if (args.rel in files) return files[args.rel];
       // Como o back de verdade: código, e não frase. O front traduz.

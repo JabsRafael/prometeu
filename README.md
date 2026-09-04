@@ -178,6 +178,20 @@ deixar isso virar trabalho manual — a aba **Setup** de um repo que não declar
 nada oferece **Perguntar ao agente**, que abre uma conversa com o prompt pronto
 para o Claude Code ler o repositório e escrever o arquivo.
 
+### Os arquivos do worktree
+
+A aba **Arquivos** do painel da direita é a árvore do worktree, e clicar num
+arquivo o abre no centro, no lugar da conversa. Código abre pronto para
+escrever, com ⌘S para salvar e Esc para desistir; se o agente mexeu no arquivo
+enquanto você editava, salvar recusa em vez de passar por cima. PDF abre com
+rolagem e zoom, página a página. CSV vira tabela com cabeçalho fixo: o
+separador é adivinhado pela primeira linha (`;` do Excel em pt-BR, tab ou
+vírgula), campo entre aspas com vírgula ou quebra de linha dentro fica
+inteiro, arquivo latin-1 não vira caractere quebrado, e as linhas entram aos
+lotes conforme a rolagem — um CSV de cem mil linhas abre sem travar a janela.
+PDF e CSV são só leitura. Testes em `src/csv.test.ts` e nos testes Rust de
+`src-tauri/src/session/files.rs`.
+
 ## A dois na mesma conversa
 
 Um time, e dentro dele sessões compartilhadas: o colega vê a conversa

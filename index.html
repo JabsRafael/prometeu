@@ -118,7 +118,7 @@
             </div>
             <!-- Arquivo aberto pela árvore: toma o lugar do terminal, como no Conductor. -->
             <div class="viewer" id="viewer" hidden>
-              <div class="vbar">
+              <div class="vbar" id="vbar">
                 <span class="vcrumb" id="vcrumb"></span>
                 <span class="spacer"></span>
                 <button id="vcopy" class="ico" data-t-title="viewer.copyPath"></button>
@@ -135,6 +135,8 @@
                   <pre id="vpre"></pre>
                 </div>
               </div>
+              <!-- PDF (iframe do WebKit) ou CSV (tabela): o que não é código. -->
+              <div class="vfile" id="vfile" hidden></div>
             </div>
           </div>
           <aside class="side" id="side">
