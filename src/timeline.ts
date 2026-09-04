@@ -39,7 +39,7 @@ export type Item =
   | { kind: "assistant"; ts: number; msg: string; blocks: Block[]; streaming: boolean; next: number }
   | Ask
   | { kind: "result"; ts: number; error: boolean; text: string; cost: number | null; ms: number | null }
-  | { kind: "system"; ts: number; text: string; error: boolean; what?: "compacted" | "summary"; tokens?: [number, number] }
+  | { kind: "system"; ts: number; text: string; error: boolean; what?: "compacted" | "summary" | "stderr"; tokens?: [number, number] }
   | { kind: "context"; ts: number; report: Report };
 
 export type Command = SlashCommand;
@@ -141,10 +141,27 @@ export class Timeline {
       }
       case "background.changed":
         return this.changeBackground(event.tasks);
-      case "system.notice":
-        return event.detail
-          ? [this.add({ kind: "system", ts: event.at, text: event.detail, error: event.level === "error" })]
-          : [];
+      case "system.notice": {
+        if (!event.detail) return [];
+        const error = event.level === "error";
+        if (event.code === "provider.stderr") {
+          const index = this.items.length - 1;
+          const previous = this.items[index];
+          if (previous?.kind === "system" && previous.what === "stderr" && previous.error === error) {
+            previous.text += `\n${event.detail}`;
+            return [index];
+          }
+        }
+        return [
+          this.add({
+            kind: "system",
+            ts: event.at,
+            text: event.detail,
+            error,
+            what: event.code === "provider.stderr" ? "stderr" : undefined,
+          }),
+        ];
+      }
       case "system.summary":
         return [this.add({ kind: "system", ts: event.at, text: event.text, error: false, what: "summary" })];
       case "context.reported": {

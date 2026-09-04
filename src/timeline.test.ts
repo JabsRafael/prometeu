@@ -172,6 +172,21 @@ describe("Timeline", () => {
     expect(t.items[0]).toMatchObject({ kind: "system", error: true, text: "No conversation found" });
   });
 
+  it("linhas seguidas do stderr viram um erro só", () => {
+    const t = new Timeline();
+    for (const detail of ["fn teste() {", "  falha();", "}"]) {
+      t.push(j({ v: 1, type: "system.notice", at: 1, level: "error", code: "provider.stderr", detail }));
+    }
+
+    expect(t.items).toHaveLength(1);
+    expect(t.items[0]).toMatchObject({
+      kind: "system",
+      error: true,
+      what: "stderr",
+      text: "fn teste() {\n  falha();\n}",
+    });
+  });
+
   it("a hora nunca volta: linha sem carimbo herda a anterior", () => {
     const t = new Timeline();
     t.push(j({ type: "user", message: { role: "user", content: "a" }, ts: 1000 }));
