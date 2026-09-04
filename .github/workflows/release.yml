@@ -106,11 +106,12 @@ jobs:
 
           CERTIFICATE_PATH="$RUNNER_TEMP/prometeu-developer-id.p12"
           KEYCHAIN_PATH="$RUNNER_TEMP/prometeu-signing.keychain-db"
+          KEYCHAIN_LIST_PATH="$RUNNER_TEMP/prometeu-keychains.txt"
           KEYCHAIN_PASSWORD=$(openssl rand -hex 32)
-          ORIGINAL_KEYCHAIN=$(security default-keychain -d user | tr -d '"')
+          security list-keychains -d user \
+            | sed -E 's/^[[:space:]]*"//; s/"$//' > "$KEYCHAIN_LIST_PATH"
           printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$CERTIFICATE_PATH"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security default-keychain -d user -s "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security import "$CERTIFICATE_PATH" -k "$KEYCHAIN_PATH" \
@@ -121,8 +122,13 @@ jobs:
           security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
             | grep -F '"Developer ID Application: Gustavo Brancaglione (6MQT6A482B)"' >/dev/null \
             || { echo "::error::o .p12 não contém o Developer ID Application esperado"; exit 1; }
+          KEYCHAINS=()
+          while IFS= read -r KEYCHAIN; do
+            [ -e "$KEYCHAIN" ] && KEYCHAINS+=("$KEYCHAIN")
+          done < "$KEYCHAIN_LIST_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" "${KEYCHAINS[@]}"
           echo "APPLE_BUILD_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
-          echo "APPLE_ORIGINAL_KEYCHAIN=$ORIGINAL_KEYCHAIN" >> "$GITHUB_ENV"
+          echo "APPLE_KEYCHAIN_LIST=$KEYCHAIN_LIST_PATH" >> "$GITHUB_ENV"
 
       - name: build assinado → draft em prometeu-releases
         if: github.ref_type == 'tag'
@@ -188,8 +194,14 @@ jobs:
       - name: remover Keychain temporário
         if: always()
         run: |
-          if [ -n "${APPLE_ORIGINAL_KEYCHAIN:-}" ]; then
-            security default-keychain -d user -s "$APPLE_ORIGINAL_KEYCHAIN"
+          if [ -f "${APPLE_KEYCHAIN_LIST:-}" ]; then
+            KEYCHAINS=()
+            while IFS= read -r KEYCHAIN; do
+              [ -e "$KEYCHAIN" ] && KEYCHAINS+=("$KEYCHAIN")
+            done < "$APPLE_KEYCHAIN_LIST"
+            if [ "${#KEYCHAINS[@]}" -gt 0 ]; then
+              security list-keychains -d user -s "${KEYCHAINS[@]}"
+            fi
           fi
           if [ -n "${APPLE_BUILD_KEYCHAIN:-}" ]; then
             security delete-keychain "$APPLE_BUILD_KEYCHAIN" || true

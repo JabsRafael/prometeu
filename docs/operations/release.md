@@ -77,7 +77,8 @@ atualizar instalações existentes.
 Essa assinatura protege o updater. A distribuição no macOS também usa o
 certificado `Developer ID Application: Gustavo Brancaglione (6MQT6A482B)` do
 Keychain e notarização Apple. A CI importa uma cópia `.p12` em um Keychain
-temporário usando `APPLE_CERTIFICATE` e `APPLE_CERTIFICATE_PASSWORD`, depois o
+temporário usando `APPLE_CERTIFICATE` e `APPLE_CERTIFICATE_PASSWORD`, adiciona
+esse Keychain à lista de busca sem trocar o Keychain padrão do Mac e depois o
 remove. A notarização usa `APPLE_ID` e `APPLE_PASSWORD`; o segundo contém uma
 senha específica de app, nunca a senha normal da conta Apple. O job falha antes
 do build se certificado ou Secrets estiverem ausentes. Depois do upload,
