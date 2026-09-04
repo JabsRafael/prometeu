@@ -21,6 +21,8 @@
 #                                        do job não alcança outro repositório
 #   TAURI_SIGNING_PRIVATE_KEY            conteúdo de ~/.tauri/prometeu.key
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD   a senha dela
+#   APPLE_ID                              e-mail da conta Apple
+#   APPLE_PASSWORD                        senha específica de app para notarização
 name: Release
 
 on:
@@ -88,6 +90,17 @@ jobs:
           fi
           { echo "notes<<FIM_DAS_NOTAS"; printf '%s\n' "$NOTES"; echo "FIM_DAS_NOTAS"; } >> "$GITHUB_OUTPUT"
 
+      - name: credenciais Apple disponíveis
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+        run: |
+          [ -n "$APPLE_ID" ] || { echo "::error::falta o secret APPLE_ID"; exit 1; }
+          [ -n "$APPLE_PASSWORD" ] || { echo "::error::falta o secret APPLE_PASSWORD"; exit 1; }
+          security find-identity -v -p codesigning \
+            | grep -F '"Developer ID Application: Gustavo Brancaglione (6MQT6A482B)"' >/dev/null \
+            || { echo "::error::certificado Developer ID Application não está no Keychain do runner"; exit 1; }
+
       - name: build assinado → draft em prometeu-releases
         if: github.ref_type == 'tag'
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
@@ -95,6 +108,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: "Developer ID Application: Gustavo Brancaglione (6MQT6A482B)"
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: "6MQT6A482B"
           # Com CI=true o bundler passa --skip-jenkins ao bundle_dmg.sh e o DMG
           # sai sem o AppleScript que arruma ícones no Finder. O self-hosted
           # não recebe CI=true sozinho, e o AppleScript depende de uma
@@ -125,6 +142,10 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: "Developer ID Application: Gustavo Brancaglione (6MQT6A482B)"
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: "6MQT6A482B"
           CI: "true"
           TAURI_BUNDLER_DMG_IGNORE_CI: "false"
         with:
@@ -158,6 +179,13 @@ jobs:
 
       - name: baixar o que o build publicou
         run: rm -rf pkg && gh release download "v$VERSION" -R "$REPO" -D pkg && ls -la pkg
+
+      - name: Apple aceita assinatura e notarização
+        run: |
+          DMG=$(find pkg -maxdepth 1 -name '*.dmg' -print -quit)
+          [ -n "$DMG" ] || { echo "::error::falta o .dmg"; exit 1; }
+          xcrun stapler validate "$DMG"
+          spctl -a -t open --context context:primary-signature -v "$DMG"
 
       # O mesmo caminho que o app instalado percorre: lê o latest.json, acha o
       # pacote que ele aponta, confere a assinatura contra a chave pública que

@@ -70,5 +70,12 @@ em `~/.tauri/prometeu.key`; sua senha fica no Keychain sob o serviço
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Perder a cópia local e os Secrets impede
 atualizar instalações existentes.
 
+Essa assinatura protege o updater. A distribuição no macOS também usa o
+certificado `Developer ID Application: Gustavo Brancaglione (6MQT6A482B)` do
+Keychain do runner e notarização Apple. A CI usa os Secrets `APPLE_ID` e
+`APPLE_PASSWORD`; o segundo contém uma senha específica de app, nunca a senha
+normal da conta Apple. O job falha antes do build se certificado ou Secrets
+estiverem ausentes. Depois do upload, `stapler` e `spctl` validam o DMG.
+
 Não execute corte, tag, push ou publicação como parte de uma tarefa comum sem
 pedido explícito.
