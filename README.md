@@ -11,6 +11,10 @@ Junta o que é bom no Conductor (worktree isolado por sessão, script de setup p
 repo) com o que é bom no Vibe Island (você fica sabendo na hora que o agente
 precisa de você), numa lista lateral que mantém cada trabalho à mão.
 
+Cada projeto tem um menu para removê-lo da lista. A remoção não apaga o
+repositório, worktrees ou conversas; workspaces restantes ficam em **Sem
+projeto**.
+
 Sessão é one-off: nasce, faz, morre. Sem passar artefato de uma sessão para outra.
 
 ## Documentação do projeto

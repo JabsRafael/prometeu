@@ -28,6 +28,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "rail.addProject": "Register a repository",
   "rail.noProjects": "Register a repository with the icon above.",
   "rail.newIn": "New workspace in {project}",
+  "rail.projectActions": "Actions for {project}",
+  "rail.removeProject": "Remove project",
   "rail.pinned": "Pinned",
   "rail.loose": "No project",
   "rail.archived": "Archived",

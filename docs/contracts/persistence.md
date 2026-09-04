@@ -75,6 +75,12 @@ branch, worktree, configuração de agente, MCP/plugins, compartilhamento e abas
 `Tab` contém identidade, status, fala pendente, tokens, override de modelo e a
 identidade externa usada para resume quando necessário.
 
+Remover um projeto tira somente seu cadastro do quadro. Repositório, worktrees
+e conversas não são apagados; workspaces ligados a ele aparecem em **Sem
+projeto**. Ao carregar, somente workspaces legados sem o campo `project`
+reconstituem o cadastro. Um id explícito sem projeto correspondente preserva a
+remoção.
+
 Ao carregar:
 
 - valores de enum desconhecidos caem em estado seguro quando declarado por

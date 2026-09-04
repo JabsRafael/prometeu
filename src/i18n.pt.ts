@@ -35,6 +35,8 @@ export const PT = {
   "rail.addProject": "Registrar um repositório",
   "rail.noProjects": "Registre um repositório no ícone acima.",
   "rail.newIn": "Novo workspace em {project}",
+  "rail.projectActions": "Ações de {project}",
+  "rail.removeProject": "Remover projeto",
   "rail.pinned": "Fixados",
   "rail.loose": "Sem projeto",
   "rail.archived": "Arquivados",

@@ -32,6 +32,7 @@ export type Hooks = {
   /// número some.
   issues: () => number | null;
   addProject: () => void;
+  removeProject: (id: string) => void;
   newWorkspace: (projectId?: string) => void;
 };
 
@@ -210,7 +211,23 @@ function renderRail(board: Board, hooks: Hooks) {
       e.stopPropagation();
       hooks.newWorkspace(project.id);
     });
-    renderGroup(rail, board, hooks, project.name, avatar(project.name), mine, `@proj:${project.id}`, { extra: plus });
+    const more = template("button", "ico sm", icon("ellipsis"));
+    more.title = t("rail.projectActions", { project: project.name });
+    more.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const at = more.getBoundingClientRect();
+      menu.openAt({ x: at.left, y: at.bottom + 4 }, [
+        {
+          label: t("rail.removeProject"),
+          glyph: icon("x"),
+          danger: true,
+          run: () => hooks.removeProject(project.id),
+        },
+      ]);
+    });
+    renderGroup(rail, board, hooks, project.name, avatar(project.name), mine, `@proj:${project.id}`, {
+      extra: [more, plus],
+    });
   }
 
   // Workspace de um projeto que saiu da lista não pode sumir da barra junto.
@@ -253,8 +270,8 @@ function renderGroup(
     /// Grupo que mistura repositórios (fixados, soltos, arquivados): ali o
     /// avatar ainda é o que diz de qual projeto a linha é.
     avatars?: boolean;
-    /// Botão do cabeçalho — o + do projeto.
-    extra?: HTMLElement;
+    /// Botões do cabeçalho — ações de baixa frequência e criação.
+    extra?: HTMLElement[];
   } = {},
 ) {
   const shut = folded(key);
@@ -282,7 +299,7 @@ function renderGroup(
       fold();
     }
   });
-  if (opts.extra) head.append(opts.extra);
+  if (opts.extra) head.append(...opts.extra);
   rail.append(head);
   if (shut) return;
 
