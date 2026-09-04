@@ -5,10 +5,12 @@ import { open } from "@tauri-apps/plugin-dialog";
 import * as alert from "./alert";
 import { installed, loadAgents } from "./agents";
 import * as appmenu from "./appmenu";
+import type { Info } from "./chat";
 import * as archived from "./archived";
 import * as sidebar from "./sidebar";
 import { openCleanup } from "./cleanup";
 import { openInbox } from "./inbox";
+import * as desk from "./desk";
 import * as dock from "./dock";
 import * as dockbar from "./dockbar";
 import { icon } from "./icons";
@@ -26,7 +28,7 @@ import * as settings from "./settings";
 import * as statusbar from "./statusbar";
 import * as team from "./team";
 import "./style.css";
-import type { Board, Issue, Workspace } from "./types";
+import type { Board, Issue, Tab, Workspace } from "./types";
 import * as update from "./update";
 import { $ } from "./util";
 import * as viewer from "./viewer";
@@ -62,14 +64,14 @@ const hooks: sidebar.Hooks = {
   open: (w) => openWorkspace(w),
   setStage: ws.setStage,
   drop: (id) => {
-    if (ws.id() === id) showIssues();
+    if (ws.id() === id) showDesk();
     invoke("remove_workspace", { id });
   },
   rename: ws.renameWorkspace,
   // Arquivar o que está aberto na tela deixaria você dentro do que acabou de
-  // sair da lista; Issues é a tela inicial para onde se volta.
+  // sair da lista; a mesa é a tela inicial para onde se volta.
   archive: (id, archived) => {
-    if (archived && ws.id() === id) showIssues();
+    if (archived && ws.id() === id) showDesk();
     invoke("archive_workspace", { id, archived }).catch((e) => say(fromBack(e), true));
   },
   finish: (id) => ws.finish(id),
@@ -87,6 +89,7 @@ const hooks: sidebar.Hooks = {
     navigator.clipboard.writeText(w.worktree);
     say(t("say.copied", { path: w.worktree }));
   },
+  toDesk: () => showDesk(),
   toIssues: () => showIssues(),
   toArchived: () => showArchived(),
   issues: () => issues.count(),
@@ -116,6 +119,7 @@ function draw() {
   missed = false;
   sidebar.render(view(), hooks);
   archived.draw();
+  desk.draw();
   if (ws.id()) ws.draw();
 }
 
@@ -126,7 +130,8 @@ menu.onClose(() => missed && draw());
 const SETTINGS = "@configurações";
 const ISSUES = sidebar.ISSUES;
 const ARCHIVED = sidebar.ARCHIVED;
-const pages = new Set([SETTINGS, ISSUES, ARCHIVED]);
+const DESK = sidebar.DESK;
+const pages = new Set([SETTINGS, ISSUES, ARCHIVED, DESK]);
 const hist: string[] = [];
 let at = -1;
 function visit(to: string) {
@@ -150,9 +155,11 @@ function travel(dir: -1 | 1) {
     showIssues(false);
   } else if (hist[at] === ARCHIVED) {
     showArchived(false);
+  } else if (hist[at] === DESK) {
+    showDesk(false);
   } else {
     const target = view().workspaces.find((w) => w.id === hist[at]);
-    target ? openWorkspace(target, false) : showIssues(false);
+    target ? openWorkspace(target, false) : showDesk(false);
   }
   drawNav();
 }
@@ -160,12 +167,14 @@ $("back").addEventListener("click", () => travel(-1));
 $("fwd").addEventListener("click", () => travel(1));
 
 /// As telas que não são workspace: uma de cada vez.
-function showOnly(view: "settingsView" | "issuesView" | "archivedView" | null) {
+function showOnly(view: "settingsView" | "issuesView" | "archivedView" | "deskView" | null) {
+  $("deskView").hidden = view !== "deskView";
   $("settingsView").hidden = view !== "settingsView";
   $("issuesView").hidden = view !== "issuesView";
   $("archivedView").hidden = view !== "archivedView";
   if (view !== "issuesView") issues.hide();
   if (view !== "archivedView") archived.hide();
+  if (view !== "deskView") desk.hide();
 }
 
 /// A migalha das telas que não são um workspace: uma palavra só, e é o nome da
@@ -178,6 +187,18 @@ async function openWorkspace(target: Workspace, push = true) {
   showOnly(null);
   await ws.open(target);
   alert.looked();
+}
+
+/// A mesa: todas as conversas de uma vez, cada uma no seu quadro. É a tela
+/// inicial — o que está rodando é o que se quer ver ao abrir o app.
+function showDesk(push = true) {
+  if (push) visit(DESK);
+  ws.leave();
+  sidebar.setOpen(DESK);
+  showOnly("deskView");
+  $("crumb").replaceChildren(crumbLabel(t("crumb.desk")));
+  desk.show();
+  draw();
 }
 
 /// As issues do Linear no seu nome — de onde o trabalho sai.
@@ -292,20 +313,23 @@ function targetFrom(el: Element | null): Drop {
     };
   }
   if (el.closest("#chatwrap") && session.canAttachFiles()) return { host: $("chatwrap"), put: session.attachFiles };
-  return null;
+  // Na mesa, o arquivo cai no quadro debaixo do cursor.
+  return desk.dropTarget(el);
 }
 
 function dropTarget(at?: { x: number; y: number }): Drop {
   if (!at || !$("veil").hidden) return null;
 
-  // No macOS a posição do evento nativo pode carregar o deslocamento da barra
-  // da janela. O :hover vem da própria webview e, quando disponível, é a fonte
-  // mais fiel; a coordenada física continua sendo o fallback e cobre o mock.
-  const underMouse = [$("dock"), $("chatwrap")].find((el) => el.matches(":hover")) ?? null;
-  const hovered = targetFrom(underMouse);
-  if (hovered) return hovered;
-  const dpr = window.devicePixelRatio || 1;
-  return targetFrom(document.elementFromPoint(at.x / dpr, at.y / dpr));
+  // A coordenada chega como ponto lógico da janela, apesar do tipo
+  // `PhysicalPosition`: no macOS o wry (0.55, `wkwebview/drag_drop.rs`) passa
+  // o `draggingLocation` adiante sem escala. Dividir pelo DPR jogava o ponto
+  // para o canto de cima da tela — e, na mesa, o arquivo caía no quadro errado.
+  // O :hover é só reserva: durante o arraste nativo o mouse não anda para a
+  // webview, e ele aponta o último lugar por onde o cursor passou antes.
+  return (
+    targetFrom(document.elementFromPoint(at.x, at.y)) ??
+    targetFrom(document.querySelector("#dock:hover, #chatwrap:hover"))
+  );
 }
 
 let activeDrop: Drop = null;
@@ -574,37 +598,53 @@ issues.init({
   toSettings: () => showSettings(),
 });
 archived.init({ board: () => state, hooks: () => hooks });
-ws.init({ say, board: view, redraw: draw, home: () => showIssues() });
-// O que a caixa de escrever precisa saber da aba aberta: de quem é, se está
-// desligada, se há time para deixar nota.
+ws.init({ say, board: view, redraw: draw, home: () => showDesk() });
+// O que a caixa de escrever precisa saber de uma aba: de quem é, se está
+// desligada, se há time para deixar nota. A mesma resposta para a conversa do
+// workspace aberto e para cada quadro da mesa.
+const infoOf = (w: Workspace | undefined, tab: Tab | undefined): Info => ({
+  workspace: w?.id ?? null,
+  status: tab?.status ?? null,
+  mcp: w?.mcp ?? null,
+  plugins: w?.plugins ?? null,
+  pending: tab?.pending_prompt ?? null,
+  worktree: w?.worktree ?? null,
+  remote: w?.remote ? { name: team.nameOf(w.remote.owner), online: w.remote.online } : null,
+  team: !!team.status().config && !!w && (w.shared || !!w.remote),
+  // O modelo da aba, quando ela escolheu um; senão o do workspace. Quem
+  // responde é ter ou não `choice`, e não o modelo estar preenchido:
+  // modelo vazio é uma escolha (o padrão do CLI), não a falta de uma.
+  agent: tab?.choice ? tab.choice.agent : (w?.agent ?? "claude"),
+  model: tab?.choice ? tab.choice.model : (w?.model ?? ""),
+  effort: tab?.choice ? tab.choice.effort : (w?.effort ?? ""),
+});
 session.init(
   (m) => say(m, true),
   () => {
     const open = ws.id();
     const w = open ? view().workspaces.find((x) => x.id === open) : undefined;
-    const tab = w?.tabs.find((t) => t.id === session.currentSession());
-    return {
-      workspace: open,
-      status: tab?.status ?? null,
-      mcp: w?.mcp ?? null,
-      plugins: w?.plugins ?? null,
-      pending: tab?.pending_prompt ?? null,
-      worktree: w?.worktree ?? null,
-      remote: w?.remote ? { name: team.nameOf(w.remote.owner), online: w.remote.online } : null,
-      team: !!team.status().config && !!w && (w.shared || !!w.remote),
-      // O modelo da aba, quando ela escolheu um; senão o do workspace. Quem
-      // responde é ter ou não `choice`, e não o modelo estar preenchido:
-      // modelo vazio é uma escolha (o padrão do CLI), não a falta de uma.
-      agent: tab?.choice ? tab.choice.agent : (w?.agent ?? "claude"),
-      model: tab?.choice ? tab.choice.model : (w?.model ?? ""),
-      effort: tab?.choice ? tab.choice.effort : (w?.effort ?? ""),
-    };
+    return infoOf(w, w?.tabs.find((t) => t.id === session.currentSession()));
   },
 );
+desk.init({
+  say,
+  board: () => state,
+  info: (tab) => {
+    const w = state.workspaces.find((x) => x.tabs.some((t) => t.id === tab));
+    return infoOf(w, w?.tabs.find((t) => t.id === tab));
+  },
+  // Entrar pelo quadro é entrar naquela aba: o back marca a ativa, e a tela
+  // abre já nela sem esperar o quadro voltar.
+  open: (w, tab) => {
+    invoke("focus_tab", { workspace: w.id, tab });
+    openWorkspace({ ...w, active: tab });
+  },
+  create: () => launch(),
+});
 viewer.init((m) => say(m, true), ws.fileSaved);
 dock.init($("dockterm"));
 state = await invoke<Board>("load_board");
-showIssues();
+showDesk();
 
 // O que mudou desde a última vez que você abriu o app. Depois da primeira tela
 // desenhada: a folha aparece sobre o app, e não no lugar dele.

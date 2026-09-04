@@ -17,8 +17,8 @@ commit do PR.
 ## CI
 
 `.github/workflows/ci.yml` roda em PRs internos e pushes para `main` num runner
-self-hosted macOS ARM64. O job instala dependências, instala Chromium e executa
-`npm run check`.
+self-hosted macOS ARM64. O job instala dependências, instala Chromium e WebKit e
+executa `npm run check`.
 
 O repositório deve permanecer privado e workflows de forks desativados enquanto
 o runner self-hosted estiver registrado: checkout, npm e testes executam código

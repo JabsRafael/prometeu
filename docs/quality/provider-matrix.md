@@ -34,6 +34,7 @@ para virar capacidade contratual.
 | anexos na fala | adaptado por caminho local | adaptado por caminho local | capability + `chat.ts`; falta teste transversal dedicado |
 | evento externo desconhecido | ignorado pelo adapter | ignorado pelo adapter | `conversation.test.ts`, testes de `claude.rs`/`codex.rs` |
 | compartilhamento ao vivo | V1 após normalização | V1 após normalização | `team*.test.ts`, E2E sobre mock |
+| mesa com várias conversas ao mesmo tempo | adaptado (mesma tela da conversa) | adaptado (mesma tela da conversa) | `desk.test.ts`, E2E sobre mock |
 
 ## Regra para feature nova
 

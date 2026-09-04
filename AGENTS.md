@@ -48,6 +48,7 @@ As regras de dependência completas estão em
 - `src/agents.ts`: catálogo tipado, associação modelo/provider e capabilities.
 - `src/timeline.ts`: reducer puro do stream de conversa para itens de tela.
 - `src/chat.ts`: apresentação e interação da conversa.
+- `src/desk.ts`: a mesa, tela inicial — um `ChatView` por conversa de pé.
 - `src-tauri/src/chat.rs`: processo, transporte, buffer, numeração e lifecycle.
 - `src-tauri/src/claude.rs`: adapter stream-json do Claude.
 - `src-tauri/src/codex.rs`: adapter JSON-RPC do Codex.

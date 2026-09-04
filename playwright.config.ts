@@ -12,12 +12,18 @@ export default defineConfig({
   reporter: process.env.CI ? [["line"], ["html", { open: "never" }]] : "list",
   expect: { timeout: 7_000 },
   use: {
-    ...devices["Desktop Chrome"],
     baseURL,
     locale: "pt-BR",
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
   },
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    // O app de verdade roda no WebKit. O que é gesto do motor — o canto que
+    // estica, o arraste — precisa rodar nele também; só a mesa, que é onde
+    // isso mora, para a suíte não dobrar de tamanho.
+    { name: "webkit", use: { ...devices["Desktop Safari"] }, grep: /a mesa/ },
+  ],
   webServer: {
     // O preview é estático: além de exercitar o bundle de produção, evita um
     // reload de HMR no meio do teste quando outra tarefa toca o worktree.

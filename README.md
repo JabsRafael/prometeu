@@ -67,6 +67,23 @@ o rollout dele tem outra forma, os comandos de barra que são do app — está
 explicado no cabeçalho desse arquivo. O catálogo de modelos sai do
 `models_cache.json` do próprio `codex` (`src-tauri/src/agents.rs`).
 
+### A mesa
+
+A tela inicial é a mesa: todas as conversas de pé, cada uma no seu quadro, com
+a linha do tempo e a caixa de escrever — o mesmo que a tela do workspace
+mostra, só que várias de uma vez. Dá para responder uma pergunta, aprovar um
+plano ou mandar a próxima fala dali, sem entrar no workspace; a seta no
+cabeçalho do quadro entra nele já naquela conversa. A alça do canto muda o
+tamanho, o cabeçalho arrasta para trocar de lugar (um fantasma segue o cursor
+e o quadro vira a vaga), e a faixa de cima lista todas as conversas: clicar
+recolhe o quadro ou o traz de volta. Arquivo solto sobre um quadro vira anexo
+daquela conversa, como na tela do workspace. Ordem, tamanho e o que está
+recolhido ficam guardados neste Mac. Arquivado, worktree devolvido e conversa de colega
+ficam de fora — cada um tem a sua tela.
+
+Cobertura: `src/desk.test.ts` (a ordem guardada) e o fluxo Playwright da mesa
+em `e2e/critical-flows.spec.ts`.
+
 ### O ida-e-volta
 
 1. Uma fala é um comando `message.send`, traduzido na borda para o processo. Ele fica de
@@ -350,7 +367,7 @@ Playwright dirige — a webview do Tauri no macOS é WKWebView e não fala CDP.
 ## Testes
 
 ```sh
-npx playwright install chromium  # uma vez nesta máquina
+npx playwright install chromium webkit  # uma vez nesta máquina
 npm test                       # web, relay, Rust e quatro fluxos de navegador
 ```
 
