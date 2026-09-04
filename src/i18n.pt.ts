@@ -233,7 +233,7 @@ export const PT = {
   "ws.branch.detached": "HEAD solto",
   "ws.copied": "{name} copiado",
 
-  "tab.tokens": " · {n} tokens de contexto",
+  "tab.tokens": " · ~{n} tokens usados",
   "tab.model": " · falando com {model}",
   "tab.rename": " · duplo clique para renomear",
   "tab.close": "Fechar conversa",

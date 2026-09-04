@@ -210,7 +210,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "ws.branch.detached": "detached HEAD",
   "ws.copied": "{name} copied",
 
-  "tab.tokens": " · {n} context tokens",
+  "tab.tokens": " · ~{n} tokens used",
   "tab.model": " · talking to {model}",
   "tab.rename": " · double-click to rename",
   "tab.close": "Close conversation",

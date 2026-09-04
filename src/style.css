@@ -644,6 +644,7 @@ main { flex: 1; min-height: 0; position: relative; }
 .tab.file .ic { color: var(--fg-2); }
 .tab.file.on .ic { color: var(--fg); }
 .tab .n { flex: none; font-size: 12px; color: var(--fg-3); }
+.tab .tokens { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 /* O número é quantos arquivos mudaram — não muda enquanto você lê. Que ainda
    há coisa que você não viu é a cor dele, e não um número que só desce. */
 .tab .n.fresh, .sidetab span.fresh { color: var(--fg); }
