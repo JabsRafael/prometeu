@@ -6,10 +6,14 @@ import * as menu from "./menu";
 import { isTerm, termKind, termNumber, type DockKind, type DockState, type Scripts } from "./types";
 import { $ } from "./util";
 
-/// A barra do dock: Setup, Run, os terminais que você abriu, e o que cada aba
-/// oferece quando não há processo nenhum na frente. Quem desenha o terminal é o
-/// `dock`; aqui mora só o que o repositório declara, o que está de pé, e o que
-/// os botões fazem.
+/// O dock, que mora em dois lugares. Setup e Run continuam no painel da
+/// direita: é saída para acompanhar de canto enquanto se fala com o agente. O
+/// terminal livre, não — ele é aba do centro, ao lado das conversas, porque é
+/// onde se trabalha e trabalhar pede a tela.
+///
+/// Quem desenha os dois terminais é o `dock`; aqui mora só o que o repositório
+/// declara, o que está de pé, e o que os botões fazem. A faixa da direita é
+/// desenhada aqui; a do centro é do `workspace`, com o que `tabs()` conta.
 
 const NO_SCRIPTS: Scripts = { file: null, inherited: false, setup: null, runs: [], archive: null, copy: [], port: null };
 
@@ -18,11 +22,12 @@ const NO_SCRIPTS: Scripts = { file: null, inherited: false, setup: null, runs: [
 let info: { scripts: Scripts; docks: DockState[] } = { scripts: NO_SCRIPTS, docks: [] };
 /// Qual `[scripts.run.<nome>]` o botão dispara. Vazio é o padrão do repositório.
 let runName: string | undefined;
+/// Qual script está na frente do painel da direita.
 let pane: DockKind | null = null;
+/// Qual terminal livre está na aba do centro. `null` é o centro com outra
+/// coisa — a conversa, um arquivo, o diff ou o navegador.
+let shell: DockKind | null = null;
 let open = true;
-/// Qual aba estava na frente no último desenho. Serve só para rolar a faixa
-/// até a aba nova: fazer isso a todo desenho brigaria com a rolagem da mão.
-let shown: DockKind | null = null;
 /// Terminais pedidos e ainda não confirmados pelo back. Dois cliques no + em
 /// sequência disputariam o mesmo número sem isto: o segundo escolhe o próximo
 /// livre antes de o primeiro aparecer no `dock_state`, e um dos dois sumiria.
@@ -37,6 +42,12 @@ type Ctx = {
   newTab: (prompt: string) => Promise<void>;
   /// A aba de navegador no centro, na porta do Run.
   openBrowser: () => Promise<void>;
+  /// Traz o terminal para o centro, tirando de lá o que estava.
+  enter: () => void;
+  /// Devolve o centro à conversa: o último terminal fechou.
+  exit: () => void;
+  /// Redesenha a faixa de abas do centro, que é onde as de terminal moram.
+  drawTabs: () => void;
 };
 let ctx: Ctx;
 
@@ -60,7 +71,8 @@ function terminals(): DockKind[] {
   return [...new Set([...live, ...asked])].sort((a, b) => termNumber(a) - termNumber(b));
 }
 
-const order = (): DockKind[] => ["setup", "run", ...terminals()];
+/// A faixa da direita: só os scripts. Terminal livre é aba do centro.
+const order = (): DockKind[] => ["setup", "run"];
 
 const label = (kind: DockKind) => {
   if (kind === "setup") return t("dock.setup");
@@ -117,8 +129,6 @@ export function init(context: Ctx) {
     if (e.altKey) invoke("open_run", { id }).catch((e) => ctx.say(fromBack(e), true));
     else void ctx.openBrowser();
   });
-  $("dock-add").innerHTML = icon("plus", 14);
-  $("dock-add").addEventListener("click", () => void setDock(nextTerm(), true));
   $("dock-again").addEventListener("click", () => setDock("setup", true));
   $("dock-toggle").addEventListener("click", () => {
     open = !open;
@@ -131,7 +141,7 @@ export function init(context: Ctx) {
 /// o que a barra diz é do worktree que você está olhando.
 export function reset() {
   pane = null;
-  shown = null;
+  shell = null;
   asked.clear();
   runName = undefined;
   info = { scripts: NO_SCRIPTS, docks: [] };
@@ -179,13 +189,12 @@ async function setDock(next: DockKind | null, start = false) {
   if (!id) return;
   pane = next;
   open = true;
-  if (next && isTerm(next)) asked.add(next);
   draw();
   if (!next) return dock.detach();
   try {
-    if (isTerm(next) || start || isUp(next)) {
+    if (start || isUp(next)) {
       await dock.open(id, next, next === "run" ? runName : undefined);
-      dock.focus();
+      dock.focus("scripts");
     } else if (hasLog(next)) {
       // Morreu: só a rolagem, sem reiniciar. É aqui que o setup de ontem
       // continua dizendo que falhou.
@@ -197,9 +206,49 @@ async function setDock(next: DockKind | null, start = false) {
     ctx.say(fromBack(err), true);
   }
   await refresh();
+}
+
+/// O terminal livre na aba do centro. Escolher um que já existe não reinicia
+/// nada: `open_dock` devolve o mesmo pty, e a rolagem guardada redesenha.
+async function setShell(kind: DockKind) {
+  const id = ctx.workspace();
+  if (!id) return;
+  shell = kind;
+  asked.add(kind);
+  ctx.enter();
+  ctx.drawTabs();
+  try {
+    await dock.open(id, kind);
+    dock.focus("shell");
+  } catch (err) {
+    ctx.say(fromBack(err), true);
+  }
+  await refresh();
   // Agora o `dock_state` já conhece esta aba — ou a abertura falhou, e ela não
   // pode ficar na barra pedindo um terminal que não existe.
-  asked.delete(next);
+  asked.delete(kind);
+}
+
+/// O que a faixa do centro precisa saber para desenhar as abas de terminal.
+export type DockTab = { kind: DockKind; label: string; on: boolean };
+
+export const tabs = (): DockTab[] =>
+  terminals().map((kind) => ({ kind, label: label(kind), on: shell === kind }));
+
+/// Qual terminal está no centro, para a faixa saber que nenhuma conversa é a
+/// da frente.
+export const front = () => shell;
+
+export const select = (kind: DockKind) => void setShell(kind);
+export const closeTab = (kind: DockKind) => void closeTerm(kind);
+export const newTerm = () => void setShell(nextTerm());
+
+/// Outra coisa foi para o centro. Nada morre: o processo segue, a rolagem
+/// continua guardada, e a aba só deixa de estar na frente.
+export function leave() {
+  if (shell === null) return;
+  shell = null;
+  ctx.drawTabs();
 }
 
 /// Fecha uma aba de terminal: mata o shell e tira a aba da barra. Não é o mesmo
@@ -208,27 +257,32 @@ async function setDock(next: DockKind | null, start = false) {
 async function closeTerm(kind: DockKind) {
   const id = ctx.workspace();
   if (!id) return;
-  const bar = order();
+  const bar = terminals();
   const at = bar.indexOf(kind);
-  const wasOn = pane === kind;
+  const wasOn = shell === kind;
   // Sai das duas listas antes de ir ao back: `terminals()` desenha a união
   // delas, e a aba piscaria de volta no desenho do meio do caminho.
   info.docks = info.docks.filter((d) => d.kind !== kind);
   asked.delete(kind);
-  if (wasOn) pane = null;
+  if (wasOn) shell = null;
   await dock.kill(id, kind);
-  // Cai na vizinha da direita; sem vizinha, na da esquerda — que no pior caso
-  // é o Run, e nunca lugar nenhum.
-  if (wasOn) await setDock(bar[at + 1] ?? bar[at - 1] ?? null);
-  else draw();
+  // Cai na vizinha da direita; sem vizinha, na da esquerda. Sem nenhuma das
+  // duas, o centro volta para a conversa — que é de onde ele veio.
+  if (wasOn) {
+    const next = bar[at + 1] ?? bar[at - 1];
+    if (next) await setShell(next);
+    else ctx.exit();
+  }
+  ctx.drawTabs();
   await refresh();
 }
 
-/// ⌘W com o cursor dentro do dock fecha o terminal do dock, e não a aba do
-/// centro. Fora dele a tecla não é nossa: quem responde é o `workspace`.
+/// ⌘W com o cursor dentro do terminal fecha o terminal, e não a conversa que
+/// está atrás dele. Fora dele a tecla não é nossa: quem responde é o
+/// `workspace`.
 export function closeFocused(): boolean {
-  if (!pane || !isTerm(pane) || !$("dock").contains(document.activeElement)) return false;
-  void closeTerm(pane);
+  if (!shell || !$("termview").contains(document.activeElement)) return false;
+  void closeTerm(shell);
   return true;
 }
 
@@ -245,7 +299,9 @@ export function draw() {
   $("dock").classList.toggle("closed", !open);
   $("dock-toggle").innerHTML = icon(open ? "chevron-down" : "chevron-right");
   $("dock-toggle").title = t(open ? "dock.collapse" : "dock.expand");
-  drawTabs();
+  drawStrip();
+  // As abas de terminal são do centro, e mudam com o que o back conta aqui.
+  ctx.drawTabs();
 
   // O botão de Run mora na barra e não na aba: ⌘R é o mesmo esteja qual estiver
   // na frente, e é a mesma pergunta com as duas respostas.
@@ -267,7 +323,7 @@ export function draw() {
     goOpen.title = t("dock.open.title", { port });
   }
 
-  const filled = pane !== null && (isTerm(pane) || isUp(pane) || hasLog(pane));
+  const filled = pane !== null && (isUp(pane) || hasLog(pane));
   $("dockwrap").hidden = !filled;
   $("dockempty").hidden = filled;
   // Setup que rodou e morreu: a rolagem fica na frente, e rodar de novo é este
@@ -276,22 +332,18 @@ export function draw() {
   if (!filled) drawEmpty();
 }
 
-/// A faixa de abas. É montada a cada desenho porque as de terminal nascem e
-/// morrem: guardar três botões no HTML valia quando eram três.
-function drawTabs() {
+/// A faixa da direita: Setup e Run. Montada a cada desenho porque a onda e o
+/// ✕ dependem do que está de pé.
+function drawStrip() {
   const strip = $("dockstrip");
   strip.replaceChildren();
-  let front: HTMLElement | null = null;
 
   for (const kind of order()) {
-    const term = isTerm(kind);
     const b = document.createElement("button");
     b.className = "docktab" + (pane === kind ? " on" : "");
     // A onda anda enquanto o script está de pé: o run continua rodando com o
-    // painel em Setup, e sem isto não haveria como saber que ele está lá. Só
-    // nas abas de script — shell aberto não é coisa rodando, e uma onda em
-    // cada terminal deixaria a barra inteira se mexendo à toa.
-    if (!term && isUp(kind)) b.insertAdjacentHTML("beforeend", wave());
+    // painel em Setup, e sem isto não haveria como saber que ele está lá.
+    if (isUp(kind)) b.insertAdjacentHTML("beforeend", wave());
     const name = document.createElement("span");
     name.textContent = label(kind);
     b.append(name);
@@ -299,31 +351,20 @@ function drawTabs() {
     // processo que a produziu.
     b.addEventListener("click", () => setDock(open && pane === kind ? null : kind));
 
-    // Terminal fecha; Setup, enquanto vivo, encerra. Mesmo gesto, e o que
-    // muda é o que sobra depois: uma aba a menos, ou a aba pedindo o botão.
-    const closes = term || (kind === "setup" && isUp(kind));
-    if (closes) {
+    // Setup, enquanto vivo, encerra. A aba fica: a rolagem dele é o que ela
+    // tem para mostrar depois.
+    if (kind === "setup" && isUp(kind)) {
       const x = document.createElement("span");
       x.className = "tabx ico sm";
       x.innerHTML = icon("x", 12);
-      x.title = t(term ? "dock.closeTerm" : "dock.killSetup");
+      x.title = t("dock.killSetup");
       x.addEventListener("click", (e) => {
         e.stopPropagation();
-        void (term ? closeTerm(kind) : killPane(kind));
+        void killPane(kind);
       });
       b.append(x);
     }
-    if (pane === kind) front = b;
     strip.append(b);
-  }
-
-  // Com quatro ou cinco abas a faixa passa da largura do painel, e a que entra
-  // na frente pode nascer fora da tela. Rolar até ela só quando ela muda: a
-  // todo desenho — e há um por evento do back — a barra andaria debaixo da mão
-  // de quem está rolando.
-  if (shown !== pane) {
-    shown = pane;
-    front?.scrollIntoView({ inline: "nearest", block: "nearest" });
   }
 }
 

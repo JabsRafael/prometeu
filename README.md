@@ -276,6 +276,13 @@ deixar isso virar trabalho manual — a aba **Setup** de um repo que não declar
 nada oferece **Perguntar ao agente**, que abre uma conversa com o prompt pronto
 para o Claude Code ler o repositório e escrever o arquivo.
 
+**Setup** e **Run** ficam no painel da direita, que é onde a saída deles se
+acompanha de canto enquanto você fala com o agente. O terminal livre, não: ele
+é aba do centro, ao lado das conversas e do navegador — é onde se digita, e
+digitar pede a tela. A setinha ao lado do **+** abre um shell novo no worktree;
+sair da aba não mata nada, e ⌘W com o cursor dentro dele fecha o terminal.
+Teste em `e2e/critical-flows.spec.ts`.
+
 ### Os arquivos do worktree
 
 A aba **Arquivos** do painel da direita é a árvore do worktree, e clicar num

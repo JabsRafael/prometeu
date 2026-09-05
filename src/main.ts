@@ -306,15 +306,20 @@ const escapePath = (p: string) => p.replace(/([\s!"#$&'()*,:;<>?[\\\]^`{|}~])/g,
 type Drop = { host: HTMLElement; put: (paths: string[]) => void } | null;
 function targetFrom(el: Element | null): Drop {
   if (!el) return null;
-  if (el.closest("#dock")) {
-    const pty = dock.currentKey();
+  // O painel da direita e a aba de terminal são dois xterms: cada um escreve
+  // no pty que está na frente dele.
+  const where = el.closest("#dock") ? "scripts" : el.closest("#termview") ? "shell" : null;
+  if (where) {
+    const pty = dock.currentKey(where);
     if (!pty) return null;
     return {
-      host: $("dock"),
+      host: $(where === "scripts" ? "dock" : "termview"),
       put: (paths) => {
         // Espaço no fim: o próximo arquivo, ou o que você for escrever, não cola.
         const text = paths.map(escapePath).join(" ") + " ";
-        void invoke("pty_write", { session: pty, data: text }).then(dock.focus).catch((e) => say(fromBack(e), true));
+        void invoke("pty_write", { session: pty, data: text })
+          .then(() => dock.focus(where))
+          .catch((e) => say(fromBack(e), true));
       },
     };
   }
@@ -334,7 +339,7 @@ function dropTarget(at?: { x: number; y: number }): Drop {
   // webview, e ele aponta o último lugar por onde o cursor passou antes.
   return (
     targetFrom(document.elementFromPoint(at.x, at.y)) ??
-    targetFrom(document.querySelector("#dock:hover, #chatwrap:hover"))
+    targetFrom(document.querySelector("#dock:hover, #termview:hover, #chatwrap:hover"))
   );
 }
 
@@ -667,7 +672,7 @@ desk.init({
   looked: alert.looked,
 });
 viewer.init((m) => say(m, true), ws.fileSaved);
-dock.init($("dockterm"));
+dock.init($("dockterm"), $("shellterm"));
 state = await invoke<Board>("load_board");
 alert.boardChanged(state);
 showDesk();

@@ -126,7 +126,11 @@
               </div>
               <div class="webbody" id="webbody"></div>
             </div>
-            <!-- Arquivo aberto pela árvore: toma o lugar do terminal, como no Conductor. -->
+            <!-- Terminal livre: o shell que você abriu ocupa o centro, como o
+                 navegador. Setup e Run continuam no painel da direita — são
+                 saída para acompanhar de canto, e não onde se trabalha. -->
+            <div class="termview" id="termview" hidden><div id="shellterm"></div></div>
+            <!-- Arquivo aberto pela árvore: toma o lugar da conversa, como no Conductor. -->
             <div class="viewer" id="viewer" hidden>
               <div class="vbar" id="vbar">
                 <span class="vcrumb" id="vcrumb"></span>
@@ -168,18 +172,13 @@
               <div class="difflist" id="difflist" hidden></div>
               <div class="comments" id="comments" hidden></div>
             </div>
-            <!-- Setup prepara o worktree, Run sobe o projeto, e o + abre
-                 shells. Todos rodam no mesmo worktree e nenhum é sessão de
-                 agente. -->
+            <!-- Setup prepara o worktree e Run sobe o projeto, os dois no mesmo
+                 worktree e nenhum deles sessão de agente. Terminal livre não
+                 mora aqui: é aba do centro. -->
             <div class="dock" id="dock">
               <div class="docktabs">
                 <button id="dock-toggle" class="ico" data-t-title="dock.collapse"></button>
-                <!-- Setup e Run são fixos; as abas de terminal vêm do que está
-                     aberto, e por isso a faixa é montada pelo dockbar. -->
                 <div class="dockstrip" id="dockstrip"></div>
-                <!-- O + fica fora da faixa que rola: é o único caminho para um
-                     terminal novo, e não pode sair da tela junto com as abas. -->
-                <button id="dock-add" class="ico sm" data-t-title="dock.new"></button>
                 <span class="spacer"></span>
                 <button id="run-open" hidden></button>
                 <div class="split" id="runsplit" hidden>
@@ -191,7 +190,7 @@
               <div class="dockbody">
                 <div class="dockwrap" id="dockwrap" hidden><div id="dockterm"></div></div>
                 <!-- Um estado vazio só, montado pelo main: o que falta em cada
-                     aba é diferente, e três caixas fixas envelheceriam juntas. -->
+                     aba é diferente, e duas caixas fixas envelheceriam juntas. -->
                 <div class="dockempty" id="dockempty">
                   <div class="glyph" id="empty-glyph" hidden></div>
                   <h4 id="empty-title"></h4>

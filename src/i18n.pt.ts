@@ -503,7 +503,7 @@ export const PT = {
   "dock.settings.open": "Abrir o settings.toml",
   "dock.closeTerm": "Fechar terminal  ⌘W",
   "dock.killSetup": "Encerrar o setup",
-  "dock.idle": "Setup prepara o worktree, Run sobe o projeto, o + abre um shell aqui dentro.",
+  "dock.idle": "Setup prepara o worktree e Run sobe o projeto, sem sair da conversa.",
   "dock.noSetup.title": "Sem script de setup",
   "dock.noSetup.body":
     "Comandos que rodam quando um worktree nasce, para instalar dependências e preparar o ambiente.",

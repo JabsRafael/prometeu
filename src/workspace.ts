@@ -68,7 +68,19 @@ export function init(context: Ctx) {
   });
 
   tree.init({ openFile, workspace: id });
-  dockbar.init({ workspace: id, say: ctx.say, openFile, newTab, openBrowser: showWeb });
+  dockbar.init({
+    workspace: id,
+    say: ctx.say,
+    openFile,
+    newTab,
+    openBrowser: showWeb,
+    enter: showShell,
+    exit: showTerm,
+    drawTabs: () => {
+      const ws = current();
+      if (ws) drawTabs(ws);
+    },
+  });
   browser.init((id) => invoke("open_run", { id }).catch((e) => ctx.say(fromBack(e), true)), ctx.say);
   notes.init({
     workspace: id,
@@ -654,7 +666,7 @@ function drawTabs(ws: Workspace) {
   const bar = $("tabbar");
   bar.replaceChildren();
   const fs = files(ws.id);
-  const elsewhere = fs.diff || fs.active || fs.web;
+  const elsewhere = fs.diff || fs.active || fs.web || !!dockbar.front();
 
   const remote = !!ws.remote;
   for (const tab of ws.tabs) {
@@ -741,6 +753,30 @@ function drawTabs(ws: Workspace) {
     bar.append(b);
   }
 
+  // Os terminais livres: abas daqui como as outras, porque é onde se digita, e
+  // digitar não cabe numa gaveta de 377px. Setup e Run continuam no painel da
+  // direita — aquilo é saída para acompanhar de canto.
+  if (!remote && !ws.cleaned && !pending(ws)) {
+    for (const d of dockbar.tabs()) {
+      const b = document.createElement("button");
+      b.className = "tab file" + (d.on ? " on" : "");
+      b.innerHTML = `${icon("terminal", 14)}<span></span>`;
+      b.children[1].textContent = d.label;
+      b.title = d.label;
+      b.addEventListener("click", () => dockbar.select(d.kind));
+      const x = document.createElement("span");
+      x.className = "tabx ico sm";
+      x.innerHTML = icon("x", 12);
+      x.title = t("dock.closeTerm");
+      x.addEventListener("click", (e) => {
+        e.stopPropagation();
+        dockbar.closeTab(d.kind);
+      });
+      b.append(x);
+      bar.append(b);
+    }
+  }
+
   for (const path of fs.open) {
     const b = document.createElement("button");
     b.className = "tab file" + (path === fs.active ? " on" : "");
@@ -799,6 +835,9 @@ function pickModel(at: HTMLElement, ws: Workspace) {
       });
     }
   });
+  // Terminal novo mora aqui e não num "+" próprio: são dois botões com o mesmo
+  // desenho lado a lado, e o comum — conversa — perderia o clique.
+  items.push("sep", { label: t("dock.new"), glyph: icon("terminal", 14), run: dockbar.newTerm });
   menu.openAt({ x: box.left, y: box.bottom + 4 }, items);
 }
 
@@ -848,7 +887,7 @@ async function selectTab(workspace: string, tab: string) {
   const fs = files(workspace);
   // Clicar na aba em que você já está não refaz nada. É o que deixa o duplo
   // clique chegar inteiro no renomear: o rótulo continua sendo o mesmo nó.
-  if (tab === session.currentSession() && !fs.diff && !fs.active && !fs.web) return;
+  if (tab === session.currentSession() && !fs.diff && !fs.active && !fs.web && !dockbar.front()) return;
   const remote = team.isRemote(workspace);
   if (!remote) invoke("focus_tab", { workspace, tab });
   showTerm();
@@ -941,6 +980,19 @@ function showTerm() {
     leaveWeb(files(ws.id));
   }
   center("chatwrap");
+}
+
+/// O terminal livre no centro. Quem escolhe qual é o `dockbar`; aqui só sai da
+/// frente o que estava.
+function showShell() {
+  const ws = current();
+  if (!ws) return;
+  const fs = files(ws.id);
+  fs.active = null;
+  fs.diff = false;
+  leaveWeb(fs);
+  center("termview");
+  drawTabs(ws);
 }
 
 /* ---------- navegador ---------- */
@@ -1040,8 +1092,12 @@ async function closeChanges() {
   drawTabs(ws);
 }
 
-function center(show: "chatwrap" | "viewer" | "diffview" | "webview") {
-  for (const id of ["chatwrap", "viewer", "diffview", "webview"] as const) $(id).hidden = id !== show;
+/// Uma coisa por vez no centro: a conversa, um arquivo, o diff, o navegador ou
+/// um terminal. Sair do dock não mata nada — o processo segue, e a aba só
+/// deixa de estar na frente.
+function center(show: "chatwrap" | "viewer" | "diffview" | "webview" | "termview") {
+  for (const id of ["chatwrap", "viewer", "diffview", "webview", "termview"] as const) $(id).hidden = id !== show;
+  if (show !== "termview") dockbar.leave();
 }
 
 async function closeFile(path: string) {
