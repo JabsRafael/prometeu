@@ -25,6 +25,7 @@ export type Ctx = {
   open: (ws: Workspace, tab: string) => void;
   /// O lançador: é o que a mesa vazia oferece.
   create: () => void;
+  looked: () => void;
 };
 
 type Tile = { el: HTMLElement; head: HTMLElement; view: ChatView };
@@ -74,6 +75,8 @@ const live = (board: Board): Pair[] =>
     .flatMap((w) => w.tabs.map((tab) => ({ w, tab })));
 
 const wsOf = (tab: string) => ctx.board().workspaces.find((w) => w.tabs.some((x) => x.id === tab));
+
+export const visible = (tab: string): boolean => shown && tiles.has(tab) && !tiles.get(tab)!.el.hidden;
 
 export function show() {
   shown = true;
@@ -160,6 +163,7 @@ function toggle(id: string) {
   if (!hidden.delete(id)) hidden.add(id);
   layout.hidden = [...hidden];
   draw();
+  ctx.looked();
 }
 
 function mount(id: string): Tile {
