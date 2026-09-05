@@ -33,6 +33,7 @@ para virar capacidade contratual.
 | hooks de plugin escolhido | ativos desde `SessionStart` | `enabled = true` + confiança limitada a `pluginId` e hash antes da thread | testes de `codex.rs`; falha impede a thread |
 | anexos na fala | adaptado por caminho local | adaptado por caminho local | capability + `chat.ts`; falta teste transversal dedicado |
 | evento externo desconhecido | ignorado pelo adapter | ignorado pelo adapter | `conversation.test.ts`, testes de `claude.rs`/`codex.rs` |
+| subagentes do CLI | sidechain fora da tela | threads de outro `threadId` ignoradas; o turno da conversa segue | `claude.rs`, teste `turno_de_subagente_nao_encerra_a_conversa` em `codex.rs` |
 | compartilhamento ao vivo | V1 após normalização | V1 após normalização | `team*.test.ts`, E2E sobre mock |
 | comentários em sessão compartilhada | adaptado após V1 | adaptado após V1 | `notes.test.ts`, `team.test.ts`, `relay/src/logic.test.ts`, E2E sobre mock |
 | mesa com várias conversas ao mesmo tempo | adaptado (mesma tela da conversa) | adaptado (mesma tela da conversa) | `desk.test.ts`, E2E sobre mock |

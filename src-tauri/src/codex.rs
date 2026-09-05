@@ -744,6 +744,16 @@ impl Link {
     }
 
     fn notification(&mut self, method: &str, p: &Value) -> Vec<Value> {
+        // O app-server avisa sobre toda thread do processo, e cada subagente
+        // que o Codex abre é uma thread. O `turn/completed` de um subagente
+        // chegava aqui como fim do turno da conversa: o card virava "pronta" e
+        // o sino tocava com o agente ainda trabalhando. Só a nossa thread
+        // conta — como o Claude, cujas sidechains ficam fora da tela.
+        if let (Some(mine), Some(thread)) = (self.thread.as_deref(), p["threadId"].as_str()) {
+            if thread != mine {
+                return vec![];
+            }
+        }
         match method {
             "turn/started" => {
                 self.turn = p["turn"]["id"].as_str().map(str::to_string);
@@ -1529,6 +1539,25 @@ mod tests {
         assert_eq!(f[0]["type"], "turn.completed");
         assert_eq!(f[0]["outcome"], "ok");
         assert_eq!(f[0]["durationMs"], 900);
+    }
+
+    #[test]
+    fn turno_de_subagente_nao_encerra_a_conversa() {
+        let (mut link, out) = link(None);
+        opened(&mut link, &out);
+        link.on_line(
+            r#"{"method":"turn/started","params":{"threadId":"t-1","turn":{"id":"turn-1"}}}"#,
+        );
+        // Subagente: outra thread no mesmo processo. Nada dele vira tela.
+        assert!(link.on_line(r#"{"method":"turn/started","params":{"threadId":"sub-1","turn":{"id":"turn-s"}}}"#).is_empty());
+        assert!(link.on_line(r#"{"method":"item/completed","params":{"threadId":"sub-1","turnId":"turn-s","item":{"type":"agentMessage","id":"s1","text":"achei"}}}"#).is_empty());
+        assert!(link.on_line(r#"{"method":"turn/completed","params":{"threadId":"sub-1","turn":{"id":"turn-s","status":"completed"}}}"#).is_empty());
+        // A conversa segue no turno dela.
+        let f = link.on_line(r#"{"method":"item/completed","params":{"threadId":"t-1","turnId":"turn-1","item":{"type":"agentMessage","id":"m1","text":"pronto"}}}"#);
+        assert_eq!(f[0]["type"], "assistant.block");
+        assert_eq!(f[0]["messageId"], "turn-1");
+        let f = link.on_line(r#"{"method":"turn/completed","params":{"threadId":"t-1","turn":{"id":"turn-1","status":"completed"}}}"#);
+        assert_eq!(f.last().unwrap()["type"], "turn.completed");
     }
 
     #[test]
