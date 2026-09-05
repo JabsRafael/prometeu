@@ -657,8 +657,8 @@ export function finish(id: string) {
 
 /* ---------- abas ---------- */
 
-/// Abas sublinhadas: uma por conversa, a de Mudanças, depois uma por arquivo
-/// aberto, e o + logo depois da última.
+/// Abas sublinhadas: uma por conversa, depois as que você abriu — Mudanças,
+/// navegador, terminais e arquivos — e o + logo depois da última.
 function drawTabs(ws: Workspace) {
   // Refazer a barra com um campo de renomear aberto nela apaga o que foi
   // digitado — e o diff, que redesenha sozinho, chega aqui a toda hora.
@@ -706,11 +706,12 @@ function drawTabs(ws: Workspace) {
     bar.append(b);
   }
 
-  // A aba de Mudanças existe enquanto houver o que mostrar e você não a tiver
-  // fechado — ou enquanto ela estiver aberta, para o worktree ficar limpo sem a
-  // tela sumir debaixo de você.
+  // A aba de Mudanças é sua: ela existe depois que você a abriu, e some no ✕.
+  // Worktree sujo não a traz de volta — com o agente editando, o worktree está
+  // sujo quase sempre, e uma aba que renasce sozinha é a barra decidindo por
+  // você. Que há o que ver está no contador do painel da direita.
   const changes = total(ws.id);
-  if (fs.diff || (changes && !fs.hidDiff)) {
+  if (fs.diffTab) {
     const b = document.createElement("button");
     b.className = "tab file" + (fs.diff ? " on" : "");
     b.innerHTML = `${icon("diff", 14)}<span></span><span class="n"></span>`;
@@ -925,9 +926,9 @@ type Files = {
   open: string[];
   active: string | null;
   diff: boolean;
-  /// Você fechou a aba de Mudanças. Sem isto ela renasceria no redesenho
-  /// seguinte, porque o worktree continua sujo — e aí fechar não fecharia nada.
-  hidDiff: boolean;
+  /// A aba de Mudanças está na barra. Como a de navegador, quem a põe lá é
+  /// você — pela lista da direita ou pelo Revisar.
+  diffTab: boolean;
   /// A aba de navegador: `webTab` é ela estar na barra, `web` é estar no centro.
   web: boolean;
   webTab: boolean;
@@ -937,7 +938,7 @@ const filesOf = new Map<string, Files>();
 
 function files(id: string): Files {
   let f = filesOf.get(id);
-  if (!f) filesOf.set(id, (f = { open: [], active: null, diff: false, hidDiff: false, web: false, webTab: false, port: 0 }));
+  if (!f) filesOf.set(id, (f = { open: [], active: null, diff: false, diffTab: false, web: false, webTab: false, port: 0 }));
   return f;
 }
 
@@ -1065,7 +1066,7 @@ function activateChanges() {
   const fs = files(ws.id);
   fs.active = null;
   fs.diff = true;
-  fs.hidDiff = false;
+  fs.diffTab = true;
   leaveWeb(fs);
   center("diffview");
   setSidePane("diff");
@@ -1074,14 +1075,13 @@ function activateChanges() {
 
 /// Fechar a aba de Mudanças é tirá-la da barra, não só sair da tela: uma aba que
 /// fica depois do x não foi fechada. Ela volta quando você abre o diff de novo
-/// pela lista da direita, ou quando o worktree limpa e suja outra vez — o que é
-/// trabalho novo, e não o que você mandou embora.
+/// pela lista da direita ou pelo Revisar — e só assim.
 async function closeChanges() {
   const ws = current();
   if (!ws) return;
   const fs = files(ws.id);
   const wasOpen = fs.diff;
-  fs.hidDiff = true;
+  fs.diffTab = false;
   // `diff` fica ligado até o `showTerm` da vez desligar: é ele que faz o
   // `selectTab` entender que a tela precisa trocar.
   if (wasOpen) {
@@ -1150,7 +1150,6 @@ async function loadChanges(id: string) {
     changesUi.update(id, repos);
     const n = total(id);
     $("review").hidden = !repos.some(repo => repo.has_head);
-    if (!n) files(id).hidDiff = false;
     $("diffcount").textContent = n ? String(n) : "";
     $("diffcount").classList.remove("fresh");
     const ws = current();

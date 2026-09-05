@@ -91,6 +91,11 @@ conflitos, alterações em stage e alterações locais. `+` adiciona um arquivo 
 aparece nos dois grupos, cada um com seu diff. Commit inclui somente o índice;
 push é uma ação separada, com upstream e contadores visíveis.
 
+O diff empilhado no centro é aba, e a aba é sua: ela entra na barra quando
+você a abre — pelo segundo clique em **Alterações**, ou pelo **Revisar** — e sai
+no ✕. Worktree sujo não a traz de volta; que há o que ver está no contador do
+painel da direita.
+
 Histórico e **Comparar branch** mostram commits sem misturar edições locais.
 A branch no cabeçalho abre a lista de branches e workspaces. Criar trabalho a
 partir dali usa outro worktree; a sessão atual continua onde estava. O editor
