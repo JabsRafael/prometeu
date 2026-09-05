@@ -37,7 +37,7 @@ import type { Board, Workspace } from "./types";
 export type { SocketLike, Transport } from "./team-transport";
 
 /// O time: a conexão com o relay e o que ele conta — quem está online, o que
-/// está compartilhado, a caixa de notas. Vive aqui, no front, e não no Rust,
+/// está compartilhado, a caixa de comentários. Vive aqui, no front, e não no Rust,
 /// porque tudo de que o compartilhamento precisa já passa por aqui: as linhas
 /// de toda conversa chegam pelo evento `chat`, e falar numa conversa é um
 /// `invoke`. O back só guarda o `team.json`.
@@ -120,7 +120,8 @@ let you: string | null = null;
 let members: Member[] = [];
 let shares = new Map<string, Shared>();
 let inbox: Inbox[] = [];
-/// As notas de cada workspace, como o relay as contou. Só o que já foi pedido
+let comments = false;
+/// Os comentários de cada workspace, como o relay os contou. Só o que já foi pedido
 /// (`notes`) está aqui; o resto chega quando alguém abre o painel.
 const notes = new Map<string, Note[]>();
 let attempt = 0;
@@ -164,6 +165,7 @@ export const status = (): TeamStatus => ({
 export const nameOf = (member: string) => members.find((m) => m.id === member)?.name ?? member.slice(0, 8);
 export const invite = () => (cfg ? formatInvite(cfg.team, cfg.secret) : null);
 export const inboxItems = () => inbox;
+export const supportsThreads = () => comments;
 
 /* ---------- ciclo de vida ---------- */
 
@@ -343,7 +345,7 @@ function sendBinary(data: Uint8Array): boolean {
 
 /// Erro do relay que a pessoa não pediu e não resolve: o workspace ou a aba
 /// não estão mais lá. O app pergunta por eles sozinho — ao reconectar, ao
-/// desenhar as notas — e cada pergunta dessas virava um aviso vermelho no
+/// desenhar os comentários — e cada pergunta dessas virava um aviso vermelho no
 /// topo sobre algo que ninguém fez.
 const QUIET = new Set(["noShare", "noTab"]);
 
@@ -354,6 +356,7 @@ function handle(frame: Down) {
       members = frame.members;
       shares = new Map(frame.shares.map((s) => [s.id, s]));
       inbox = frame.inbox;
+      comments = frame.comments === 1;
       phase = "online";
       // A verdade veio; o que é meu vai de novo, e quem já olhava minhas abas
       // ganha a rolagem inteira — o que saiu enquanto eu estava fora não
@@ -365,7 +368,7 @@ function handle(frame: Down) {
       // O que eu tinha em cache pode ter envelhecido enquanto eu estava fora.
       // Só se repete o pedido do que ainda existe daqui: o cache guarda todo
       // workspace pelo qual já se perguntou, inclusive o que parou de ser
-      // compartilhado meses atrás, e pedir as notas dele de novo a cada
+      // compartilhado meses atrás, e pedir os comentários dele de novo a cada
       // reconexão era o que fazia o erro voltar sozinho.
       const asked = [...notes.keys()].filter(known);
       notes.clear();
@@ -381,6 +384,8 @@ function handle(frame: Down) {
       break;
     case "unshare":
       shares.delete(frame.ws);
+      notes.delete(frame.ws);
+      inbox = inbox.filter((item) => item.ws !== frame.ws);
       for (const [id, r] of remoteIds) if (r.ws === frame.ws) remoteIds.delete(id);
       if (attached?.ws === frame.ws) {
         attachLife.cancel();
@@ -401,9 +406,12 @@ function handle(frame: Down) {
       break;
     case "note": {
       const list = notes.get(frame.note.ws) ?? [];
-      // Chega para todos, inclusive para quem escreveu — é assim que a nota
-      // ganha o id que o relay deu. Duas vezes a mesma, não.
-      if (!list.some((n) => n.id === frame.note.id)) list.push(frame.note);
+      // Criação e resposta chegam com id novo; resolver atualiza a raiz com o
+      // mesmo id. Um caminho cobre os dois e mantém a ordem do histórico.
+      const at = list.findIndex((n) => n.id === frame.note.id);
+      if (at === -1) list.push(frame.note);
+      else list[at] = frame.note;
+      list.sort((a, b) => a.ts - b.ts);
       notes.set(frame.note.ws, list);
       break;
     }
@@ -448,6 +456,7 @@ function reset() {
   members = [];
   shares = new Map();
   inbox = [];
+  comments = false;
   announced.clear();
   watchers.clear();
   queue.clear();
@@ -833,7 +842,7 @@ function binary(data: ArrayBuffer) {
   }
 }
 
-/* ---------- notas ---------- */
+/* ---------- comentários ---------- */
 
 /// O id que o relay conhece: o de um colega vem prefixado na tela, o seu é
 /// ele mesmo.
@@ -844,31 +853,44 @@ const relayId = (id: string) => remoteIds.get(id)?.ws ?? id;
 /// pedir um `noShare`.
 const known = (ws: string) => announced.has(ws) || shares.has(ws);
 
-/// As notas de um workspace, e o pedido ao relay se ainda não vieram. Devolve
+/// Os comentários de um workspace, e o pedido ao relay se ainda não vieram. Devolve
 /// o que já se sabe; o resto chega pelo `onChange`.
 export function notesOf(id: string): Note[] {
   // Workspace local não anunciado não existe no relay. Além de esconder a UI
-  // de notas no `main`, esta guarda impede que qualquer chamada futura produza
+  // de comentários no `main`, esta guarda impede que qualquer chamada futura produza
   // um `noShare` para um workspace que nunca foi compartilhado.
   if (!isRemote(id) && !announced.has(id)) return [];
   const ws = relayId(id);
   const have = notes.get(ws);
   if (have) return have;
-  // Guardar a lista vazia é dizer "já pedi": só vale se o pedido saiu. Sem
-  // conexão, o painel fica vazio e pede de novo quando ela voltar.
-  if (send({ t: "notes", ws })) notes.set(ws, []);
+  // Guardar a lista vazia é dizer "já pedi". Marque antes de enviar: o mock
+  // responde no mesmo stack; marcar depois pisaria na resposta já recebida.
+  notes.set(ws, []);
+  if (!send({ t: "notes", ws })) notes.delete(ws);
   return [];
 }
 
-/// Escreve uma nota. `quote` é o trecho da conversa que ela cita, se cita, e
+/// Escreve um comentário. `quote` é o trecho da conversa que ele cita, se cita, e
 /// `mentions` são ids de membros — o relay descarta quem não existe. Devolve
-/// se o pedido saiu: sem conexão a nota não vai a lugar nenhum, e quem
+/// se o pedido saiu: sem conexão o comentário não vai a lugar nenhum, e quem
 /// escreveu precisa saber disso em vez de ver o campo esvaziar.
-export function addNote(id: string, text: string, mentions: string[], quote: string | null): boolean {
+export function addNote(
+  id: string,
+  tab: string | null,
+  anchor: string | null,
+  text: string,
+  mentions: string[],
+  quote: string | null,
+): boolean {
+  includeMentioned(id, mentions);
+  return send({ t: "note", ws: relayId(id), tab, anchor, text, mentions, quote });
+}
+
+function includeMentioned(id: string, mentions: string[]) {
   // Marcar quem está fora da audiência de um workspace seu é chamar a pessoa:
-  // ela entra na lista antes de a nota sair, senão o relay descarta a menção.
-  // O share vai pelo mesmo socket, na frente da nota — esperar o Rust gravar
-  // e o quadro voltar deixaria a nota chegar primeiro.
+  // ela entra na lista antes de o comentário sair, senão o relay descarta a menção.
+  // O share vai pelo mesmo socket, na frente do comentário — esperar o Rust
+  // gravar e o quadro voltar deixaria o comentário chegar primeiro.
   const w = lastBoard?.workspaces.find((x) => x.id === id);
   if (w?.shared && !w.remote && w.audience) {
     const missing = mentions.filter((m) => !w.audience!.includes(m));
@@ -878,25 +900,36 @@ export function addNote(id: string, text: string, mentions: string[], quote: str
       void share(id, grown.audience);
     }
   }
-  return send({ t: "note", ws: relayId(id), text, mentions, quote });
 }
 
-/// Quantas notas mencionam você e você ainda não abriu.
+export function replyNote(id: string, note: string, text: string, mentions: string[]): boolean {
+  includeMentioned(id, mentions);
+  return send({ t: "note_reply", ws: relayId(id), note, text, mentions });
+}
+
+export const resolveNote = (id: string, note: string) =>
+  send({ t: "note_resolve", ws: relayId(id), note });
+
+/// Quantos comentários abertos esperam você.
 export const inboxCount = () => inbox.length;
 
-/// Abrir a nota da caixa: sai da caixa e diz onde ela está, para a tela levar
-/// até lá. O id do workspace é o da tela, não o do relay.
-export function readInbox(id: string): { workspace: string; note: string } | null {
+/// No relay atual, abrir não conclui trabalho: o comentário fica na caixa até
+/// alguém resolver. Relay sem threads conserva a leitura antiga como fallback.
+export function readInbox(id: string): { workspace: string; note: string; tab: string | null } | null {
   const item = inbox.find((i) => i.id === id);
   if (!item) return null;
-  send({ t: "inbox_read", id });
-  inbox = inbox.filter((i) => i.id !== id);
   const owned = [...remoteIds].find(([, r]) => r.ws === item.ws);
-  changed();
-  return { workspace: owned?.[0] ?? item.ws, note: item.id };
+  // Relay antigo não tem resolução. Nele, abrir continua sendo o único jeito
+  // de concluir a entrada; no relay atual, somente resolver remove.
+  if (!comments) {
+    send({ t: "inbox_read", id });
+    inbox = inbox.filter((entry) => entry.id !== id);
+    changed();
+  }
+  return { workspace: owned?.[0] ?? item.ws, note: item.id, tab: item.tab ?? null };
 }
 
-/// O que a caixa mostra: a nota, de quem é, e onde está.
+/// O que a caixa mostra: o comentário, de quem é, e onde está.
 export function inboxList(): { id: string; ws: string; author: string; ts: number; title: string; text: string }[] {
   return inbox.map((i) => {
     const note = notes.get(i.ws)?.find((n) => n.id === i.id);
@@ -907,7 +940,7 @@ export function inboxList(): { id: string; ws: string; author: string; ts: numbe
       author: nameOf(i.author),
       ts: i.ts,
       title: share?.title ?? "",
-      text: note?.text ?? "",
+      text: i.text ?? note?.text ?? "",
     };
   });
 }

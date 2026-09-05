@@ -90,10 +90,15 @@ describe("frames de controle", () => {
     expect(parseUp({ t: "note", ws: "ws1", text: "oi", mentions: ["alice", "zé", "alice"], quote: null })).toEqual({
       t: "note",
       ws: "ws1",
+      tab: null,
+      anchor: null,
       text: "oi",
       mentions: ["alice"],
       quote: null,
     });
+    expect(parseUp({ t: "note", ws: "ws1", tab: "t1", anchor: "s4.0", text: "oi", mentions: [], quote: "trecho" })).toMatchObject({ tab: "t1", anchor: "s4.0" });
+    expect(parseUp({ t: "note_reply", ws: "ws1", note: "n1", text: "feito", mentions: ["alice"] })).toMatchObject({ t: "note_reply", note: "n1" });
+    expect(parseUp({ t: "note_resolve", ws: "ws1", note: "n1" })).toEqual({ t: "note_resolve", ws: "ws1", note: "n1" });
   });
 
   it("recusa campos aninhados, dimensões, ids e tamanhos inválidos", () => {
@@ -103,6 +108,8 @@ describe("frames de controle", () => {
     expect(parseUp({ t: "attach", ws: "__proto__", tab: "t1" })).toBeNull();
     expect(parseUp({ t: "me", name: "x".repeat(81) })).toBeNull();
     expect(parseUp({ t: "write", ws: "ws1", tab: "t1", data: "x".repeat(64 * 1024 + 1) })).toBeNull();
+    expect(parseUp({ t: "note", ws: "ws1", tab: "sumiu!", anchor: null, text: "x", mentions: [], quote: null })).toBeNull();
+    expect(parseUp({ t: "note_reply", ws: "ws1", note: "?", text: "x", mentions: [] })).toBeNull();
   });
 
   it("valida e limita tudo que volta de um relay configurável", () => {
@@ -114,12 +121,17 @@ describe("frames de controle", () => {
       shares: [shared],
       inbox: [],
       watching: { ws1: { t1: ["bob", "bob"] } },
+      comments: 1,
     };
-    expect(parseDown(welcome)).toMatchObject({ t: "welcome", watching: { ws1: { t1: ["bob"] } } });
+    expect(parseDown(welcome)).toMatchObject({ t: "welcome", comments: 1, watching: { ws1: { t1: ["bob"] } } });
     expect(parseDown({ ...welcome, members: [{ id: "__proto__", name: "x", online: true }] })).toBeNull();
     expect(parseDown({ t: "write", ws: "ws1", tab: "t1", from: "alice", data: "x".repeat(64 * 1024 + 1) })).toBeNull();
     expect(parseDown({ t: "notes", ws: "ws1", items: [{ id: "n1", ws: "outro", author: "alice", text: "oi", mentions: [], quote: null, ts: 1 }] })).toBeNull();
     expect(parseDown({ t: "presence", members: Array.from({ length: 65 }, (_, i) => ({ id: `m${i}`, name: "x", online: true })) })).toBeNull();
+    expect(parseDown({ ...welcome, comments: 2 })).toBeNull();
+    expect(parseDown({ t: "note", note: { id: "n1", ws: "ws1", author: "alice", text: "oi", mentions: [], quote: null, ts: 1, tab: "t1", anchor: "s4.0", parent: null, resolved: false } })).toMatchObject({
+      note: { tab: "t1", anchor: "s4.0", parent: null, resolved: false },
+    });
   });
 });
 

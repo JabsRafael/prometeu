@@ -19,7 +19,21 @@ vi.mock("@tauri-apps/api/core", () => ({
   ),
 }));
 
-const { init, boardChanged, notesOf, onChange, onError, setName, useTransport } = await import("./team");
+const {
+  addNote,
+  boardChanged,
+  inboxCount,
+  init,
+  notesOf,
+  onChange,
+  onError,
+  readInbox,
+  replyNote,
+  resolveNote,
+  setName,
+  supportsThreads,
+  useTransport,
+} = await import("./team");
 
 /// O relay de mentira: guarda o que o app mandou e deixa o teste responder.
 class Relay {
@@ -83,7 +97,7 @@ const board = (...workspaces: Workspace[]): Board => ({ stages: [], projects: []
 /// Conecta e entrega o `welcome`, como o relay faz a cada conexão.
 function welcome() {
   relay.onopen?.();
-  relay.says({ t: "welcome", you: config.member, members: [], shares: [], inbox: [], watching: {} });
+  relay.says({ t: "welcome", comments: 1, you: config.member, members: [], shares: [], inbox: [], watching: {} });
 }
 
 /// A conexão cai e o app volta sozinho, com a espera crescente que ele usa.
@@ -139,6 +153,48 @@ describe("notas do time", () => {
     reconnect();
 
     expect(relay.only("notes")).toEqual([]);
+  });
+
+  it("envia comentário, resposta e resolução; atualização substitui a raiz", () => {
+    welcome();
+    boardChanged(board(workspace("comments-ws", true)));
+    expect(supportsThreads()).toBe(true);
+    expect(addNote("comments-ws", null, null, "oi", [], null)).toBe(true);
+    expect(replyNote("comments-ws", "root", "feito", [])).toBe(true);
+    expect(resolveNote("comments-ws", "root")).toBe(true);
+    expect(relay.only("note").slice(-1)[0]).toMatchObject({ text: "oi", tab: null, anchor: null });
+    expect(relay.only("note_reply").slice(-1)[0]).toMatchObject({ note: "root", text: "feito" });
+    expect(relay.only("note_resolve").slice(-1)[0]).toMatchObject({ note: "root" });
+
+    const root = { id: "root", ws: "comments-ws", author: "membro1", text: "oi", mentions: [], quote: null, ts: 1, tab: null, anchor: null, parent: null, resolved: false };
+    relay.says({ t: "notes", ws: "comments-ws", items: [root] });
+    relay.says({ t: "note", note: { ...root, resolved: true } });
+    expect(notesOf("comments-ws")).toHaveLength(1);
+    expect(notesOf("comments-ws")[0].resolved).toBe(true);
+  });
+
+  it("abrir item de Para mim não o remove", () => {
+    welcome();
+    relay.says({ t: "inbox", items: [{ id: "root", ws: "ws1", author: "alice", ts: 1, tab: "t1", text: "revisa" }] });
+    expect(readInbox("root")).toEqual({ workspace: "ws1", note: "root", tab: "t1" });
+    expect(inboxCount()).toBe(1);
+    expect(relay.only("inbox_read")).toEqual([]);
+  });
+
+  it("relay antigo mantém a leitura como fallback para limpar a caixa", () => {
+    relay.onopen?.();
+    relay.says({
+      t: "welcome",
+      you: config.member,
+      members: [],
+      shares: [],
+      inbox: [{ id: "legacy", ws: "ws1", author: "alice", ts: 1 }],
+      watching: {},
+    });
+    expect(supportsThreads()).toBe(false);
+    expect(readInbox("legacy")).toEqual({ workspace: "ws1", note: "legacy", tab: null });
+    expect(inboxCount()).toBe(0);
+    expect(relay.only("inbox_read")).toEqual([{ t: "inbox_read", id: "legacy" }]);
   });
 });
 

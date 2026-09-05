@@ -8,7 +8,7 @@ import { h, template } from "./util";
 
 /// Ações disponíveis na lista lateral e no menu de um workspace.
 export type Hooks = {
-  /// A caixa "Para mim": as notas do time que marcaram você.
+  /// A caixa "Para mim": os comentários abertos que marcaram você.
   inbox: () => void;
   open: (ws: Workspace) => void;
   setStage: (id: string, stage: string) => void;
@@ -168,7 +168,7 @@ function renderRail(board: Board, hooks: Hooks) {
   issues.addEventListener("click", hooks.toIssues);
   rail.append(issues);
 
-  // Alguém do time te marcou numa nota: é o único lugar da tela que espera
+  // Alguém do time te marcou num comentário: é o único lugar da tela que espera
   // resposta sua e não está dentro de uma sessão.
   const waiting = team.inboxCount();
   if (waiting) {

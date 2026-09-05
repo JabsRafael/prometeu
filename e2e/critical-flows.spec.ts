@@ -12,6 +12,62 @@ async function openWorkspace(page: Page, title: string) {
   await expect(page.locator("#crumb")).toContainText(title);
 }
 
+async function bootTeam(page: Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem("mock:team", JSON.stringify({
+      relay: null,
+      team: "timeDeMentira",
+      secret: "segredoDeMentira123456789",
+      member: "eu_mock",
+      credential: "c".repeat(43),
+      name: "Você",
+    }));
+  });
+  await boot(page);
+  await expect(page.locator("#railbody .navitem.mentions")).toBeVisible();
+}
+
+test("comentário fica ao lado da sessão até alguém resolver", async ({ page }) => {
+  await bootTeam(page);
+
+  // Abrir leva ao contexto, mas não finge que a pendência acabou.
+  await page.locator("#railbody .navitem.mentions").click();
+  await page.locator(".inboxrow").click();
+  await expect(page.locator("#crumb")).toContainText("Arquivar todos os concluídos");
+  await expect(page.locator("#comments .commentthread")).toBeVisible();
+  await expect(page.locator("#chatwrap .commentpin")).toHaveCount(1);
+  await expect(page.locator("#railbody .navitem.mentions .n")).toHaveText("1");
+  await expect(page.locator("#chatwrap .composer textarea")).toHaveAttribute("placeholder", "Escreva na conversa de Marcus Hale");
+
+  await page.locator('#tabbar .tab[data-tab="mt2"]').click();
+  await expect(page.locator("#comments .commentempty")).toContainText("Nenhum comentário aberto");
+  await page.locator('#tabbar .tab[data-tab="mt1"]').click();
+  await page.locator("#comments .commentcard").first().click();
+
+  await page.locator(".replybox textarea").fill("Concordo com a coluna.");
+  await page.locator(".replybox .submit").click();
+  await expect(page.locator(".commentmessage")).toHaveCount(2);
+  await page.locator(".replybox .resolve").click();
+  await expect(page.locator(".threadstate")).toHaveText("Resolvido");
+  await expect(page.locator("#railbody .navitem.mentions")).toHaveCount(0);
+  await expect(page.locator("#chatwrap .commentpin")).toHaveCount(0);
+
+  // Comentar abre outro campo; a caixa principal continua falando com agente.
+  await page.locator(".threadhead .back").click();
+  await page.locator('.commentfilters [data-filter="resolved"]').click();
+  await expect(page.locator(".commentcard", { hasText: "Completar um todo agora" })).toBeVisible();
+  await page.locator('.commentfilters [data-filter="open"]').click();
+  await page.locator("#chatwrap .meta .cm").last().click();
+  await expect(page.locator(".commentdraft")).toBeVisible();
+  await expect(page.locator(".commentdraft .draftquote-text")).not.toBeEmpty();
+  await expect(page.locator("#chatwrap .composer textarea")).toHaveAttribute("placeholder", "Escreva na conversa de Marcus Hale");
+  await page.locator(".commentdraft textarea").fill("Nova dúvida para o time.");
+  await page.locator(".commentdraft .submit").click();
+  await expect(page.locator(".commentcard", { hasText: "Nova dúvida para o time." })).toBeVisible();
+  await expect(page.locator("#chatwrap .commentpin")).toHaveCount(1);
+  await expect(page.locator("#chatwrap .note")).toHaveCount(0);
+});
+
 test("remove projeto sem apagar seus workspaces", async ({ page }) => {
   await boot(page);
 

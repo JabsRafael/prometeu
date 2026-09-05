@@ -77,10 +77,11 @@ const hooks: sidebar.Hooks = {
   finish: (id) => ws.finish(id),
   cleanup: () => openCleanup(say),
   inbox: () =>
-    openInbox((workspace, note) => {
+    openInbox((workspace, note, tab) => {
       const target = view().workspaces.find((w) => w.id === workspace);
       if (!target) return say(t("err.team.noShare"), true);
-      void openWorkspace(target).then(() => ws.showNote(note));
+      if (tab && !target.remote) invoke("focus_tab", { workspace: target.id, tab });
+      void openWorkspace(tab ? { ...target, active: tab } : target).then(() => ws.showNote(note));
     }),
   pin: (id, pinned) => invoke("pin_workspace", { id, pinned }),
   unread: (id, unread) => invoke("set_unread", { id, unread }),
@@ -478,7 +479,7 @@ function act(a: appmenu.Action): boolean {
     case "lateral":
       toggleRail();
       return true;
-    // ⌘⇧M é a nota citando o que está selecionado na conversa: a mão já está no
+    // ⌘⇧M comenta o que está selecionado na conversa: a mão já está no
     // mouse, tendo acabado de selecionar.
     case "nota":
       return !!open && ws.quoteSelection();
@@ -600,7 +601,7 @@ issues.init({
 archived.init({ board: () => state, hooks: () => hooks });
 ws.init({ say, board: view, redraw: draw, home: () => showDesk() });
 // O que a caixa de escrever precisa saber de uma aba: de quem é, se está
-// desligada, se há time para deixar nota. A mesma resposta para a conversa do
+// desligada, se há time para comentar. A mesma resposta para a conversa do
 // workspace aberto e para cada quadro da mesa.
 const infoOf = (w: Workspace | undefined, tab: Tab | undefined): Info => ({
   workspace: w?.id ?? null,
@@ -625,6 +626,7 @@ session.init(
     const w = open ? view().workspaces.find((x) => x.id === open) : undefined;
     return infoOf(w, w?.tabs.find((t) => t.id === session.currentSession()));
   },
+  { comment: ws.comment, thread: ws.showNote },
 );
 desk.init({
   say,

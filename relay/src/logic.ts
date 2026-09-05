@@ -1,5 +1,5 @@
 /// O time inteiro, sem tubulação: quem está conectado, o que está
-/// compartilhado, quem olha o quê, as notas e a caixa de cada um. `reduce`
+/// compartilhado, quem olha o quê, os comentários e a caixa de cada um. `reduce`
 /// recebe um evento e devolve o que fazer — mandar frame, gravar chave — e é
 /// isso que o teste exercita. O Durable Object (`room.ts`) só converte
 /// WebSocket em evento e efeito em `send`/`storage`.
@@ -20,6 +20,8 @@ import {
   NOTE_TTL_MS,
   NOTE_QUOTE_MAX,
   NOTE_TEXT_MAX,
+  parseInbox,
+  parseNote,
   parseShare,
   parseUp,
   SHARES_MAX,
@@ -36,7 +38,7 @@ export type State = {
   shares: Map<string, Entry>;
   /// Por workspace, na ordem em que foram escritas.
   notes: Map<string, Note[]>;
-  /// Por membro: o que menciona ele e ele ainda não abriu.
+  /// Por membro: quais comentários abertos esperam resposta dele.
   inbox: Map<string, Inbox[]>;
 };
 
@@ -132,32 +134,30 @@ const inboxKey = (member: string, id: string) => `inbox:${member}:${id}`;
 function prune(s: State, now: number): Effect[] {
   const out: Effect[] = [];
   const cutoff = now - NOTE_TTL_MS;
-  const all: Note[] = [];
   for (const [ws, list] of s.notes) {
-    const keep = list.filter((n) => n.ts >= cutoff);
-    for (const n of list) if (n.ts < cutoff) out.push({ e: "del", key: noteKey(n) });
+    // Uma resposta recente mantém a raiz: sem ela o resto da thread perderia
+    // contexto quando o comentário atravessasse o TTL no meio da conversa.
+    const roots = new Set(list.filter((n) => !n.parent).map((n) => n.id));
+    const alive = new Set(list.filter((n) => n.ts >= cutoff).map((n) => n.parent ?? n.id));
+    const keep = list.filter((n) => alive.has(n.parent ?? n.id) && roots.has(n.parent ?? n.id));
+    const kept = new Set(keep.map((n) => n.id));
+    for (const n of list) if (!kept.has(n.id)) out.push({ e: "del", key: noteKey(n) });
     if (keep.length) {
       keep.sort((a, b) => a.ts - b.ts);
       s.notes.set(ws, keep);
-      all.push(...keep);
+      out.push(...trimNotes(s, ws, keep));
     } else {
       s.notes.delete(ws);
     }
   }
 
   // Hydrate também pode encontrar storage escrito por uma versão antiga.
-  // Conserva os mais novos e apaga o excesso em vez de carregá-lo para sempre.
-  all.sort((a, b) => b.ts - a.ts);
-  const allowed = new Set(all.slice(0, NOTES_TOTAL_MAX).map((n) => `${n.ws}\0${n.id}`));
-  for (const [ws, list] of s.notes) {
-    const keep = list.filter((n) => allowed.has(`${n.ws}\0${n.id}`)).slice(-NOTES_PER_WORKSPACE_MAX);
-    const keepIds = new Set(keep.map((n) => n.id));
-    for (const n of list) if (!keepIds.has(n.id)) out.push({ e: "del", key: noteKey(n) });
-    if (keep.length) s.notes.set(ws, keep);
-    else s.notes.delete(ws);
-  }
+  // Conserva as threads mais ativas e apaga o excesso como unidade.
+  out.push(...trimTotalNotes(s));
 
-  const liveNotes = new Set([...s.notes.values()].flat().map((n) => `${n.ws}\0${n.id}`));
+  const liveNotes = new Set(
+    [...s.notes.values()].flat().filter((n) => !n.parent && !n.resolved).map((n) => `${n.ws}\0${n.id}`),
+  );
   for (const [member, box] of s.inbox) {
     const keep = box.filter((i) => i.ts >= cutoff && liveNotes.has(`${i.ws}\0${i.id}`)).slice(-INBOX_MAX);
     const keepIds = new Set(keep.map((i) => i.id));
@@ -182,6 +182,85 @@ function purgeNotes(s: State, ws: string): Effect[] {
     out.push(...toMember(s, member, { t: "inbox", items: keep }));
   }
   return out;
+}
+
+function assign(s: State, member: string, item: Inbox): Effect[] {
+  const box = s.inbox.get(member) ?? [];
+  const at = box.findIndex((old) => old.ws === item.ws && old.id === item.id);
+  if (at === -1) box.push(item);
+  else box[at] = item;
+  box.sort((a, b) => a.ts - b.ts);
+  s.inbox.set(member, box);
+  const out: Effect[] = [{ e: "put", key: inboxKey(member, item.id), value: item }];
+  while (box.length > INBOX_MAX) {
+    const old = box.shift();
+    if (old) out.push({ e: "del", key: inboxKey(member, old.id) });
+  }
+  return [...out, ...toMember(s, member, { t: "inbox", items: [...box] })];
+}
+
+function clearAssignment(s: State, ws: string, id: string): Effect[] {
+  const out: Effect[] = [];
+  for (const [member, box] of s.inbox) {
+    const keep = box.filter((item) => item.ws !== ws || item.id !== id);
+    if (keep.length === box.length) continue;
+    if (keep.length) s.inbox.set(member, keep);
+    else s.inbox.delete(member);
+    out.push({ e: "del", key: inboxKey(member, id) }, ...toMember(s, member, { t: "inbox", items: keep }));
+  }
+  return out;
+}
+
+function trimNotes(s: State, ws: string, list: Note[]): Effect[] {
+  const out: Effect[] = [];
+  while (list.length > NOTES_PER_WORKSPACE_MAX) {
+    const roots = list.filter((note) => !note.parent);
+    const root = roots.sort((a, b) => {
+      const last = (note: Note) => Math.max(note.ts, ...list.filter((item) => item.parent === note.id).map((item) => item.ts));
+      return last(a) - last(b);
+    })[0];
+    if (!root) break;
+    const thread = list.filter((item) => item.id === root.id || item.parent === root.id);
+    // Uma thread sozinha conserva a raiz e as respostas mais novas.
+    const removed = thread.length === list.length ? thread.filter((item) => item.parent).slice(0, 1) : thread;
+    for (const item of removed) list.splice(list.indexOf(item), 1);
+    for (const item of removed) out.push({ e: "del", key: noteKey(item) });
+    if (removed.includes(root)) out.push(...clearAssignment(s, ws, root.id));
+  }
+  return out;
+}
+
+function trimTotalNotes(s: State): Effect[] {
+  const out: Effect[] = [];
+  let total = [...s.notes.values()].reduce((count, list) => count + list.length, 0);
+  const roots = [...s.notes].flatMap(([ws, list]) =>
+    list
+      .filter((note) => !note.parent)
+      .map((root) => ({
+        ws,
+        id: root.id,
+        activity: Math.max(root.ts, ...list.filter((note) => note.parent === root.id).map((note) => note.ts)),
+      })),
+  ).sort((a, b) => a.activity - b.activity);
+
+  for (const root of roots) {
+    if (total <= NOTES_TOTAL_MAX) break;
+    const list = s.notes.get(root.ws);
+    if (!list) continue;
+    const removed = list.filter((note) => note.id === root.id || note.parent === root.id);
+    if (!removed.length) continue;
+    const keep = list.filter((note) => note.id !== root.id && note.parent !== root.id);
+    if (keep.length) s.notes.set(root.ws, keep);
+    else s.notes.delete(root.ws);
+    total -= removed.length;
+    for (const note of removed) out.push({ e: "del", key: noteKey(note) });
+    out.push(...clearAssignment(s, root.ws, root.id));
+  }
+  return out;
+}
+
+function visibleMentions(s: State, ws: string, me: string, values: string[]): string[] {
+  return values.filter((member) => member !== me && s.members.has(member) && visibleTo(s, ws, member));
 }
 
 /// Quem olha uma aba mudou: o dono fica sabendo, e `added` é quem acabou de
@@ -223,6 +302,7 @@ export function reduce(s: State, ev: Event): Effect[] {
           sock: ev.sock,
           frame: {
             t: "welcome",
+            comments: 1,
             you: ev.member,
             members: presence.members,
             shares: [...s.shares.values()].filter((e) => canSee(e, ev.member)).map(shared),
@@ -337,8 +417,8 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
           out.push({ e: "send", sock: k.id, frame: { t: "share", share: shared(e) } });
         }
       }
-      // Caixa de quem perdeu acesso não pode continuar revelando notas do
-      // workspace. As notas em si seguem visíveis para a nova audiência.
+      // Caixa de quem perdeu acesso não pode continuar revelando comentários
+      // do workspace. Os comentários seguem visíveis para a nova audiência.
       for (const [member, box] of s.inbox) {
         if (canSee(e, member)) continue;
         const removed = box.filter((item) => item.ws === share.id);
@@ -424,13 +504,13 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
       if (textBody.length > NOTE_TEXT_MAX || (quote?.length ?? 0) > NOTE_QUOTE_MAX) return error(sock.id, "tooBig");
       const entry = s.shares.get(f.ws);
       if (!entry || !canSee(entry, me)) return error(sock.id, "noShare");
+      if (f.tab && !entry.share.tabs.some((tab) => tab.id === f.tab)) return error(sock.id, "noTab");
+      if (f.anchor && !f.tab) return error(sock.id, "bad");
       if ([...s.notes.values()].reduce((total, list) => total + list.length, 0) >= NOTES_TOTAL_MAX) return error(sock.id, "quota");
-      // Menção só a quem existe e vê o workspace, e nunca a si mesmo — a nota
+      // Menção só a quem existe e vê o workspace, e nunca a si mesmo — o comentário
       // já é sua. Marcar quem está fora não abre a porta: quem abre é o dono,
       // mudando a audiência.
-      const mentions = f.mentions.filter(
-        (m) => m !== me && s.members.has(m) && visibleTo(s, f.ws, m),
-      );
+      const mentions = visibleMentions(s, f.ws, me, f.mentions);
       const note: Note = {
         id: `${ev.now}-${ev.rand}`,
         ws: f.ws,
@@ -439,6 +519,10 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
         mentions,
         quote,
         ts: ev.now,
+        tab: f.tab ?? null,
+        anchor: f.anchor ?? null,
+        parent: null,
+        resolved: false,
       };
       const list = s.notes.get(f.ws) ?? [];
       list.push(note);
@@ -447,29 +531,66 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
         { e: "put", key: `note:${f.ws}:${note.id}`, value: note },
         ...toAudience(s, f.ws, { t: "note", note }),
       ];
-      while (list.length > NOTES_PER_WORKSPACE_MAX) {
-        const old = list.shift();
-        if (!old) continue;
-        out.push({ e: "del", key: noteKey(old) });
-        for (const [member, box] of s.inbox) {
-          const at = box.findIndex((item) => item.ws === old.ws && item.id === old.id);
-          if (at === -1) continue;
-          box.splice(at, 1);
-          out.push({ e: "del", key: inboxKey(member, old.id) }, ...toMember(s, member, { t: "inbox", items: [...box] }));
-        }
-      }
+      out.push(...trimNotes(s, f.ws, list));
       for (const m of mentions) {
-        const item: Inbox = { id: note.id, ws: f.ws, author: me, ts: ev.now };
-        const box = s.inbox.get(m) ?? [];
-        box.push(item);
-        s.inbox.set(m, box);
-        while (box.length > INBOX_MAX) {
-          const old = box.shift();
-          if (old) out.push({ e: "del", key: inboxKey(m, old.id) });
-        }
-        out.push({ e: "put", key: inboxKey(m, note.id), value: item }, ...toMember(s, m, { t: "inbox", items: [...box] }));
+        out.push(...assign(s, m, { id: note.id, ws: f.ws, author: me, ts: ev.now, tab: note.tab, text: note.text }));
       }
       return out;
+    }
+
+    case "note_reply": {
+      const textBody = f.text.trim();
+      if (!textBody) return error(sock.id, "empty");
+      if (textBody.length > NOTE_TEXT_MAX) return error(sock.id, "tooBig");
+      const entry = s.shares.get(f.ws);
+      if (!entry || !canSee(entry, me)) return error(sock.id, "noShare");
+      const list = s.notes.get(f.ws) ?? [];
+      const root = list.find((note) => note.id === f.note && !note.parent);
+      if (!root) return error(sock.id, "noNote");
+      if (root.resolved) return error(sock.id, "resolved");
+      if ([...s.notes.values()].reduce((total, notes) => total + notes.length, 0) >= NOTES_TOTAL_MAX) return error(sock.id, "quota");
+      const mentions = visibleMentions(s, f.ws, me, f.mentions);
+      const reply: Note = {
+        id: `${ev.now}-${ev.rand}`,
+        ws: f.ws,
+        author: me,
+        text: textBody,
+        mentions,
+        quote: null,
+        ts: ev.now,
+        tab: root.tab ?? null,
+        anchor: null,
+        parent: root.id,
+        resolved: false,
+      };
+      list.push(reply);
+      s.notes.set(f.ws, list);
+      const out: Effect[] = [
+        { e: "put", key: noteKey(reply), value: reply },
+        ...toAudience(s, f.ws, { t: "note", note: reply }),
+        ...trimNotes(s, f.ws, list),
+      ];
+      for (const member of new Set([root.author, ...mentions])) {
+        if (member === me || !visibleTo(s, f.ws, member)) continue;
+        out.push(...assign(s, member, { id: root.id, ws: f.ws, author: me, ts: ev.now, tab: root.tab, text: reply.text }));
+      }
+      return out;
+    }
+
+    case "note_resolve": {
+      const entry = s.shares.get(f.ws);
+      if (!entry || !canSee(entry, me)) return error(sock.id, "noShare");
+      const list = s.notes.get(f.ws) ?? [];
+      const at = list.findIndex((note) => note.id === f.note && !note.parent);
+      if (at === -1) return error(sock.id, "noNote");
+      if (list[at].resolved) return [];
+      const note: Note = { ...list[at], resolved: true };
+      list[at] = note;
+      return [
+        { e: "put", key: noteKey(note), value: note },
+        ...toAudience(s, f.ws, { t: "note", note }),
+        ...clearAssignment(s, f.ws, note.id),
+      ];
     }
 
     case "notes":
@@ -513,17 +634,8 @@ export function hydrate(rows: Iterable<[string, unknown]>, socks: Sock[]): State
         s.shares.size < SHARES_MAX
       ) s.shares.set(ws, { share, owner: v.owner, online: false });
     } else if (key.startsWith("note:")) {
-      const parsed = parseUp({ t: "note", ws: v.ws, text: v.text, mentions: v.mentions, quote: v.quote });
-      if (
-        parsed?.t === "note" &&
-        isId(v.id) &&
-        isId(v.author) &&
-        typeof v.ts === "number" &&
-        Number.isFinite(v.ts) &&
-        parsed.text.length <= NOTE_TEXT_MAX &&
-        (parsed.quote?.length ?? 0) <= NOTE_QUOTE_MAX
-      ) {
-        const n: Note = { id: v.id, ws: parsed.ws, author: v.author, text: parsed.text, mentions: parsed.mentions, quote: parsed.quote, ts: v.ts };
+      const n = parseNote(v);
+      if (n) {
         if (key !== noteKey(n)) continue;
         const list = s.notes.get(n.ws) ?? [];
         list.push(n);
@@ -531,22 +643,15 @@ export function hydrate(rows: Iterable<[string, unknown]>, socks: Sock[]): State
       }
     } else if (key.startsWith("inbox:")) {
       const member = key.split(":")[1];
-      if (
-        isId(member) &&
-        isId(v.id) &&
-        isId(v.ws) &&
-        isId(v.author) &&
-        key === inboxKey(member, v.id) &&
-        typeof v.ts === "number" &&
-        Number.isFinite(v.ts)
-      ) {
+      const item = parseInbox(v);
+      if (isId(member) && item && key === inboxKey(member, item.id)) {
         const box = s.inbox.get(member) ?? [];
-        box.push({ id: v.id, ws: v.ws, author: v.author, ts: v.ts });
+        box.push(item);
         s.inbox.set(member, box);
       }
     }
   }
-  // `list` devolve em ordem de chave, e o id da nota começa pelo instante —
+  // `list` devolve em ordem de chave, e o id do comentário começa pelo instante —
   // mas ordenar aqui é barato e não depende disso.
   for (const list of s.notes.values()) list.sort((a, b) => a.ts - b.ts);
   for (const box of s.inbox.values()) box.sort((a, b) => a.ts - b.ts);

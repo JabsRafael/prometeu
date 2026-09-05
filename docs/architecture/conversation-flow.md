@@ -97,6 +97,19 @@ O frontend do dono envia a conversa ao relay apenas enquanto alguém a observa.
 O relay não executa comandos no worktree: encaminha falas e controles ao app do
 dono, que valida e escreve no processo local.
 
+## Comentários de colaboração
+
+Comentários são uma camada de colaboração sobre a conversa, não eventos de
+`ConversationEventV1`. `notes.ts` apresenta threads no painel lateral e
+`team.ts` sincroniza raízes, respostas, estado e inbox com o relay. A caixa
+principal continua enviando somente comandos ao agente.
+
+Quando há contexto, a raiz guarda o id da aba e o `Piece.key` produzido pelo
+reducer. `chat.ts` usa essa chave para desenhar o marcador e reencontrar o
+trecho sem inserir o comentário no transcript. A citação preserva contexto
+legível caso o trecho não esteja disponível. Abrir uma atribuição só navega;
+resolver a raiz encerra a thread para todos.
+
 ## Ownership do estado
 
 | Estado | Dono | Observação |
@@ -108,6 +121,7 @@ dono, que valida e escreve no processo local.
 | DOM da conversa | `chat.ts` | apresentação |
 | sequência de transporte | `chat.rs` | não é identidade persistida do evento |
 | presença e audiência | relay | estado de colaboração |
+| comentários, resolução e inbox | relay | overlay persistido, separado do transcript |
 
 ## Compatibilidade
 

@@ -6,7 +6,7 @@ import type { Board, Status } from "./types";
 import { template } from "./util";
 
 /// Avisar quem não está olhando: o agente parou e espera você (terminou, ou
-/// travou numa pergunta), ou um colega escreveu uma nota te marcando.
+/// travou numa pergunta), ou um colega escreveu um comentário te marcando.
 ///
 /// Dois avisos, e nenhum deles é uma notificação do sistema: um "pling" curto,
 /// e a bolinha no ícone do Dock com quantas coisas esperam resposta. O som
@@ -62,8 +62,8 @@ let statuses = new Map<string, Status>();
 /// janela na frente. Somados aos `unread` do back, dão a bolinha.
 const pending = new Set<string>();
 let unread = new Set<string>();
-/// As notas da caixa que já foram vistas passar por aqui: a mesma nota chega
-/// de novo a cada reconexão, e nota velha não apita duas vezes.
+/// Os comentários da caixa que já passaram por aqui: o mesmo comentário chega
+/// de novo a cada reconexão, e comentário velho não apita duas vezes.
 const known = new Set<string>();
 
 export function init(context: Ctx) {
@@ -120,7 +120,7 @@ export function teamChanged() {
 /* ---------- a bolinha ---------- */
 
 /// Quantas coisas esperam você: workspaces não lidos (pelo back ou por aqui)
-/// mais notas na caixa. Zero apaga a bolinha.
+/// mais comentários na caixa. Zero apaga a bolinha.
 export const waiting = () => new Set([...unread, ...pending]).size + team.inboxCount();
 
 function badge() {

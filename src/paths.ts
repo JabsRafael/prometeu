@@ -8,8 +8,8 @@ import * as menu from "./menu";
 /// como texto. Quem sabe o que existe é o back (`find_paths`), que pergunta ao
 /// git; aqui só se desenha a lista e se escreve o caminho escolhido.
 ///
-/// Na nota o "@" é outro: ali ele marca um colega (ver `notes.ts`). São dois
-/// modos da mesma caixa, e nunca os dois ao mesmo tempo.
+/// No comentário o "@" é outro: ali ele marca um colega (ver `notes.ts`). O
+/// comentário usa uma caixa própria no painel lateral.
 
 export type PathEntry = { name: string; path: string; dir: boolean };
 

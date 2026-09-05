@@ -3,14 +3,13 @@ import { t } from "./i18n";
 import * as team from "./team";
 import { h, template } from "./util";
 
-/// "Para mim": as notas do time que marcaram você e você ainda não abriu.
+/// "Para mim": comentários abertos que esperam você.
 ///
 /// É uma folha, como a de devolver worktrees, e não uma tela: o que se faz
-/// aqui é escolher qual sessão abrir, e o lugar de ler a nota é ao lado da
-/// conversa de que ela fala. Abrir uma tira ela da caixa — quem foi marcado
-/// viu.
+/// aqui é escolher qual sessão abrir, e o lugar de ler o comentário é ao lado
+/// da conversa de que ele fala. No relay atual, só resolver tira da fila.
 
-export function openInbox(go: (workspace: string, note: string) => void) {
+export function openInbox(go: (workspace: string, note: string, tab: string | null) => void) {
   const veil = document.getElementById("veil")!;
   const sheet = h("div", "sheet inbox");
   sheet.innerHTML = `
@@ -60,14 +59,12 @@ export function openInbox(go: (workspace: string, note: string) => void) {
       );
       row.querySelector(".av")!.innerHTML = avatar(item.author);
       row.querySelector("b")!.textContent = t("inbox.from", { name: item.author });
-      // O texto da nota só está aqui se o painel dela já foi aberto alguma vez;
-      // sem ele, o que se diz é onde a nota está, que é o que leva até lá.
       row.querySelector(".what")!.textContent = item.text || item.title;
       row.title = t("inbox.open");
       row.addEventListener("click", () => {
         const at = team.readInbox(item.id);
         hide();
-        if (at) go(at.workspace, at.note);
+        if (at) go(at.workspace, at.note, at.tab);
       });
       list.append(row);
     }
