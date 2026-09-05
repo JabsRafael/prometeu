@@ -1549,7 +1549,11 @@ mod tests {
             r#"{"method":"turn/started","params":{"threadId":"t-1","turn":{"id":"turn-1"}}}"#,
         );
         // Subagente: outra thread no mesmo processo. Nada dele vira tela.
-        assert!(link.on_line(r#"{"method":"turn/started","params":{"threadId":"sub-1","turn":{"id":"turn-s"}}}"#).is_empty());
+        assert!(link
+            .on_line(
+                r#"{"method":"turn/started","params":{"threadId":"sub-1","turn":{"id":"turn-s"}}}"#
+            )
+            .is_empty());
         assert!(link.on_line(r#"{"method":"item/completed","params":{"threadId":"sub-1","turnId":"turn-s","item":{"type":"agentMessage","id":"s1","text":"achei"}}}"#).is_empty());
         assert!(link.on_line(r#"{"method":"turn/completed","params":{"threadId":"sub-1","turn":{"id":"turn-s","status":"completed"}}}"#).is_empty());
         // A conversa segue no turno dela.
