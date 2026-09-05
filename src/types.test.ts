@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { use } from "./i18n";
-import { branchTaken, fmtTokens, type Board, type Workspace } from "./types";
+import { branchTaken, fmtTokens, tabLabel, type Board, type Tab, type Workspace } from "./types";
 
 // `1,2M` é a vírgula decimal do português: o formato do número segue o idioma.
 use("pt-BR");
@@ -49,5 +49,36 @@ describe("branchTaken", () => {
     const alheio = ws("alheio", "aut-49", ["/outro"]);
     const limpo = { ...ws("limpo", "aut-49", ["/rules"]), cleaned: true } as Workspace;
     expect(branchTaken(board(outra, alheio, limpo), ["/rules", "/autonomous"], "aut-49")).toBeNull();
+  });
+});
+
+describe("tabLabel", () => {
+  const tab = (id: string, title = "", choice?: Tab["choice"]) =>
+    ({ id, title, status: "pronta", note: null, tokens: null, choice }) as Tab;
+  const ws = (...tabs: Tab[]) => ({ tabs, agent: "claude", model: "opus" }) as Workspace;
+
+  it("nome dado vence; sem nome, é o modelo da aba ou do workspace", () => {
+    const named = tab("a", "Corrigir o menu");
+    const own = tab("b", "", { agent: "claude", model: "sonnet", effort: "low" });
+    const inherited = tab("c");
+    const board = ws(named, own, inherited);
+    expect(tabLabel(board, named)).toBe("Corrigir o menu");
+    expect(tabLabel(board, own)).toBe("Sonnet");
+    expect(tabLabel(board, inherited)).toBe("Opus");
+  });
+
+  it("duas irmãs sem nome no mesmo modelo ganham número; a de outro modelo não", () => {
+    const um = tab("a");
+    const dois = tab("b");
+    const outra = tab("c", "", { agent: "codex", model: "gpt-5-codex", effort: "medium" });
+    const board = ws(um, dois, outra);
+    expect(tabLabel(board, um)).toBe("Opus 1");
+    expect(tabLabel(board, dois)).toBe("Opus 2");
+    expect(tabLabel(board, outra)).not.toMatch(/\d$/);
+  });
+
+  it("modelo que o catálogo não conhece e workspace remoto sem modelo caem no nome do provider", () => {
+    const remote = tab("r");
+    expect(tabLabel({ tabs: [remote], agent: "claude", model: "" } as Workspace, remote)).toBe("Claude Code");
   });
 });

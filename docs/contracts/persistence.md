@@ -78,7 +78,9 @@ crescimento. Quando o contexto cai após compactação, o novo valor inicia outr
 trecho e soma ao total. Boards antigos sem `context_tokens` tratam `tokens` como
 total e cursor inicial, sem duplicar o valor. A aba também contém identidade,
 status, fala pendente, override de modelo e identidade externa usada para
-resume quando necessário.
+resume quando necessário. `Tab.title` vazio é aba sem nome: a interface mostra
+o modelo com quem ela fala. Boards antigos com o nome inventado `conversa` ou
+`conversa N` são normalizados para vazio ao carregar.
 
 Remover um projeto tira somente seu cadastro do quadro. Repositório, worktrees
 e conversas não são apagados; workspaces ligados a ele aparecem em **Sem

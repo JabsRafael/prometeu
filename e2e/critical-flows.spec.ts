@@ -147,6 +147,12 @@ test("a barra lateral lista agentes por workspace, acompanha status e abre a aba
   await expect(first).toHaveAttribute("title", /Claude Code/);
   await expect(second.locator(".provider path")).toHaveCount(1);
   await expect(second).toHaveAttribute("title", /Codex/);
+  // Aba sem nome é dita pelo modelo; embaixo, o que o agente está fazendo.
+  await expect(first.locator(".lbl")).toHaveText("Opus · 1M");
+  await expect(second.locator(".lbl")).toHaveText("GPT-5.6-Sol");
+  await expect(first.locator(".note")).toBeHidden();
+  const busy = page.locator('.railagent[data-tab="t3"]');
+  await expect(busy.locator(".note")).toHaveText("Edit src/style.css");
 
   // O status vem do board, inclusive quando o workspace não está aberto.
   for (const status of ["rodando", "querendo", "desligada", "pronta"] as Status[]) {
@@ -164,7 +170,9 @@ test("a barra lateral lista agentes por workspace, acompanha status e abre a aba
   }
   await expect(first.locator(".rail-status")).toHaveCSS("color", "rgb(95, 191, 115)");
   await expect(card.locator(".navitem .rail-status")).toHaveCSS("color", "rgb(95, 191, 115)");
-  await expect(page.locator('.railworkspace[data-workspace="ui-2231"] .railagents-toggle')).toHaveText("1 agente");
+  // Um agente só entra direto no card, sem a linha "1 agente" para recolher.
+  await expect(page.locator('.railworkspace[data-workspace="ui-2231"] .railagents-toggle')).toHaveCount(0);
+  await expect(page.locator('.railworkspace[data-workspace="ui-2231"] .railagent')).toHaveCount(1);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect(page.locator('.railagent[data-tab="t3"] .rail-status')).toHaveCSS("animation-name", "none");
 
@@ -747,8 +755,10 @@ test("trocar o modelo de uma conversa de pé desliga o processo e mantém a aba"
     "placeholder",
     /escrever retoma/,
   );
-  // A aba continua ali: o que caiu foi o processo, não a conversa.
-  await expect(page.locator("#tabbar .tab").first()).toContainText("conversa 1");
+  // A aba continua ali: o que caiu foi o processo, não a conversa. Sem nome,
+  // ela é dita pelo modelo — e agora fala com o Sonnet, como a irmã.
+  await expect(page.locator('#tabbar .tab[data-tab="t1"]')).toContainText("Sonnet 1");
+  await expect(page.locator('#tabbar .tab[data-tab="t2"]')).toContainText("Sonnet 2");
 
   await effort.click();
   await expect(effort).toContainText("Muito alto");

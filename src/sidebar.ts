@@ -3,7 +3,7 @@ import { stage as stageName, t, tn } from "./i18n";
 import * as menu from "./menu";
 import * as team from "./team";
 import * as rename from "./rename";
-import { hasWorktree, label, repoLabel, stateLabel, statusOf, type Board, type Status, type Workspace } from "./types";
+import { hasWorktree, label, repoLabel, stateLabel, statusOf, tabLabel, type Board, type Status, type Workspace } from "./types";
 import { h, template } from "./util";
 
 /// Ações disponíveis na lista lateral e no menu de um workspace.
@@ -339,7 +339,9 @@ function renderGroup(
 
     if (ws.tabs.length) {
       const key = `@ws:${ws.id}`;
-      const shut = folded(key);
+      // Um agente só não tem o que recolher: a linha "1 agente" seria só
+      // altura. Ele entra direto embaixo do card.
+      const shut = ws.tabs.length > 1 && folded(key);
       const toggle = template("button", "railagents-toggle", `<span></span>${icon(shut ? "chevron-right" : "chevron-down", 12)}`);
       toggle.children[0].textContent = tn(ws.tabs.length, "rail.agents");
       toggle.setAttribute("aria-expanded", String(!shut));
@@ -357,11 +359,22 @@ function renderGroup(
         const provider = tab.choice?.agent ?? ws.agent;
         const status = ws.remote && !ws.remote.online ? "desligada" : tab.status;
         // O relay não anuncia o provider; a identidade remota é o dono.
-        const agent = template("button", "railagent", `<span class="provider">${owner ? avatar(owner) : brand(provider, 17)}</span><span class="lbl"></span>`);
+        // Duas linhas, como o card acima: o nome (ou o modelo) e, embaixo, o
+        // que o agente está fazendo agora — a ferramenta, ou a pergunta que
+        // ele espera responder. Parada, a aba fica numa linha só.
+        const agent = template(
+          "button",
+          "railagent",
+          `<span class="provider">${owner ? avatar(owner) : brand(provider, 15)}</span><span class="wsidentity"><span class="lbl"></span><span class="note" hidden></span></span>`,
+        );
         agent.prepend(statusDot(status));
         agent.dataset.tab = tab.id;
-        agent.querySelector(".lbl")!.textContent = tab.title;
-        agent.title = [tab.title, owner ?? t(`model.${provider}`), label(status), tab.note].filter(Boolean).join(" · ");
+        const name = tabLabel(ws, tab);
+        agent.querySelector(".lbl")!.textContent = name;
+        const note = agent.querySelector<HTMLElement>(".note")!;
+        note.textContent = tab.note ?? "";
+        note.hidden = !tab.note;
+        agent.title = [name, owner ?? t(`model.${provider}`), label(status), tab.note].filter(Boolean).join(" · ");
         agent.setAttribute("aria-label", agent.title);
         if (ws.id === openId && tab.id === hooks.activeTab()) {
           agent.classList.add("on");
@@ -370,7 +383,8 @@ function renderGroup(
         agent.addEventListener("click", () => hooks.open(ws, tab.id));
         agents.append(agent);
       }
-      card.append(toggle, agents);
+      if (ws.tabs.length > 1) card.append(toggle);
+      card.append(agents);
     }
     rail.append(card);
   }
