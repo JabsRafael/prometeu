@@ -422,6 +422,7 @@ main { flex: 1; min-height: 0; position: relative; }
 .meta { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 12px; color: var(--fg-3); }
 .meta .cp { width: 22px; height: 22px; color: var(--fg-3); }
 .meta .cp:hover { color: var(--fg); background: var(--bg-raised); }
+.meta .cm { height: 22px; padding: 0 7px; color: var(--fg-3); font-size: 11px; }
 
 /* O trabalho seguido do agente, num cartão só: fechado é o passo de agora
    (ou quantos foram, quando acabou); aberto, o passo a passo. */
@@ -586,15 +587,13 @@ main { flex: 1; min-height: 0; position: relative; }
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
 
-/* A caixa: a mesma coluna da conversa, um degrau acima do fundo. Em modo nota
-   a borda diz para quem vai — o time, e não o agente. */
+/* A caixa: a mesma coluna da conversa, um degrau acima do fundo. */
 .composer {
   flex: none; align-self: center; width: calc(100% - 48px); max-width: 860px; margin: 4px 0 14px;
   padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
   background: var(--bg-raised); border: 1px solid var(--line-raised); border-radius: var(--r-xl);
 }
 .composer:focus-within { border-color: var(--line-ghost); }
-.composer.note { border-color: var(--accent); }
 .composer textarea {
   background: none; border: none; outline: none; resize: none; padding: 4px;
   font: inherit; font-size: 14px; line-height: 1.5; color: var(--fg); min-height: 60px; max-height: 40vh;
@@ -602,9 +601,6 @@ main { flex: 1; min-height: 0; position: relative; }
 .composer textarea::placeholder { color: var(--fg-3); }
 .composer textarea:disabled { color: var(--fg-3); }
 .composer .crow { display: flex; align-items: center; gap: 8px; }
-.composer .modes { display: flex; padding: 2px; gap: 2px; background: var(--bg); border-radius: var(--r); }
-.composer .mode { height: 22px; padding: 0 8px; border: none; border-radius: 4px; background: none; color: var(--fg-3); font-size: 11.5px; }
-.composer .mode.on { background: var(--bg-raised-2); color: var(--fg); }
 .composer .hint { font-size: 11.5px; color: var(--fg-3); }
 /* Com quem se fala, no canto de baixo: o modelo e o degrau de esforço desta
    conversa, e onde se troca os dois sem sair dela. Dois botões colados, do
@@ -632,11 +628,6 @@ main { flex: 1; min-height: 0; position: relative; }
 .composer .spacer { flex: 1; }
 /* Os anexos da fala, em cima da caixa: quebram linha quando são muitos. */
 .composer .cfiles { display: flex; flex-wrap: wrap; gap: 6px; }
-.composer .cquote .quoted {
-  display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fg-2);
-  background: var(--bg); border-radius: var(--r); padding: 4px 4px 4px 8px;
-}
-.composer .cquote .quoted > span { flex: 1; }
 
 .tab.file .ic { color: var(--fg-2); }
 .tab.file.on .ic { color: var(--fg); }
@@ -1481,30 +1472,76 @@ body.noside .side { display: none; }
 #share.on { color: var(--done); }
 #share.on .ic { color: var(--done); }
 
-/* ---------- notas do time, dentro da conversa ---------- */
+/* ---------- comentários do time ---------- */
 
 .nohint { color: var(--fg-3); font-size: 12px; padding: 12px; text-align: center; }
-/* Um recado entre pessoas, no meio do que o agente escreveu: a borda e o
-   avatar dizem que não foi ele. */
-.note {
-  display: flex; flex-direction: column; gap: 5px; padding: 8px 12px;
-  border-left: 2px solid var(--accent); background: var(--bg-side); border-radius: 0 var(--r-lg) var(--r-lg) 0;
+.side.comments-open #dock { display: none; }
+.side.comments-open #review, .side.comments-open #collapse, .side.comments-open #reveal { display: none; }
+#tab-comments.on #commentcount { color: var(--accent); }
+.comments { min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.commentbar {
+  flex: none; min-height: 42px; padding: 7px 10px; display: flex; align-items: center; gap: 6px;
+  border-bottom: 1px solid var(--line);
 }
-.note .who { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-.note .who .avatar { width: 18px; height: 18px; border-radius: 4px; font-size: 10px; }
-.note .who b { font-weight: 500; }
-.note .who .when { color: var(--fg-3); margin-left: auto; font-variant-numeric: tabular-nums; }
-.note .quote {
-  margin: 0; padding: 6px 8px; border-left: 2px solid var(--line-ghost);
-  background: var(--bg-raised); border-radius: 0 var(--r) var(--r) 0;
-  font-family: var(--mono); font-size: 11px; color: var(--fg-2);
-  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow-y: auto;
+.commentfilters { display: flex; gap: 3px; padding: 2px; border-radius: var(--r); background: var(--bg-side); }
+.commentfilters button { height: 22px; padding: 0 7px; border: none; background: none; color: var(--fg-3); font-size: 11px; }
+.commentfilters button.on { background: var(--bg-raised-2); color: var(--fg); }
+.newcomment { height: 24px; padding: 0 8px; font-size: 11px; }
+.commentlist { min-height: 0; flex: 1; overflow-y: auto; padding: 8px; }
+.commentempty { padding: 36px 16px; color: var(--fg-3); font-size: 12px; text-align: center; }
+.commentcard {
+  width: 100%; height: auto; margin-bottom: 8px; padding: 11px; display: flex; flex-direction: column; gap: 7px;
+  border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg-side);
+  text-align: left; white-space: normal;
 }
-.note .body { font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
-.note .body .at { color: var(--accent); font-weight: 500; }
-/* Nota que marcou você: a cor de "quer você", como no card. */
-.note.forme { border-left-color: var(--wait); }
-.note.lit { background: var(--bg-raised-2); }
+.commentcard:hover { border-color: var(--line-ghost); background: var(--bg-raised); }
+.commentcard.resolved { opacity: 0.58; }
+.commentwho { width: 100%; display: flex; align-items: center; gap: 7px; color: var(--fg-3); font-size: 11px; }
+.commentwho .avatar, .commentmessage .avatar { width: 20px; height: 20px; font-size: 10px; }
+.commentwho b, .messagehead b { color: var(--fg-2); font-weight: 500; }
+.commentwho time { margin-left: auto; }
+.commentquote, .threadcontext {
+  width: 100%; margin: 0; padding: 7px 9px; overflow: hidden; border: none; border-left: 2px solid var(--line-ghost);
+  border-radius: 0 var(--r) var(--r) 0; background: var(--bg-raised); color: var(--fg-3);
+  font: 11px/1.45 var(--mono); text-align: left; white-space: nowrap; text-overflow: ellipsis;
+}
+.commenttext, .messagebody { width: 100%; color: var(--fg); font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.commenttext .at, .messagebody .at { color: var(--accent); font-weight: 500; }
+.commentfoot { width: 100%; display: flex; gap: 8px; color: var(--fg-3); font-size: 11px; }
+.commentfoot .forme { color: var(--accent); }
+.commentdraft { flex: none; padding: 11px; border-bottom: 1px solid var(--line); background: var(--bg-side); }
+.drafthead, .draftactions { display: flex; align-items: center; gap: 7px; }
+.drafthead { margin-bottom: 8px; color: var(--fg-2); font-size: 11px; }
+.drafthead .close { margin-left: auto; }
+.draftquote { margin-bottom: 8px; }
+.draftquote .quoted { display: flex; align-items: center; gap: 6px; padding: 5px 7px; border-radius: var(--r); background: var(--bg); color: var(--fg-2); font-size: 11px; }
+.draftquote .quoted > span { flex: 1; }
+.draftquote .draftquote-text { margin-top: 5px; }
+.commentdraft textarea, .replybox textarea { resize: vertical; min-height: 66px; font-size: 12.5px; }
+.draftactions { margin-top: 8px; }
+.commentthread { min-height: 0; flex: 1; display: flex; flex-direction: column; }
+.threadhead { flex: none; height: 42px; padding: 0 10px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
+.threadhead b { font-weight: 500; }
+.threadstate { color: var(--fg-3); font-size: 11px; }
+.threadcontext { flex: none; height: auto; max-height: 90px; padding: 9px 11px; border-top: none; white-space: pre-wrap; overflow-y: auto; }
+.threadcontext:disabled { opacity: 1; pointer-events: none; }
+.threadmessages { min-height: 0; flex: 1; overflow-y: auto; padding: 14px 12px 4px; }
+.commentmessage { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 9px; margin-bottom: 17px; }
+.messagehead { display: flex; gap: 7px; margin-bottom: 4px; font-size: 11px; }
+.messagehead time { color: var(--fg-3); }
+.replybox { flex: none; margin: 0 10px 10px; padding: 9px; border: 1px solid var(--line-raised); border-radius: var(--r-lg); background: var(--bg-raised); }
+.replybox textarea { min-height: 54px; padding: 4px; resize: none; border: none; outline: none; background: none; }
+.replybox > div { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.replybox .resolve { color: var(--done); }
+.commentcompat { flex: none; margin: 10px; padding: 9px 10px; border: 1px solid var(--line-raised); border-radius: var(--r); color: var(--fg-3); font-size: 11px; }
+.feed > [data-key] { position: relative; transition: background-color 180ms ease; }
+.commentpin {
+  position: absolute; top: -2px; right: 0; min-width: 24px; height: 22px; padding: 0 7px;
+  border: 1px solid rgb(255 107 61 / 0.45); border-radius: 11px; background: #3a2119; color: #ff9a79;
+  font-size: 10px; font-weight: 600;
+}
+.commentpin::before { content: "◌"; font-size: 11px; }
+.commentfocus { background: rgb(255 107 61 / 0.08); border-radius: var(--r); }
 
 .sheet.inbox { width: min(560px, 92vw); }
 .inboxlist { display: flex; flex-direction: column; max-height: 50vh; overflow-y: auto; }

@@ -38,6 +38,8 @@ como índice curto para agentes e `README.md` apresenta o produto.
   um marketplace de plugins para Claude e Codex — aceita.
 - [`decisions/0006-explicit-prometheus-import.md`](decisions/0006-explicit-prometheus-import.md):
   importação explícita dos dados da instalação anterior — aceita.
+- [`decisions/0007-persistent-session-comments.md`](decisions/0007-persistent-session-comments.md):
+  comentários persistentes ao lado da sessão — aceita.
 
 ## Qualidade e operação
 

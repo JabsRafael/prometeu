@@ -37,7 +37,7 @@ conteúdo compartilhado em texto legível pelo operador.
 | Backend | Rust + Tauri | estado persistido, processos, Git, arquivos, IPC e tradução de agentes | regras visuais e tradução de interface |
 | Claude adapter | `claude.rs` | converter comandos V1 para stream-json e stream-json para eventos V1 | DOM, estado do quadro ou relay |
 | Codex adapter | `codex.rs` | converter comandos V1 para JSON-RPC e JSON-RPC para eventos V1 | DOM, estado do quadro ou relay |
-| Relay | Worker + Durable Object | matrícula, presença, audiência, notas e encaminhamento | execução do agente ou acesso ao worktree |
+| Relay | Worker + Durable Object | matrícula, presença, audiência, comentários e encaminhamento | execução do agente ou acesso ao worktree |
 | Mock web | `src/mock.ts` | responder ao mesmo IPC para desenvolvimento e E2E da UI | substituir testes do backend Rust |
 
 ## Fluxo principal atual

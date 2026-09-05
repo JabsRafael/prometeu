@@ -1,4 +1,4 @@
-import { ChatView, type Info } from "./chat";
+import { ChatView, type Ctx, type Info } from "./chat";
 import * as team from "./team";
 import { $ } from "./util";
 
@@ -9,8 +9,8 @@ import { $ } from "./util";
 const view = new ChatView();
 let attachVersion = 0;
 
-export function init(onError: (m: string) => void, info: () => Info) {
-  view.open($("chatwrap"), { say: onError, info });
+export function init(onError: (m: string) => void, info: () => Info, comments: Pick<Ctx, "comment" | "thread"> = {}) {
+  view.open($("chatwrap"), { say: onError, info, ...comments });
   team.setSink({
     live: (tab, bytes) => view.remoteWrite(tab, bytes),
     reset: (tab, bytes) => {
@@ -55,4 +55,4 @@ export const selection = () => view.selection();
 export const canAttachFiles = () => view.canAttachFiles();
 export const attachFiles = (paths: string[]) => view.attachFiles(paths);
 export const quoteSelection = () => view.quoteSelection();
-export const focusNote = (id: string) => view.focusNote(id);
+export const focusAnchor = (anchor: string) => view.focusAnchor(anchor);

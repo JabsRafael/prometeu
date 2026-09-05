@@ -90,7 +90,7 @@ export type Share = {
   sizes: Record<string, [number, number]>;
   /// Para quem: ids de membros, ou `null` para o time inteiro. É o relay que
   /// faz valer — quem está fora não recebe o share, não abre aba, não escreve
-  /// e não vê nota.
+  /// e não vê comentário.
   audience: string[] | null;
 };
 
@@ -105,13 +105,22 @@ export type Note = {
   author: string;
   text: string;
   mentions: string[];
-  /// Trecho do terminal que a nota cita, se cita.
+  /// Trecho do transcript que o comentário cita, se cita.
   quote: string | null;
   ts: number;
+  /// Conversa e pedaço do transcript a que o comentário pertence. Ausentes
+  /// nas notas escritas antes de comentários contextuais.
+  tab?: string | null;
+  anchor?: string | null;
+  /// Respostas ficam planas no storage e apontam para o comentário raiz.
+  parent?: string | null;
+  /// Só vale na raiz. Ausente significa aberto, para dados antigos.
+  resolved?: boolean;
 };
 
-/// Uma nota que menciona você e você ainda não abriu. `id` é o da nota.
-export type Inbox = { id: string; ws: string; author: string; ts: number };
+/// Um comentário aberto que espera você. `id` é sempre o da raiz. `text` e
+/// `tab` são opcionais para caixas gravadas por versões anteriores.
+export type Inbox = { id: string; ws: string; author: string; ts: number; tab?: string | null; text?: string };
 
 /// Quem está olhando cada aba dos seus workspaces: `ws → tab → membros`.
 export type Watching = Record<string, Record<string, string[]>>;
@@ -125,13 +134,15 @@ export type Up =
   | { t: "detach" }
   | { t: "size"; ws: string; tab: string; cols: number; rows: number }
   | { t: "write"; ws: string; tab: string; data: string }
-  | { t: "note"; ws: string; text: string; mentions: string[]; quote: string | null }
+  | { t: "note"; ws: string; tab?: string | null; anchor?: string | null; text: string; mentions: string[]; quote: string | null }
+  | { t: "note_reply"; ws: string; note: string; text: string; mentions: string[] }
+  | { t: "note_resolve"; ws: string; note: string }
   | { t: "notes"; ws: string }
   | { t: "inbox_read"; id: string };
 
 /// Relay → app.
 export type Down =
-  | { t: "welcome"; you: string; members: Member[]; shares: Shared[]; inbox: Inbox[]; watching: Watching }
+  | { t: "welcome"; you: string; members: Member[]; shares: Shared[]; inbox: Inbox[]; watching: Watching; comments?: 1 }
   | { t: "presence"; members: Member[] }
   | { t: "share"; share: Shared }
   | { t: "unshare"; ws: string }
@@ -143,10 +154,11 @@ export type Down =
   | { t: "inbox"; items: Inbox[] }
   | { t: "error"; code: string };
 
-/// Tetos do que uma nota carrega. Cortados no app antes de sair; o relay
+/// Tetos do que um comentário carrega. Cortados no app antes de sair; o relay
 /// recusa o que passar, para um cliente estranho não encher o storage.
 export const NOTE_TEXT_MAX = 8 * 1024;
 export const NOTE_QUOTE_MAX = 4 * 1024;
+export const NOTE_ANCHOR_MAX = 128;
 
 /// Respostas HTTP usadas ao criar um time e ao trocar um convite por uma
 /// identidade. `secret` continua no convite; `credential` nunca deve ser
@@ -253,9 +265,27 @@ export function parseUp(value: unknown): Up | null {
     case "note": {
       if (!id(value.ws) || !text(value.text, TEXT_FRAME_MAX) || (value.quote !== null && !text(value.quote, TEXT_FRAME_MAX))) return null;
       if (!Array.isArray(value.mentions) || value.mentions.length > MENTIONS_MAX) return null;
+      if (value.tab !== null && value.tab !== undefined && !id(value.tab)) return null;
+      if (value.anchor !== null && value.anchor !== undefined && !text(value.anchor, NOTE_ANCHOR_MAX, false)) return null;
       const mentions = value.mentions.filter(id);
-      return { t: "note", ws: value.ws, text: value.text, mentions: [...new Set(mentions)], quote: value.quote as string | null };
+      return {
+        t: "note",
+        ws: value.ws,
+        tab: (value.tab as string | null | undefined) ?? null,
+        anchor: (value.anchor as string | null | undefined) ?? null,
+        text: value.text,
+        mentions: [...new Set(mentions)],
+        quote: value.quote as string | null,
+      };
     }
+    case "note_reply": {
+      if (!id(value.ws) || !noteId(value.note) || !text(value.text, TEXT_FRAME_MAX)) return null;
+      if (!Array.isArray(value.mentions) || value.mentions.length > MENTIONS_MAX) return null;
+      const mentions = value.mentions.filter(id);
+      return { t: "note_reply", ws: value.ws, note: value.note, text: value.text, mentions: [...new Set(mentions)] };
+    }
+    case "note_resolve":
+      return id(value.ws) && noteId(value.note) ? { t: "note_resolve", ws: value.ws, note: value.note } : null;
     case "inbox_read":
       return noteId(value.id) ? { t: "inbox_read", id: value.id } : null;
     default:
@@ -281,11 +311,15 @@ function parseShared(value: unknown): Shared | null {
   return { ...share, owner: value.owner, online: value.online };
 }
 
-function parseNote(value: unknown): Note | null {
+export function parseNote(value: unknown): Note | null {
   if (!record(value) || !noteId(value.id) || !id(value.ws) || !id(value.author)) return null;
   if (!text(value.text, NOTE_TEXT_MAX) || (value.quote !== null && !text(value.quote, NOTE_QUOTE_MAX))) return null;
   if (!Array.isArray(value.mentions) || value.mentions.length > MENTIONS_MAX || !value.mentions.every(id)) return null;
   if (!integer(value.ts, 0, Number.MAX_SAFE_INTEGER)) return null;
+  if (value.tab !== undefined && value.tab !== null && !id(value.tab)) return null;
+  if (value.anchor !== undefined && value.anchor !== null && !text(value.anchor, NOTE_ANCHOR_MAX, false)) return null;
+  if (value.parent !== undefined && value.parent !== null && !noteId(value.parent)) return null;
+  if (value.resolved !== undefined && typeof value.resolved !== "boolean") return null;
   return {
     id: value.id,
     ws: value.ws,
@@ -294,12 +328,25 @@ function parseNote(value: unknown): Note | null {
     mentions: [...new Set(value.mentions)],
     quote: value.quote as string | null,
     ts: value.ts,
+    tab: (value.tab as string | null | undefined) ?? null,
+    anchor: (value.anchor as string | null | undefined) ?? null,
+    parent: (value.parent as string | null | undefined) ?? null,
+    resolved: value.resolved === true,
   };
 }
 
-function parseInbox(value: unknown): Inbox | null {
+export function parseInbox(value: unknown): Inbox | null {
   if (!record(value) || !noteId(value.id) || !id(value.ws) || !id(value.author) || !integer(value.ts, 0, Number.MAX_SAFE_INTEGER)) return null;
-  return { id: value.id, ws: value.ws, author: value.author, ts: value.ts };
+  if (value.tab !== undefined && value.tab !== null && !id(value.tab)) return null;
+  if (value.text !== undefined && !text(value.text, NOTE_TEXT_MAX)) return null;
+  return {
+    id: value.id,
+    ws: value.ws,
+    author: value.author,
+    ts: value.ts,
+    tab: (value.tab as string | null | undefined) ?? null,
+    ...(typeof value.text === "string" ? { text: value.text } : {}),
+  };
 }
 
 function list<T>(value: unknown, max: number, parse: (item: unknown) => T | null): T[] | null {
@@ -340,7 +387,10 @@ export function parseDown(value: unknown): Down | null {
       const shares = list(value.shares, SHARES_MAX, parseShared);
       const inbox = list(value.inbox, INBOX_MAX, parseInbox);
       const watching = parseWatching(value.watching);
-      return members && shares && inbox && watching ? { t: "welcome", you: value.you, members, shares, inbox, watching } : null;
+      if (value.comments !== undefined && value.comments !== 1) return null;
+      return members && shares && inbox && watching
+        ? { t: "welcome", you: value.you, members, shares, inbox, watching, ...(value.comments === 1 ? { comments: 1 as const } : {}) }
+        : null;
     }
     case "presence": {
       const members = parseMembers(value.members);

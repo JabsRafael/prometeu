@@ -1,7 +1,7 @@
 /// Back falso para o navegador puro (`npm run dev` e abrir localhost:1420):
 /// a UI inteira roda com dados de amostra, sem subir o Tauri. Só entra quando
 /// `window.__TAURI_INTERNALS__` não existe — dentro do app não é carregado.
-import { encodeLive, encodeSnapshot } from "../relay/src/protocol";
+import { encodeLive, encodeSnapshot, type Inbox, type Note } from "../relay/src/protocol";
 import { LegacyConversationAdapter } from "./conversation-legacy";
 import * as team from "./team";
 import { hasWorktree, type Board, type Choice, type Issue, type LinearStatus, type McpServer, type Plugin, type Pr, type Scripts, type Workspace } from "./types";
@@ -1298,9 +1298,9 @@ function fakeSocket(url: string): team.SocketLike {
   let seq = 1;
   let ticking = 0;
   let attached: string | null = null;
-  /// As notas de mentira, por workspace. Nascem com uma do Marcus no que ele
+  /// Os comentários de mentira, por workspace. Nascem com um do Marcus no que ele
   /// compartilhou, para o painel ter o que mostrar de cara.
-  const notes = new Map<string, unknown[]>([
+  const notes = new Map<string, Note[]>([
     [
       "ws-marcus",
       [
@@ -1312,10 +1312,22 @@ function fakeSocket(url: string): team.SocketLike {
           mentions: [me],
           quote: "edit migrations/0007_todo_completed_at.sql · +11",
           ts: Date.now() - 9 * 60_000,
+          tab: "mt1",
+          anchor: "w3.0",
+          parent: null,
+          resolved: false,
         },
       ],
     ],
   ]);
+  let inbox: Inbox[] = [{
+    id: "1-a",
+    ws: "ws-marcus",
+    author: "marcus",
+    ts: Date.now() - 9 * 60_000,
+    tab: "mt1",
+    text: `Completar um todo agora carimba completed_at. @${name}, a chamada que sobrou é sua.`,
+  }];
   const members = () => [
     { id: me, name, online: true },
     { id: "marcus", name: "Marcus Hale", online: marcusOnline },
@@ -1373,10 +1385,10 @@ function fakeSocket(url: string): team.SocketLike {
         case "notes":
           text({ t: "notes", ws: frame.ws, items: notes.get(frame.ws) ?? [] });
           break;
-        // Nota nova: o relay dá o id e devolve a todos — inclusive a quem
-        // escreveu, que é como ela ganha o id.
+        // Comentário novo: o relay dá o id e devolve a todos — inclusive a
+        // quem escreveu, que é como ele ganha o id.
         case "note": {
-          const note = {
+          const note: Note = {
             id: `${Date.now()}-m`,
             ws: frame.ws,
             author: me,
@@ -1384,13 +1396,17 @@ function fakeSocket(url: string): team.SocketLike {
             mentions: frame.mentions,
             quote: frame.quote,
             ts: Date.now(),
+            tab: frame.tab,
+            anchor: frame.anchor,
+            parent: null,
+            resolved: false,
           };
           notes.set(frame.ws, [...(notes.get(frame.ws) ?? []), note]);
           text({ t: "note", note });
           // E o Marcus responde, se foi ele quem você marcou.
           if (frame.mentions.includes("marcus")) {
             setTimeout(() => {
-              const reply = {
+              const reply: Note = {
                 id: `${Date.now()}-r`,
                 ws: frame.ws,
                 author: "marcus",
@@ -1398,16 +1414,52 @@ function fakeSocket(url: string): team.SocketLike {
                 mentions: [me],
                 quote: null,
                 ts: Date.now(),
+                tab: note.tab,
+                anchor: null,
+                parent: note.id,
+                resolved: false,
               };
               notes.set(frame.ws, [...(notes.get(frame.ws) ?? []), reply]);
               text({ t: "note", note: reply });
-              text({ t: "inbox", items: [{ id: reply.id, ws: frame.ws, author: "marcus", ts: reply.ts }] });
+              inbox = [{ id: note.id, ws: frame.ws, author: "marcus", ts: reply.ts, tab: note.tab, text: reply.text }];
+              text({ t: "inbox", items: inbox });
             }, 1200);
           }
           break;
         }
+        case "note_reply": {
+          const root = notes.get(frame.ws)?.find((note) => note.id === frame.note && !note.parent);
+          if (!root || root.resolved) break;
+          const reply: Note = {
+            id: `${Date.now()}-r`,
+            ws: frame.ws,
+            author: me,
+            text: frame.text,
+            mentions: frame.mentions,
+            quote: null,
+            ts: Date.now(),
+            tab: root.tab,
+            anchor: null,
+            parent: root.id,
+            resolved: false,
+          };
+          notes.set(frame.ws, [...(notes.get(frame.ws) ?? []), reply]);
+          text({ t: "note", note: reply });
+          break;
+        }
+        case "note_resolve": {
+          const list = notes.get(frame.ws) ?? [];
+          const at = list.findIndex((note) => note.id === frame.note && !note.parent);
+          if (at === -1) break;
+          list[at] = { ...list[at], resolved: true };
+          text({ t: "note", note: list[at] });
+          inbox = inbox.filter((item) => item.id !== frame.note || item.ws !== frame.ws);
+          text({ t: "inbox", items: inbox });
+          break;
+        }
         case "inbox_read":
-          text({ t: "inbox", items: [] });
+          inbox = inbox.filter((item) => item.id !== frame.id);
+          text({ t: "inbox", items: inbox });
           break;
       }
     },
@@ -1422,10 +1474,11 @@ function fakeSocket(url: string): team.SocketLike {
     s.onopen?.();
     text({
       t: "welcome",
+      comments: 1,
       you: me,
       members: members(),
       shares: [marcusShare()],
-      inbox: [{ id: "1-a", ws: "ws-marcus", author: "marcus", ts: Date.now() - 9 * 60_000 }],
+      inbox,
       watching: {},
     });
   }, 500);

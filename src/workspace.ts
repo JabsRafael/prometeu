@@ -7,6 +7,7 @@ import { avatar, icon, stageIcon, wave } from "./icons";
 import { fromBack, stage as stageName, t, tn } from "./i18n";
 import { agentOf, fitsEffort, modelGroups, modelLabel } from "./launcher";
 import * as menu from "./menu";
+import * as notes from "./notes";
 import * as rename from "./rename";
 import * as session from "./session";
 import * as team from "./team";
@@ -57,6 +58,13 @@ export function init(context: Ctx) {
   tree.init({ openFile, workspace: id });
   dockbar.init({ workspace: id, say: ctx.say, openFile, newTab, openBrowser: showWeb });
   browser.init((id) => invoke("open_run", { id }).catch((e) => ctx.say(fromBack(e), true)), ctx.say);
+  notes.init({
+    workspace: id,
+    tab: session.currentSession,
+    open: openComments,
+    focus: session.focusAnchor,
+    say: ctx.say,
+  });
 
   $("tab-files").addEventListener("click", () => setSidePane("files"));
   $("tab-diff").addEventListener("click", () => {
@@ -67,6 +75,7 @@ export function init(context: Ctx) {
     if (sidePane === "diff" && changes) showChanges();
     else setSidePane("diff");
   });
+  $("tab-comments").addEventListener("click", openComments);
   // Revisar é ler o diff inteiro de uma vez, no centro — o mesmo caminho do
   // segundo clique na aba de Mudanças, dito com todas as letras.
   $("review").innerHTML = `${icon("eye", 13)}<span></span>`;
@@ -135,8 +144,8 @@ export async function open(ws: Workspace) {
   $("wsView").hidden = false;
   $("wsctl").hidden = false;
   // Workspace de um colega: nada dele está neste disco — sem arquivos, sem
-  // dock, sem novidade para marcar no back. É a conversa, e só — com as notas
-  // dentro dela.
+  // dock, sem novidade para marcar no back. É a conversa com os comentários
+  // ao lado.
   if (ws.remote) {
     showTerm();
     if (first && !(await session.attach(first.id, ws.id))) return;
@@ -267,19 +276,29 @@ export function draw() {
   drawMore(ws);
   // A caixa de escrever diz o estado da aba: desligada, de um colega offline.
   session.refresh();
+  const collaborative = !!team.status().config && (ws.shared || !!remote);
+  $("tab-comments").hidden = !collaborative;
+  if (!collaborative && sidePane === "comments") setSidePane("files");
+  notes.draw();
 
   if (remote) {
     // A branch é a que o dono contou; não há git aqui para perguntar. E o PR,
     // o diff, a árvore e o dock são do disco dele — nada disso existe aqui.
-    // Sobra a conversa, e as notas dentro dela; quem diz que ele está offline
+    // Sobra a conversa e os comentários; quem diz que ele está offline
     // é a caixa de escrever.
     paintBranchName(ws.branch);
     $("prsplit").hidden = true;
     $("offline").hidden = true;
     $("tabbar").hidden = false;
-    $("side").hidden = true;
-    $("sidetoggle").hidden = true;
+    $("side").hidden = false;
+    $("sidetoggle").hidden = false;
+    $("tab-files").hidden = true;
+    $("tab-diff").hidden = true;
+    $("review").hidden = true;
+    $("collapse").hidden = true;
+    $("reveal").hidden = true;
     $("dock").hidden = true;
+    setSidePane("comments");
     return;
   }
 
@@ -308,6 +327,8 @@ export function draw() {
   $("prsplit").hidden = false;
   $("tab-files").hidden = false;
   $("tab-diff").hidden = false;
+  $("collapse").hidden = false;
+  $("reveal").hidden = false;
   $("dock").hidden = false;
   $("offpath").textContent = ws.worktree;
   drawBranch(ws);
@@ -1228,28 +1249,38 @@ function openChange(repo: string, path: string) {
 
 /* ---------- painel da direita ---------- */
 
-type Pane = "files" | "diff";
+type Pane = "files" | "diff" | "comments";
 let sidePane: Pane = "files";
 
 function setSidePane(pane: Pane) {
   sidePane = pane;
   $("tab-files").classList.toggle("on", pane === "files");
   $("tab-diff").classList.toggle("on", pane === "diff");
+  $("tab-comments").classList.toggle("on", pane === "comments");
   $("tree").hidden = pane !== "files";
   $("difflist").hidden = pane !== "diff";
+  $("comments").hidden = pane !== "comments";
+  $("side").classList.toggle("comments-open", pane === "comments");
   if (pane === "files") tree.redraw();
+  if (pane === "comments") notes.draw();
 }
 
-/// ⌘⇧M: nota citando o que está selecionado na conversa. A caixa de escrever
-/// vira nota, já com a citação.
+function openComments() {
+  document.body.classList.remove("noside");
+  setSidePane("comments");
+}
+
+/// ⌘⇧M: comentário citando o que está selecionado na conversa.
 export function quoteSelection(): boolean {
   if (!openWs) return false;
   return session.quoteSelection();
 }
 
-/// Levar até uma nota — de onde a caixa "Para mim" leva.
+export const comment = (target: notes.Target) => notes.compose(target);
+
+/// Levar até um comentário — de onde a caixa "Para mim" leva.
 export function showNote(id: string) {
   if (!openWs) return;
   showTerm();
-  session.focusNote(id);
+  notes.openThread(id);
 }

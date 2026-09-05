@@ -253,23 +253,23 @@ PDF e CSV são só leitura. Testes em `src/csv.test.ts` e nos testes Rust de
 ## A dois na mesma conversa
 
 Um time, e dentro dele sessões compartilhadas: o colega vê a conversa
-inteira, ao vivo, fala nela, responde os cards, e deixa nota citando o trecho
-que quer discutir.
+inteira, ao vivo, fala nela, responde os cards e deixa comentários persistentes
+sobre o trecho que quer discutir.
 
 ```
 Mac do dono                        relay (Worker + 1 DO por time)        Mac do colega
 evento `chat` ──► linhas JSON ──►  presença · shares · quem olha    ──►  a mesma conversa
-chat_send    ◄──  fala/card   ◄──  notas · caixa "para mim"         ◄──  o que ele escreve
+chat_send    ◄──  fala/card   ◄──  comentários · "Para mim"        ◄──  o que ele escreve
 ```
 
 **A sessão continua rodando só no Mac do dono.** Não há VM, não há sessão na
 nuvem: o `claude` é o mesmo processo de sempre, no worktree de sempre. O relay
 só coordena — repassa frames e guarda o pouco que precisa sobreviver a alguém
-estar offline (membros, o que está compartilhado, as notas). Dono fora do ar =
+estar offline (membros, o que está compartilhado, os comentários). Dono fora do ar =
 conversa congelada para os outros, e o card diz isso.
 
 **O relay é uma fronteira de confiança, não criptografia ponta a ponta.** Quem
-opera o Worker pode ver metadados, conversa e notas que passam por ele. Fora da
+opera o Worker pode ver metadados, conversa e comentários que passam por ele. Fora da
 máquina local o app só aceita HTTPS/WSS; para conteúdo que o operador do relay
 não possa ler, ainda é preciso hospedar o seu próprio relay.
 
@@ -311,18 +311,23 @@ Duas coisas fazem isso funcionar sem coordenação nenhuma:
 O colega desenha no tamanho da janela dele: são as mesmas linhas, e o mesmo
 reducer dos dois lados. Fora do que viaja: o dock (setup/run/shells).
 
-### As notas
+### Os comentários
 
-Nota não é fala para o agente: é recado entre pessoas **sobre** a sessão, e
-entra na própria conversa, na hora em que foi escrita — entre a pergunta do
-agente e a resposta que alguém deu. O caso que ela resolve é o agente
-levantar uma dúvida de desenho e você precisar de alguém para responder.
+Comentário não é fala para o agente: é uma conversa entre pessoas **sobre** a
+sessão. Ele fica no painel direito, fora do transcript, até alguém o resolver.
+Cada comentário pode ter respostas e estado explícito: **aberto** ou
+**resolvido**.
 
-A caixa de escrever tem dois modos, **Agente** e **Nota**. A âncora é a
-**citação** — o trecho selecionado na conversa (⌘⇧M, ou o botão que aparece
-quando há seleção). `@` abre a lista do time; quem foi marcado ganha **Para
-mim** na barra, com a nota, mesmo que estivesse offline. ⌘↵ envia; Enter
-quebra linha.
+A caixa principal sempre fala com o agente. Para comentar, selecione um trecho
+e use ⌘⇧M, ou clique em **Comentar** numa resposta. O rascunho abre no painel
+com uma citação e uma âncora estável para aquele trecho; o marcador na conversa
+leva de volta à thread. Também é possível criar um comentário geral da aba.
+
+`@` abre a lista do time. Quem foi marcado ganha **Para mim** na barra, mesmo
+que estivesse offline. Abrir o comentário não o tira dali: ele permanece até a
+thread ser resolvida para todos. ⌘↵ envia; Enter quebra linha.
+
+[Apresentação visual desta interação](docs/prototypes/multiplayer-comments.html).
 
 ### O relay
 
@@ -368,7 +373,7 @@ Playwright dirige — a webview do Tauri no macOS é WKWebView e não fala CDP.
 
 ```sh
 npx playwright install chromium webkit  # uma vez nesta máquina
-npm test                       # web, relay, Rust e quatro fluxos de navegador
+npm test                       # web, relay, Rust e cinco fluxos de navegador
 ```
 
 Cobre o que erra calado:
@@ -398,16 +403,16 @@ Cobre o que erra calado:
   cai e volta, menção que vira caixa) e no runtime local do Worker (matrícula,
   credencial individual e recusa do protocolo antigo), o formato dos frames
   binários e a regra de juntar a rolagem do dono com os pedaços ao vivo;
-- quatro fluxos Playwright sobre o mock: criação pelo lançador, pergunta e
-  resposta de card, troca rápida de abas com snapshot atrasado e recolhimento
-  da saída técnica de ferramentas que falharam.
+- cinco fluxos Playwright sobre o mock: criação pelo lançador, pergunta e
+  resposta de card, comentário persistente, troca rápida de abas com snapshot
+  atrasado e recolhimento da saída técnica de ferramentas que falharam.
 
 ## Estado
 
 Uma lista de workspaces, cada um num worktree, com várias conversas dentro. A
 etapa é sua e o estado é do agente — dois eixos que não se misturam. Com time,
 a lista também traz o workspace de um colega: a conversa dele ao vivo e as
-notas dentro dela.
+threads de comentários ao lado dela.
 
 Se o botão da pergunta não fosse bom, nada disso valeria — então ele veio
 primeiro.

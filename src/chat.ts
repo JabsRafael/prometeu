@@ -44,8 +44,8 @@ import { h, template } from "./util";
 /// A conversa de um colega é a mesma tela: as linhas vêm do relay em vez do
 /// back, e o que se escreve vai para o Mac dele em vez do processo daqui.
 ///
-/// As notas do time moram aqui dentro, na hora em que foram escritas — entre
-/// a fala e a resposta a que se referem.
+/// Comentários do time ficam no painel lateral e apontam para os `Piece.key`
+/// estáveis que esta tela grava em cada trecho do transcript.
 
 /// O que a tela precisa saber da aba aberta, e que não está nas linhas.
 export type Info = {
@@ -59,7 +59,7 @@ export type Info = {
   /// Onde o agente trabalha: a pasta do worktree. O "+" abre o Finder ali, e
   /// o arquivo escolhido dentro dela entra na fala como caminho relativo.
   worktree: string | null;
-  /// Este workspace participa do time — e, portanto, aceita notas. Ter um time
+  /// Este workspace participa do time — e, portanto, aceita comentários. Ter um time
   /// configurado não basta: um workspace local que nunca foi compartilhado
   /// não existe no relay.
   team: boolean;
@@ -79,6 +79,8 @@ export type Info = {
 export type Ctx = {
   say: (text: string, isError?: boolean) => void;
   info: () => Info;
+  comment?: (target: notes.Target) => void;
+  thread?: (id: string) => void;
 };
 
 /* ---------- marcar MCP e plugin sem derrubar a conversa a cada clique ------ */
@@ -116,10 +118,9 @@ function settleNow() {
 /* ---------- estado efêmero que pertence à conversa, não à tela ----------- */
 
 /// A mesa e o workspace desenham a mesma conversa em `ChatView`s diferentes.
-/// Rascunho, anexos e o lado do toggle precisam, portanto, morar acima da
+/// Rascunho e anexos precisam, portanto, morar acima da
 /// instância: entrar no workspace não pode fazer a fala parecer que sumiu.
 const drafts = {
-  modes: new Map<string, "agent" | "note">(),
   says: new Map<string, string>(),
   files: new Map<string, string[]>(),
 };
@@ -147,16 +148,11 @@ export class ChatView {
   /// chegam em pedaços, e um pedaço pode cortar um JSON no meio.
   private partial = "";
   private decoder = new TextDecoder("utf-8");
-  private mode: "agent" | "note" = "agent";
   private feedback: string | null = null;
   /// Itens que mudaram desde o último quadro. O stream manda uma linha por
   /// token; redesenhar a cada uma trava a tela — um quadro por vez basta.
   private dirty = new Set<number>();
   private raf = 0;
-  /// A nota que acabou de sair daqui, esperando voltar do relay: quantas o
-  /// workspace tinha antes dela. Quando aparecer uma a mais, a rolagem vai
-  /// até ela — mesmo que quem escreveu tenha subido para citar um trecho.
-  private posted: { ws: string; count: number } | null = null;
   private working = template("div", "working", "<i></i><i></i><i></i><span class=\"wlabel\"></span>");
   /// A fala guardada, esperando o setup: fica na tela como se tivesse ido,
   /// com o aviso de que ainda não foi.
@@ -178,14 +174,10 @@ export class ChatView {
       if (this.disposed) unlisten();
       else this.cleanup.push(unlisten);
     });
-    // Nota nova — de um colega, ou a própria voltando do relay — entra no
-    // fim da conversa. Segue a mesma regra do stream: a rolagem acompanha se
-    // já estava no fim; e a nota que acabou de sair daqui é vista sempre.
+    // Comentário novo ou resolvido atualiza somente os marcadores do transcript.
     const teamChanged = () => {
-      const stick = this.arrived() || this.stuck();
-      if (this.key) this.paintNotes();
+      if (this.key) this.paintCommentPins();
       this.paintComposer();
-      if (stick) this.feed.scrollTop = this.feed.scrollHeight;
     };
     this.cleanup.push(team.onChange(teamChanged));
     const selectionChanged = () => this.paintQuoteButton();
@@ -204,7 +196,7 @@ export class ChatView {
     this.key = key;
     this.remote = false;
     this.reset();
-    this.restoreMode();
+    this.restore();
     const text = await invoke<string>("chat_buffer", { session: key });
     if (this.disposed || version !== this.attachVersion || this.key !== key) return;
     this.tl.load(text);
@@ -220,7 +212,7 @@ export class ChatView {
     this.key = key;
     this.remote = true;
     this.reset();
-    this.restoreMode();
+    this.restore();
     this.tl.load(new TextDecoder("utf-8").decode(bytes));
     this.renderAll();
   }
@@ -242,7 +234,7 @@ export class ChatView {
     this.key = null;
     this.remote = false;
     this.reset();
-    this.restoreMode();
+    this.restore();
     this.paintComposer();
   }
 
@@ -270,7 +262,6 @@ export class ChatView {
     this.partial = "";
     this.decoder = new TextDecoder("utf-8");
     this.feedback = null;
-    this.posted = null;
     this.dirty.clear();
     cancelAnimationFrame(this.raf);
     this.raf = 0;
@@ -294,20 +285,19 @@ export class ChatView {
     if (stick) this.feed.scrollTop = this.feed.scrollHeight;
   }
 
-  /// O texto selecionado dentro da conversa — é o que uma nota cita.
+  /// O texto selecionado dentro da conversa — é o que um comentário cita.
   selection(): string {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.anchorNode || !this.feed.contains(sel.anchorNode)) return "";
     return sel.toString();
   }
 
-  /// Só a conversa local, no modo agente, consegue entregar um arquivo deste
+  /// Só a conversa local consegue entregar um arquivo deste
   /// Mac. É a mesma regra do botão "+" da caixa.
   canAttachFiles(): boolean {
     const info = this.ctx.info();
     return (
       !!this.key &&
-      this.mode === "agent" &&
       !this.remote &&
       !!info.workspace &&
       capabilitiesOf(info.agent).attachments
@@ -341,7 +331,7 @@ export class ChatView {
     const changed = this.dirty.size > 0;
     this.sync(this.dirty);
     this.dirty.clear();
-    if (changed) this.paintNotes();
+    if (changed) this.paintCommentPins();
     this.paintWorking();
     this.paintComposer();
     if (stick) this.feed.scrollTop = this.feed.scrollHeight;
@@ -390,24 +380,13 @@ export class ChatView {
     return this.feed.scrollTop + this.feed.clientHeight >= this.feed.scrollHeight - 48;
   }
 
-  /// A nota que saiu daqui chegou: o workspace tem mais notas do que tinha
-  /// quando ela foi enviada. Vale uma vez, e só nesta aba.
-  private arrived(): boolean {
-    const posted = this.posted;
-    if (!posted) return false;
-    if (this.ctx.info().workspace !== posted.ws) return false;
-    if (team.notesOf(posted.ws).length <= posted.count) return false;
-    this.posted = null;
-    return true;
-  }
-
   private renderAll() {
     this.shown = [];
     this.drawn = [];
     this.feed.replaceChildren();
     if (!this.tl.items.length) this.feed.append(h("div", "nohint", t("chat.empty")));
     this.sync(null);
-    this.paintNotes();
+    this.paintCommentPins();
     this.paintWorking();
     this.paintComposer();
     this.feed.scrollTop = this.feed.scrollHeight;
@@ -482,8 +461,12 @@ export class ChatView {
     // Menos de um décimo não é duração — é a linha do transcript, que não
     // guarda quando o turno começou. Aí fica só o copiar.
     const label = ms < 100 ? "" : took(ms);
-    if (old) return void (old.querySelector(".took")!.textContent = label);
-    const meta = template("div", "meta", `<span class="took"></span><button class="ico sm cp"></button>`);
+    if (old) {
+      old.querySelector(".took")!.textContent = label;
+      this.paintCommentAction(old, piece);
+      return;
+    }
+    const meta = template("div", "meta", `<span class="took"></span><button class="ico sm cp"></button><button class="ghost sm cm"></button>`);
     meta.querySelector(".took")!.textContent = label;
     const cp = meta.querySelector<HTMLElement>(".cp")!;
     cp.innerHTML = icon("copy", 13);
@@ -495,7 +478,23 @@ export class ChatView {
       cp.innerHTML = icon("check", 13);
       setTimeout(() => (cp.innerHTML = icon("copy", 13)), 1200);
     });
+    this.paintCommentAction(meta, piece);
     el.append(meta);
+  }
+
+  private paintCommentAction(meta: Element, piece: Extract<Piece, { kind: "say" }>) {
+    const button = meta.querySelector<HTMLButtonElement>(".cm");
+    if (!button) return;
+    button.hidden = !this.ctx.comment || !this.ctx.info().team;
+    if (button.hidden) return;
+    button.innerHTML = `${icon("message-square", 12)}<span></span>`;
+    button.querySelector("span")!.textContent = t("notes.comment");
+    button.title = t("notes.comment.turn");
+    button.onclick = () => {
+      const at = this.blockAt(piece);
+      const quote = at?.block.kind === "text" ? at.block.text : null;
+      if (this.key) this.ctx.comment?.({ tab: this.key, anchor: piece.key, quote });
+    };
   }
 
   /// Quanto durou o turno que esta fala fecha, ou `null` se ela não o fecha.
@@ -991,16 +990,11 @@ export class ChatView {
 
   private buildComposer() {
     this.box.innerHTML = `
-      <div class="cquote" hidden></div>
       <!-- Os anexos ficam à vista, em cima do que se escreve: o que vai junto
            da fala é parte da fala. É a mesma tira do lançador. -->
       <div class="cfiles" hidden></div>
       <textarea rows="1" spellcheck="true"></textarea>
       <div class="crow">
-        <div class="modes" hidden>
-          <button class="mode on" data-mode="agent"></button>
-          <button class="mode" data-mode="note"></button>
-        </div>
         <!-- O "+" abre o Finder: qualquer arquivo do Mac vira menção na fala. -->
         <button class="ico sm addfile" hidden></button>
         <!-- Com quem se fala, como no rodapé do lançador: o modelo e o degrau
@@ -1016,7 +1010,6 @@ export class ChatView {
              conversa continua de onde estava, com o que foi marcado agora. -->
         <button class="ghost sm mcpbtn" hidden><span></span></button>
         <button class="ghost sm plugbtn" hidden><span></span></button>
-        <button class="ico sm at" hidden></button>
         <button class="outline md quotesel" hidden></button>
         <span class="hint"></span>
         <span class="spacer"></span>
@@ -1025,10 +1018,6 @@ export class ChatView {
       </div>`;
     this.area = this.box.querySelector("textarea")!;
     const q = (sel: string) => this.box.querySelector<HTMLElement>(sel)!;
-    q(".mode[data-mode=agent]").textContent = t("chat.mode.agent");
-    q(".mode[data-mode=note]").textContent = t("chat.mode.note");
-    q(".at").innerHTML = icon("at-sign", 13);
-    q(".at").title = t("notes.mention");
     q(".addfile").innerHTML = icon("plus", 14);
     q(".addfile").title = t("chat.addFile");
     q(".quotesel").innerHTML = `${icon("message-square", 12)}<span></span>`;
@@ -1037,10 +1026,6 @@ export class ChatView {
     q(".stop").innerHTML = `${icon("square", 12)}<span></span>`;
     q(".stop span").textContent = t("chat.stop");
 
-    for (const b of this.box.querySelectorAll<HTMLElement>(".mode")) {
-      b.addEventListener("click", () => this.setMode(b.dataset.mode as "agent" | "note"));
-    }
-    q(".at").addEventListener("click", () => notes.pickMention(this.area, () => this.keep()));
     q(".addfile").addEventListener("click", () => void this.addFile());
     q(".quotesel").addEventListener("click", () => this.quoteSelection());
     q(".stop").addEventListener("click", () => this.interrupt());
@@ -1049,20 +1034,15 @@ export class ChatView {
     this.area.addEventListener("input", () => {
       this.keep();
       this.grow();
-      // O "@" é do texto, não do menu: ele entra como qualquer letra, e a
-      // lista abre depois e acompanha o que vem — quem fecha a lista continua
-      // com o que digitou, e quem escolhe um nome vê o nome tomar o lugar do
-      // "@ti" que já estava lá.
-      if (this.mode === "note") notes.typedMention(this.area, () => this.keep());
       // O "/" no começo da fala é a mesma coisa: a lista dos comandos que o
       // agente aceita abre em cima da caixa e acompanha as letras. Onde não há
       // comando, o "@" vale como caminho: na fala é assim que se aponta um
       // arquivo do workspace (ver `paths.ts`).
-      else if (!commands.typed(this.area, this.commands(), () => this.grow())) this.typedPath();
+      if (!commands.typed(this.area, this.commands(), () => this.grow())) this.typedPath();
     });
     this.area.addEventListener("keydown", (e) => {
       const pick = e.key === "Enter" || e.key === "Tab";
-      if (pick && !e.shiftKey && !e.isComposing && (notes.acceptMention() || commands.accept(e.key === "Tab") || paths.accept())) {
+      if (pick && !e.shiftKey && !e.isComposing && (commands.accept(e.key === "Tab") || paths.accept())) {
         e.preventDefault();
       } else if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
@@ -1099,18 +1079,14 @@ export class ChatView {
     void paths.typed(this.area, ws, touched(this.tl.items), () => this.grow());
   }
 
-  /// O rascunho da nota, guardado a cada tecla: a nota é do workspace, e o
-  /// quadro pode redesenhar no meio de uma frase.
+  /// O rascunho da fala fica na aba e acompanha cada tecla.
   private keep() {
-    const ws = this.ctx.info().workspace;
-    if (this.mode === "note" && ws) notes.draftOf(ws).text = this.area.value;
+    if (this.key) drafts.says.set(this.key, this.area.value);
   }
 
-  /// Guarda a fala antes de a tela ligar noutra conversa. A nota é do
-  /// workspace, mas a fala é da aba — e no meio de uma troca só a chave antiga
-  /// ainda está aqui; o workspace de `info()` já pode ser o de destino.
+  /// Guarda a fala antes de a tela ligar noutra conversa.
   private stash() {
-    if (this.mode === "agent" && this.key) drafts.says.set(this.key, this.area.value);
+    this.keep();
   }
 
   private stashed(): string {
@@ -1130,40 +1106,21 @@ export class ChatView {
     a.style.height = `${Math.min(a.scrollHeight, window.innerHeight * 0.4)}px`;
   }
 
-  private setMode(mode: "agent" | "note") {
-    if (mode === this.mode) return;
-    const ws = this.ctx.info().workspace;
-    if (this.mode === "note" && ws) notes.draftOf(ws).text = this.area.value;
-    else this.stash();
-    this.mode = mode;
-    if (ws) drafts.modes.set(ws, mode);
-    this.area.value = mode === "note" ? (ws ? notes.draftOf(ws).text : "") : this.stashed();
-    this.grow();
-    this.paintComposer();
-    this.area.focus();
-  }
-
-  /// Ligar noutra conversa: o toggle volta a ser o daquele workspace, e a
-  /// caixa, o que estava escrito ali — a nota do workspace, ou a fala da aba.
-  /// Sem isto, começar uma frase num workspace e clicar noutro levava a frase
-  /// junto.
-  private restoreMode() {
-    const ws = this.ctx.info().workspace;
-    const mode = (ws && drafts.modes.get(ws)) || "agent";
-    this.area.value = mode === "note" ? (ws ? notes.draftOf(ws).text : "") : this.stashed();
-    this.mode = mode;
+  /// Ligar noutra conversa restaura o rascunho daquela aba.
+  private restore() {
+    this.area.value = this.stashed();
     this.grow();
   }
 
-  /// ⌘⇧M, ou o botão: a nota nasce citando o que está selecionado.
+  /// ⌘⇧M, ou o botão: abre o painel sem trocar a caixa do agente.
   quoteSelection(): boolean {
-    const ws = this.ctx.info().workspace;
     const sel = this.selection().trim();
-    if (!ws || !sel || !this.ctx.info().team) return false;
-    notes.draftOf(ws).quote = sel;
-    this.setMode("note");
-    this.paintComposer();
-    this.area.focus();
+    if (!this.key || !sel || !this.ctx.info().team || !this.ctx.comment) return false;
+    const selection = window.getSelection();
+    const node = selection?.anchorNode;
+    const element = node instanceof Element ? node : node?.parentElement;
+    const anchor = element?.closest<HTMLElement>("[data-key]")?.dataset.key ?? null;
+    this.ctx.comment({ tab: this.key, anchor, quote: sel });
     return true;
   }
 
@@ -1172,28 +1129,9 @@ export class ChatView {
     // sobe o processo, e a gravação atrasada o derrubaria em seguida.
     settleNow();
     const text = this.area.value.trim();
-    const files = this.mode === "note" ? [] : this.attached();
+    const files = this.attached();
     if ((!text && !files.length) || !this.key) return;
     const info = this.ctx.info();
-    if (this.mode === "note") {
-      if (!info.workspace) return;
-      const draft = notes.draftOf(info.workspace);
-      let sent: boolean;
-      try {
-        sent = team.addNote(info.workspace, text, notes.mentionsIn(text), draft.quote);
-      } catch (e) {
-        return this.ctx.say(fromBack(e), true);
-      }
-      // Sem conexão a nota não sai. O texto fica onde está — perder o que se
-      // acabou de escrever é pior que ver o erro.
-      if (!sent) return this.ctx.say(t("err.team.down"), true);
-      this.posted = { ws: info.workspace, count: team.notesOf(info.workspace).length };
-      notes.dropDraft(info.workspace);
-      this.area.value = "";
-      this.grow();
-      this.paintComposer();
-      return;
-    }
     if (info.remote && !info.remote.online) return this.ctx.say(t("err.team.offline"), true);
     // Os anexos vão na frente da fala, como menção — a mesma forma que o
     // lançador dá ao que se anexa à primeira fala.
@@ -1248,66 +1186,40 @@ export class ChatView {
     const hasKey = !!this.key;
     this.box.hidden = !hasKey;
     if (!hasKey) return;
-    if (!info.team && this.mode === "note") this.setMode("agent");
-    q(".modes").hidden = !info.team;
-    for (const b of this.box.querySelectorAll<HTMLElement>(".mode")) b.classList.toggle("on", b.dataset.mode === this.mode);
-    const note = this.mode === "note";
-    q(".at").hidden = !note;
-    // O "+" aponta arquivo para o agente daqui: não há o que apontar numa
-    // nota, nem na conversa de um colega — quem lê o arquivo é o agente que
-    // roda no Mac dele, e o Finder daqui é outro disco.
+    // O "+" aponta arquivo para o agente daqui. Na conversa de um colega, o
+    // agente roda noutro disco.
     q(".addfile").hidden =
-      note || this.remote || !info.workspace || !capabilitiesOf(info.agent).attachments;
-    q(".stop").hidden = note || !this.tl.busy;
-    this.box.classList.toggle("note", note);
-    this.box.classList.toggle("busy", !note && this.tl.busy);
+      this.remote || !info.workspace || !capabilitiesOf(info.agent).attachments;
+    q(".stop").hidden = !this.tl.busy;
+    this.box.classList.toggle("busy", this.tl.busy);
 
     const off = info.remote ? !info.remote.online : false;
-    this.area.disabled = !note && off;
-    this.area.placeholder = note
-      ? t("notes.write")
-      : off
+    this.area.disabled = off;
+    this.area.placeholder = off
         ? t("chat.placeholder.remoteOff", { name: info.remote?.name ?? "" })
         : info.remote
           ? t("chat.placeholder.remote", { name: info.remote.name })
           : info.status === "desligada"
             ? t("chat.placeholder.off")
             : t("chat.placeholder");
-    q(".hint").textContent = note ? "" : this.tl.compacting ? t("chat.compacting") : this.tl.busy ? t("chat.busy") : "";
-    this.paintWith(info, note);
-    this.paintMcp(info, note);
-    this.paintPlugins(info, note);
-    // Falar com o agente é uma seta redonda, como no Conductor; deixar nota é
-    // outra coisa, e continua dizendo o que faz.
+    q(".hint").textContent = this.tl.compacting ? t("chat.compacting") : this.tl.busy ? t("chat.busy") : "";
+    this.paintWith(info);
+    this.paintMcp(info);
+    this.paintPlugins(info);
     const send = q(".send");
-    send.className = note ? "send pri md" : "send pri round";
-    send.title = t(note ? "notes.send" : "chat.send");
-    if (note) send.textContent = t("notes.send");
-    else send.innerHTML = icon("arrow-up", 16);
-
-    const quote = note && info.workspace ? notes.draftOf(info.workspace).quote : null;
-    const chip = q(".cquote");
-    chip.hidden = !quote;
-    chip.replaceChildren();
-    if (quote && info.workspace) {
-      chip.append(
-        notes.quoteChip(quote, () => {
-          notes.draftOf(info.workspace!).quote = null;
-          this.paintComposer();
-        }),
-      );
-    }
+    send.className = "send pri round";
+    send.title = t("chat.send");
+    send.innerHTML = icon("arrow-up", 16);
     this.paintQuoteButton();
-    this.paintFiles(note);
+    this.paintFiles();
   }
 
   /// Os anexos em cima da caixa: um chip por arquivo, com o nome à vista e o
   /// caminho no title — o mesmo que o agente vai ler. O "×" tira o arquivo da
-  /// fala. Na nota não há
-  /// anexo — os que esperam ficam guardados, e voltam com o modo agente.
-  private paintFiles(note: boolean) {
+  /// fala.
+  private paintFiles() {
     const row = this.box.querySelector<HTMLElement>(".cfiles")!;
-    const list = note ? [] : this.attached();
+    const list = this.attached();
     row.hidden = !list.length;
     row.replaceChildren(
       ...list.map((path, i) => {
@@ -1327,7 +1239,7 @@ export class ChatView {
 
   /// Com quem se está falando, embaixo da caixa: o modelo e o degrau de
   /// esforço desta conversa — o dela, quando a aba escolheu um, ou o do
-  /// workspace. Nota não vai para modelo nenhum: some.
+  /// workspace.
   ///
   /// Aqui também se troca, como no rodapé do lançador: o modelo abre a lista,
   /// o esforço sobe um degrau por clique. A troca fica gravada na aba, derruba
@@ -1341,10 +1253,10 @@ export class ChatView {
   /// é abrir aba nova, na setinha do "+".
   ///
   /// Na conversa de um colega os dois viram texto: o processo é do Mac dele.
-  private paintWith(info: Info, note: boolean) {
+  private paintWith(info: Info) {
     const el = this.box.querySelector<HTMLElement>(".with")!;
     const label = info.model ? modelLabel(info.model, info.agent) : "";
-    el.hidden = note || !label;
+    el.hidden = !label;
     if (el.hidden) return;
     const working = info.status === "rodando" || info.status === "querendo";
     // Sem workspace (a conversa ainda está subindo) não há a quem pedir a
@@ -1420,14 +1332,13 @@ export class ChatView {
   /// transcript, e a próxima fala a retoma. Por isso o botão fecha enquanto o
   /// agente trabalha: derrubar no meio de um turno jogaria o turno fora.
   ///
-  /// Some na conversa de um colega (não é o meu processo), na nota, e onde não
+  /// Some na conversa de um colega (não é o meu processo) e onde não
   /// há hub nem escolha — um botão que abre uma lista vazia é um botão que não
   /// faz nada.
-  private paintMcp(info: Info, note: boolean) {
+  private paintMcp(info: Info) {
     const btn = this.box.querySelector<HTMLButtonElement>(".mcpbtn")!;
     const has = mcp.list().length > 0 || info.mcp !== null;
     btn.hidden =
-      note ||
       !!info.remote ||
       !info.workspace ||
       !capabilitiesOf(info.agent).workspaceMcpSelection ||
@@ -1459,11 +1370,10 @@ export class ChatView {
   /// Os plugins desta conversa, e o botão que os troca. Tudo o que vale para
   /// o de MCP vale aqui — inclusive derrubar o processo para a próxima fala
   /// subir com a lista nova.
-  private paintPlugins(info: Info, note: boolean) {
+  private paintPlugins(info: Info) {
     const btn = this.box.querySelector<HTMLButtonElement>(".plugbtn")!;
     const has = plugins.list().length > 0 || info.plugins !== null;
     btn.hidden =
-      note ||
       !!info.remote ||
       !info.workspace ||
       !has ||
@@ -1496,46 +1406,38 @@ export class ChatView {
   private paintQuoteButton() {
     if (!this.key) return;
     const b = this.box.querySelector<HTMLElement>(".quotesel");
-    if (b) b.hidden = !this.ctx.info().team || !this.selection().trim();
+    if (b) b.hidden = !this.ctx.comment || !this.ctx.info().team || !this.selection().trim();
   }
 
-  /* ---------- notas do time, no meio da conversa ---------- */
+  /* ---------- comentários do time ancorados no transcript ---------- */
 
-  /// Cada nota entra antes do primeiro item mais novo que ela — é a hora em
-  /// que foi escrita que diz de que pedaço da conversa ela fala.
-  private paintNotes() {
+  private paintCommentPins() {
     const ws = this.ctx.info().workspace;
-    for (const old of this.feed.querySelectorAll(".note")) old.remove();
-    if (!ws || !this.ctx.info().team) return;
-    const list = team.notesOf(ws);
-    if (!list.length) return;
-    const items = this.tl.items;
-    for (const note of [...list].sort((a, b) => a.ts - b.ts)) {
-      const at = items.findIndex((it) => it.ts > note.ts);
-      const card = notes.card(note);
-      const node = at === -1 ? null : this.nodeOf(at);
-      if (node) node.before(card);
-      else this.feed.append(card);
+    for (const old of this.feed.querySelectorAll(".commentpin")) old.remove();
+    if (!ws || !this.key || !this.ctx.info().team || !this.ctx.thread) return;
+    const grouped = new Map<string, ReturnType<typeof notes.rootsOf>>();
+    for (const note of notes.rootsOf(team.notesOf(ws), this.key)) {
+      if (note.resolved || !note.anchor) continue;
+      const list = grouped.get(note.anchor) ?? [];
+      list.push(note);
+      grouped.set(note.anchor, list);
+    }
+    for (const [anchor, list] of grouped) {
+      const node = this.feed.querySelector<HTMLElement>(`[data-key="${CSS.escape(anchor)}"]`);
+      if (!node) continue;
+      const pin = h("button", "commentpin", `${list.length}`);
+      pin.title = tn(list.length, "notes.onTurn");
+      pin.onclick = () => this.ctx.thread?.(list[0].id);
+      node.append(pin);
     }
   }
 
-  /// O nó em que um item aparece: o dele, ou o cartão de trabalho que o
-  /// engoliu. É onde uma nota daquela hora entra.
-  private nodeOf(at: number): HTMLElement | null {
-    for (let i = 0; i < this.shown.length; i++) {
-      const piece = this.shown[i];
-      const last = piece.kind === "work" ? piece.refs[piece.refs.length - 1].at : piece.at;
-      if (last >= at) return this.drawn[i] ?? null;
-    }
-    return null;
-  }
-
-  /// Leva até uma nota — de onde a caixa "Para mim" leva.
-  focusNote(id: string) {
-    this.paintNotes();
-    const el = this.feed.querySelector<HTMLElement>(`.note[data-note="${CSS.escape(id)}"]`);
+  focusAnchor(anchor: string) {
+    const el = this.feed.querySelector<HTMLElement>(`[data-key="${CSS.escape(anchor)}"]`);
     if (!el) return;
-    el.classList.add("lit");
+    for (const old of this.feed.querySelectorAll(".commentfocus")) old.classList.remove("commentfocus");
+    el.classList.add("commentfocus");
     el.scrollIntoView({ block: "center" });
+    setTimeout(() => el.classList.remove("commentfocus"), 1800);
   }
 }

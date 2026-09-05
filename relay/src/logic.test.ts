@@ -4,9 +4,11 @@ import {
   encodeLive,
   encodeSnapshot,
   NOTES_PER_WORKSPACE_MAX,
+  NOTES_TOTAL_MAX,
   NOTE_TTL_MS,
   SHARES_MAX,
   type Down,
+  type Note,
   type Share,
   type Up,
 } from "./protocol";
@@ -53,6 +55,7 @@ describe("presença", () => {
     const s = empty();
     const first = reduce(s, open("a1", "alice"));
     expect(kinds(first, "a1")).toEqual(["welcome"]);
+    expect(one(first, "a1", "welcome")!.comments).toBe(1);
     expect(one(first, "a1", "welcome")!.members).toEqual([{ id: "alice", name: "alice", online: true }]);
     expect(puts(first)).toEqual(["member:alice"]);
 
@@ -320,7 +323,14 @@ describe("notas", () => {
     const note = one(fx, "a1", "note")!.note;
     expect(note).toMatchObject({ id: `${NOW + 2}-abc`, ws: "ws1", author: "bob", mentions: ["alice"], quote: "  ✓ 3 tests" });
     expect(one(fx, "b1", "note")!.note).toEqual(note);
-    expect(one(fx, "a1", "inbox")!.items).toEqual([{ id: note.id, ws: "ws1", author: "bob", ts: NOW + 2 }]);
+    expect(one(fx, "a1", "inbox")!.items).toEqual([{
+      id: note.id,
+      ws: "ws1",
+      author: "bob",
+      ts: NOW + 2,
+      tab: null,
+      text: "@alice isso está certo?",
+    }]);
     expect(one(fx, "b1", "inbox")).toBeUndefined();
     expect(puts(fx)).toEqual([`note:ws1:${note.id}`, `inbox:alice:${note.id}`]);
 
@@ -347,6 +357,55 @@ describe("notas", () => {
     expect(one(back, "c2", "welcome")!.inbox.map((i) => i.id)).toEqual([`${NOW + 2}-n1`]);
   });
 
+  it("resposta fica na thread; abrir não resolve; resolver limpa todas as caixas", () => {
+    const s = team();
+    reduce(s, open("c1", "carol"));
+    const created = reduce(s, text("b1", {
+      t: "note",
+      ws: "ws1",
+      tab: "t1",
+      anchor: "s4.0",
+      text: "@alice revisa?",
+      mentions: ["alice"],
+      quote: "resultado",
+    }, "root"));
+    const root = one(created, "a1", "note")!.note;
+
+    const replied = reduce(s, text("a1", {
+      t: "note_reply",
+      ws: "ws1",
+      note: root.id,
+      text: "@carol confere também",
+      mentions: ["carol"],
+    }, "reply"));
+    expect(one(replied, "b1", "note")!.note).toMatchObject({ parent: root.id, tab: "t1", anchor: null });
+    expect(s.inbox.get("alice")?.map((item) => item.id)).toEqual([root.id]);
+    expect(s.inbox.get("bob")?.map((item) => item.id)).toEqual([root.id]);
+    expect(s.inbox.get("carol")?.map((item) => item.id)).toEqual([root.id]);
+
+    // Pedir a thread ao abrir não altera a caixa.
+    reduce(s, text("a1", { t: "notes", ws: "ws1" }));
+    expect(s.inbox.get("alice")?.map((item) => item.id)).toEqual([root.id]);
+
+    const resolved = reduce(s, text("c1", { t: "note_resolve", ws: "ws1", note: root.id }));
+    expect(one(resolved, "a1", "note")!.note.resolved).toBe(true);
+    expect(s.inbox.size).toBe(0);
+    expect(dels(resolved)).toEqual(expect.arrayContaining([
+      `inbox:alice:${root.id}`,
+      `inbox:bob:${root.id}`,
+      `inbox:carol:${root.id}`,
+    ]));
+  });
+
+  it("não responde a comentário resolvido nem ancora numa aba inexistente", () => {
+    const s = team();
+    expect(one(reduce(s, text("b1", { t: "note", ws: "ws1", tab: "sumiu", anchor: "s1.0", text: "oi", mentions: [], quote: null })), "b1", "error")!.code).toBe("noTab");
+    const created = reduce(s, text("b1", { t: "note", ws: "ws1", tab: "t1", anchor: null, text: "oi", mentions: [], quote: null }, "root"));
+    const root = one(created, "b1", "note")!.note;
+    reduce(s, text("a1", { t: "note_resolve", ws: "ws1", note: root.id }));
+    expect(one(reduce(s, text("b1", { t: "note_reply", ws: "ws1", note: root.id, text: "tarde", mentions: [] })), "b1", "error")!.code).toBe("resolved");
+  });
+
   it("não cria nota para workspace inventado e limita o histórico", () => {
     const s = team();
     expect(one(reduce(s, text("b1", { t: "note", ws: "fake", text: "oi", mentions: [], quote: null })), "b1", "error")!.code).toBe("noShare");
@@ -356,6 +415,35 @@ describe("notas", () => {
     const fx = reduce(s, text("b1", { t: "note", ws: "ws1", text: "mais nova", mentions: [], quote: null }, "last"));
     expect(s.notes.get("ws1")).toHaveLength(NOTES_PER_WORKSPACE_MAX);
     expect(dels(fx)).toContain(`note:ws1:${NOW + 2}-n0`);
+  });
+
+  it("cota global remove threads inteiras e preserva raiz com resposta recente", () => {
+    const s = empty();
+    const note = (ws: string, id: string, ts: number, parent: string | null = null): Note => ({
+      id,
+      ws,
+      author: "alice",
+      text: id,
+      mentions: [],
+      quote: null,
+      ts,
+      tab: null,
+      anchor: null,
+      parent,
+      resolved: false,
+    });
+    for (let i = 0; i < NOTES_TOTAL_MAX; i++) {
+      const ws = `ws${Math.floor(i / NOTES_PER_WORKSPACE_MAX)}`;
+      const list = s.notes.get(ws) ?? [];
+      list.push(note(ws, `n${i}`, NOW - 10_000 + i));
+      s.notes.set(ws, list);
+    }
+    s.notes.set("hot", [note("hot", "root", NOW - 20_000), note("hot", "reply", NOW + 1, "root")]);
+
+    const fx = reduce(s, open("a1", "alice"));
+    expect(s.notes.get("hot")?.map((item) => item.id)).toEqual(["root", "reply"]);
+    expect([...s.notes.values()].flat()).toHaveLength(NOTES_TOTAL_MAX);
+    expect(dels(fx)).not.toContain("note:hot:root");
   });
 
   it("unshare apaga notas e caixas privadas; TTL também limpa o storage", () => {
@@ -414,6 +502,7 @@ describe("acordar do storage", () => {
     const woke = hydrate(rows, [{ id: "b9", member: "bob", attached: { ws: "ws1", tab: "t1" } }]);
     expect(woke.shares.get("ws1")!.online).toBe(false);
     expect(woke.notes.get("ws1")!.length).toBe(1);
+    expect(woke.notes.get("ws1")![0]).toMatchObject({ parent: null, resolved: false });
     expect(woke.inbox.get("alice")!.length).toBe(1);
     const fx = reduce(woke, open("a9", "alice"));
     const welcome = one(fx, "a9", "welcome")!;
