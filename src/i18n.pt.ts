@@ -131,6 +131,7 @@ export const PT = {
   "rail.removeProject": "Remover projeto",
   "rail.pinned": "Fixados",
   "rail.loose": "Sem projeto",
+  "rail.sets": "Conjuntos",
   "rail.archived": "Arquivados",
   "rail.archived.title": "O que você tirou da frente",
   "rail.cleanup": "Limpar worktrees",

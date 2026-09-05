@@ -1,4 +1,4 @@
-import { avatar, brand, icon, stageIcon } from "./icons";
+import { avatar, avatars, brand, icon, stageIcon } from "./icons";
 import { stage as stageName, t, tn } from "./i18n";
 import * as menu from "./menu";
 import * as team from "./team";
@@ -210,8 +210,11 @@ function renderRail(board: Board, hooks: Hooks) {
   // Um grupo por projeto: com vários repos começando com a mesma letra, o
   // avatar sozinho não dizia de qual workspace era — o cabeçalho diz.
   const stageAt = (ws: Workspace) => board.stages.indexOf(ws.stage);
+  // Quem atravessa repositórios não é de um projeto só: mora nos conjuntos,
+  // logo abaixo.
+  const single = live.filter((w) => !w.pinned && w.repos.length < 2);
   for (const project of board.projects) {
-    const mine = live.filter((w) => w.project === project.id && !w.pinned);
+    const mine = single.filter((w) => w.project === project.id);
     // Dentro do projeto quem ordena é a etapa: o que está andando fica em cima.
     mine.sort((a, b) => stageAt(a) - stageAt(b));
     const plus = template("button", "ico sm", icon("plus"));
@@ -240,9 +243,28 @@ function renderRail(board: Board, hooks: Hooks) {
     });
   }
 
+  // Conjuntos: um grupo por combinação de repositórios com workspace de pé.
+  // Não é projeto — nasce do launcher e some com o último workspace —, então
+  // o cabeçalho não tem o + nem o menu. O avatar é o dos projetos, fatiado.
+  const sets = new Map<string, Workspace[]>();
+  for (const w of live) {
+    if (w.pinned || w.repos.length < 2) continue;
+    sets.set(repoLabel(w), [...(sets.get(repoLabel(w)) ?? []), w]);
+  }
+  if (sets.size) {
+    rail.append(document.createElement("hr"));
+    const head = template("div", "sect", `<span></span>`);
+    head.children[0].textContent = t("rail.sets");
+    rail.append(head);
+    for (const [name, mine] of sets) {
+      mine.sort((a, b) => stageAt(a) - stageAt(b));
+      renderGroup(rail, board, hooks, name, avatars(mine[0].repos.map((r) => r.name)), mine, `@set:${name}`);
+    }
+  }
+
   // Workspace de um projeto que saiu da lista não pode sumir da barra junto.
   const known = new Set(board.projects.map((p) => p.id));
-  const loose = live.filter((w) => !w.pinned && !known.has(w.project));
+  const loose = single.filter((w) => !known.has(w.project));
   if (loose.length) {
     renderGroup(rail, board, hooks, t("rail.loose"), icon("folder", 14), loose, "@soltos", { avatars: true });
   }
@@ -332,7 +354,7 @@ function renderGroup(
     b.querySelector(".wsbranch")!.textContent = ws.branch;
     b.title = [owner, repoLabel(ws), ws.branch].filter(Boolean).join(" · ");
     b.addEventListener("click", () => hooks.open(ws));
-    if (owner || opts.avatars) b.children[0].after(template("span", "av", avatar(owner ?? ws.repo_name)));
+    if (owner || opts.avatars) b.children[0].after(template("span", "av", owner ? avatar(owner) : avatars(ws.repos.map((r) => r.name))));
     if (ws.remote && !ws.remote.online) card.classList.add("off");
     if (!ws.remote) attachMenu(b, ws, board, hooks, title, "sub");
     card.append(b);

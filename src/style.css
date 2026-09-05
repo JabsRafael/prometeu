@@ -205,6 +205,19 @@ body.norail .top .nav { margin-left: 0; }
 .navitem.sub.unread .lbl { color: var(--fg); font-weight: 600; }
 .navitem.sub .av { display: flex; margin: 2px -2px 0 0; }
 .navitem.sub .av .avatar { width: 14px; height: 14px; border-radius: 3px; font-size: 9px; }
+/* Avatar fatiado do workspace multi-repo: cada fatia é uma caixa com a sua
+   letra inteira, menor — meia letra de cada um virava um "R" que não era de
+   ninguém. As medidas são em `em` para o quadradinho crescer junto onde a
+   tela pede um avatar maior. */
+.avatar.multi { position: relative; overflow: hidden; background: none; }
+.avatar.multi i { position: absolute; display: grid; place-items: center; font-style: normal; font-size: .6em; }
+.avatar.multi.n2 i { top: 0; bottom: 0; width: 50%; }
+.avatar.multi.n3 i:nth-child(1) { left: 0; top: 0; bottom: 0; width: 50%; }
+.avatar.multi.n3 i:nth-child(n + 2), .avatar.multi.n4 i { width: 50%; height: 50%; font-size: .45em; }
+.avatar.multi i:nth-child(1) { left: 0; top: 0; }
+.avatar.multi.n2 i:nth-child(2), .avatar.multi.n3 i:nth-child(2), .avatar.multi.n4 i:nth-child(2) { right: 0; top: 0; }
+.avatar.multi.n3 i:nth-child(3), .avatar.multi.n4 i:nth-child(4) { right: 0; bottom: 0; }
+.avatar.multi.n4 i:nth-child(3) { left: 0; bottom: 0; }
 
 /* Grupo por projeto: o cabeçalho da lista, com o avatar do repositório, a
    conta e o + de criar ali dentro. O chevron e o + só aparecem no hover —
