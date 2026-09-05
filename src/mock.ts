@@ -704,12 +704,11 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       const text = docks.get(s) === false ? SCRIPT_OUT + DONE : SCRIPT_OUT;
       return [...new TextEncoder().encode(text)];
     }
-    // Como o back: a última linha diz se há turno em andamento.
-    case "chat_buffer":
-      return scrollOf(String(args.session)).text + line({ v: 1, type: "session.state", at: Date.now(), state: "ready" }) + "\n";
+    // Como o back: a última linha diz se há turno em andamento, e ela vem
+    // depois do número — não é uma linha da conversa.
     case "chat_snapshot": {
       const s = scrollOf(String(args.session));
-      return { text: s.text, seq: s.seq };
+      return { text: s.text + line({ v: 1, type: "session.state", at: Date.now(), state: "ready" }) + "\n", seq: s.seq };
     }
     // A conversa de mentira responde ao que recebe: é o que deixa ver a fala
     // de um colega chegar e voltar.

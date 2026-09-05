@@ -22,7 +22,6 @@ export const IPC_COMMANDS = [
   "browser_open",
   "browser_reload",
   "browser_url",
-  "chat_buffer",
   "chat_control",
   "chat_control_remote",
   "chat_send",
