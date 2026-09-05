@@ -1875,6 +1875,7 @@ body.noside .side { display: none; }
   flex: 1; min-height: 0; overflow: auto; padding: 12px;
   display: flex; flex-wrap: wrap; align-items: flex-start; align-content: flex-start; gap: 12px;
 }
+.tiles:has(> .iempty) { justify-content: center; align-content: center; }
 .tile {
   position: relative; flex: none; width: calc(50% - 6px); height: calc(50% - 6px);
   min-width: 320px; min-height: 200px; max-width: 100%;
