@@ -1,8 +1,9 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { icon } from "./icons";
+import { parseConversationEvent } from "./conversation";
 import { t } from "./i18n";
 import * as team from "./team";
-import type { Board, Status } from "./types";
+import type { Board } from "./types";
 import { template } from "./util";
 
 /// Avisar quem não está olhando: o agente parou e espera você (terminou, ou
@@ -14,11 +15,9 @@ import { template } from "./util";
 /// bolinha não — ela é o que o Dock já faz por qualquer app, e só some quando
 /// não há nada esperando.
 ///
-/// Novidade é parar sem você ver: a sessão que parou não é a que está na
-/// tela, ou a janela está atrás de outra coisa. Você viu terminar na sua
-/// frente: não precisa de aviso. O back guarda a primeira metade disso em
-/// `ws.unread` (ele sabe qual workspace está na tela, não se a janela está na
-/// frente); a segunda só a tela sabe, e fica aqui — até você olhar de novo.
+/// O som nasce dos eventos ao vivo da conversa, nunca de diferenças entre
+/// snapshots do quadro. Uma pendência avisa uma vez até ser vista ou respondida;
+/// atividade automática não rearma o sino.
 
 const SOUND_KEY = "prometeu:som";
 
@@ -28,39 +27,17 @@ export function setSound(on: boolean) {
   on ? localStorage.removeItem(SOUND_KEY) : localStorage.setItem(SOUND_KEY, "0");
 }
 
-/* ---------- o que é novidade ---------- */
-
-const waits = (s: Status) => s === "pronta" || s === "querendo";
-
-/// Compara o quadro que chegou com o status de cada aba no quadro anterior.
-/// Devolve os workspaces em que alguma aba acabou de parar esperando alguém —
-/// uma aba que já estava esperando (ou que nasceu assim) não é notícia — e o
-/// mapa de status para a próxima comparação.
-export function stopped(prev: Map<string, Status>, board: Board): { fresh: string[]; now: Map<string, Status> } {
-  const now = new Map<string, Status>();
-  const fresh: string[] = [];
-  for (const ws of board.workspaces) {
-    for (const tab of ws.tabs) {
-      now.set(tab.id, tab.status);
-      const was = prev.get(tab.id);
-      if (was !== undefined && !waits(was) && waits(tab.status) && !fresh.includes(ws.id)) fresh.push(ws.id);
-    }
-  }
-  return { fresh, now };
-}
-
 /* ---------- estado ---------- */
 
 type Ctx = {
-  /// O workspace que está na tela agora — o único em que parar não é notícia.
-  looking: () => string | null;
+  /// Abas visíveis no workspace ou na mesa; o foco da janela é conferido aqui.
+  visible: (tab: string) => boolean;
 };
 
-let ctx: Ctx = { looking: () => null };
-let statuses = new Map<string, Status>();
-/// Workspaces que pararam sem você ver, e que você ainda não abriu com a
-/// janela na frente. Somados aos `unread` do back, dão a bolinha.
-const pending = new Set<string>();
+let ctx: Ctx = { visible: () => false };
+let owners = new Map<string, string>();
+/// Aba que parou sem ser vista, ligada ao workspace para contar o Dock.
+const pending = new Map<string, string>();
 let unread = new Set<string>();
 /// Os comentários da caixa que já passaram por aqui: o mesmo comentário chega
 /// de novo a cada reconexão, e comentário velho não apita duas vezes.
@@ -82,26 +59,45 @@ export function init(context: Ctx) {
   window.addEventListener("focus", looked);
 }
 
-/// Você está olhando o workspace na tela, com a janela na frente: ele deixa
-/// de ser novidade. Chamado ao abrir um workspace e quando a janela ganha foco.
+/// Abrir uma conversa ou voltar à janela reconhece as pendências visíveis.
 export function looked() {
-  const id = ctx.looking();
-  if (!id || !document.hasFocus() || !pending.delete(id)) return;
+  if (!pending.size || !document.hasFocus()) return;
+  for (const tab of pending.keys()) if (ctx.visible(tab)) pending.delete(tab);
   badge();
 }
 
-/// O quadro do Rust mudou. Só ele: os workspaces dos colegas não são seus
-/// para responder.
+/// O quadro só informa ownership e unread. Status pode oscilar ou chegar em
+/// snapshots defasados de processos concorrentes; isso não é um novo aviso.
 export function boardChanged(board: Board) {
-  const { fresh, now } = stopped(statuses, board);
-  statuses = now;
-  unread = new Set(board.workspaces.filter((w) => w.unread).map((w) => w.id));
-  const unseen = fresh.filter((id) => id !== ctx.looking() || !document.hasFocus());
-  for (const id of unseen) pending.add(id);
-  // Workspace que sumiu do quadro (removido, arquivado) não deve nada.
-  const alive = new Set(board.workspaces.map((w) => w.id));
-  for (const id of pending) if (!alive.has(id)) pending.delete(id);
-  if (unseen.length) pling();
+  const local = board.workspaces.filter((w) => !w.archived && !w.cleaned && !w.remote);
+  owners = new Map(local.flatMap((w) => w.tabs.map((tab) => [tab.id, w.id] as const)));
+  unread = new Set(local.filter((w) => w.unread).map((w) => w.id));
+  for (const tab of pending.keys()) if (!owners.has(tab)) pending.delete(tab);
+  if (document.hasFocus()) {
+    for (const tab of pending.keys()) if (ctx.visible(tab)) pending.delete(tab);
+  }
+  badge();
+}
+
+/// Somente o stream local ao vivo entra aqui. Snapshot e replay não notificam.
+export function chatChanged(tab: string, line: string) {
+  const workspace = owners.get(tab);
+  if (!workspace) return;
+  let value: unknown;
+  try { value = JSON.parse(line); } catch { return; }
+  const event = parseConversationEvent(value);
+  if (!event) return;
+  if (event.type === "user.message" || event.type === "request.closed") {
+    pending.delete(tab);
+    badge();
+    return;
+  }
+  if (event.type !== "turn.completed" && event.type !== "request.opened") return;
+  if (event.type === "turn.completed" && event.outcome === "interrupted") return;
+  if (document.hasFocus() && ctx.visible(tab)) return;
+  if (pending.has(tab)) return;
+  pending.set(tab, workspace);
+  pling();
   badge();
 }
 
@@ -121,7 +117,7 @@ export function teamChanged() {
 
 /// Quantas coisas esperam você: workspaces não lidos (pelo back ou por aqui)
 /// mais comentários na caixa. Zero apaga a bolinha.
-export const waiting = () => new Set([...unread, ...pending]).size + team.inboxCount();
+export const waiting = () => new Set([...unread, ...pending.values()]).size + team.inboxCount();
 
 function badge() {
   getCurrentWindow()

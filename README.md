@@ -117,6 +117,13 @@ ficam de fora — cada um tem a sua tela.
 Cobertura: `src/desk.test.ts` (a ordem guardada) e o fluxo Playwright da mesa
 em `e2e/critical-flows.spec.ts`.
 
+O som de aviso toca quando uma conversa termina ou pede resposta fora das abas
+visíveis, ou com a janela sem foco. Cada aba avisa uma vez até você olhar ou
+responder; continuações automáticas não repetem a pendência. Conversas abertas
+na mesa também contam como visíveis. Atualizações de status, ferramentas e
+replay do histórico não tocam. O som pode ser desligado em Configurações sem
+desativar a bolinha do Dock. Cobertura: `src/alert.test.ts` e `e2e/alerts.spec.ts`.
+
 ### O ida-e-volta
 
 1. Uma fala é um comando `message.send`, traduzido na borda para o processo. Ele fica de

@@ -123,6 +123,7 @@ function draw() {
   archived.draw();
   desk.draw();
   if (ws.id()) ws.draw();
+  alert.looked();
 }
 
 menu.onClose(() => missed && draw());
@@ -269,7 +270,10 @@ function refresh() {
 }
 team.onChange(refresh);
 team.onChange(alert.teamChanged);
-alert.init({ looking: ws.id });
+alert.init({ visible: (tab) =>
+  (ws.id() !== null && session.currentSession() === tab) || desk.visible(tab),
+});
+listen<[string, string, number]>("chat", ({ payload: [tab, line] }) => alert.chatChanged(tab, line));
 
 /// Script que morreu sozinho — terminou, ou quebrou. A aba volta para o botão
 /// de começar sem ninguém perguntar de tempos em tempos.
@@ -660,10 +664,12 @@ desk.init({
     openWorkspace({ ...w, active: tab });
   },
   create: () => launch(),
+  looked: alert.looked,
 });
 viewer.init((m) => say(m, true), ws.fileSaved);
 dock.init($("dockterm"));
 state = await invoke<Board>("load_board");
+alert.boardChanged(state);
 showDesk();
 
 // O que mudou desde a última vez que você abriu o app. Depois da primeira tela

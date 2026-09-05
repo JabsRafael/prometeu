@@ -75,6 +75,16 @@ assistente, blocos de ferramenta, pedidos, resultados, contexto e avisos. Ele é
 puro: não acessa DOM, Tauri, disco, rede ou protocolos de provider. Linhas
 legadas passam por `conversation-legacy.ts` antes do reducer.
 
+`alert.ts` recebe somente eventos `chat` locais ao vivo. `turn.completed`
+(exceto interrupção) e `request.opened` podem avisar; snapshots do quadro e
+replay do transcript nunca disparam som. Inferir conclusão por alternância de
+status confundia snapshots defasados e atividade automática com novas paradas.
+A pendência pertence à aba e só é rearmada quando a pessoa a vê, envia uma
+fala ou responde ao pedido. A visibilidade inclui a aba aberta no workspace
+e os quadros não recolhidos da mesa, sempre com a janela em foco. O Dock
+continua contando workspaces, unindo essas pendências ao `unread` do backend.
+O contrato V1, o IPC e os dados persistidos permanecem iguais; não há migração.
+
 ## Entrada e controle
 
 Uma fala local passa por `chat_send`. Se o processo estiver pronto, ela é
