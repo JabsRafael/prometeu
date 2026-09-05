@@ -4,6 +4,23 @@ O que muda no Prometeu, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.5.3] - 2026-09-05
+<!-- lang:pt-BR -->
+
+### Novidades
+
+- **distribuição:** Assina o app e publica notas nos dois idiomas
+- **colaboração:** Mantém comentários ao lado da sessão
+
+<!-- lang:en -->
+
+### New
+
+- **distribution:** Signs app and publishes notes in both languages
+
+- **collaboration:** Keeps comments beside shared sessions
+
+<!-- lang:end -->
 ## [0.5.2] - 2026-09-04
 
 <!-- lang:pt-BR -->
