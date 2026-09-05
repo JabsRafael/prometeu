@@ -25,6 +25,10 @@ o provider. Cobertura: fluxos da barra lateral em `e2e/critical-flows.spec.ts`.
 
 Sessão é one-off: nasce, faz, morre. Sem passar artefato de uma sessão para outra.
 
+Branches sugeridas usam duas palavras e quatro dígitos aleatórios, como
+`prometeu/farol-quieto-0382`: 163.840.000 combinações. O app evita nomes já
+listados nas branches locais e remotas. Cobertura: `src/branch.test.ts`.
+
 ## Documentação do projeto
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) é o mapa das responsabilidades e fluxos.
