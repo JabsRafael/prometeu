@@ -2,7 +2,7 @@ import { ChatView, type Info } from "./chat";
 import { arrange } from "./desk-layout";
 import { icon } from "./icons";
 import { t } from "./i18n";
-import { label, pending, type Board, type Tab, type Workspace } from "./types";
+import { label, pending, tabLabel, type Board, type Tab, type Workspace } from "./types";
 import { $, empty, h, template } from "./util";
 
 /// A mesa: todas as conversas de uma vez, cada uma no seu quadro — para ver o
@@ -146,7 +146,7 @@ function drawBar(byTab: Map<string, Pair>, hidden: Set<string>) {
       const b = template("button", "tab" + (off ? "" : " on"), `<i class="dot"></i><span></span><span class="n"></span>`);
       (b.children[0] as HTMLElement).style.background = `var(--dot-${tab.status})`;
       b.children[1].textContent = w.title;
-      b.children[2].textContent = tab.title;
+      b.children[2].textContent = tabLabel(w, tab);
       b.title = t(off ? "desk.chip.show" : "desk.chip.hide");
       b.dataset.tab = id;
       b.addEventListener("click", () => toggle(id));
@@ -199,7 +199,7 @@ function mount(id: string): Tile {
 function paintHead(head: HTMLElement, w: Workspace, tab: Tab) {
   head.className = `tile-head s-${tab.status}`;
   head.querySelector("b")!.textContent = w.title;
-  head.querySelector(".ttab")!.textContent = tab.title;
+  head.querySelector(".ttab")!.textContent = tabLabel(w, tab);
   head.title = `${label(tab.status)} · ${t("desk.head.title")}`;
 }
 

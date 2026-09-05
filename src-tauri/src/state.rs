@@ -386,6 +386,15 @@ pub struct Board {
     pub workspaces: Vec<Workspace>,
 }
 
+/// "conversa", "conversa 2": o nome que versões anteriores davam à aba que
+/// nasceu sem prompt. Não é nome de ninguém, então some na migração.
+fn is_placeholder_title(title: &str) -> bool {
+    match title.strip_prefix("conversa") {
+        Some(rest) => rest.trim().chars().all(|c| c.is_ascii_digit()),
+        None => false,
+    }
+}
+
 impl Default for Board {
     fn default() -> Self {
         Board {
@@ -470,7 +479,7 @@ impl Board {
                 ws.tabs.push(Tab {
                     id: ws.id.clone(),
                     agent_session: None,
-                    title: "conversa".into(),
+                    title: String::new(),
                     status: Status::Desligada,
                     note: None,
                     pending_prompt: None,
@@ -480,9 +489,14 @@ impl Board {
                 });
             }
             // Nenhum PTY sobrevive ao fechamento do app, então qualquer status
-            // gravado como vivo é mentira.
+            // gravado como vivo é mentira. E o "conversa 2" que o app antigo
+            // inventava para aba sem prompt vira nome vazio: a tela mostra o
+            // modelo no lugar, que é o que diferencia uma aba da irmã.
             for tab in &mut ws.tabs {
                 tab.status = Status::Desligada;
+                if is_placeholder_title(&tab.title) {
+                    tab.title.clear();
+                }
             }
             if ws.active.is_none() {
                 ws.active = ws.tabs.first().map(|t| t.id.clone());
@@ -833,6 +847,30 @@ mod tests {
         assert_eq!(ws.tabs[0].id, "w");
         assert_eq!(ws.active.as_deref(), Some("w"));
         assert!(ws.failed.is_none());
+    }
+
+    /// "conversa" e "conversa 2" eram o nome que o app inventava para aba sem
+    /// prompt. Não são nome de ninguém: viram vazio, e a tela mostra o modelo.
+    /// Nome dado pela pessoa, mesmo começando igual, fica.
+    #[test]
+    fn nome_inventado_de_aba_some_na_migracao() {
+        let mut board = board_json(
+            r#","tabs":[
+              {"id":"a","title":"conversa","status":"pronta","note":null,"pending_prompt":null},
+              {"id":"b","title":"conversa 2","status":"pronta","note":null,"pending_prompt":null},
+              {"id":"c","title":"conversa sobre o login","status":"pronta","note":null,"pending_prompt":null},
+              {"id":"d","title":"Corrigir o menu","status":"pronta","note":null,"pending_prompt":null}]"#,
+        );
+        board.revive();
+        let titles: Vec<&str> = board.workspaces[0]
+            .tabs
+            .iter()
+            .map(|t| t.title.as_str())
+            .collect();
+        assert_eq!(
+            titles,
+            ["", "", "conversa sobre o login", "Corrigir o menu"]
+        );
     }
 
     #[test]

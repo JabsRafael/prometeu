@@ -18,6 +18,7 @@ import {
   merged,
   prs,
   pending,
+  tabLabel,
   type Board,
   type Choice,
   type GitStatus,
@@ -662,7 +663,7 @@ function drawTabs(ws: Workspace) {
     b.innerHTML = `<i class="dot"></i><span></span><span class="n tokens"></span>`;
     (b.children[0] as HTMLElement).style.background = `var(--dot-${tab.status})`;
     b.dataset.tab = tab.id;
-    b.children[1].textContent = tab.title;
+    b.children[1].textContent = tabLabel(ws, tab);
     b.children[2].textContent = tab.tokens ? `~${fmtTokens(tab.tokens)}` : "";
     b.title =
       label(tab.status) +

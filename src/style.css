@@ -161,8 +161,8 @@ body.norail .top .nav { margin-left: 0; }
 
 .navitem {
   display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
-  height: 32px; margin: 1px 0; padding: 0 4px; border-radius: var(--r);
-  font-size: 14px; font-weight: 400; color: var(--fg-2); background: none;
+  height: 28px; margin: 1px 0; padding: 0 4px; border-radius: var(--r);
+  font-size: 13px; font-weight: 400; color: var(--fg-2); background: none;
   justify-content: flex-start;
 }
 .navitem:hover { background: var(--bg-raised); }
@@ -182,36 +182,36 @@ body.norail .top .nav { margin-left: 0; }
 .rail hr { border: none; border-top: 1px solid var(--line-side); margin: 4px 0; }
 
 .sect {
-  display: flex; align-items: center; gap: 2px; height: 34px; padding: 0 0 0 5px;
+  display: flex; align-items: center; gap: 2px; height: 30px; padding: 0 0 0 5px;
   font-size: 12px; font-weight: 500; color: var(--fg-2);
 }
 .sect > span { flex: 1; }
 .railhint { font-size: 12px; color: var(--fg-3); padding: 4px 5px 8px; }
 
 .railworkspace {
-  flex: none; margin: 2px 0; padding: 4px; border: 1px solid transparent;
-  border-radius: 14px;
+  flex: none; margin: 1px 0; padding: 2px; border: 1px solid transparent;
+  border-radius: 12px;
 }
 .railworkspace:hover { background: var(--bg-raised); }
 .railworkspace.on { background: var(--bg-raised-2); border-color: var(--line-ghost); }
 .railworkspace.off { opacity: .6; }
-.navitem.sub { font-size: 13px; padding: 3px 5px; height: auto; min-height: 42px; align-items: flex-start; color: var(--fg); }
+.navitem.sub { font-size: 13px; padding: 3px 5px; height: auto; min-height: 36px; align-items: flex-start; color: var(--fg); }
 .railworkspace .navitem.sub:hover { background: none; }
-.navitem.sub .wsidentity { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-.navitem.sub .wsbranch { font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.navitem.sub > .rail-status { margin-top: 5px; }
+.navitem.sub .wsidentity, .railagent .wsidentity { display: flex; flex-direction: column; min-width: 0; flex: 1; text-align: left; line-height: 1.3; }
+.navitem.sub .wsbranch, .railagent .note { font-size: 11px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.navitem.sub > .rail-status { margin-top: 4px; }
 /* Novidade: o que aconteceu enquanto você olhava outra coisa. Negrito e branco,
    como e-mail não lido — sem mais um glifo na linha. */
 .navitem.sub.unread .lbl { color: var(--fg); font-weight: 600; }
-.navitem.sub .av { display: flex; margin: 3px -2px 0 0; }
+.navitem.sub .av { display: flex; margin: 2px -2px 0 0; }
 .navitem.sub .av .avatar { width: 14px; height: 14px; border-radius: 3px; font-size: 9px; }
 
 /* Grupo por projeto: o cabeçalho da lista, com o avatar do repositório, a
    conta e o + de criar ali dentro. O chevron e o + só aparecem no hover —
    recolher é ação, não enfeite permanente. */
 .group {
-  display: flex; align-items: center; gap: 8px; width: 100%; height: 32px;
-  margin: 6px 0 1px; padding: 0 4px; border-radius: var(--r); background: none;
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 28px;
+  margin: 4px 0 1px; padding: 0 4px; border-radius: var(--r); background: none;
   font-size: 13px; font-weight: 500; color: var(--fg-2); justify-content: flex-start;
 }
 .group:hover { background: var(--bg-raised); }
@@ -225,17 +225,17 @@ body.norail .top .nav { margin-left: 0; }
 .group:hover .ico, .group:focus-within .ico { opacity: 1; }
 
 .railagents-toggle {
-  display: flex; width: calc(100% - 24px); height: 26px; margin-left: 24px; padding: 0 5px;
-  justify-content: space-between; background: none; color: var(--fg-3); font-size: 12px; font-weight: 400;
+  display: flex; width: calc(100% - 24px); height: 22px; margin-left: 24px; padding: 0 5px;
+  justify-content: space-between; background: none; color: var(--fg-3); font-size: 11px; font-weight: 400;
 }
 .railagents-toggle:hover { color: var(--fg-2); }
-.railagents { padding: 2px 0 1px 20px; }
+.railagents { padding: 0 0 2px 20px; }
 .railagent {
-  display: flex; width: 100%; height: 29px; padding: 0 5px; gap: 8px;
+  display: flex; width: 100%; min-height: 24px; padding: 2px 5px; gap: 6px;
   justify-content: flex-start; background: none; color: var(--fg-2); font-size: 12px; font-weight: 400;
 }
 .railagent:hover, .railagent.on { color: var(--fg); background: var(--bg-raised-3); }
-.railagent .provider { display: flex; flex: none; width: 17px; }
+.railagent .provider { display: flex; flex: none; width: 15px; }
 .railagent .lbl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-status {
   display: block; flex: none; width: 10px; height: 10px; border-radius: 50%;

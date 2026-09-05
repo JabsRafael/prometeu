@@ -1,3 +1,4 @@
+import { modelLabelOf } from "./agents";
 import { current as locale, t } from "./i18n";
 
 /// Quem está no time, como o relay conta. O formato é do protocolo do relay,
@@ -25,6 +26,7 @@ export const stateLabel = (ws: Workspace) =>
 
 export type Tab = {
   id: string;
+  /// Vazio é aba sem nome: a tela mostra o modelo (`tabLabel`).
   title: string;
   status: Status;
   note: string | null;
@@ -403,4 +405,17 @@ export function fmtTokens(n: number): string {
   if (n < 1000) return String(n);
   if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
   return `${(n / 1_000_000).toLocaleString(locale(), { maximumFractionDigits: 1 })}M`;
+}
+
+/// O nome de uma aba na tela. Aba sem nome (nasceu sem prompt, ninguém
+/// renomeou) é dita pelo modelo com quem fala — "Opus", "Codex" —, que é o
+/// que a distingue das irmãs debaixo do mesmo workspace. Duas irmãs sem nome
+/// no mesmo modelo ganham número, só aí.
+export function tabLabel(ws: Pick<Workspace, "tabs" | "agent" | "model">, tab: Tab): string {
+  if (tab.title) return tab.title;
+  const model = (t: Tab) => t.choice?.model ?? ws.model;
+  const provider = (t: Tab) => t.choice?.agent ?? ws.agent;
+  const name = modelLabelOf(model(tab), provider(tab)) || t(`model.${provider(tab)}`);
+  const twins = ws.tabs.filter((t) => !t.title && model(t) === model(tab) && provider(t) === provider(tab));
+  return twins.length > 1 ? `${name} ${twins.indexOf(tab) + 1}` : name;
 }

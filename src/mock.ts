@@ -58,19 +58,19 @@ const board: Board = {
   ],
   workspaces: [
     ws("sessao-0929", "p1", "njord", "Ola", "Fazendo", [
-      { id: "t1", title: "conversa 1", status: "pronta", note: null, tokens: 57_000 },
+      { id: "t1", title: "", status: "pronta", note: null, tokens: 57_000 },
       // Aba que nasceu com outro modelo que o do workspace: é o rodapé da
       // conversa mostrando o dela, e não o das irmãs.
-      { id: "t2", title: "conversa 2", status: "pronta", note: null, tokens: 112_400, pending_prompt: "O que tem nesse projeto aqui de legal?", choice: { agent: "claude", model: "sonnet", effort: "medium" } },
+      { id: "t2", title: "", status: "pronta", note: null, tokens: 112_400, pending_prompt: "O que tem nesse projeto aqui de legal?", choice: { agent: "claude", model: "sonnet", effort: "medium" } },
     ]),
     ws("ui-2231", "p2", "prometeu", "Tela igual ao Conductor", "Fazendo", [
-      { id: "t3", title: "conversa 1", status: "rodando", note: "Edit src/style.css", tokens: 23_800 },
+      { id: "t3", title: "", status: "rodando", note: "Edit src/style.css", tokens: 23_800 },
     ]),
     // Dois repositórios na mesma branch: é aqui que a lista de mudanças ganha
     // uma seção por repo.
     Object.assign(
       ws("portal-1217", "p2", "prometeu", "Contratação pelo portal", "Fazendo", [
-        { id: "t9", title: "conversa 1", status: "rodando", note: "Edit app/models/entry.rb", tokens: 31_000 },
+        { id: "t9", title: "", status: "rodando", note: "Edit app/models/entry.rb", tokens: 31_000 },
       ]),
       {
         worktree: "~/prometeu/worktrees/prometeu+njord/prometeu-portal-1217",
@@ -97,34 +97,34 @@ const board: Board = {
     // Uma pergunta esperando você é justamente o que vira novidade.
     Object.assign(
       ws("icone-2140", "p2", "prometeu", "Ícone do app", "Code review", [
-        { id: "t4", title: "conversa 1", status: "querendo", note: "Qual tamanho de ícone você quer gerar?", tokens: 8_100 },
+        { id: "t4", title: "", status: "querendo", note: "Qual tamanho de ícone você quer gerar?", tokens: 8_100 },
       ]),
       { unread: true, pr: { number: 42, title: "feat(quadro): ícone do app", isDraft: false, state: "OPEN" } },
     ),
     // PR mergeado: é este que mostra o selo no card e o "Concluir" na barra.
     Object.assign(
       ws("dock-1130", "p2", "prometeu", "Porta do dock por worktree", "Code review", [
-        { id: "t5", title: "conversa 1", status: "pronta", note: null, tokens: 44_200 },
+        { id: "t5", title: "", status: "pronta", note: null, tokens: 44_200 },
       ]),
       { pr: { number: 40, title: "feat(dock): porta por worktree", isDraft: false, state: "MERGED" } },
     ),
     // Arquivado que ainda ocupa disco: é ele que a folha de limpeza lista.
     Object.assign(
       ws("linear-0912", "p1", "njord", "Conectar o Linear", "Feito", [
-        { id: "t7", title: "conversa 1", status: "desligada", note: null, tokens: 66_000 },
+        { id: "t7", title: "", status: "desligada", note: null, tokens: 66_000 },
       ]),
       { archived: true, pr: { number: 8, title: "feat: conectar o Linear", isDraft: false, state: "MERGED" } },
     ),
     Object.assign(
       ws("porta-1751", "p1", "njord", "Porta ocupada no setup", "Travado", [
-        { id: "t8", title: "conversa 1", status: "desligada", note: null, tokens: 12_000 },
+        { id: "t8", title: "", status: "desligada", note: null, tokens: 12_000 },
       ]),
       { archived: true },
     ),
     // Worktree devolvido: o card que sobrou de um trabalho que acabou.
     Object.assign(
       ws("idioma-1348", "p2", "prometeu", "O app fala inglês", "Feito", [
-        { id: "t6", title: "conversa 1", status: "desligada", note: null, tokens: 91_000 },
+        { id: "t6", title: "", status: "desligada", note: null, tokens: 91_000 },
       ]),
       {
         archived: true,
@@ -1301,7 +1301,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
           emit("board", board);
           return;
         }
-        fresh.tabs = [{ id: `t-${id}`, title: "conversa", status: "pronta", note: null, tokens: null }];
+        fresh.tabs = [{ id: `t-${id}`, title: "", status: "pronta", note: null, tokens: null }];
         fresh.active = fresh.tabs[0].id;
         emit("board", board);
       }, 1400);
@@ -1483,7 +1483,7 @@ const marcusShare = () => ({
   issue: { identifier: "CAP-218", title: "Digest semanal zera concluídos", url: "https://linear.app/x/issue/CAP-218" },
   active: "mt1",
   tabs: [
-    { id: "mt1", title: "conversa 1", status: "rodando", note: "Edit src/todos/complete.ts", tokens: 41_200 },
+    { id: "mt1", title: "", status: "rodando", note: "Edit src/todos/complete.ts", tokens: 41_200 },
     { id: "mt2", title: "testes", status: "pronta", note: null, tokens: 8_300 },
   ],
   sizes: { mt1: [100, 30], mt2: [100, 30] },

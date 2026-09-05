@@ -1015,7 +1015,7 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
         app,
         &state,
         id,
-        "conversa",
+        "",
         first_message(&draft.prompt, &draft.inject),
         &draft.launch,
         // A primeira conversa é a do lançador, e é dela que o workspace copiou
@@ -1073,7 +1073,7 @@ pub fn new_tab(
     choice: Option<Choice>,
 ) -> Result<Tab, String> {
     // Plan mode não vem de nenhum dos dois caminhos: é escolha de uma fala.
-    let (n, launch, choice) = {
+    let (launch, choice) = {
         let board = lock(&state.board);
         let ws = board
             .workspaces
@@ -1088,11 +1088,13 @@ pub fn new_tab(
         let choice =
             choice.filter(|c| c.agent != ws.agent || c.model != ws.model || c.effort != ws.effort);
         let launch = choice.clone().map_or_else(|| ws.launch(), Launch::from);
-        (ws.tabs.len() + 1, launch, choice)
+        (launch, choice)
     };
 
+    // Sem prompt, sem nome: a tela mostra o modelo da aba, e é mais útil que
+    // um "conversa 2" que ninguém escolheu.
     let title = if prompt.trim().is_empty() {
-        format!("conversa {n}")
+        String::new()
     } else {
         tab_title(&prompt)
     };
@@ -1137,9 +1139,10 @@ pub fn focus_tab(app: AppHandle, state: State<AppState>, workspace: String, tab:
     publish(&app);
 }
 
-/// O nome da conversa nasce da primeira frase do prompt, ou de um "conversa 2"
-/// quando não houve prompt — e nenhum dos dois é o assunto que ela acaba tendo.
-/// Nome vazio é desistência, não apagar o que já existe, como no workspace.
+/// O nome da conversa nasce da primeira frase do prompt, ou fica vazio quando
+/// não houve prompt (a tela mostra o modelo) — e nenhum dos dois é o assunto
+/// que ela acaba tendo. Nome vazio é desistência, não apagar o que já existe,
+/// como no workspace.
 #[tauri::command]
 pub fn rename_tab(
     app: AppHandle,
