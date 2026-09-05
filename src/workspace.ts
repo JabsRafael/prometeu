@@ -68,7 +68,19 @@ export function init(context: Ctx) {
   });
 
   tree.init({ openFile, workspace: id });
-  dockbar.init({ workspace: id, say: ctx.say, openFile, newTab, openBrowser: showWeb });
+  dockbar.init({
+    workspace: id,
+    say: ctx.say,
+    openFile,
+    newTab,
+    openBrowser: showWeb,
+    enter: showShell,
+    exit: showTerm,
+    drawTabs: () => {
+      const ws = current();
+      if (ws) drawTabs(ws);
+    },
+  });
   browser.init((id) => invoke("open_run", { id }).catch((e) => ctx.say(fromBack(e), true)), ctx.say);
   notes.init({
     workspace: id,
@@ -645,8 +657,8 @@ export function finish(id: string) {
 
 /* ---------- abas ---------- */
 
-/// Abas sublinhadas: uma por conversa, a de Mudanças, depois uma por arquivo
-/// aberto, e o + logo depois da última.
+/// Abas sublinhadas: uma por conversa, depois as que você abriu — Mudanças,
+/// navegador, terminais e arquivos — e o + logo depois da última.
 function drawTabs(ws: Workspace) {
   // Refazer a barra com um campo de renomear aberto nela apaga o que foi
   // digitado — e o diff, que redesenha sozinho, chega aqui a toda hora.
@@ -654,7 +666,7 @@ function drawTabs(ws: Workspace) {
   const bar = $("tabbar");
   bar.replaceChildren();
   const fs = files(ws.id);
-  const elsewhere = fs.diff || fs.active || fs.web;
+  const elsewhere = fs.diff || fs.active || fs.web || !!dockbar.front();
 
   const remote = !!ws.remote;
   for (const tab of ws.tabs) {
@@ -694,11 +706,12 @@ function drawTabs(ws: Workspace) {
     bar.append(b);
   }
 
-  // A aba de Mudanças existe enquanto houver o que mostrar e você não a tiver
-  // fechado — ou enquanto ela estiver aberta, para o worktree ficar limpo sem a
-  // tela sumir debaixo de você.
+  // A aba de Mudanças é sua: ela existe depois que você a abriu, e some no ✕.
+  // Worktree sujo não a traz de volta — com o agente editando, o worktree está
+  // sujo quase sempre, e uma aba que renasce sozinha é a barra decidindo por
+  // você. Que há o que ver está no contador do painel da direita.
   const changes = total(ws.id);
-  if (fs.diff || (changes && !fs.hidDiff)) {
+  if (fs.diffTab) {
     const b = document.createElement("button");
     b.className = "tab file" + (fs.diff ? " on" : "");
     b.innerHTML = `${icon("diff", 14)}<span></span><span class="n"></span>`;
@@ -739,6 +752,30 @@ function drawTabs(ws: Workspace) {
     });
     b.append(x);
     bar.append(b);
+  }
+
+  // Os terminais livres: abas daqui como as outras, porque é onde se digita, e
+  // digitar não cabe numa gaveta de 377px. Setup e Run continuam no painel da
+  // direita — aquilo é saída para acompanhar de canto.
+  if (!remote && !ws.cleaned && !pending(ws)) {
+    for (const d of dockbar.tabs()) {
+      const b = document.createElement("button");
+      b.className = "tab file" + (d.on ? " on" : "");
+      b.innerHTML = `${icon("terminal", 14)}<span></span>`;
+      b.children[1].textContent = d.label;
+      b.title = d.label;
+      b.addEventListener("click", () => dockbar.select(d.kind));
+      const x = document.createElement("span");
+      x.className = "tabx ico sm";
+      x.innerHTML = icon("x", 12);
+      x.title = t("dock.closeTerm");
+      x.addEventListener("click", (e) => {
+        e.stopPropagation();
+        dockbar.closeTab(d.kind);
+      });
+      b.append(x);
+      bar.append(b);
+    }
   }
 
   for (const path of fs.open) {
@@ -799,6 +836,9 @@ function pickModel(at: HTMLElement, ws: Workspace) {
       });
     }
   });
+  // Terminal novo mora aqui e não num "+" próprio: são dois botões com o mesmo
+  // desenho lado a lado, e o comum — conversa — perderia o clique.
+  items.push("sep", { label: t("dock.new"), glyph: icon("terminal", 14), run: dockbar.newTerm });
   menu.openAt({ x: box.left, y: box.bottom + 4 }, items);
 }
 
@@ -848,7 +888,7 @@ async function selectTab(workspace: string, tab: string) {
   const fs = files(workspace);
   // Clicar na aba em que você já está não refaz nada. É o que deixa o duplo
   // clique chegar inteiro no renomear: o rótulo continua sendo o mesmo nó.
-  if (tab === session.currentSession() && !fs.diff && !fs.active && !fs.web) return;
+  if (tab === session.currentSession() && !fs.diff && !fs.active && !fs.web && !dockbar.front()) return;
   const remote = team.isRemote(workspace);
   if (!remote) invoke("focus_tab", { workspace, tab });
   showTerm();
@@ -886,9 +926,9 @@ type Files = {
   open: string[];
   active: string | null;
   diff: boolean;
-  /// Você fechou a aba de Mudanças. Sem isto ela renasceria no redesenho
-  /// seguinte, porque o worktree continua sujo — e aí fechar não fecharia nada.
-  hidDiff: boolean;
+  /// A aba de Mudanças está na barra. Como a de navegador, quem a põe lá é
+  /// você — pela lista da direita ou pelo Revisar.
+  diffTab: boolean;
   /// A aba de navegador: `webTab` é ela estar na barra, `web` é estar no centro.
   web: boolean;
   webTab: boolean;
@@ -898,7 +938,7 @@ const filesOf = new Map<string, Files>();
 
 function files(id: string): Files {
   let f = filesOf.get(id);
-  if (!f) filesOf.set(id, (f = { open: [], active: null, diff: false, hidDiff: false, web: false, webTab: false, port: 0 }));
+  if (!f) filesOf.set(id, (f = { open: [], active: null, diff: false, diffTab: false, web: false, webTab: false, port: 0 }));
   return f;
 }
 
@@ -941,6 +981,19 @@ function showTerm() {
     leaveWeb(files(ws.id));
   }
   center("chatwrap");
+}
+
+/// O terminal livre no centro. Quem escolhe qual é o `dockbar`; aqui só sai da
+/// frente o que estava.
+function showShell() {
+  const ws = current();
+  if (!ws) return;
+  const fs = files(ws.id);
+  fs.active = null;
+  fs.diff = false;
+  leaveWeb(fs);
+  center("termview");
+  drawTabs(ws);
 }
 
 /* ---------- navegador ---------- */
@@ -1013,7 +1066,7 @@ function activateChanges() {
   const fs = files(ws.id);
   fs.active = null;
   fs.diff = true;
-  fs.hidDiff = false;
+  fs.diffTab = true;
   leaveWeb(fs);
   center("diffview");
   setSidePane("diff");
@@ -1022,14 +1075,13 @@ function activateChanges() {
 
 /// Fechar a aba de Mudanças é tirá-la da barra, não só sair da tela: uma aba que
 /// fica depois do x não foi fechada. Ela volta quando você abre o diff de novo
-/// pela lista da direita, ou quando o worktree limpa e suja outra vez — o que é
-/// trabalho novo, e não o que você mandou embora.
+/// pela lista da direita ou pelo Revisar — e só assim.
 async function closeChanges() {
   const ws = current();
   if (!ws) return;
   const fs = files(ws.id);
   const wasOpen = fs.diff;
-  fs.hidDiff = true;
+  fs.diffTab = false;
   // `diff` fica ligado até o `showTerm` da vez desligar: é ele que faz o
   // `selectTab` entender que a tela precisa trocar.
   if (wasOpen) {
@@ -1040,8 +1092,12 @@ async function closeChanges() {
   drawTabs(ws);
 }
 
-function center(show: "chatwrap" | "viewer" | "diffview" | "webview") {
-  for (const id of ["chatwrap", "viewer", "diffview", "webview"] as const) $(id).hidden = id !== show;
+/// Uma coisa por vez no centro: a conversa, um arquivo, o diff, o navegador ou
+/// um terminal. Sair do dock não mata nada — o processo segue, e a aba só
+/// deixa de estar na frente.
+function center(show: "chatwrap" | "viewer" | "diffview" | "webview" | "termview") {
+  for (const id of ["chatwrap", "viewer", "diffview", "webview", "termview"] as const) $(id).hidden = id !== show;
+  if (show !== "termview") dockbar.leave();
 }
 
 async function closeFile(path: string) {
@@ -1094,7 +1150,6 @@ async function loadChanges(id: string) {
     changesUi.update(id, repos);
     const n = total(id);
     $("review").hidden = !repos.some(repo => repo.has_head);
-    if (!n) files(id).hidDiff = false;
     $("diffcount").textContent = n ? String(n) : "";
     $("diffcount").classList.remove("fresh");
     const ws = current();

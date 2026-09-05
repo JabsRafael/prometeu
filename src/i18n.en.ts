@@ -470,7 +470,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "dock.settings.open": "Open settings.toml",
   "dock.closeTerm": "Close terminal  ⌘W",
   "dock.killSetup": "Stop the setup",
-  "dock.idle": "Setup prepares the worktree, Run starts the project, + opens a shell in here.",
+  "dock.idle": "Setup prepares the worktree and Run starts the project, without leaving the conversation.",
   "dock.noSetup.title": "No setup script",
   "dock.noSetup.body":
     "Commands that run when a worktree is born, to install dependencies and prepare the environment.",

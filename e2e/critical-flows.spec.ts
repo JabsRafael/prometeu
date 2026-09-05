@@ -1173,3 +1173,68 @@ test("a mesa mantém rascunho e anexo ao abrir o workspace", async ({ page }) =>
   await expect(page.locator("#chatwrap .composer textarea")).toHaveValue(draft);
   await expect(page.locator("#chatwrap .cfiles .injchip")).toContainText("contexto.txt");
 });
+
+/// Setup e Run continuam no painel da direita: é saída para acompanhar de
+/// canto. O terminal livre, não — ele é aba do centro, ao lado das conversas,
+/// e os dois xterms valem ao mesmo tempo.
+test("terminal livre é aba do centro e o Setup fica no painel da direita", async ({ page }) => {
+  await boot(page);
+  await openWorkspace(page, "Ola");
+
+  // Entrar num workspace cai na conversa; o painel da direita abre no Setup.
+  await expect(page.locator("#chatwrap")).toBeVisible();
+  await expect(page.locator("#termview")).toBeHidden();
+  await expect(page.locator("#dockstrip .docktab.on")).toHaveText("Setup");
+
+  // Terminal novo sai da setinha do "+": um shell a mais é outra aba do centro.
+  await page.locator(".tabadd .caret").click();
+  await page.locator(".menu .mrow", { hasText: "Terminal novo" }).click();
+  const tab = page.locator("#tabbar .tab").filter({ hasText: "Terminal" }).first();
+  await expect(tab).toHaveClass(/on/);
+  await expect(page.locator("#termview")).toBeVisible();
+  await expect(page.locator("#chatwrap")).toBeHidden();
+  // O painel da direita não perdeu o Setup para o terminal.
+  await expect(page.locator("#dockstrip .docktab")).toHaveText(["Setup", "Run"]);
+  await expect(page.locator("#dock")).toBeVisible();
+
+  // Voltar para a conversa só tira o terminal da frente.
+  await page.locator('#tabbar .tab[data-tab="t1"]').click();
+  await expect(page.locator("#chatwrap")).toBeVisible();
+  await expect(page.locator("#termview")).toBeHidden();
+  await expect(tab).toBeVisible();
+
+  // Fechado o último terminal, o centro volta para a conversa.
+  await tab.hover();
+  await tab.locator(".tabx").click();
+  await expect(page.locator("#tabbar .tab").filter({ hasText: "Terminal" })).toHaveCount(0);
+  await expect(page.locator("#chatwrap")).toBeVisible();
+});
+
+/// Com o agente editando, o worktree está sujo quase o tempo todo — e uma aba
+/// que nasce disso é a barra decidindo por você. Mudanças entra na barra quando
+/// você pede, e some quando você fecha.
+test("a aba de Mudanças só existe depois que você a abre", async ({ page }) => {
+  await boot(page);
+  await openWorkspace(page, "Contratação pelo portal");
+
+  const tab = page.locator("#tabbar .tab").filter({ hasText: "Alterações" });
+  // Sujo desde o começo: o contador da direita diz que há o que ver, e a barra
+  // continua sendo só das conversas.
+  await expect(page.locator("#diffcount")).not.toBeEmpty();
+  await expect(tab).toHaveCount(0);
+
+  // Segundo clique no painel da direita traz o diff para o centro — e é aí que
+  // a aba nasce.
+  await page.locator("#tab-diff").click();
+  await page.locator("#tab-diff").click();
+  await expect(page.locator("#diffview")).toBeVisible();
+  await expect(tab).toHaveCount(1);
+
+  await tab.hover();
+  await tab.locator(".tabx").click();
+  await expect(tab).toHaveCount(0);
+  await expect(page.locator("#chatwrap")).toBeVisible();
+  // O worktree continua sujo, e a aba continua fora: fechada é fechada.
+  await expect(page.locator("#diffcount")).not.toBeEmpty();
+  await expect(tab).toHaveCount(0);
+});

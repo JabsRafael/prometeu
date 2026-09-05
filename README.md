@@ -91,6 +91,11 @@ conflitos, alterações em stage e alterações locais. `+` adiciona um arquivo 
 aparece nos dois grupos, cada um com seu diff. Commit inclui somente o índice;
 push é uma ação separada, com upstream e contadores visíveis.
 
+O diff empilhado no centro é aba, e a aba é sua: ela entra na barra quando
+você a abre — pelo segundo clique em **Alterações**, ou pelo **Revisar** — e sai
+no ✕. Worktree sujo não a traz de volta; que há o que ver está no contador do
+painel da direita.
+
 Histórico e **Comparar branch** mostram commits sem misturar edições locais.
 A branch no cabeçalho abre a lista de branches e workspaces. Criar trabalho a
 partir dali usa outro worktree; a sessão atual continua onde estava. O editor
@@ -275,6 +280,13 @@ Nada disso é descoberto: o repositório declara. O que o Prometeu faz é não
 deixar isso virar trabalho manual — a aba **Setup** de um repo que não declara
 nada oferece **Perguntar ao agente**, que abre uma conversa com o prompt pronto
 para o Claude Code ler o repositório e escrever o arquivo.
+
+**Setup** e **Run** ficam no painel da direita, que é onde a saída deles se
+acompanha de canto enquanto você fala com o agente. O terminal livre, não: ele
+é aba do centro, ao lado das conversas e do navegador — é onde se digita, e
+digitar pede a tela. A setinha ao lado do **+** abre um shell novo no worktree;
+sair da aba não mata nada, e ⌘W com o cursor dentro dele fecha o terminal.
+Teste em `e2e/critical-flows.spec.ts`.
 
 ### Os arquivos do worktree
 
