@@ -183,6 +183,7 @@ jobs:
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
           DMG=$(find src-tauri/target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)
           [ -n "$DMG" ] || { echo "::error::falta o .dmg"; exit 1; }
@@ -194,6 +195,9 @@ jobs:
           xcrun stapler staple "$DMG"
           xcrun stapler validate "$DMG"
           spctl -a -t open --context context:primary-signature -v "$DMG"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            gh release upload "$GITHUB_REF_NAME" "$DMG" -R "$REPO" --clobber
+          fi
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: github.ref_type != 'tag'
