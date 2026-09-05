@@ -708,6 +708,12 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       emit("board", board);
       return;
     }
+    case "focus_tab": {
+      const target = board.workspaces.find((x) => x.id === args.workspace);
+      if (target?.tabs.some((tab) => tab.id === args.tab)) target.active = args.tab;
+      emit("board", board);
+      return;
+    }
     // Como no Rust: worktree devolvido não tem branch para ler.
     case "workspace_branch": {
       const target = board.workspaces.find((x) => x.id === args.id);

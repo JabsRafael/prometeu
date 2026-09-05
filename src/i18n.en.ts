@@ -39,6 +39,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "rail.cleanup": "Clean up worktrees",
   "rail.cleanup.title": "Take finished work\u2019s worktrees off the disk",
   "rail.team": "From the team",
+  "rail.agents.one": "{n} agent",
+  "rail.agents.other": "{n} agents",
 
   "menu.app.about": "About Prometeu",
   "menu.app.settings": "Settings…",
