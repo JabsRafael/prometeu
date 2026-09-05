@@ -1009,14 +1009,6 @@ fn answers_for(input: &Value, updated: &Value) -> Option<Value> {
     Some(out)
 }
 
-/// A conversa até aqui, para a tela desenhar. Com o processo de pé (ou morto
-/// há pouco) é o que ele escreveu; sem nada no mapa — o app acabou de abrir —
-/// é o transcript no disco, que é a mesma coisa em repouso.
-#[tauri::command]
-pub fn chat_buffer(state: State<AppState>, session: String) -> String {
-    snapshot(&state, &session).text
-}
-
 /// As linhas, mais uma no fim que as linhas não sabem dizer: se há turno em
 /// andamento. Sem ele, a tela assenta o que parecia estar chegando — o
 /// transcript não guarda `result`, então uma conversa reaberta terminaria
@@ -1060,9 +1052,10 @@ pub fn transcript_of(ws: &Workspace, session: &str) -> PathBuf {
     }
 }
 
-/// As linhas e o número da última — para mandar a um colega que acabou de
-/// abrir a conversa. Tirado sob o mesmo lock que numera, então "até o N" é
-/// exato.
+/// As linhas e o número da última — para a tela desenhar, e para mandar a um
+/// colega que acabou de abrir a conversa. Tirado sob o mesmo lock que numera,
+/// então "até o N" é exato: quem recebe as linhas ao vivo sabe quais já
+/// estavam dentro e não as põe duas vezes.
 #[tauri::command]
 pub fn chat_snapshot(state: State<AppState>, session: String) -> Snapshot {
     snapshot(&state, &session)

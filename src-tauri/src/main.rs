@@ -181,7 +181,6 @@ fn main() {
             chat::chat_send,
             chat::chat_control,
             chat::chat_control_remote,
-            chat::chat_buffer,
             chat::chat_snapshot,
             mcp::mcp_hub,
             mcp::mcp_save,

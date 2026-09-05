@@ -154,6 +154,9 @@ export class ChatView {
   private dirty = new Set<number>();
   private raf = 0;
   private working = template("div", "working", "<i></i><i></i><i></i><span class=\"wlabel\"></span>");
+  /// Linhas ao vivo que chegaram enquanto o snapshot vinha. Absorvê-las na
+  /// hora as duplicaria: o snapshot que chega depois traz as mesmas linhas.
+  private held: { seq: number; line: string }[] | null = null;
   /// A fala guardada, esperando o setup: fica na tela como se tivesse ido,
   /// com o aviso de que ainda não foi.
   private waiting = template("div", "turn user wait", `<div class="bubble"></div><div class="working"><i></i><i></i><i></i><span class="wlabel"></span></div>`);
@@ -166,9 +169,10 @@ export class ChatView {
     host.append(this.feed, this.box);
     this.buildComposer();
 
-    void listen<[string, string, number]>("chat", ({ payload: [session, line] }) => {
+    void listen<[string, string, number]>("chat", ({ payload: [session, line, seq] }) => {
       if (session !== this.key || this.remote) return;
-      this.absorb(line);
+      if (this.held) this.held.push({ seq, line });
+      else this.absorb(line);
     }).then((unlisten) => {
       // A aba pode ter sumido enquanto o registro atravessava o IPC.
       if (this.disposed) unlisten();
@@ -197,9 +201,16 @@ export class ChatView {
     this.remote = false;
     this.reset();
     this.restore();
-    const text = await invoke<string>("chat_buffer", { session: key });
+    this.held = [];
+    const snapshot = await invoke<{ text: string; seq: number }>("chat_snapshot", { session: key });
     if (this.disposed || version !== this.attachVersion || this.key !== key) return;
-    this.tl.load(text);
+    const held = this.held ?? [];
+    this.held = null;
+    this.tl.load(snapshot.text);
+    // A linha que chegou ao vivo durante a espera pode já estar dentro do
+    // snapshot — é o caso da primeira fala, que o back manda no mesmo instante
+    // em que a tela abre. O número diz quais já estavam lá.
+    for (const { seq, line } of held) if (seq > snapshot.seq) this.tl.push(line);
     this.renderAll();
   }
 
@@ -257,6 +268,7 @@ export class ChatView {
 
   private reset() {
     this.tl = new Timeline();
+    this.held = null;
     this.shown = [];
     this.drawn = [];
     this.partial = "";

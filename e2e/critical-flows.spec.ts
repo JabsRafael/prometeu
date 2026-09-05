@@ -265,7 +265,7 @@ test("a troca rápida de aba ignora o snapshot atrasado da aba anterior", async 
     const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
     const original = internals.invoke;
     internals.invoke = async function (command, args, options) {
-      if (command === "chat_buffer" && args?.session === "t2") {
+      if (command === "chat_snapshot" && args?.session === "t2") {
         await new Promise((resolve) => setTimeout(resolve, 350));
       }
       return original.call(this, command, args, options);
@@ -1014,7 +1014,41 @@ test("arquivo solto num quadro da mesa vira anexo daquela conversa", async ({ pa
   expect(await bubble.textContent()).toBe('@"/Users/eu/Desktop/Captura de Tela.png"\n\nOlha esta captura');
 });
 
-/// A mesma aba pode desligar e ligar na mesa enquanto um `chat_buffer` antigo
+/// A primeira fala de um workspace sai do back no mesmo instante em que a tela
+/// abre: ela chega ao vivo enquanto o snapshot ainda vem, e vem dentro dele
+/// também. Sem o número da linha, a conversa nascia com a fala duas vezes.
+test("a fala que chega durante o snapshot não entra duas vezes", async ({ page }) => {
+  await boot(page);
+
+  await page.evaluate(() => {
+    type Invoke = (command: string, args?: Record<string, unknown>, options?: unknown) => Promise<unknown>;
+    type WindowWithHold = Window & { __TAURI_INTERNALS__: { invoke: Invoke }; snapshotSegurado?: boolean };
+    const w = window as WindowWithHold;
+    const original = w.__TAURI_INTERNALS__.invoke;
+    let first = true;
+    w.__TAURI_INTERNALS__.invoke = async function (command, args, options) {
+      if (first && command === "chat_snapshot" && args?.session === "t1") {
+        first = false;
+        w.snapshotSegurado = true;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+      return original.call(this, command, args, options);
+    };
+  });
+
+  await page.locator("#railbody .navitem.sub .lbl").getByText("Ola", { exact: true }).click();
+  await expect.poll(() => page.evaluate(() => !!(window as Window & { snapshotSegurado?: boolean }).snapshotSegurado)).toBe(true);
+  await page.evaluate(() => {
+    const mock = (window as unknown as { mock: { line: (tab: string, line: unknown) => void } }).mock;
+    mock.line("t1", { type: "user", message: { role: "user", content: "FALA_DO_LANCAMENTO" } });
+  });
+
+  await expect(page.locator("#chatwrap .bubble", { hasText: "FALA_DO_LANCAMENTO" })).toHaveCount(1);
+  await page.waitForTimeout(400);
+  await expect(page.locator("#chatwrap .bubble", { hasText: "FALA_DO_LANCAMENTO" })).toHaveCount(1);
+});
+
+/// A mesma aba pode desligar e ligar na mesa enquanto um `chat_snapshot` antigo
 /// ainda viaja. O número da ligação, e não só o id da aba, decide qual resposta
 /// pode desenhar: senão o snapshot antigo é anexado ao novo e duplica tudo.
 test("a mesa ignora um snapshot atrasado da mesma conversa", async ({ page }) => {
@@ -1039,7 +1073,7 @@ test("a mesa ignora um snapshot atrasado da mesma conversa", async ({ page }) =>
     const original = w.__TAURI_INTERNALS__.invoke;
     let first = true;
     w.__TAURI_INTERNALS__.invoke = async function (command, args, options) {
-      if (first && command === "chat_buffer" && args?.session === "t1") {
+      if (first && command === "chat_snapshot" && args?.session === "t1") {
         first = false;
         const snapshot = await original.call(this, command, args, options);
         w.deskSnapshotCaptured = true;
