@@ -163,12 +163,36 @@ export function stageIcon(at: number, total: number, size = 16): string {
 /// Quadradinho com a inicial, cor estável por nome — o "N" roxo do Conductor.
 const HUES = ["#6525c9", "#c9552a", "#2a7fc9", "#2a9d6e", "#c9a02a", "#c92a6a"];
 export function avatar(name: string): string {
-  let h = 0;
-  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   const el = document.createElement("span");
   el.className = "avatar";
-  el.style.background = HUES[h % HUES.length];
-  el.textContent = (name.trim()[0] ?? "?").toUpperCase();
+  el.style.background = hue(name);
+  el.textContent = initial(name);
+  return el.outerHTML;
+}
+
+const hue = (name: string) => {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return HUES[h % HUES.length];
+};
+const initial = (name: string) => (name.trim()[0] ?? "?").toUpperCase();
+
+/// O avatar de um workspace que atravessa repositórios: o quadradinho
+/// fatiado, uma fatia por repo com a cor e a inicial que o repo tem sozinho —
+/// o "P" roxo do conjunto é o mesmo "P" roxo do projeto. Dois são metades,
+/// três é metade e dois quartos, quatro são quadrantes; a partir do quinto
+/// a última fatia vira a conta do que não coube. Com um só, é o avatar comum.
+export function avatars(names: string[]): string {
+  if (names.length < 2) return avatar(names[0] ?? "?");
+  const slices = names.length > 4 ? [...names.slice(0, 3), `+${names.length - 3}`] : names;
+  const el = document.createElement("span");
+  el.className = `avatar multi n${slices.length}`;
+  for (const [i, name] of slices.entries()) {
+    const slice = document.createElement("i");
+    slice.style.background = hue(names[i]);
+    slice.textContent = name.startsWith("+") ? name : initial(name);
+    el.append(slice);
+  }
   return el.outerHTML;
 }
 

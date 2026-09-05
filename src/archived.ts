@@ -1,5 +1,5 @@
 import { attachMenu, type Hooks } from "./sidebar";
-import { avatar, icon, stageIcon } from "./icons";
+import { avatars, icon, stageIcon } from "./icons";
 import { paint, stage as stageName, t, tn } from "./i18n";
 import { hasWorktree, merged, prs, repoLabel, type Board, type Workspace } from "./types";
 import { $, empty, template } from "./util";
@@ -124,8 +124,8 @@ function row(ws: Workspace): HTMLElement {
       `<span class="iact"></span>`,
   );
   el.tabIndex = 0;
-  el.querySelector(".av")!.innerHTML = avatar(ws.repo_name);
-  (el.querySelector(".av") as HTMLElement).title = ws.repo_name;
+  el.querySelector(".av")!.innerHTML = avatars(ws.repos.map((r) => r.name));
+  (el.querySelector(".av") as HTMLElement).title = repoLabel(ws);
   el.querySelector(".atitle b")!.textContent = ws.title;
   el.querySelector(".abranch")!.textContent = ws.branch;
   const stage = el.querySelector(".astage")!;

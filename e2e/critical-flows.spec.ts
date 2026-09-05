@@ -72,7 +72,8 @@ test("comentário fica ao lado da sessão até alguém resolver", async ({ page 
 test("remove projeto sem apagar seus workspaces", async ({ page }) => {
   await boot(page);
 
-  const project = page.locator("#railbody .group", { hasText: "njord" });
+  // "prometeu + njord", em Conjuntos, também casa com "njord".
+  const project = page.locator("#railbody .group", { hasText: "njord", hasNotText: "+" });
   await project.hover();
   await project.locator('button[title="Ações de njord"]').click();
   await page.locator(".menu .mrow", { hasText: "Remover projeto" }).click();
@@ -80,6 +81,19 @@ test("remove projeto sem apagar seus workspaces", async ({ page }) => {
   await expect(project).toHaveCount(0);
   await expect(page.locator("#railbody .group", { hasText: "Sem projeto" })).toBeVisible();
   await expect(page.locator("#railbody .navitem.sub", { hasText: "Ola" })).toBeVisible();
+});
+
+test("workspace com mais de um repo mora em Conjuntos, não no projeto", async ({ page }) => {
+  await boot(page);
+
+  const set = page.locator("#railbody .group", { hasText: "prometeu + njord" });
+  await expect(set).toBeVisible();
+  await expect(set.locator(".avatar.multi.n2 i")).toHaveText(["P", "N"]);
+  await expect(set.locator(".ico")).toHaveCount(0);
+  await expect(page.locator("#railbody .sect", { hasText: "Conjuntos" })).toBeVisible();
+
+  await expect(page.locator("#railbody .navitem.sub", { hasText: "Contratação pelo portal" })).toHaveCount(1);
+  await expect(set.locator("xpath=following-sibling::*[1]").locator(".navitem.sub .lbl")).toHaveText("Contratação pelo portal");
 });
 
 test("separa a cota geral das janelas próprias de um modelo Codex", async ({ page }) => {

@@ -124,6 +124,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "rail.removeProject": "Remove project",
   "rail.pinned": "Pinned",
   "rail.loose": "No project",
+  "rail.sets": "Sets",
   "rail.archived": "Archived",
   "rail.archived.title": "What you set aside",
   "rail.cleanup": "Clean up worktrees",

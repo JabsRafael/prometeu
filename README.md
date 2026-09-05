@@ -15,7 +15,10 @@ Cada projeto tem um menu para removê-lo da lista. A remoção não apaga o
 repositório, worktrees ou conversas; workspaces restantes ficam em **Sem
 projeto**.
 
-A barra lateral agrupa os workspaces por projeto. Cada workspace mostra sua
+A barra lateral agrupa os workspaces por projeto. Um workspace com mais de um
+repositório não pertence a um projeto só: ele mora em **Conjuntos**, abaixo dos
+projetos, num grupo por combinação de repositórios que existe enquanto houver
+workspace de pé, com o avatar dos projetos fatiado. Cada workspace mostra sua
 branch e uma lista recolhível de agentes, uma linha por aba, com a marca do
 provider e acesso direto à conversa. O indicador gira durante a execução,
 fica verde quando a conversa está pronta, âmbar quando precisa de você e
