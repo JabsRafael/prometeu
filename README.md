@@ -15,6 +15,14 @@ Cada projeto tem um menu para removê-lo da lista. A remoção não apaga o
 repositório, worktrees ou conversas; workspaces restantes ficam em **Sem
 projeto**.
 
+A barra lateral agrupa os workspaces por projeto. Cada workspace mostra sua
+branch e uma lista recolhível de agentes, uma linha por aba, com a marca do
+provider e acesso direto à conversa. O indicador gira durante a execução,
+fica verde quando a conversa está pronta, âmbar quando precisa de você e
+cinza quando está desligada. O estado do agente não altera a etapa do trabalho.
+Em sessões compartilhadas, o avatar identifica o dono, pois o relay não informa
+o provider. Cobertura: fluxos da barra lateral em `e2e/critical-flows.spec.ts`.
+
 Sessão é one-off: nasce, faz, morre. Sem passar artefato de uma sessão para outra.
 
 ## Documentação do projeto

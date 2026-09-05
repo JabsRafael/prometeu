@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { Board, Status } from "../src/types";
 
 async function boot(page: Page) {
   await page.goto("/");
@@ -100,10 +101,10 @@ test("separa a cota geral das janelas próprias de um modelo Codex", async ({ pa
 test("o topo local fica estável e não trata workspace comum como compartilhado", async ({ page }) => {
   await boot(page);
   const railWorkspace = page.locator("#railbody .navitem.sub", { hasText: "Ola" });
-  await expect(railWorkspace.locator(".provider image")).toBeVisible();
-  await expect(railWorkspace.locator(".dot")).toHaveCount(0);
+  await expect(railWorkspace.locator(".rail-status")).toHaveAttribute("aria-label", "pronta");
+  await expect(railWorkspace.locator(".wsbranch")).toHaveText("prometeu/sessao-0929");
   await expect(railWorkspace.locator(".st")).toHaveCount(0);
-  await expect(railWorkspace).toHaveAttribute("title", /Claude Code/);
+  await expect(railWorkspace).toHaveAttribute("title", /njord/);
   await expect(railWorkspace).not.toHaveAttribute("title", /Fazendo/);
   await expect(railWorkspace).not.toHaveAttribute("title", /Pronta|Rodando|Desligada/);
   await openWorkspace(page, "Ola");
@@ -127,6 +128,117 @@ test("o topo local fica estável e não trata workspace comum como compartilhado
   });
   await expect(page.locator("#crumb .nm")).toHaveAttribute("data-stable", "yes");
   await expect(page.locator("#msg")).toBeHidden();
+});
+
+test("a barra lateral lista agentes por workspace, acompanha status e abre a aba escolhida", async ({ page }) => {
+  await boot(page);
+  await page.evaluate(async () => {
+    type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+    const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+    const board = await invoke("load_board") as Board;
+    board.workspaces[0].tabs[1].choice = { agent: "codex", model: "gpt-5.6-sol", effort: "high" };
+    await invoke("set_stage", { id: "sessao-0929", stage: "Fazendo" });
+  });
+  const card = page.locator('.railworkspace[data-workspace="sessao-0929"]');
+  const first = card.locator('.railagent[data-tab="t1"]');
+  const second = card.locator('.railagent[data-tab="t2"]');
+  await expect(card.locator(".railagents-toggle")).toHaveText("2 agentes");
+  await expect(first.locator(".provider image")).toBeVisible();
+  await expect(first).toHaveAttribute("title", /Claude Code/);
+  await expect(second.locator(".provider path")).toHaveCount(1);
+  await expect(second).toHaveAttribute("title", /Codex/);
+
+  // O status vem do board, inclusive quando o workspace não está aberto.
+  for (const status of ["rodando", "querendo", "desligada", "pronta"] as Status[]) {
+    await page.evaluate(async (status) => {
+      type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+      const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+      const board = await invoke("load_board") as Board;
+      const workspace = board.workspaces[0];
+      workspace.tabs[0].status = status;
+      await invoke("set_stage", { id: workspace.id, stage: workspace.stage });
+    }, status);
+    await expect(first.locator(".rail-status")).toHaveAttribute("data-status", status);
+    await expect(first.locator(".rail-status")).toHaveCSS("animation-name", status === "rodando" ? "spin" : "none");
+    await expect(card.locator(".navitem .rail-status")).toHaveAttribute("data-status", status === "desligada" ? "pronta" : status);
+  }
+  await expect(first.locator(".rail-status")).toHaveCSS("color", "rgb(95, 191, 115)");
+  await expect(card.locator(".navitem .rail-status")).toHaveCSS("color", "rgb(95, 191, 115)");
+  await expect(page.locator('.railworkspace[data-workspace="ui-2231"] .railagents-toggle')).toHaveText("1 agente");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(page.locator('.railagent[data-tab="t3"] .rail-status')).toHaveCSS("animation-name", "none");
+
+  await second.click();
+  await expect(page.locator("#tabbar .tab.on")).toHaveAttribute("data-tab", "t2");
+  await expect(second).toHaveAttribute("aria-current", "true");
+  await expect(page.locator("#chatwrap .composer .mdl")).toContainText("GPT-5.6-Sol");
+  await page.locator('#tabbar .tab[data-tab="t1"]').click();
+  await expect(first).toHaveAttribute("aria-current", "true");
+  await expect(second).not.toHaveAttribute("aria-current");
+
+  // A linha do agente também volta do arquivo para a conversa selecionada.
+  await page.locator("#tab-files").click();
+  await page.locator("#tree .treerow", { hasText: "CLAUDE.md" }).click();
+  await expect(page.locator("#viewer")).toBeVisible();
+  await first.click();
+  await expect(page.locator("#chatwrap")).toBeVisible();
+  await expect(page.locator("#viewer")).toBeHidden();
+  await second.click();
+  await openWorkspace(page, "Tela igual ao Conductor");
+  await openWorkspace(page, "Ola");
+  await expect(second).toHaveAttribute("aria-current", "true");
+  await expect(page.locator("#tabbar .tab.on")).toHaveAttribute("data-tab", "t2");
+
+  // Recolher não navega; a escolha sobrevive a redesenhos e recargas.
+  await card.locator(".railagents-toggle").focus();
+  await page.keyboard.press("Enter");
+  await expect(card.locator(".railagents-toggle")).toHaveAttribute("aria-expanded", "false");
+  await expect(first).toBeHidden();
+  await expect(page.locator("#wsView")).toBeVisible();
+  await page.locator("#railbody .navitem", { hasText: "Mesa" }).click();
+  await expect(first).toBeHidden();
+  await page.reload();
+  await expect(card.locator(".railagents-toggle")).toHaveAttribute("aria-expanded", "false");
+  await card.locator(".railagents-toggle").click();
+  await expect(first).toBeVisible();
+
+  // Antes de nascer uma aba, o card continua abrindo o estado de preparação.
+  await page.evaluate(async () => {
+    type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+    const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+    const board = await invoke("load_board") as Board;
+    const workspace = board.workspaces[0];
+    workspace.tabs = [];
+    workspace.active = null;
+    workspace.preparing = true;
+    await invoke("set_stage", { id: workspace.id, stage: workspace.stage });
+  });
+  await expect(card.locator(".railagents-toggle")).toHaveCount(0);
+  await expect(card.locator(".rail-status")).toHaveAttribute("aria-label", "preparando");
+  await card.locator(".navitem").click();
+  await expect(card).toHaveClass(/\bon\b/);
+  await expect(page.locator("#wsView")).toBeVisible();
+});
+
+test("a barra lateral abre agentes remotos sem inventar provider e mostra o dono offline", async ({ page }) => {
+  await bootTeam(page);
+  const second = page.locator('.railagent[data-tab="mt2"]');
+  await expect(second.locator(".provider .avatar")).toBeVisible();
+  await expect(second).not.toHaveAttribute("title", /Claude|Codex/);
+  await second.click();
+  await expect(page.locator("#tabbar .tab.on")).toHaveAttribute("data-tab", "mt2");
+  await expect(second).toHaveAttribute("aria-current", "true");
+  await page.locator('#tabbar .tab[data-tab="mt1"]').click();
+  await expect(page.locator('.railagent[data-tab="mt1"]')).toHaveAttribute("aria-current", "true");
+  await expect(second).not.toHaveAttribute("aria-current");
+  await second.click();
+  await expect(page.locator("#tabbar .tab.on")).toHaveAttribute("data-tab", "mt2");
+  await expect(second).toHaveAttribute("aria-current", "true");
+  await page.evaluate(() => {
+    (window as unknown as { mock: { presence: (online: boolean) => void } }).mock.presence(false);
+  });
+  await expect(page.locator('.railagent[data-tab="mt1"] .rail-status')).toHaveAttribute("data-status", "desligada");
+  await expect(second.locator(".rail-status")).toHaveAttribute("aria-label", "desligada");
 });
 
 test("a troca rápida de aba ignora o snapshot atrasado da aba anterior", async ({ page }) => {

@@ -133,13 +133,14 @@ export function init(context: Ctx) {
 
 /* ---------- entrar e sair ---------- */
 
-export async function open(ws: Workspace) {
+export async function open(ws: Workspace, tab?: string) {
+  if (tab && openWs === ws.id) return selectTab(ws.id, tab);
   const epoch = ++navigation;
   // Ir de um workspace a outro não passa pelo `leave`: sem isto, a webview do
   // que ficou para trás continuaria por cima do que você abriu.
   browser.hide();
   session.detach();
-  const first = ws.tabs.find((t) => t.id === ws.active) ?? ws.tabs[0];
+  const first = ws.tabs.find((t) => t.id === (tab ?? ws.active)) ?? ws.tabs[0];
   sidebar.setOpen((openWs = ws.id));
   $("wsView").hidden = false;
   $("wsctl").hidden = false;
@@ -163,21 +164,23 @@ export async function open(ws: Workspace) {
   // é o painel. Quando a aba nascer, é o `catchUp` do `draw` que liga.
   if (pending(ws)) {
     showTerm();
-    draw();
+    ctx.redraw();
     return;
   }
   // Worktree devolvido: não há processo para ligar nem arquivo para ler. O que
   // sobrou é o que está escrito, e é isso que a tela mostra.
   if (ws.cleaned) {
-    draw();
+    ctx.redraw();
     return;
   }
   // attach primeiro: é ele quem define a sessão corrente que as abas marcam.
   if (first && !(await session.attach(first.id))) return;
   if (!stillHere(epoch, ws.id)) return;
+  if (tab && first) invoke("focus_tab", { workspace: ws.id, tab: first.id });
   // Volta para onde parou: arquivo aberto continua aberto, diff continua na tela.
   const fs = files(ws.id);
-  if (fs.web) await showWeb();
+  if (tab) showTerm();
+  else if (fs.web) await showWeb();
   else if (fs.diff) showChanges();
   else if (fs.active) await showFile();
   else showTerm();
@@ -864,7 +867,7 @@ async function selectTab(workspace: string, tab: string) {
   const epoch = navigation;
   if (!(await session.attach(tab, remote ? workspace : undefined))) return;
   if (!stillHere(epoch, workspace)) return;
-  draw();
+  ctx.redraw();
 }
 
 /// `choice` é o modelo escolhido na setinha do "+". Sem ele — ⌘T, clique no
@@ -880,7 +883,7 @@ export async function newTab(prompt = "", choice: Choice | null = null) {
     showTerm();
     if (!(await session.attach(tab.id))) return;
     if (!stillHere(epoch, ws.id)) return;
-    draw();
+    ctx.redraw();
   } catch (err) {
     ctx.say(fromBack(err), true);
   }
