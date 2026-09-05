@@ -57,6 +57,7 @@ pub fn spawn(
     let selected_plugins = plugins::codex_for(workspace, launch.plugins.as_ref())?;
     let mut cmd = Command::new("codex");
     cmd.args(["app-server", "--enable", "default_mode_request_user_input"]);
+    cmd.args(["-c", "suppress_unstable_features_warning=true"]);
     if let Some(home) = &selected_plugins.home {
         cmd.env("CODEX_HOME", home);
     }
