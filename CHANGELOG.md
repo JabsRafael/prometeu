@@ -4,6 +4,40 @@ O que muda no Prometeu, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.5.4] - 2026-09-05
+<!-- lang:pt-BR -->
+
+### Novidades
+
+- **git:** Gerenciar stage, commits e branches no painel de alterações
+- **barra lateral:** Mostra agentes por workspace
+- **time:** Já vem com um relay padrão para entrar no time
+- **workspaces:** Amplia variedade dos nomes de branches
+
+### Correções
+
+- **mesa:** Centraliza estado vazio na tela
+- **codex:** Oculta aviso experimental ao iniciar sessão
+
+<!-- lang:en -->
+
+### New
+
+- **git:** Manage staging, commits and branches in the changes panel
+
+- **sidebar:** Shows agents and their status per workspace
+
+- **team:** Ships with a default relay for joining a team
+
+- **workspaces:** Expands variety of generated branch names
+
+### Fixes
+
+- **desk:** Centers empty state on screen
+
+- **codex:** Hides experimental feature warning when starting a session
+
+<!-- lang:end -->
 ## [0.5.3] - 2026-09-05
 <!-- lang:pt-BR -->
 
