@@ -352,8 +352,9 @@ npm run relay:dev      # ou o relay local, em ws://127.0.0.1:8787
 
 Com o relay local, `VITE_RELAY=ws://127.0.0.1:8787` aponta o app (ou o
 navegador sobre o `src/mock.ts`) para ele, e dois deles testam o
-compartilhamento de ponta a ponta. Sem relay publicado, o app não tem padrão:
-a URL vai à mão em Configurações → Time → Relay.
+compartilhamento de ponta a ponta. O app já vem com um relay padrão embutido
+(`RELAY`, em `src/team.ts`); quem quiser o seu troca a URL em Configurações →
+Time → Relay.
 
 ## Rodar
 
