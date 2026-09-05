@@ -204,11 +204,6 @@ export type Workspace = {
 
 export type Remote = { owner: string; online: boolean };
 
-/// O provedor que identifica o workspace na lista lateral. A primeira conversa
-/// pode ter uma escolha própria; sem ela — ou antes de existir conversa — vale
-/// a escolha do workspace.
-export const firstTabProvider = (ws: Workspace): ProviderId => ws.tabs[0]?.choice?.agent ?? ws.agent;
-
 /// O PR de uma branch, como o `gh` conta. `state` é `OPEN`, `MERGED` ou
 /// `CLOSED`.
 export type Pr = { number: number; title: string; isDraft: boolean; state: string };

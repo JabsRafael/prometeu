@@ -20,9 +20,9 @@ export default defineConfig({
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
     // O app de verdade roda no WebKit. O que é gesto do motor — o canto que
-    // estica, o arraste — precisa rodar nele também; só a mesa, que é onde
-    // isso mora, para a suíte não dobrar de tamanho.
-    { name: "webkit", use: { ...devices["Desktop Safari"] }, grep: /a mesa/ },
+    // estica, o arraste — precisa rodar nele também. A navegação pelos agentes
+    // na barra lateral cobre foco, seleção e recolhimento no mesmo motor.
+    { name: "webkit", use: { ...devices["Desktop Safari"] }, grep: /a mesa|a barra lateral/ },
   ],
   webServer: {
     // O preview é estático: além de exercitar o bundle de produção, evita um

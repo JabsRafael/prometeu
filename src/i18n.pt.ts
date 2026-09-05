@@ -136,6 +136,8 @@ export const PT = {
   "rail.cleanup": "Limpar worktrees",
   "rail.cleanup.title": "Tirar do disco os worktrees de trabalho que já acabou",
   "rail.team": "Do time",
+  "rail.agents.one": "{n} agente",
+  "rail.agents.other": "{n} agentes",
 
   /* ---------- menu do Mac ---------- */
 

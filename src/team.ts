@@ -68,9 +68,9 @@ export type TeamConfig = {
 
 export type Phase = "off" | "connecting" | "online";
 
-/// O relay que `npm run relay:deploy` publicou. Vazio enquanto não há um: aí
-/// só entra quem informar o seu em Configurações (ou `VITE_RELAY` no dev).
-const RELAY = "";
+/// O relay que `npm run relay:deploy` publicou. É o padrão do app: quem não
+/// informar outro em Configurações (ou `VITE_RELAY` no dev) entra por ele.
+const RELAY = "wss://prometeu-relay.prometheus-capim.workers.dev";
 
 /// O tamanho de cada parte da conversa que vai a quem acabou de abrir uma
 /// aba. O relay limita a mensagem a 1 MB; a conversa inteira (até 4 MB, o que

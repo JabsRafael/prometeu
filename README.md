@@ -15,7 +15,19 @@ Cada projeto tem um menu para removê-lo da lista. A remoção não apaga o
 repositório, worktrees ou conversas; workspaces restantes ficam em **Sem
 projeto**.
 
+A barra lateral agrupa os workspaces por projeto. Cada workspace mostra sua
+branch e uma lista recolhível de agentes, uma linha por aba, com a marca do
+provider e acesso direto à conversa. O indicador gira durante a execução,
+fica verde quando a conversa está pronta, âmbar quando precisa de você e
+cinza quando está desligada. O estado do agente não altera a etapa do trabalho.
+Em sessões compartilhadas, o avatar identifica o dono, pois o relay não informa
+o provider. Cobertura: fluxos da barra lateral em `e2e/critical-flows.spec.ts`.
+
 Sessão é one-off: nasce, faz, morre. Sem passar artefato de uma sessão para outra.
+
+Branches sugeridas usam duas palavras e quatro dígitos aleatórios, como
+`prometeu/farol-quieto-0382`: 163.840.000 combinações. O app evita nomes já
+listados nas branches locais e remotas. Cobertura: `src/branch.test.ts`.
 
 ## Documentação do projeto
 
@@ -362,8 +374,9 @@ npm run relay:dev      # ou o relay local, em ws://127.0.0.1:8787
 
 Com o relay local, `VITE_RELAY=ws://127.0.0.1:8787` aponta o app (ou o
 navegador sobre o `src/mock.ts`) para ele, e dois deles testam o
-compartilhamento de ponta a ponta. Sem relay publicado, o app não tem padrão:
-a URL vai à mão em Configurações → Time → Relay.
+compartilhamento de ponta a ponta. O app já vem com um relay padrão embutido
+(`RELAY`, em `src/team.ts`); quem quiser o seu troca a URL em Configurações →
+Time → Relay.
 
 ## Rodar
 

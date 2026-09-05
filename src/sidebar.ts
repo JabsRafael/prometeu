@@ -1,16 +1,17 @@
 import { avatar, brand, icon, stageIcon } from "./icons";
-import { stage as stageName, t } from "./i18n";
+import { stage as stageName, t, tn } from "./i18n";
 import * as menu from "./menu";
 import * as team from "./team";
 import * as rename from "./rename";
-import { firstTabProvider, hasWorktree, repoLabel, type Board, type Workspace } from "./types";
+import { hasWorktree, label, repoLabel, stateLabel, statusOf, type Board, type Status, type Workspace } from "./types";
 import { h, template } from "./util";
 
 /// Ações disponíveis na lista lateral e no menu de um workspace.
 export type Hooks = {
   /// A caixa "Para mim": os comentários abertos que marcaram você.
   inbox: () => void;
-  open: (ws: Workspace) => void;
+  open: (ws: Workspace, tab?: string) => void;
+  activeTab: () => string | null;
   setStage: (id: string, stage: string) => void;
   /// Remove o workspace de vez — o worktree e a branch ficam, a referência não.
   drop: (id: string) => void;
@@ -276,7 +277,7 @@ function renderGroup(
   /// idioma, e um grupo recolhido não pode se abrir sozinho por causa disso.
   key = name,
   opts: {
-    /// Grupo que mistura repositórios (fixados, soltos, arquivados): ali o
+    /// Grupo que mistura repositórios (fixados, soltos): ali o
     /// avatar ainda é o que diz de qual projeto a linha é.
     avatars?: boolean;
     /// Botões do cabeçalho — ações de baixa frequência e criação.
@@ -292,6 +293,8 @@ function renderGroup(
     `<span class="gg">${glyph}</span><span></span><span class="n"></span><span class="gc"></span>`,
   );
   head.tabIndex = 0;
+  head.setAttribute("role", "button");
+  head.setAttribute("aria-expanded", String(!shut));
   head.children[1].textContent = name;
   head.children[2].textContent = list.length ? String(list.length) : "";
   // Grupo vazio não recolhe: o cabeçalho está ali só pelo + de criar dentro.
@@ -313,30 +316,71 @@ function renderGroup(
   if (shut) return;
 
   for (const ws of list) {
-    const provider = firstTabProvider(ws);
+    const card = h("div", "railworkspace" + (ws.id === openId ? " on" : ""));
+    card.dataset.workspace = ws.id;
+    const owner = ws.remote ? team.nameOf(ws.remote.owner) : null;
+    const status = ws.remote && !ws.remote.online ? "desligada" : statusOf(ws);
     const b = template(
       "button",
-      "navitem sub" + (ws.id === openId ? " on" : "") + (ws.unread ? " unread" : ""),
-      `<span class="provider">${brand(provider, 13)}</span><span class="lbl"></span><span class="n"></span>`,
+      "navitem sub" + (ws.unread ? " unread" : ""),
+      `<span class="wsidentity"><span class="lbl"></span><span class="wsbranch"></span></span>`,
     );
-    b.children[1].textContent = ws.title;
-    b.children[2].textContent = ws.tabs.length > 1 ? `${ws.tabs.length}` : "";
+    b.prepend(statusDot(ws.preparing ? "rodando" : status, ws.remote ? label(status) : stateLabel(ws)));
+    if (ws.failed) b.querySelector(".rail-status")!.classList.add("failed");
+    const title = b.querySelector<HTMLElement>(".lbl")!;
+    title.textContent = ws.title;
+    b.querySelector(".wsbranch")!.textContent = ws.branch;
+    b.title = [owner, repoLabel(ws), ws.branch].filter(Boolean).join(" · ");
     b.addEventListener("click", () => hooks.open(ws));
-    // Workspace de colega usa o avatar do dono como identidade.
-    if (ws.remote) {
-      const owner = team.nameOf(ws.remote.owner);
-      b.title = `${owner} · ${ws.repo_name} · ${ws.branch}`;
-      // O relay não anuncia o provedor. O avatar do dono ocupa a identidade da
-      // linha sem inventar Claude para um workspace que pode estar no Codex.
-      b.children[0].className = "av";
-      b.children[0].innerHTML = avatar(owner);
-      if (!ws.remote.online) b.classList.add("off");
-      rail.append(b);
-      continue;
+    if (owner || opts.avatars) b.children[0].after(template("span", "av", avatar(owner ?? ws.repo_name)));
+    if (ws.remote && !ws.remote.online) card.classList.add("off");
+    if (!ws.remote) attachMenu(b, ws, board, hooks, title, "sub");
+    card.append(b);
+
+    if (ws.tabs.length) {
+      const key = `@ws:${ws.id}`;
+      const shut = folded(key);
+      const toggle = template("button", "railagents-toggle", `<span></span>${icon(shut ? "chevron-right" : "chevron-down", 12)}`);
+      toggle.children[0].textContent = tn(ws.tabs.length, "rail.agents");
+      toggle.setAttribute("aria-expanded", String(!shut));
+      toggle.setAttribute("aria-controls", `railagents-${ws.id}`);
+      const agents = h("div", "railagents");
+      agents.id = `railagents-${ws.id}`;
+      agents.hidden = shut;
+      toggle.addEventListener("click", () => {
+        agents.hidden = !agents.hidden;
+        localStorage.setItem(FOLD + key, agents.hidden ? "1" : "0");
+        toggle.setAttribute("aria-expanded", String(!agents.hidden));
+        toggle.lastElementChild!.outerHTML = icon(agents.hidden ? "chevron-right" : "chevron-down", 12);
+      });
+      for (const tab of ws.tabs) {
+        const provider = tab.choice?.agent ?? ws.agent;
+        const status = ws.remote && !ws.remote.online ? "desligada" : tab.status;
+        // O relay não anuncia o provider; a identidade remota é o dono.
+        const agent = template("button", "railagent", `<span class="provider">${owner ? avatar(owner) : brand(provider, 17)}</span><span class="lbl"></span>`);
+        agent.prepend(statusDot(status));
+        agent.dataset.tab = tab.id;
+        agent.querySelector(".lbl")!.textContent = tab.title;
+        agent.title = [tab.title, owner ?? t(`model.${provider}`), label(status), tab.note].filter(Boolean).join(" · ");
+        agent.setAttribute("aria-label", agent.title);
+        if (ws.id === openId && tab.id === hooks.activeTab()) {
+          agent.classList.add("on");
+          agent.setAttribute("aria-current", "true");
+        }
+        agent.addEventListener("click", () => hooks.open(ws, tab.id));
+        agents.append(agent);
+      }
+      card.append(toggle, agents);
     }
-    b.title = `${repoLabel(ws)} · ${ws.branch} · ${t(`model.${provider}`)}`;
-    if (opts.avatars) b.children[0].after(template("span", "av", avatar(ws.repo_name)));
-    attachMenu(b, ws, board, hooks, b, "sub");
-    rail.append(b);
+    rail.append(card);
   }
+}
+
+function statusDot(status: Status, text = label(status)) {
+  const dot = h("span", "rail-status");
+  dot.dataset.status = status;
+  dot.setAttribute("role", "img");
+  dot.setAttribute("aria-label", text);
+  dot.title = text;
+  return dot;
 }

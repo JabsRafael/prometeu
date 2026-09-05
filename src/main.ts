@@ -61,7 +61,8 @@ function say(text: string, isError = false) {
 /* ---------- navegação ---------- */
 
 const hooks: sidebar.Hooks = {
-  open: (w) => openWorkspace(w),
+  open: (w, tab) => openWorkspace(w, true, tab),
+  activeTab: session.currentSession,
   setStage: ws.setStage,
   drop: (id) => {
     if (ws.id() === id) showDesk();
@@ -183,10 +184,10 @@ function showOnly(view: "settingsView" | "issuesView" | "archivedView" | "deskVi
 const crumbLabel = (text: string) =>
   Object.assign(document.createElement("span"), { textContent: text });
 
-async function openWorkspace(target: Workspace, push = true) {
+async function openWorkspace(target: Workspace, push = true, tab?: string) {
   if (push) visit(target.id);
   showOnly(null);
-  await ws.open(target);
+  await ws.open(target, tab);
   alert.looked();
 }
 

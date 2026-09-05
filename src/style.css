@@ -188,12 +188,22 @@ body.norail .top .nav { margin-left: 0; }
 .sect > span { flex: 1; }
 .railhint { font-size: 12px; color: var(--fg-3); padding: 4px 5px 8px; }
 
-.navitem.sub { font-size: 13px; padding-left: 12px; height: 30px; }
+.railworkspace {
+  flex: none; margin: 2px 0; padding: 4px; border: 1px solid transparent;
+  border-radius: 14px;
+}
+.railworkspace:hover { background: var(--bg-raised); }
+.railworkspace.on { background: var(--bg-raised-2); border-color: var(--line-ghost); }
+.railworkspace.off { opacity: .6; }
+.navitem.sub { font-size: 13px; padding: 3px 5px; height: auto; min-height: 42px; align-items: flex-start; color: var(--fg); }
+.railworkspace .navitem.sub:hover { background: none; }
+.navitem.sub .wsidentity { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.navitem.sub .wsbranch { font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.navitem.sub > .rail-status { margin-top: 5px; }
 /* Novidade: o que aconteceu enquanto você olhava outra coisa. Negrito e branco,
    como e-mail não lido — sem mais um glifo na linha. */
 .navitem.sub.unread .lbl { color: var(--fg); font-weight: 600; }
-.navitem.sub .provider { width: 13px; height: 13px; display: flex; flex: none; margin: 0 0 0 1px; }
-.navitem.sub .av { display: flex; margin-right: -2px; }
+.navitem.sub .av { display: flex; margin: 3px -2px 0 0; }
 .navitem.sub .av .avatar { width: 14px; height: 14px; border-radius: 3px; font-size: 9px; }
 
 /* Grupo por projeto: o cabeçalho da lista, com o avatar do repositório, a
@@ -208,11 +218,35 @@ body.norail .top .nav { margin-left: 0; }
 .group:focus-visible { outline: 2px solid var(--tab-line); outline-offset: 1px; }
 .group > span:nth-of-type(2) { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .group .gg { display: flex; color: var(--fg-2); }
-.group .n { font-size: 12px; font-weight: 400; color: var(--fg-3); }
+.group .n { font-size: 12px; font-weight: 400; color: var(--fg-3); padding: 0 5px; border-radius: 8px; background: var(--bg); }
 .group .gc { display: flex; color: var(--fg-3); opacity: 0; }
-.group:hover .gc { opacity: 1; }
+.group:hover .gc, .group:focus-within .gc { opacity: 1; }
 .group .ico { opacity: 0; }
-.group:hover .ico, .group .ico:focus-visible { opacity: 1; }
+.group:hover .ico, .group:focus-within .ico { opacity: 1; }
+
+.railagents-toggle {
+  display: flex; width: calc(100% - 24px); height: 26px; margin-left: 24px; padding: 0 5px;
+  justify-content: space-between; background: none; color: var(--fg-3); font-size: 12px; font-weight: 400;
+}
+.railagents-toggle:hover { color: var(--fg-2); }
+.railagents { padding: 2px 0 1px 20px; }
+.railagent {
+  display: flex; width: 100%; height: 29px; padding: 0 5px; gap: 8px;
+  justify-content: flex-start; background: none; color: var(--fg-2); font-size: 12px; font-weight: 400;
+}
+.railagent:hover, .railagent.on { color: var(--fg); background: var(--bg-raised-3); }
+.railagent .provider { display: flex; flex: none; width: 17px; }
+.railagent .lbl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-status {
+  display: block; flex: none; width: 10px; height: 10px; border-radius: 50%;
+  color: var(--fg-3); border: 1.5px solid currentColor;
+}
+.navitem > span.rail-status { flex: none; overflow: visible; }
+.rail-status[data-status="rodando"] { color: #e9ba45; border-width: 2.5px; border-left-color: transparent; animation: spin .8s linear infinite; }
+.rail-status[data-status="pronta"] { color: var(--done); background: currentColor; border: 2px solid var(--bg-side); box-shadow: 0 0 0 1px currentColor; }
+.rail-status[data-status="querendo"] { color: var(--wait); background: currentColor; }
+.rail-status.failed { color: var(--err); background: currentColor; animation: none; }
+@media (prefers-reduced-motion: reduce) { .rail-status[data-status="rodando"] { animation: none; } }
 
 /* ---------- barra do topo ---------- */
 
