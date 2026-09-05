@@ -457,11 +457,8 @@ test("a tela de Mudanças não monta o diff que ninguém está vendo", async ({ 
         patch: patch(60),
       }));
     internals.invoke = async function (command, args, options) {
-      if (command === "workspace_diff") {
-        return [
-          { name: "prometeu", base: "origin/main", ahead: 9, unpushed: 0, dirty: 0, files: files("um", 60) },
-          { name: "njord", base: "origin/develop", ahead: 3, unpushed: 0, dirty: 0, files: files("dois", 50) },
-        ];
+      if (command === "workspace_git_diff" && args?.scope === "compare") {
+        return { base: "base", head: "head", files: [...files("um", 60), ...files("dois", 50)] };
       }
       return original.call(this, command, args, options);
     };
@@ -471,11 +468,10 @@ test("a tela de Mudanças não monta o diff que ninguém está vendo", async ({ 
   // O diff é conferido de novo enquanto a tela dele está aberta: é por aí que
   // ele chega, sem depender de o agente mexer em nada.
   await page.locator("#tab-diff").click();
-  await expect(page.locator("#difflist .diffrepo")).toHaveCount(2, { timeout: 10_000 });
-  await expect(page.locator("#difflist .diffsum .state")).toContainText("tudo empurrado");
+  await expect(page.locator(".git-repository")).toBeVisible();
 
   await page.locator("#review").click();
-  const dlist = page.locator("#dlist");
+  const dlist = page.locator("#dlist .git-review-list");
   await expect(dlist.locator(".dfile")).toHaveCount(110);
   // Os 110 cabeçalhos existem; as 6.600 linhas, não — só as de quem está perto
   // da tela. Sem preguiça isto passava de 40 mil nós.
@@ -489,7 +485,7 @@ test("a tela de Mudanças não monta o diff que ninguém está vendo", async ({ 
   expect(altura).toBeGreaterThan(100_000);
 
   // Clicar num arquivo lá do fim da lista leva até ele — montado.
-  await page.locator("#difflist .diffrow").last().click();
+  await dlist.locator(".dfile").last().scrollIntoViewIfNeeded();
   await expect(dlist.locator(".dfile").last().locator(".drow").first()).toBeVisible();
 });
 
@@ -561,12 +557,13 @@ test("duplo clique numa mudança abre o arquivo no viewer", async ({ page }) => 
   await openWorkspace(page, "Ola");
 
   await page.locator("#tab-diff").click();
-  const row = page.locator("#difflist .diffrow", { hasText: "style.css" }).first();
+  const row = page.locator("#difflist .git-file-name", { hasText: "style.css" }).first();
   await expect(row).toBeVisible();
 
   // Um clique é ir até o arquivo no diff do centro, e não abrir.
   await row.click();
-  await expect(page.locator("#dlist .dhead", { hasText: "style.css" }).first()).toBeVisible();
+  await expect(page.locator("#dcrumb")).toContainText("style.css");
+  await expect(page.locator("#dlist .git-split")).toBeVisible();
   await expect(page.locator("#viewer")).toBeHidden();
 
   await row.dblclick();
@@ -576,60 +573,29 @@ test("duplo clique numa mudança abre o arquivo no viewer", async ({ page }) => 
 
   // E o mesmo gesto no cabeçalho do arquivo dentro do diff empilhado.
   await page.locator("#tab-diff").click();
-  await page.locator("#dlist .dhead", { hasText: "style.css" }).first().dblclick();
+  await page.locator("#dcrumb").getByRole("button", { name: "Abrir arquivo", exact: true }).click();
   await expect(page.locator("#viewer")).toBeVisible();
   await expect(page.locator("#vcrumb")).toContainText("style.css");
 });
 
-/// O filtro do que está fora de commit escondia repositório inteiro: num
-/// workspace com três repos, se o que ainda não foi commitado estava só num
-/// deles, os outros dois sumiam da lista sem deixar rastro — e a tela parecia
-/// estar deixando de mostrar mudança. Agora o repositório continua ali,
-/// dizendo que o dele está todo commitado.
-test("o filtro de fora de commit não faz repositório sumir da lista", async ({ page }) => {
+/// Repositório limpo continua selecionável; preparar ou commitar no segundo
+/// não pode alterar o índice do primeiro.
+test("Git mantém repositórios limpos e isola o stage de cada repositório", async ({ page }) => {
   await boot(page);
-
-  await page.evaluate(() => {
-    type Invoke = (command: string, args?: Record<string, unknown>, options?: unknown) => Promise<unknown>;
-    const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
-    const original = internals.invoke;
-    const files = (repo: string, n: number, dirty: boolean) =>
-      Array.from({ length: n }, (_, i) => ({
-        path: `${repo}/arquivo${i}.ts`,
-        added: 3,
-        removed: 1,
-        new_file: false,
-        deleted: false,
-        dirty,
-        patch: "@@ -1,1 +1,1 @@\n-velho\n+novo",
-      }));
-    internals.invoke = async function (command, args, options) {
-      if (command === "workspace_diff") {
-        return [
-          // Tudo commitado: é este que sumia quando o filtro ligava.
-          { name: "prometeu", base: "origin/main", ahead: 9, unpushed: 0, dirty: 0, files: files("um", 8, false) },
-          { name: "njord", base: "origin/develop", ahead: 4, unpushed: 0, dirty: 2, files: files("dois", 2, true) },
-        ];
-      }
-      return original.call(this, command, args, options);
-    };
-  });
-
   await openWorkspace(page, "Contratação pelo portal");
   await page.locator("#tab-diff").click();
-
-  const repos = page.locator("#difflist .diffrepo");
-  await expect(repos).toHaveCount(2, { timeout: 10_000 });
-  await expect(page.locator("#difflist .diffrow")).toHaveCount(10);
-
-  // Liga o filtro: só os dois arquivos do njord ficam, mas os dois
-  // repositórios continuam na lista.
-  await page.locator("#difflist .diffsum .dirtyf").click();
-  await expect(page.locator("#difflist .diffrow")).toHaveCount(2);
-  await expect(repos).toHaveCount(2);
-  await expect(repos.first()).toHaveClass(/\bquiet\b/);
-  await expect(repos.first()).toContainText("prometeu");
-  await expect(repos.first()).toContainText("tudo commitado");
+  const picker = page.getByRole("button", { name: "Repositório", exact: true });
+  await expect(picker).toContainText("prometeu");
+  await page.locator('[data-scope="staged"]').getByRole("button", { name: "Remover tudo do stage", exact: true }).click();
+  await expect(page.locator('[data-scope="staged"] .git-file')).toHaveCount(0);
+  await picker.click();
+  await page.locator(".menu .mrow", { hasText: "njord" }).click();
+  await expect(picker).toContainText("njord");
+  await expect(page.locator('[data-scope="staged"] .git-file')).toHaveCount(1);
+  await picker.click();
+  await page.locator(".menu .mrow", { hasText: "prometeu" }).click();
+  await expect(page.locator('[data-scope="staged"] .git-file')).toHaveCount(0);
+  await expect(page.locator('.git-repository .avatar')).toHaveText("P");
 });
 
 /// O hub é um só: trocar de Claude para Codex muda o adapter, não a escolha do

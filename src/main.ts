@@ -19,7 +19,7 @@ import { current, fromBack, paint, t } from "./i18n";
 import * as issues from "./issues";
 import * as mcp from "./mcp";
 import * as plugins from "./plugins";
-import { dropFiles, openLauncher, type Draft } from "./launcher";
+import { dropFiles, openLauncher, type Draft, type Open } from "./launcher";
 import * as menu from "./menu";
 import * as news from "./news";
 import * as rename from "./rename";
@@ -372,11 +372,12 @@ getCurrentWebview().onDragDropEvent(({ payload }) => {
 
 /* ---------- ações ---------- */
 
-function launch(projectId?: string, seed?: Issue) {
+function launch(projectId?: string, seed?: Issue, git?: Open["git"]) {
   if (!state.projects.length) return hooks.addProject();
   openLauncher(state, {
     preset: projectId,
     seed,
+    git,
     toSettings: () => showSettings(),
     // Criar volta em milissegundos: o workspace entra na lista na hora e o worktree
     // monta atrás (ver `create_workspace`). Sem recado na barra, então — quem
@@ -599,7 +600,23 @@ issues.init({
   toSettings: () => showSettings(),
 });
 archived.init({ board: () => state, hooks: () => hooks });
-ws.init({ say, board: view, redraw: draw, home: () => showDesk() });
+ws.init({
+  say, board: view, redraw: draw, home: () => showDesk(),
+  launchBranch: (project, base, branch) => launch(project, undefined, { base, branch }),
+  openGitWorkspace: async (id) => {
+    const target = state.workspaces.find((workspace) => workspace.id === id);
+    if (!target) return;
+    try {
+      if (target.archived) {
+        await invoke("archive_workspace", { id, archived: false });
+        target.archived = false;
+      }
+      await openWorkspace(state.workspaces.find((workspace) => workspace.id === id) ?? target);
+    } catch (err) {
+      say(fromBack(err), true);
+    }
+  },
+});
 // O que a caixa de escrever precisa saber de uma aba: de quem é, se está
 // desligada, se há time para comentar. A mesma resposta para a conversa do
 // workspace aberto e para cada quadro da mesa.

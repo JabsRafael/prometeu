@@ -20,6 +20,7 @@ como índice curto para agentes e `README.md` apresenta o produto.
 - [`contracts/plugin-marketplace.md`](contracts/plugin-marketplace.md): hub,
   pacote portátil e adaptação por provider.
 - [`contracts/ipc.md`](contracts/ipc.md): fronteira TypeScript/Rust.
+- [`contracts/git.md`](contracts/git.md): índice, worktree, revisão e operações Git.
 - [`contracts/persistence.md`](contracts/persistence.md): board e transcripts.
 - [`contracts/relay-v3.md`](contracts/relay-v3.md): protocolo de colaboração.
 
@@ -40,6 +41,8 @@ como índice curto para agentes e `README.md` apresenta o produto.
   importação explícita dos dados da instalação anterior — aceita.
 - [`decisions/0007-persistent-session-comments.md`](decisions/0007-persistent-session-comments.md):
   comentários persistentes ao lado da sessão — aceita.
+- [`decisions/0008-explicit-git-index.md`](decisions/0008-explicit-git-index.md):
+  índice Git explícito e operações por repositório — aceita.
 
 ## Qualidade e operação
 

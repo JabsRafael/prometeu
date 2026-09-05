@@ -24,6 +24,10 @@ escolhido pelo chamador e os argumentos são `InvokeArgs`.
 - detalhe externo ou de I/O pode acompanhar o código sem virar texto fixo da UI;
 - operação pesada não bloqueia a thread principal.
 
+Os comandos de status, diffs, branches, commits e resolução de conflitos estão
+em [`git.md`](git.md). Eles são aditivos: `workspace_diff` mantém o contrato
+anterior e não passa a significar stage.
+
 ## Eventos emitidos atualmente
 
 | Evento | Emissor | Payload emitido |

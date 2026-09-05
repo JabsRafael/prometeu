@@ -40,3 +40,4 @@ Status: Proposto
 | [0005](0005-portable-plugin-marketplace.md) | Aceito | marketplace portátil para Claude e Codex |
 | [0006](0006-explicit-prometheus-import.md) | Aceito | importação explícita e não destrutiva do Prometheus |
 | [0007](0007-persistent-session-comments.md) | Aceito | comentários persistentes ao lado da sessão |
+| [0008](0008-explicit-git-index.md) | Aceito | índice Git explícito e operações por repositório |

@@ -53,6 +53,32 @@ export type Project = { id: string; name: string; path: string };
 /// seu histórico.
 export type Repo = { path: string; name: string; worktree: string; base: string; pr: Pr | null };
 
+/// Contrato de Git local; nomes e caminhos permanecem dados do repositório.
+export type GitFile = { path: string; status: string };
+export type GitStatus = {
+  repo: number;
+  name: string;
+  branch: string | null;
+  base: string;
+  upstream: string | null;
+  remotes: string[];
+  ahead: number;
+  behind: number;
+  has_head: boolean;
+  merging: boolean;
+  index: string;
+  staged: GitFile[];
+  changes: GitFile[];
+  conflicts: GitFile[];
+  error: string | null;
+};
+export type GitScope = "staged" | "changes" | "compare" | "commit";
+export type GitDiff = { base: string; head: string; files: Change[] };
+export type GitCommit = { oid: string; subject: string; author: string; date: string; outgoing: boolean };
+export type GitBranch = { name: string; current: boolean; remote: boolean; worktree: string | null; workspace: string | null };
+export type GitConflict = { current: string; ours: string | null; theirs: string | null };
+export type GitAction = "stage" | "unstage" | "commit" | "fetch" | "pull" | "push" | "publish";
+
 /// O nome que a tela dá aos repositórios do workspace: o do principal, ou os
 /// de todos quando há mais de um — é assim que se sabe de longe que o card
 /// atravessa dois repos.
