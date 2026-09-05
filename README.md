@@ -64,7 +64,8 @@ As fronteiras maiores ficam em módulos próprios: apresentação da conversa em
 `src/chat-presentation.ts`, índice de mudanças em `src/workspace-changes.ts`,
 transporte e controle remoto do time em `src/team-transport.ts` e
 `src/team-control.ts`; no back, Git/diff e leitura de arquivos ficam em
-`src-tauri/src/session/diff.rs` e `src-tauri/src/session/files.rs`. O contrato
+`src-tauri/src/session/git.rs`, `src-tauri/src/session/diff.rs` e
+`src-tauri/src/session/files.rs`. O contrato
 da conversa e a compatibilidade com transcripts antigos ficam em
 `src/conversation.ts`, `src/conversation-legacy.ts` e
 `src-tauri/src/conversation.rs`.
@@ -78,6 +79,23 @@ diferente — o id de thread que ele escolhe, a conversa que o app grava porque
 o rollout dele tem outra forma, os comandos de barra que são do app — está
 explicado no cabeçalho desse arquivo. O catálogo de modelos sai do
 `models_cache.json` do próprio `codex` (`src-tauri/src/agents.rs`).
+
+### Git e mudanças
+
+**Alterações** mostra o trabalho local do repositório selecionado, separado em
+conflitos, alterações em stage e alterações locais. `+` adiciona um arquivo ao stage;
+`−` retira do stage sem apagar o trabalho. Um arquivo parcialmente preparado
+aparece nos dois grupos, cada um com seu diff. Commit inclui somente o índice;
+push é uma ação separada, com upstream e contadores visíveis.
+
+Histórico e **Comparar branch** mostram commits sem misturar edições locais.
+A branch no cabeçalho abre a lista de branches e workspaces. Criar trabalho a
+partir dali usa outro worktree; a sessão atual continua onde estava. O editor
+de conflitos prepara o resultado revisado antes de concluir o merge.
+
+Detalhes e limites estão em [`docs/contracts/git.md`](docs/contracts/git.md).
+Cobertura: `src-tauri/src/session/git_tests.rs`, `src/git-diff.test.ts`,
+`e2e/git.spec.ts` e os fluxos de revisão em `e2e/critical-flows.spec.ts`.
 
 ### A mesa
 

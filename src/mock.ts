@@ -4,7 +4,7 @@
 import { encodeLive, encodeSnapshot, type Inbox, type Note } from "../relay/src/protocol";
 import { LegacyConversationAdapter } from "./conversation-legacy";
 import * as team from "./team";
-import { hasWorktree, type Board, type Choice, type Issue, type LinearStatus, type McpServer, type Plugin, type Pr, type Scripts, type Workspace } from "./types";
+import { hasWorktree, type Board, type Change, type Choice, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type Pr, type Scripts, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
@@ -278,6 +278,85 @@ const changes = [
   },
   { path: "public/logo.png", added: 0, removed: 0, new_file: true, deleted: false, dirty: true, patch: "" },
 ];
+
+type MockGit = {
+  status: GitStatus;
+  staged: Change[];
+  changes: Change[];
+  compare: Change[];
+  commits: (GitCommit & { files: Change[] })[];
+  conflicts: Record<string, GitConflict>;
+  version: number;
+};
+const gitStates = new Map<string, MockGit>();
+const gitError = (code: string): never => { throw `i18n:${JSON.stringify({ code })}`; };
+const gitPatch = (file: Change, patch: string): Change => ({
+  ...file, patch,
+  added: patch.split("\n").filter((line) => line.startsWith("+")).length,
+  removed: patch.split("\n").filter((line) => line.startsWith("-")).length,
+});
+// Os hunks da amostra são independentes. O mock junta esses hunks ao mover
+// o índice; aplicação de patches arbitrários continua sendo teste do Git real.
+function mergeGitFile(target: Change[], file: Change, prepend = false) {
+  const at = target.findIndex((current) => current.path === file.path);
+  if (at < 0) target.push({ ...file });
+  else target[at] = gitPatch(file, (prepend ? [file.patch, target[at].patch] : [target[at].patch, file.patch]).filter(Boolean).join("\n"));
+}
+function gitState(id: string, index = 0): MockGit {
+  const workspace = board.workspaces.find((workspace) => workspace.id === id && !workspace.cleaned);
+  const repo = workspace?.repos[index];
+  if (!workspace || !repo) return gitError("err.session.noWorkspace");
+  const key = `${id}:${index}`;
+  let value = gitStates.get(key);
+  if (!value) {
+    const sample = structuredClone(index === 0 ? changes : changes2);
+    const local = sample.filter((file) => file.dirty);
+    const staged: Change[] = [];
+    if (local[0]?.patch) {
+      const hunks = local[0].patch.split(/(?=^@@)/m);
+      staged.push(gitPatch(local[0], hunks[0]));
+      if (hunks.length > 1) local[0] = gitPatch(local[0], hunks.slice(1).join(""));
+      else local.shift();
+    }
+    const upstream = id === "ui-2231" ? null : `origin/${workspace.branch}`;
+    const committed = sample.filter((file) => !file.dirty);
+    value = {
+      status: {
+        repo: index, name: repo.name, branch: workspace.branch, base: repo.base,
+        upstream, remotes: ["origin"], ahead: upstream && index === 0 ? 1 : 0,
+        behind: 0, has_head: true, merging: false, index: "mock-0", staged: [], changes: [], conflicts: [], error: null,
+      },
+      staged, changes: local, compare: committed,
+      commits: [
+        { oid: "2".padStart(40, "0"), subject: "feat: atualiza projeto", author: "Gustavo", date: "2026-09-05T09:00:00-03:00", outgoing: !!upstream && index === 0, files: structuredClone(committed) },
+        { oid: "1".padStart(40, "0"), subject: "chore: inicia projeto", author: "Gustavo", date: "2026-09-04T09:00:00-03:00", outgoing: false, files: [] },
+      ],
+      conflicts: {}, version: 0,
+    };
+    if (id === "icone-2140" && index === 0) {
+      value.status.merging = true;
+      const path = sample[0].path;
+      value.staged = value.staged.filter((file) => file.path !== path);
+      value.changes = value.changes.filter((file) => file.path !== path);
+      value.conflicts[path] = {
+        current: ".card {\n<<<<<<< HEAD\n  gap: 8px;\n=======\n  gap: 12px;\n>>>>>>> origin/main\n}\n",
+        ours: ".card {\n  gap: 8px;\n}\n",
+        theirs: ".card {\n  gap: 12px;\n}\n",
+      };
+    }
+    gitStates.set(key, value);
+  }
+  return value;
+}
+function gitStatus(value: MockGit): GitStatus {
+  const file = (file: Change, staged: boolean): GitFile => ({ path: file.path, status: file.deleted ? "D" : file.new_file ? staged ? "A" : "?" : "M" });
+  return structuredClone({
+    ...value.status,
+    staged: value.staged.map((entry) => file(entry, true)),
+    changes: value.changes.map((entry) => file(entry, false)),
+    conflicts: Object.keys(value.conflicts).map((path) => ({ path, status: "U" })),
+  });
+}
 
 /// Um transcript legado de mentira, mantido como fixture de rollback. Eventos
 /// novos do mock são normalizados para V1 antes de chegar à tela ou ao relay.
@@ -655,6 +734,122 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
         const ahead = i === 0 ? 3 : 1;
         return { name: r.name, base, ahead, unpushed: i === 0 ? 1 : 0, dirty: files.filter((f) => f.dirty).length, files };
       });
+    }
+    case "workspace_git_status": {
+      const target = board.workspaces.find((workspace) => workspace.id === args.id && !workspace.cleaned);
+      if (!target) return gitError("err.session.noWorkspace");
+      return target.repos.map((_, index) => gitStatus(gitState(target.id, index)));
+    }
+    case "workspace_git_diff": {
+      const value = gitState(args.id, args.repo ?? 0);
+      const committed = args.scope === "commit";
+      const comparison = args.scope === "compare";
+      const position = committed && args.reference && args.reference !== "HEAD"
+        ? value.commits.findIndex((commit) => commit.oid === args.reference) : 0;
+      if (committed && position < 0) return gitError("err.git.changed");
+      const source = args.scope === "staged" ? value.staged : args.scope === "changes" ? value.changes
+        : comparison ? value.compare : value.commits[position].files;
+      return structuredClone({
+        base: committed ? value.commits[position + 1]?.oid ?? "0".repeat(40) : comparison ? "1".padStart(40, "0") : "",
+        head: committed || comparison ? value.commits[committed ? position : 0].oid : "",
+        files: source.filter((file) => args.path == null || file.path === args.path),
+      });
+    }
+    case "workspace_git_action": {
+      const value = gitState(args.id, args.repo ?? 0);
+      const status = gitStatus(value);
+      const operation = args.operation;
+      const selected: string[] = args.paths ?? [];
+      if (operation === "stage" || operation === "unstage") {
+        if (!selected.length) return gitError("err.git.selection");
+        const source = operation === "stage" ? value.changes : value.staged;
+        const target = operation === "stage" ? value.staged : value.changes;
+        if (selected.some((path) => !source.some((file) => file.path === path) && !value.conflicts[path])) return gitError("err.git.changed");
+        for (const path of new Set(selected)) {
+          const at = source.findIndex((file) => file.path === path);
+          if (at >= 0) mergeGitFile(target, source.splice(at, 1)[0], operation === "unstage");
+          else {
+            const conflict = value.conflicts[path];
+            const file = { path, added: 0, removed: 0, new_file: false, deleted: false, dirty: true, patch: "" };
+            mergeGitFile(target, gitPatch(file, `@@ -0,0 +1,${conflict.current.split("\n").length} @@\n${conflict.current.split("\n").map((line) => `+${line}`).join("\n")}`));
+          }
+          delete value.conflicts[path];
+        }
+        value.status.index = `mock-${++value.version}`;
+      } else if (operation === "commit") {
+        if (!status.branch) return gitError("err.git.detached");
+        if (status.conflicts.length) return gitError("err.git.conflicts");
+        if ((!value.staged.length && !status.merging) || !String(args.message ?? "").trim()) return gitError("err.git.selection");
+        if (args.expected !== status.index) return gitError("err.git.changed");
+        const committed = value.staged.map((file) => ({ ...file, dirty: false }));
+        for (const file of committed) mergeGitFile(value.compare, file);
+        value.commits.unshift({
+          oid: (++nextId + 100).toString(16).padStart(40, "0"),
+          subject: String(args.message).trim().split("\n")[0], author: "Gustavo",
+          date: new Date().toISOString(), outgoing: !!status.upstream, files: committed,
+        });
+        value.staged = [];
+        value.status.merging = false;
+        value.status.ahead += status.upstream ? 1 : 0;
+        value.status.index = `mock-${++value.version}`;
+      } else if (operation === "fetch") {
+        // O remoto da amostra oferece um commit; não há rede no navegador.
+        value.status.behind = status.upstream ? Math.max(1, status.behind) : 0;
+      } else if (operation === "pull") {
+        if (!status.branch) return gitError("err.git.detached");
+        if (!status.upstream) return gitError("err.git.upstream");
+        if (status.staged.length || status.changes.length || status.conflicts.length) return gitError("err.git.dirtyPull");
+        if (status.ahead && status.behind) return gitError("err.git.changed");
+        value.status.behind = 0;
+        value.status.index = `mock-${++value.version}`;
+      } else if (operation === "push" || operation === "publish") {
+        if (!status.branch) return gitError("err.git.detached");
+        if (status.behind) return gitError("err.git.changed");
+        if (operation === "publish") {
+          if (!status.remotes.includes(args.remote)) return gitError("err.git.upstream");
+          value.status.upstream = `${args.remote}/${status.branch}`;
+        } else if (!status.upstream) return gitError("err.git.upstream");
+        value.status.ahead = 0;
+        value.commits.forEach((commit) => { commit.outgoing = false; });
+      } else return gitError("err.git.selection");
+      return;
+    }
+    case "workspace_git_history":
+      return gitState(args.id, args.repo ?? 0).commits.map(({ files: _, ...commit }) => ({ ...commit }));
+    case "workspace_git_branches": {
+      const value = gitState(args.id, args.repo ?? 0);
+      const current = board.workspaces.find((workspace) => workspace.id === args.id)!;
+      const repo = current.repos[args.repo ?? 0];
+      const branches: GitBranch[] = board.workspaces.filter((workspace) => !workspace.cleaned && workspace.repos.some((entry) => entry.path === repo.path)).map((workspace) => ({
+        name: workspace.branch, current: workspace.branch === value.status.branch, remote: false,
+        worktree: workspace.repos.find((entry) => entry.path === repo.path)!.worktree, workspace: workspace.id,
+      }));
+      branches.push(
+        { name: "main", current: value.status.branch === "main", remote: false, worktree: repo.path, workspace: null },
+        { name: "feature/local-work", current: false, remote: false, worktree: null, workspace: null },
+        ...[...new Set([repo.base, value.status.upstream, "origin/feature/review"].filter((name): name is string => !!name))].map((name) => ({ name, current: false, remote: true, worktree: null, workspace: null })),
+      );
+      return branches.filter((branch, index) => branches.findIndex((other) => other.name === branch.name) === index);
+    }
+    case "workspace_git_conflict": {
+      const conflict = gitState(args.id, args.repo ?? 0).conflicts[args.path];
+      if (!conflict) return gitError("err.git.changed");
+      return { ...conflict };
+    }
+    case "workspace_git_resolve": {
+      const value = gitState(args.id, args.repo ?? 0);
+      const conflict = value.conflicts[args.path];
+      if (!conflict) return gitError("err.git.changed");
+      if (conflict.current !== args.was) return gitError("err.session.changed");
+      const text = String(args.text ?? "");
+      if (new TextEncoder().encode(text).length > 400_000 || /^(<<<<<<< |=======|>>>>>>> )/m.test(text)) return gitError("err.git.conflicts");
+      const before = (conflict.ours ?? "").split("\n");
+      const after = text.split("\n");
+      const patch = `@@ -1,${before.length} +1,${after.length} @@\n${before.map((line) => `-${line}`).join("\n")}\n${after.map((line) => `+${line}`).join("\n")}`;
+      if (text !== conflict.ours) mergeGitFile(value.staged, gitPatch({ path: args.path, added: 0, removed: 0, new_file: false, deleted: false, dirty: true, patch: "" }, patch));
+      delete value.conflicts[args.path];
+      value.status.index = `mock-${++value.version}`;
+      return;
     }
     case "list_dir":
       return tree[args.rel ?? ""] ?? [];

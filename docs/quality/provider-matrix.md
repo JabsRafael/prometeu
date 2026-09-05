@@ -36,6 +36,7 @@ para virar capacidade contratual.
 | compartilhamento ao vivo | V1 após normalização | V1 após normalização | `team*.test.ts`, E2E sobre mock |
 | comentários em sessão compartilhada | adaptado após V1 | adaptado após V1 | `notes.test.ts`, `team.test.ts`, `relay/src/logic.test.ts`, E2E sobre mock |
 | mesa com várias conversas ao mesmo tempo | adaptado (mesma tela da conversa) | adaptado (mesma tela da conversa) | `desk.test.ts`, E2E sobre mock |
+| Git: stage, commit, remotos, branches e conflitos | adaptado pelo app; independente do CLI | adaptado pelo app; independente do CLI | `session/git_tests.rs`, `git-diff.test.ts`, `e2e/git.spec.ts`; contrato `git.md` |
 | agentes por workspace na barra lateral | marca e status de cada aba | marca e status de cada aba | fluxos da barra lateral em `e2e/critical-flows.spec.ts`; remoto usa avatar do dono, sem inferir provider |
 
 ## Regra para feature nova

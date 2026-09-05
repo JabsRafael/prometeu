@@ -20,7 +20,7 @@ import {
   pending,
   type Board,
   type Choice,
-  type RepoDiff,
+  type GitStatus,
   type Tab,
   type Workspace,
 } from "./types";
@@ -39,6 +39,8 @@ export type Ctx = {
   /// Sai para a tela inicial. Workspace que some debaixo de você não pode deixar a
   /// tela num lugar que não existe mais.
   home: () => void;
+  launchBranch: (project: string, base: string, branch?: string) => void;
+  openGitWorkspace: (id: string) => void;
 };
 
 let ctx: Ctx;
@@ -54,6 +56,15 @@ const stillHere = (epoch: number, id: string) => navigation === epoch && openWs 
 
 export function init(context: Ctx) {
   ctx = context;
+  changesUi.init({
+    workspace: current,
+    refresh: async () => { if (openWs && hasDiff()) await loadChanges(openWs); },
+    show: activateChanges,
+    say: ctx.say,
+    openFile: openChange,
+    launchBranch: ctx.launchBranch,
+    openWorkspace: ctx.openGitWorkspace,
+  });
 
   tree.init({ openFile, workspace: id });
   dockbar.init({ workspace: id, say: ctx.say, openFile, newTab, openBrowser: showWeb });
@@ -71,8 +82,7 @@ export function init(context: Ctx) {
     // Já no painel de Mudanças, clicar de novo traz o diff para o centro. É o
     // caminho de volta depois de fechar a aba — sem ele, quem fechou só voltaria
     // clicando num arquivo da lista.
-    const changes = openWs ? total(openWs) : 0;
-    if (sidePane === "diff" && changes) showChanges();
+    if (sidePane === "diff") changesUi.show("changes");
     else setSidePane("diff");
   });
   $("tab-comments").addEventListener("click", openComments);
@@ -82,26 +92,11 @@ export function init(context: Ctx) {
   $("review").querySelector("span")!.textContent = t("side.review");
   $("review").addEventListener("click", () => {
     setSidePane("diff");
-    showChanges();
+    changesUi.show("compare");
   });
   $("reveal").addEventListener("click", () => {
     if (openWs) invoke("reveal", { id: openWs }).catch((e) => ctx.say(fromBack(e), true));
   });
-  $("dfold").addEventListener("click", () => {
-    if (!openWs) return;
-    diff.foldAll(diff.keys(visible(openWs)));
-    drawChanges(openWs);
-  });
-  // Visto em tudo: leu, marcou, e o que o agente mudar depois é o que volta a
-  // contar na aba.
-  $("dseen").addEventListener("click", () => {
-    if (!openWs) return;
-    diff.seeAll(openWs, changesOf.get(openWs) ?? []);
-    diff.invalidate();
-    seenChanged(openWs);
-    drawChanges(openWs);
-  });
-
   // O diff acompanha o agente pelos eventos do quadro. Mas quem comita no dock,
   // ou num terminal de fora, não publica evento nenhum — e o painel continuava
   // mostrando como fora de commit o que você acabou de commitar. Voltar para a
@@ -142,6 +137,7 @@ export async function open(ws: Workspace, tab?: string) {
   session.detach();
   const first = ws.tabs.find((t) => t.id === (tab ?? ws.active)) ?? ws.tabs[0];
   sidebar.setOpen((openWs = ws.id));
+  changesUi.enter();
   $("wsView").hidden = false;
   $("wsctl").hidden = false;
   // Workspace de um colega: nada dele está neste disco — sem arquivos, sem
@@ -464,17 +460,11 @@ function shareItems(ws: Workspace): menu.Item[] {
 /// e o clique leva às Mudanças dele. O nome do repositório só é pergunta quando
 /// se quer ver o que mudou nele — o resto do tempo ele ocupa a barra à toa.
 function repoItems(ws: Workspace): menu.Item[] {
-  const all = changesOf.get(ws.id) ?? [];
-  return ws.repos.map((r): menu.Item => {
-    const mine = all.find((x) => x.name === r.name);
-    const files = mine?.files ?? [];
-    return {
-      label: r.name,
-      glyph: icon("folder", 14),
-      hint: files.length ? tn(files.length, "diff.files") : t("diff.clean"),
-      disabled: !files.length,
-      run: () => showChanges(diff.key(r.name, files[0].path)),
-    };
+  const all = changesUi.statuses(ws.id) ?? [];
+  return ws.repos.map((repo, index): menu.Item => {
+    const status = all.find(item => item.repo === index);
+    const count = status ? new Set([...status.staged, ...status.changes, ...status.conflicts].map(file => file.path)).size : 0;
+    return { label: repo.name, glyph: avatar(repo.name), hint: count ? tn(count, "diff.files") : t("git.clean"), run: () => changesUi.selectRepo(index) };
   });
 }
 
@@ -529,11 +519,8 @@ function paintBranchName(name: string | undefined) {
   if (!chip || !name) return;
   chip.hidden = false;
   chip.children[1].textContent = name;
-  chip.title = t("ws.branch.title");
-  chip.onclick = () => {
-    navigator.clipboard.writeText(name);
-    ctx.say(t("ws.copied", { name }));
-  };
+  chip.title = t("git.branches");
+  chip.onclick = () => { if (current() && diffable(current()!)) changesUi.show("branches"); };
 }
 
 function drawBranch(ws: Workspace) {
@@ -716,7 +703,7 @@ function drawTabs(ws: Workspace) {
     b.innerHTML = `${icon("diff", 14)}<span></span><span class="n"></span>`;
     b.children[1].textContent = t("tab.changes");
     b.children[2].textContent = String(changes);
-    b.children[2].classList.toggle("fresh", unseen(ws.id) > 0);
+    b.children[2].classList.remove("fresh");
     b.title = t("tab.changes.title");
     b.addEventListener("click", () => showChanges());
     const x = document.createElement("span");
@@ -919,7 +906,8 @@ function files(id: string): Files {
 export function forget(alive: Set<string>) {
   for (const [id, f] of filesOf) if (!alive.has(id) && f.webTab) browser.close(id);
   diff.pruneSeen(alive);
-  for (const map of [filesOf, changesOf, branchOf] as Map<string, unknown>[]) {
+  changesUi.forget(alive);
+  for (const map of [filesOf, branchOf] as Map<string, unknown>[]) {
     for (const id of map.keys()) if (!alive.has(id)) map.delete(id);
   }
 }
@@ -1015,18 +1003,19 @@ async function closeWeb() {
   drawTabs(ws);
 }
 
-/// Tela de mudanças. `focus` vem do clique na lista da direita: é a mesma tela,
-/// só rolada até aquele arquivo.
-function showChanges(focus?: string) {
+/// O painel de Git controla a seleção; workspace mantém o lifecycle da aba.
+function showChanges() { changesUi.show(); }
+
+function activateChanges() {
   const ws = current();
-  if (!ws) return;
+  if (!ws || !diffable(ws)) return;
   const fs = files(ws.id);
   fs.active = null;
   fs.diff = true;
   fs.hidDiff = false;
   leaveWeb(fs);
   center("diffview");
-  drawChanges(ws.id, focus);
+  setSidePane("diff");
   drawTabs(ws);
 }
 
@@ -1091,150 +1080,43 @@ export function closeActive(): boolean {
 
 /* ---------- mudanças ---------- */
 
-const changesOf = new Map<string, RepoDiff[]>();
-/// Quantos arquivos mudaram, e quantos você ainda não leu — é o segundo que a
-/// aba conta: o que interessa em acompanhar o agente é o que é novo para você.
-const total = (id: string) => diff.keys(changesOf.get(id) ?? []).length;
-const unseen = (id: string) => diff.unseen(id, changesOf.get(id) ?? []);
-
-/// Só o que está fora de commit. É o chip no topo da lista, e vale para a
-/// lista e para o centro.
-let onlyDirty = false;
-
-/// O que a tela mostra: tudo, ou só o que está fora de commit.
-function visible(id: string): RepoDiff[] {
-  const repos = changesOf.get(id) ?? [];
-  return onlyDirty ? repos.map((r) => ({ ...r, files: r.files.filter((f) => f.dirty) })) : repos;
-}
-
-/// Cada chamada é um `git diff` por repositório no back, e quem pede é o
-/// evento do quadro — que chega a cada ferramenta que o agente usa. Juntar as
-/// rajadas aqui é o que separa "o diff acompanha sozinho" de "a tela trava
-/// enquanto o agente trabalha".
-const reloadChanges = debounce(250, (id: string) => void loadChanges(id));
-
-/// De quanto em quanto tempo o diff é conferido enquanto você está olhando para
-/// ele. É o passo de quem comita no dock: nada avisa a tela, e ficar de olho o
-/// tempo todo seria um `git diff` por segundo em todo repositório do workspace.
+const total = changesUi.count;
 const WATCH_EVERY = 5_000;
-
-/// Descarta resposta de pedido velho: dois `workspace_diff` no ar podem voltar
-/// fora de ordem, e o antigo sobrescreveria o novo.
+const reloadChanges = debounce(250, (id: string) => void loadChanges(id));
 let request = 0;
 
 async function loadChanges(id: string) {
   const mine = ++request;
-  const repos = await invoke<RepoDiff[]>("workspace_diff", { id });
-  if (mine !== request) return;
-  changesOf.set(id, repos);
-  const n = total(id);
-  $("review").hidden = !n;
-  // Branch limpa esquece que a aba foi fechada: o que sujar depois é trabalho
-  // novo, e não o diff que você mandou embora.
-  if (!n) files(id).hidDiff = false;
-  drawList(id);
-
-  const ws = current();
-  if (ws?.id !== id) return;
-  drawTabs(ws); // a aba de Mudanças aparece, some e conta junto com a lista
-  paintPr(ws); // o botão de PR muda com o que falta commitar e empurrar
-  if (files(id).diff) drawChanges(id);
+  try {
+    const repos = await invoke<GitStatus[]>("workspace_git_status", { id });
+    if (mine !== request || openWs !== id) return;
+    changesUi.update(id, repos);
+    const n = total(id);
+    $("review").hidden = !repos.some(repo => repo.has_head);
+    if (!n) files(id).hidDiff = false;
+    $("diffcount").textContent = n ? String(n) : "";
+    $("diffcount").classList.remove("fresh");
+    const ws = current();
+    if (ws?.id !== id) return;
+    drawTabs(ws);
+    paintPr(ws);
+  } catch (error) {
+    if (mine === request && openWs === id) changesUi.fail(id, error);
+  }
 }
 
-/// Um arquivo foi salvo pelo viewer: o disco mudou por fora do agente, e o
-/// diff que está na tela ainda é o de antes.
 export function fileSaved(id: string) {
   const ws = current();
   if (ws?.id === id && diffable(ws)) reloadChanges(id);
 }
 
-/// Você marcou (ou desmarcou) um arquivo como visto: a lista e a aba contam
-/// de novo. O centro já se pintou sozinho.
-function seenChanged(id: string) {
-  drawList(id);
-  const ws = current();
-  if (ws?.id === id) drawTabs(ws);
-}
-
-/// A lista da direita: o resumo no topo, e um arquivo por linha — em seção
-/// por repositório quando há mais de um. Redesenhada a cada resposta do back
-/// e a cada "visto", que muda o que a linha mostra.
-function drawList(id: string) {
-  const all = changesOf.get(id) ?? [];
-  const repos = visible(id);
-  // O número é quantos arquivos mudaram; que ainda há coisa nova para você é a
-  // cor dele. Um contador que só desce enquanto você lê parecia pendência.
-  const count = $("diffcount");
-  const n = diff.keys(all).length;
-  count.textContent = n ? String(n) : "";
-  count.classList.toggle("fresh", unseen(id) > 0);
-
-  const list = $("difflist");
-  if (!diff.keys(all).length) {
-      list.replaceChildren(changesUi.nothing(t("diff.clean")));
-    return;
-  }
-  const multi = all.length > 1;
-  const rows = repos.flatMap((r) => {
-    // Repositório sem mudança nenhuma fica fora da lista. Mas o que tem mudança
-    // e ficou vazio porque o filtro escondeu tudo continua aparecendo: sumir
-    // inteiro é o que faz parecer que a tela não mostra o que mudou.
-    const has = all.find((a) => a.name === r.name)?.files.length ?? 0;
-    if (!has) return [];
-    const rows = r.files.map((f) => changesUi.fileRow(id, r.name, f, showChanges, openChange));
-    if (!multi) return r.files.length ? rows : [];
-    const k = `${id}/${r.name}`;
-    for (const row of rows) {
-      row.classList.add("in");
-      row.hidden = changesUi.collapsed(k);
-    }
-    return [changesUi.repoRow(k, r, rows), ...rows];
-  });
-  if (!diff.keys(repos).length) rows.push(changesUi.nothing(t("diff.clean.filtered")));
-  list.replaceChildren(changesUi.summary(all, onlyDirty, () => {
-    onlyDirty = !onlyDirty;
-    drawList(id);
-    if (files(id).diff) drawChanges(id);
-  }), ...rows);
-}
-
-/// Quanto ainda não saiu deste workspace: arquivo fora de commit e commit que
-/// não foi para o remoto. `null` enquanto o diff não chegou — antes de olhar,
-/// "não falta nada" seria chute.
 function outstanding(id: string): { dirty: number; unpushed: number } | null {
-  const repos = changesOf.get(id);
-  if (!repos) return null;
+  const repos = changesUi.statuses(id);
+  if (!repos || repos.some(repo => repo.error)) return null;
   return {
-    dirty: repos.reduce((n, r) => n + r.dirty, 0),
-    unpushed: repos.reduce((n, r) => n + r.unpushed, 0),
+    dirty: repos.reduce((n, repo) => n + new Set([...repo.staged, ...repo.changes, ...repo.conflicts].map(file => file.path)).size, 0),
+    unpushed: repos.reduce((n, repo) => n + (repo.upstream ? repo.ahead : Number(repo.has_head)), 0),
   };
-}
-
-/// Resumo na barra e o diff empilhado embaixo. Redesenhar é barato: a tela só é
-/// refeita quando algum patch mudou de verdade.
-function drawChanges(id: string, focus?: string) {
-  const all = changesOf.get(id) ?? [];
-  const repos = visible(id);
-  const shown = repos.flatMap((r) => r.files);
-  const added = diff.sum(shown, "added");
-  const removed = diff.sum(shown, "removed");
-
-  const crumb = $("dcrumb");
-  crumb.innerHTML = `${icon("diff", 14)}<span class="nm"></span><span class="a"></span><span class="r"></span>`;
-  const ahead = all.reduce((n, r) => n + r.ahead, 0);
-  const head = all.length === 1 && all[0].base ? tn(ahead, "diff.ahead", { base: all[0].base }) : tn(ahead, "diff.commits");
-  crumb.children[1].textContent = `${head} · ${tn(shown.length, "diff.files")}`;
-  crumb.children[2].textContent = added ? `+${added}` : "";
-  crumb.children[3].textContent = removed ? `−${removed}` : "";
-
-  diff.render($("dlist"), {
-    id,
-    repos,
-    focus,
-    empty: t(onlyDirty ? "diff.clean.filtered" : "diff.clean.long"),
-    onSeen: () => seenChanged(id),
-    onOpen: openChange,
-  });
 }
 
 /// Abre no viewer um arquivo que veio do diff. O caminho do diff é relativo ao

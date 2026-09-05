@@ -1,4 +1,4 @@
-import { fileIcon, icon } from "./icons";
+import { avatar, fileIcon, icon } from "./icons";
 import { t, tn } from "./i18n";
 import type { Change, RepoDiff } from "./types";
 import { highlight } from "./highlight";
@@ -234,7 +234,7 @@ function group(view: View, r: RepoDiff): HTMLElement {
   head.className = "drhead";
   head.title = r.name;
   head.innerHTML =
-    `<span class="dtw"></span>${icon("folder", 14)}<span class="nm"></span>` +
+    `<span class="dtw"></span>${avatar(r.name)}<span class="nm"></span>` +
     `<span class="cnt"></span><span class="a"></span><span class="r"></span>`;
   head.children[2].textContent = r.name;
   const ahead = r.base ? tn(r.ahead, "diff.ahead", { base: r.base }) : tn(r.ahead, "diff.commits");

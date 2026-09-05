@@ -100,6 +100,13 @@ export const IPC_COMMANDS = [
   "usage",
   "workspace_branch",
   "workspace_diff",
+  "workspace_git_status",
+  "workspace_git_diff",
+  "workspace_git_action",
+  "workspace_git_history",
+  "workspace_git_branches",
+  "workspace_git_conflict",
+  "workspace_git_resolve",
   "workspace_scripts",
   "write_file",
 ] as const;

@@ -207,6 +207,8 @@ export type Open = {
   /// O projeto já escolhido — o do workspace aberto, ou o do + na barra.
   preset?: string;
   seed?: Issue;
+  /// O painel Git abre a base ou a branch escolhida em um worktree separado.
+  git?: { base: string; branch?: string };
   go: (d: Draft) => void;
   /// "Configurar Linear" no seletor de issue: fecha o lançador e vai lá.
   toSettings: () => void;
@@ -215,18 +217,19 @@ export type Open = {
 export function openLauncher(board: Board, opts: Open) {
   const veil = document.getElementById("veil")!;
   if (!board.projects.length) return;
-  const { preset, go } = opts;
+  const { preset, go, git } = opts;
+  const project = preset ?? board.projects[0].id;
   let seed = opts.seed;
 
   const draft: Draft = {
-    project: preset ?? board.projects[0].id,
+    project,
     extras: [],
     // Sem a lista de branches do repo ainda: `loadBranches` refaz o nome
     // assim que ela chega, e é ela que sabe se este já é de alguém.
-    branch: seed?.branch_name || freshBranch([]),
-    base: "",
-    worktree: localStorage.getItem(WORKTREE_KEY) !== "0",
-    newBranch: localStorage.getItem(BRANCH_KEY) !== "0",
+    branch: git?.branch || seed?.branch_name || freshBranch([]),
+    base: git?.base ?? "",
+    worktree: !!git || localStorage.getItem(WORKTREE_KEY) !== "0",
+    newBranch: !!git || localStorage.getItem(BRANCH_KEY) !== "0",
     title: seed ? `${seed.identifier} · ${seed.title}` : "",
     stage: board.stages[1] ?? board.stages[0],
     prompt: "",
@@ -391,7 +394,7 @@ export function openLauncher(board: Board, opts: Open) {
     }
     nb.disabled = draft.worktree;
     nb.title = t(draft.worktree ? "launcher.nb.locked" : "launcher.nb.off");
-    wt.disabled = draft.extras.length > 0;
+    wt.disabled = !!git || draft.extras.length > 0;
     wt.title = t(draft.extras.length ? "launcher.wt.locked" : draft.worktree ? "launcher.wt.on" : "launcher.wt.off");
     // Sem branch nova não há de onde sair.
     baseBtn.disabled = !draft.newBranch || !branches.length;
@@ -562,19 +565,23 @@ export function openLauncher(board: Board, opts: Open) {
   });
 
   const loadBranches = async () => {
+    const loadingProject = draft.project;
+    const fromGit = loadingProject === project ? git : undefined;
     branches = [];
     baseBtn.disabled = true;
     baseName.textContent = t("launcher.loading");
     try {
       const got = await invoke<Branches>("list_branches", { project: draft.project });
+      if (draft.project !== loadingProject) return;
       branches = got.all;
       // O repositório é que sabe quais nomes já existem, e ele acabou de
-      // chegar (ou mudou, se trocaram de projeto). Issue manda no nome dela.
-      if (!seed) draft.branch = freshBranch(branches);
-      setBase(got.default);
+      // chegar (ou mudou, se trocaram de projeto). Git e issue preservam o nome escolhido.
+      if (!seed) draft.branch = fromGit?.branch || freshBranch(branches);
+      setBase(fromGit?.base ?? got.default);
     } catch {
+      if (draft.project !== loadingProject) return;
       // Repo sem ref nenhuma (recém-init): cria a branch de onde o HEAD estiver.
-      setBase("");
+      setBase(fromGit?.base ?? "");
     }
     baseBtn.disabled = !draft.newBranch || !branches.length;
   };
@@ -588,7 +595,7 @@ export function openLauncher(board: Board, opts: Open) {
   const setSeed = (issue: Issue | undefined) => {
     seed = issue;
     draft.issue = issue ? { id: issue.id, identifier: issue.identifier, title: issue.title, url: issue.url } : null;
-    draft.branch = issue?.branch_name || freshBranch(branches);
+    draft.branch = (draft.project === project ? git?.branch : undefined) || issue?.branch_name || freshBranch(branches);
     draft.title = issue ? `${issue.identifier} · ${issue.title}` : "";
     prompt.placeholder = t(issue ? "launcher.prompt.issue" : "launcher.prompt");
     issueBtn.querySelector("span")!.textContent = issue?.identifier ?? t("launcher.issue");
