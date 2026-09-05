@@ -4,6 +4,31 @@ O que muda no Prometeu, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.5.5] - 2026-09-05
+<!-- lang:pt-BR -->
+
+### Novidades
+
+- **quadro:** Aba sem nome mostra o modelo e o que o agente faz
+
+### Correções
+
+- **conversa:** Não repete a primeira fala ao lançar um workspace
+- **conversa:** O sino para de tocar enquanto o codex ainda trabalha
+
+<!-- lang:en -->
+
+### New
+
+- **board:** Unnamed tabs show the model and what the agent is doing
+
+### Fixes
+
+- **conversation:** Stops repeating the first message when launching a workspace
+
+- **conversation:** Bell stops ringing while Codex is still working
+
+<!-- lang:end -->
 ## [0.5.4] - 2026-09-05
 <!-- lang:pt-BR -->
 
