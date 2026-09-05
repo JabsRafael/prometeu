@@ -81,8 +81,9 @@ temporário usando `APPLE_CERTIFICATE` e `APPLE_CERTIFICATE_PASSWORD`, adiciona
 esse Keychain à lista de busca sem trocar o Keychain padrão do Mac e depois o
 remove. A notarização usa `APPLE_ID` e `APPLE_PASSWORD`; o segundo contém uma
 senha específica de app, nunca a senha normal da conta Apple. O job falha antes
-do build se certificado ou Secrets estiverem ausentes. Depois do upload,
-`stapler` e `spctl` validam o DMG.
+do build se certificado ou Secrets estiverem ausentes. O bundler notariza o app;
+o workflow notariza e grampeia o DMG final. Depois do upload, `stapler` e
+`spctl` validam novamente o DMG.
 
 Não execute corte, tag, push ou publicação como parte de uma tarefa comum sem
 pedido explícito.
