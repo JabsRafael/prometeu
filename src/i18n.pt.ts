@@ -590,6 +590,9 @@ export const PT = {
   /* ---------- worktree devolvido ---------- */
 
   "gone.title": "Worktree removido",
+  "project.new": "Começar no projeto",
+  "project.newWorkspace": "Workspace novo",
+
   "gone.body":
     "A pasta saiu do disco e a branch local foi apagada — o trabalho já estava no alvo. O que ficou é este card: o nome, a etapa e o PR.",
 

@@ -139,7 +139,9 @@ export function init(context: Ctx) {
 
 /// Trocar de workspace zera o painel — o processo do outro continua vivo, mas
 /// o que a barra diz é do worktree que você está olhando.
-export function reset() {
+/// `panel` desligado é o projeto sem workspace: ali não há Setup nem Run —
+/// nenhum script é do clone —, e o que sobra do dock é o terminal livre.
+export function reset(panel = true) {
   pane = null;
   shell = null;
   asked.clear();
@@ -151,7 +153,7 @@ export function reset() {
   // nasceu — inclusive o erro, quando ele falhou. Olhar não sobe processo
   // nenhum, e abrir sempre numa aba evita a tela que só repetia as três.
   void refresh().then(() => {
-    if (pane === null) void setDock("setup");
+    if (panel && pane === null) void setDock("setup");
   });
 }
 

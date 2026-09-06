@@ -69,6 +69,73 @@ test("comentário fica ao lado da sessão até alguém resolver", async ({ page 
   await expect(page.locator("#chatwrap .note")).toHaveCount(0);
 });
 
+test("clicar no projeto abre os arquivos do clone, sem workspace", async ({ page }) => {
+  await boot(page);
+
+  const project = page.locator("#railbody .group", { hasText: "prometeu", hasNotText: "+ njord" });
+  await project.locator("span").nth(1).click();
+
+  await expect(page.locator("#wsView")).toBeVisible();
+  await expect(page.locator("#crumb")).toContainText("prometeu");
+  // Sem branch, worktree nem conversa: nada de dock nem de Mudanças.
+  await expect(page.locator("#dock")).toBeHidden();
+  await expect(page.locator("#tab-diff")).toBeHidden();
+  // Centro vazio até escolher um arquivo: sem recado, sem conversa.
+  await expect(page.locator("#offline")).toBeVisible();
+  await expect(page.locator("#offtitle")).toBeEmpty();
+  await expect(page.locator("#offbody")).toBeHidden();
+
+  await page.locator("#tree .treerow", { hasText: "CLAUDE.md" }).click();
+  await expect(page.locator("#viewer")).toBeVisible();
+  await expect(page.locator("#vpre")).toContainText("Controle financeiro pessoal");
+
+  // Arquivo aberto vira aba, como num workspace, e o "+" é o mesmo controle.
+  await expect(page.locator("#tabbar .tab")).toHaveText(["CLAUDE.md"]);
+  await expect(page.locator("#tabbar .tabadd .caret")).toBeVisible();
+  await page.locator("#tree .treerow", { hasText: "README.md" }).click();
+  await expect(page.locator("#tabbar .tab")).toHaveText(["CLAUDE.md", "README.md"]);
+  await expect(page.locator("#tabbar .tab.on")).toHaveText("README.md");
+  await page.locator("#tabbar .tab", { hasText: "CLAUDE.md" }).click();
+  await expect(page.locator("#vpre")).toContainText("Controle financeiro pessoal");
+
+  // Editar e salvar é o mesmo caminho do workspace.
+  await page.locator("#vtext").fill("# Direto do projeto\n");
+  await expect(page.locator("#vsave")).toBeVisible();
+  await page.locator("#vsave").click();
+  await expect(page.locator("#vsave")).toBeHidden();
+
+  // A setinha lista o que se começa a partir do projeto.
+  await page.locator("#tabbar .tabadd .caret").click();
+  await expect(page.locator(".menu .mrow")).toHaveText(["Terminal novo", "Workspace novo"]);
+  await page.keyboard.press("Escape");
+
+  // O "+" abre terminal na pasta do clone: sem conversa, é o que há para criar.
+  // Setup e Run continuam fora — nenhum script é do clone.
+  await page.locator("#tabbar .tabadd .ico").first().click();
+  const term = page.locator("#tabbar .tab", { hasText: "Terminal" });
+  await expect(term).toHaveClass(/on/);
+  await expect(page.locator("#termview")).toBeVisible();
+  await expect(page.locator("#dock")).toBeHidden();
+
+  // Voltar para o arquivo só tira o terminal da frente.
+  await page.locator("#tabbar .tab", { hasText: "README.md" }).click();
+  await expect(page.locator("#viewer")).toBeVisible();
+  await expect(page.locator("#termview")).toBeHidden();
+  await term.hover();
+  await term.locator(".tabx").click();
+  await expect(page.locator("#tabbar .tab", { hasText: "Terminal" })).toHaveCount(0);
+
+  // Fechar todas devolve o centro ao vazio.
+  await page.locator("#tabbar .tab", { hasText: "CLAUDE.md" }).locator(".tabx").click();
+  await page.locator("#tabbar .tab", { hasText: "README.md" }).locator(".tabx").click();
+  await expect(page.locator("#viewer")).toBeHidden();
+  await expect(page.locator("#offline")).toBeVisible();
+
+  // O chevron continua sendo quem dobra a lista do projeto.
+  await project.locator(".gc").click();
+  await expect(page.locator("#railbody .navitem.sub", { hasText: "Tela igual ao Conductor" })).toHaveCount(0);
+});
+
 test("remove projeto sem apagar seus workspaces", async ({ page }) => {
   await boot(page);
 

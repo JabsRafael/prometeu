@@ -29,7 +29,7 @@ import * as settings from "./settings";
 import * as statusbar from "./statusbar";
 import * as team from "./team";
 import "./style.css";
-import type { Board, Issue, Tab, Workspace } from "./types";
+import type { Board, Issue, Project, Tab, Workspace } from "./types";
 import * as update from "./update";
 import { $ } from "./util";
 import * as viewer from "./viewer";
@@ -102,6 +102,10 @@ const hooks: sidebar.Hooks = {
     invoke("add_project", { path: dir }).catch((e) => say(fromBack(e), true));
   },
   removeProject: (id) => invoke("remove_project", { id }),
+  openProject: (id) => {
+    const project = state.projects.find((p) => p.id === id);
+    if (project) showProject(project);
+  },
   newWorkspace: (projectId) => launch(projectId),
 };
 
@@ -163,7 +167,10 @@ function travel(dir: -1 | 1) {
     showDesk(false);
   } else {
     const target = view().workspaces.find((w) => w.id === hist[at]);
-    target ? openWorkspace(target, false) : showDesk(false);
+    const project = state.projects.find((p) => p.id === hist[at]);
+    if (target) openWorkspace(target, false);
+    else if (project) showProject(project, false);
+    else showDesk(false);
   }
   drawNav();
 }
@@ -202,6 +209,17 @@ function showDesk(push = true) {
   showOnly("deskView");
   $("crumb").replaceChildren(crumbLabel(t("crumb.desk")));
   desk.show();
+  draw();
+}
+
+/// Os arquivos de um projeto, sem workspace nenhum: a árvore do clone e o
+/// viewer. É o caminho curto para ler ou corrigir algo no repositório sem criar
+/// branch, worktree nem conversa para isso.
+function showProject(project: Project, push = true) {
+  if (push) visit(project.id);
+  showOnly(null);
+  ws.openProject(project);
+  sidebar.setOpen(project.id);
   draw();
 }
 
@@ -254,7 +272,9 @@ listen<Board>("board", ({ payload }) => {
 /// perde o que sumiu, e a tela é refeita.
 function refresh() {
   // Workspace removido sai do histórico; duas paradas iguais seguidas viram uma.
-  const alive = new Set(view().workspaces.map((w) => w.id));
+  // Projeto entra junto: ele também é parada do histórico e dono de estado de
+  // tela (o arquivo aberto), e some da barra pelo mesmo caminho.
+  const alive = new Set([...view().workspaces.map((w) => w.id), ...state.projects.map((p) => p.id)]);
   for (let i = hist.length - 1; i >= 0; i--) {
     const id = hist[i];
     if ((!pages.has(id) && !alive.has(id)) || (i > 0 && id === hist[i - 1])) {
@@ -623,6 +643,7 @@ archived.init({ board: () => state, hooks: () => hooks });
 ws.init({
   say, board: view, redraw: draw, home: () => showDesk(),
   launchBranch: (project, base, branch) => launch(project, undefined, { base, branch }),
+  newWorkspace: (project) => launch(project),
   openGitWorkspace: async (id) => {
     const target = state.workspaces.find((workspace) => workspace.id === id);
     if (!target) return;

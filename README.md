@@ -11,6 +11,16 @@ Junta o que é bom no Conductor (worktree isolado por sessão, script de setup p
 repo) com o que é bom no Vibe Island (você fica sabendo na hora que o agente
 precisa de você), numa lista lateral que mantém cada trabalho à mão.
 
+Clicar no nome de um projeto abre os arquivos do clone: a mesma árvore e o
+mesmo editor de um workspace, no repositório como ele está, sem branch nova,
+worktree nem conversa. Cada arquivo aberto vira aba, como num workspace, e o
+"+" da barra é o mesmo do workspace: abre um terminal na pasta do clone, e a
+setinha lista terminal novo ou workspace novo neste projeto. Setup e Run
+continuam de fora, porque nenhum script é do clone. O centro fica vazio enquanto nenhuma aba
+estiver aberta. É o
+caminho curto para ler ou corrigir algo à mão; o chevron da ponta continua
+recolhendo a lista do grupo. Cobertura: `e2e/critical-flows.spec.ts`.
+
 Cada projeto tem um menu para removê-lo da lista. A remoção não apaga o
 repositório, worktrees ou conversas; workspaces restantes ficam em **Sem
 projeto**.

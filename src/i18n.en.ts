@@ -559,6 +559,9 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "build.failed.title": "Could not prepare the worktree",
 
   "gone.title": "Worktree removed",
+  "project.new": "Start in the project",
+  "project.newWorkspace": "New workspace",
+
   "gone.body":
     "The folder is off the disk and the local branch is gone — the work had already landed. What is left is this card: the name, the stage and the PR.",
 
