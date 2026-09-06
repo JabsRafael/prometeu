@@ -4,6 +4,40 @@ O que muda no Prometeu, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.5.6] - 2026-09-06
+<!-- lang:pt-BR -->
+
+### Novidades
+
+- **barra:** Workspace com mais de um repo mora em Conjuntos, com avatar fatiado
+- **terminal:** Terminal livre vira aba do centro
+- **mudanças:** A aba de Alterações só aparece quando você a abre
+- **ações:** Adiciona agentes reutilizáveis e componentes compartilhados
+- **contas:** Gerencia contas de claude e codex no rodapé
+
+### Correções
+
+- **avisos:** Impede sons repetidos durante a execução dos agentes
+
+<!-- lang:en -->
+
+### New
+
+- **sidebar:** Multi-repo workspaces get a Sets group with a sliced avatar
+
+- **terminal:** Free terminal becomes a center tab
+
+- **changes:** Changes tab only shows up when you open it
+
+- **actions:** Adds reusable agents and shared interface components
+
+- **accounts:** Manages Claude and Codex accounts from the footer
+
+### Fixes
+
+- **alerts:** Prevents repeated sounds while agents are running
+
+<!-- lang:end -->
 ## [0.5.5] - 2026-09-05
 <!-- lang:pt-BR -->
 
