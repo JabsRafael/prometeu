@@ -33,6 +33,10 @@ Os comandos `actions_save`, `action_start` e `action_pause` estão descritos no
 
 ## Eventos emitidos atualmente
 
+Os comandos `cloud_status`, `cloud_login_start`, `cloud_login_poll`,
+`cloud_login_cancel` e `cloud_logout` estão no [contrato da conta](cloud-account.md).
+Não retornam token nem senha para a webview.
+
 | Evento | Emissor | Payload emitido |
 | --- | --- | --- |
 | `board` | `state.rs` | `Board` completo |

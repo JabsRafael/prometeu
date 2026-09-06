@@ -39,6 +39,7 @@ conteúdo compartilhado em texto legível pelo operador.
 | Codex adapter | `codex.rs` | converter comandos V1 para JSON-RPC e JSON-RPC para eventos V1 | DOM, estado do quadro ou relay |
 | Relay | Worker + Durable Object | matrícula, presença, audiência, comentários e encaminhamento | execução do agente ou acesso ao worktree |
 | Mock web | `src/mock.ts` | responder ao mesmo IPC para desenvolvimento e E2E da UI | substituir testes do backend Rust |
+| Prometeu Cloud (projeto separado) | Rails 8.1 + SQLite + ERB | conta opcional, perfil e sessões de login | execução de agentes, arquivos ou transcripts nesta etapa |
 
 ## Fluxo principal atual
 
@@ -65,6 +66,14 @@ Veja [`docs/architecture/conversation-flow.md`](docs/architecture/conversation-f
 A apresentação compartilha tokens e primitivas de `src/ui.ts`, `src/ui.css` e
 `src/ui-tokens.css`. Veja o [Design System](docs/architecture/design-system.md)
 para adoção, galeria e regras de dependência.
+
+## Conta opcional
+
+A conta opcional aparece no topo da barra lateral. O backend `cloud.rs`
+conecta o Mac pelo navegador e guarda a credencial privadamente. O projeto
+separado `prometeu-cloud` oferece cadastro e gerenciamento de conta; publicação
+é uma etapa operacional separada. Ver [contrato](docs/contracts/cloud-account.md)
+e [ADR 0015](docs/decisions/0015-cloud-rails.md).
 
 ## Ações reutilizáveis
 

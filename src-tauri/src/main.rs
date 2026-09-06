@@ -7,6 +7,7 @@ mod awake;
 mod browser;
 mod chat;
 mod claude;
+mod cloud;
 mod codex;
 mod conversation;
 mod dock;
@@ -218,6 +219,11 @@ fn main() {
             migration::legacy_import_run,
             team::team_config,
             team::team_config_set,
+            cloud::cloud_status,
+            cloud::cloud_login_start,
+            cloud::cloud_login_poll,
+            cloud::cloud_login_cancel,
+            cloud::cloud_logout,
         ])
         .setup(|app| {
             actions::watch(app.handle().clone());

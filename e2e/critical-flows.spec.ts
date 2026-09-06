@@ -350,7 +350,7 @@ test("recolhe a saída técnica de uma ferramenta que falhou", async ({ page }) 
 test("cria um workspace pelo launcher e acompanha o preparo até a conversa", async ({ page }) => {
   await boot(page);
 
-  await page.locator("#railbody > button.navitem").first().click();
+  await page.locator("#railbody").getByRole("button", { name: "Criar", exact: true }).click();
   await expect(page.locator("#veil .sheet")).toBeVisible();
 
   const title = "Workspace criado pelo E2E";
@@ -400,7 +400,7 @@ test("a lista de issues cabe no lançador e deixa os títulos legíveis", async 
 
   await expect(page.locator("#railbody .navitem", { hasText: "Issues" }).locator(".n")).toHaveText(String(total));
 
-  await page.locator("#railbody > button.navitem").first().click();
+  await page.locator("#railbody").getByRole("button", { name: "Criar", exact: true }).click();
   await page.locator("#d-issuebtn").click();
   await expect(page.locator("#d-ipicker .prow")).toHaveCount(total);
 
@@ -440,7 +440,7 @@ test("mantém os controles do lançador dentro da caixa com branch base longa", 
     };
   }, branch);
 
-  await page.locator("#railbody > button.navitem").first().click();
+  await page.locator("#railbody").getByRole("button", { name: "Criar", exact: true }).click();
   await expect(page.locator("#d-basename")).toHaveText(branch);
 
   const bounds = await page.locator(".sheettop").evaluate((top) => {
@@ -736,7 +736,7 @@ test("Git mantém repositórios limpos e isola o stage de cada repositório", as
 /// workspace. MCP e plugins continuam visíveis para os dois providers.
 test("escolher um GPT mantém o seletor de plugins do lançador", async ({ page }) => {
   await boot(page);
-  await page.locator("#rail button, #railbody .navitem").filter({ hasText: "Criar" }).first().click();
+  await page.locator("#railbody").getByRole("button", { name: "Criar", exact: true }).click();
   await expect(page.locator("#d-plugins")).toBeVisible();
 
   await page.locator("#d-model").click();

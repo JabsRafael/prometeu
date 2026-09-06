@@ -15,6 +15,9 @@ como índice curto para agentes e `README.md` apresenta o produto.
 
 ## Contratos
 
+- [Conta opcional do Prometeu](contracts/cloud-account.md): SaaS, autenticação
+  pelo navegador, conexão do desktop e persistência privada.
+
 - [Ações reutilizáveis](contracts/actions.md): comandos, perfis e acompanhamento local de PR.
 - [`contracts/accounts.md`](contracts/accounts.md): contas, login, seleção
   global e isolamento de cotas dos agentes.
@@ -31,6 +34,9 @@ como índice curto para agentes e `README.md` apresenta o produto.
 - [`contracts/relay-v3.md`](contracts/relay-v3.md): protocolo de colaboração.
 
 ## Decisões
+
+- [ADR 0014](decisions/0014-optional-cloud-account.md): conta opcional e SaaS separado — stack substituída pelo ADR 0015.
+- [ADR 0015](decisions/0015-cloud-rails.md): SaaS em Rails com contrato desktop preservado — aceito.
 
 - [ADR 0011](decisions/0011-shared-ui.md): primitivas compartilhadas de interface — aceito.
 - [`decisions/0013-remove-provider-accounts.md`](decisions/0013-remove-provider-accounts.md):

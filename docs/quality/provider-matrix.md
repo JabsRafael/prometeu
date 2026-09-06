@@ -13,6 +13,7 @@ para virar capacidade contratual.
 
 | Capacidade | Claude | Codex | Evidência principal |
 | --- | --- | --- | --- |
+| conta opcional do Prometeu na barra lateral | independente do CLI | independente do CLI | `cloud.rs`, `e2e/cloud.spec.ts`; nenhum transcript é enviado |
 | formulário de Ações com componentes compartilhados | mesma UI | mesma UI; opções vêm do catálogo | `e2e/ui.spec.ts`, `e2e/actions.spec.ts`, Chromium e WebKit |
 | Code review incluído e editável | perfil inicial; pode trocar modelo/provider | pode ser escolhido no perfil | `actions.rs`, `actions.test.ts`, `e2e/actions.spec.ts` |
 | comandos de prompt e tarefas | adaptado pelo app | adaptado pelo app | `actions.test.ts`, `e2e/actions.spec.ts` |

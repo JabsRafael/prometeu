@@ -48,3 +48,5 @@ Status: Proposto
 | [0011](0011-shared-ui.md) | Aceito | primitivas compartilhadas de interface |
 | [0012](0012-provider-accounts.md) | Aceito | contas locais e seleção global por provider |
 | [0013](0013-remove-provider-accounts.md) | Aceito | remoção de contas e seleção vazia |
+| [0014](0014-optional-cloud-account.md) | Substituído (stack) | conta opcional e SaaS separado |
+| [0015](0015-cloud-rails.md) | Aceito | SaaS em Rails com contrato desktop preservado |

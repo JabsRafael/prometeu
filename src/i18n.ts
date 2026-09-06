@@ -1,8 +1,8 @@
 import { EN } from "./i18n.en";
 import { PT } from "./i18n.pt";
 
-/// O idioma da tela. Uma escolha só, guardada neste Mac — não há conta, não há
-/// perfil, e sincronizar idioma entre máquinas não é coisa que este app faça.
+/// O idioma da tela. Uma escolha só, guardada neste Mac. A conta opcional do
+/// Prometeu não sincroniza o idioma entre máquinas.
 /// Sem escolha, vale o idioma do computador: quem abre o app pela primeira vez
 /// não devia ter que ir nas configurações antes de entender a tela.
 ///

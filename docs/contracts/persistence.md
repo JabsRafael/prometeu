@@ -25,6 +25,7 @@ isoladas.
 | quadro | `<root>/board.json` | `state.rs` |
 | backup do quadro | ao lado de `board.json` | `state.rs` |
 | time e credencial | `<root>/team.json` | `team.rs` |
+| conta opcional do Prometeu | `<root>/cloud.json` | `cloud.rs`; ver [contrato](cloud-account.md) |
 | contas e seleção por provider | `<root>/accounts.json` | `accounts.rs` |
 | perfis autenticados adicionais | `<root>/accounts/<uuid>/` | adapters Claude e Codex |
 | último snapshot de cotas por conta | `<root>/usage.json` | `usage.rs` |
