@@ -8,7 +8,7 @@ export default defineConfig({
   // seguinte em silêncio deixaria a janela num vite que não é o dele.
   server: { port: Number(process.env.PORT ?? 1420), strictPort: true },
   build: {
-    rollupOptions: { input: { app: "index.html", designSystem: "design-system.html" } },
+    rollupOptions: { input: { app: "index.html", designSystem: "design-system.html", companyDesignSystem: "packages/design-system/index.html" } },
     // A webview do Tauri é moderna; sem isto o esbuild recusa o `await` de
     // topo de módulo no bootstrap, que o dev aceita sem reclamar.
     target: "esnext",

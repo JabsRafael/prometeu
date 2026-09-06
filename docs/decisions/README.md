@@ -45,8 +45,10 @@ Status: Proposto
 | [0009](0009-reusable-actions.md) | Aceito | comandos e agentes reutilizáveis com acompanhamento local |
 
 | [0010](0010-default-code-review.md) | Aceito | Code review incluído uma vez, editável e removível |
-| [0011](0011-shared-ui.md) | Aceito | primitivas compartilhadas de interface |
+| [0011](0011-shared-ui.md) | Parcialmente substituído pelo 0016 | primitivas compartilhadas de interface |
 | [0012](0012-provider-accounts.md) | Aceito | contas locais e seleção global por provider |
 | [0013](0013-remove-provider-accounts.md) | Aceito | remoção de contas e seleção vazia |
 | [0014](0014-optional-cloud-account.md) | Substituído (stack) | conta opcional e SaaS separado |
 | [0015](0015-cloud-rails.md) | Aceito | SaaS em Rails com contrato desktop preservado |
+| [0016](0016-company-design-system.md) | Parcialmente substituído pelo 0017 | Design System distribuível para os produtos da empresa |
+| [0017](0017-executable-design-system.md) | Aceito | componentes executáveis e adaptador Rails do Design System |

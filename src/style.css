@@ -1572,38 +1572,12 @@ body.noside .side { display: none; }
 /* Flutua acima de tudo, inclusive do lançador: quem abriu o menu está mexendo
    nele agora. Fica em `fixed` para o submenu poder nascer dentro do painel e
    ainda assim se posicionar pela tela. */
-.menu, .upop {
-  position: fixed; z-index: 30; min-width: 200px; padding: 5px;
-  background: var(--bg-raised-2); border: 1px solid var(--line-ghost);
-  border-radius: var(--r-lg); box-shadow: 0 20px 48px -12px rgb(0 0 0 / 0.85);
-  display: flex; flex-direction: column; gap: 1px;
-}
-.menu hr { border: none; border-top: 1px solid var(--line-raised); margin: 4px 6px; width: auto; }
-.mrow {
-  display: flex; align-items: center; gap: 10px; height: 30px; width: 100%;
-  padding: 0 8px; border-radius: var(--r); background: none; color: var(--fg);
-  font-weight: 400; justify-content: flex-start;
-}
-.mrow:hover, .mrow.sel { background: var(--bg-raised-3); }
 /* A lista de comandos da caixa: pode ter dezenas de linhas, então cabe na
    tela e rola, em vez de crescer até tampar a conversa. */
 .menu.cmds { max-height: 40vh; overflow-y: auto; max-width: min(560px, calc(100vw - 16px)); }
 .menu.cmds .mrow { flex: none; }
 .menu.cmds .ml { flex: none; max-width: 240px; }
 .menu.cmds .mh { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-.mrow .mg { display: flex; color: var(--fg-2); width: 16px; flex: none; }
-.mrow .ml { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-.mrow .mh { font-size: 12px; color: var(--fg-3); }
-.mrow .mbadge { flex: none; padding: 1px 5px; border-radius: 4px; font-size: 10px; line-height: 16px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.mrow .mc { display: flex; color: var(--tab-line); width: 14px; flex: none; }
-.mrow .ic { flex: none; }
-/* Item que continua na lista mas não pode ser usado: apagado, e o porquê na
-   ponta onde mora o atalho. */
-.mrow.off, .mrow.off:hover { color: var(--fg-3); background: none; cursor: default; }
-.mrow.off .mg { opacity: 0.5; }
-.mrow.danger { color: var(--err); }
-.mrow.danger:hover { background: var(--err-bg); }
-.mrow.danger .mg { color: var(--err); }
 
 /* ---------- arquivo arrastado de fora ---------- */
 

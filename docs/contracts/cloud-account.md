@@ -22,6 +22,14 @@ sessões de login e exclusão de conta com senha. SMTP é obrigatório para
 produção; desenvolvimento local pode rodar sem email. Sessões têm validade
 fixa de 30 dias, com revogação no servidor; não há renovação automática.
 
+Os controles do site são renderizados pelo adaptador Rails do Design System.
+Seu runtime local acrescenta menus, revelar senha, confirmação opcional de
+revogação e bloqueio de envios duplicados. A CSP permite scripts locais com
+nonce e não permite `unsafe-inline` ou `eval`. Formulários continuam enviando
+POSTs nativos com CSRF e valores de botão preservados. Sem JavaScript, cadastro,
+login e autorização do Mac continuam funcionando. Ver
+[ADR 0017](../decisions/0017-executable-design-system.md).
+
 ## Conexão do Mac
 
 O backend usa `POST /api/auth/device/code`, com `client_id=prometeu-desktop`.

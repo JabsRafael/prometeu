@@ -35,10 +35,14 @@ como índice curto para agentes e `README.md` apresenta o produto.
 
 ## Decisões
 
+- [ADR 0017](decisions/0017-executable-design-system.md): componentes executáveis, comportamento compartilhado e adaptação Rails.
+
+- [ADR 0016](decisions/0016-company-design-system.md): Design System compartilhado da empresa, pacote e consumo pelo Cloud.
+
 - [ADR 0014](decisions/0014-optional-cloud-account.md): conta opcional e SaaS separado — stack substituída pelo ADR 0015.
 - [ADR 0015](decisions/0015-cloud-rails.md): SaaS em Rails com contrato desktop preservado — aceito.
 
-- [ADR 0011](decisions/0011-shared-ui.md): primitivas compartilhadas de interface — aceito.
+- [ADR 0011](decisions/0011-shared-ui.md): primitivas compartilhadas de interface — localização dos assets substituída pelo ADR 0016.
 - [`decisions/0013-remove-provider-accounts.md`](decisions/0013-remove-provider-accounts.md):
   remoção de qualquer conta e seleção vazia — aceita.
 - [`decisions/0012-provider-accounts.md`](decisions/0012-provider-accounts.md):

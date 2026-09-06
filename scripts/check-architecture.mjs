@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 
 /// Fitness function do ADR 0003: componentes de apresentação recebem
 /// capabilities e ProviderId prontos. Dispatch por nome pertence ao catálogo
@@ -19,10 +19,14 @@ const forbidden = [
 
 const failures = [];
 // As primitivas visuais não conhecem regras de agentes nem transporte.
-const ui = await readFile("src/ui.ts", "utf8");
-for (const match of ui.matchAll(/from\s+["']([^"']+)["']/g)) {
-  if (!["./icons", "./menu", "./util"].includes(match[1])) {
-    failures.push(`src/ui.ts: dependência fora das primitivas de apresentação: ${match[1]}`);
+const componentRoot = "packages/design-system/src";
+for (const name of await readdir(componentRoot)) {
+  if (!name.endsWith(".ts")) continue;
+  const source = await readFile(`${componentRoot}/${name}`, "utf8");
+  for (const match of source.matchAll(/(?:from|import)\s+["']([^"']+)["']/g)) {
+    if (!/^\.\/[\w-]+\.js$/.test(match[1])) {
+      failures.push(`${componentRoot}/${name}: dependência fora do pacote: ${match[1]}`);
+    }
   }
 }
 const actionSettings = await readFile("src/action-settings.ts", "utf8");

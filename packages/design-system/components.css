@@ -1,0 +1,116 @@
+@import url("./tokens.css");
+
+/* Opt-in: nenhuma regra global de botão, formulário ou layout. */
+.ui-comfortable { --control-height: 44px; --button-height: 44px; --label-size: 13px; --hint-size: 12px; }
+.ui-comfortable .mrow { min-height: var(--control-height); }
+.ui-button {
+  box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+  gap: var(--space-2); min-height: var(--button-height); height: auto; padding: 0 var(--space-4);
+  border: 1px solid var(--line-ghost); border-radius: var(--r); background: none; color: var(--fg);
+  font: inherit; font-weight: 500; line-height: 1.4; text-decoration: none; cursor: pointer;
+}
+.ui-button:hover { background: var(--bg-raised); }
+.ui-button.pri { background: var(--pri); border-color: transparent; color: var(--pri-fg); }
+.ui-button.pri:hover { background: #fff; }
+.ui-button.ghost { border-color: transparent; color: var(--fg-2); }
+.ui-button.ghost:hover { background: var(--bg-raised-2); color: var(--fg); }
+.ui-button.danger { border-color: var(--err); color: var(--err); }
+.ui-button.danger:hover { background: var(--err-bg); }
+.ui-button[aria-disabled="true"] { opacity: .45; cursor: wait; }
+.ui-button:focus-visible, .ui-input:focus-visible, .ui-select:focus-visible,
+.ui-check > input[type="checkbox"]:focus-visible, .ui-link:focus-visible, .ui-nav-link:focus-visible {
+  outline: 2px solid var(--tab-line); outline-offset: 3px;
+}
+.ui-link { color: var(--fg); text-underline-offset: 4px; }
+.ui-link:hover { color: var(--accent); }
+.ui-card { padding: var(--space-6); border: 1px solid var(--line-raised); border-radius: var(--r-xl); background: var(--bg-side); }
+.ui-stack { display: flex; flex-direction: column; gap: var(--space-6); min-width: 0; }
+.ui-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.ui-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px var(--space-2); border: 1px solid var(--line-raised); border-radius: var(--r); color: var(--fg-2); font-size: var(--text-sm); line-height: 1.5; }
+.ui-badge.success { color: var(--done); background: var(--done-bg); border-color: transparent; }
+.ui-notice { margin: 0; padding: var(--space-4); border: 1px solid var(--line-raised); border-radius: var(--r-lg); color: var(--fg-2); background: var(--bg-raised); line-height: 1.6; overflow-wrap: anywhere; }
+.ui-notice.success { color: var(--done); background: var(--done-bg); }
+.ui-notice.error { color: var(--err); background: var(--err-bg); }
+.ui-notice.warning { color: var(--wait); background: var(--wait-bg); }
+.ui-eyebrow { color: var(--accent); font: 500 var(--text-sm)/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.ui-nav-link { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3); border-radius: var(--r); color: var(--fg-2); text-decoration: none; font-size: var(--text-base); }
+.ui-nav-link:hover, .ui-nav-link[aria-current] { color: var(--fg); background: var(--bg-raised); }
+
+/* Campos, seletores e formulários compartilham as mesmas dimensões. */
+.ui-button:disabled, .ui-select:disabled { opacity: .45; cursor: not-allowed; }
+.ui-field { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.ui-label { font-size: var(--label-size); color: var(--fg-2); }
+.ui-hint { margin: 0; font-size: var(--hint-size); color: var(--fg-2); line-height: 1.5; }
+.ui-error, .ui-hint.ui-error { color: var(--err); }
+.ui-error:empty { display: none; }
+.ui-input, .ui-select { min-height: var(--control-height); padding: 7px 10px; border: 1px solid var(--line-raised); border-radius: var(--r); background: var(--bg); color: var(--fg); font: inherit; }
+.ui-input { box-sizing: border-box; width: 100%; min-width: 0; user-select: text; }
+.ui-input::placeholder { color: var(--fg-3); }
+textarea.ui-input { resize: vertical; min-height: 112px; line-height: 1.5; }
+.ui-input:disabled { opacity: .45; cursor: not-allowed; }
+.ui-input[aria-invalid="true"], .ui-select[aria-invalid="true"] { border-color: var(--err); }
+.ui-select { box-sizing: border-box; display: inline-flex; align-items: center; width: 100%; height: auto; text-align: left; justify-content: space-between; gap: var(--space-2); cursor: pointer; }
+.ui-select > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ui-select-field { position: relative; }
+.ui-native-select { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; padding: 0; border: 0; }
+.ui-select-menu { max-height: 40vh; max-width: calc(100vw - 16px); overflow-y: auto; }
+.ui-select-menu .mrow { flex: none; }
+.ui-check { display: flex; align-items: flex-start; gap: var(--space-2); font-size: var(--label-size); color: var(--fg-2); line-height: 20px; }
+.ui-check > input[type="checkbox"] { appearance: none; width: 16px; height: 16px; margin: 2px 0 0; padding: 0; flex: none; border: 1px solid var(--line-ghost); border-radius: 4px; background: var(--bg); display: grid; place-content: center; }
+.ui-check > input[type="checkbox"]:checked { background: var(--pri); border-color: var(--pri); }
+.ui-check > input[type="checkbox"]:checked::after { content: ""; width: 7px; height: 4px; border: solid var(--pri-fg); border-width: 0 0 2px 2px; transform: rotate(-45deg) translateY(-1px); }
+.ui-check > input[type="checkbox"]:disabled { opacity: .45; }
+.ui-check > span { min-width: 0; overflow-wrap: anywhere; }
+.ui-disclosure { border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--space-3); }
+.ui-disclosure summary { cursor: pointer; color: var(--fg-2); font-size: 12px; }
+.ui-disclosure summary:focus-visible { outline: 2px solid var(--tab-line); outline-offset: 4px; }
+.ui-disclosure summary::marker { color: var(--fg-3); }
+.ui-disclosure[open] > summary { margin-bottom: var(--space-4); }
+.ui-disclosure > .ui-field { margin-top: var(--space-3); }
+
+/* Diálogos e menus independentes do CSS do aplicativo. */
+.sheet.ui-dialog { box-sizing: border-box; width: min(600px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 0; margin: auto; color: var(--fg); background: var(--bg-raised); border: 1px solid var(--line-raised); border-radius: var(--r-xl); box-shadow: var(--shadow); font: inherit; }
+.sheet.ui-dialog[open] { display: flex; flex-direction: column; }
+.ui-dialog .sheettop { display: flex; align-items: center; flex: none; min-height: 44px; padding: 0 var(--space-4); border-bottom: 1px solid var(--line-raised); }
+.ui-dialog::backdrop { background: rgb(0 0 0 / .5); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.ui-dialog > form { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.ui-dialog .sheettop b { font-size: 13px; font-weight: 500; }
+.ui-form-body { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-4); min-height: 0; overflow-y: auto; }
+.ui-dialog .ui-form-footer { display: flex; align-items: center; flex: none; border-top: 1px solid var(--line-raised); padding: var(--space-3) var(--space-4); gap: var(--space-3); justify-content: flex-end; }
+.ui-dialog .ui-form-footer > :first-child { margin-right: auto; }
+.ui-dialog .ui-form-footer .ui-error { min-width: 0; overflow-wrap: anywhere; }
+.menu, .upop {
+  position: fixed; z-index: 30; min-width: 200px; padding: 5px;
+  background: var(--bg-raised-2); border: 1px solid var(--line-ghost);
+  border-radius: var(--r-lg); box-shadow: 0 20px 48px -12px rgb(0 0 0 / 0.85);
+  display: flex; flex-direction: column; gap: 1px;
+}
+.menu hr { border: none; border-top: 1px solid var(--line-raised); margin: 4px 6px; width: auto; }
+.mrow {
+  border: 1px solid transparent; font: inherit; cursor: pointer;
+  display: flex; align-items: center; gap: 10px; height: 30px; width: 100%;
+  padding: 0 8px; border-radius: var(--r); background: none; color: var(--fg);
+  font-weight: 400; justify-content: flex-start;
+}
+.mrow:hover, .mrow.sel { background: var(--bg-raised-3); }
+.mrow .mg { display: flex; color: var(--fg-2); width: 16px; flex: none; }
+.mrow .ml { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.mrow .mh { font-size: 12px; color: var(--fg-3); }
+.mrow .mbadge { flex: none; padding: 1px 5px; border-radius: 4px; font-size: 10px; line-height: 16px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.mrow .mc { display: flex; color: var(--tab-line); width: 14px; flex: none; }
+.mrow .ic { flex: none; }
+/* Item que continua na lista mas não pode ser usado: apagado, e o porquê na
+   ponta onde mora o atalho. */
+.mrow.off, .mrow.off:hover { color: var(--fg-3); background: none; cursor: default; }
+.mrow.off .mg { opacity: 0.5; }
+.mrow.danger { color: var(--err); }
+.mrow.danger:hover { background: var(--err-bg); }
+.mrow.danger .mg { color: var(--err); }
+.menu .ic, .ui-select .ic { flex: none; display: block; }
+.menu:focus { outline: none; }
+.mrow:focus-visible { outline: 2px solid var(--tab-line); outline-offset: -2px; }
+.ui-password { display: flex; align-items: stretch; gap: var(--space-2); }
+.ui-password > .ui-input { flex: 1; width: 0; }
+.ui-password > .ui-button { flex: none; }
+.ui-menu-fallback summary { cursor: pointer; }
+.ui-menu-fallback > div { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); }

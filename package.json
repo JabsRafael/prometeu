@@ -10,8 +10,8 @@
   },
   "scripts": {
     "dev": "vite",
-    "typecheck": "tsc --noEmit && tsc -p relay",
-    "build": "npm run typecheck && vite build",
+    "typecheck": "tsc --noEmit && tsc -p relay && tsc -p packages/design-system --noEmit",
+    "build": "npm run design-system:build && npm run typecheck && vite build",
     "app": "sh scripts/app.sh",
     "build:app": "tauri build",
     "tauri": "tauri",
@@ -26,7 +26,9 @@
     "check": "npm run docs:check && npm run architecture:check && npm run format:check && npm run build && npm test && npm run lint:rust",
     "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true",
     "relay:dev": "wrangler dev --config relay/wrangler.toml --port 8787",
-    "relay:deploy": "wrangler deploy --config relay/wrangler.toml"
+    "relay:deploy": "wrangler deploy --config relay/wrangler.toml",
+    "design-system:build": "npm run build --prefix packages/design-system",
+    "predev": "npm run design-system:build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

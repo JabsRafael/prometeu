@@ -27,7 +27,7 @@ export default defineConfig({
   webServer: {
     // O preview é estático: além de exercitar o bundle de produção, evita um
     // reload de HMR no meio do teste quando outra tarefa toca o worktree.
-    command: `npx vite build && npx vite preview --host 127.0.0.1 --port ${port}`,
+    command: `npm run design-system:build && npx vite build && npx vite preview --host 127.0.0.1 --port ${port}`,
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
