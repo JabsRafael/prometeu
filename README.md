@@ -209,6 +209,30 @@ estiverem; o plano em markdown com **sim**, **sim, perguntando** e **mudar**
 da ferramenta. Esc interrompe o turno. Um colega olhando a conversa responde
 o mesmo card, e a resposta viaja até o Mac do dono.
 
+### Contas e limites
+
+Clique nas cotas de Claude ou Codex no rodapé para escolher a conta ativa,
+ver os limites de cada conta ou adicionar outra assinatura. O rodapé mostra
+apenas os limites; o e-mail fica no painel. O login começa no Prometeu
+e termina no navegador oficial; depois, clicar na conta a ativa para todos os
+workspaces daquele provider. O card inteiro é clicável, e um contorno indica
+a conta ativa. Codex e Claude
+mantêm seleções independentes, inclusive depois de fechar o app.
+
+O turno atual termina com a conta anterior. A próxima mensagem usa a nova
+conta e retoma a mesma conversa. Uma mensagem enviada durante a troca fica
+na fila até o turno terminar. **Reconectar** renova um login; **Cancelar**
+encerra uma tentativa em andamento. Conectar ou cancelar não muda a seleção.
+O login já usado no terminal continua disponível e não é sobrescrito.
+
+**Remover conta** tira qualquer conta do Prometeu, inclusive a do terminal.
+Remover a conta ativa deixa aquele provider sem seleção até você escolher
+outra. É possível remover todas; elas não reaparecem ao reiniciar. Isso não
+faz logout do CLI nem apaga credenciais locais ou conversas. **Reconectar**
+refaz o login no navegador, sem ser um botão de atualização das cotas.
+
+Detalhes e evidências estão no [contrato de contas](docs/contracts/accounts.md).
+
 ### Onde a conversa dorme
 
 A do Claude Code é o transcript dele, `~/.claude/projects/<slug>/<id>.jsonl`

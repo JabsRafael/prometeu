@@ -285,6 +285,13 @@ listen<[string, number | null]>("pty-closed", ({ payload: [key] }) => dockbar.cl
 /// agente. É a conta inteira, então a faixa de baixo se refaz sozinha.
 listen<statusbar.Usage>("usage", ({ payload }) => statusbar.showUsage(payload));
 invoke<statusbar.Usage>("usage").then(statusbar.showUsage).catch(() => {});
+listen<statusbar.Accounts>("accounts", ({ payload }) => {
+  if (statusbar.showAccounts(payload)) {
+    void loadAgents().then(() => statusbar.showAgents(installed()));
+  }
+});
+invoke<statusbar.Accounts>("accounts").then(statusbar.showAccounts).catch((error) => say(fromBack(error), true));
+listen<string>("account-error", ({ payload }) => say(fromBack(payload), true));
 
 /// O que o app está custando à máquina, de três em três segundos. Só chega
 /// quando muda: o quieto não redesenha nada.

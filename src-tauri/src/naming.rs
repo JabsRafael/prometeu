@@ -135,6 +135,9 @@ fn ask_codex(prompt: &str, model: &str) -> Option<String> {
         .stdout(Stdio::null())
         .stderr(Stdio::null());
 
+    let profile = crate::accounts::active(crate::state::ProviderId::Codex).ok()?;
+    profile.prepare().ok()?;
+    profile.apply(&mut cmd);
     let child = cmd.spawn().ok();
     let title = child
         .and_then(|mut c| wait(&mut c).then(|| std::fs::read_to_string(&out).ok()))
@@ -172,6 +175,9 @@ fn ask_claude(prompt: &str) -> Option<String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
 
+    let profile = crate::accounts::active(crate::state::ProviderId::Claude).ok()?;
+    profile.prepare().ok()?;
+    profile.apply(&mut cmd);
     let mut child = cmd.spawn().ok()?;
     child.stdin.take()?.write_all(prompt.as_bytes()).ok()?;
     if !wait(&mut child) {

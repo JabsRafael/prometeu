@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod accounts;
 mod actions;
 mod agents;
 mod awake;
@@ -115,6 +116,11 @@ fn main() {
             i18n::set_lang,
             agents::agents,
             agents::claude_models,
+            accounts::accounts,
+            accounts::account_select,
+            accounts::account_remove,
+            accounts::account_login,
+            accounts::account_login_cancel,
             usage::usage,
             machine::machine,
             awake::set_awake,
@@ -225,6 +231,7 @@ fn main() {
             // A gravação do quadro é adiada para não pesar no caminho quente.
             // Sair é o único momento em que não existe "daqui a pouco".
             if matches!(event, tauri::RunEvent::Exit) {
+                accounts::shutdown();
                 state::save_now(app);
             }
         });

@@ -5,12 +5,33 @@ import { emptyCatalog, initializeDefaults, type Catalog, type Profile } from "./
 import { encodeLive, encodeSnapshot, type Inbox, type Note } from "../relay/src/protocol";
 import { LegacyConversationAdapter } from "./conversation-legacy";
 import * as team from "./team";
+import type { Accounts } from "./statusbar";
 import { hasWorktree, type Board, type Change, type Choice, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type Pr, type Scripts, type Tab, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
 let nextId = 1;
 const w = window as unknown as Record<string, unknown>;
+
+const accountDefaults: Accounts = {
+  accounts: [
+    { id: "claude", provider: "claude", email: "pessoal@exemplo.com", plan: "max", connected: true, revision: 0 },
+    { id: "codex", provider: "codex", email: "pessoal@exemplo.com", plan: "pro", connected: true, revision: 0 },
+    { id: "09317ab6-22c1-45bb-882e-f6fef6a44c09", provider: "claude", email: "trabalho@exemplo.com", plan: "max", connected: true, revision: 0 },
+    { id: "086eb684-2c61-421b-a3e5-80e54bc26a53", provider: "codex", email: "trabalho@exemplo.com", plan: "pro", connected: true, revision: 0 },
+  ],
+  active: { claude: "claude", codex: "codex" },
+  login: null,
+};
+const mockAccounts: Accounts = JSON.parse(localStorage.getItem("mock:accounts") ?? "null") ?? accountDefaults;
+mockAccounts.login = null;
+let cancelAccountLogin: (() => void) | null = null;
+function accountSnapshot() {
+  const snapshot = structuredClone(mockAccounts);
+  localStorage.setItem("mock:accounts", JSON.stringify({ ...snapshot, login: null }));
+  emit("accounts", snapshot);
+  return snapshot;
+}
 
 const ws = (
   id: string,
@@ -677,6 +698,58 @@ function emit(event: string, payload: unknown) {
 
 function call(cmd: string, args: Record<string, any> = {}): unknown {
   switch (cmd) {
+    case "accounts":
+      return structuredClone(mockAccounts);
+    case "account_select": {
+      const account = mockAccounts.accounts.find((account) => account.id === args.id);
+      if (!account) throw 'i18n:{"code":"err.account.missing"}';
+      if (!account.connected && account.id !== account.provider) throw 'i18n:{"code":"err.account.disconnected"}';
+      mockAccounts.active[account.provider] = account.id;
+      return accountSnapshot();
+    }
+    case "account_remove": {
+      if (mockAccounts.login) throw 'i18n:{"code":"err.account.busy"}';
+      const account = mockAccounts.accounts.find((account) => account.id === args.id);
+      if (!account) throw 'i18n:{"code":"err.account.missing"}';
+      if (mockAccounts.active[account.provider] === account.id) delete mockAccounts.active[account.provider];
+      mockAccounts.accounts = mockAccounts.accounts.filter((entry) => entry.id !== account.id);
+      const snapshot = accountSnapshot();
+      emit("usage", call("usage"));
+      return snapshot;
+    }
+    case "account_login": {
+      if (mockAccounts.login) throw 'i18n:{"code":"err.account.busy"}';
+      if (!["claude", "codex"].includes(args.provider)) throw 'i18n:{"code":"err.account.provider"}';
+      let account = mockAccounts.accounts.find((account) => account.id === args.id);
+      if (!account) {
+        account = { id: crypto.randomUUID(), provider: args.provider, email: null, plan: null, connected: false, revision: 0 };
+        mockAccounts.accounts.push(account);
+      }
+      const connecting = account;
+      mockAccounts.login = { id: connecting.id, provider: connecting.provider };
+      accountSnapshot();
+      return new Promise((resolve, reject) => {
+        const finish = (code?: string) => {
+          mockAccounts.login = null;
+          cancelAccountLogin = null;
+          if (!code) {
+            connecting.connected = true;
+            connecting.email = "nova@exemplo.com";
+            connecting.plan = "pro";
+            connecting.revision++;
+          }
+          const snapshot = accountSnapshot();
+          emit("usage", call("usage"));
+          if (code) reject(`i18n:${JSON.stringify({ code })}`);
+          else resolve(snapshot);
+        };
+        const timer = setTimeout(() => finish(localStorage.getItem("mock:accountLoginError") ? "err.account.login" : undefined), 1000);
+        cancelAccountLogin = () => { clearTimeout(timer); finish("err.account.cancelled"); };
+      });
+    }
+    case "account_login_cancel":
+      if (mockAccounts.login?.id === args.id) cancelAccountLogin?.();
+      return;
     case "plugin:event|listen": {
       const h = w[`_${args.handler}`] as Handler;
       handlers.set(args.event, [...(handlers.get(args.event) ?? []), h]);
@@ -1060,6 +1133,10 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     case "usage": {
       const now = Math.floor(Date.now() / 1000);
       return {
+        ...Object.fromEntries(mockAccounts.accounts.filter((account) => account.id !== account.provider && account.connected).map((account, index) => [account.id, {
+          windows: [{ kind: "session", pct: 9 + index, resets: now + 2 * 3600 }, { kind: "weekly", pct: 25 + index, resets: now + 4 * 86400 }],
+          at: now,
+        }])),
         claude: {
           windows: [
             { kind: "session", pct: 16, resets: now + 3 * 3600 + 14 * 60 },
@@ -1756,6 +1833,8 @@ w.__TAURI_INTERNALS__ = {
 
 // Atalho para testar o arrastar-e-soltar pelo console: `mock.drop([...])`.
 w.mock = {
+  usage: (payload: unknown) => emit("usage", payload),
+  accountError: (error: string) => emit("account-error", error),
   /// Uma linha na conversa de mentira, como se o processo tivesse escrito.
   line: (tab: string, o: unknown) => pushLine(tab, o),
   /// Quantas gravações de MCP/plugin o back de mentira recebeu.

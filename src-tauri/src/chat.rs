@@ -16,7 +16,7 @@
 use crate::i18n;
 use crate::lock::lock;
 use crate::state::{publish, Note, Status, Workspace};
-use crate::{claude, codex, conversation, paths, transcript, usage, AppState};
+use crate::{accounts, claude, codex, conversation, paths, transcript, usage, AppState};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::process::CommandExt;
@@ -117,11 +117,20 @@ pub type Translate = Box<dyn FnMut(&str) -> Vec<String> + Send>;
 pub(crate) struct ProcessIo<F> {
     stderr_line: fn(&str) -> Option<String>,
     wire: F,
+    profile: accounts::Profile,
 }
 
 impl<F> ProcessIo<F> {
-    pub(crate) fn new(stderr_line: fn(&str) -> Option<String>, wire: F) -> Self {
-        Self { stderr_line, wire }
+    pub(crate) fn new(
+        stderr_line: fn(&str) -> Option<String>,
+        wire: F,
+        profile: accounts::Profile,
+    ) -> Self {
+        Self {
+            stderr_line,
+            wire,
+            profile,
+        }
     }
 }
 
@@ -148,11 +157,15 @@ pub struct Pump {
     /// transcript dele sozinho; o Codex não escreve neste formato, então é o
     /// app que grava o que traduziu — e é daí que a aba reabre.
     log: Option<PathBuf>,
+    profile: accounts::Profile,
 }
 
 impl Pump {
     /// Uma linha, do processo ou do app, até a tela.
     pub fn feed(&self, text: &str) {
+        if self.gone.load(Ordering::Relaxed) {
+            return;
+        }
         let text = text.trim_end();
         if text.is_empty() {
             return;
@@ -184,7 +197,17 @@ impl Pump {
             }
             _ => {}
         }
-        react(&self.app, &self.id, &frame, &self.ready);
+        react(&self.app, &self.id, &frame, &self.ready, &self.profile.id);
+        if frame["type"] == "turn.completed" {
+            let state = self.app.state::<AppState>();
+            let queued = lock(&state.board)
+                .tab_mut(&self.id)
+                .is_some_and(|tab| tab.pending_prompt.is_some());
+            if queued && !setup_running(&state, &self.id) {
+                let (app, id) = (self.app.clone(), self.id.clone());
+                std::thread::spawn(move || send_prompt(&app, &id, None));
+            }
+        }
     }
 }
 
@@ -246,6 +269,22 @@ impl Chat {
         self.alive.load(Ordering::Relaxed)
     }
 
+    fn changing_account(&self) -> Result<bool, String> {
+        let selected = accounts::active(self.pump.profile.provider)?;
+        if accounts::logging_in(&selected.id) {
+            return Err(i18n::t("err.account.busy"));
+        }
+        Ok(selected.id != self.pump.profile.id || selected.revision != self.pump.profile.revision)
+    }
+
+    pub fn account(&self) -> &str {
+        &self.pump.profile.id
+    }
+
+    pub fn working(&self) -> bool {
+        self.pump.turn.load(Ordering::Relaxed)
+    }
+
     /// O líder do grupo do agente. Ver `machine.rs`: o que ele subiu por baixo
     /// conta como dele.
     pub fn pid(&self) -> u32 {
@@ -293,8 +332,10 @@ pub fn kill(state: &AppState, id: &str) {
 /// ambiente inteiro para recopiá-lo: quem chama já pôs no comando o que só ele
 /// sabe, e limpar apagaria isso junto.
 fn drop_claude_vars(cmd: &mut Command) {
+    let explicit: std::collections::HashSet<_> =
+        cmd.get_envs().map(|(key, _)| key.to_os_string()).collect();
     for (key, _) in std::env::vars() {
-        if key.starts_with("CLAUDE") {
+        if key.starts_with("CLAUDE") && !explicit.contains(std::ffi::OsStr::new(&key)) {
             cmd.env_remove(key);
         }
     }
@@ -309,7 +350,11 @@ pub(crate) fn launch(
     spawn_error: &str,
     io: ProcessIo<impl FnOnce(ChildStdin) -> (Wire, Translate)>,
 ) -> Result<Chat, String> {
-    let ProcessIo { stderr_line, wire } = io;
+    let ProcessIo {
+        stderr_line,
+        wire,
+        profile,
+    } = io;
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -348,6 +393,7 @@ pub(crate) fn launch(
         turn: Arc::new(AtomicBool::new(false)),
         ready: Arc::new(AtomicBool::new(false)),
         log,
+        profile,
     };
     let mut chat = Chat {
         wire,
@@ -470,7 +516,7 @@ fn keep(frame: &Value) -> bool {
 /// O que cada linha conta ao quadro. É o que os hooks contavam antes, lido
 /// direto do stream: a ferramenta que está rodando, a pergunta que travou a
 /// sessão, o fim do turno.
-fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool) {
+fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool, account: &str) {
     match frame["type"].as_str() {
         // A resposta ao pedido inicial traz os comandos e confirma que o cano
         // de controle está pronto.
@@ -480,9 +526,11 @@ fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool) {
         // Quanto da cota já foi. Vem a cada pedido ao modelo, é da conta e não
         // da sessão, e quem guarda é o `usage` — a barra de baixo é uma só.
         Some("usage.updated") if frame["provider"] == "claude" => {
-            usage::claude(app, &frame["usage"])
+            usage::claude(app, account, &frame["usage"])
         }
-        Some("usage.updated") if frame["provider"] == "codex" => usage::codex(app, &frame["usage"]),
+        Some("usage.updated") if frame["provider"] == "codex" => {
+            usage::codex(app, account, &frame["usage"])
+        }
         // O adapter do Codex conta quanto a conversa pesa e qual é a sessão do
         // lado de lá.
         Some("context.updated") => {
@@ -647,6 +695,33 @@ fn setup_running(state: &AppState, session: &str) -> bool {
 /// fala: é o aviso de que o setup não terminou bem.
 pub fn send_prompt(app: &AppHandle, session: &str, prefix: Option<String>) {
     let state = app.state::<AppState>();
+    {
+        let mut board = lock(&state.board);
+        let Some(prompt) = board
+            .tab_mut(session)
+            .and_then(|tab| tab.pending_prompt.as_mut())
+        else {
+            return;
+        };
+        if let Some(prefix) = prefix {
+            prompt.insert_str(0, &prefix);
+        }
+    }
+    match account_boundary(&state, session) {
+        Ok(AccountBoundary::Wait) => return,
+        Ok(AccountBoundary::Restart) => {
+            if let Err(error) = crate::session::revive(app, &state, session) {
+                update(app, session, None, Note::Set(error.clone()), None);
+                let _ = app.emit("account-error", error);
+            }
+            return;
+        }
+        Err(error) => {
+            let _ = app.emit("account-error", error);
+            return;
+        }
+        Ok(AccountBoundary::Keep) => {}
+    }
     let prompt = {
         let mut board = lock(&state.board);
         let Some(tab) = board.tab_mut(session) else {
@@ -655,7 +730,7 @@ pub fn send_prompt(app: &AppHandle, session: &str, prefix: Option<String>) {
         let Some(p) = tab.pending_prompt.take() else {
             return;
         };
-        format!("{}{p}", prefix.unwrap_or_default())
+        p
     };
     match say(&state, session, &prompt) {
         Ok(()) => update(app, session, Some(Status::Rodando), Note::Clear, None),
@@ -701,7 +776,17 @@ fn write(state: &AppState, session: &str, frame: &Value) -> Result<(Pump, Vec<Va
         .get_mut(session)
         .filter(|c| c.alive())
         .ok_or_else(|| i18n::t("err.chat.gone"))?;
-    let echo = chat.write(frame)?;
+    let previous_turn =
+        (frame["type"] == "message.send").then(|| chat.pump.turn.swap(true, Ordering::Relaxed));
+    let echo = match chat.write(frame) {
+        Ok(echo) => echo,
+        Err(error) => {
+            if let Some(previous) = previous_turn {
+                chat.pump.turn.store(previous, Ordering::Relaxed);
+            }
+            return Err(error);
+        }
+    };
     Ok((chat.pump.clone(), echo))
 }
 
@@ -710,7 +795,6 @@ fn say(state: &AppState, session: &str, text: &str) -> Result<(), String> {
     let frame = user(text);
     let command = json!({ "v": 1, "type": "message.send", "text": text });
     let (pump, echo) = write(state, session, &command)?;
-    pump.turn.store(true, Ordering::Relaxed);
     let line = frame.to_string();
     pump.feed(&line);
     // O que a fala rendeu sem ir ao processo vem depois dela, na ordem.
@@ -735,6 +819,11 @@ pub fn chat_send(
     if text.is_empty() {
         return Ok(());
     }
+    let boundary = account_boundary(&state, &session)?;
+    if boundary == AccountBoundary::Restart {
+        kill(&state, &session);
+        lock(&state.ready).remove(&session);
+    }
     // Já há uma fala esperando o setup: esta vai atrás dela, na mesma leva.
     // Passar na frente seria o agente ler a segunda antes da primeira. Mesmo
     // assim seguimos até a conferência do processo: a pendência pode ter
@@ -752,7 +841,7 @@ pub fn chat_send(
     };
     let up = lock(&state.chats).get(&session).is_some_and(|c| c.alive());
     let ready = lock(&state.ready).contains(&session);
-    if !queued && up && ready {
+    if !queued && up && ready && boundary != AccountBoundary::Wait {
         say(&state, &session, &text)?;
         update(&app, &session, Some(Status::Rodando), Note::Clear, None);
         return Ok(());
@@ -776,6 +865,14 @@ pub fn flush_pending(
     state: &State<AppState>,
     session: &str,
 ) -> Result<(), String> {
+    match account_boundary(state, session)? {
+        AccountBoundary::Wait => return Ok(()),
+        AccountBoundary::Restart => {
+            crate::session::revive(app, state, session)?;
+            return Ok(());
+        }
+        AccountBoundary::Keep => {}
+    }
     let up = lock(&state.chats).get(session).is_some_and(|c| c.alive());
     let ready = lock(&state.ready).contains(session);
     match wake(up, ready, setup_running(state, session)) {
@@ -794,6 +891,29 @@ pub fn flush_pending(
         Wake::None => {}
     }
     Ok(())
+}
+
+#[derive(Debug, PartialEq)]
+enum AccountBoundary {
+    Keep,
+    Wait,
+    Restart,
+}
+
+fn boundary(changed: bool, working: bool) -> AccountBoundary {
+    match (changed, working) {
+        (false, _) => AccountBoundary::Keep,
+        (true, true) => AccountBoundary::Wait,
+        (true, false) => AccountBoundary::Restart,
+    }
+}
+
+fn account_boundary(state: &AppState, session: &str) -> Result<AccountBoundary, String> {
+    let chats = lock(&state.chats);
+    match chats.get(session).filter(|chat| chat.alive()) {
+        Some(chat) => Ok(boundary(chat.changing_account()?, chat.working())),
+        None => Ok(AccountBoundary::Keep),
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -1299,5 +1419,18 @@ mod tests {
             &json!({ "v": 1, "type": "permission.mode.set", "mode": "bypass" })
         )
         .is_none());
+    }
+}
+
+#[cfg(test)]
+mod account_tests {
+    use super::*;
+
+    #[test]
+    fn troca_espera_turno_atual_e_retoma_so_antes_da_proxima_fala() {
+        assert_eq!(boundary(false, true), AccountBoundary::Keep);
+        assert_eq!(boundary(false, false), AccountBoundary::Keep);
+        assert_eq!(boundary(true, true), AccountBoundary::Wait);
+        assert_eq!(boundary(true, false), AccountBoundary::Restart);
     }
 }

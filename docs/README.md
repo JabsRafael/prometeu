@@ -16,6 +16,8 @@ como índice curto para agentes e `README.md` apresenta o produto.
 ## Contratos
 
 - [Ações reutilizáveis](contracts/actions.md): comandos, perfis e acompanhamento local de PR.
+- [`contracts/accounts.md`](contracts/accounts.md): contas, login, seleção
+  global e isolamento de cotas dos agentes.
 
 - [`contracts/conversation-events-v1.md`](contracts/conversation-events-v1.md):
   protocolo canônico pertencente ao Prometeu.
@@ -31,6 +33,10 @@ como índice curto para agentes e `README.md` apresenta o produto.
 ## Decisões
 
 - [ADR 0011](decisions/0011-shared-ui.md): primitivas compartilhadas de interface — aceito.
+- [`decisions/0013-remove-provider-accounts.md`](decisions/0013-remove-provider-accounts.md):
+  remoção de qualquer conta e seleção vazia — aceita.
+- [`decisions/0012-provider-accounts.md`](decisions/0012-provider-accounts.md):
+  contas locais e troca entre turnos — aceita.
 
 - [`decisions/README.md`](decisions/README.md): índice e ciclo de vida dos ADRs.
 - [`decisions/0001-repository-knowledge.md`](decisions/0001-repository-knowledge.md):

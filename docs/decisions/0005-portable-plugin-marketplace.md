@@ -1,7 +1,8 @@
 # ADR 0005 — Um marketplace portátil para Claude e Codex
 
 Data: 2026-09-04
-Status: Aceito
+Status: Aceito; compartilhamento de autenticação parcialmente substituído pelo
+[ADR 0012](0012-provider-accounts.md).
 
 ## Contexto
 

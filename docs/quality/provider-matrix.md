@@ -19,6 +19,11 @@ para virar capacidade contratual.
 | perfil por tarefa | instruções e permissões por flags | instruções e permissões por JSON-RPC | testes de `session.rs` e `codex.rs` |
 | acompanhamento de PR | polling local pelo app | polling local pelo app | `actions.rs`, `github.rs`; sem integração GitHub real em testes |
 | detectar instalação | adaptado | adaptado | `agents.rs` |
+| contas e seleção global no rodapé | adaptado por `CLAUDE_CONFIG_DIR` | adaptado por `CODEX_HOME` | `accounts.rs`, `e2e/accounts.spec.ts` |
+| remover todas as contas e seleção vazia | suportado; preserva login do CLI | suportado; preserva login do CLI | `accounts.rs`, `e2e/accounts.spec.ts`; diretórios e credenciais permanecem locais |
+| login pelo app | CLI `auth login` e navegador | app-server `account/login/start` e navegador | fixtures de identidade em `claude.rs` e `codex/account.rs`; OAuth com duas contas reais ainda exige validação manual |
+| troca de conta entre turnos | retomada do transcript compartilhado | retomada de rollout/índice compartilhados | `chat.rs`, testes de perfis; continuação autenticada entre duas contas reais ainda não comprovada pela suíte |
+| cotas por conta | stream e endpoint interno | app-server e fallback interno | `usage.rs`, `e2e/accounts.spec.ts` |
 | catálogo vivo de modelos | nativo via control request | nativo via cache do CLI | `agents.rs` |
 | iniciar sessão | nativo | adaptado para JSON-RPC | `chat.rs`, `codex.rs` |
 | retomar sessão | id/transcript do Claude | thread do app-server | `session.rs`, testes Rust |

@@ -36,13 +36,19 @@ resolvida do perfil, incluindo MCP, plugins, instruções e permissões.
 
 Materialização pertence à borda. Claude recebe MCP e plugins por seus arquivos
 e flags; Codex recebe a tabela MCP por override e plugins por um marketplace
-derivado dentro de um `CODEX_HOME` de configuração isolado por workspace. Conta,
-sessões e cache continuam compartilhados com o home real, sem escrever a
-seleção no `config.toml` global. Se uma seleção explícita não puder ser
+derivado dentro de um `CODEX_HOME` de configuração isolado por workspace. A conta vem da
+seleção global do provider, capturada pelo processo; sessões e cache de plugins
+continuam compartilhados. A camada de configuração distingue workspace e conta
+sem escrever a seleção no `config.toml` global. Se uma seleção explícita não puder ser
 preparada, ou se os hooks declarados de um plugin não puderem ser ativados antes
 do `SessionStart`, a conversa não abre silenciosamente sem ela. O fluxo completo
 do marketplace está em
 [`plugin-marketplace.md`](../contracts/plugin-marketplace.md).
+
+Trocar conta não interrompe o turno atual. A próxima fala retoma o processo
+com a conta selecionada; falas recebidas durante a transição ficam na fila.
+Histórico e configuração de plugins continuam disponíveis. O contrato está em
+[`accounts.md`](../contracts/accounts.md).
 
 Trocar modelo dentro do mesmo CLI derruba o processo e preserva a sessão.
 Trocar de Claude para Codex ou vice-versa exige outra aba, pois seus mecanismos
