@@ -3018,10 +3018,23 @@ fn repos_of(state: &State<AppState>, id: &str) -> Vec<Repo> {
 /// Onde o agente trabalha: o worktree, ou a pasta que reúne os worktrees
 /// quando há mais de um repositório. É daqui que a árvore de arquivos e o
 /// Finder partem — a pessoa quer ver todos, não só o principal.
-fn cwd_of(state: &State<AppState>, id: &str) -> Option<PathBuf> {
-    lock(&state.board)
+///
+/// O id também pode ser o de um projeto: aí a raiz é o clone registrado. É o
+/// que deixa ler e editar os arquivos de um repositório sem criar workspace
+/// nenhum nele. Projeto e workspace nunca dividem id, então uma busca só
+/// atende os dois.
+pub(crate) fn cwd_of(state: &State<AppState>, id: &str) -> Option<PathBuf> {
+    let board = lock(&state.board);
+    board
         .workspaces
         .iter()
         .find(|w| w.id == id && !w.cleaned)
         .map(|w| PathBuf::from(&w.worktree))
+        .or_else(|| {
+            board
+                .projects
+                .iter()
+                .find(|p| p.id == id)
+                .map(|p| PathBuf::from(&p.path))
+        })
 }

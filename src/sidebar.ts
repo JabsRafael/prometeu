@@ -36,6 +36,8 @@ export type Hooks = {
   issues: () => number | null;
   addProject: () => void;
   removeProject: (id: string) => void;
+  /// Abre os arquivos do projeto: a árvore do clone e o viewer, sem workspace.
+  openProject: (id: string) => void;
   newWorkspace: (projectId?: string) => void;
 };
 
@@ -241,6 +243,8 @@ function renderRail(board: Board, hooks: Hooks) {
     });
     renderGroup(rail, board, hooks, project.name, avatar(project.name), mine, `@proj:${project.id}`, {
       extra: [more, plus],
+      open: () => hooks.openProject(project.id),
+      on: openId === project.id,
     });
   }
 
@@ -305,6 +309,12 @@ function renderGroup(
     avatars?: boolean;
     /// Botões do cabeçalho — ações de baixa frequência e criação.
     extra?: HTMLElement[];
+    /// O que o clique no cabeçalho faz. Com isto, recolher passa a ser o
+    /// chevron da ponta: o projeto tem uma tela sua (os arquivos do clone), e
+    /// ela vale mais o clique do que dobrar a lista.
+    open?: () => void;
+    /// O cabeçalho é a tela aberta.
+    on?: boolean;
   } = {},
 ) {
   const shut = folded(key);
@@ -317,6 +327,7 @@ function renderGroup(
   );
   head.tabIndex = 0;
   head.setAttribute("role", "button");
+  if (opts.on) head.classList.add("on");
   head.setAttribute("aria-expanded", String(!shut));
   head.children[1].textContent = name;
   head.children[2].textContent = list.length ? String(list.length) : "";
@@ -327,13 +338,21 @@ function renderGroup(
     localStorage.setItem(FOLD + key, shut ? "0" : "1");
     renderRail(board, hooks);
   };
-  head.addEventListener("click", fold);
+  const act = opts.open ?? fold;
+  head.addEventListener("click", act);
   head.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      fold();
+      act();
     }
   });
+  // Com uma tela no clique, o chevron é quem dobra a lista.
+  if (opts.open) {
+    head.children[3].addEventListener("click", (e) => {
+      e.stopPropagation();
+      fold();
+    });
+  }
   if (opts.extra) head.append(...opts.extra);
   rail.append(head);
   if (shut) return;

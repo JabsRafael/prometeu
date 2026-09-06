@@ -74,6 +74,21 @@ consumidor.
 `prometheusV1Mirror` são ignoradas pelo leitor atual. O Prometeu não produz
 essas projeções em logs novos.
 
+## Raiz dos comandos de arquivo
+
+`list_dir`, `read_file`, `read_bytes`, `write_file`, `find_paths` e `reveal`
+recebem em `id` o workspace **ou** o projeto. Workspace resolve no worktree;
+projeto resolve na pasta do clone registrado, que é o que sustenta ler e editar
+um repositório sem workspace nenhum nele. Os dois espaços de id não colidem, e
+`session.rs::cwd_of` é a única função que faz essa resolução — `dock.rs` a
+importa em vez de repetir a regra. Caminho fora da raiz continua recusado.
+
+`open_dock` aceita id de projeto apenas para terminal: o shell só precisa da
+pasta, e sem workspace não há variável de script para passar. Setup e Run
+continuam exigindo workspace e respondem `err.session.noWorkspace`.
+`workspace_scripts` e `dock_state` já toleravam id sem workspace — devolvem
+catálogo vazio e nenhuma porta.
+
 ## Importação legada
 
 `legacy_import_plan` não altera estado. Ele devolve a origem, uma das situações

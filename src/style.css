@@ -155,6 +155,8 @@ body.norail .top .nav { margin-left: 0; }
   font-size: 13px; font-weight: 500; color: var(--fg-2); justify-content: flex-start;
 }
 .group:hover { background: var(--bg-raised); }
+/* O projeto aberto nos arquivos: o cabeçalho acende como qualquer item da barra. */
+.group.on { background: var(--bg-raised-2); color: var(--fg); }
 .group:focus-visible { outline: 2px solid var(--tab-line); outline-offset: 1px; }
 .group > span:nth-of-type(2) { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .group .gg { display: flex; color: var(--fg-2); }

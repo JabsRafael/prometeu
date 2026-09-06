@@ -2,10 +2,11 @@
 //! Este módulo é a borda de execução configurada pelo próprio repositório.
 
 use crate::lock::lock;
+use crate::session::cwd_of;
 use crate::state::Workspace;
 use crate::{chat, i18n, pty, scripts, AppState};
 use portable_pty::CommandBuilder;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use tauri::{AppHandle, Manager, State};
 
@@ -39,7 +40,7 @@ pub fn open_dock(
     rows: u16,
 ) -> Result<String, String> {
     ensure_port(&state, &id);
-    let ws = workspace_copy(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+    let found = workspace_copy(&state, &id);
     let key = format!("{id}:{kind}");
 
     if lock(&state.ptys).get(&key).is_some_and(|p| p.alive()) {
@@ -47,19 +48,25 @@ pub fn open_dock(
     }
 
     // O shell também recebe as variáveis do contrato: conferir o que o script
-    // vai ver é `echo $PROMETEU_PORT`, e não ler o código do Prometeu.
+    // vai ver é `echo $PROMETEU_PORT`, e não ler o código do Prometeu. Só a
+    // pasta é obrigatória, e por isso o terminal também sobe num projeto sem
+    // workspace: lá não há script, logo não há variável de script.
     if is_terminal(&kind) {
+        let root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
         let mut cmd = CommandBuilder::new(shell);
-        cmd.cwd(&ws.worktree);
+        cmd.cwd(&root);
         cmd.env("TERM", "xterm-256color");
-        for (key, value) in script_env(&ws) {
+        for (key, value) in found.as_ref().map(script_env).unwrap_or_default() {
             cmd.env(key, value);
         }
         let handle = pty::spawn(&app, &key, cmd, cols, rows, pty::Dock::default())?;
         lock(&state.ptys).insert(key.clone(), handle);
         return Ok(key);
     }
+
+    // Setup e Run são do repositório do workspace; sem ele não há o que rodar.
+    let ws = found.ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
 
     // Setup tem caminho próprio porque não é só um comando: é a cópia do que vem
     // do clone, e ela vale mesmo num repositório que não declara `setup` nenhum.
@@ -490,11 +497,4 @@ pub fn scripts_prompt(state: State<AppState>, id: String) -> String {
 
 fn workspace_copy(state: &State<AppState>, id: &str) -> Option<Workspace> {
     lock(&state.board).workspace(id).cloned()
-}
-
-fn cwd_of(state: &State<AppState>, id: &str) -> Option<PathBuf> {
-    lock(&state.board)
-        .workspace(id)
-        .filter(|workspace| !workspace.cleaned)
-        .map(|workspace| PathBuf::from(&workspace.worktree))
 }

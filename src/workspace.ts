@@ -23,6 +23,7 @@ import {
   type Board,
   type Choice,
   type GitStatus,
+  type Project,
   type Tab,
   type Workspace,
 } from "./types";
@@ -42,6 +43,8 @@ export type Ctx = {
   /// tela num lugar que não existe mais.
   home: () => void;
   launchBranch: (project: string, base: string, branch?: string) => void;
+  /// O lançador já apontando para um projeto.
+  newWorkspace: (project: string) => void;
   openGitWorkspace: (id: string) => void;
 };
 
@@ -53,6 +56,10 @@ let openWs: string | null = null;
 let navigation = 0;
 
 export const id = () => openWs;
+/// A raiz do que está na tela para a árvore e o viewer: o workspace aberto, ou
+/// o projeto quando ele foi aberto só para ler os arquivos. O back resolve os
+/// dois ids na mesma pasta.
+const root = () => openWs ?? proj?.id ?? null;
 const current = () => ctx.board().workspaces.find((w) => w.id === openWs);
 const stillHere = (epoch: number, id: string) => navigation === epoch && openWs === id;
 
@@ -68,9 +75,9 @@ export function init(context: Ctx) {
     openWorkspace: ctx.openGitWorkspace,
   });
 
-  tree.init({ openFile, workspace: id });
+  tree.init({ openFile, workspace: root });
   dockbar.init({
-    workspace: id,
+    workspace: root,
     say: ctx.say,
     openFile,
     newTab,
@@ -78,6 +85,7 @@ export function init(context: Ctx) {
     enter: showShell,
     exit: showTerm,
     drawTabs: () => {
+      if (proj) return drawProjectTabs();
       const ws = current();
       if (ws) drawTabs(ws);
     },
@@ -109,7 +117,8 @@ export function init(context: Ctx) {
     changesUi.show("compare");
   });
   $("reveal").addEventListener("click", () => {
-    if (openWs) invoke("reveal", { id: openWs }).catch((e) => ctx.say(fromBack(e), true));
+    const here = root();
+    if (here) invoke("reveal", { id: here }).catch((e) => ctx.say(fromBack(e), true));
   });
   // O diff acompanha o agente pelos eventos do quadro. Mas quem comita no dock,
   // ou num terminal de fora, não publica evento nenhum — e o painel continuava
@@ -218,6 +227,7 @@ function catchUp(ws: Workspace) {
 
 export function leave() {
   navigation++;
+  proj = null;
   browser.hide();
   session.detach();
   invoke("look_at", { id: null });
@@ -300,17 +310,8 @@ export function draw() {
     // Sobra a conversa e os comentários; quem diz que ele está offline
     // é a caixa de escrever.
     paintBranchName(ws.branch);
-    $("prsplit").hidden = true;
     $("offline").hidden = true;
-    $("tabbar").hidden = false;
-    $("side").hidden = false;
-    $("sidetoggle").hidden = false;
-    $("tab-files").hidden = true;
-    $("tab-diff").hidden = true;
-    $("review").hidden = true;
-    $("collapse").hidden = true;
-    $("reveal").hidden = true;
-    $("dock").hidden = true;
+    layout({ tabs: true, side: true });
     setSidePane("comments");
     return;
   }
@@ -320,11 +321,7 @@ export function draw() {
   // um caminho que erra. Sobra o painel, que é o que há para dizer.
   if (pending(ws)) {
     paintBranchName(ws.branch);
-    $("prsplit").hidden = true;
-    $("dock").hidden = true;
-    $("tabbar").hidden = true;
-    $("side").hidden = true;
-    $("sidetoggle").hidden = true;
+    layout({});
     $("offline").hidden = false;
     $("offwave").hidden = !!ws.failed;
     $("offtitle").textContent = t(ws.failed ? "build.failed.title" : "build.title");
@@ -337,12 +334,9 @@ export function draw() {
     return;
   }
 
-  $("prsplit").hidden = false;
-  $("tab-files").hidden = false;
-  $("tab-diff").hidden = false;
-  $("collapse").hidden = false;
-  $("reveal").hidden = false;
-  $("dock").hidden = false;
+  // Sem worktree não há aba para trocar, arquivo para abrir nem script para
+  // rodar: o que sobra na tela é o que ainda quer dizer alguma coisa.
+  layout({ tabs: !ws.cleaned, pr: true, side: !ws.cleaned, files: true, changes: true, dock: true });
   $("offpath").textContent = ws.worktree;
   drawBranch(ws);
   drawPr(ws);
@@ -360,11 +354,41 @@ export function draw() {
   $("offbody").hidden = false;
   $("offtitle").textContent = t("gone.title");
   $("offbody").textContent = t("gone.body");
-  // Sem worktree não há aba para trocar, arquivo para abrir nem script para
-  // rodar: o que sobra na tela é o que ainda quer dizer alguma coisa.
-  $("tabbar").hidden = ws.cleaned;
-  $("side").hidden = ws.cleaned;
-  $("sidetoggle").hidden = ws.cleaned;
+}
+
+/// As peças da tela do workspace. Cada modo — a conversa, o workspace de um
+/// colega, o worktree montando, o devolvido, o projeto sem workspace — diz
+/// quais quer, e desligar o resto é trabalho daqui. Antes cada modo lembrava
+/// de um `hidden` a mais ou a menos que o vizinho, e a peça esquecida ficava
+/// na tela do modo seguinte.
+type Parts = {
+  /// A barra de abas do centro.
+  tabs?: boolean;
+  /// O botão de PR no topo.
+  pr?: boolean;
+  /// A coluna da direita, e o botão que a recolhe.
+  side?: boolean;
+  /// A aba de Arquivos da coluna, com recolher e revelar no Finder.
+  files?: boolean;
+  /// A aba de Mudanças, e o Revisar que sai dela.
+  changes?: boolean;
+  /// Setup e Run, no pé da coluna.
+  dock?: boolean;
+};
+
+function layout(parts: Parts) {
+  $("tabbar").hidden = !parts.tabs;
+  $("prsplit").hidden = !parts.pr;
+  $("side").hidden = !parts.side;
+  $("sidetoggle").hidden = !parts.side;
+  $("tab-files").hidden = !parts.files;
+  $("collapse").hidden = !parts.files;
+  $("reveal").hidden = !parts.files;
+  $("tab-diff").hidden = !parts.changes;
+  // Quem acende o Revisar é o diff, quando há o que revisar. Daqui ele só
+  // apaga: sem aba de Mudanças não há revisão.
+  if (!parts.changes) $("review").hidden = true;
+  $("dock").hidden = !parts.dock;
 }
 
 /// O botão de compartilhar e os chips de quem está olhando a conversa aberta.
@@ -763,27 +787,71 @@ function drawTabs(ws: Workspace) {
   // Os terminais livres: abas daqui como as outras, porque é onde se digita, e
   // digitar não cabe numa gaveta de 377px. Setup e Run continuam no painel da
   // direita — aquilo é saída para acompanhar de canto.
-  if (!remote && !ws.cleaned && !pending(ws)) {
-    for (const d of dockbar.tabs()) {
-      const b = document.createElement("button");
-      b.className = "tab file" + (d.on ? " on" : "");
-      b.innerHTML = `${icon("terminal", 14)}<span></span>`;
-      b.children[1].textContent = d.label;
-      b.title = d.label;
-      b.addEventListener("click", () => dockbar.select(d.kind));
-      const x = document.createElement("span");
-      x.className = "tabx ico sm";
-      x.innerHTML = icon("x", 12);
-      x.title = t("dock.closeTerm");
-      x.addEventListener("click", (e) => {
-        e.stopPropagation();
-        dockbar.closeTab(d.kind);
-      });
-      b.append(x);
-      bar.append(b);
-    }
-  }
+  if (!remote && !ws.cleaned && !pending(ws)) appendTermTabs(bar);
 
+  appendFileTabs(bar, fs);
+
+  // Conversa nova é no worktree, e o worktree é do dono.
+  if (remote) return;
+  // O "+" abre conversa com o modelo do workspace, que é o caso de sempre e o
+  // que o ⌘T faz. A setinha ao lado abre a lista: é ali que se sai do modelo
+  // das irmãs sem ter que abrir outro workspace para isso.
+  appendTabAdd(bar, {
+    title: t("tab.new"),
+    add: () => void newTab(),
+    pickTitle: t("tab.new.model"),
+    pick: (at) => pickModel(at, ws),
+  });
+}
+
+/// O "+" no fim da barra de abas. É o mesmo controle em toda tela que tem barra
+/// — o gesto de criar não muda de forma quando o que se cria muda. O que cada
+/// tela troca é o que o botão abre e o que a setinha lista.
+function appendTabAdd(
+  bar: HTMLElement,
+  opts: { title: string; add: () => void; pickTitle: string; pick: (at: HTMLElement) => void },
+) {
+  const box = h("div", "tabadd");
+  const plus = document.createElement("button");
+  plus.className = "ico";
+  plus.innerHTML = icon("plus");
+  plus.title = opts.title;
+  plus.addEventListener("click", opts.add);
+  const pick = document.createElement("button");
+  pick.className = "ico caret";
+  pick.innerHTML = icon("chevron-down", 12);
+  pick.title = opts.pickTitle;
+  pick.addEventListener("click", () => opts.pick(pick));
+  box.append(plus, pick);
+  bar.append(box);
+}
+
+/// As abas de terminal. Como as de arquivo, valem no workspace e no projeto: o
+/// shell só precisa de uma pasta.
+function appendTermTabs(bar: HTMLElement) {
+  for (const d of dockbar.tabs()) {
+    const b = document.createElement("button");
+    b.className = "tab file" + (d.on ? " on" : "");
+    b.innerHTML = `${icon("terminal", 14)}<span></span>`;
+    b.children[1].textContent = d.label;
+    b.title = d.label;
+    b.addEventListener("click", () => dockbar.select(d.kind));
+    const x = document.createElement("span");
+    x.className = "tabx ico sm";
+    x.innerHTML = icon("x", 12);
+    x.title = t("dock.closeTerm");
+    x.addEventListener("click", (e) => {
+      e.stopPropagation();
+      dockbar.closeTab(d.kind);
+    });
+    b.append(x);
+    bar.append(b);
+  }
+}
+
+/// As abas de arquivo. São as mesmas no workspace e no projeto: a lista de
+/// abertos e o viewer atrás dela não sabem de branch nem de conversa.
+function appendFileTabs(bar: HTMLElement, fs: Files) {
   for (const path of fs.open) {
     const b = document.createElement("button");
     b.className = "tab file" + (path === fs.active ? " on" : "");
@@ -797,25 +865,6 @@ function drawTabs(ws: Workspace) {
     });
     bar.append(b);
   }
-
-  // Conversa nova é no worktree, e o worktree é do dono.
-  if (remote) return;
-  // O "+" abre conversa com o modelo do workspace, que é o caso de sempre e o
-  // que o ⌘T faz. A setinha ao lado abre a lista: é ali que se sai do modelo
-  // das irmãs sem ter que abrir outro workspace para isso.
-  const add = h("div", "tabadd");
-  const plus = document.createElement("button");
-  plus.className = "ico";
-  plus.innerHTML = icon("plus");
-  plus.title = t("tab.new");
-  plus.addEventListener("click", () => void newTab());
-  const pick = document.createElement("button");
-  pick.className = "ico caret";
-  pick.innerHTML = icon("chevron-down", 12);
-  pick.title = t("tab.new.model");
-  pick.addEventListener("click", () => pickModel(pick, ws));
-  add.append(plus, pick);
-  bar.append(add);
 }
 
 /// A lista de modelos do "+": a mesma do lançador, com o do workspace marcado.
@@ -960,6 +1009,7 @@ export function forget(alive: Set<string>) {
 }
 
 export async function openFile(path: string) {
+  if (proj) return openProjectFile(path);
   const ws = current();
   if (!ws) return;
   const fs = files(ws.id);
@@ -980,6 +1030,7 @@ async function showFile() {
 }
 
 function showTerm() {
+  if (proj) return void showProjectFile();
   const ws = current();
   if (ws) {
     files(ws.id).active = null;
@@ -992,6 +1043,13 @@ function showTerm() {
 /// O terminal livre no centro. Quem escolhe qual é o `dockbar`; aqui só sai da
 /// frente o que estava.
 function showShell() {
+  if (proj) {
+    files(proj.id).active = null;
+    $("offline").hidden = true;
+    center("termview");
+    drawProjectTabs();
+    return;
+  }
   const ws = current();
   if (!ws) return;
   const fs = files(ws.id);
@@ -1107,6 +1165,7 @@ function center(show: "chatwrap" | "viewer" | "diffview" | "webview" | "termview
 }
 
 async function closeFile(path: string) {
+  if (proj) return closeProjectFile(path);
   const ws = current();
   if (!ws) return;
   const fs = files(ws.id);
@@ -1192,6 +1251,103 @@ function openChange(repo: string, path: string) {
   const mine = ws.repos.find((r) => r.name === repo)?.worktree ?? root;
   const under = mine.startsWith(`${root}/`) ? `${mine.slice(root.length + 1)}/` : "";
   void openFile(`${under}${path}`);
+}
+
+/* ---------- projeto sem workspace ---------- */
+
+/// O projeto aberto só para ler e editar os arquivos: a árvore do clone à
+/// direita e o viewer no centro. Não é workspace — não tem branch, worktree,
+/// conversa, dock nem diff —, e por isso não passa pelo `draw`. O back resolve
+/// o id do projeto na pasta do clone, então árvore e viewer são os mesmos.
+let proj: Project | null = null;
+
+export function openProject(project: Project) {
+  leave();
+  proj = project;
+  tree.reset();
+  $("wsView").hidden = false;
+  const crumb = $("crumb");
+  crumb.dataset.workspace = "";
+  crumb.innerHTML = `${avatar(project.name)}<span class="who"></span>`;
+  crumb.querySelector<HTMLElement>(".who")!.textContent = project.name;
+  // Sem conversa não há dock, mudanças nem comentários: o que fica de pé é a
+  // coluna de arquivos e as abas dos arquivos abertos.
+  layout({ tabs: true, side: true, files: true });
+  $("tab-comments").hidden = true;
+  dockbar.reset(false);
+  document.body.classList.remove("noside");
+  setSidePane("files");
+  drawProjectTabs();
+  void showProjectFile();
+}
+
+/// A barra de abas do projeto: terminais e arquivos, as mesmas do workspace.
+/// Sem conversa não há aba de agente nem Mudanças, e o "+" abre terminal — que
+/// é o que se cria aqui.
+function drawProjectTabs() {
+  if (!proj) return;
+  const bar = $("tabbar");
+  bar.replaceChildren();
+  appendTermTabs(bar);
+  appendFileTabs(bar, files(proj.id));
+  // O mesmo "+" do workspace. Aqui não há conversa para criar: o que ele abre é
+  // terminal, e a setinha lista o que mais se começa a partir do projeto.
+  appendTabAdd(bar, {
+    title: t("dock.new"),
+    add: () => dockbar.newTerm(),
+    pickTitle: t("project.new"),
+    pick: (at) => {
+      const box = at.getBoundingClientRect();
+      menu.openAt({ x: box.left - 40, y: box.bottom + 4 }, [
+        { label: t("dock.new"), glyph: icon("terminal", 14), run: () => dockbar.newTerm() },
+        { label: t("project.newWorkspace"), glyph: icon("plus", 14), run: () => ctx.newWorkspace(proj!.id) },
+      ]);
+    },
+  });
+}
+
+/// Nada aberto ainda: o centro fica vazio até alguém escolher um arquivo. É o
+/// painel do worktree devolvido sem texto nenhum — ele já cobre o centro
+/// inteiro, e uma explicação ali seria lida uma vez e atrapalharia sempre.
+function showProjectEmpty() {
+  if (proj) files(proj.id).active = null;
+  center("chatwrap");
+  $("offline").hidden = false;
+  $("offwave").hidden = true;
+  $("offtitle").textContent = "";
+  $("offbody").hidden = true;
+  $("offpath").textContent = "";
+}
+
+async function openProjectFile(path: string) {
+  if (!proj) return;
+  const fs = files(proj.id);
+  if (!fs.open.includes(path)) fs.open.push(path);
+  fs.active = path;
+  await showProjectFile();
+  drawProjectTabs();
+}
+
+async function showProjectFile() {
+  const path = proj && files(proj.id).active;
+  if (!proj || !path) return showProjectEmpty();
+  $("offline").hidden = true;
+  center("viewer");
+  await viewer.show(proj.id, path);
+}
+
+/// Fechar a última aba devolve o centro ao vazio: aqui não há conversa para
+/// onde voltar.
+async function closeProjectFile(path: string) {
+  if (!proj) return;
+  const fs = files(proj.id);
+  const at = fs.open.indexOf(path);
+  if (at !== -1) fs.open.splice(at, 1);
+  if (fs.active === path) {
+    fs.active = fs.open[at] ?? fs.open[at - 1] ?? null;
+    await showProjectFile();
+  }
+  drawProjectTabs();
 }
 
 /* ---------- painel da direita ---------- */
