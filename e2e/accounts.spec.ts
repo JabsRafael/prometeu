@@ -115,6 +115,7 @@ test("remover todas as contas limpa seleção e preserva conversa e outro provid
 
 test("cadastro antigo ignora apelidos e mostra email como texto", async ({ page }) => {
   await page.goto("/");
+  await expect(page.locator('#status [data-provider="codex"]')).toBeVisible();
   const email = 'pessoal+"<img src=x onerror=alert(1)>"@exemplo.com';
   await page.evaluate(async (email) => {
     const backend = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string) => Promise<any> } }).__TAURI_INTERNALS__;
