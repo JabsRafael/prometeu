@@ -178,20 +178,24 @@ pub fn chat_log(id: &str) -> PathBuf {
 }
 
 pub fn transcript(id: &str, cwd: &Path) -> PathBuf {
-    transcript_at(&home(), id, cwd)
+    // Os perfis de conta compartilham projects: trocar conta não muda a
+    // identidade nem o caminho de uma conversa existente.
+    transcript_in(&crate::claude::user_home().join("projects"), id, cwd)
 }
 
 /// Variante injetável para a prévia da importação e seus testes. O Claude
 /// continua sendo dono do arquivo; apenas calculamos onde ele o guardou.
 pub(crate) fn transcript_at(home: &Path, id: &str, cwd: &Path) -> PathBuf {
+    transcript_in(&home.join(".claude/projects"), id, cwd)
+}
+
+fn transcript_in(projects: &Path, id: &str, cwd: &Path) -> PathBuf {
     let slug: String = cwd
         .to_string_lossy()
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect();
-    home.join(".claude/projects")
-        .join(slug)
-        .join(format!("{id}.jsonl"))
+    projects.join(slug).join(format!("{id}.jsonl"))
 }
 
 #[cfg(test)]

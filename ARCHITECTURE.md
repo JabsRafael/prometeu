@@ -81,6 +81,8 @@ quando há novidades. Veja [contrato](docs/contracts/actions.md) e
 - A sessão lógica é o transcript. O processo é descartável e pode ser retomado.
 - Claude grava seu próprio transcript; o Prometeu grava as linhas traduzidas
   do Codex em `~/.prometeu/chats/`.
+- Contas dos agentes e seleção global ficam em `<root>/accounts.json`;
+  `accounts.rs` coordena os perfis locais e os adapters executam o login oficial.
 - O estado do time fica em `~/.prometeu/team.json`, com permissão privada.
 - O relay persiste apenas dados necessários para colaboração e membros offline.
 

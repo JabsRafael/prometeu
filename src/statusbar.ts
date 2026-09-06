@@ -4,7 +4,7 @@ import { brand, icon } from "./icons";
 import { fromBack, t } from "./i18n";
 import * as menu from "./menu";
 import { invoke } from "./ipc";
-import type { Board } from "./types";
+import type { Board, ProviderId } from "./types";
 import { $ } from "./util";
 
 /// A faixa de baixo: o que os agentes já gastaram da cota, e o que o app está
@@ -21,6 +21,19 @@ import { $ } from "./util";
 export type Window = { kind: string; pct: number; resets: number; scope?: string; label?: string };
 export type Agent = { windows: Window[]; at: number };
 export type Usage = Record<string, Agent>;
+export type Account = {
+  id: string;
+  provider: ProviderId;
+  email: string | null;
+  plan: string | null;
+  connected: boolean;
+  revision: number;
+};
+export type Accounts = {
+  accounts: Account[];
+  active: Partial<Record<ProviderId, string>>;
+  login: { id: string; provider: ProviderId } | null;
+};
 
 export type Proc = { kind: string; name: string; detail: string; rss: number; cpu: number; hist: number[] };
 export type Port = { id: string; title: string; port: number };
@@ -33,6 +46,9 @@ const WARN = 75;
 const HOT = 90;
 
 let usage: Usage = {};
+let accounts: Accounts | null = null;
+let accountAction = false;
+let usageProvider: ProviderId | null = null;
 /// Quais agentes desenhar, tenham leitura ou não. Até o back responder, o de
 /// antes: o app era só o Claude Code.
 let agents: Pick<AgentDescriptor, "id" | "label">[] = [{ id: "claude", label: "Claude" }];
@@ -93,6 +109,22 @@ export function showUsage(next: Usage) {
   if (open === "usage") fill();
 }
 
+export function showAccounts(next: Accounts): boolean {
+  const selected = (data: Accounts | null) => data && JSON.stringify(
+    data.accounts.filter((account) => data.active[account.provider] === account.id)
+      .map(({ id, revision }) => [id, revision]),
+  );
+  const changed = selected(accounts) !== selected(next);
+  accounts = next;
+  draw();
+  if (open === "usage") fill();
+  return changed;
+}
+
+function accountName(account: Account): string {
+  return account.email || t(account.id === account.provider ? "account.terminal" : "account.new");
+}
+
 /// Quais CLIs estão instalados nesta máquina.
 export function showAgents(have: readonly AgentDescriptor[]) {
   agents = have.map(({ id, label }) => ({ id, label }));
@@ -129,7 +161,8 @@ function draw() {
   // número. Sumir pareceria defeito justamente na estreia: até o primeiro poll
   // do back responder (ou a primeira conversa), não há número nenhum.
   for (const agent of agents) {
-    const windows = usage[agent.id]?.windows ?? [];
+    const account = accounts?.accounts.find((account) => account.id === accounts?.active[agent.id]);
+    const windows = (account ? usage[account.id] : accounts ? undefined : usage[agent.id])?.windows ?? [];
     bar.append(
       chip(
         "usage",
@@ -141,6 +174,7 @@ function draw() {
                 .join(" · ")}</span>`
             : '<span class="utext dim">—</span>'),
         windows.length ? t("status.usage") : t("status.usage.none"),
+        agent.id,
       ),
     );
   }
@@ -167,12 +201,13 @@ function draw() {
   );
 }
 
-function chip(which: Which, html: string, title: string): HTMLElement {
+function chip(which: Which, html: string, title: string, provider?: ProviderId): HTMLElement {
   const button = document.createElement("button");
   button.className = "uchip";
   button.title = title;
   button.innerHTML = html;
-  button.addEventListener("click", (e) => toggle(which, e.currentTarget as HTMLElement, e));
+  if (provider) button.dataset.provider = provider;
+  button.addEventListener("click", (e) => toggle(which, e.currentTarget as HTMLElement, e, provider));
   return button;
 }
 
@@ -207,12 +242,14 @@ let panel: HTMLElement | null = null;
 let open: Which | null = null;
 
 export function close() {
+  const focused = panel?.contains(document.activeElement);
   panel?.remove();
   panel = null;
   open = null;
   document.removeEventListener("mousedown", onDown, true);
   document.removeEventListener("keydown", onKey, true);
   window.removeEventListener("blur", close);
+  if (focused && usageProvider) document.querySelector<HTMLButtonElement>(`#status [data-provider="${usageProvider}"]`)?.focus({ preventScroll: true });
 }
 
 function onDown(e: MouseEvent) {
@@ -228,10 +265,12 @@ function onKey(e: KeyboardEvent) {
 /// Abre em cima do chip que foi clicado, crescendo para cima — a faixa está no
 /// fundo da janela, e para baixo não há para onde. Clicar de novo fecha; o
 /// terminal não tem painel nenhum, o número já é a resposta inteira.
-function toggle(which: Which, at: HTMLElement, e: MouseEvent) {
+function toggle(which: Which, at: HTMLElement, e: MouseEvent, provider?: ProviderId) {
   const was = open;
+  const previousProvider = usageProvider;
   close();
-  if (was === which || which === "term") return;
+  if ((was === which && previousProvider === (provider ?? null)) || which === "term") return;
+  usageProvider = provider ?? null;
   e.stopPropagation();
   // São três linhas com uma explicação cada: é menu, e menu o app já tem.
   if (which === "awake") {
@@ -250,15 +289,20 @@ function toggle(which: Which, at: HTMLElement, e: MouseEvent) {
   open = which;
   panel = document.createElement("div");
   panel.className = `upop ${which}`;
+  panel.setAttribute("role", "dialog");
+  panel.tabIndex = -1;
+  panel.setAttribute("aria-label", t(which === "usage" ? "status.usage" : which === "res" ? "status.res" : "status.ports"));
   document.body.append(panel);
   fill();
   const box = at.getBoundingClientRect();
   const mine = panel.getBoundingClientRect();
   panel.style.left = `${Math.max(8, Math.min(box.left, innerWidth - mine.width - 8))}px`;
-  panel.style.top = `${box.top - mine.height - 6}px`;
+  panel.style.bottom = `${innerHeight - box.top + 6}px`;
+  panel.style.maxHeight = `${Math.max(100, box.top - 14)}px`;
   document.addEventListener("mousedown", onDown, true);
   document.addEventListener("keydown", onKey, true);
   window.addEventListener("blur", close);
+  panel.focus({ preventScroll: true });
 }
 
 function pick(mode: Awake) {
@@ -277,7 +321,16 @@ function pick(mode: Awake) {
 /// processos se refaz a cada tique enquanto ela está na frente.
 function fill() {
   if (!panel) return;
+  const focused = panel.contains(document.activeElement) ? document.activeElement as HTMLElement : null;
+  const focusKey = focused?.dataset.focus;
+  const scroll = panel.scrollTop;
   panel.innerHTML = open === "usage" ? usagePanel() : open === "res" ? resPanel() : portPanel();
+  if (open === "usage") bindAccounts();
+  if (focusKey) {
+    const next = panel.querySelector<HTMLElement>(`[data-focus="${CSS.escape(focusKey)}"]`);
+    (next ?? panel).focus({ preventScroll: true });
+  }
+  panel.scrollTop = scroll;
   if (open === "res") {
     panel.querySelector("#u-clean")?.addEventListener("click", () => {
       close();
@@ -299,9 +352,81 @@ const head = (title: string, aside = "") =>
 
 function usagePanel(): string {
   return (
-    head(t("status.usage")) +
-    agents.map((agent) => card(agent, usage[agent.id])).join("")
+    agents.filter((agent) => !usageProvider || agent.id === usageProvider).map((agent) => {
+      if (!accounts) return head(t("status.usage")) + card(agent, usage[agent.id]);
+      const list = accounts.accounts.filter((account) => account.provider === agent.id);
+      return head(brand(agent.id) + `<span class="uname">${esc(agent.label)}</span>`) +
+        (!list.length ? `<div class="uempty">${t("account.empty")}</div>` : "") +
+        list.map(accountCard).join("") +
+        `<div class="account-add"><button data-add="${agent.id}" data-focus="add-${agent.id}" ${accounts.login || accountAction ? "disabled" : ""}>${icon("plus", 13)}${t("account.add")}</button></div>`;
+    }).join("")
   );
+}
+
+function accountCard(account: Account): string {
+  const active = accounts?.active[account.provider] === account.id;
+  const external = account.id === account.provider;
+  const loggingIn = accounts?.login?.id === account.id;
+  const data = usage[account.id];
+  const disabled = accountAction || loggingIn || (!account.connected && !external);
+  const state = t(loggingIn ? "account.connecting" : active ? "account.active" : account.connected || external ? "account.use" : "account.disconnected");
+  const details = loggingIn || (!account.connected && !external) ? state : "";
+  const meta = [account.plan, data?.windows.length ? ago(data.at) : null].filter(Boolean).join(" · ");
+  return `<section class="uaccount${active ? " active" : ""}" data-account="${esc(account.id)}">` +
+    `<button class="account-select" data-select="${esc(account.id)}" data-focus="select-${esc(account.id)}" title="${esc(accountName(account))} · ${state}" aria-label="${esc(accountName(account))}" aria-pressed="${active}" ${disabled ? "disabled" : ""}></button>` +
+    `<div class="account-content"><div class="account-heading"><strong title="${esc(accountName(account))}">${esc(accountName(account))}</strong>` +
+    `<button class="account-remove ico" data-remove="${esc(account.id)}" data-focus="remove-${esc(account.id)}" title="${t("account.remove")}" aria-label="${t("account.remove")}" ${accounts?.login || accountAction ? "disabled" : ""}>${icon("trash", 13)}</button>` +
+    `</div>` +
+    (details ? `<small>${esc(details)}</small>` : "") +
+    (loggingIn ? `<div class="account-wait" role="status">${t("account.browser")} <button data-cancel="${esc(account.id)}">${t("account.cancel")}</button></div>` : "") +
+    `<div class="account-meta"><span class="uwhen" title="${esc(meta)}">${esc(meta)}</span>` +
+    (!external ? `<button class="account-reconnect" data-login="${esc(account.id)}" data-focus="login-${esc(account.id)}" ${accounts?.login || accountAction ? "disabled" : ""}>${t("account.reconnect")}</button>` : "") + `</div>` +
+    (data?.windows.length ? windowsPanel(data) : `<div class="uempty">${t("status.usage.none")}</div>`) +
+    `</div></section>`;
+}
+
+function bindAccounts() {
+  if (!panel) return;
+  for (const button of panel.querySelectorAll<HTMLButtonElement>("[data-select]")) {
+    button.addEventListener("click", () => void accountCall("account_select", { id: button.dataset.select }));
+  }
+  for (const button of panel.querySelectorAll<HTMLButtonElement>("[data-login]")) {
+    button.addEventListener("click", () => {
+      const account = accounts?.accounts.find((account) => account.id === button.dataset.login);
+      if (account) void accountCall("account_login", { provider: account.provider, id: account.id });
+    });
+  }
+  for (const button of panel.querySelectorAll<HTMLButtonElement>("[data-remove]")) {
+    button.addEventListener("click", () => void accountCall("account_remove", { id: button.dataset.remove }));
+  }
+  for (const button of panel.querySelectorAll<HTMLButtonElement>("[data-cancel]")) {
+    button.addEventListener("click", () => {
+      button.disabled = true;
+      void invoke("account_login_cancel", { id: button.dataset.cancel }).catch((error) => say(fromBack(error), true));
+    });
+  }
+  for (const button of panel.querySelectorAll<HTMLButtonElement>("[data-add]")) {
+    button.addEventListener("click", () => void accountCall("account_login", { provider: button.dataset.add, id: null }));
+  }
+}
+
+async function accountCall(command: "account_select" | "account_login" | "account_remove", args: Record<string, unknown>) {
+  if (accountAction) return;
+  accountAction = true;
+  fill();
+  try {
+    const next = await invoke<Accounts>(command, args);
+    showAccounts(next);
+    if (command === "account_remove") panel?.focus({ preventScroll: true });
+    if (command === "account_login") {
+      say(t("account.connected"));
+    }
+  } catch (error) {
+    say(fromBack(error), true);
+  } finally {
+    accountAction = false;
+    if (open === "usage") fill();
+  }
 }
 
 /// Um agente no painel: o nome, de quando é a leitura, e uma linha por janela.
@@ -311,7 +436,11 @@ function card(agent: Pick<AgentDescriptor, "id" | "label">, data?: Agent): strin
     `<div class="uagent">${brand(agent.id)}<span class="uname">${agent.label}</span>` +
     `<span class="uwhen">${data ? ago(data.at) : ""}</span></div>`;
   if (!data?.windows.length) return head + `<div class="uempty">${t("status.usage.none")}</div>`;
-  const grouped = data.windows.some((window) => window.scope)
+  return head + windowsPanel(data);
+}
+
+function windowsPanel(data: Agent): string {
+  return data.windows.some((window) => window.scope)
     ? groups(data.windows)
         .map(
           ([scope, windows]) =>
@@ -319,7 +448,6 @@ function card(agent: Pick<AgentDescriptor, "id" | "label">, data?: Agent): strin
         )
         .join("")
     : rows(data.windows);
-  return head + grouped;
 }
 
 function rows(windows: Window[]): string {
@@ -420,7 +548,7 @@ function spark(hist: number[]): string {
 function esc(text: string): string {
   const box = document.createElement("span");
   box.textContent = text;
-  return box.innerHTML;
+  return box.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 /* ---------- relógio ---------- */

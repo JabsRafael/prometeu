@@ -1643,6 +1643,31 @@ body.noside .side { display: none; }
 /* O painel do uso. Uma linha por janela; planos com buckets próprios de
    modelo ganham subtítulos para não misturar cotas independentes. */
 .upop { min-width: 268px; padding: 10px 12px 12px; gap: 0; }
+.upop.usage { width: min(320px, calc(100vw - 16px)); overflow-y: auto; }
+.upop.usage .uhead { align-items: center; gap: 7px; }
+.uaccount { position: relative; padding: 8px 10px; margin-bottom: 8px; }
+.account-select { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 1px solid var(--line-ghost); background: var(--bg-raised); cursor: pointer; }
+.account-select:hover:not(:disabled) { background: var(--bg-raised-3); }
+.uaccount.active .account-select { border-color: var(--accent); }
+.account-select:disabled { cursor: default; }
+/* O botão cobre o card; as ações são botões irmãos, sem controles aninhados. */
+.account-content { position: relative; pointer-events: none; }
+.account-content button { pointer-events: auto; }
+.account-heading { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.account-heading strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; color: var(--fg); }
+.account-content small { display: block; font-size: 11px; color: var(--fg-3); }
+.account-meta { display: flex; align-items: center; gap: 8px; margin: 2px 0 4px; }
+.account-meta .uwhen { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-reconnect { flex: none; height: 20px; padding: 0 4px; font-size: 10px; background: none; color: var(--fg-2); }
+.account-reconnect:hover { background: var(--bg-raised-3); }
+.account-wait button { font-size: 11px; padding: 4px 6px; }
+.account-add { padding-top: 8px; border-top: 1px solid var(--line-raised); }
+.account-add button { width: 100%; height: 26px; justify-content: flex-start; padding: 0 4px; font-size: 11px; background: none; color: var(--fg-2); }
+.account-add button:hover { background: var(--bg-raised-3); }
+.account-remove:hover { color: var(--err); }
+.account-wait { display: flex; align-items: center; gap: 8px; color: var(--fg-3); font-size: 11px; line-height: 1.5; margin: 8px 0 0; }
+.uaccount .uempty { padding: 6px 0; text-align: left; }
+.account-select:focus-visible, .account-reconnect:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .uhead { font-size: 12px; font-weight: 600; color: var(--fg); padding-bottom: 8px; }
 .uagent {
   display: flex; align-items: center; gap: 7px; padding: 8px 0 5px;

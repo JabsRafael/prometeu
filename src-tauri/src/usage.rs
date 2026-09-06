@@ -7,20 +7,14 @@
 //! `account/rateLimits/updated` quando muda, e responde
 //! `account/rateLimits/read` assim que a thread abre.
 //!
-//! Só que sem conversa não chega nada, e a barra passaria a manhã com o número
-//! de ontem. Por isso o `watch` também pergunta direto, de tempos em tempos,
-//! aos mesmos servidores que os CLIs consultam — com as credenciais que os
-//! próprios CLIs guardam nesta máquina (Keychain do Claude Code,
-//! `~/.codex/auth.json`). São endpoints internos deles, não API pública: se um
-//! dia mudarem, o poll falha calado e a escuta continua valendo.
-//!
-//! O número é da conta, não da sessão: qualquer aba que responda atualiza a
-//! barra inteira. Por isso o estado é um só — e por isso ele fica no disco,
-//! porque abrir o app de manhã sem barra nenhuma até alguém falar com um
-//! agente pareceria defeito.
+//! Sem conversa, o poll consulta cada perfil: app-server no Codex e endpoint
+//! interno no Claude, com as credenciais do próprio CLI. Uma falha mantém a
+//! última leitura. Cada evento atualiza a conta capturada pelo processo, mesmo
+//! depois de a pessoa selecionar outra no rodapé. O cache guarda todas as
+//! contas; a apresentação escolhe qual entrada mostrar na faixa.
 
 use crate::lock::lock;
-use crate::paths;
+use crate::{accounts, paths};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -59,7 +53,7 @@ pub struct Agent {
     pub at: u64,
 }
 
-/// Por agente: `claude`, `codex`.
+/// Por conta. `claude` e `codex` preservam as entradas dos CLIs originais.
 pub type Usage = BTreeMap<String, Agent>;
 
 fn state() -> &'static Mutex<Usage> {
@@ -73,18 +67,25 @@ pub fn usage() -> Usage {
     lock(state()).clone()
 }
 
+pub fn forget(app: &AppHandle, account: &str) {
+    let mut all = lock(state());
+    all.remove(account);
+    write(&all);
+    let _ = app.emit("usage", all.clone());
+}
+
 /// O `rate_limit_info` de uma linha `rate_limit_event`.
-pub fn claude(app: &AppHandle, info: &Value) {
-    note(app, "claude", claude_windows(info));
+pub fn claude(app: &AppHandle, account: &str, info: &Value) {
+    note(app, account, claude_windows(info));
 }
 
 /// O `rateLimits` do `account/rateLimits/{read,updated}`.
-pub fn codex(app: &AppHandle, limits: &Value) {
+pub fn codex(app: &AppHandle, account: &str, limits: &Value) {
     let (windows, complete) = codex_windows(limits);
     if complete {
-        note(app, "codex", windows);
+        note(app, account, windows);
     } else {
-        note_codex_update(app, windows);
+        note_codex_update(app, account, windows);
     }
 }
 
@@ -180,11 +181,39 @@ const POLL: std::time::Duration = std::time::Duration::from_secs(60);
 /// o número de ontem pelo de agora sem esperar ninguém conversar.
 pub fn watch(app: AppHandle) {
     std::thread::spawn(move || loop {
-        if let Some(info) = fetch_claude() {
-            note(&app, "claude", claude_api_windows(&info));
-        }
-        if let Some(reply) = fetch_codex() {
-            note(&app, "codex", codex_api_windows(&reply));
+        for profile in accounts::profiles().unwrap_or_default() {
+            if accounts::logging_in(&profile.id) {
+                continue;
+            }
+            match profile.provider {
+                crate::state::ProviderId::Claude => {
+                    if let Ok(identity) = crate::claude::account_status(&profile) {
+                        if !accounts::logging_in(&profile.id) {
+                            let _ = accounts::set_identity(&app, &profile.id, identity);
+                        }
+                    }
+                    if let Some(info) = fetch_claude(&profile) {
+                        note(&app, &profile.id, claude_api_windows(&info));
+                    }
+                }
+                crate::state::ProviderId::Codex => {
+                    let mut received = false;
+                    if let Ok((identity, limits)) = crate::codex::account_probe(&profile) {
+                        if !accounts::logging_in(&profile.id) {
+                            let _ = accounts::set_identity(&app, &profile.id, identity);
+                            if let Some(limits) = limits {
+                                codex(&app, &profile.id, &limits);
+                                received = true;
+                            }
+                        }
+                    }
+                    if !received && !accounts::logging_in(&profile.id) {
+                        if let Some(reply) = fetch_codex(&profile) {
+                            note(&app, &profile.id, codex_api_windows(&reply));
+                        }
+                    }
+                }
+            }
         }
         std::thread::sleep(POLL);
     });
@@ -193,10 +222,10 @@ pub fn watch(app: AppHandle) {
 /// O endpoint que o próprio Claude Code consulta para o `/usage` dele. Sem
 /// credencial ou com token vencido não há o que perguntar: fica a última
 /// leitura, e o próximo turno de conversa corrige.
-fn fetch_claude() -> Option<Value> {
+fn fetch_claude(profile: &accounts::Profile) -> Option<Value> {
     reqwest::blocking::Client::new()
         .get("https://api.anthropic.com/api/oauth/usage")
-        .bearer_auth(claude_token()?)
+        .bearer_auth(claude_token(profile)?)
         .header("anthropic-beta", "oauth-2025-04-20")
         .timeout(std::time::Duration::from_secs(15))
         .send()
@@ -211,22 +240,27 @@ fn fetch_claude() -> Option<Value> {
 /// sistemas num arquivo. O arquivo vem primeiro por ser mais barato; o
 /// Keychain responde ao `security` sem perguntar nada porque foi o próprio
 /// `security` que gravou o item.
-fn claude_token() -> Option<String> {
-    let body = std::fs::read_to_string(paths::home().join(".claude/.credentials.json"))
+fn claude_token(profile: &accounts::Profile) -> Option<String> {
+    let body = std::fs::read_to_string(profile.home.join(".credentials.json"))
         .ok()
-        .or_else(keychain)?;
+        .or_else(|| keychain(profile))?;
     let creds: Value = serde_json::from_str(&body).ok()?;
     Some(creds["claudeAiOauth"]["accessToken"].as_str()?.to_string())
 }
 
-fn keychain() -> Option<String> {
+fn keychain(profile: &accounts::Profile) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let service = if profile.managed || std::env::var_os("CLAUDE_CONFIG_DIR").is_some() {
+        let hash = format!(
+            "{:x}",
+            Sha256::digest(profile.home.to_string_lossy().as_bytes())
+        );
+        format!("Claude Code-credentials-{}", &hash[..8])
+    } else {
+        "Claude Code-credentials".into()
+    };
     let out = std::process::Command::new("security")
-        .args([
-            "find-generic-password",
-            "-s",
-            "Claude Code-credentials",
-            "-w",
-        ])
+        .args(["find-generic-password", "-s", &service, "-w"])
         .output()
         .ok()?;
     out.status
@@ -236,8 +270,8 @@ fn keychain() -> Option<String> {
 
 /// O endpoint que informa o `/status` do Codex. O User-Agent é o do CLI:
 /// sem ele o Cloudflare devolve a página de desafio em vez do JSON.
-fn fetch_codex() -> Option<Value> {
-    let (token, account) = codex_auth()?;
+fn fetch_codex(profile: &accounts::Profile) -> Option<Value> {
+    let (token, account) = codex_auth(&profile.home)?;
     reqwest::blocking::Client::new()
         .get("https://chatgpt.com/backend-api/wham/usage")
         .bearer_auth(token)
@@ -252,8 +286,8 @@ fn fetch_codex() -> Option<Value> {
         .ok()
 }
 
-fn codex_auth() -> Option<(String, String)> {
-    let body = std::fs::read_to_string(paths::home().join(".codex/auth.json")).ok()?;
+fn codex_auth(home: &std::path::Path) -> Option<(String, String)> {
+    let body = std::fs::read_to_string(home.join("auth.json")).ok()?;
     let auth: Value = serde_json::from_str(&body).ok()?;
     let tokens = &auth["tokens"];
     Some((
@@ -374,18 +408,37 @@ fn days(y: i64, m: i64, d: i64) -> i64 {
 /// novidade: não regrava o disco (o `rate_limit_event` chega a cada pedido ao
 /// modelo, várias vezes por turno) e não mexe no relógio do painel.
 fn note(app: &AppHandle, agent: &str, windows: Vec<Window>) {
-    if windows.is_empty() {
-        return;
-    }
+    record(app, agent, windows, true);
+}
+
+fn record(app: &AppHandle, account: &str, windows: Vec<Window>, complete: bool) {
     let mut all = lock(state());
-    if all.get(agent).is_some_and(|old| old.windows == windows) {
+    if !remember(&mut all, account, windows, complete) {
         return;
     }
-    all.insert(agent.to_string(), Agent { windows, at: now() });
-    let snapshot = all.clone();
-    drop(all);
-    write(&snapshot);
-    let _ = app.emit("usage", &snapshot);
+    write(&all);
+    let _ = app.emit("usage", &*all);
+}
+
+fn remember(all: &mut Usage, account: &str, windows: Vec<Window>, complete: bool) -> bool {
+    if windows.is_empty() {
+        return false;
+    }
+    let windows = if complete {
+        windows
+    } else {
+        merge_codex(
+            all.get(account)
+                .map(|data| data.windows.as_slice())
+                .unwrap_or_default(),
+            windows,
+        )
+    };
+    if all.get(account).is_some_and(|old| old.windows == windows) {
+        return false;
+    }
+    all.insert(account.to_string(), Agent { windows, at: now() });
+    true
 }
 
 /// A notificação do app-server atualiza um bucket por vez. Preserva os outros
@@ -430,15 +483,8 @@ fn same_scope(a: &Window, b: &Window) -> bool {
     a.scope.as_deref().unwrap_or("general") == b.scope.as_deref().unwrap_or("general")
 }
 
-fn note_codex_update(app: &AppHandle, windows: Vec<Window>) {
-    if windows.is_empty() {
-        return;
-    }
-    let current = lock(state())
-        .get("codex")
-        .map(|agent| agent.windows.clone())
-        .unwrap_or_default();
-    note(app, "codex", merge_codex(&current, windows));
+fn note_codex_update(app: &AppHandle, account: &str, windows: Vec<Window>) {
+    record(app, account, windows, false);
 }
 
 fn path() -> std::path::PathBuf {
@@ -474,6 +520,30 @@ fn now() -> u64 {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn update_atrasado_da_conta_anterior_nao_muda_cota_da_nova() {
+        let mut all: Usage = serde_json::from_value(
+            json!({"codex":{"windows":[{"kind":"weekly","pct":12,"resets":100}],"at":1}}),
+        )
+        .unwrap();
+        let window = |pct| Window {
+            kind: "session".into(),
+            pct,
+            resets: 200,
+            scope: Some("general".into()),
+            label: None,
+        };
+        remember(&mut all, "conta-a", vec![window(20.0)], true);
+        remember(&mut all, "conta-b", vec![window(2.0)], true);
+        let newer = all["conta-b"].clone();
+        remember(&mut all, "conta-a", vec![window(90.0)], false);
+        assert_eq!(all["conta-b"], newer);
+        assert_eq!(all["conta-a"].windows[0].pct, 90.0);
+        assert_eq!(all["codex"].windows[0].pct, 12.0);
+        assert!(!remember(&mut all, "conta-b", vec![], true));
+        assert_eq!(all["conta-b"], newer);
+    }
 
     #[test]
     fn claude_traduz_as_janelas_que_vieram() {

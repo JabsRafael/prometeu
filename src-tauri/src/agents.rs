@@ -40,12 +40,12 @@ fn installed() -> (bool, bool) {
     (out.contains("TEM_CLAUDE"), out.contains("TEM_CODEX"))
 }
 
-/// `$CODEX_HOME`, ou o `~/.codex` de sempre. É o home do usuário de propósito:
-/// conta, skills, memórias e config do Codex continuam valendo dentro do app.
-fn home() -> PathBuf {
-    std::env::var("CODEX_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| paths::home().join(".codex"))
+/// Catálogo pertence à conta selecionada. Falha na seleção não consulta
+/// silenciosamente a conta do terminal.
+fn home() -> Option<PathBuf> {
+    crate::accounts::active(ProviderId::Codex)
+        .ok()
+        .map(|profile| profile.home)
 }
 
 /// Um modelo como o lançador o mostra.
@@ -127,8 +127,8 @@ fn descriptor(id: ProviderId, installed: bool, models: Vec<Model>) -> AgentDescr
     }
 }
 
-/// Roda uma vez por sessão do app: nem CLI se instala, nem catálogo muda com a
-/// janela aberta.
+/// Descobre os CLIs e o catálogo da conta selecionada. A UI consulta novamente
+/// quando a pessoa troca de conta.
 #[tauri::command]
 pub fn agents() -> Agents {
     let (claude, codex) = installed();
@@ -188,6 +188,13 @@ fn ask_claude_models() -> Vec<Model> {
             cmd.env(k, v);
         }
     }
+    let Ok(profile) = crate::accounts::active(ProviderId::Claude) else {
+        return vec![];
+    };
+    if profile.prepare().is_err() {
+        return vec![];
+    }
+    profile.apply(&mut cmd);
     let Ok(mut child) = cmd.spawn() else {
         return vec![];
     };
@@ -258,7 +265,10 @@ fn parse_claude_models(line: &str) -> Vec<Model> {
 /// vazia é "não há Codex nesta máquina" — o `codex` fora do PATH, ou instalado e
 /// nunca aberto (o catálogo só existe depois do primeiro login).
 fn codex_models() -> Vec<Model> {
-    let Ok(raw) = std::fs::read_to_string(home().join("models_cache.json")) else {
+    let Some(home) = home() else {
+        return vec![];
+    };
+    let Ok(raw) = std::fs::read_to_string(home.join("models_cache.json")) else {
         return vec![];
     };
     let Ok(cache) = serde_json::from_str::<Value>(&raw) else {
@@ -295,7 +305,10 @@ fn codex_models() -> Vec<Model> {
 /// modelo do trabalho nisso é caro e mais lento. Vazio é catálogo ausente: aí o
 /// nomeador cai no modelo do próprio workspace.
 pub fn codex_namer_model() -> String {
-    let Ok(raw) = std::fs::read_to_string(home().join("models_cache.json")) else {
+    let Some(home) = home() else {
+        return String::new();
+    };
+    let Ok(raw) = std::fs::read_to_string(home.join("models_cache.json")) else {
         return String::new();
     };
     let Ok(cache) = serde_json::from_str::<Value>(&raw) else {

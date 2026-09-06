@@ -35,7 +35,7 @@
 
 use crate::lock::lock;
 use crate::session::Launch;
-use crate::{agents, chat, conversation, i18n, paths, plugins};
+use crate::{accounts, agents, chat, conversation, i18n, paths, plugins};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::Write;
@@ -43,6 +43,9 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use tauri::AppHandle;
+
+mod account;
+pub use account::{account_env, account_probe, login, prepare_profile, user_home};
 
 /// Sobe o `codex app-server` numa aba. `resume` é a thread que o Codex escolheu
 /// da outra vez; sem ela a conversa nasce nova.
@@ -54,11 +57,15 @@ pub fn spawn(
     resume: Option<String>,
     launch: &Launch,
 ) -> Result<chat::Chat, String> {
+    let profile = accounts::active(crate::state::ProviderId::Codex)?;
+    profile.prepare()?;
     let selected_plugins = plugins::codex_for(
         launch.config_scope.as_deref().unwrap_or(workspace),
         launch.plugins.as_ref(),
+        &profile,
     )?;
     let mut cmd = Command::new("codex");
+    profile.apply(&mut cmd);
     cmd.args(["app-server", "--enable", "default_mode_request_user_input"]);
     cmd.args(["-c", "suppress_unstable_features_warning=true"]);
     if let Some(home) = &selected_plugins.home {
@@ -92,21 +99,25 @@ pub fn spawn(
         permission: launch.permission,
         instructions: launch.instructions.clone(),
     };
-    let io = chat::ProcessIo::new(process_stderr, move |stdin| {
-        let link = Arc::new(Mutex::new(Link::new(Box::new(stdin), start)));
-        let reader = link.clone();
-        let translate = move |line: &str| {
-            lock(&reader)
-                .on_line(line)
-                .iter()
-                .map(|event| event.to_string())
-                .collect()
-        };
-        (
-            chat::Wire::Codex(link),
-            Box::new(translate) as chat::Translate,
-        )
-    });
+    let io = chat::ProcessIo::new(
+        process_stderr,
+        move |stdin| {
+            let link = Arc::new(Mutex::new(Link::new(Box::new(stdin), start)));
+            let reader = link.clone();
+            let translate = move |line: &str| {
+                lock(&reader)
+                    .on_line(line)
+                    .iter()
+                    .map(|event| event.to_string())
+                    .collect()
+            };
+            (
+                chat::Wire::Codex(link),
+                Box::new(translate) as chat::Translate,
+            )
+        },
+        profile,
+    );
     chat::launch(app, id, cmd, &log, Some(log.clone()), "err.codex.spawn", io)
 }
 

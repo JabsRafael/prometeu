@@ -333,23 +333,6 @@ fn codex_marketplace_root(home: &Path) -> PathBuf {
     home.join("marketplace")
 }
 
-/// O home original continua sendo a fonte de conta e estado. Quando veio por
-/// ambiente, torná-lo absoluto é importante: o app-server muda o cwd para o
-/// worktree e um `CODEX_HOME` relativo passaria a significar outra pasta.
-fn user_codex_home() -> PathBuf {
-    let configured = std::env::var_os("CODEX_HOME")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| paths::home().join(".codex"));
-    if configured.is_absolute() {
-        configured
-    } else {
-        std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join(configured)
-    }
-}
-
 /// O ID persistido, e não o cwd, é a identidade correta: dois workspaces sem
 /// worktree podem usar o mesmo clone com seleções diferentes. O hash não
 /// depende do UUID efêmero de uma conversa e não usa dado externo como nome de
@@ -377,7 +360,11 @@ fn remove_codex_home(root: &Path, home: &Path) {
 /// Traduz a seleção para um marketplace e um `CODEX_HOME` próprios do
 /// workspace. O lock cobre materialização, config e cache compartilhado: duas
 /// abas podem abrir juntas sem instalar a mesma versão pela metade.
-pub fn codex_for(workspace: &str, chosen: Option<&Vec<String>>) -> Result<CodexPlugins, String> {
+pub fn codex_for(
+    workspace: &str,
+    chosen: Option<&Vec<String>>,
+    profile: &crate::accounts::Profile,
+) -> Result<CodexPlugins, String> {
     let Some(chosen) = chosen else {
         return Ok(CodexPlugins {
             home: None,
@@ -395,7 +382,13 @@ pub fn codex_for(workspace: &str, chosen: Option<&Vec<String>>) -> Result<CodexP
 
     static PREPARE: OnceLock<Mutex<()>> = OnceLock::new();
     let _guard = lock(PREPARE.get_or_init(|| Mutex::new(())));
-    let home = codex_workspace_home(workspace);
+    // O turno antigo pode continuar enquanto outra aba já usa a conta nova.
+    // Nunca repontar os links de autenticação de um processo ainda vivo.
+    let home = if profile.managed {
+        codex_workspace_home(workspace).join(&profile.id)
+    } else {
+        codex_workspace_home(workspace)
+    };
     let marketplace = codex_marketplace_root(&home);
     let prepared = prepare_marketplace(&marketplace, codex_marketplace_name(), &selected)?;
     let ids = prepared
@@ -407,8 +400,8 @@ pub fn codex_for(workspace: &str, chosen: Option<&Vec<String>>) -> Result<CodexP
         .filter(|plugin| plugin.hooks)
         .map(|plugin| plugin.canonical.clone())
         .collect::<Vec<_>>();
-    let base = user_codex_home();
-    prepare_codex_home(&base, &home, &marketplace, &ids)?;
+    let base = &profile.home;
+    prepare_codex_home(base, &home, &marketplace, &ids)?;
 
     if prepared.is_empty() {
         return Ok(CodexPlugins {
@@ -432,7 +425,7 @@ pub fn codex_for(workspace: &str, chosen: Option<&Vec<String>>) -> Result<CodexP
     // `codex plugin add` escreve `enabled = true`. Refazer a camada derivada
     // depois das instalações restaura a seleção exata e preserva a confiança
     // de hooks que uma sessão anterior gravou neste mesmo workspace.
-    write_codex_config(&base, &home, &marketplace, &ids)?;
+    write_codex_config(base, &home, &marketplace, &ids)?;
     Ok(CodexPlugins {
         home: Some(home),
         ids,
@@ -1041,18 +1034,33 @@ fn remove_marketplace_entry(home: &Path, id: &str) {
 /// reconstrói a configuração sem ele.
 fn codex_remove_everywhere(canonical: &str) {
     let id = canonical.split_once('@').map_or(canonical, |(id, _)| id);
-    let Ok(entries) = std::fs::read_dir(codex_workspaces_root()) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let home = entry.path();
-        if !home.is_dir() {
-            continue;
-        }
+    for home in codex_homes_at(&codex_workspaces_root()) {
         codex_remove(&home, canonical);
         forget_codex_config(&home, canonical);
         remove_marketplace_entry(&home, id);
     }
+}
+
+fn codex_homes_at(root: &Path) -> Vec<PathBuf> {
+    let mut homes = Vec::new();
+    for workspace in std::fs::read_dir(root).into_iter().flatten().flatten() {
+        if !workspace.file_type().is_ok_and(|kind| kind.is_dir()) {
+            continue;
+        }
+        let home = workspace.path();
+        if home.join("config.toml").is_file() {
+            homes.push(home.clone());
+        }
+        for account in std::fs::read_dir(home).into_iter().flatten().flatten() {
+            if account.file_type().is_ok_and(|kind| kind.is_dir())
+                && uuid::Uuid::parse_str(&account.file_name().to_string_lossy()).is_ok()
+                && account.path().join("config.toml").is_file()
+            {
+                homes.push(account.path());
+            }
+        }
+    }
+    homes
 }
 
 /* ---------- instalar o que já existe ---------- */
@@ -1525,6 +1533,9 @@ fn make(app: &AppHandle, run: u64, dir: &Path, slug: &str, ask: &str) -> Result<
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
 
+    let profile = crate::accounts::active(crate::state::ProviderId::Claude)?;
+    profile.prepare()?;
+    profile.apply(&mut cmd);
     let mut child = cmd
         .spawn()
         .map_err(|e| i18n::ta("err.plugin.make", &[("cause", e.to_string())]))?;
@@ -1676,6 +1687,23 @@ fn fold(ch: char) -> char {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn limpeza_encontra_todas_as_contas_sem_seguir_links() {
+        let root =
+            std::env::temp_dir().join(format!("prometeu-account-plugins-{}", uuid::Uuid::new_v4()));
+        let home = root.join("workspace");
+        let account = home.join(uuid::Uuid::new_v4().to_string());
+        paths::ensure_private_dir(&account).unwrap();
+        std::fs::write(home.join("config.toml"), "").unwrap();
+        std::fs::write(account.join("config.toml"), "").unwrap();
+        std::os::unix::fs::symlink(&account, home.join(uuid::Uuid::new_v4().to_string())).unwrap();
+        let homes = codex_homes_at(&root);
+        assert_eq!(homes.len(), 2);
+        assert!(homes.contains(&home));
+        assert!(homes.contains(&account));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     fn plugin(id: &str, source: &str) -> Plugin {
         Plugin {
@@ -2188,7 +2216,7 @@ opcao = "preservada"
         .unwrap();
 
         let previous = std::env::var_os("PROMETEU_ROOT");
-        let global_config = user_codex_home().join("config.toml");
+        let global_config = crate::codex::user_home().join("config.toml");
         let global_before = std::fs::read(&global_config).ok();
         std::env::set_var("PROMETEU_ROOT", &root);
         let canonical = format!("{id}@{}", codex_marketplace_name());
@@ -2197,7 +2225,11 @@ opcao = "preservada"
         let result = (|| -> Result<(), String> {
             plugin_save(plugin(&id, &source.display().to_string()))?;
             let chosen = vec![id.clone()];
-            let selected = codex_for(&workspace, Some(&chosen))?;
+            let selected = codex_for(
+                &workspace,
+                Some(&chosen),
+                &crate::accounts::active(crate::state::ProviderId::Codex)?,
+            )?;
             if selected.ids != [canonical.clone()] {
                 return Err(format!("ids inesperados: {:?}", selected.ids));
             }
@@ -2420,7 +2452,11 @@ opcao = "preservada"
                 format!("---\nname: {id}\ndescription: {updated_marker}\n---\n"),
             )
             .map_err(|error| error.to_string())?;
-            codex_for(&workspace, Some(&chosen))?;
+            codex_for(
+                &workspace,
+                Some(&chosen),
+                &crate::accounts::active(crate::state::ProviderId::Codex)?,
+            )?;
             let updated_version = codex_installed(&home)?
                 .get(&canonical)
                 .ok_or_else(|| "plugin atualizado sumiu do cache do Codex".to_string())?

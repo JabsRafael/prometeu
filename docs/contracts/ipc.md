@@ -40,14 +40,21 @@ Os comandos `actions_save`, `action_start` e `action_pause` estão descritos no
 | `chat-closed` | `chat.rs` | id da sessão |
 | `pty` | `pty.rs` | `[session, bytes, seq]` |
 | `pty-closed` | `pty.rs` | `[session, exitCode]` |
-| `usage` | `usage.rs` | snapshot de uso por agente |
+| `usage` | `usage.rs` | snapshot de uso por ID local de conta |
+| `accounts` | `accounts.rs` | cadastro, seleção por provider e login pendente |
+| `account-error` | `chat.rs` | erro traduzível de uma troca ao enviar a fala pendente |
 | `machine` | `machine.rs` | estado da máquina |
 | `linear` | `linear.rs` | `LinearStatus` |
 | `plugin-make` | `plugins.rs` | `[run, step]` |
 | `plugin-made` | `plugins.rs` | `[run, error]` |
 | `browser:url` | `browser.rs` | `[workspace, url]` |
 
-O snapshot do evento e comando `usage` é um mapa por provider. Cada entrada
+Os comandos `accounts`, `account_select`, `account_remove`, `account_login` e
+`account_login_cancel` estão definidos em [`accounts.md`](accounts.md).
+
+O snapshot do evento e comando `usage` é um mapa por ID local de conta. As
+chaves antigas `claude` e `codex` representam as contas dos CLIs originais;
+contas adicionais usam UUIDs, sem alterar o formato dos valores. Cada entrada
 tem `{ windows, at }`; cada janela tem `{ kind, pct, resets, scope?, label? }`.
 `scope` identifica cotas independentes para que atualizações esparsas de um
 modelo não apaguem as demais, e `label` é texto externo opcional para exibição.

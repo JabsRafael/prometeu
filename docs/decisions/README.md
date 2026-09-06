@@ -46,3 +46,5 @@ Status: Proposto
 
 | [0010](0010-default-code-review.md) | Aceito | Code review incluído uma vez, editável e removível |
 | [0011](0011-shared-ui.md) | Aceito | primitivas compartilhadas de interface |
+| [0012](0012-provider-accounts.md) | Aceito | contas locais e seleção global por provider |
+| [0013](0013-remove-provider-accounts.md) | Aceito | remoção de contas e seleção vazia |

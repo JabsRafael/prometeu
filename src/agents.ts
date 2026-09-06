@@ -74,21 +74,25 @@ const BOOTSTRAP: AgentDescriptor[] = [
 ];
 
 let catalog = BOOTSTRAP;
+let generation = 0;
 
-/// Descoberto uma vez por sessão. O catálogo mais lento do Claude chega atrás,
-/// sem segurar a tela nem a descoberta de instalação dos dois runtimes.
+/// Recarrega na abertura e na troca de conta. O catálogo mais lento do Claude
+/// chega atrás, sem substituir a resposta de uma seleção mais recente.
 export async function loadAgents() {
+  const current = ++generation;
   try {
     const discovered = await invoke<AgentCatalog>("agents");
+    if (current !== generation) return;
     if (discovered.providers.length) catalog = discovered.providers;
   } catch {
+    if (current !== generation) return;
     catalog = BOOTSTRAP;
   }
 
   if (descriptor("claude").installed) {
     void invoke<AgentModel[]>("claude_models")
       .then((models) => {
-        if (!models.length) return;
+        if (current !== generation || !models.length) return;
         catalog = catalog.map((provider) =>
           provider.id === "claude" ? { ...provider, models } : provider,
         );

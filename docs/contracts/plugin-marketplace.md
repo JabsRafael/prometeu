@@ -110,10 +110,13 @@ Para toda seleção explícita, inclusive `[]`, `plugins.rs`:
 
 1. deriva de SHA-256 do ID persistido do workspace um home estável em
    `<root>/codex-workspaces/<workspace-hash>/`; usar o ID mantém separados
-   inclusive dois workspaces que rodam no mesmo clone sem worktree;
-2. espelha nesse home as entradas do `CODEX_HOME` real, exceto os arquivos de
-   configuração, mantendo os arquivos de conta, sessões, skills, memória e
-   cache no lugar de sempre;
+   inclusive dois workspaces que rodam no mesmo clone sem worktree. Tarefas
+   de Ações usam o ID da sessão como escopo, preservando suas ferramentas. Para uma
+   conta gerenciada, usa o subdiretório `<workspace-hash>/<conta>/`, preservando
+   os links dos processos que ainda trabalham com outra conta;
+2. espelha nesse home as entradas do perfil de conta capturado no spawn, exceto
+   arquivos de configuração. Cada conta mantém sua credencial; sessões, skills
+   e cache de plugins continuam compartilhados com a instalação original;
 3. calcula um SHA-256 determinístico de cada pasta de plugin, sem `.git`, e
    combina uma revisão do formato derivado para que correções do adapter também
    invalidem snapshots antigos;
@@ -145,11 +148,13 @@ fica numa camada de configuração real, porém descartável, em vez de depender
 de uma flag que não produz o efeito prometido.
 
 O armazenamento padrão de login do Codex é `auth.json`. O home derivado liga
-esse arquivo ao original e fixa o modo `file` quando a configuração usa o
+esse arquivo ao perfil da conta e fixa o modo `file` quando a configuração usa o
 padrão ou `auto`, para que refreshes não criem tokens divergentes. Uma escolha
 explícita por `keyring` ou `ephemeral` é preservada; como o próprio Codex trata
 cada `CODEX_HOME` como identidade independente nesses modos, ela pode exigir
-API key no ambiente ou autenticação específica para o home.
+API key no ambiente ou autenticação específica para o home. Perfis gerenciados
+pelo Prometeu usam `file` desde o login, em arquivo privado por conta. A decisão
+está no [ADR 0012](../decisions/0012-provider-accounts.md).
 
 ## Hooks e confiança
 

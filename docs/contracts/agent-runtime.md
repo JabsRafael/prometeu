@@ -62,6 +62,17 @@ descriptor retornado em runtime é a fonte de verdade; o frontend não mantém u
 tabela paralela. Antes da descoberta, ou se o IPC falhar, o bootstrap do
 frontend mantém apenas Claude instalado e não anuncia capacidade opcional.
 
+## Conta de execução
+
+A escolha de conta é global por provider e fica fora de `SessionLaunch`. O
+adapter captura o perfil selecionado no spawn; o processo mantém seu ID e
+revisão até terminar o turno. A próxima fala retoma o mesmo transcript com
+a seleção atual quando necessário. Login, perfil e credenciais pertencem à
+borda do provider; o core recebe somente identidade e estado normalizados.
+Remover a conta ativa deixa o provider sem seleção. O turno já iniciado pode
+terminar; novos envios retornam `err.account.noActive` até a próxima escolha.
+Veja [`accounts.md`](accounts.md).
+
 ## Configuração de sessão
 
 ```ts

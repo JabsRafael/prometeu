@@ -25,10 +25,12 @@ isoladas.
 | quadro | `<root>/board.json` | `state.rs` |
 | backup do quadro | ao lado de `board.json` | `state.rs` |
 | time e credencial | `<root>/team.json` | `team.rs` |
-| último snapshot de cotas | `<root>/usage.json` | `usage.rs` |
+| contas e seleção por provider | `<root>/accounts.json` | `accounts.rs` |
+| perfis autenticados adicionais | `<root>/accounts/<uuid>/` | adapters Claude e Codex |
+| último snapshot de cotas por conta | `<root>/usage.json` | `usage.rs` |
 | transcript V1 do Codex | `<root>/chats/<tab>.jsonl` | `chat.rs` |
 | hub de plugins | `<root>/plugins.json` | `plugins.rs` |
-| home/marketplace Codex derivado | `<root>/codex-workspaces/<workspace-hash>/` | `plugins.rs`; reconstruível |
+| home/marketplace Codex derivado | `<root>/codex-workspaces/<workspace-hash>/[<conta>/]` | `plugins.rs`; reconstruível |
 | manifesto de importação | `<root>/imports/prometheus-v1.json` | `migration.rs` |
 | snapshots da importação | `<root>/imports/prometheus-<data>-<id>/` | `migration.rs` |
 
@@ -108,9 +110,10 @@ O hub é a fonte de verdade do Prometeu. A cópia e o marketplace sob
 `<root>/codex-workspaces/<workspace-hash>/marketplace/` são cache: carregam um
 hash da origem, podem ser recriados e não entram no board. O mesmo diretório
 contém um `config.toml` derivado que herda a configuração real e conserva a
-confiança e o estado ativo dos hooks daquele workspace. As demais entradas do
-`CODEX_HOME`, inclusive conta, sessões, skills e cache instalado, apontam para
-o home real do Codex. A configuração global não recebe marketplace nem
+confiança e o estado ativo dos hooks daquele workspace. A camada da conta original permanece nesse caminho;
+contas gerenciadas recebem um subdiretório próprio. As demais entradas do
+`CODEX_HOME` apontam para o perfil capturado no spawn. Cada perfil mantém sua
+credencial, enquanto sessões, skills e cache de plugins continuam compartilhados. A configuração global não recebe marketplace nem
 ativação do Prometeu. Remover o workspace do quadro ou devolver seu worktree
 apaga essa camada derivada, sem seguir os links para o estado compartilhado. O
 contrato completo está em
@@ -118,8 +121,10 @@ contrato completo está em
 
 ## Cotas
 
-`usage.json` guarda por provider as janelas conhecidas e o instante da última
-mudança. Cada janela tem tipo, percentual e reset. `scope` e `label` são
+`usage.json` guarda por ID local de conta as janelas conhecidas e o instante
+da última mudança. As chaves antigas `claude` e `codex` continuam identificando
+os perfis originais, sem reescrever caches anteriores. O cadastro e a seleção
+global estão em [`accounts.md`](accounts.md); não entram no board nem no relay. Cada janela tem tipo, percentual e reset. `scope` e `label` são
 opcionais: snapshots antigos sem esses campos continuam sendo uma única cota;
 snapshots novos usam `scope` para manter separadas cotas gerais e buckets de
 modelo ou feature. O arquivo é cache: uma leitura válida do provider substitui
@@ -129,8 +134,10 @@ o conteúdo persistido.
 
 ### Claude
 
-O Claude Code grava em `~/.claude/projects/<slug-do-cwd>/<tab>.jsonl`. A pasta
-deriva do caminho do worktree. O arquivo pode não existir até a primeira fala.
+O Claude Code grava em `~/.claude/projects/<slug-do-cwd>/<tab>.jsonl`, ou no
+`projects` do `CLAUDE_CONFIG_DIR` original quando configurado. Perfis de contas
+gerenciadas compartilham esse diretório por link; a seleção não muda o caminho
+da conversa. A pasta deriva do caminho do worktree. O arquivo pode não existir até a primeira fala.
 
 ### Codex
 
