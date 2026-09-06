@@ -1,3 +1,4 @@
+import * as ui from "./ui";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "./ipc";
 import { icon } from "./icons";
@@ -375,15 +376,9 @@ function field(o: {
   /// Saiu do campo tendo mudado o que estava escrito.
   done?: () => void;
 }): HTMLElement {
-  const box = template(
-    "label",
-    "fld",
-    `<span class="fl"></span><input spellcheck="false" /><span class="fh"></span>`,
-  );
-  box.querySelector(".fl")!.textContent = t(o.label);
-  box.querySelector(".fh")!.textContent = t(o.hint);
-  const input = box.querySelector("input")!;
-  input.value = o.value;
+  const input = ui.input(o.value);
+  input.spellcheck = false;
+  const box = ui.field(t(o.label), input, t(o.hint));
   input.addEventListener("input", () => o.on(input.value));
   if (o.done) input.addEventListener("change", o.done);
   return box;
@@ -669,15 +664,10 @@ function maker() {
 /// O campo grande. O pedido é um parágrafo — num campo de uma linha alguém
 /// escreveria uma frase, e uma frase não descreve um jeito de trabalhar.
 function area(o: { label: Key; hint: Key; value: string; on: (v: string) => void }): HTMLElement {
-  const box = template(
-    "label",
-    "fld",
-    `<span class="fl"></span><textarea rows="6" spellcheck="true"></textarea><span class="fh"></span>`,
-  );
-  box.querySelector(".fl")!.textContent = t(o.label);
-  box.querySelector(".fh")!.textContent = t(o.hint);
-  const input = box.querySelector("textarea")!;
-  input.value = o.value;
+  const input = ui.input(o.value, true);
+  if (input instanceof HTMLTextAreaElement) input.rows = 6;
+  input.spellcheck = true;
+  const box = ui.field(t(o.label), input, t(o.hint));
   input.addEventListener("input", () => o.on(input.value));
   return box;
 }

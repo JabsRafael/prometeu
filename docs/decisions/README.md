@@ -41,3 +41,8 @@ Status: Proposto
 | [0006](0006-explicit-prometheus-import.md) | Aceito | importação explícita e não destrutiva do Prometheus |
 | [0007](0007-persistent-session-comments.md) | Aceito | comentários persistentes ao lado da sessão |
 | [0008](0008-explicit-git-index.md) | Aceito | índice Git explícito e operações por repositório |
+
+| [0009](0009-reusable-actions.md) | Aceito | comandos e agentes reutilizáveis com acompanhamento local |
+
+| [0010](0010-default-code-review.md) | Aceito | Code review incluído uma vez, editável e removível |
+| [0011](0011-shared-ui.md) | Aceito | primitivas compartilhadas de interface |

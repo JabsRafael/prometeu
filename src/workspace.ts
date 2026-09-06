@@ -1,3 +1,4 @@
+import * as actions from "./actions";
 import { invoke } from "./ipc";
 import * as sidebar from "./sidebar";
 import * as browser from "./browser";
@@ -495,6 +496,11 @@ export const setStage = (id: string, stage: string) => invoke("set_stage", { id,
 async function openPr() {
   const ws = current();
   if (!ws) return;
+  const configured = actions.catalog().commands.find(a => a.name === actions.catalog().pr_action && a.kind === "agent");
+  if (configured) {
+    try { await actions.start(ws.id, configured); } catch (error) { ctx.say(fromBack(error), true); }
+    return;
+  }
   const epoch = navigation;
   const tab = ws.tabs.find((t) => t.id === session.currentSession()) ?? ws.tabs[0];
   if (!tab) return;

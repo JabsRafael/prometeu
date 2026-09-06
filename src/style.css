@@ -1,51 +1,10 @@
+@import "./ui.css";
+
 /* Design system medido do Conductor (px lógicos, tela 2x):
    superfícies #141110 → #1b1917 (sidebar) → #201e1c (barras, composer, modal)
    → #2b2826 (pastilha ativa); texto #eae8e6 / #a4a09d / #756f6c; sublinhado de
    aba #d8c2b3. Sidebar 256, painel direito 377, header 38+1, abas 39+1, linhas 28. */
 
-:root {
-  --bg: #141110;
-  --bg-side: #1b1917;
-  --bg-raised: #201e1c;
-  --bg-raised-2: #2b2826;
-  --bg-raised-3: #373533;
-  --bg-btn: #52504e;
-  --line: #2b2826;
-  --line-side: #32302f;
-  --line-raised: #373533;
-  --line-ghost: #434140;
-  --fg: #eae8e6;
-  --fg-2: #a4a09d;
-  --fg-3: #756f6c;
-  --tab-line: #d8c2b3;
-  /* A fala da pessoa: o marrom quente do Conductor, e não mais um cinza. */
-  --bubble: #281e1d;
-  --pri: #eae8e6;
-  --pri-fg: #141110;
-  --accent: #ff6b3d;
-  --run: #4fb8b0;   --run-bg: #16302e;
-  --wait: #e0a030;  --wait-bg: #33270f;
-  --done: #5fbf73;  --done-bg: #16301d;
-  --err: #e06c6c;   --err-bg: #341a1a;
-  /* Fundo da linha do diff: fraco o bastante para o código colorido passar. */
-  --add-bg: #18291d;
-  --del-bg: #2c1a1a;
-  --dot-rodando: var(--run);
-  --dot-querendo: var(--wait);
-  --dot-pronta: var(--done);
-  --dot-desligada: var(--fg-3);
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
-  --mono: ui-monospace, "SF Mono", Menlo, monospace;
-  --r: 6px;
-  /* Largura mínima da coluna de números do viewer. */
-  --gutter: 48px;
-  --r-lg: 8px;
-  --r-xl: 10px;
-  --rail-w: 256px;
-  --side-w: 377px;
-  --top-h: 39px;
-  --tabs-h: 40px;
-}
 
 * { box-sizing: border-box; }
 
@@ -73,48 +32,6 @@ code { font-family: var(--mono); font-size: 0.92em; color: var(--fg); }
 
 /* ---------- controles base ---------- */
 
-button {
-  font: inherit; font-weight: 500;
-  height: 24px; padding: 0 10px;
-  border: 1px solid transparent; border-radius: var(--r);
-  background: var(--bg-raised); color: var(--fg);
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  cursor: default; white-space: nowrap;
-}
-button:hover { background: var(--bg-raised-2); }
-button.pri { background: var(--pri); color: var(--pri-fg); }
-button.pri:hover { background: #fff; }
-button.ghost { background: none; color: var(--fg-2); }
-button.ghost:hover { background: var(--bg-raised-2); color: var(--fg); }
-button.outline { background: none; border-color: var(--line-ghost); color: var(--fg-2); }
-button.outline:hover { background: var(--bg-raised); color: var(--fg); }
-button.lg { height: 32px; padding: 0 16px; }
-button.md { height: 28px; padding: 0 12px; }
-.ico {
-  width: 24px; height: 24px; padding: 0; flex: none; border-radius: var(--r);
-  display: inline-flex; align-items: center; justify-content: center;
-  background: none; color: var(--fg-2);
-}
-.ico:disabled { opacity: 0.35; pointer-events: none; }
-.ico:hover { background: var(--bg-raised-2); color: var(--fg); }
-.ico.sm { width: 20px; height: 20px; }
-.ico.sm .ic { width: 14px; height: 14px; }
-button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
-  outline: 2px solid var(--tab-line); outline-offset: 1px;
-}
-
-input, textarea, select {
-  font: inherit; background: var(--bg); border: 1px solid var(--line-raised);
-  border-radius: var(--r); padding: 5px 10px; color: var(--fg); width: 100%;
-  user-select: text;
-}
-input::placeholder, textarea::placeholder { color: var(--fg-3); }
-
-/* Seletor com cara de botão ghost: rótulo da escolha e a seta. A lista é o
-   menu do app, não um `<select>` — ver `dropdown` em `launcher.ts`. */
-.pick { padding: 0 6px 0 8px; gap: 4px; }
-.pick > span { white-space: nowrap; }
-.pick > .ic:last-child { color: var(--fg-3); }
 
 .avatar {
   width: 16px; height: 16px; border-radius: 4px; flex: none;
@@ -1215,11 +1132,11 @@ body.noside .side { display: none; }
 .picker .prow .iid { font-family: var(--mono); font-size: 11.5px; color: var(--fg-3); flex: none; }
 .plist .none { padding: 10px 8px; font-size: 12px; color: var(--fg-3); }
 
-.sheet textarea {
+.sheet textarea:not(.ui-input) {
   border: none; background: none; border-radius: 0; padding: 16px;
   font-size: 14px; line-height: 1.5; resize: none; min-height: 162px;
 }
-.sheet textarea:focus-visible { outline: none; }
+.sheet textarea:not(.ui-input):focus-visible { outline: none; }
 /* Anexos à vista, entre o texto e o rodapé: vão junto da primeira fala. */
 .attach { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 16px 10px; }
 .injchip {
@@ -1667,6 +1584,7 @@ body.noside .side { display: none; }
 .mrow .mg { display: flex; color: var(--fg-2); width: 16px; flex: none; }
 .mrow .ml { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .mrow .mh { font-size: 12px; color: var(--fg-3); }
+.mrow .mbadge { flex: none; padding: 1px 5px; border-radius: 4px; font-size: 10px; line-height: 16px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .mrow .mc { display: flex; color: var(--tab-line); width: 14px; flex: none; }
 .mrow .ic { flex: none; }
 /* Item que continua na lista mas não pode ser usado: apagado, e o porquê na
@@ -1826,21 +1744,21 @@ body.noside .side { display: none; }
 .sheet.hubedit .fld { display: flex; flex-direction: column; gap: 6px; }
 .sheet.hubedit .fld .fl { font-size: 11.5px; color: var(--fg-3); }
 .sheet.hubedit .fld .fh { font-size: 11.5px; color: var(--fg-3); line-height: 1.45; }
-.sheet.hubedit input {
+.sheet.hubedit input:not(.ui-input) {
   width: 100%; padding: 7px 9px; background: var(--bg); color: var(--fg);
   border: 1px solid var(--line); border-radius: var(--r);
   font-family: var(--mono); font-size: 12px;
 }
-.sheet.hubedit input:focus-visible { outline: none; border-color: var(--line-raised); }
+.sheet.hubedit input:not(.ui-input):focus-visible { outline: none; border-color: var(--line-raised); }
 /* O pedido de um plugin é um parágrafo, e o campo tem que parecer os outros —
    o `textarea` da conversa é sem borda e alto, e aqui nenhum dos dois serve. */
-.sheet.hubedit textarea {
+.sheet.hubedit textarea:not(.ui-input) {
   width: 100%; padding: 7px 9px; min-height: 0; resize: vertical;
   background: var(--bg); color: var(--fg);
   border: 1px solid var(--line); border-radius: var(--r);
   font-family: var(--mono); font-size: 12px; line-height: 1.5;
 }
-.sheet.hubedit textarea:focus-visible { outline: none; border-color: var(--line-raised); }
+.sheet.hubedit textarea:not(.ui-input):focus-visible { outline: none; border-color: var(--line-raised); }
 /* A escolha, quando o repositório traz mais de um plugin: uma linha por
    plugin, com o que ele diz de si embaixo do nome. */
 .sheet.hubedit .mpick { display: flex; flex-direction: column; gap: 4px; }
@@ -2019,3 +1937,43 @@ body.noside .side { display: none; }
 .tile .composer .hint { display: none; }
 .tile .composer .send { margin-left: auto; }
 .tile .composer .send.round { width: 24px; height: 24px; }
+
+.actionwatch { display: flex; flex-direction: column; gap: 12px; }
+.taskwatch { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Ações: comandos à mão, perfis abaixo e atalhos secundários recolhidos. */
+.actions-page { display: flex; flex-direction: column; gap: 28px; }
+.actions-intro { margin: -18px 0 0; color: var(--fg-2); font-size: 13px; }
+.action-section-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+.setpage .action-section-head h2 { display: flex; align-items: center; gap: 9px; margin: 0; color: var(--fg); font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+.action-count { color: var(--fg-3); font-size: 11px; font-weight: 400; }
+.action-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.action-toolbar .md { font-size: 12px; height: 28px; }
+.action-list { display: flex; flex-direction: column; gap: 8px; }
+.action-card { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto 24px; align-items: center; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg-side); }
+.action-card:hover { border-color: var(--line-ghost); }
+.action-mark { display: grid; place-items: center; width: 36px; height: 36px; color: var(--tab-line); background: var(--bg-raised-2); border-radius: var(--r-lg); }
+.action-card-copy { min-width: 0; }
+.action-card-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.action-card-title b { font-weight: 550; font-size: 13px; }
+.action-shortcut { font: 11px var(--mono); color: var(--fg-2); padding: 3px 6px; border: 1px solid var(--line-raised); border-radius: 4px; }
+.action-description { margin: 5px 0 0; color: var(--fg-2); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.action-caption { display: block; margin-top: 6px; font-size: 11px; color: var(--fg-3); }
+.action-badge { font-size: 10px; color: var(--tab-line); background: var(--bg-raised-2); padding: 2px 6px; border-radius: 4px; }
+.action-more { color: var(--fg-3); width: 24px; height: 28px; }
+.action-edit { font-size: 12px; }
+.action-scope .ui-label { display: none; }
+.action-scope .ui-select { height: 28px; width: auto; max-width: 170px; font-size: 12px; color: var(--fg-2); background: var(--bg); border-color: var(--line); }
+.action-empty { border: 1px dashed var(--line-raised); border-radius: var(--r-lg); padding: 22px 16px; color: var(--fg-2); margin: 0; font-size: 12px; }
+.action-pr { border-width: 1px 0 0; border-radius: 0; padding: 16px 0 0; }
+.action-pr summary .action-caption { display: inline; float: right; margin-top: 0; }
+.action-pr .ui-select { width: 100%; margin-top: 6px; }
+@media (max-width: 1050px) {
+  .action-card { gap: 8px; padding: 12px; grid-template-columns: 28px minmax(0, 1fr) auto 24px; }
+  .action-mark { width: 28px; height: 28px; }
+  .action-scope .ui-select { max-width: 140px; }
+}
+.action-tool-picker { margin-top: 16px; }
+.action-tool-title { display: block; font-size: 12px; font-weight: 500; margin-bottom: 8px; }
+.action-tool-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-height: 140px; overflow-y: auto; border: 0; margin: 8px 0 0; padding: 0; }
+.action-tool-list:disabled { opacity: 0.5; }

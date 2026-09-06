@@ -70,7 +70,10 @@ finalizar o manifesto.
 
 ## Board
 
-`Board` contém projetos, estágios e workspaces. `Workspace` contém repositórios,
+`Board` contém projetos, estágios, workspaces e o catálogo opcional `actions`.
+`Tab.task` guarda configuração resolvida e cursores das tarefas. Ausência desses
+campos mantém as sessões anteriores. O catálogo recebe Code review uma única
+vez, registrada em `actions.defaults_initialized`; ver [ações](actions.md). `Workspace` contém repositórios,
 branch, worktree, configuração de agente, MCP/plugins, compartilhamento e abas.
 `Tab.tokens` guarda uma estimativa incremental dos tokens usados na conversa;
 `Tab.context_tokens` guarda o último contexto observado para somar somente o

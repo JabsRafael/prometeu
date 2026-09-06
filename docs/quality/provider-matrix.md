@@ -13,6 +13,11 @@ para virar capacidade contratual.
 
 | Capacidade | Claude | Codex | Evidência principal |
 | --- | --- | --- | --- |
+| formulário de Ações com componentes compartilhados | mesma UI | mesma UI; opções vêm do catálogo | `e2e/ui.spec.ts`, `e2e/actions.spec.ts`, Chromium e WebKit |
+| Code review incluído e editável | perfil inicial; pode trocar modelo/provider | pode ser escolhido no perfil | `actions.rs`, `actions.test.ts`, `e2e/actions.spec.ts` |
+| comandos de prompt e tarefas | adaptado pelo app | adaptado pelo app | `actions.test.ts`, `e2e/actions.spec.ts` |
+| perfil por tarefa | instruções e permissões por flags | instruções e permissões por JSON-RPC | testes de `session.rs` e `codex.rs` |
+| acompanhamento de PR | polling local pelo app | polling local pelo app | `actions.rs`, `github.rs`; sem integração GitHub real em testes |
 | detectar instalação | adaptado | adaptado | `agents.rs` |
 | catálogo vivo de modelos | nativo via control request | nativo via cache do CLI | `agents.rs` |
 | iniciar sessão | nativo | adaptado para JSON-RPC | `chat.rs`, `codex.rs` |

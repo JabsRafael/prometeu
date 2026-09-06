@@ -1,0 +1,85 @@
+@import "./ui-tokens.css";
+
+button {
+  font: inherit; font-weight: 500;
+  height: 24px; padding: 0 10px;
+  border: 1px solid transparent; border-radius: var(--r);
+  background: var(--bg-raised); color: var(--fg);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  cursor: default; white-space: nowrap;
+}
+button:hover { background: var(--bg-raised-2); }
+button.pri { background: var(--pri); color: var(--pri-fg); }
+button.pri:hover { background: #fff; }
+button.ghost { background: none; color: var(--fg-2); }
+button.ghost:hover { background: var(--bg-raised-2); color: var(--fg); }
+button.outline { background: none; border-color: var(--line-ghost); color: var(--fg-2); }
+button.outline:hover { background: var(--bg-raised); color: var(--fg); }
+button.lg { height: 32px; padding: 0 16px; }
+button.md { height: 28px; padding: 0 12px; }
+.ico {
+  width: 24px; height: 24px; padding: 0; flex: none; border-radius: var(--r);
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; color: var(--fg-2);
+}
+.ico:disabled { opacity: 0.35; pointer-events: none; }
+.ico:hover { background: var(--bg-raised-2); color: var(--fg); }
+.ico.sm { width: 20px; height: 20px; }
+.ico.sm .ic { width: 14px; height: 14px; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--tab-line); outline-offset: 1px;
+}
+
+input, textarea, select {
+  font: inherit; background: var(--bg); border: 1px solid var(--line-raised);
+  border-radius: var(--r); padding: 5px 10px; color: var(--fg); width: 100%;
+  user-select: text;
+}
+input::placeholder, textarea::placeholder { color: var(--fg-3); }
+
+/* Seletor com cara de botão ghost: rótulo da escolha e a seta. A lista é o
+   menu do app, não um `<select>` — ver `dropdown` em `ui.ts`. */
+.pick { padding: 0 6px 0 8px; gap: 4px; }
+.pick > span { white-space: nowrap; }
+.pick > .ic:last-child { color: var(--fg-3); }
+
+
+/* Campos, seletores e formulários compartilham as mesmas dimensões. */
+.ui-button:disabled, .ui-select:disabled { opacity: .45; cursor: not-allowed; }
+.ui-field { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.ui-label { font-size: 12px; color: var(--fg-2); }
+.ui-hint { margin: 0; font-size: 11.5px; color: var(--fg-2); line-height: 1.5; }
+.ui-error, .ui-hint.ui-error { color: var(--err); }
+.ui-error:empty { display: none; }
+.ui-input, .ui-select { min-height: var(--control-height); padding: 7px 10px; border: 1px solid var(--line-raised); border-radius: var(--r); background: var(--bg); color: var(--fg); font: inherit; }
+textarea.ui-input { resize: vertical; min-height: 112px; line-height: 1.5; }
+.ui-input:disabled { opacity: .45; cursor: not-allowed; }
+.ui-input[aria-invalid="true"], .ui-select[aria-invalid="true"] { border-color: var(--err); }
+.ui-select { width: 100%; height: auto; text-align: left; justify-content: space-between; gap: var(--space-2); }
+.ui-select > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ui-select-menu { max-height: 40vh; max-width: calc(100vw - 16px); overflow-y: auto; }
+.ui-select-menu .mrow { flex: none; }
+.ui-check { display: flex; align-items: flex-start; gap: var(--space-2); font-size: 12px; color: var(--fg-2); line-height: 20px; }
+.ui-check > input { appearance: none; width: 16px; height: 16px; margin: 2px 0 0; padding: 0; flex: none; border: 1px solid var(--line-ghost); border-radius: 4px; background: var(--bg); display: grid; place-content: center; }
+.ui-check > input:checked { background: var(--pri); border-color: var(--pri); }
+.ui-check > input:checked::after { content: ""; width: 7px; height: 4px; border: solid var(--pri-fg); border-width: 0 0 2px 2px; transform: rotate(-45deg) translateY(-1px); }
+.ui-check > input:disabled { opacity: .45; }
+.ui-check > span { min-width: 0; overflow-wrap: anywhere; }
+.ui-disclosure { border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--space-3); }
+.ui-disclosure summary { cursor: pointer; color: var(--fg-2); font-size: 12px; }
+.ui-disclosure summary:focus-visible { outline: 2px solid var(--tab-line); outline-offset: 4px; }
+.ui-disclosure summary::marker { color: var(--fg-3); }
+.ui-disclosure[open] > summary { margin-bottom: var(--space-4); }
+.ui-disclosure > .ui-field { margin-top: var(--space-3); }
+.sheet.ui-dialog { width: min(600px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 0; margin: auto; color: var(--fg); }
+.ui-dialog::backdrop { background: rgb(0 0 0 / .5); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.ui-dialog > form { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.ui-dialog .sheettop b { font-size: 13px; font-weight: 500; }
+.ui-form-body { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-4); min-height: 0; overflow-y: auto; }
+.ui-dialog .ui-form-footer { border-top: 1px solid var(--line-raised); padding: var(--space-3) var(--space-4); gap: var(--space-3); justify-content: flex-end; }
+.ui-dialog .ui-form-footer > :first-child { margin-right: auto; }
+.ui-dialog .ui-form-footer .ui-error { min-width: 0; overflow-wrap: anywhere; }
+.ui-columns { display: grid; grid-template-columns: 1fr 1.4fr 1fr; gap: var(--space-3); }
+@media (max-width: 540px) {
+  .ui-columns { grid-template-columns: 1fr; }
+}

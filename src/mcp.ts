@@ -1,3 +1,4 @@
+import * as ui from "./ui";
 import { invoke } from "./ipc";
 import { icon } from "./icons";
 import { fromBack, t, tn, type Key } from "./i18n";
@@ -633,15 +634,9 @@ function field(o: {
   /// Não a cada tecla: o exame sobe processo e atravessa a rede.
   done?: () => void;
 }): HTMLElement {
-  const box = template(
-    "label",
-    "fld",
-    `<span class="fl"></span><input spellcheck="false" /><span class="fh"></span>`,
-  );
-  box.querySelector(".fl")!.textContent = t(o.label);
-  box.querySelector(".fh")!.textContent = t(o.hint);
-  const input = box.querySelector("input")!;
-  input.value = o.value;
+  const input = ui.input(o.value);
+  input.spellcheck = false;
+  const box = ui.field(t(o.label), input, t(o.hint));
   input.addEventListener("input", () => o.on(input.value));
   if (o.done) input.addEventListener("change", o.done);
   return box;

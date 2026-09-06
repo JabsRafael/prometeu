@@ -131,6 +131,16 @@ Responsabilidades que ficam fora do adapter:
 - renderizar ferramentas ou markdown;
 - decidir políticas globais de retomada e fila de fala.
 
+## Perfis de tarefa
+
+Lançamentos de [tarefas](actions.md) acrescentam instruções persistidas e uma
+política de permissão (`ask` ou `auto`). A sessão guarda a configuração resolvida.
+Claude recebe instruções adicionais por `--append-system-prompt`; Codex recebe
+`developerInstructions` ao iniciar ou retomar a thread. A aprovação em `ask` usa
+o modo normal do Claude e `approvalPolicy: untrusted` no Codex. Lançamentos
+anteriores preservam o bypass existente. Configuração Codex derivada de tarefa
+é isolada por sessão, evitando que perfis distintos sobrescrevam a mesma home.
+
 ## Compatibilidade
 
 - Mudança apenas no protocolo externo deve alterar um adapter e suas fixtures.

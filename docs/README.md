@@ -5,6 +5,8 @@ como índice curto para agentes e `README.md` apresenta o produto.
 
 ## Arquitetura
 
+- [Design System](architecture/design-system.md): tokens, componentes, galeria e adoção incremental.
+
 - [`../ARCHITECTURE.md`](../ARCHITECTURE.md): mapa geral do sistema.
 - [`architecture/conversation-flow.md`](architecture/conversation-flow.md):
   caminho de uma conversa e ownership do estado.
@@ -12,6 +14,8 @@ como índice curto para agentes e `README.md` apresenta o produto.
   regras entre apresentação, aplicação, domínio e adapters.
 
 ## Contratos
+
+- [Ações reutilizáveis](contracts/actions.md): comandos, perfis e acompanhamento local de PR.
 
 - [`contracts/conversation-events-v1.md`](contracts/conversation-events-v1.md):
   protocolo canônico pertencente ao Prometeu.
@@ -25,6 +29,8 @@ como índice curto para agentes e `README.md` apresenta o produto.
 - [`contracts/relay-v3.md`](contracts/relay-v3.md): protocolo de colaboração.
 
 ## Decisões
+
+- [ADR 0011](decisions/0011-shared-ui.md): primitivas compartilhadas de interface — aceito.
 
 - [`decisions/README.md`](decisions/README.md): índice e ciclo de vida dos ADRs.
 - [`decisions/0001-repository-knowledge.md`](decisions/0001-repository-knowledge.md):
@@ -43,6 +49,10 @@ como índice curto para agentes e `README.md` apresenta o produto.
   comentários persistentes ao lado da sessão — aceita.
 - [`decisions/0008-explicit-git-index.md`](decisions/0008-explicit-git-index.md):
   índice Git explícito e operações por repositório — aceita.
+
+- [ADR 0009](decisions/0009-reusable-actions.md): comandos e agentes reutilizáveis — aceito.
+
+- [ADR 0010](decisions/0010-default-code-review.md): Code review incluído no cadastro — aceito.
 
 ## Qualidade e operação
 

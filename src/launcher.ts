@@ -1,3 +1,5 @@
+import { dropdown, type Group } from "./ui";
+export type { Group } from "./ui";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   capabilitiesOf,
@@ -860,53 +862,6 @@ function picker(o: {
   });
 
   return { open, close, draw, isOpen: () => !el.hidden, contains: (n: Node) => el.contains(n) || btn.contains(n) };
-}
-
-/// Um seletor com cara de botão, como o do Conductor — e sem `<select>`. O
-/// popup nativo do WKWebView não abre nesta janela (o clique chega no elemento,
-/// o menu não vem), e mesmo quando abre é a lista clara do sistema no meio de
-/// um app escuro. A lista é o menu do próprio app, o mesmo do botão direito no
-/// card, aberto logo abaixo do botão. O botão mostra o rótulo da escolha.
-/// Um bloco do dropdown: os modelos do Claude Code de um lado, os do Codex do
-/// outro. O `head` só aparece quando há mais de um bloco — com um agente só na
-/// máquina, um título sobre a lista inteira não separa nada.
-export type Group = { head?: string; items: [string, string][] };
-
-/// A lista pode mudar entre dois cliques (o catálogo do Codex chega depois do
-/// primeiro desenho), então é uma função, e não um array.
-function dropdown(
-  btn: HTMLButtonElement,
-  groups: () => Group[],
-  get: () => string,
-  set: (id: string) => void,
-) {
-  const label = btn.querySelector("span")!;
-  const draw = () => {
-    const all = groups().flatMap((g) => g.items);
-    label.textContent = all.find(([id]) => id === get())?.[1] ?? "";
-  };
-  btn.addEventListener("click", () => {
-    const at = btn.getBoundingClientRect();
-    const blocks = groups();
-    const items: menu.Item[] = [];
-    blocks.forEach((block, n) => {
-      if (n) items.push("sep");
-      if (block.head && blocks.length > 1) items.push({ label: block.head, disabled: true });
-      for (const [id, name] of block.items) {
-        items.push({
-          label: name,
-          checked: id === get(),
-          run: () => {
-            set(id);
-            draw();
-          },
-        });
-      }
-    });
-    menu.openAt({ x: at.left, y: at.bottom + 4 }, items);
-  });
-  draw();
-  return draw;
 }
 
 /* ---------- os padrões, que Configurações escolhe ---------- */

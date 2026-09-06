@@ -18,6 +18,17 @@ const forbidden = [
 ];
 
 const failures = [];
+// As primitivas visuais não conhecem regras de agentes nem transporte.
+const ui = await readFile("src/ui.ts", "utf8");
+for (const match of ui.matchAll(/from\s+["']([^"']+)["']/g)) {
+  if (!["./icons", "./menu", "./util"].includes(match[1])) {
+    failures.push(`src/ui.ts: dependência fora das primitivas de apresentação: ${match[1]}`);
+  }
+}
+const actionSettings = await readFile("src/action-settings.ts", "utf8");
+if (!actionSettings.includes('from "./ui"') || /createElement\(["'](?:select|input|textarea)["']\)/.test(actionSettings)) {
+  failures.push("src/action-settings.ts: reutilize os controles de src/ui.ts");
+}
 for (const file of presentation) {
   const source = await readFile(file, "utf8");
   for (const pattern of forbidden) {

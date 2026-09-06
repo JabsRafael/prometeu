@@ -30,8 +30,9 @@ sequenceDiagram
 ```
 
 `Launch` reúne agente, modelo, esforço, plan mode, MCP e plugins. Uma aba pode
-sobrescrever agente/modelo/esforço do workspace; MCP e plugins continuam sendo
-escolhas do workspace.
+sobrescrever agente/modelo/esforço do workspace. Abas comuns herdam MCP e
+plugins do workspace. [Tarefas](../contracts/actions.md) guardam uma cópia
+resolvida do perfil, incluindo MCP, plugins, instruções e permissões.
 
 Materialização pertence à borda. Claude recebe MCP e plugins por seus arquivos
 e flags; Codex recebe a tabela MCP por override e plugins por um marketplace

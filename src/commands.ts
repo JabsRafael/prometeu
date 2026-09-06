@@ -1,6 +1,8 @@
 import * as menu from "./menu";
 import type { Command } from "./timeline";
 
+export type Suggestion = Command & { badge?: string };
+
 /// Os comandos de barra da caixa: a lista que abre ao escrever "/" no começo
 /// da fala, e encolhe a cada letra. Quem sabe quais existem é o agente — o
 /// back pergunta ao subir o processo (`initialize`, ver `chat.rs`), e a
@@ -41,7 +43,7 @@ let picking: { first: () => void; exact: boolean } | null = null;
 /// A cada letra na caixa: a lista acompanha o "/…" — e some quando ele some.
 /// Diz se a lista é desta vez — quem chama passa a vez a outra lista quando
 /// não é (ver `paths.ts`).
-export function typed(area: HTMLTextAreaElement, all: Command[], onChange: () => void): boolean {
+export function typed(area: HTMLTextAreaElement, all: Suggestion[], onChange: () => void, onSelect?: (name: string) => boolean): boolean {
   const at = typing(area.value, area.selectionStart);
   const list = at ? matches(at.query, all) : [];
   if (!at || !list.length) {
@@ -50,6 +52,7 @@ export function typed(area: HTMLTextAreaElement, all: Command[], onChange: () =>
   }
   const put = (name: string) => {
     picking = null;
+    if (onSelect?.(name)) return;
     // O "/com" que a pessoa digitou é o começo deste comando, não texto a
     // mais: o nome entra no lugar dele, com o espaço para o que vem depois.
     const cut = area.selectionStart;
@@ -61,7 +64,7 @@ export function typed(area: HTMLTextAreaElement, all: Command[], onChange: () =>
   const box = area.getBoundingClientRect();
   menu.openAt(
     { x: box.left, y: box.top - 4, above: true },
-    list.map((c) => ({ label: `/${c.name}`, hint: brief(c.description), run: () => put(c.name) })),
+    list.map((c) => ({ label: `/${c.name}`, badge: c.badge, hint: brief(c.description), run: () => put(c.name) })),
     "cmds",
   );
   picking = { first: () => put(list[0].name), exact: list.some((c) => c.name.toLowerCase() === at.query.toLowerCase()) };

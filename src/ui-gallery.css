@@ -1,0 +1,8 @@
+body:has(#gallery) { height: auto; overflow: auto; }
+#gallery { width: min(720px, 100%); margin: 0 auto; padding: var(--space-6); }
+#gallery h1 { font-size: 24px; font-weight: 550; }
+#gallery h2 { font-size: 14px; font-weight: 550; margin: 0; }
+.ui-gallery-section { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-4); margin-top: var(--space-6); padding: var(--space-4); border: 1px solid var(--line-raised); border-radius: var(--r-lg); background: var(--bg-side); }
+.ui-gallery-row { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.ui-swatch { display: flex; flex-direction: column; gap: var(--space-2); }
+.ui-swatch > span { width: 72px; height: 40px; border: 1px solid var(--line-ghost); border-radius: var(--r); }

@@ -1,3 +1,4 @@
+import * as actions from "./actions";
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -243,6 +244,7 @@ $("settings").addEventListener("click", () => showSettings());
 
 listen<Board>("board", ({ payload }) => {
   state = payload;
+  actions.update(state);
   team.boardChanged(state);
   alert.boardChanged(state);
   refresh();
@@ -461,6 +463,7 @@ grip.addEventListener("dblclick", () => {
 /// de navegador — webview do sistema, que não manda tecla para este documento.
 /// Devolve se fez alguma coisa: é o que decide se a tecla é engolida.
 function act(a: appmenu.Action): boolean {
+  if (document.querySelector("dialog[open]")) return true;
   const open = ws.id();
   // Num workspace de colega nada disto existe: nem aba nova, nem etapa, nem
   // dock. O atalho não faz nada, em vez de mandar ao back um id que ele não tem.
@@ -630,11 +633,19 @@ ws.init({
 // O que a caixa de escrever precisa saber de uma aba: de quem é, se está
 // desligada, se há time para comentar. A mesma resposta para a conversa do
 // workspace aberto e para cada quadro da mesa.
+actions.init(async (workspace, tab) => {
+  const target = state.workspaces.find(w => w.id === workspace);
+  if (!target) return;
+  if (!target.tabs.some(t => t.id === tab.id)) target.tabs.push(tab);
+  target.active = tab.id;
+  await openWorkspace({ ...target, active: tab.id });
+});
 const infoOf = (w: Workspace | undefined, tab: Tab | undefined): Info => ({
   workspace: w?.id ?? null,
   status: tab?.status ?? null,
-  mcp: w?.mcp ?? null,
-  plugins: w?.plugins ?? null,
+  task: tab?.task ?? null,
+  mcp: tab?.task ? tab.task.profile.mcp : (w?.mcp ?? null),
+  plugins: tab?.task ? tab.task.profile.plugins : (w?.plugins ?? null),
   pending: tab?.pending_prompt ?? null,
   worktree: w?.worktree ?? null,
   remote: w?.remote ? { name: team.nameOf(w.remote.owner), online: w.remote.online } : null,
@@ -674,6 +685,7 @@ desk.init({
 viewer.init((m) => say(m, true), ws.fileSaved);
 dock.init($("dockterm"), $("shellterm"));
 state = await invoke<Board>("load_board");
+actions.update(state);
 alert.boardChanged(state);
 showDesk();
 

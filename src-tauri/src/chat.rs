@@ -526,6 +526,11 @@ fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool) {
         // "pronta" embaixo de uma linha que parecia trabalho acontecendo agora.
         // Parar é também quando a conversa cresceu: é a hora de ler quanto.
         Some("turn.completed") => {
+            crate::actions::completed(
+                app,
+                id,
+                frame["outcome"] == "error" || frame["outcome"] == "interrupted",
+            );
             update(app, id, Some(Status::Pronta), Note::Clear, context(app, id))
         }
         _ => {}
@@ -653,7 +658,7 @@ pub fn send_prompt(app: &AppHandle, session: &str, prefix: Option<String>) {
         format!("{}{p}", prefix.unwrap_or_default())
     };
     match say(&state, session, &prompt) {
-        Ok(()) => publish(app),
+        Ok(()) => update(app, session, Some(Status::Rodando), Note::Clear, None),
         Err(error) => {
             // O processo pode morrer entre a conferência e a escrita. A fala
             // ainda não entrou no transcript, então volta para a frente da
@@ -661,6 +666,10 @@ pub fn send_prompt(app: &AppHandle, session: &str, prefix: Option<String>) {
             // fica depois dela, preservando a ordem original.
             let mut board = lock(&state.board);
             if let Some(tab) = board.tab_mut(session) {
+                if let Some(run) = tab.task.as_mut() {
+                    run.paused = true;
+                    run.error = Some(error.clone());
+                }
                 tab.pending_prompt = Some(match tab.pending_prompt.take() {
                     Some(after) => format!("{prompt}\n\n{after}"),
                     None => prompt,
@@ -758,19 +767,30 @@ pub fn chat_send(
     // A fila existe antes de tentar reabrir o processo: se o CLI nem conseguir
     // subir, a fala continua visível e gravada para a próxima tentativa.
     publish(&app);
-    match wake(up, ready, setup_running(&state, &session)) {
+    flush_pending(&app, &state, &session)
+}
+
+/// Libera uma fala já persistida, respeitando setup e retomada.
+pub fn flush_pending(
+    app: &AppHandle,
+    state: &State<AppState>,
+    session: &str,
+) -> Result<(), String> {
+    let up = lock(&state.chats).get(session).is_some_and(|c| c.alive());
+    let ready = lock(&state.ready).contains(session);
+    match wake(up, ready, setup_running(state, session)) {
         Wake::Revive => {
-            crate::session::revive(&app, &state, &session)?;
+            crate::session::revive(app, state, session)?;
         }
         // `ready` é o sinal do cano, não do protocolo: depois que o `Chat`
         // entrou no mapa já se pode escrever. Ausente com processo vivo é o
         // estado órfão deixado por versões anteriores (ou por uma corrida), e
         // `ready_now` ainda respeita um setup que esteja realmente rodando.
-        Wake::Ready => ready_now(&app, &session),
+        Wake::Ready => ready_now(app, session),
         // A fala já estava na fila, o processo está pronto e o setup acabou:
         // é uma pendência órfã gravada por uma versão anterior, não uma razão
         // para continuar mostrando o spinner.
-        Wake::Send => send_prompt(&app, &session, None),
+        Wake::Send => send_prompt(app, session, None),
         Wake::None => {}
     }
     Ok(())
