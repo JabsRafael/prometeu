@@ -1,10 +1,11 @@
+import { emptyCatalog, initializeDefaults, type Catalog, type Profile } from "./actions";
 /// Back falso para o navegador puro (`npm run dev` e abrir localhost:1420):
 /// a UI inteira roda com dados de amostra, sem subir o Tauri. Só entra quando
 /// `window.__TAURI_INTERNALS__` não existe — dentro do app não é carregado.
 import { encodeLive, encodeSnapshot, type Inbox, type Note } from "../relay/src/protocol";
 import { LegacyConversationAdapter } from "./conversation-legacy";
 import * as team from "./team";
-import { hasWorktree, type Board, type Change, type Choice, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type Pr, type Scripts, type Workspace } from "./types";
+import { hasWorktree, type Board, type Change, type Choice, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type Pr, type Scripts, type Tab, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
@@ -51,6 +52,7 @@ const ws = (
 });
 
 const board: Board = {
+  actions: initializeDefaults(JSON.parse(localStorage.getItem("mock:actions") ?? "null") ?? emptyCatalog()),
   stages: ["Preparando", "Fazendo", "Code review", "Travado", "Feito"],
   projects: [
     { id: "p1", name: "njord", path: "/Users/gustavo/dev/njord" },
@@ -679,6 +681,44 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       const h = w[`_${args.handler}`] as Handler;
       handlers.set(args.event, [...(handlers.get(args.event) ?? []), h]);
       return nextId++;
+    }
+    case "actions_save": {
+      const catalog = args.catalog as Catalog;
+      if (new Set(catalog.commands.map(c => c.name)).size !== catalog.commands.length || catalog.commands.some(c => !/^[a-z0-9-]{1,64}$/.test(c.name) || ["context", "compact"].includes(c.name) || (c.kind === "prompt" ? !c.prompt.trim() : !catalog.profiles.some(p => p.id === c.profile))) || catalog.profiles.some(p => !p.name.trim() || !p.prompt.trim() || (p.watch && (p.watch.interval_seconds < 30 || p.watch.max_turns < 1 || p.watch.max_turns > 100)))) {
+        throw `i18n:${JSON.stringify({ code: "err.actions.invalid" })}`;
+      }
+      board.actions = structuredClone(catalog);
+      localStorage.setItem("mock:actions", JSON.stringify(catalog));
+      emit("board", board);
+      return;
+    }
+    case "action_start": {
+      const workspace = board.workspaces.find(w => w.id === args.workspace);
+      const catalog = board.actions ?? emptyCatalog();
+      const action = catalog.commands.find(c => c.name === args.name && c.kind === "agent");
+      if (!workspace || !action?.profile || workspace.cleaned || workspace.archived) throw `i18n:${JSON.stringify({ code: "err.actions.unavailable" })}`;
+      const existing = workspace.tabs.find(t => t.task?.command === action.name && !t.task.done);
+      if (existing) {
+        if (String(args.context ?? "").trim()) throw `i18n:${JSON.stringify({ code: "err.actions.active" })}`;
+        return existing;
+      }
+      if (workspace.tabs.some(t => t.status === "rodando" || t.status === "querendo" || t.pending_prompt)) throw `i18n:${JSON.stringify({ code: "err.actions.busy" })}`;
+      const profile = structuredClone(catalog.overrides[workspace.project]?.[action.profile] ?? catalog.profiles.find(p => p.id === action.profile)) as Profile;
+      profile.mcp ??= workspace.mcp;
+      profile.plugins ??= workspace.plugins;
+      const tab: Tab = { id: crypto.randomUUID(), title: profile.name, choice: profile.choice, status: "pronta", note: null, tokens: null,
+        task: { command: action.name, profile, paused: false, done: !profile.watch, turns: 0, checked_at: 0, error: null, seen: {}, prs: {} } };
+      scrolls.set(tab.id, { text: line({ v: 1, type: "user.message", at: Date.now(), content: [{ kind: "text", text: [action.prompt, args.context].filter(Boolean).join("\n\n") || profile.prompt }] }) + "\n", seq: 1 });
+      workspace.tabs.push(tab); workspace.active = tab.id;
+      emit("board", board);
+      return tab;
+    }
+    case "action_pause": {
+      const run = board.workspaces.flatMap(w => w.tabs).find(t => t.id === args.session)?.task;
+      if (!run) throw `i18n:${JSON.stringify({ code: "err.actions.missing" })}`;
+      run.paused = args.paused; run.error = null;
+      if (!run.paused) { run.turns = 0; run.checked_at = 0; }
+      emit("board", board); return;
     }
     case "load_board":
       return board;

@@ -9,6 +9,9 @@ import {
  * Keeping the boundary here makes misspelled or stale command names a type error.
  */
 export const IPC_COMMANDS = [
+  "actions_save",
+  "action_start",
+  "action_pause",
   "add_project",
   "agents",
   "claude_models",

@@ -54,7 +54,10 @@ pub fn spawn(
     resume: Option<String>,
     launch: &Launch,
 ) -> Result<chat::Chat, String> {
-    let selected_plugins = plugins::codex_for(workspace, launch.plugins.as_ref())?;
+    let selected_plugins = plugins::codex_for(
+        launch.config_scope.as_deref().unwrap_or(workspace),
+        launch.plugins.as_ref(),
+    )?;
     let mut cmd = Command::new("codex");
     cmd.args(["app-server", "--enable", "default_mode_request_user_input"]);
     cmd.args(["-c", "suppress_unstable_features_warning=true"]);
@@ -86,6 +89,8 @@ pub fn spawn(
         effort: agents::effort(&launch.effort).to_string(),
         plugin_ids: selected_plugins.ids,
         plugin_hook_ids: selected_plugins.hook_ids,
+        permission: launch.permission,
+        instructions: launch.instructions.clone(),
     };
     let io = chat::ProcessIo::new(process_stderr, move |stdin| {
         let link = Arc::new(Mutex::new(Link::new(Box::new(stdin), start)));
@@ -107,6 +112,8 @@ pub fn spawn(
 
 /// Com o que a thread abre.
 pub struct Start {
+    pub permission: Option<crate::actions::Permission>,
+    pub instructions: String,
     pub cwd: String,
     pub resume: Option<String>,
     /// Vazio é deixar o Codex escolher.
@@ -640,9 +647,12 @@ impl Link {
     fn open_thread(&mut self) {
         let mut params = json!({
             "cwd": self.start.cwd,
-            "approvalPolicy": "never",
+            "approvalPolicy": if self.start.permission == Some(crate::actions::Permission::Ask) { "untrusted" } else { "never" },
             "sandbox": "danger-full-access",
         });
+        if !self.start.instructions.is_empty() {
+            params["developerInstructions"] = Value::String(self.start.instructions.clone());
+        }
         if !self.start.model.is_empty() {
             params["model"] = Value::String(self.start.model.clone());
         }
@@ -1290,8 +1300,30 @@ mod tests {
             effort: "high".into(),
             plugin_ids: vec![],
             plugin_hook_ids: vec![],
+            permission: None,
+            instructions: String::new(),
         };
         (Link::new(Box::new(out.clone()), start), out)
+    }
+
+    #[test]
+    fn task_permissions_and_instructions_reach_codex_on_resume() {
+        let (mut link, out) = link(Some("previous"));
+        link.start.permission = Some(crate::actions::Permission::Ask);
+        link.start.instructions = "Review independently".into();
+        out.take();
+        link.open_thread();
+        let sent = out.take();
+        let message = sent
+            .iter()
+            .find(|v| v["method"] == "thread/resume")
+            .unwrap();
+        assert_eq!(message["params"]["approvalPolicy"], "untrusted");
+        assert_eq!(
+            message["params"]["developerInstructions"],
+            "Review independently"
+        );
+        assert_eq!(message["params"]["threadId"], "previous");
     }
 
     /// Abre a thread: responde o `initialize` e o `thread/start`. Nada vai ao

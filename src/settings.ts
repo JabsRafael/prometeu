@@ -1,3 +1,5 @@
+import * as actions from "./actions";
+import * as actionSettings from "./action-settings";
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import * as alert from "./alert";
@@ -44,6 +46,7 @@ let legacy: LegacyImportPlan | null = null;
 
 export async function init(context: Ctx) {
   ctx = context;
+  actions.onChange(() => { if (!$("settingsView").hidden) draw(); });
   listen<LinearStatus>("linear", ({ payload }) => {
     status = payload;
     draw();
@@ -98,6 +101,9 @@ const PAGES: Page[] = [
     title: "settings.defaults",
     glyph: "sparkles",
     rows: defaultsRows,
+  },
+  {
+    id: "acoes", title: "actions.title", glyph: "list-tree", rows: () => actionSettings.settingsRows(draw, ctx.say),
   },
   {
     id: "ferramentas",

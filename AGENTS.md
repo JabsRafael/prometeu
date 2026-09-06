@@ -39,6 +39,8 @@ Comece por `docs/README.md` para o índice completo.
 - A fonte de tipos e validação do relay é `relay/src/protocol.ts`.
 - Texto visível da interface passa por i18n. Dados do usuário e saída do agente
   permanecem no idioma original.
+- Controles de UI reutilizam `src/ui.ts`, `src/menu.ts` e tokens compartilhados.
+  Veja o [Design System](docs/architecture/design-system.md) antes de criar ou alterar controles.
 
 As regras de dependência completas estão em
 `docs/architecture/dependency-rules.md`.

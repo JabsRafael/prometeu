@@ -457,3 +457,22 @@ threads de comentários ao lado dela.
 
 Se o botão da pergunta não fosse bom, nada disso valeria — então ele veio
 primeiro.
+
+## Ações e agentes reutilizáveis
+
+Em **Configurações › Ações**, **Code review** já vem configurado: `/review`
+abre uma revisão das alterações em outra aba, sem modificar arquivos ou publicar
+PR. O perfil é editável e removível. Cadastre também comandos que preenchem um prompt editável
+ou iniciam um agente em outra aba. Use `/nome` no chat ou o menu **Ações**.
+Perfis configuram modelo, esforço, prompt, MCP, plugins, skills e permissões;
+projetos podem personalizar o perfil global. Cada execução mantém sua configuração.
+
+O exemplo **Responsável pela PR** revisa, publica e acompanha a entrega na mesma
+sessão. O software consulta GitHub; o agente só recebe turno quando há comentários
+ou resultados de CI novos. Requer `gh` autenticado e app aberto. Intervalo, eventos
+e limite de turnos são configuráveis. O controle na conversa pausa ou retoma o
+acompanhamento. O botão Open PR pode usar uma ação ou manter o comportamento atual.
+
+Detalhes e limites no [contrato de ações](docs/contracts/actions.md). Testes em
+[actions.test.ts](src/actions.test.ts), [actions.rs](src-tauri/src/actions.rs) e
+[actions.spec.ts](e2e/actions.spec.ts).

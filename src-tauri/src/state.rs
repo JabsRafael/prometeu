@@ -107,6 +107,8 @@ pub struct Choice {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Tab {
+    #[serde(default)]
+    pub task: Option<crate::actions::Run>,
     /// É o `--session-id` do Claude Code. O transcript pendura nele.
     pub id: String,
     /// A sessão do lado do agente, quando ela não é este id. O Codex não aceita
@@ -375,6 +377,8 @@ impl Workspace {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Board {
+    #[serde(default)]
+    pub actions: crate::actions::Catalog,
     /// A sequência de etapas, na ordem. O ícone de cada uma sai da posição
     /// nela, então trocar a lista troca os ícones — sem tabela para manter.
     #[serde(alias = "columns")]
@@ -398,6 +402,7 @@ fn is_placeholder_title(title: &str) -> bool {
 impl Default for Board {
     fn default() -> Self {
         Board {
+            actions: Default::default(),
             stages: ["Preparando", "Fazendo", "Code review", "Travado", "Feito"]
                 .map(String::from)
                 .to_vec(),
@@ -451,6 +456,7 @@ impl Board {
     /// que sai de uma variável de ambiente — e ambiente é global, enquanto o
     /// cargo roda cada teste numa thread.
     pub(crate) fn revive(&mut self) {
+        self.actions.initialize_defaults();
         // Só projeto ausente em workspace legado deve voltar ao catálogo.
         // Projeto removido deixa o id explícito no workspace e continua fora.
         let legacy_projects: Vec<Project> = self
@@ -477,6 +483,7 @@ impl Board {
             // nenhuma nasceu, e inventar uma daria um "Retomar" que não retoma.
             if ws.tabs.is_empty() && ws.failed.is_none() {
                 ws.tabs.push(Tab {
+                    task: None,
                     id: ws.id.clone(),
                     agent_session: None,
                     title: String::new(),

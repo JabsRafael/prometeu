@@ -28,6 +28,9 @@ Os comandos de status, diffs, branches, commits e resolução de conflitos estã
 em [`git.md`](git.md). Eles são aditivos: `workspace_diff` mantém o contrato
 anterior e não passa a significar stage.
 
+Os comandos `actions_save`, `action_start` e `action_pause` estão descritos no
+[contrato de ações](actions.md). Usam o evento `board` existente.
+
 ## Eventos emitidos atualmente
 
 | Evento | Emissor | Payload emitido |

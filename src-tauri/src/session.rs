@@ -154,6 +154,7 @@ fn archive(state: &State<AppState>, id: &str, archived: bool) {
 fn stop(state: &State<AppState>, tabs: &[String]) {
     for tab in tabs {
         chat::kill(state, tab);
+        crate::plugins::forget_codex_workspace(tab);
     }
 }
 
@@ -657,6 +658,12 @@ pub struct Draft {
 /// que o workspace guarda para as próximas conversas são o mesmo conjunto.
 #[derive(serde::Deserialize, Clone, Default)]
 pub struct Launch {
+    #[serde(default)]
+    pub permission: Option<crate::actions::Permission>,
+    #[serde(default)]
+    pub instructions: String,
+    #[serde(default)]
+    pub config_scope: Option<String>,
     /// Qual CLI sobe na aba. Sai do catálogo do modelo escolhido no lançador,
     /// e não de um botão à parte.
     #[serde(default)]
@@ -692,6 +699,7 @@ impl From<Choice> for Launch {
             plan: false,
             mcp: None,
             plugins: None,
+            ..Default::default()
         }
     }
 }
@@ -708,17 +716,31 @@ impl Workspace {
             plan: false,
             mcp: self.mcp.clone(),
             plugins: self.plugins.clone(),
+            ..Default::default()
         }
     }
 
     /// Com o que uma aba sobe: o modelo que ela escolheu, ou o do workspace.
     /// É o que separa retomar de recomeçar — a aba que nasceu no Sonnet volta
     /// no Sonnet, mesmo que as irmãs sejam de outro modelo.
-    /// O MCP não entra na conta da aba: a aba escolhe com quem fala, o
-    /// workspace escolhe o que o agente tem na mão. Aba do Sonnet e aba do Opus
-    /// no mesmo worktree veem os mesmos servidores — e desmarcar um vale para
-    /// as duas na próxima vez que subirem.
+    /// Abas comuns herdam MCP/plugins do workspace. Tarefas usam a cópia
+    /// resolvida do perfil, inclusive instruções e permissões.
     pub fn launch_of(&self, tab: &str) -> Launch {
+        if let Some(run) = self
+            .tabs
+            .iter()
+            .find(|t| t.id == tab)
+            .and_then(|t| t.task.as_ref())
+        {
+            return Launch {
+                mcp: run.profile.mcp.clone(),
+                plugins: run.profile.plugins.clone(),
+                permission: Some(run.profile.permission),
+                instructions: crate::actions::instructions(&run.profile),
+                config_scope: Some(tab.to_string()),
+                ..Launch::from(run.profile.choice.clone())
+            };
+        }
         self.tabs
             .iter()
             .find(|t| t.id == tab)
@@ -742,6 +764,9 @@ impl Workspace {
     /// do Codex, e o `thread/resume` do Codex não abre o transcript do Claude.
     /// Falar com um GPT numa conversa do Claude é abrir aba nova.
     pub fn retune(&mut self, tab: &str, choice: Choice) -> Result<(), String> {
+        if self.tabs.iter().any(|t| t.id == tab && t.task.is_some()) {
+            return Err(i18n::t("err.actions.frozen"));
+        }
         if self.launch_of(tab).agent != choice.agent {
             return Err(i18n::t("err.session.otherAgent"));
         }
@@ -1224,12 +1249,11 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
             let resume = paths::transcript(tab, &worktree).exists();
             (
                 resume,
-                crate::claude::spawn(app, tab, &worktree, claude_args(tab, resume, &launch))?,
+                crate::claude::spawn(app, tab, &worktree, claude_args(tab, resume, &launch)?)?,
             )
         }
     };
     lock(&state.chats).insert(tab.to_string(), handle);
-    chat::ready_now(app, tab);
     {
         let mut board = lock(&state.board);
         if let Some(t) = board.tab_mut(tab) {
@@ -1238,6 +1262,7 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
         }
     }
     publish(app);
+    chat::ready_now(app, tab);
     Ok(resume)
 }
 
@@ -1261,13 +1286,14 @@ fn spawn_tab(
     let handle = match launch.agent {
         ProviderId::Codex => crate::codex::spawn(app, &id, workspace, &worktree, None, launch)?,
         ProviderId::Claude => {
-            crate::claude::spawn(app, &id, &worktree, claude_args(&id, false, launch))?
+            crate::claude::spawn(app, &id, &worktree, claude_args(&id, false, launch)?)?
         }
     };
     lock(&state.chats).insert(id.clone(), handle);
     // Quem chama põe a aba no quadro e só então libera a fala
     // (`chat::ready_now`): a fala guardada mora na aba, e a aba nasce aqui.
     Ok(Tab {
+        task: None,
         id,
         agent_session: None,
         title: title.to_string(),
@@ -1297,7 +1323,7 @@ fn spawn_tab(
 /// `set_permission_mode` para bypass junto com o "sim" (ver `chat.ts`). Aqui
 /// vai o `--allow-…`, sem o qual o `claude` recusa a troca — e sem o
 /// `--dangerously-…`, que junto do `--permission-mode plan` ganha do plan.
-fn claude_args(id: &str, resume: bool, launch: &Launch) -> Vec<String> {
+fn claude_args(id: &str, resume: bool, launch: &Launch) -> Result<Vec<String>, String> {
     let mut args: Vec<String> = [
         "-p",
         "--input-format",
@@ -1322,8 +1348,11 @@ fn claude_args(id: &str, resume: bool, launch: &Launch) -> Vec<String> {
             ]
             .map(String::from),
         );
-    } else {
+    } else if launch.permission != Some(crate::actions::Permission::Ask) {
         args.push("--dangerously-skip-permissions".into());
+    }
+    if !launch.instructions.is_empty() {
+        args.extend(["--append-system-prompt".into(), launch.instructions.clone()]);
     }
     if !launch.model.trim().is_empty() {
         args.extend(["--model".into(), launch.model.trim().into()]);
@@ -1334,16 +1363,14 @@ fn claude_args(id: &str, resume: bool, launch: &Launch) -> Vec<String> {
     // Os servidores escolhidos, e nada além deles: o `--strict-mcp-config` é o
     // que faz o `~/.claude.json` do usuário parar de entrar por baixo. Sem
     // escolha (workspace de antes disto existir) nem um nem outro vão, e o CLI
-    // decide como sempre decidiu. Falhar em escrever o arquivo não derruba a
-    // conversa — ela sobe sem MCP, que é a mesma perda de quem não escolheu.
-    match crate::mcp::config_for(id, launch.mcp.as_ref()) {
-        Ok(Some(path)) => args.extend([
+    // decide como sempre decidiu. Falha de materialização impede o spawn:
+    // uma seleção explícita não pode desaparecer silenciosamente.
+    if let Some(path) = crate::mcp::config_for(id, launch.mcp.as_ref())? {
+        args.extend([
             "--mcp-config".into(),
             path.display().to_string(),
             "--strict-mcp-config".into(),
-        ]),
-        Ok(None) => {}
-        Err(error) => eprintln!("mcp de {id}: {error}"),
+        ]);
     }
     // Os plugins escolhidos, um `--plugin-dir`/`--plugin-url` cada. São flags
     // de sessão: não mexem no cadastro do CLI, e um plugin que ele já carrega
@@ -1352,7 +1379,7 @@ fn claude_args(id: &str, resume: bool, launch: &Launch) -> Vec<String> {
     // Codex materializa a mesma seleção no home derivado do workspace, em
     // `plugins.rs`; estas flags continuam sendo só do Claude.
     args.extend(crate::plugins::args_for(launch.plugins.as_ref()));
-    args
+    Ok(args)
 }
 
 /// Contexto injetado vira menção `@caminho` na primeira fala — que é como o
@@ -2055,7 +2082,29 @@ mod tests {
             model: model.into(),
             effort: effort.into(),
             plan,
+            ..Default::default()
         }
+    }
+
+    #[test]
+    fn task_permissions_and_instructions_reach_claude() {
+        let launch = Launch {
+            permission: Some(crate::actions::Permission::Ask),
+            instructions: "Review independently".into(),
+            ..Default::default()
+        };
+        let args = claude_args("id", true, &launch).unwrap();
+        assert!(!args.contains(&"--dangerously-skip-permissions".to_string()));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["--append-system-prompt", "Review independently"]));
+        let automatic = Launch {
+            permission: Some(crate::actions::Permission::Auto),
+            ..launch
+        };
+        assert!(claude_args("id", true, &automatic)
+            .unwrap()
+            .contains(&"--dangerously-skip-permissions".to_string()));
     }
 
     /// Quem nunca escolheu MCP não recebe `--strict-mcp-config`: o CLI segue
@@ -2064,7 +2113,7 @@ mod tests {
     /// marcado.
     #[test]
     fn mcp_so_entra_quando_alguem_escolheu() {
-        let sem = claude_args("id", false, &launch("", "", false));
+        let sem = claude_args("id", false, &launch("", "", false)).unwrap();
         assert!(!sem.contains(&"--mcp-config".to_string()));
         assert!(!sem.contains(&"--strict-mcp-config".to_string()));
 
@@ -2074,7 +2123,7 @@ mod tests {
             mcp: Some(vec!["notion".into()]),
             ..launch("", "", false)
         };
-        let args = claude_args("id", false, &escolheu);
+        let args = claude_args("id", false, &escolheu).unwrap();
         std::env::remove_var("PROMETEU_ROOT");
         let at = args
             .iter()
@@ -2091,7 +2140,7 @@ mod tests {
     /// todo quadro gravado antes disto existir.
     #[test]
     fn sem_escolha_nao_ha_flag_de_plugin() {
-        let args = claude_args("id", false, &launch("", "", false));
+        let args = claude_args("id", false, &launch("", "", false)).unwrap();
         assert!(!args.contains(&"--plugin-dir".to_string()));
         assert!(!args.contains(&"--plugin-url".to_string()));
     }
@@ -2100,11 +2149,11 @@ mod tests {
     /// engole o plan. Plan mode é `--allow-…` mais `--permission-mode plan`.
     #[test]
     fn plan_mode_nao_leva_o_bypass_junto() {
-        let solto = claude_args("id", false, &launch("", "", false));
+        let solto = claude_args("id", false, &launch("", "", false)).unwrap();
         assert!(solto.contains(&"--dangerously-skip-permissions".to_string()));
         assert!(!solto.contains(&"--permission-mode".to_string()));
 
-        let plano = claude_args("id", false, &launch("", "", true));
+        let plano = claude_args("id", false, &launch("", "", true)).unwrap();
         assert!(!plano.contains(&"--dangerously-skip-permissions".to_string()));
         assert!(plano.contains(&"--allow-dangerously-skip-permissions".to_string()));
         let at = plano.iter().position(|a| a == "--permission-mode").unwrap();
@@ -2114,13 +2163,13 @@ mod tests {
     /// Vazio é não passar a flag — o Claude Code escolhe. Cheio vai como veio.
     #[test]
     fn modelo_e_esforco_so_quando_escolhidos() {
-        let padrao = claude_args("id", true, &launch("", " ", false));
+        let padrao = claude_args("id", true, &launch("", " ", false)).unwrap();
         assert!(!padrao.contains(&"--model".to_string()));
         assert!(!padrao.contains(&"--effort".to_string()));
         let at = padrao.iter().position(|a| a == "--resume").unwrap();
         assert_eq!(padrao[at + 1], "id");
 
-        let escolhido = claude_args("id", false, &launch("opus[1m]", "max", false));
+        let escolhido = claude_args("id", false, &launch("opus[1m]", "max", false)).unwrap();
         assert_eq!(
             escolhido[escolhido.len() - 4..],
             ["--model", "opus[1m]", "--effort", "max"]
@@ -2165,6 +2214,7 @@ mod tests {
     /// Uma aba com o que basta para dizer com quem ela fala.
     fn tab(id: &str, choice: Option<Choice>) -> Tab {
         Tab {
+            task: None,
             id: id.into(),
             agent_session: None,
             title: id.into(),
@@ -2175,6 +2225,58 @@ mod tests {
             context_tokens: None,
             choice,
         }
+    }
+
+    #[test]
+    fn task_launch_uses_project_override_and_freezes_tools_and_model() {
+        use crate::actions::{Catalog, Permission, Profile};
+        let mut ws = bare();
+        ws.project = "project".into();
+        ws.mcp = Some(vec!["original".into()]);
+        let base = Profile {
+            id: "review".into(),
+            name: "Revisor".into(),
+            prompt: "Revise".into(),
+            choice: Choice {
+                model: "sonnet".into(),
+                ..Default::default()
+            },
+            mcp: None,
+            plugins: Some(vec![]),
+            skills: vec!["review".into()],
+            permission: Permission::Ask,
+            watch: None,
+        };
+        let mut catalog = Catalog {
+            profiles: vec![base.clone()],
+            ..Default::default()
+        };
+        let mut customized = base;
+        customized.choice.model = "opus".into();
+        catalog
+            .overrides
+            .entry("project".into())
+            .or_default()
+            .insert("review".into(), customized);
+        let profile = crate::actions::resolve(&catalog, &ws.project, "review", &ws).unwrap();
+        let mut task = tab("task", None);
+        task.task = Some(
+            serde_json::from_value(serde_json::json!({
+                "command":"review", "profile":profile, "paused":false, "done":false,
+                "turns":0, "checked_at":0, "error":null
+            }))
+            .unwrap(),
+        );
+        ws.tabs.push(task);
+        ws.mcp = Some(vec!["changed".into()]);
+        ws.model = "haiku".into();
+        let launch = ws.launch_of("task");
+        assert_eq!(launch.model, "opus");
+        assert_eq!(launch.mcp, Some(vec!["original".into()]));
+        assert_eq!(launch.plugins, Some(vec![]));
+        assert_eq!(launch.config_scope.as_deref(), Some("task"));
+        assert!(launch.instructions.contains("review"));
+        assert!(ws.retune("task", Choice::default()).is_err());
     }
 
     /// A aba que nasceu com outro modelo volta com ele, e não com o das irmãs
@@ -2263,7 +2365,7 @@ mod tests {
     /// chegar pelo mesmo cano em vez de matar a sessão.
     #[test]
     fn a_conversa_e_stream_json_com_permissao_por_stdio() {
-        let args = claude_args("id", false, &launch("", "", false));
+        let args = claude_args("id", false, &launch("", "", false)).unwrap();
         let has = |pair: [&str; 2]| args.windows(2).any(|w| w[0] == pair[0] && w[1] == pair[1]);
         assert_eq!(args[0], "-p");
         assert!(has(["--input-format", "stream-json"]));

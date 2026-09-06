@@ -12,6 +12,7 @@ export type Item =
       glyph?: string;
       /// Atalho escrito na ponta. Só aparece quem existe de verdade.
       hint?: string;
+      badge?: string;
       checked?: boolean;
       danger?: boolean;
       /// Continua na lista, mas apagado e sem clique: item que some quando não
@@ -22,6 +23,7 @@ export type Item =
     };
 
 let root: HTMLElement | null = null;
+let afterClose: (() => void) | undefined;
 /// A linha marcada — pelo mouse ou pelas setas. É a que Enter aciona.
 let sel: HTMLElement | null = null;
 
@@ -37,6 +39,9 @@ export function close() {
   const was = root !== null;
   root?.remove();
   root = null;
+  const done = afterClose;
+  afterClose = undefined;
+  done?.();
   sel = null;
   document.removeEventListener("mousedown", onDown, true);
   document.removeEventListener("keydown", onKey, true);
@@ -58,6 +63,7 @@ function onDown(e: MouseEvent) {
 /// para quem estava com o foco.
 function onKey(e: KeyboardEvent) {
   if (e.key === "Escape") {
+    e.preventDefault();
     e.stopPropagation();
     close();
   } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -100,11 +106,12 @@ export type Where = {
 /// Abre em cima do ponto do clique. Se não couber, encosta na borda em vez de
 /// sair da tela. `cls` é uma classe a mais no painel, para a lista que precisa
 /// de outro tamanho.
-export function openAt(at: Where, items: Item[], cls?: string) {
+export function openAt(at: Where, items: Item[], cls?: string, onClosed?: () => void) {
   close();
   root = panel(items);
   if (cls) root.classList.add(cls);
-  document.body.append(root);
+  afterClose = onClosed;
+  (document.querySelector("dialog[open]") ?? document.body).append(root);
   place(root, at.x, at.y, at.above);
   document.addEventListener("mousedown", onDown, true);
   document.addEventListener("keydown", onKey, true);
@@ -121,6 +128,7 @@ function place(el: HTMLElement, x: number, y: number, above = false) {
 function panel(items: Item[]): HTMLElement {
   const box = document.createElement("div");
   box.className = "menu";
+  box.setAttribute("role", "menu");
   // Um submenu por painel: abrir outra linha fecha o que estava aberto.
   let sub: HTMLElement | null = null;
   const drop = () => {
@@ -136,12 +144,20 @@ function panel(items: Item[]): HTMLElement {
     const row = document.createElement("button");
     row.className = "mrow" + (item.danger ? " danger" : "") + (item.disabled ? " off" : "");
     row.disabled = item.disabled ?? false;
+    row.setAttribute("role", item.checked === undefined ? "menuitem" : "menuitemcheckbox");
+    if (item.checked !== undefined) row.setAttribute("aria-checked", String(item.checked));
     row.innerHTML =
       `<span class="mg">${item.glyph ?? ""}</span><span class="ml"></span>` +
       `<span class="mh"></span>${item.sub ? icon("chevron-right", 14) : ""}` +
       `<span class="mc">${item.checked ? icon("check", 14) : ""}</span>`;
     row.children[1].textContent = item.label;
     row.children[2].textContent = item.hint ?? "";
+    if (item.badge) {
+      const badge = document.createElement("span");
+      badge.className = "mbadge";
+      badge.textContent = item.badge;
+      row.children[1].after(badge);
+    }
     box.append(row);
 
     row.addEventListener("mouseenter", () => {

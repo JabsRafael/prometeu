@@ -1,3 +1,4 @@
+import * as actions from "./actions";
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -49,6 +50,7 @@ import { h, template } from "./util";
 
 /// O que a tela precisa saber da aba aberta, e que não está nas linhas.
 export type Info = {
+  task?: actions.TaskRun | null;
   /// O id do workspace na tela (o de um colega vem prefixado).
   workspace: string | null;
   status: Status | null;
@@ -1020,6 +1022,8 @@ export class ChatView {
         <!-- As ferramentas: aqui se troca, diferente do modelo. Trocar derruba
              o processo, e a próxima fala o levanta retomando a sessão — a
              conversa continua de onde estava, com o que foi marcado agora. -->
+        <button class="ghost sm actionsbtn"></button>
+        <button class="ghost sm taskwatch" hidden></button>
         <button class="ghost sm mcpbtn" hidden><span></span></button>
         <button class="ghost sm plugbtn" hidden><span></span></button>
         <button class="outline md quotesel" hidden></button>
@@ -1038,6 +1042,9 @@ export class ChatView {
     q(".stop").innerHTML = `${icon("square", 12)}<span></span>`;
     q(".stop span").textContent = t("chat.stop");
 
+    q(".actionsbtn").textContent = t("actions.title");
+    q(".actionsbtn").addEventListener("click", () => this.actionMenu());
+    this.cleanup.push(actions.onChange(() => this.paintComposer()));
     q(".addfile").addEventListener("click", () => void this.addFile());
     q(".quotesel").addEventListener("click", () => this.quoteSelection());
     q(".stop").addEventListener("click", () => this.interrupt());
@@ -1050,7 +1057,7 @@ export class ChatView {
       // agente aceita abre em cima da caixa e acompanha as letras. Onde não há
       // comando, o "@" vale como caminho: na fala é assim que se aponta um
       // arquivo do workspace (ver `paths.ts`).
-      if (!commands.typed(this.area, this.commands(), () => this.grow())) this.typedPath();
+      if (!commands.typed(this.area, this.commands(), () => this.grow(), name => this.selectAction(name))) this.typedPath();
     });
     this.area.addEventListener("keydown", (e) => {
       const pick = e.key === "Enter" || e.key === "Tab";
@@ -1141,6 +1148,7 @@ export class ChatView {
     // sobe o processo, e a gravação atrasada o derrubaria em seguida.
     settleNow();
     const text = this.area.value.trim();
+    if (this.selectAction()) return;
     const files = this.attached();
     if ((!text && !files.length) || !this.key) return;
     const info = this.ctx.info();
@@ -1164,7 +1172,56 @@ export class ChatView {
   /// o transcript não guarda a resposta: vale a última lista vista com este
   /// modelo — os comandos são quase todos os mesmos de uma conversa para
   /// outra — e, antes de qualquer uma, os dois que o app conhece por si.
-  private commands(): Command[] {
+  private commands(): commands.Suggestion[] {
+    const provider = this.providerCommands();
+    if (this.remote) return provider;
+    return [...actions.commandNames(actions.catalog().commands, provider).map(c => ({
+      name: c.name, hint: "", badge: t("actions.origin"),
+      description: [t(c.kind === "prompt" ? "actions.prompt" : "actions.agent"), c.description].filter(Boolean).join(" · "),
+    })), ...provider];
+  }
+
+  private actionMenu() {
+    if (this.remote || !this.ctx.info().workspace) return;
+    const button = this.box.querySelector<HTMLElement>(".actionsbtn")!;
+    const box = button.getBoundingClientRect();
+    menu.openAt({ x: box.left, y: box.top - 4, above: true }, actions.catalog().commands.length
+      ? actions.catalog().commands.map(action => ({ label: `/${action.name}`, hint: t(action.kind === "prompt" ? "actions.prompt" : "actions.agent"), run: () => this.useAction(action, this.area.value) }))
+      : [{ label: t("actions.empty"), disabled: true }]);
+  }
+
+  private selectAction(name?: string): boolean {
+    if (this.remote || !this.ctx.info().workspace) return false;
+    const text = name ? `/${name} ${this.area.value.slice(this.area.selectionStart)}` : this.area.value;
+    const found = actions.findCommand(text.trim(), actions.catalog().commands, this.providerCommands());
+    if (!found) return false;
+    this.useAction(found.action, found.rest);
+    return true;
+  }
+
+  private startingAction = false;
+  private useAction(action: actions.Action, rest: string) {
+    commands.dismiss();
+    if (action.kind === "prompt") {
+      this.area.value = actions.expand(action.prompt, rest);
+      this.keep(); this.grow(); this.area.focus();
+      return;
+    }
+    const workspace = this.ctx.info().workspace;
+    if (!workspace || this.startingAction) return;
+    this.startingAction = true;
+    const key = this.key;
+    const draft = this.area.value;
+    const context = actions.expand(paths.mentions(this.attached(), this.ctx.info().worktree), rest);
+    // O rascunho permanece se o backend recusar a execução.
+    void actions.start(workspace, action, context).then(() => {
+      if (key && drafts.says.get(key) === draft) drafts.says.delete(key);
+      if (key) drafts.files.delete(key);
+      if (this.key === key) { this.area.value = ""; this.grow(); }
+    }).catch(e => this.ctx.say(fromBack(e), true)).finally(() => { this.startingAction = false; });
+  }
+
+  private providerCommands(): Command[] {
     const info = this.ctx.info();
     const capabilities = capabilitiesOf(info.agent);
     const supported = (command: Command) =>
@@ -1194,6 +1251,18 @@ export class ChatView {
 
   private paintComposer() {
     const info = this.ctx.info();
+    const actionButton = this.box.querySelector<HTMLButtonElement>(".actionsbtn")!;
+    actionButton.hidden = !!info.remote || !info.workspace;
+    const watch = this.box.querySelector<HTMLButtonElement>(".taskwatch")!;
+    const run = info.task;
+    watch.hidden = !run;
+    if (run) {
+      watch.textContent = t(run.error ? "actions.attention" : run.done ? "actions.done" : run.paused ? "actions.paused" : info.status === "rodando" ? "actions.running" : run.profile.watch ? "actions.watching" : "actions.running");
+      watch.title = run.error ? fromBack(run.error) : t(run.paused ? "actions.resume" : "actions.pause");
+      watch.disabled = !!info.remote || run.done || !run.profile.watch;
+      watch.onclick = () => { void invoke("action_pause", { session: this.key, paused: !run.paused }).catch(e => this.ctx.say(fromBack(e), true)); };
+    }
+
     const q = (sel: string) => this.box.querySelector<HTMLElement>(sel)!;
     const hasKey = !!this.key;
     this.box.hidden = !hasKey;
@@ -1273,7 +1342,7 @@ export class ChatView {
     const working = info.status === "rodando" || info.status === "querendo";
     // Sem workspace (a conversa ainda está subindo) não há a quem pedir a
     // troca; com colega, o processo é dele.
-    const fixed = !!info.remote || !info.workspace;
+    const fixed = !!info.remote || !info.workspace || !!info.task;
     el.classList.toggle("ro", fixed);
     el.title = fixed ? "" : working ? t("chat.with.busy") : t("chat.with.pick");
 
@@ -1349,6 +1418,7 @@ export class ChatView {
   /// faz nada.
   private paintMcp(info: Info) {
     const btn = this.box.querySelector<HTMLButtonElement>(".mcpbtn")!;
+    if (info.task) { btn.hidden = true; return; }
     const has = mcp.list().length > 0 || info.mcp !== null;
     btn.hidden =
       !!info.remote ||
@@ -1384,6 +1454,7 @@ export class ChatView {
   /// subir com a lista nova.
   private paintPlugins(info: Info) {
     const btn = this.box.querySelector<HTMLButtonElement>(".plugbtn")!;
+    if (info.task) { btn.hidden = true; return; }
     const has = plugins.list().length > 0 || info.plugins !== null;
     btn.hidden =
       !!info.remote ||

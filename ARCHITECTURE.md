@@ -60,6 +60,20 @@ capabilities do ADR 0003 também estão implementados.
 
 Veja [`docs/architecture/conversation-flow.md`](docs/architecture/conversation-flow.md).
 
+## Interface compartilhada
+
+A apresentação compartilha tokens e primitivas de `src/ui.ts`, `src/ui.css` e
+`src/ui-tokens.css`. Veja o [Design System](docs/architecture/design-system.md)
+para adoção, galeria e regras de dependência.
+
+## Ações reutilizáveis
+
+`actions.rs` mantém comandos, perfis e execuções sobre sessões existentes.
+`actions.ts` resolve entradas de chat/menu; `action-settings.ts` edita o cadastro.
+O backend consulta GitHub sem chamar modelos durante a espera e retoma a sessão
+quando há novidades. Veja [contrato](docs/contracts/actions.md) e
+[ADR 0009](docs/decisions/0009-reusable-actions.md).
+
 ## Estado e persistência
 
 - `src-tauri/src/state.rs` possui o quadro persistido: projetos, workspaces,

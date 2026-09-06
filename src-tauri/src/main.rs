@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod actions;
 mod agents;
 mod awake;
 mod browser;
@@ -108,6 +109,9 @@ fn main() {
             ready: Mutex::new(HashSet::new()),
         })
         .invoke_handler(tauri::generate_handler![
+            actions::actions_save,
+            actions::action_start,
+            actions::action_pause,
             i18n::set_lang,
             agents::agents,
             agents::claude_models,
@@ -210,6 +214,7 @@ fn main() {
             team::team_config_set,
         ])
         .setup(|app| {
+            actions::watch(app.handle().clone());
             machine::watch(app.handle().clone());
             usage::watch(app.handle().clone());
             Ok(())

@@ -25,6 +25,7 @@ export const stateLabel = (ws: Workspace) =>
   pending(ws) ? t(ws.failed ? "card.failed" : "card.building") : label(statusOf(ws));
 
 export type Tab = {
+  task?: import("./actions").TaskRun | null;
   id: string;
   /// Vazio é aba sem nome: a tela mostra o modelo (`tabLabel`).
   title: string;
@@ -304,7 +305,7 @@ export type Scripts = {
   port: number | null;
 };
 
-export type Board = { stages: string[]; projects: Project[]; workspaces: Workspace[] };
+export type Board = { actions?: import("./actions").Catalog; stages: string[]; projects: Project[]; workspaces: Workspace[] };
 
 /// A prévia do importador temporário do Prometheus. O backend calcula tudo a
 /// partir do disco; a tela apenas explica e pede a confirmação.
