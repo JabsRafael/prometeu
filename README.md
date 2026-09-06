@@ -7,6 +7,11 @@
 Sessões de agente — Claude Code ou Codex — organizadas por workspace, cada uma
 no seu worktree.
 
+Conta Prometeu é opcional. O topo da barra lateral oferece cadastro pelo
+navegador ou mostra nome e menu da conta conectada. O app funciona sem login;
+esta primeira etapa não envia conversas para a nuvem. Ver
+[contrato da conta](docs/contracts/cloud-account.md) e `e2e/cloud.spec.ts`.
+
 Junta o que é bom no Conductor (worktree isolado por sessão, script de setup por
 repo) com o que é bom no Vibe Island (você fica sabendo na hora que o agente
 precisa de você), numa lista lateral que mantém cada trabalho à mão.

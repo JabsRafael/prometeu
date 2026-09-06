@@ -2,6 +2,7 @@ import { avatar, avatars, brand, icon, stageIcon } from "./icons";
 import { stage as stageName, t, tn } from "./i18n";
 import * as menu from "./menu";
 import * as team from "./team";
+import { accountButton } from "./cloud";
 import * as rename from "./rename";
 import { hasWorktree, label, repoLabel, stateLabel, statusOf, tabLabel, type Board, type Status, type Workspace } from "./types";
 import { h, template } from "./util";
@@ -141,7 +142,7 @@ function renderRail(board: Board, hooks: Hooks) {
   rail.replaceChildren();
   const live = board.workspaces.filter((w) => !w.archived && !w.remote);
 
-  rail.append(template("div", "navitem brand", `${icon("flame")}<span>Prometeu</span>`));
+  rail.append(accountButton());
 
   const create = template("button", "navitem", `${icon("plus")}<span></span>`);
   create.children[1].textContent = t("rail.create");

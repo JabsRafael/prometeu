@@ -102,6 +102,7 @@ export function disclosure(title: string, ...content: HTMLElement[]) {
 export function formDialog(options: {
   title: string; save: string; cancel: string;
   submit: () => Promise<void>; error: (error: unknown) => string;
+  closed?: () => void;
 }) {
   const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const dialog = document.createElement("dialog");
@@ -115,7 +116,9 @@ export function formDialog(options: {
   const error = h("span", "ui-hint ui-error");
   error.setAttribute("role", "alert");
   const close = () => {
+    if (!dialog.isConnected) return;
     menu.close(); dialog.close(); dialog.remove();
+    options.closed?.();
     if (previousFocus?.isConnected) previousFocus.focus();
   };
   const save = button(options.save, () => form.requestSubmit(), "pri");

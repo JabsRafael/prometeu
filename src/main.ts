@@ -1,4 +1,5 @@
 import * as actions from "./actions";
+import * as cloud from "./cloud";
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -591,6 +592,7 @@ for (const [id, name] of [
 }
 
 links.init(say);
+cloud.init(draw, message => say(message, true));
 void update.init(say);
 // Quais agentes existem nesta máquina: é o que o lançador oferece no rodapé.
 // Ninguém espera por isso para a tela aparecer — até a resposta chegar, o

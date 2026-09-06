@@ -6,11 +6,15 @@ import { encodeLive, encodeSnapshot, type Inbox, type Note } from "../relay/src/
 import { LegacyConversationAdapter } from "./conversation-legacy";
 import * as team from "./team";
 import type { Accounts } from "./statusbar";
+import type { CloudStatus } from "./cloud";
 import { hasWorktree, type Board, type Change, type Choice, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type Pr, type Scripts, type Tab, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
 let nextId = 1;
+let cloudPending: string | null = null;
+const emptyCloud = (): CloudStatus => ({ user: null, origin: "https://app.prometeu.co", offline: false });
+const mockCloud = (): CloudStatus => JSON.parse(localStorage.getItem("mock:cloud") ?? "null") ?? emptyCloud();
 const w = window as unknown as Record<string, unknown>;
 
 const accountDefaults: Accounts = {
@@ -795,6 +799,29 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     }
     case "load_board":
       return board;
+    case "cloud_status": {
+      if (args.refresh && localStorage.getItem("mock:cloudExpired")) localStorage.removeItem("mock:cloud");
+      return { ...mockCloud(), offline: !!localStorage.getItem("mock:cloudOffline") };
+    }
+    case "cloud_login_start":
+      if (localStorage.getItem("mock:cloudOffline")) throw 'i18n:{"code":"err.cloud.network"}';
+      cloudPending = crypto.randomUUID();
+      return { id: cloudPending, user_code: "ABCD-EFGH", url: "https://app.prometeu.co/device?user_code=ABCD-EFGH&mode=signup", interval: 5 };
+    case "cloud_login_poll": {
+      if (!cloudPending || cloudPending !== args.id) throw 'i18n:{"code":"err.cloud.expired"}';
+      if (!localStorage.getItem("mock:cloudApproved")) return null;
+      const value = { ...emptyCloud(), user: { id: "cloud-user", name: "Gustavo Brancaglione", email: "gustavo@example.com" } };
+      localStorage.setItem("mock:cloud", JSON.stringify(value));
+      localStorage.removeItem("mock:cloudApproved"); cloudPending = null;
+      return value;
+    }
+    case "cloud_login_cancel":
+      if (cloudPending === args.id) cloudPending = null;
+      return;
+    case "cloud_logout":
+      if (localStorage.getItem("mock:cloudOffline")) throw 'i18n:{"code":"err.cloud.network"}';
+      localStorage.removeItem("mock:cloud");
+      return emptyCloud();
     case "remove_project":
       board.projects = board.projects.filter((project) => project.id !== args.id);
       emit("board", board);
