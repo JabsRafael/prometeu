@@ -161,7 +161,7 @@ jobs:
           releaseBody: ${{ steps.notes.outputs.notes }}
           releaseDraft: true
           includeUpdaterJson: true
-          assetNamePattern: '[name]_[version]_[arch][ext]'
+          assetNamePattern: '[name]_[arch][ext]'
           args: --verbose
 
       - name: build assinado, sem publicar
@@ -195,8 +195,11 @@ jobs:
           xcrun stapler staple "$DMG"
           xcrun stapler validate "$DMG"
           spctl -a -t open --context context:primary-signature -v "$DMG"
+          # Mesmo nome do assetNamePattern: o --clobber troca o .dmg que a
+          # tauri-action subiu antes da notarização, em vez de criar um segundo.
           if [ "$GITHUB_REF_TYPE" = tag ]; then
-            gh release upload "$GITHUB_REF_NAME" "$DMG" -R "$REPO" --clobber
+            cp "$DMG" "$RUNNER_TEMP/Prometeu_aarch64.dmg"
+            gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/Prometeu_aarch64.dmg" -R "$REPO" --clobber
           fi
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
