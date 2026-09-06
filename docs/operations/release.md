@@ -63,6 +63,11 @@ Entre build e publicação existe uma verificação humana:
 sh scripts/release.sh publish
 ```
 
+Os assets não levam a versão no nome (`Prometeu_aarch64.dmg`). Isso mantém
+`releases/latest/download/Prometeu_aarch64.dmg` válido para sempre, que é o link
+do site: publicar troca a versão que o botão de download entrega, sem tocar no
+repositório do site.
+
 O updater não possui rollback para uma versão menor. Uma release publicada com
 defeito precisa ser corrigida por uma versão seguinte.
 

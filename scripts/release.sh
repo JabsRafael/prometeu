@@ -150,9 +150,11 @@ publish() {
   [ "$DRAFT" = true ] || die "$TAG já está publicada"
 
   ASSETS=$(gh release view "$TAG" -R "$REPO" --json assets -q '.assets[].name')
-  for want in "Prometeu_${VERSION}_aarch64.dmg" \
-              "Prometeu_${VERSION}_aarch64.app.tar.gz" \
-              "Prometeu_${VERSION}_aarch64.app.tar.gz.sig" \
+  # Os nomes não levam versão: é o que faz o link do site apontar para
+  # releases/latest/download/Prometeu_aarch64.dmg e nunca mais mudar.
+  for want in Prometeu_aarch64.dmg \
+              Prometeu_aarch64.app.tar.gz \
+              Prometeu_aarch64.app.tar.gz.sig \
               latest.json; do
     printf '%s\n' "$ASSETS" | grep -qx "$want" || die "falta $want na draft — o CI terminou inteiro?"
   done
