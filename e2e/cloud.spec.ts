@@ -14,12 +14,10 @@ test("conta opcional na barra lateral conecta, persiste e sai sem alterar conver
   await page.locator("#railbody .navitem.sub .lbl").getByText("Ola", { exact: true }).click();
   const before = await page.locator("#chatwrap").innerText();
   await account.locator(".cloud-label > small").click();
-  const dialog = page.getByRole("dialog", { name: "Conectar conta Prometeu" });
-  await expect(dialog.getByRole("status")).toHaveText("ABCD-EFGH");
-  await expect(dialog).toContainText("Você escolhe quais plugins, MCPs e skills compartilhar");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(account.getByRole("status")).toHaveText("ABCD-EFGH");
+  await expect(account).toHaveAttribute("title", /Autorize somente se o navegador mostrar este mesmo código/);
   await page.evaluate(() => localStorage.setItem("mock:cloudApproved", "1"));
-  await dialog.getByRole("button", { name: "Verificar conexão" }).click();
-  await expect(dialog).toHaveCount(0);
   await expect(account).toContainText("Gustavo Brancaglione");
   await expect(account.locator(".cloud-label > span")).toHaveText("Prometeu");
   await expect(account.locator(".cloud-label > small")).toHaveText("Gustavo Brancaglione");
@@ -52,13 +50,15 @@ test("conta opcional na barra lateral conecta, persiste e sai sem alterar conver
 test("conta opcional na barra lateral cancela login e mantém trabalho local quando SaaS cai", async ({ page }) => {
   await page.goto("/");
   await page.locator(".cloud-account").click();
-  const dialog = page.getByRole("dialog", { name: "Conectar conta Prometeu" });
-  await expect(dialog.getByRole("status")).toHaveText("ABCD-EFGH");
-  await page.keyboard.press("Escape"); await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator(".cloud-account").getByRole("status")).toHaveText("ABCD-EFGH");
+  await page.locator(".cloud-account").click();
+  await page.getByRole("menuitem", { name: "Cancelar", exact: true }).click();
+  await expect(page.locator(".cloud-account")).toContainText("Criar conta");
   await page.evaluate(() => localStorage.setItem("mock:cloudOffline", "1"));
   await page.locator(".cloud-account").click();
-  await expect(dialog).toContainText("Não foi possível conectar ao Prometeu Cloud");
-  await dialog.getByRole("button", { name: "Cancelar", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByText("Não foi possível conectar ao Prometeu Cloud", { exact: false })).toBeVisible();
   await page.locator("#railbody .navitem.sub .lbl").getByText("Ola", { exact: true }).click();
   await expect(page.locator("#chatwrap")).toBeVisible();
   await expect(page.locator(".cloud-account")).toContainText("Criar conta");

@@ -170,7 +170,19 @@ test("arraste de arquivo da miniatura recebe captura na aba original após naveg
   await composer.press("Enter");
   await expect(composer).toHaveValue("Analise esta captura");
 
-  await page.locator('#tabbar .tab[data-tab="t2"]').click();
+  // Uma atualização do quadro pode chegar entre pressionar e soltar o mouse.
+  const second = page.locator('#tabbar .tab[data-tab="t2"]');
+  await second.hover();
+  await page.mouse.down();
+  await page.evaluate(() => {
+    const internals = (window as unknown as {
+      __TAURI_INTERNALS__: { invoke: (command: string, args: Record<string, unknown>) => Promise<unknown> };
+    }).__TAURI_INTERNALS__;
+    return internals.invoke("rename_tab", { workspace: "sessao-0929", tab: "t2", title: "Outra conversa" });
+  });
+  await page.mouse.up();
+  await expect(second).toHaveClass(/\bon\b/);
+  await expect(second).toContainText("Outra conversa");
   await promise(page, "received", "capture-1", undefined, [path]);
   await expect(page.locator("#chatwrap .cfiles .injchip")).toHaveCount(0);
   await page.locator('#tabbar .tab[data-tab="t1"]').click();

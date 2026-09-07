@@ -299,7 +299,7 @@ export function draw() {
   drawMore(ws);
   // A caixa de escrever diz o estado da aba: desligada, de um colega offline.
   session.refresh();
-  const collaborative = !!team.status().config && (ws.shared || !!remote);
+  const collaborative = !!team.status().config && (team.sharedHere(ws) || !!remote);
   $("tab-comments").hidden = !collaborative;
   if (!collaborative && sidePane === "comments") setSidePane("files");
   notes.draw();
@@ -402,7 +402,7 @@ function drawShare(ws: Workspace, tab?: Tab) {
   // Inativo é uma ação no menu, não um estado permanente na barra. Quando o
   // workspace está compartilhado, o ícone verde e os avatares tornam a
   // colaboração ativa visível sem uma frase longa.
-  if (ws.remote || ws.cleaned || !team.status().config || !ws.shared) {
+  if (ws.remote || ws.cleaned || !team.status().config || !team.sharedHere(ws)) {
     btn.hidden = true;
     return;
   }
@@ -452,7 +452,7 @@ function drawMore(ws: Workspace) {
       })),
     },
   ];
-  if (team.status().config && !ws.shared) {
+  if (team.status().config && !team.sharedHere(ws)) {
     items.unshift({ label: t("share.on"), glyph: icon("share-2", 14), sub: shareItems(ws) });
   }
   btn.onclick = () => {
@@ -462,7 +462,7 @@ function drawMore(ws: Workspace) {
 }
 
 function shareLabel(ws: Workspace): string {
-  if (!ws.shared) return t("share.on");
+  if (!team.sharedHere(ws)) return t("share.on");
   if (!ws.audience) return t("share.off");
   return tn(ws.audience.length, "share.some");
 }
@@ -473,8 +473,8 @@ function shareItems(ws: Workspace): menu.Item[] {
   const me = team.status();
   const others = me.members.filter((m) => m.id !== me.you);
   const set = (audience: string[] | null | false) => team.share(ws.id, audience).catch((e) => ctx.say(fromBack(e), true));
-  const all = ws.shared && !ws.audience;
-  const some = ws.shared && ws.audience ? ws.audience : [];
+  const all = team.sharedHere(ws) && !ws.audience;
+  const some = team.sharedHere(ws) && ws.audience ? ws.audience : [];
   const items: menu.Item[] = [
     { label: t("share.all"), glyph: icon("users", 14), checked: all, run: () => set(all ? false : null) },
     "sep",
@@ -687,12 +687,31 @@ export function finish(id: string) {
 
 /* ---------- abas ---------- */
 
+let tabsFrame = 0;
+
+// Refazer a barra entre pressionar e soltar remove o alvo do clique. Aguarda
+// o fim do gesto nativo, juntando os redesenhos no próximo quadro disponível.
+function deferTabs() {
+  const active = $("tabbar").matches(":active");
+  if (active && !tabsFrame) {
+    tabsFrame = requestAnimationFrame(() => {
+      tabsFrame = 0;
+      if (proj) drawProjectTabs();
+      else {
+        const ws = current();
+        if (ws) drawTabs(ws);
+      }
+    });
+  }
+  return active;
+}
+
 /// Abas sublinhadas: uma por conversa, depois as que você abriu — Mudanças,
 /// navegador, terminais e arquivos — e o + logo depois da última.
 function drawTabs(ws: Workspace) {
   // Refazer a barra com um campo de renomear aberto nela apaga o que foi
   // digitado — e o diff, que redesenha sozinho, chega aqui a toda hora.
-  if (rename.editing()) return;
+  if (rename.editing() || deferTabs()) return;
   const bar = $("tabbar");
   bar.replaceChildren();
   const fs = files(ws.id);
@@ -1285,7 +1304,7 @@ export function openProject(project: Project) {
 /// Sem conversa não há aba de agente nem Mudanças, e o "+" abre terminal — que
 /// é o que se cria aqui.
 function drawProjectTabs() {
-  if (!proj) return;
+  if (!proj || deferTabs()) return;
   const bar = $("tabbar");
   bar.replaceChildren();
   appendTermTabs(bar);

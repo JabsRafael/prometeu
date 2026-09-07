@@ -51,6 +51,7 @@ export const empty = (): State => ({
 });
 
 export type Event =
+  | { k: "roster"; members: { id: string; name: string }[]; now: number }
   | { k: "open"; sock: string; member: string; name: string; now: number }
   | { k: "close"; sock: string; now: number }
   | { k: "text"; sock: string; frame: unknown; now: number; rand: string }
@@ -278,6 +279,32 @@ function setAttached(sock: Sock, attached: Attached): Effect {
 
 export function reduce(s: State, ev: Event): Effect[] {
   switch (ev.k) {
+    case "roster": {
+      const out: Effect[] = [];
+      const allowed = new Set(ev.members.map(m => m.id));
+      for (const sock of [...s.socks.values()]) {
+        if (!allowed.has(sock.member)) out.push(...reduce(s, { k: "close", sock: sock.id, now: ev.now }));
+      }
+      for (const [id, entry] of s.shares) {
+        if (allowed.has(entry.owner)) continue;
+        out.push(...toAudience(s, id, { t: "unshare", ws: id }), { e: "del", key: `share:${id}` }, ...purgeNotes(s, id));
+        s.shares.delete(id);
+        for (const sock of s.socks.values()) if (sock.attached?.ws === id) out.push(setAttached(sock, null));
+      }
+      for (const id of s.members.keys()) {
+        if (allowed.has(id)) continue;
+        s.members.delete(id);
+        out.push({ e: "del", key: `member:${id}` });
+        for (const item of s.inbox.get(id) ?? []) out.push({ e: "del", key: inboxKey(id, item.id) });
+        s.inbox.delete(id);
+      }
+      for (const member of ev.members) {
+        const value = { name: member.name, last_seen: s.members.get(member.id)?.last_seen ?? ev.now };
+        s.members.set(member.id, value);
+        out.push({ e: "put", key: `member:${member.id}`, value: { id: member.id, ...value } });
+      }
+      return [...out, ...broadcast(s, { t: "presence", members: members(s) })];
+    }
     case "open": {
       const cleanup = prune(s, ev.now);
       const known = s.members.get(ev.member);

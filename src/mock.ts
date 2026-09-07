@@ -713,11 +713,12 @@ function controlInto(tab: string, frame: Record<string, any>) {
 /// Os workspaces compartilhados, entre recargas — o `shared` e a `audience`
 /// do board.json.
 const SHARED = "mock:shared";
-for (const [id, audience] of JSON.parse(localStorage.getItem(SHARED) ?? "[]") as [string, string[] | null][]) {
+for (const [id, audience, shareTeam] of JSON.parse(localStorage.getItem(SHARED) ?? "[]") as [string, string[] | null, string?][]) {
   const ws = board.workspaces.find((x) => x.id === id);
   if (ws) {
     ws.shared = true;
     ws.audience = audience;
+    ws.share_team = shareTeam;
   }
 }
 
@@ -827,6 +828,18 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     case "cloud_status": {
       if (args.refresh && localStorage.getItem("mock:cloudExpired")) localStorage.removeItem("mock:cloud");
       return { ...mockCloud(), offline: !!localStorage.getItem("mock:cloudOffline") };
+    }
+    case "cloud_organizations": {
+      const cloud = mockCloud();
+      if (localStorage.getItem("mock:cloudOffline")) throw 'i18n:{"code":"err.cloud.network"}';
+      return { user: cloud.user, origin: cloud.origin, organizations: cloud.user ? JSON.parse(localStorage.getItem("mock:organizations") ?? "[]") : [] };
+    }
+    case "cloud_relay_ticket": {
+      cloudWrite();
+      const cloud = mockCloud();
+      const org = JSON.parse(localStorage.getItem("mock:organizations") ?? "[]").find((org: team.Organization) => org.id === args.organization);
+      if (!org || cloud.user?.id !== args.user || cloud.origin !== args.expectedOrigin) throw 'i18n:{"code":"err.cloud.response"}';
+      return `ws://mock/organization/${org.id}?p=3&ticket=${"t".repeat(43)}&m=${org.member}&n=${encodeURIComponent(cloud.user!.name)}`;
     }
     case "cloud_login_start":
       if (localStorage.getItem("mock:cloudOffline")) throw 'i18n:{"code":"err.cloud.network"}';
@@ -1159,11 +1172,12 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       const target = board.workspaces.find((x) => x.id === args.id);
       if (target) {
         target.shared = args.shared;
+        target.share_team = args.shared ? args.team : null;
         target.audience = args.shared ? args.audience : null;
       }
       // Como o `board.json` do back: recarregar a página não desfaz o que foi
       // compartilhado, senão o dono que volta volta sem nada compartilhado.
-      localStorage.setItem(SHARED, JSON.stringify(board.workspaces.filter((x) => x.shared).map((x) => [x.id, x.audience])));
+      localStorage.setItem(SHARED, JSON.stringify(board.workspaces.filter((x) => x.shared).map((x) => [x.id, x.audience, x.share_team])));
       emit("board", board);
       return;
     }

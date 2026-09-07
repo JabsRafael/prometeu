@@ -23,6 +23,8 @@ export const IPC_COMMANDS = [
   "action_pause",
   "accounts",
   "cloud_status",
+  "cloud_organizations",
+  "cloud_relay_ticket",
   "cloud_login_start",
   "cloud_login_poll",
   "cloud_login_cancel",

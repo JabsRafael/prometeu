@@ -4,7 +4,7 @@ Status: implementado no cliente e no projeto separado `prometeu-cloud`; publica�
 
 ## Fronteira
 
-A conta pertence ao Prometeu, não ao Claude, Codex ou time do relay. O SaaS
+A conta pertence ao Prometeu, não ao Claude ou Codex. O SaaS
 possui cadastro, autenticação, perfil e sessões de login. Nesta etapa, nenhum
 workspace, arquivo, transcript ou segredo de provider é enviado para o SaaS.
 O desktop funciona sem conta e não consulta o serviço enquanto desconectado.
@@ -35,6 +35,9 @@ login e autorização do Mac continuam funcionando. Ver
 O backend usa `POST /api/auth/device/code`, com `client_id=prometeu-desktop`.
 Abre `/device?user_code=…&mode=signup` no navegador do sistema. A pessoa cria
 uma conta ou entra, confere o código mostrado no desktop e aprova explicitamente.
+O clique em “Criar conta” abre o navegador diretamente, sem diálogo no desktop.
+O código fica na barra lateral enquanto a autorização está pendente; seu menu
+permite reabrir o navegador ou cancelar. A conexão é detectada automaticamente.
 O desktop consulta `POST /api/auth/device/token` respeitando `interval`,
 `authorization_pending`, `slow_down` e expiração. O token retornado autentica
 `GET /api/auth/get-session` via Bearer. Código consumido não pode ser reutilizado.
@@ -71,8 +74,10 @@ pode ser encerrado pelo menu.
 ## Persistência e compatibilidade
 
 `<root>/cloud.json` contém `{ origin, token, user }`, com gravação atômica e
-permissões `0600` em diretório `0700`. Ausência significa uso local. Board,
-transcripts, `team.json` e contas dos providers mantêm seus formatos.
+permissões `0600` em diretório `0700`. Ausência significa uso local. Transcripts
+e contas dos providers mantêm seus formatos. Board e `team.json` recebem campos
+opcionais para consentimento e seleção de organização, preservando a leitura dos
+dados antigos; ver [contrato de organizações](cloud-organizations.md).
 Excluir a conta no SaaS revoga as sessões de login; não exclui dados locais.
 O mock simula o fluxo sem rede e guarda somente perfil fictício em localStorage.
 
@@ -86,9 +91,10 @@ Ver [ADR 0015](../decisions/0015-cloud-rails.md).
 
 O catálogo de plugins, MCP e Ações passou a ter a conta como repositório; ver
 [`cloud-catalog.md`](cloud-catalog.md). Transcripts na nuvem, comandos remotos,
-criptografia ponta a ponta e integração
-da identidade com o relay permanecem fora desta etapa. Exigem contratos
-próprios, IDs estáveis além da sequência volátil atual e consentimento de envio.
+criptografia ponta a ponta permanecem fora desta etapa. Organizações usam a
+identidade da conta para autorizar colaboração no relay; ver
+[contrato de organizações](cloud-organizations.md).
+
 
 ## Evidência
 
@@ -110,3 +116,10 @@ com Bearer no desktop. Conectar não publica itens locais automaticamente.
 O [contrato do catálogo](cloud-catalog.md) define compartilhamento explícito,
 revisões, formatos e compatibilidade. Trocar de conta esquece vínculos
 anteriores, mantendo os arquivos locais.
+
+## Organizações
+
+`cloud_organizations` e `cloud_relay_ticket` são IPCs aditivos descritos no
+[contrato de organizações](cloud-organizations.md). O segundo devolve ticket
+curto, nunca a credencial desktop. Revogar a conta também impede renovar
+acesso às organizações.

@@ -16,6 +16,12 @@ export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
 
+    const organization = /^\/organization\/([A-Za-z0-9_-]{8,64})$/.exec(url.pathname);
+    if (organization) {
+      // Separate namespace: legacy enrollment can never grant organization access.
+      return env.TEAM.get(env.TEAM.idFromName(`organization:${organization[1]}`)).fetch(req);
+    }
+
     if (url.pathname === "/teams") {
       if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
       if (req.method !== "POST") return new Response("method", { status: 405, headers: CORS });

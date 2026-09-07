@@ -405,24 +405,28 @@ opera o Worker pode ver metadados, conversa e comentários que passam por ele. F
 máquina local o app só aceita HTTPS/WSS; para conteúdo que o operador do relay
 não possa ler, ainda é preciso hospedar o seu próprio relay.
 
-Quem fala com o relay é o **front**: ele já recebe toda linha de toda
-conversa e já sabe falar nelas. O back só guarda `~/.prometeu/team.json`
-(`0600`, com segredo do convite e credencial individual) e a marca de
-"compartilhado" no workspace.
+Quem fala com o relay é o **front**. O Rust guarda credenciais e obtém tickets
+curtos usando a conta conectada. Organizações e convites são administrados no
+Prometeu Cloud; o processo do agente continua local.
 
-### O time
+### A organização
 
-Configurações → **Time**: criar gera o código de convite
-(`pm2.<time>.<segredo>`); entrar é colar o código e dizer seu nome. O convite
-serve só para matrícula: o relay devolve uma identidade e uma credencial
-próprias para aquele app, e é ela — nunca o segredo coletivo — que autentica o
-WebSocket. Códigos `pm1` não migram com segurança; o time precisa ser recriado
-ou recebido de novo por um convite `pm2`.
+No Cloud, abra **Organizações**, crie a organização e convide pessoas por email.
+A pessoa precisa verificar o email e aceitar explicitamente o convite. Dono e
+administradores gerenciam membros e o catálogo compartilhado de MCPs, plugins e
+skills. Membros podem copiar definições para o catálogo pessoal recebido pelo desktop.
+As cópias são independentes e nunca substituem um item homônimo no destino.
+
+No desktop, **Configurações / Organizações** seleciona uma matrícula já aceita.
+Compartilhe cada workspace por escolha. Trocar de organização ou conta não
+publica compartilhamentos antigos para novas pessoas. Times legados continuam
+funcionando; a troca para organização conserva backup de `team.json`.
+Ver [contrato e migração](docs/contracts/cloud-organizations.md).
 
 ### A sessão ao vivo
 
-Na barra de um workspace seu: **Compartilhar com o time**. Ele aparece em
-"Do time" na barra lateral dos colegas, com o seu nome. Abrir mostra a conversa
+Na barra de um workspace seu: **Compartilhar**. Ele aparece em
+"Compartilhados" na barra lateral dos colegas, com o seu nome. Abrir mostra a conversa
 inteira e o que chega ao vivo; a caixa de escrever está liberada. Você vê quem
 está olhando cada conversa em chips ao lado do estado.
 
@@ -474,11 +478,11 @@ npm run relay:deploy   # precisa de `wrangler login`
 npm run relay:dev      # ou o relay local, em ws://127.0.0.1:8787
 ```
 
-Com o relay local, `VITE_RELAY=ws://127.0.0.1:8787` aponta o app (ou o
-navegador sobre o `src/mock.ts`) para ele, e dois deles testam o
-compartilhamento de ponta a ponta. O app já vem com um relay padrão embutido
-(`RELAY`, em `src/team.ts`); quem quiser o seu troca a URL em Configurações →
-Time → Relay.
+Para organizações locais, configure `RELAY_URL=http://127.0.0.1:8787` no Cloud,
+`CLOUD_URL=http://127.0.0.1:3100` em `relay/.dev.vars` e
+`PROMETEU_CLOUD_URL=http://127.0.0.1:3100` no desktop. `VITE_RELAY` continua
+configurando somente o caminho de times legados. Publicação exige atualizar
+Cloud, relay e desktop nessa ordem; testes locais não fazem deploy.
 
 ## Rodar
 

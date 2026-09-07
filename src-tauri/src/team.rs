@@ -44,6 +44,18 @@ pub fn team_config_set(config: Option<Value>) -> Result<(), String> {
             Err(e) => Err(wrap(e.to_string())),
         },
         Some(value) => {
+            if value.get("cloud").is_some() {
+                if let Ok(previous) = std::fs::read_to_string(&path) {
+                    if serde_json::from_str::<Value>(&previous)
+                        .ok()
+                        .is_some_and(|old| old.get("cloud").is_none())
+                    {
+                        let backup = path
+                            .with_file_name(format!("team-legacy-{}.json", uuid::Uuid::new_v4()));
+                        paths::write_private(&backup, &previous).map_err(wrap)?;
+                    }
+                }
+            }
             let body = serde_json::to_string_pretty(&value).map_err(|e| wrap(e.to_string()))?;
             paths::write_private(&path, &body).map_err(wrap)
         }

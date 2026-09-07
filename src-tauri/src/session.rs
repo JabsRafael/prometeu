@@ -292,11 +292,13 @@ pub fn set_shared(
     id: String,
     shared: bool,
     audience: Option<Vec<String>>,
+    team: Option<String>,
 ) {
     {
         let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(&id) {
             ws.shared = shared;
+            ws.share_team = if shared { team } else { None };
             ws.audience = if shared { audience } else { None };
         }
     }
@@ -944,6 +946,7 @@ pub fn create_workspace(
         pr: None,
         cleaned: false,
         shared: false,
+        share_team: None,
         audience: None,
         preparing: true,
         failed: None,
@@ -1905,6 +1908,7 @@ mod tests {
             pr: None,
             cleaned: false,
             shared: false,
+            share_team: None,
             audience: None,
             preparing: false,
             mcp: None,
@@ -2214,6 +2218,7 @@ mod tests {
             pr: None,
             cleaned: false,
             shared: false,
+            share_team: None,
             audience: None,
             preparing: false,
             mcp: None,
@@ -2722,6 +2727,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
             pr: None,
             cleaned: false,
             shared: false,
+            share_team: None,
             audience: None,
             preparing: false,
             mcp: None,

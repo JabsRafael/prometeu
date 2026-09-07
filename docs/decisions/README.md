@@ -55,4 +55,6 @@ Status: Proposto
 | [0018](0018-native-file-promises.md) | Aceito | recebimento nativo de miniaturas e promessas de arquivos |
 | [0019](0019-cloud-catalog.md) | Substituído pelo 0020 | catálogo portátil de plugins, MCP e Ações na conta Prometeu |
 
-| [0020](0020-personal-catalog-and-local-items.md) | Aceito | autoria no SaaS e compartilhamento explícito de itens locais |
+| [0020](0020-personal-catalog-and-local-items.md) | Parcialmente substituído pelo 0021 | autoria no SaaS e compartilhamento explícito de itens locais |
+
+| [0021](0021-cloud-organizations.md) | Aceito | organizações, convites por email e colaboração autorizada pelo Cloud |

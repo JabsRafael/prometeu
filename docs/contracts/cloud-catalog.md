@@ -92,11 +92,12 @@ em `<root>/skills-packages/<id>/`, com manifestos Claude/Codex e
 seleção e adapters existentes. Esses pacotes aparecem na página Skills e
 nos seletores, sem duplicar cadastro na página Plugins.
 
-Nesta etapa o proprietário é a pessoa autenticada (`Catalog.user_id`).
-Times, projetos, organizações e suas permissões não são implementados. Ao
-introduzi-los, a identidade remota deve incluir o catálogo proprietário;
-nomes iguais não podem implicar união ou substituição de definições. O mapa
-local já separa identidade remota do nome usado no desktop.
+Cada catálogo pertence à pessoa (`user_id`) ou à organização (`organization_id`),
+com exclusividade no banco. O desktop continua sincronizando o catálogo pessoal.
+No Cloud, membros consultam catálogos institucionais e copiam definições para
+sua conta por escolha. Dono e administradores também fazem CRUD e compartilham
+itens pessoais com a organização. As cópias são independentes, sem sobrescrever
+IDs existentes. Ver [organizações](cloud-organizations.md).
 
 ## IPC
 

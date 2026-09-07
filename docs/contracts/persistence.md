@@ -175,3 +175,12 @@ anterior; logs novos do Prometeu gravam somente o evento V1 canônico.
 Prompts, outputs, tool results e credenciais podem conter segredo. Não envie
 transcripts para telemetria e não imprima tokens/configurações completas em
 logs. Erros podem registrar caminho e causa, mas nunca conteúdo ou credencial.
+
+## Escopo de compartilhamento
+
+`Workspace.share_team` é opcional e prende o consentimento à organização e
+matrícula (`organization:<id>:<member>`), ou ao time legado (`team:<id>`).
+Ausência autoriza somente o caminho legado. `team.json` aceita o campo `cloud`
+com identidade, origem e organização; tickets não são gravados. Antes de
+substituir configuração legada, `team.rs` grava `team-legacy-<uuid>.json` privado.
+Ver [migração e rollback](cloud-organizations.md).

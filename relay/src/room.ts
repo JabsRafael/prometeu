@@ -8,6 +8,7 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { hydrate, reduce, type Effect, type Sock, type State } from "./logic";
+import { authorizeOrganization } from "./cloud";
 import {
   BINARY_FRAME_MAX,
   BYTES_PER_WINDOW_MAX,
@@ -26,9 +27,9 @@ import {
   type EnrollResponse,
 } from "./protocol";
 
-export type Env = { TEAM: DurableObjectNamespace<TeamRoom> };
+export type Env = { TEAM: DurableObjectNamespace<TeamRoom>; CLOUD_URL?: string };
 
-type Attachment = { auth: typeof PROTO; sock: string; member: string; attached: Sock["attached"] };
+type Attachment = { auth: typeof PROTO; sock: string; member: string; attached: Sock["attached"]; expires_at?: number };
 type Meta = { invite_hash: string; created_at: number; member_count: number };
 type Credential = { hash: string; created_at: number };
 
@@ -84,7 +85,7 @@ export class TeamRoom extends DurableObject<Env> {
     this.bySock.clear();
     for (const ws of this.ctx.getWebSockets()) {
       const att = ws.deserializeAttachment() as Attachment | null;
-      if (!att || att.auth !== PROTO || !isId(att.sock) || !isId(att.member)) {
+      if (!att || att.auth !== PROTO || !isId(att.sock) || !isId(att.member) || (att.expires_at !== undefined && att.expires_at <= Date.now())) {
         ws.close(1008, "reauthenticate");
         continue;
       }
@@ -163,13 +164,31 @@ export class TeamRoom extends DurableObject<Env> {
 
     // Autenticação antes de aceitar: a matrícula é atribuída pelo relay e a
     // credencial individual impede escolher o id de outra pessoa.
-    const credential = url.searchParams.get("c") ?? "";
-    const member = url.searchParams.get("m") ?? "";
-    if (!isId(member) || !isCredential(credential)) return new Response("unauthorized", { status: 401 });
-    const enrolled = await this.ctx.storage.get<Credential>(`credential:${member}`);
-    if (!enrolled || !HASH.test(enrolled.hash) || !sameHash(await sha256(credential), enrolled.hash)) return new Response("unauthorized", { status: 401 });
+    let member = url.searchParams.get("m") ?? "";
+    let name = normalizeName(url.searchParams.get("n"));
+    let expires_at: number | undefined;
+    const organization = /^\/organization\/([A-Za-z0-9_-]{8,64})$/.exec(url.pathname);
+    const access = organization ? await authorizeOrganization(this.env.CLOUD_URL ?? "https://app.prometeu.co", organization[1], url.searchParams.get("ticket") ?? "") : null;
+    if (organization) {
+      if (!access) return new Response("unauthorized", { status: 401 });
+      ({ member, name, expires_at } = access);
+    } else {
+      const credential = url.searchParams.get("c") ?? "";
+      if (!isId(member) || !isCredential(credential)) return new Response("unauthorized", { status: 401 });
+      const enrolled = await this.ctx.storage.get<Credential>(`credential:${member}`);
+      if (!enrolled || !HASH.test(enrolled.hash) || !sameHash(await sha256(credential), enrolled.hash)) return new Response("unauthorized", { status: 401 });
+    }
 
     const state = await this.load();
+    if (access) {
+      for (const [id, ws] of this.bySock) {
+        if (!access.members.some(m => m.id === state.socks.get(id)?.member)) {
+          ws.close(1008, "membership revoked");
+          this.bySock.delete(id);
+        }
+      }
+      this.apply(reduce(state, { k: "roster", members: access.members, now: Date.now() }));
+    }
     if (state.socks.size >= SOCKETS_MAX) return new Response("full", { status: 429 });
     if ([...state.socks.values()].filter((sock) => sock.member === member).length >= SOCKETS_PER_MEMBER_MAX) {
       return new Response("too many sockets", { status: 429 });
@@ -178,16 +197,20 @@ export class TeamRoom extends DurableObject<Env> {
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     const sock = crypto.randomUUID();
     this.ctx.acceptWebSocket(server, [`m:${member}`]);
-    server.serializeAttachment({ auth: PROTO, sock, member, attached: null } satisfies Attachment);
+    server.serializeAttachment({ auth: PROTO, sock, member, attached: null, expires_at } satisfies Attachment);
     this.bySock.set(sock, server);
-    this.apply(reduce(state, { k: "open", sock, member, name: normalizeName(url.searchParams.get("n")), now: Date.now() }));
+    if (expires_at) {
+      const alarm = await this.ctx.storage.getAlarm();
+      if (!alarm || expires_at < alarm) await this.ctx.storage.setAlarm(expires_at);
+    }
+    this.apply(reduce(state, { k: "open", sock, member, name, now: Date.now() }));
     return new Response(null, { status: 101, webSocket: client });
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
     const state = await this.load();
     const att = ws.deserializeAttachment() as Attachment | null;
-    if (!att || att.auth !== PROTO) return;
+    if (!att || att.auth !== PROTO || !this.liveSocket(att.sock)) return;
     if ((typeof message === "string" && message.length > TEXT_FRAME_MAX) || (typeof message !== "string" && message.byteLength > BINARY_FRAME_MAX)) {
       ws.close(1009, "message too big");
       return;
@@ -217,6 +240,7 @@ export class TeamRoom extends DurableObject<Env> {
         ws.send(JSON.stringify({ t: "error", code: "bad" }));
         return;
       }
+      if (att.expires_at !== undefined && frame && typeof frame === "object" && (frame as { t?: string }).t === "me") return;
       this.apply(reduce(state, { k: "text", sock: att.sock, frame, now: Date.now(), rand: crypto.randomUUID().slice(0, 8) }));
     } else {
       // Caminho quente, sem `await` entre receber e repassar: a ordem por
@@ -233,6 +257,33 @@ export class TeamRoom extends DurableObject<Env> {
     await this.gone(ws);
   }
 
+  async alarm() {
+    await this.load();
+    let next: number | undefined;
+    for (const ws of this.ctx.getWebSockets()) {
+      const att = ws.deserializeAttachment() as Attachment | null;
+      if (att?.expires_at === undefined) continue;
+      if (att.expires_at <= Date.now()) {
+        await this.gone(ws);
+        ws.close(1008, "reauthenticate");
+      } else {
+        next = Math.min(next ?? att.expires_at, att.expires_at);
+      }
+    }
+    if (next) await this.ctx.storage.setAlarm(next);
+  }
+
+  private liveSocket(id: string): WebSocket | undefined {
+    const ws = this.bySock.get(id);
+    const att = ws?.deserializeAttachment() as Attachment | null;
+    // ponytail: 60-second leases bound revocation; renewable leases can avoid reconnect snapshots if traffic warrants it.
+    if (att?.expires_at !== undefined && att.expires_at <= Date.now()) {
+      ws?.close(1008, "reauthenticate");
+      return undefined;
+    }
+    return ws;
+  }
+
   private async gone(ws: WebSocket) {
     const state = await this.load();
     const att = ws.deserializeAttachment() as Attachment | null;
@@ -246,13 +297,16 @@ export class TeamRoom extends DurableObject<Env> {
     for (const fx of effects) {
       switch (fx.e) {
         case "send":
-          this.bySock.get(fx.sock)?.send(JSON.stringify(fx.frame));
+          this.liveSocket(fx.sock)?.send(JSON.stringify(fx.frame));
           break;
         case "sendBinary":
-          this.bySock.get(fx.sock)?.send(fx.data);
+          this.liveSocket(fx.sock)?.send(fx.data);
           break;
         case "attachment":
-          this.bySock.get(fx.sock)?.serializeAttachment({ auth: PROTO, sock: fx.sock, member: fx.member, attached: fx.attached } satisfies Attachment);
+          this.bySock.get(fx.sock)?.serializeAttachment({
+            ...(this.bySock.get(fx.sock)?.deserializeAttachment() as Attachment),
+            auth: PROTO, sock: fx.sock, member: fx.member, attached: fx.attached,
+          } satisfies Attachment);
           break;
         case "put":
           // Sem `await`: o portão de saída da plataforma segura qualquer

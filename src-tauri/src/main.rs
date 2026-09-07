@@ -223,6 +223,8 @@ fn main() {
             team::team_config,
             team::team_config_set,
             cloud::cloud_status,
+            cloud::cloud_organizations,
+            cloud::cloud_relay_ticket,
             cloud::cloud_login_start,
             cloud::cloud_login_poll,
             cloud::cloud_login_cancel,
