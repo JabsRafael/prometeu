@@ -68,6 +68,10 @@ commit_parsers = [
   # O primeiro PR do Prometeu preservou o commit da mudança de marca e ganhou
   # um merge commit com a mesma mensagem pública. Conte apenas o commit original.
   { sha = "d35d5c3132adf64caa63006dadfb0aa73bfec7a2", skip = true },
+  # Entrou como `feat(ui)`, mas é reorganização interna: os componentes passaram
+  # a ser compartilhados entre os produtos da Prometeu sem que nada mude na
+  # tela. Reescrever a main sairia mais caro que dizer aqui.
+  { sha = "15bbd4235cbbb7a04227494adcc8171a1a46b0aa", skip = true },
   { message = "^chore\\(release\\)", skip = true },
   { message = "^Marcar a versão", skip = true },
   { message = "^Merge ", skip = true },
