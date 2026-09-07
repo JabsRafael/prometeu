@@ -401,22 +401,18 @@ function renderGroup(
         const provider = tab.choice?.agent ?? ws.agent;
         const status = ws.remote && !ws.remote.online ? "desligada" : tab.status;
         // O relay não anuncia o provider; a identidade remota é o dono.
-        // Duas linhas, como o card acima: o nome (ou o modelo) e, embaixo, o
-        // que o agente está fazendo agora — a ferramenta, ou a pergunta que
-        // ele espera responder. Parada, a aba fica numa linha só.
+        // Uma linha só: o nome (ou o modelo). O que o agente faz agora já
+        // aparece na conversa aberta.
         const agent = template(
           "button",
           "railagent",
-          `<span class="provider">${owner ? avatar(owner) : brand(provider, 15)}</span><span class="wsidentity"><span class="lbl"></span><span class="note" hidden></span></span>`,
+          `<span class="provider">${owner ? avatar(owner) : brand(provider, 15)}</span><span class="lbl"></span>`,
         );
         agent.prepend(statusDot(status));
         agent.dataset.tab = tab.id;
         const name = tabLabel(ws, tab);
         agent.querySelector(".lbl")!.textContent = name;
-        const note = agent.querySelector<HTMLElement>(".note")!;
-        note.textContent = tab.note ?? "";
-        note.hidden = !tab.note;
-        agent.title = [name, owner ?? t(`model.${provider}`), label(status), tab.note].filter(Boolean).join(" · ");
+        agent.title = [name, owner ?? t(`model.${provider}`), label(status)].filter(Boolean).join(" · ");
         agent.setAttribute("aria-label", agent.title);
         if (ws.id === openId && tab.id === hooks.activeTab()) {
           agent.classList.add("on");
