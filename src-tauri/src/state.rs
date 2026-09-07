@@ -95,7 +95,7 @@ pub enum Note {
 /// esforço. No workspace isto são três campos soltos, porque nasceram nele; na
 /// aba é um só, para que "escolheu o seu" e "segue o do workspace" sejam duas
 /// coisas — modelo vazio é uma escolha (o padrão do CLI), e não a falta de uma.
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct Choice {
     #[serde(default)]
     pub agent: ProviderId,

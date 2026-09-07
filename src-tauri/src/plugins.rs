@@ -94,7 +94,7 @@ pub fn load() -> Vec<Plugin> {
         .unwrap_or_default()
 }
 
-fn write_hub(plugins: &[Plugin]) -> Result<(), String> {
+pub(crate) fn write_hub(plugins: &[Plugin]) -> Result<(), String> {
     let body = serde_json::to_string_pretty(plugins).map_err(|e| e.to_string())?;
     paths::write_private(&hub_path(), &body)
         .map_err(|cause| i18n::ta("err.plugin.save", &[("cause", cause)]))
@@ -110,7 +110,41 @@ pub fn plugin_hub() -> Vec<Plugin> {
 /// identidade: é por ele que o CLI deduplica, e dois plugins com o mesmo nome
 /// numa sessão seriam um só de qualquer jeito.
 #[tauri::command]
-pub fn plugin_save(plugin: Plugin) -> Result<Vec<Plugin>, String> {
+pub fn plugin_save(app: AppHandle, plugin: Plugin) -> Result<Vec<Plugin>, String> {
+    let plugin = trim(plugin);
+    if plugin.id.is_empty() {
+        return Err(i18n::t("err.plugin.noName"));
+    }
+    check_source(&plugin.source)?;
+    // Plugin com endereço vai primeiro à nuvem, quando há conta. Pasta local
+    // fica só neste Mac.
+    publish_portable(&app, &plugin)?;
+    save_local(plugin)
+}
+
+fn trim(plugin: Plugin) -> Plugin {
+    Plugin {
+        id: plugin.id.trim().to_string(),
+        source: plugin.source.trim().to_string(),
+        note: plugin.note.trim().to_string(),
+        made: plugin.made,
+        from: plugin.from.trim().to_string(),
+    }
+}
+
+fn publish_portable(app: &AppHandle, plugin: &Plugin) -> Result<(), String> {
+    let Some(portable) = crate::catalog::portable(plugin) else {
+        return Ok(());
+    };
+    crate::catalog::mutate(app, |doc| {
+        doc.plugins.retain(|p| p.id != portable.id);
+        doc.plugins.push(portable.clone());
+        doc.plugins.sort_by_key(|p| p.id.to_lowercase());
+    })
+}
+
+/// Grava só neste Mac: o que o back mesmo instala ou atualiza, e os testes.
+pub(crate) fn save_local(plugin: Plugin) -> Result<Vec<Plugin>, String> {
     let plugin = Plugin {
         id: plugin.id.trim().to_string(),
         source: plugin.source.trim().to_string(),
@@ -137,8 +171,22 @@ pub fn plugin_save(plugin: Plugin) -> Result<Vec<Plugin>, String> {
 /// o que a tela já não mostra. Plugin cadastrado à mão só sai da lista; a
 /// pasta é de quem a escreveu.
 #[tauri::command]
-pub fn plugin_remove(id: String) -> Result<Vec<Plugin>, String> {
-    let mut plugins = load();
+pub fn plugin_remove(app: AppHandle, id: String) -> Result<Vec<Plugin>, String> {
+    if crate::catalog::has_plugin(&id) {
+        crate::catalog::mutate(&app, |doc| doc.plugins.retain(|p| p.id != id))?;
+    }
+    remove_hub(&id)
+}
+
+pub(crate) fn remove_hub(id: &str) -> Result<Vec<Plugin>, String> {
+    let plugins = remove_local(load(), id);
+    write_hub(&plugins)?;
+    Ok(plugins)
+}
+
+/// Tira da lista deste Mac e apaga a pasta que o Prometeu criou. Quem grava o
+/// hub é quem chama.
+pub(crate) fn remove_local(mut plugins: Vec<Plugin>, id: &str) -> Vec<Plugin> {
     let mut removed = false;
     if let Some(gone) = plugins.iter().find(|p| p.id == id) {
         removed = true;
@@ -148,11 +196,10 @@ pub fn plugin_remove(id: String) -> Result<Vec<Plugin>, String> {
         }
     }
     plugins.retain(|p| p.id != id);
-    write_hub(&plugins)?;
-    if removed && slug(&id) == id && !cfg!(test) {
+    if removed && slug(id) == id && !cfg!(test) {
         codex_remove_everywhere(&format!("{}@{}", id, codex_marketplace_name()));
     }
-    Ok(plugins)
+    plugins
 }
 
 /// O que uma origem tem que ser para o CLI aceitá-la. Recusar aqui é o que
@@ -267,7 +314,7 @@ fn flags(plugin: &Plugin) -> [String; 2] {
     }
 }
 
-fn remote(source: &str) -> bool {
+pub(crate) fn remote(source: &str) -> bool {
     source.starts_with("http://") || source.starts_with("https://")
 }
 
@@ -1080,7 +1127,15 @@ pub struct Found {
 /// É `async` porque clonar leva segundos, e a janela não pode parar enquanto
 /// isso acontece.
 #[tauri::command(async)]
-pub fn plugin_install(source: String) -> Result<Found, String> {
+pub fn plugin_install(app: AppHandle, source: String) -> Result<Found, String> {
+    let found = install(source)?;
+    if found.saved {
+        publish_portable(&app, &found.plugins[0])?;
+    }
+    Ok(found)
+}
+
+fn install(source: String) -> Result<Found, String> {
     let url = git_url(&source);
     if url.is_empty() {
         return Err(i18n::t("err.plugin.noSource"));
@@ -1106,7 +1161,7 @@ pub fn plugin_install(source: String) -> Result<Found, String> {
     // Um plugin só não é escolha: instalar já é dizer que se quer aquele.
     let saved = plugins.len() == 1;
     if saved {
-        plugin_save(plugins[0].clone())?;
+        save_local(plugins[0].clone())?;
     }
     Ok(Found {
         dir: dir.display().to_string(),
@@ -1146,7 +1201,7 @@ pub fn plugin_update(id: String) -> Result<Vec<Plugin>, String> {
     }
     let fresh = read_plugin(&dir, &plugin.from);
     if fresh.id == plugin.id {
-        return plugin_save(fresh);
+        return save_local(fresh);
     }
     Ok(load())
 }
@@ -1592,7 +1647,7 @@ fn born(dir: &Path, slug: &str) -> Result<(), String> {
     if native.get("name").and_then(Value::as_str) != Some(id.as_str()) {
         return Err(i18n::t("err.plugin.made.empty"));
     }
-    plugin_save(Plugin {
+    save_local(Plugin {
         id,
         source: dir.display().to_string(),
         note: text("description"),
@@ -1768,7 +1823,7 @@ mod tests {
     /// Nome vazio não grava: é a identidade do plugin, e o CLI dedupe por ele.
     #[test]
     fn sem_nome_nao_grava() {
-        assert!(plugin_save(plugin("  ", "/opt/x")).is_err());
+        assert!(save_local(plugin("  ", "/opt/x")).is_err());
     }
 
     /// Pasta que não é plugin é recusada no cadastro, e não descoberta no
@@ -2223,7 +2278,7 @@ opcao = "preservada"
         let workspace = format!("workspace-{suffix}");
         let home = codex_workspace_home(&workspace);
         let result = (|| -> Result<(), String> {
-            plugin_save(plugin(&id, &source.display().to_string()))?;
+            save_local(plugin(&id, &source.display().to_string()))?;
             let chosen = vec![id.clone()];
             let selected = codex_for(
                 &workspace,
@@ -2502,7 +2557,7 @@ opcao = "preservada"
         // Só este teste roda quando se pede `--ignored`; o env é do processo.
         std::env::set_var("PROMETEU_ROOT", &root);
 
-        let found = plugin_install("JuliusBrussee/caveman".into()).unwrap();
+        let found = install("JuliusBrussee/caveman".into()).unwrap();
         assert!(found.saved);
         assert_eq!(found.plugins.len(), 1);
         assert_eq!(found.plugins[0].id, "caveman");
@@ -2521,11 +2576,11 @@ opcao = "preservada"
 
         // Instalar de novo é atualizar, e o hub diz isso em vez de clonar por
         // cima do que já está lá.
-        assert!(plugin_install("https://github.com/JuliusBrussee/caveman".into()).is_err());
+        assert!(install("https://github.com/JuliusBrussee/caveman".into()).is_err());
         plugin_update("caveman".into()).unwrap();
 
         // Remover leva a pasta junto, porque ela é do Prometeu.
-        plugin_remove("caveman".into()).unwrap();
+        remove_hub("caveman").unwrap();
         assert!(!store().join("caveman").exists());
         std::env::remove_var("PROMETEU_ROOT");
         std::fs::remove_dir_all(&root).ok();

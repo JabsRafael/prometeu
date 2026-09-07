@@ -2,11 +2,12 @@
 //! fica em arquivo privado e nunca atravessa o IPC. Não sincroniza conversas.
 
 use crate::{i18n, oauth, paths};
-use reqwest::{blocking::Client, Url};
+use reqwest::{blocking::Client, Method, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use tauri::AppHandle;
 
 const CLIENT: &str = "prometeu-desktop";
 static PENDING: Mutex<Option<Pending>> = Mutex::new(None);
@@ -107,18 +108,64 @@ fn request(
     token: Option<&str>,
     body: Option<Value>,
 ) -> Result<(u16, Value), String> {
+    let method = if body.is_some() {
+        Method::POST
+    } else {
+        Method::GET
+    };
+    http(
+        origin,
+        method,
+        &format!("/api/auth/{path}"),
+        token,
+        body,
+        65_536,
+    )
+}
+
+/// Uma chamada autenticada à API com a credencial guardada. `None` sem conta.
+/// O token continua só aqui: quem chama recebe status e JSON.
+pub(crate) fn api(
+    method: Method,
+    path: &str,
+    body: Option<Value>,
+) -> Result<Option<(u16, Value)>, String> {
+    let Some(saved) = load()? else {
+        return Ok(None);
+    };
+    http(
+        &saved.origin,
+        method,
+        path,
+        Some(&saved.token),
+        body,
+        512 * 1024,
+    )
+    .map(Some)
+}
+
+pub(crate) fn connected() -> bool {
+    load().ok().flatten().is_some()
+}
+
+fn http(
+    origin: &str,
+    method: Method,
+    path: &str,
+    token: Option<&str>,
+    body: Option<Value>,
+    max: usize,
+) -> Result<(u16, Value), String> {
     let client = Client::builder()
         .timeout(Duration::from_secs(12))
         .redirect(reqwest::redirect::Policy::none())
         .user_agent("Prometeu Desktop")
         .build()
         .map_err(|_| i18n::t("err.cloud.network"))?;
-    let url = format!("{origin}/api/auth/{path}");
-    let mut request = if let Some(body) = body {
-        client.post(url).json(&body)
-    } else {
-        client.get(url)
-    };
+    let mut request = client.request(method, format!("{origin}{path}"));
+    if let Some(body) = body {
+        request = request.json(&body);
+    }
     if let Some(token) = token {
         request = request.bearer_auth(token);
     }
@@ -128,10 +175,10 @@ fn request(
     use std::io::Read;
     let mut bytes = Vec::new();
     response
-        .take(65_537)
+        .take(max as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| i18n::t("err.cloud.network"))?;
-    if bytes.len() > 65_536 {
+    if bytes.len() > max {
         return Err(i18n::t("err.cloud.response"));
     }
     let value = serde_json::from_slice(&bytes).map_err(|_| i18n::t("err.cloud.response"))?;
@@ -196,8 +243,18 @@ async fn blocking<T: Send + 'static>(
 }
 
 #[tauri::command]
-pub async fn cloud_status(refresh: bool) -> Result<Status, String> {
-    blocking(move || status(refresh)).await
+pub async fn cloud_status(app: AppHandle, refresh: bool) -> Result<Status, String> {
+    blocking(move || {
+        let status = status(refresh)?;
+        // A conta viva traz o catálogo junto; falha aqui não derruba a conta.
+        if refresh && status.user.is_some() && !status.offline {
+            if let Err(error) = crate::catalog::pull(&app) {
+                eprintln!("catálogo não sincronizado: {error}");
+            }
+        }
+        Ok(status)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -252,7 +309,7 @@ pub async fn cloud_login_start(signup: bool) -> Result<Login, String> {
 }
 
 #[tauri::command]
-pub async fn cloud_login_poll(id: String) -> Result<Option<Status>, String> {
+pub async fn cloud_login_poll(app: AppHandle, id: String) -> Result<Option<Status>, String> {
     blocking(move || {
         let attempt = {
             let mut pending = PENDING.lock().unwrap_or_else(|e| e.into_inner());
@@ -294,6 +351,11 @@ pub async fn cloud_login_poll(id: String) -> Result<Option<Status>, String> {
             let _storage = STORAGE.lock().unwrap_or_else(|e| e.into_inner());
             save(&saved)?;
             *pending = None;
+            drop(pending);
+            drop(_storage);
+            if let Err(error) = crate::catalog::pull(&app) {
+                eprintln!("catálogo não sincronizado: {error}");
+            }
             Ok(Some(Status { user: Some(saved.user), origin: saved.origin, offline: false }))
         })();
         if result.is_err() {
@@ -334,6 +396,7 @@ pub async fn cloud_logout() -> Result<Status, String> {
                 return Err(i18n::t("err.cloud.network"));
             }
             clear()?;
+            crate::catalog::forget();
         }
         Ok(Status {
             user: None,

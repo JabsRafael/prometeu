@@ -815,6 +815,21 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       localStorage.removeItem("mock:cloudApproved"); cloudPending = null;
       return value;
     }
+    // O catálogo na nuvem, no navegador: com conta, o caveman está lá e um
+    // plugin só da nuvem espera instalação; sem conta, nada é marcado.
+    case "catalog_state": {
+      if (!mockCloud().user) return { connected: false, plugins: [], mcp: [] };
+      return {
+        connected: true,
+        plugins: [
+          { id: "caveman", source: "https://github.com/JuliusBrussee/caveman", note: "fala curto e sem enfeite" },
+          { id: "revisor", source: "https://github.com/prometeu/revisor", note: "revisa PR" },
+        ],
+        mcp: ["notion"],
+      };
+    }
+    case "catalog_refresh":
+      return null;
     case "cloud_login_cancel":
       if (cloudPending === args.id) cloudPending = null;
       return;

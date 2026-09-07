@@ -5,6 +5,7 @@ mod actions;
 mod agents;
 mod awake;
 mod browser;
+mod catalog;
 mod chat;
 mod claude;
 mod cloud;
@@ -225,6 +226,8 @@ fn main() {
             cloud::cloud_login_poll,
             cloud::cloud_login_cancel,
             cloud::cloud_logout,
+            catalog::catalog_state,
+            catalog::catalog_refresh,
         ])
         .setup(|app| {
             file_drop::install(app.handle())?;

@@ -84,7 +84,9 @@ tokens de teste antigos exigem nova conexão. As rotas internas do site foram
 substituídas por formulários Rails com CSRF; não eram consumidas pelo desktop.
 Ver [ADR 0015](../decisions/0015-cloud-rails.md).
 
-Transcripts na nuvem, comandos remotos, criptografia ponta a ponta e integração
+O catálogo de plugins, MCP e Ações passou a ter a conta como repositório; ver
+[`cloud-catalog.md`](cloud-catalog.md). Transcripts na nuvem, comandos remotos,
+criptografia ponta a ponta e integração
 da identidade com o relay permanecem fora desta etapa. Exigem contratos
 próprios, IDs estáveis além da sequência volátil atual e consentimento de envio.
 

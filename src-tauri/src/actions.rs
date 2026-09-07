@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use tauri::{AppHandle, Manager, State};
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct Catalog {
     #[serde(default)]
     pub defaults_initialized: bool,
@@ -51,7 +51,7 @@ pub enum Permission {
     Auto,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct Profile {
     pub id: String,
     pub name: String,
@@ -64,7 +64,7 @@ pub struct Profile {
     pub watch: Option<Watch>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct Watch {
     pub interval_seconds: u64,
     pub comments: bool,
@@ -79,7 +79,7 @@ pub enum Kind {
     Agent,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct Action {
     pub name: String,
     pub description: String,
@@ -176,6 +176,7 @@ pub fn actions_save(
     catalog: Catalog,
 ) -> Result<(), String> {
     validate(&catalog)?;
+    crate::catalog::mutate(&app, |doc| doc.actions = Some(catalog.clone()))?;
     lock(&state.board).actions = catalog;
     publish(&app);
     Ok(())

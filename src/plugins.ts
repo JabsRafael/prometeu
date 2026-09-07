@@ -4,6 +4,7 @@ import { invoke } from "./ipc";
 import { icon } from "./icons";
 import { fromBack, t, type Key } from "./i18n";
 import * as menu from "./menu";
+import * as catalog from "./catalog";
 import type { Plugin } from "./types";
 import { $, h, template } from "./util";
 
@@ -151,7 +152,27 @@ export function init(context: Ctx) {
 /// As linhas da página "Plugins": uma por plugin, e a primeira é o que esta
 /// página é e o que se faz nela.
 export function settingsRows(): HTMLElement[] {
-  return [aboutRow(), ...(hub.length ? hub.map(pluginRow) : [emptyRow()])];
+  // O que está na nuvem e ainda não neste Mac aparece com o botão de instalar.
+  const missing = catalog.current().plugins.filter((p) => !known(p.id));
+  const rows = [...hub.map(pluginRow), ...missing.map(cloudRow)];
+  return [aboutRow(), ...(rows.length ? rows : [emptyRow()])];
+}
+
+function cloudRow(p: { id: string; source: string; note: string }): HTMLElement {
+  const row = template(
+    "div",
+    "setrow",
+    `<span class="glyph"></span><div class="txt"><b></b><span></span></div><div class="act"></div>`,
+  );
+  row.querySelector(".glyph")!.innerHTML = icon("globe", 18);
+  row.querySelector(".txt b")!.textContent = p.id;
+  const where = p.note.trim() ? `${p.source} · ${p.note.trim()}` : p.source;
+  row.querySelector(".txt span")!.textContent = `${where} · ${t("catalog.notInstalled")}`;
+  const get = template("button", "outline md", `<span></span>`) as HTMLButtonElement;
+  get.children[0].textContent = t("catalog.install");
+  get.addEventListener("click", () => installer(p.source));
+  row.querySelector(".act")!.append(get);
+  return row;
 }
 
 function aboutRow(): HTMLElement {
@@ -194,7 +215,8 @@ function pluginRow(plugin: Plugin): HTMLElement {
   );
   row.querySelector(".glyph")!.innerHTML = icon(remote(plugin.source) ? "globe" : "puzzle", 18);
   row.querySelector(".txt b")!.textContent = plugin.id;
-  row.querySelector(".txt span")!.textContent = subtitle(plugin);
+  const mark = catalog.tag("plugins", plugin.id);
+  row.querySelector(".txt span")!.textContent = mark ? `${subtitle(plugin)} · ${mark}` : subtitle(plugin);
 
   const act = row.querySelector(".act")!;
   // Atualizar é o `git pull` da pasta clonada: só existe para o que veio de um
@@ -393,7 +415,7 @@ type Found = { dir: string; plugins: Plugin[]; saved: boolean };
 /// repositório que é um plugin entra direto; o que traz vários vira uma lista
 /// para marcar — e fechar sem marcar nada desfaz o clone, para o disco não
 /// guardar o que ninguém escolheu.
-function installer() {
+function installer(prefill = "") {
   const veil = $("veil");
   const sheet = template(
     "div",
@@ -401,7 +423,7 @@ function installer() {
     `<div class="sheettop"><b class="mt"></b></div><div class="mbody"></div><div class="sheetbar"></div>`,
   );
   const at = <T extends HTMLElement>(sel: string) => sheet.querySelector(sel) as T;
-  let source = "";
+  let source = prefill;
   let busy = false;
   let found: Found | null = null;
   const chosen = new Set<string>();

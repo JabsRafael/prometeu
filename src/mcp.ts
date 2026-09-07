@@ -3,6 +3,7 @@ import { invoke } from "./ipc";
 import { icon } from "./icons";
 import { fromBack, t, tn, type Key } from "./i18n";
 import * as menu from "./menu";
+import * as catalog from "./catalog";
 import type { McpCheck, McpServer, McpStep } from "./types";
 import { $, h, template } from "./util";
 
@@ -203,8 +204,8 @@ function serverRow(server: McpServer): HTMLElement {
   );
   row.querySelector(".glyph")!.innerHTML = icon(kind(server) === "stdio" ? "terminal" : "globe", 18);
   row.querySelector(".txt b")!.textContent = server.id;
-  const sub = subtitle(server);
-  row.querySelector(".txt span")!.textContent = signedIn(server.id) ? `${sub} · ${t("mcp.connected")}` : sub;
+  const parts = [subtitle(server), signedIn(server.id) ? t("mcp.connected") : "", catalog.tag("mcp", server.id)];
+  row.querySelector(".txt span")!.textContent = parts.filter(Boolean).join(" · ");
 
   const edit = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
   edit.children[0].textContent = t("mcp.edit");
@@ -245,6 +246,12 @@ async function remove(server: McpServer) {
 
 async function save(server: McpServer) {
   hub = await invoke<McpServer[]>("mcp_save", { server });
+  announce();
+}
+
+/// A nuvem trouxe ou levou servidores: quem gravou foi o back.
+export async function refresh() {
+  hub = await invoke<McpServer[]>("mcp_hub");
   announce();
 }
 

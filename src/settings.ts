@@ -19,6 +19,7 @@ import {
   setDefaultPlugins,
 } from "./launcher";
 import * as mcp from "./mcp";
+import * as catalog from "./catalog";
 import * as menu from "./menu";
 import * as plugins from "./plugins";
 import * as news from "./news";
@@ -66,6 +67,13 @@ export async function init(context: Ctx) {
     if (!$("settingsView").hidden) draw();
   });
   plugins.onChange(() => {
+    if (!$("settingsView").hidden) draw();
+  });
+  // A nuvem marca linhas e traz plugins ainda não instalados aqui.
+  catalog.init(async () => {
+    await Promise.all([plugins.refresh(), mcp.refresh()]);
+  });
+  catalog.onChange(() => {
     if (!$("settingsView").hidden) draw();
   });
   // Presença muda sozinha; a linha do time acompanha — menos enquanto você

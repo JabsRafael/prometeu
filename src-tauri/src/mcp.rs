@@ -47,7 +47,7 @@ use std::time::{Duration, Instant};
 /// Claude Code o entende — guardado inteiro, e não em campos nossos, porque a
 /// forma é dele: um `type` novo do CLI passa por aqui sem release do
 /// Prometeu.
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 pub struct Server {
     /// O nome do servidor, que é a chave dentro de `mcpServers` e o prefixo de
     /// toda ferramenta que ele oferece (`mcp__notion__…`).
@@ -85,7 +85,7 @@ pub fn load() -> Vec<Server> {
         .unwrap_or_default()
 }
 
-fn store(servers: &[Server]) -> Result<(), String> {
+pub(crate) fn store(servers: &[Server]) -> Result<(), String> {
     let body = serde_json::to_string_pretty(servers).map_err(|e| e.to_string())?;
     paths::write_private(&hub_path(), &body)
         .map_err(|cause| i18n::ta("err.mcp.save", &[("cause", cause)]))
@@ -101,7 +101,7 @@ pub fn mcp_hub() -> Vec<Server> {
 /// identidade: é ele que o agente vê no prefixo das ferramentas, e dois
 /// servidores com o mesmo nome numa sessão seriam um só.
 #[tauri::command]
-pub fn mcp_save(server: Server) -> Result<Vec<Server>, String> {
+pub fn mcp_save(app: tauri::AppHandle, server: Server) -> Result<Vec<Server>, String> {
     let id = server.id.trim().to_string();
     if id.is_empty() {
         return Err(i18n::t("err.mcp.noName"));
@@ -109,8 +109,15 @@ pub fn mcp_save(server: Server) -> Result<Vec<Server>, String> {
     if !server.config.is_object() {
         return Err(i18n::t("err.mcp.badConfig"));
     }
-    let mut servers = load();
     let server = Server { id, ..server };
+    // A forma vai à nuvem sem os valores de `env` e `headers`, que são deste Mac.
+    let shape = crate::catalog::blank(&server);
+    crate::catalog::mutate(&app, |doc| {
+        doc.mcp.retain(|s| s.id != shape.id);
+        doc.mcp.push(shape.clone());
+        doc.mcp.sort_by_key(|s| s.id.to_lowercase());
+    })?;
+    let mut servers = load();
     match servers.iter_mut().find(|s| s.id == server.id) {
         Some(old) => *old = server,
         None => servers.push(server),
@@ -121,7 +128,10 @@ pub fn mcp_save(server: Server) -> Result<Vec<Server>, String> {
 }
 
 #[tauri::command]
-pub fn mcp_remove(id: String) -> Result<Vec<Server>, String> {
+pub fn mcp_remove(app: tauri::AppHandle, id: String) -> Result<Vec<Server>, String> {
+    if crate::catalog::has_mcp(&id) {
+        crate::catalog::mutate(&app, |doc| doc.mcp.retain(|s| s.id != id))?;
+    }
     let mut servers = load();
     servers.retain(|s| s.id != id);
     store(&servers)?;
