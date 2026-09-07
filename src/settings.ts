@@ -20,6 +20,7 @@ import {
 } from "./launcher";
 import * as mcp from "./mcp";
 import * as catalog from "./catalog";
+import * as skills from "./skills";
 import * as menu from "./menu";
 import * as plugins from "./plugins";
 import * as news from "./news";
@@ -47,6 +48,8 @@ let legacy: LegacyImportPlan | null = null;
 
 export async function init(context: Ctx) {
   ctx = context;
+  skills.init(ctx.say);
+  skills.onChange(() => { if (!$("settingsView").hidden) draw(); });
   actions.onChange(() => { if (!$("settingsView").hidden) draw(); });
   listen<LinearStatus>("linear", ({ payload }) => {
     status = payload;
@@ -71,7 +74,7 @@ export async function init(context: Ctx) {
   });
   // A nuvem marca linhas e traz plugins ainda não instalados aqui.
   catalog.init(async () => {
-    await Promise.all([plugins.refresh(), mcp.refresh()]);
+    await Promise.all([plugins.refresh(), mcp.refresh(), skills.refresh()]);
   });
   catalog.onChange(() => {
     if (!$("settingsView").hidden) draw();
@@ -125,6 +128,7 @@ const PAGES: Page[] = [
     glyph: "puzzle",
     rows: () => plugins.settingsRows(),
   },
+  { id: "skills", title: "skill.title", glyph: "sparkles", rows: () => skills.settingsRows() },
   {
     id: "integracoes",
     title: "settings.integrations",

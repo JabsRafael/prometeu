@@ -101,24 +101,29 @@ pub(crate) fn write_hub(plugins: &[Plugin]) -> Result<(), String> {
 }
 
 /// O cadastro inteiro, para a tela de Configurações e para os seletores.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn plugin_hub() -> Vec<Plugin> {
+    let _sync = crate::catalog::guard();
     load()
 }
 
 /// Grava um plugin — novo, ou por cima do que tinha o mesmo nome. O nome é a
 /// identidade: é por ele que o CLI deduplica, e dois plugins com o mesmo nome
 /// numa sessão seriam um só de qualquer jeito.
-#[tauri::command]
-pub fn plugin_save(app: AppHandle, plugin: Plugin) -> Result<Vec<Plugin>, String> {
+#[tauri::command(async)]
+pub fn plugin_save(
+    app: AppHandle,
+    plugin: Plugin,
+    revision: Option<u64>,
+) -> Result<Vec<Plugin>, String> {
+    let _sync = crate::catalog::guard();
     let plugin = trim(plugin);
     if plugin.id.is_empty() {
         return Err(i18n::t("err.plugin.noName"));
     }
     check_source(&plugin.source)?;
-    // Plugin com endereço vai primeiro à nuvem, quando há conta. Pasta local
-    // fica só neste Mac.
-    publish_portable(&app, &plugin)?;
+    // Apenas itens explicitamente compartilhados publicam as alterações.
+    crate::catalog::save_plugin(&app, &plugin, revision)?;
     save_local(plugin)
 }
 
@@ -130,17 +135,6 @@ fn trim(plugin: Plugin) -> Plugin {
         made: plugin.made,
         from: plugin.from.trim().to_string(),
     }
-}
-
-fn publish_portable(app: &AppHandle, plugin: &Plugin) -> Result<(), String> {
-    let Some(portable) = crate::catalog::portable(plugin) else {
-        return Ok(());
-    };
-    crate::catalog::mutate(app, |doc| {
-        doc.plugins.retain(|p| p.id != portable.id);
-        doc.plugins.push(portable.clone());
-        doc.plugins.sort_by_key(|p| p.id.to_lowercase());
-    })
 }
 
 /// Grava só neste Mac: o que o back mesmo instala ou atualiza, e os testes.
@@ -170,11 +164,10 @@ pub(crate) fn save_local(plugin: Plugin) -> Result<Vec<Plugin>, String> {
 /// ela só existe por causa deste cadastro, e deixá-la seria guardar no escuro
 /// o que a tela já não mostra. Plugin cadastrado à mão só sai da lista; a
 /// pasta é de quem a escreveu.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn plugin_remove(app: AppHandle, id: String) -> Result<Vec<Plugin>, String> {
-    if crate::catalog::has_plugin(&id) {
-        crate::catalog::mutate(&app, |doc| doc.plugins.retain(|p| p.id != id))?;
-    }
+    let _sync = crate::catalog::guard();
+    crate::catalog::remove_shared(&app, "plugins", &id)?;
     remove_hub(&id)
 }
 
@@ -1127,15 +1120,16 @@ pub struct Found {
 /// É `async` porque clonar leva segundos, e a janela não pode parar enquanto
 /// isso acontece.
 #[tauri::command(async)]
-pub fn plugin_install(app: AppHandle, source: String) -> Result<Found, String> {
-    let found = install(source)?;
-    if found.saved {
-        publish_portable(&app, &found.plugins[0])?;
-    }
-    Ok(found)
+pub fn plugin_install(source: String) -> Result<Found, String> {
+    let _sync = crate::catalog::guard();
+    install(source)
 }
 
 fn install(source: String) -> Result<Found, String> {
+    install_into(source, true)
+}
+
+fn install_into(source: String, register: bool) -> Result<Found, String> {
     let url = git_url(&source);
     if url.is_empty() {
         return Err(i18n::t("err.plugin.noSource"));
@@ -1160,7 +1154,10 @@ fn install(source: String) -> Result<Found, String> {
     }
     // Um plugin só não é escolha: instalar já é dizer que se quer aquele.
     let saved = plugins.len() == 1;
-    if saved {
+    if saved && register {
+        if load().iter().any(|p| p.id == plugins[0].id) {
+            return Err(i18n::t("err.catalog.conflict"));
+        }
         save_local(plugins[0].clone())?;
     }
     Ok(Found {
@@ -1168,6 +1165,56 @@ fn install(source: String) -> Result<Found, String> {
         plugins,
         saved,
     })
+}
+
+/// Instala somente o item escolhido do catálogo, preservando nomes locais.
+pub(crate) fn install_catalog(
+    source: &str,
+    expected_id: &str,
+    local_id: &str,
+    note: &str,
+) -> Result<(), String> {
+    if source.to_lowercase().ends_with(".zip") && remote(source) {
+        return save_local(Plugin {
+            id: local_id.into(),
+            source: source.into(),
+            note: note.into(),
+            made: false,
+            from: String::new(),
+        })
+        .map(|_| ());
+    }
+    // Um clone já usado por outro item do mesmo catálogo pode ser reutilizado.
+    let dir = store().join(repo_name(&git_url(source)));
+    let candidates = if dir.exists() && lives_in(&dir) {
+        let root = git_root(&dir).ok_or_else(|| i18n::t("err.catalog.conflict"))?;
+        let origin = git(&root, &["remote", "get-url", "origin"])?;
+        if !origin.status.success()
+            || String::from_utf8_lossy(&origin.stdout).trim() != git_url(source)
+        {
+            return Err(i18n::t("err.catalog.conflict"));
+        }
+        plugins_in(&dir, &git_url(source))
+    } else {
+        install_into(source.into(), false)?.plugins
+    };
+    let mut plugin = candidates
+        .iter()
+        .find(|p| p.id == expected_id)
+        .or_else(|| {
+            if candidates.len() == 1 {
+                candidates.first()
+            } else {
+                None
+            }
+        })
+        .cloned()
+        .ok_or_else(|| i18n::t("err.catalog.invalid"))?;
+    plugin.id = local_id.into();
+    plugin.note = note.into();
+    // A pasta pode conter outros plugins. Remover o cadastro não apaga o clone.
+    plugin.made = false;
+    save_local(plugin).map(|_| ())
 }
 
 /// Desfaz o clone que ninguém escolheu — a folha fechada sem marcar nada. Só
@@ -1186,6 +1233,7 @@ pub fn plugin_scrap(dir: String) {
 /// dela que sai a linha embaixo do nome, e ela envelhece junto com o plugin.
 #[tauri::command(async)]
 pub fn plugin_update(id: String) -> Result<Vec<Plugin>, String> {
+    let _sync = crate::catalog::guard();
     let plugin = load()
         .into_iter()
         .find(|p| p.id == id)
@@ -1742,6 +1790,91 @@ fn fold(ch: char) -> char {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn catalog_install_keeps_private_names_and_reuses_clone() {
+        // Um processo isolado evita alterar PROMETEU_ROOT dos testes paralelos.
+        if std::env::var("PROMETEU_CATALOG_TEST_CHILD").as_deref() != Ok("1") {
+            let root = std::env::temp_dir()
+                .join(format!("prometeu-catalog-install-{}", uuid::Uuid::new_v4()));
+            let result = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "plugins::tests::catalog_install_keeps_private_names_and_reuses_clone",
+                    "--nocapture",
+                ])
+                .env("PROMETEU_CATALOG_TEST_CHILD", "1")
+                .env("PROMETEU_ROOT", &root)
+                .output()
+                .unwrap();
+            std::fs::remove_dir_all(&root).ok();
+            assert!(
+                result.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            return;
+        }
+        let root = paths::root();
+        let source = root.join("source-review");
+        let private = root.join("private-review");
+        for directory in [&source, &private] {
+            paths::write_private(
+                &directory.join(".claude-plugin/plugin.json"),
+                r#"{"name":"review","description":"fixture"}"#,
+            )
+            .unwrap();
+        }
+        for args in [
+            vec!["init", "-q"],
+            vec!["add", "."],
+            vec![
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.com",
+                "commit",
+                "-qm",
+                "fixture",
+            ],
+        ] {
+            assert!(Command::new("git")
+                .current_dir(&source)
+                .args(args)
+                .status()
+                .unwrap()
+                .success());
+        }
+        save_local(plugin("review", private.to_str().unwrap())).unwrap();
+        let url = format!("file://{}", source.display());
+        install_catalog(&url, "review", "cloud-review-1", "from cloud").unwrap();
+        let first = load();
+        assert_eq!(first.len(), 2);
+        assert_eq!(
+            first.iter().find(|p| p.id == "review").unwrap().source,
+            private.to_string_lossy()
+        );
+        let installed = first.iter().find(|p| p.id == "cloud-review-1").unwrap();
+        assert_eq!(installed.from, url);
+        assert!(!installed.made);
+        let installed_path = PathBuf::from(&installed.source);
+        // Reinstalar reutiliza o clone e não registra o nome original por cima do privado.
+        install_catalog(&url, "review", "cloud-review-1", "updated note").unwrap();
+        assert_eq!(load().len(), 2);
+        assert_eq!(
+            load()
+                .iter()
+                .find(|p| p.id == "cloud-review-1")
+                .unwrap()
+                .note,
+            "updated note"
+        );
+        remove_hub("cloud-review-1").unwrap();
+        assert!(installed_path.exists());
+        assert!(private.exists());
+        assert_eq!(load().len(), 1);
+    }
 
     #[test]
     fn limpeza_encontra_todas_as_contas_sem_seguir_links() {

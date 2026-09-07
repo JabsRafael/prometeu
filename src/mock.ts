@@ -7,6 +7,8 @@ import { LegacyConversationAdapter } from "./conversation-legacy";
 import * as team from "./team";
 import type { Accounts } from "./statusbar";
 import type { CloudStatus } from "./cloud";
+import type { CatalogState } from "./catalog";
+import type { Skill } from "./skills";
 import { hasWorktree, type Board, type Change, type Choice, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type Pr, type Scripts, type Tab, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
@@ -15,6 +17,29 @@ let nextId = 1;
 let cloudPending: string | null = null;
 const emptyCloud = (): CloudStatus => ({ user: null, origin: "https://app.prometeu.co", offline: false });
 const mockCloud = (): CloudStatus => JSON.parse(localStorage.getItem("mock:cloud") ?? "null") ?? emptyCloud();
+let skillHub: Skill[] = JSON.parse(localStorage.getItem("mock:skills") ?? "[]");
+const mockCatalog = (): CatalogState => JSON.parse(localStorage.getItem("mock:catalog") ?? "null") ?? {
+  connected: true, revision: 0,
+  plugins: [
+    { id: "caveman", source: "https://github.com/JuliusBrussee/caveman", note: "fala curto e sem enfeite", local_id: "caveman", installed: true, source_changed: false },
+    { id: "revisor", source: "https://github.com/prometeu/revisor", note: "revisa PR", local_id: "revisor", installed: false, source_changed: false },
+  ],
+  mcp: ["notion"],
+  skills: [{ id: "revisao-cloud", description: "Revisar alterações", content: "Leia o diff e relate bugs.", local_id: "revisao-cloud", installed: false }],
+  shared: { "plugins:caveman": "caveman", "plugins:revisor": "revisor", "mcp:notion": "notion", "skills:revisao-cloud": "revisao-cloud" },
+};
+function cloudWrite() {
+  if (!mockCloud().user) throw 'i18n:{"code":"err.catalog.disconnected"}';
+  if (localStorage.getItem("mock:cloudOffline")) throw 'i18n:{"code":"err.cloud.network"}';
+}
+function saveMockCatalog(value: CatalogState) { value.revision = (value.revision ?? 0) + 1; localStorage.setItem("mock:catalog", JSON.stringify(value)); emit("catalog", null); }
+function saveMockSkill(skill: Skill) {
+  if (!/^[a-z0-9][a-z0-9-]{0,55}$/.test(skill.id) || !skill.description.trim() || skill.description.length > 2000 || !skill.content.trim() || new TextEncoder().encode(skill.content).length > 65536) throw 'i18n:{"code":"err.catalog.invalid"}';
+  skillHub = [...skillHub.filter(s => s.id !== skill.id), skill];
+  localStorage.setItem("mock:skills", JSON.stringify(skillHub));
+  const id = `skill-${skill.id}`;
+  pluginHub = [...pluginHub.filter(p => p.id !== id), { id, source: `~/.prometeu/skills-packages/${skill.id}`, note: skill.description, made: false }];
+}
 const w = window as unknown as Record<string, unknown>;
 
 const accountDefaults: Accounts = {
@@ -812,24 +837,80 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       if (!localStorage.getItem("mock:cloudApproved")) return null;
       const value = { ...emptyCloud(), user: { id: "cloud-user", name: "Gustavo Brancaglione", email: "gustavo@example.com" } };
       localStorage.setItem("mock:cloud", JSON.stringify(value));
-      localStorage.removeItem("mock:cloudApproved"); cloudPending = null;
+      localStorage.removeItem("mock:cloudApproved"); cloudPending = null; emit("catalog", null);
       return value;
     }
-    // O catálogo na nuvem, no navegador: com conta, o caveman está lá e um
-    // plugin só da nuvem espera instalação; sem conta, nada é marcado.
     case "catalog_state": {
-      if (!mockCloud().user) return { connected: false, plugins: [], mcp: [] };
-      return {
-        connected: true,
-        plugins: [
-          { id: "caveman", source: "https://github.com/JuliusBrussee/caveman", note: "fala curto e sem enfeite" },
-          { id: "revisor", source: "https://github.com/prometeu/revisor", note: "revisa PR" },
-        ],
-        mcp: ["notion"],
-      };
+      if (!mockCloud().user) return { connected: false, revision: null, plugins: [], mcp: [], skills: [], shared: {} };
+      const state = mockCatalog();
+      state.plugins = state.plugins.map(p => ({ ...p, installed: pluginHub.some(local => local.id === p.local_id) }));
+      state.skills = state.skills.map(s => ({ ...s, installed: skillHub.some(local => local.id === s.local_id) }));
+      return state;
     }
     case "catalog_refresh":
-      return null;
+      cloudWrite(); emit("catalog", null); return null;
+    case "catalog_share": {
+      cloudWrite();
+      const kind = String(args.kind), id = String(args.id), state = mockCatalog();
+      if (state.shared[`${kind}:${id}`]) throw 'i18n:{"code":"err.catalog.conflict"}';
+      if (kind === "plugins") {
+        const plugin = pluginHub.find(p => p.id === id);
+        const source = plugin?.from || plugin?.source || "";
+        if (!/^(https?:\/\/|git@|[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$)/.test(source)) throw 'i18n:{"code":"err.catalog.portable"}';
+        state.plugins.push({ id, source, note: plugin!.note, local_id: id, installed: true, source_changed: false });
+      } else if (kind === "mcp") state.mcp.push(id);
+      else if (kind === "skills") {
+        const skill = skillHub.find(s => s.id === id); if (!skill) throw 'i18n:{"code":"err.catalog.invalid"}';
+        state.skills.push({ ...skill, local_id: id, installed: true });
+      } else throw 'i18n:{"code":"err.catalog.invalid"}';
+      state.shared[`${kind}:${id}`] = id; saveMockCatalog(state); return null;
+    }
+    case "catalog_copy": {
+      const kind = String(args.kind), id = String(args.id), newId = String(args.newId).trim();
+      if (!newId) throw 'i18n:{"code":"err.catalog.invalid"}';
+      if (kind === "skills") {
+        if (skillHub.some(s => s.id === newId)) throw 'i18n:{"code":"err.catalog.conflict"}';
+        const skill = skillHub.find(s => s.id === id); if (!skill) throw 'i18n:{"code":"err.catalog.invalid"}';
+        saveMockSkill({ ...skill, id: newId });
+      } else if (kind === "mcp") {
+        if (mcpHub.some(s => s.id === newId)) throw 'i18n:{"code":"err.catalog.conflict"}';
+        const server = mcpHub.find(s => s.id === id); if (!server) throw 'i18n:{"code":"err.catalog.invalid"}';
+        mcpHub.push({ ...structuredClone(server), id: newId });
+      } else {
+        if (pluginHub.some(p => p.id === newId)) throw 'i18n:{"code":"err.catalog.conflict"}';
+        const plugin = pluginHub.find(p => p.id === id); if (!plugin) throw 'i18n:{"code":"err.catalog.invalid"}';
+        pluginHub.push({ ...plugin, id: newId, made: false });
+      }
+      emit("catalog", null); return null;
+    }
+    case "catalog_install_plugin": {
+      const item = mockCatalog().plugins.find(p => p.id === args.id); if (!item) throw 'i18n:{"code":"err.catalog.invalid"}';
+      pluginHub = [...pluginHub.filter(p => p.id !== item.local_id), { id: item.local_id, source: `~/.prometeu/plugins/${item.local_id}`, from: item.source, note: item.note, made: false }];
+      emit("catalog", null); return null;
+    }
+    case "catalog_install_skill": {
+      const item = mockCatalog().skills.find(s => s.id === args.id); if (!item) throw 'i18n:{"code":"err.catalog.invalid"}';
+      saveMockSkill({ id: item.local_id, description: item.description, content: item.content }); emit("catalog", null); return null;
+    }
+    case "skill_hub":
+      for (const skill of [...skillHub]) saveMockSkill(skill);
+      return skillHub;
+    case "skill_save": {
+      const skill = args.skill as Skill;
+      const state = mockCatalog();
+      if (mockCloud().user && state.shared[`skills:${skill.id}`]) {
+        cloudWrite();
+        if (args.revision !== state.revision) throw 'i18n:{"code":"err.catalog.conflict"}';
+        state.skills = state.skills.map(s => s.local_id === skill.id ? { ...s, description: skill.description, content: skill.content } : s);
+        saveMockCatalog(state);
+      }
+      saveMockSkill(skill); return skillHub;
+    }
+    case "skill_remove":
+      skillHub = skillHub.filter(s => s.id !== args.id);
+      localStorage.setItem("mock:skills", JSON.stringify(skillHub));
+      pluginHub = pluginHub.filter(p => p.id !== `skill-${args.id}`);
+      return skillHub;
     case "cloud_login_cancel":
       if (cloudPending === args.id) cloudPending = null;
       return;
@@ -1221,14 +1302,20 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       return mcpHub;
     case "mcp_save": {
       const server = args.server as (typeof mcpHub)[number];
+      if (mockCloud().user && mockCatalog().shared[`mcp:${server.id}`]) cloudWrite();
       const at = mcpHub.findIndex((s) => s.id === server.id);
       if (at < 0) mcpHub.push(server);
       else mcpHub[at] = server;
       return mcpHub;
     }
-    case "mcp_remove":
+    case "mcp_remove": {
+      const state = mockCatalog();
+      if (mockCloud().user && state.shared[`mcp:${args.id}`]) {
+        cloudWrite(); state.mcp = state.mcp.filter(id => id !== args.id); delete state.shared[`mcp:${args.id}`]; saveMockCatalog(state);
+      }
       mcpHub = mcpHub.filter((s) => s.id !== args.id);
       return mcpHub;
+    }
     // O exame do servidor. No navegador não há servidor para apertar a mão:
     // devolve os passos que cada caso daria — inclusive o 401, que é o que
     // muda o que a tela oferece depois.
@@ -1277,14 +1364,20 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
       return pluginHub;
     case "plugin_save": {
       const plugin = args.plugin as Plugin;
+      if (mockCloud().user && mockCatalog().shared[`plugins:${plugin.id}`]) cloudWrite();
       const at = pluginHub.findIndex((p) => p.id === plugin.id);
       if (at < 0) pluginHub.push(plugin);
       else pluginHub[at] = plugin;
       return pluginHub;
     }
-    case "plugin_remove":
+    case "plugin_remove": {
+      const state = mockCatalog();
+      if (mockCloud().user && state.shared[`plugins:${args.id}`]) {
+        cloudWrite(); state.plugins = state.plugins.filter(p => p.local_id !== args.id); delete state.shared[`plugins:${args.id}`]; saveMockCatalog(state);
+      }
       pluginHub = pluginHub.filter((p) => p.id !== args.id);
       return pluginHub;
+    }
     // No navegador não há pasta para ler: o nome sai do fim do caminho, que é
     // o que o `plugin.json` costuma dizer mesmo.
     case "plugin_look": {

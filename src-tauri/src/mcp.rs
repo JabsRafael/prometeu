@@ -92,16 +92,22 @@ pub(crate) fn store(servers: &[Server]) -> Result<(), String> {
 }
 
 /// O cadastro inteiro, para a tela de Configurações e para os seletores.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mcp_hub() -> Vec<Server> {
+    let _sync = crate::catalog::guard();
     load()
 }
 
 /// Grava um servidor — novo, ou por cima do que tinha o mesmo nome. O nome é a
 /// identidade: é ele que o agente vê no prefixo das ferramentas, e dois
 /// servidores com o mesmo nome numa sessão seriam um só.
-#[tauri::command]
-pub fn mcp_save(app: tauri::AppHandle, server: Server) -> Result<Vec<Server>, String> {
+#[tauri::command(async)]
+pub fn mcp_save(
+    app: tauri::AppHandle,
+    server: Server,
+    revision: Option<u64>,
+) -> Result<Vec<Server>, String> {
+    let _sync = crate::catalog::guard();
     let id = server.id.trim().to_string();
     if id.is_empty() {
         return Err(i18n::t("err.mcp.noName"));
@@ -110,13 +116,7 @@ pub fn mcp_save(app: tauri::AppHandle, server: Server) -> Result<Vec<Server>, St
         return Err(i18n::t("err.mcp.badConfig"));
     }
     let server = Server { id, ..server };
-    // A forma vai à nuvem sem os valores de `env` e `headers`, que são deste Mac.
-    let shape = crate::catalog::blank(&server);
-    crate::catalog::mutate(&app, |doc| {
-        doc.mcp.retain(|s| s.id != shape.id);
-        doc.mcp.push(shape.clone());
-        doc.mcp.sort_by_key(|s| s.id.to_lowercase());
-    })?;
+    crate::catalog::save_mcp(&app, &server, revision)?;
     let mut servers = load();
     match servers.iter_mut().find(|s| s.id == server.id) {
         Some(old) => *old = server,
@@ -127,11 +127,10 @@ pub fn mcp_save(app: tauri::AppHandle, server: Server) -> Result<Vec<Server>, St
     Ok(servers)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mcp_remove(app: tauri::AppHandle, id: String) -> Result<Vec<Server>, String> {
-    if crate::catalog::has_mcp(&id) {
-        crate::catalog::mutate(&app, |doc| doc.mcp.retain(|s| s.id != id))?;
-    }
+    let _sync = crate::catalog::guard();
+    crate::catalog::remove_shared(&app, "mcp", &id)?;
     let mut servers = load();
     servers.retain(|s| s.id != id);
     store(&servers)?;
