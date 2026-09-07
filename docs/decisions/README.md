@@ -53,3 +53,4 @@ Status: Proposto
 | [0016](0016-company-design-system.md) | Parcialmente substituído pelo 0017 | Design System distribuível para os produtos da empresa |
 | [0017](0017-executable-design-system.md) | Aceito | componentes executáveis e adaptador Rails do Design System |
 | [0018](0018-native-file-promises.md) | Aceito | recebimento nativo de miniaturas e promessas de arquivos |
+| [0019](0019-cloud-catalog.md) | Aceito | catálogo portátil de plugins, MCP e Ações na conta Prometeu |

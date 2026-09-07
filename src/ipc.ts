@@ -10,6 +10,8 @@ import {
  */
 export const IPC_COMMANDS = [
   "actions_save",
+  "catalog_refresh",
+  "catalog_state",
   "action_start",
   "action_pause",
   "accounts",

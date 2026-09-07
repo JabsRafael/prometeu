@@ -14,6 +14,7 @@ para virar capacidade contratual.
 | Capacidade | Claude | Codex | Evidência principal |
 | --- | --- | --- | --- |
 | conta opcional do Prometeu na barra lateral | independente do CLI | independente do CLI | `cloud.rs`, `e2e/cloud.spec.ts`; nenhum transcript é enviado |
+| catálogo de plugins, MCP e Ações na conta | independente do CLI | independente do CLI | `catalog.rs`, `catalog_test.rb`; segredos e instalação ficam por Mac |
 | formulário de Ações com componentes compartilhados | mesma UI | mesma UI; opções vêm do catálogo | `e2e/ui.spec.ts`, `e2e/actions.spec.ts`, Chromium e WebKit |
 | componentes executáveis do DS da empresa | independente do provider | independente do provider | `e2e/design-system.spec.ts`, menu, submenu, senha, foco, validação e erro nos dois motores |
 | Code review incluído e editável | perfil inicial; pode trocar modelo/provider | pode ser escolhido no perfil | `actions.rs`, `actions.test.ts`, `e2e/actions.spec.ts` |

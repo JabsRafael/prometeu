@@ -16,7 +16,7 @@ test("conta opcional na barra lateral conecta, persiste e sai sem alterar conver
   await account.locator(".cloud-label > small").click();
   const dialog = page.getByRole("dialog", { name: "Conectar conta Prometeu" });
   await expect(dialog.getByRole("status")).toHaveText("ABCD-EFGH");
-  await expect(dialog).toContainText("a sincronização ainda não está disponível");
+  await expect(dialog).toContainText("passam a valer em todos os seus Macs");
   await page.evaluate(() => localStorage.setItem("mock:cloudApproved", "1"));
   await dialog.getByRole("button", { name: "Verificar conexão" }).click();
   await expect(dialog).toHaveCount(0);
@@ -28,6 +28,20 @@ test("conta opcional na barra lateral conecta, persiste e sai sem alterar conver
   expect(await page.locator("#chatwrap").innerText()).toBe(before);
   await page.reload();
   await expect(account).toHaveAttribute("title", "gustavo@example.com");
+  // Com conta, cada linha diz onde mora, e o que só está na nuvem espera instalação.
+  await page.locator("#settings").click();
+  await page.locator(".setnavitem", { hasText: "Plugins" }).click();
+  await expect(page.locator(".setrow", { hasText: "caveman" })).toContainText("na nuvem");
+  await expect(page.locator(".setrow", { hasText: "ponytail" })).toContainText("só neste Mac");
+  const pending = page.locator(".setrow", { hasText: "revisor" });
+  await expect(pending).toContainText("não instalado neste Mac");
+  await pending.getByRole("button", { name: "Instalar aqui" }).click();
+  await expect(page.getByRole("textbox").first()).toHaveValue("https://github.com/prometeu/revisor");
+  await page.keyboard.press("Escape");
+  await page.locator(".setnavitem", { hasText: "Ferramentas" }).click();
+  await expect(page.locator(".setrow", { hasText: "notion" })).toContainText("na nuvem");
+  await expect(page.locator(".setrow", { hasText: "capim-ds" })).toContainText("só neste Mac");
+  await page.locator(".cloud-account").scrollIntoViewIfNeeded();
   await account.focus(); await page.keyboard.press("ArrowDown");
   await expect(page.getByRole("menuitem", { name: "Gerenciar conta" })).toBeVisible();
   await page.getByRole("menuitem", { name: "Sair da conta" }).click();
