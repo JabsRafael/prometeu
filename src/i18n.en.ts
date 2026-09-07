@@ -406,6 +406,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "launcher.wt.on": "The branch gets a worktree of its own, isolated from your clone",
   "launcher.wt.off": "The branch is born in the repository itself: your clone switches branch",
   "launcher.wt.locked": "With more than one repository, each one gets a worktree on the same branch",
+  "launcher.noGit": "This folder is not a git repository: no worktree, no new branch",
   "launcher.addRepo": "One more repository in this workspace",
   "launcher.addRepo.none": "Register another repository to put two in one workspace",
   "launcher.removeRepo": "Remove {name} from this workspace",

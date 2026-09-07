@@ -33,6 +33,12 @@ estiver aberta. É o
 caminho curto para ler ou corrigir algo à mão; o chevron da ponta continua
 recolhendo a lista do grupo. Cobertura: `e2e/critical-flows.spec.ts`.
 
+Projeto não precisa ser um repositório git. Uma pasta solta entra na lista do
+mesmo jeito, e o que muda é o lançador: worktree e branch nova ficam
+desligados e travados, porque os dois são do git. A sessão abre na pasta como
+ela está, com árvore, terminal, `@` de arquivo e conversa iguais. O painel Git
+desse workspace diz que ali não há repositório.
+
 Cada projeto tem um menu para removê-lo da lista. A remoção não apaga o
 repositório, worktrees ou conversas; workspaces restantes ficam em **Sem
 projeto**.
@@ -484,6 +490,7 @@ PORT=1421 npm run dev  # …e em outra porta, para dois lado a lado
 ```
 
 Aponte um repositório git e um nome de branch, e clique em **Criar sessão**.
+Uma pasta sem git também serve: a sessão abre nela, sem worktree nem branch.
 
 ### Dois Prometeu ao mesmo tempo
 

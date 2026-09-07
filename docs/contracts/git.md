@@ -56,8 +56,11 @@ adição. O contador da aba conta caminhos locais únicos por repositório.
 
 Status usa o formato porcelain delimitado por NUL. Um erro num repositório
 não esconde os outros; a UI mantém o último status conhecido, apresenta o erro
-e desabilita mutações naquele repositório. Respostas antigas não podem
-substituir a seleção de outro workspace ou repositório.
+e desabilita mutações naquele repositório. Projeto pode não ser repositório
+git: o workspace nasce sem worktree e sem branch (`list_branches` responde
+`git: false`, e o lançador trava as duas chavinhas), e o painel apresenta o
+erro do Git como em qualquer repositório que não responde. Respostas antigas
+não podem substituir a seleção de outro workspace ou repositório.
 
 Sem upstream, os contadores são zero e a ação é **Publicar branch**. Isso não
 significa que os commits estão publicados. HEAD destacado é `branch: null`;

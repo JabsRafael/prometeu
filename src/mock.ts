@@ -1504,6 +1504,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
           "origin/entire/checkpoints/v1", "origin/manual-sleep-button",
         ],
         default: "origin/main",
+        git: true,
       };
     // O lançador inteiro funciona no navegador, e o workspace novo nasce sem
     // script nenhum — que é o estado em que a aba Setup tem algo a dizer.

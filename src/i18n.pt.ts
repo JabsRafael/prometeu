@@ -423,6 +423,7 @@ export const PT = {
   "launcher.wt.on": "A branch ganha um worktree só dela, isolado do seu clone",
   "launcher.wt.off": "A branch nasce no próprio repositório: o seu clone troca de branch",
   "launcher.wt.locked": "Com mais de um repositório, cada um ganha um worktree na mesma branch",
+  "launcher.noGit": "Esta pasta não é um repositório git: sem worktree e sem branch nova",
   "launcher.addRepo": "Mais um repositório neste workspace",
   "launcher.addRepo.none": "Registre outro repositório para juntar dois num workspace",
   "launcher.removeRepo": "Tirar {name} deste workspace",
