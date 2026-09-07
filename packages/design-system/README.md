@@ -1,6 +1,6 @@
 # Design System da Prometeu
 
-`@prometeu/design-system` 0.2.0 distribui componentes executáveis: renderização,
+`@prometeu/design-system` 0.3.0 distribui componentes executáveis: renderização,
 estado, eventos, teclado, foco, validação, CSS e marca. A implementação vive
 neste pacote. O desktop importa os componentes TypeScript; o Cloud usa o
 adaptador Rails do pacote e o mesmo runtime JavaScript no navegador.
@@ -18,7 +18,7 @@ npm run design-system:build
 npm pack ./packages/design-system
 ```
 
-O artefato `prometeu-design-system-0.2.0.tgz` inclui módulos ESM, declarações
+O artefato `prometeu-design-system-0.3.0.tgz` inclui módulos ESM, declarações
 TypeScript, bundle de navegador, adaptador Ruby, CSS, SVG e galeria. `prepack`
 reconstrói o JavaScript para impedir a distribuição de código desatualizado.
 O pacote ainda não foi publicado em um registry.
@@ -26,7 +26,7 @@ O pacote ainda não foi publicado em um registry.
 Em outro projeto:
 
 ```sh
-npm install /caminho/prometeu-design-system-0.2.0.tgz
+npm install /caminho/prometeu-design-system-0.3.0.tgz
 ```
 
 ```ts
@@ -119,7 +119,10 @@ O adaptador renderiza campos completos, rótulos, mensagens e botões. Não copi
 seu markup para as views. `form.field` aceita `text`, `email`, `password`,
 `textarea`, `number` e `date`. `form.checkbox` preserva o valor desmarcado nativo
 do Rails. Helpers `ds_button_to`, `ds_link`, `ds_card`, `ds_badge`, `ds_notice`,
-`ds_disclosure` e `ds_menu` compõem as demais primitivas do servidor.
+`ds_disclosure`, `ds_menu` e `ds_tabs` compõem as demais primitivas do servidor.
+`ds_menu` aceita `:sep` entre grupos e itens com `method:`, renderizados como
+formulário nativo com CSRF; `danger: true` marca ações destrutivas. `ds_tabs`
+renderiza abas sublinhadas (`ui-tabs`) e `ui-nav-link` serve a barras laterais.
 
 Inclua `components.css` e o bundle `design-system.js` pelo pipeline de assets.
 O bundle executa `enhance()` uma vez. O Cloud permite scripts locais, usa nonce
@@ -136,8 +139,10 @@ continuam validados pelo servidor, independentemente dos diálogos opcionais.
 ## Identidade, galeria e manutenção
 
 A fonte de tokens é `tokens.css`; os controles não dependem de `style.css` do
-aplicativo. O produto define composição e texto base. `ui-comfortable` oferece
-controles de 44px; a densidade compacta atende ao desktop. `--fg-3` serve a
+aplicativo. O produto define composição e texto base. A densidade padrão é a
+compacta (controles de 32px), a mesma do desktop e das telas de aplicativo do
+Cloud; `ui-comfortable` oferece controles de 44px para fluxos de toque, como
+login e autorização do Mac. `--fg-3` serve a
 estados inativos e decoração, não a texto essencial. A marca é `prometeu.svg`.
 
 `npm run dev` na raiz abre o Vite. Acesse

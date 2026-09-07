@@ -91,13 +91,27 @@ module Prometeu
       end
 
       # Sem JavaScript, o menu continua sendo um disclosure com links nativos.
+      # `:sep` separa grupos; `method:` envia um formulário nativo com CSRF.
       def ds_menu(label, items:)
         links = items.map do |item|
-          link_to(item.fetch(:label), item.fetch(:url), class: "ui-link", lang: item[:lang],
-            hreflang: item[:lang], aria: { current: item[:current] ? "true" : nil })
+          next tag.hr if item == :sep
+          if item[:method]
+            next button_to(item.fetch(:label), item.fetch(:url), method: item[:method],
+              class: class_names("ui-button ghost", "danger" => item[:danger]))
+          end
+          link_to(item.fetch(:label), item.fetch(:url), class: class_names("ui-link", "danger" => item[:danger]),
+            lang: item[:lang], hreflang: item[:lang], aria: { current: item[:current] ? "true" : nil })
         end
         tag.details(safe_join([tag.summary(label, class: "ui-button ghost"), tag.div(safe_join(links))]),
           class: "ui-menu-fallback", data: { ui_menu: true })
+      end
+
+      # Abas sublinhadas; a atual recebe aria-current="page".
+      def ds_tabs(items, label: nil)
+        links = items.map do |item|
+          link_to(item.fetch(:label), item.fetch(:url), aria: { current: item[:current] ? "page" : nil })
+        end
+        tag.nav(safe_join(links), class: "ui-tabs", aria: { label: label })
       end
     end
   end

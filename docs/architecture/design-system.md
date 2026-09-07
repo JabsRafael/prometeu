@@ -72,8 +72,9 @@ com falha simulada. O Cloud consome runtime, estilos e adaptador Ruby em
 `vendor/design-system`, importados por `bin/design-system` e verificados por
 SHA-256 no CI. Suas views usam `ds_form_with`, `form.field`, `form.button` e
 os helpers do pacote, que mantêm o markup fora das telas.
-Controles web usam a densidade `ui-comfortable` (44px); o desktop mantém a
-densidade compacta. Mudanças começam no pacote e chegam ao Cloud por nova
+Desktop e telas de aplicativo do Cloud usam a densidade compacta padrão;
+`ui-comfortable` (44px) fica para os fluxos de toque do Cloud, como login e
+autorização do Mac. Mudanças começam no pacote e chegam ao Cloud por nova
 importação, nunca por edição dos arquivos vendorizados.
 
 Execute `npm run dev` e abra `/design-system.html` na mesma porta. A galeria

@@ -28,11 +28,14 @@ export function enhance(root: ParentNode = document) {
   });
 
   mount("details[data-ui-menu]", node => {
+    // Links, botões de formulário e separadores viram itens; o clique nativo
+    // preserva navegação, método HTTP e CSRF do HTML de origem.
     const control = menuButton(node.querySelector("summary")!.textContent!, () =>
-      Array.from(node.querySelectorAll<HTMLAnchorElement>("a[href]")).map(link => ({
-        label: link.textContent!, checked: link.hasAttribute("aria-current"),
-        run: () => link.click(),
-      })));
+      Array.from(node.querySelectorAll<HTMLElement>("a[href], button, hr")).map(item =>
+        item instanceof HTMLHRElement ? "sep" as const : {
+          label: item.textContent!.trim(), checked: item.hasAttribute("aria-current"),
+          danger: item.classList.contains("danger"), run: () => item.click(),
+        }));
     node.before(control); node.hidden = true;
     return () => {
       if (control.getAttribute("aria-expanded") === "true") menu.close();
