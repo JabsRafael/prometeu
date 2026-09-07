@@ -299,7 +299,7 @@ export function draw() {
   drawMore(ws);
   // A caixa de escrever diz o estado da aba: desligada, de um colega offline.
   session.refresh();
-  const collaborative = !!team.status().config && (ws.shared || !!remote);
+  const collaborative = !!team.status().config && (team.sharedHere(ws) || !!remote);
   $("tab-comments").hidden = !collaborative;
   if (!collaborative && sidePane === "comments") setSidePane("files");
   notes.draw();
@@ -402,7 +402,7 @@ function drawShare(ws: Workspace, tab?: Tab) {
   // Inativo é uma ação no menu, não um estado permanente na barra. Quando o
   // workspace está compartilhado, o ícone verde e os avatares tornam a
   // colaboração ativa visível sem uma frase longa.
-  if (ws.remote || ws.cleaned || !team.status().config || !ws.shared) {
+  if (ws.remote || ws.cleaned || !team.status().config || !team.sharedHere(ws)) {
     btn.hidden = true;
     return;
   }
@@ -452,7 +452,7 @@ function drawMore(ws: Workspace) {
       })),
     },
   ];
-  if (team.status().config && !ws.shared) {
+  if (team.status().config && !team.sharedHere(ws)) {
     items.unshift({ label: t("share.on"), glyph: icon("share-2", 14), sub: shareItems(ws) });
   }
   btn.onclick = () => {
@@ -462,7 +462,7 @@ function drawMore(ws: Workspace) {
 }
 
 function shareLabel(ws: Workspace): string {
-  if (!ws.shared) return t("share.on");
+  if (!team.sharedHere(ws)) return t("share.on");
   if (!ws.audience) return t("share.off");
   return tn(ws.audience.length, "share.some");
 }
@@ -473,8 +473,8 @@ function shareItems(ws: Workspace): menu.Item[] {
   const me = team.status();
   const others = me.members.filter((m) => m.id !== me.you);
   const set = (audience: string[] | null | false) => team.share(ws.id, audience).catch((e) => ctx.say(fromBack(e), true));
-  const all = ws.shared && !ws.audience;
-  const some = ws.shared && ws.audience ? ws.audience : [];
+  const all = team.sharedHere(ws) && !ws.audience;
+  const some = team.sharedHere(ws) && ws.audience ? ws.audience : [];
   const items: menu.Item[] = [
     { label: t("share.all"), glyph: icon("users", 14), checked: all, run: () => set(all ? false : null) },
     "sep",

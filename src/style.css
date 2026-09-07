@@ -101,7 +101,6 @@ body.norail .top .nav { margin-left: 0; }
 .cloud-label > span, .cloud-label > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cloud-label > small { flex: 1; color: var(--fg-3); font-size: 11px; font-weight: 400; }
 .cloud-guest .cloud-label > small { text-align: right; color: var(--fg-2); }
-.cloud-code { font: 600 24px/1.5 var(--mono); letter-spacing: .12em; }
 
 .rail hr { border: none; border-top: 1px solid var(--line-side); margin: 4px 0; }
 

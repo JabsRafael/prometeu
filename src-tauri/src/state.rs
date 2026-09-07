@@ -274,6 +274,9 @@ pub struct Workspace {
     /// dono que fecha o app voltar compartilhando, sem ninguém pedir de novo.
     #[serde(default)]
     pub shared: bool,
+    /// Identity and organization that received explicit sharing consent. Legacy boards omit this.
+    #[serde(default)]
+    pub share_team: Option<String>,
     /// Com quem: ids de membros do time, ou `None` para o time inteiro. Só
     /// vale com `shared`. O back não sabe quem são — é o front que anuncia e
     /// o relay que faz valer.

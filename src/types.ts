@@ -187,6 +187,8 @@ export type Workspace = {
   cleaned: boolean;
   /// Compartilhado com o time: o `team.ts` anuncia e repassa a saída.
   shared: boolean;
+  /** Sharing consent belongs to this organization and member; absent on legacy boards. */
+  share_team?: string | null;
   /// Com quem: ids de membros, ou `null` para o time inteiro. Só vale com
   /// `shared`; é o relay que faz valer.
   audience: string[] | null;

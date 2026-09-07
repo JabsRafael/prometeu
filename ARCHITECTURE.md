@@ -39,7 +39,7 @@ conteúdo compartilhado em texto legível pelo operador.
 | Codex adapter | `codex.rs` | converter comandos V1 para JSON-RPC e JSON-RPC para eventos V1 | DOM, estado do quadro ou relay |
 | Relay | Worker + Durable Object | matrícula, presença, audiência, comentários e encaminhamento | execução do agente ou acesso ao worktree |
 | Mock web | `src/mock.ts` | responder ao mesmo IPC para desenvolvimento e E2E da UI | substituir testes do backend Rust |
-| Prometeu Cloud (projeto separado) | Rails 8.1 + SQLite + ERB | conta opcional, perfil, sessões de login e catálogo pessoal de plugins/MCP/skills e Ações legadas | execução de agentes, arquivos, segredos ou transcripts nesta etapa |
+| Prometeu Cloud (projeto separado) | Rails 8.1 + SQLite + ERB | conta opcional, organizações, convites e catálogos de ferramentas | execução de agentes, arquivos, segredos ou transcripts nesta etapa |
 
 ## Fluxo principal atual
 
@@ -74,7 +74,7 @@ para adoção, galeria e regras de dependência.
 
 A conta opcional aparece no topo da barra lateral. O backend `cloud.rs`
 conecta o Mac pelo navegador e guarda a credencial privadamente. O projeto
-separado `prometeu-cloud` oferece gerenciamento de conta e catálogo pessoal; o desktop reúne definições
+separado `prometeu-cloud` oferece gerenciamento de conta, organizações, convites por email e catálogos; o desktop reúne definições
 compartilhadas com itens privados. Veja o [contrato do catálogo](docs/contracts/cloud-catalog.md). Publicação
 é uma etapa operacional separada. Ver [contrato](docs/contracts/cloud-account.md)
 e [ADR 0015](docs/decisions/0015-cloud-rails.md).
@@ -161,3 +161,7 @@ As regras detalhadas e o estado atual de cada uma estão em
 
 Esses pontos não autorizam uma reorganização em massa. A sequência aceita é:
 documentar, introduzir contratos testados e só então mover implementações.
+
+Organizações autorizam acesso ao relay por tickets de uso único. O desktop
+seleciona a organização; consentimento de compartilhamento é preso à matrícula.
+Ver [contrato](docs/contracts/cloud-organizations.md) e [ADR 0021](docs/decisions/0021-cloud-organizations.md).

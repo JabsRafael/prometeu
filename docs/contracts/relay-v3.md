@@ -22,6 +22,12 @@ individual, nunca o segredo coletivo do convite.
 Credencial prova identidade; não torna o conteúdo confiável para execução. Toda
 entrada continua sujeita a parser, limites, audiência e validação no dono.
 
+Organizações do Cloud usam handshake separado em `/organization/:id`, com
+ticket de uso único, identidade e roster verificados pelo Cloud e lease de
+60 segundos. O namespace de storage é distinto; códigos de times não concedem
+acesso institucional. Os frames v3 e regras de audiência permanecem iguais.
+Veja [organizações](cloud-organizations.md) para revogação e migração.
+
 ## Formatos
 
 - controle usa frames de texto JSON com discriminante `t`;

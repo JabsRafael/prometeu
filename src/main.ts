@@ -643,7 +643,6 @@ for (const [id, name] of [
 }
 
 links.init(say);
-cloud.init(draw, message => say(message, true));
 void update.init(say);
 // Quais agentes existem nesta máquina: é o que o lançador oferece no rodapé.
 // Ninguém espera por isso para a tela aparecer — até a resposta chegar, o
@@ -653,6 +652,7 @@ void loadAgents().then(() => statusbar.showAgents(installed()));
 // lateral, que vai mostrar o que os colegas compartilham.
 team.onError((m) => say(m, true));
 await team.init();
+cloud.init(() => { draw(); void team.refreshOrganizations(cloud.current()); }, message => say(message, true));
 // O hub de MCP: quem desenha a lista é Configurações, e quem a lê são os dois
 // seletores (lançador e conversa). Carrega junto com a tela — é um arquivo
 // pequeno, e um seletor vazio no primeiro clique seria pior que esperar.
@@ -710,7 +710,7 @@ const infoOf = (w: Workspace | undefined, tab: Tab | undefined): Info => ({
   pending: tab?.pending_prompt ?? null,
   worktree: w?.worktree ?? null,
   remote: w?.remote ? { name: team.nameOf(w.remote.owner), online: w.remote.online } : null,
-  team: !!team.status().config && !!w && (w.shared || !!w.remote),
+  team: !!team.status().config && !!w && (team.sharedHere(w) || !!w.remote),
   // O modelo da aba, quando ela escolheu um; senão o do workspace. Quem
   // responde é ter ou não `choice`, e não o modelo estar preenchido:
   // modelo vazio é uma escolha (o padrão do CLI), não a falta de uma.

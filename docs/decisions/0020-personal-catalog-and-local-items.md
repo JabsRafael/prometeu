@@ -1,7 +1,7 @@
 # ADR 0020 — Catálogo no SaaS e compartilhamento explícito no desktop
 
 Data: 2026-09-07
-Status: Aceito
+Status: Parcialmente substituído pelo [ADR 0021](0021-cloud-organizations.md) (propriedade institucional)
 Substitui: [ADR 0019](0019-cloud-catalog.md)
 
 ## Contexto

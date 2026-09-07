@@ -52,6 +52,127 @@ pub struct Login {
     interval: u64,
 }
 
+#[derive(Deserialize, Serialize)]
+pub struct Organization {
+    id: String,
+    slug: String,
+    name: String,
+    member: String,
+    role: String,
+}
+
+#[derive(Serialize)]
+pub struct Organizations {
+    user: Option<User>,
+    origin: String,
+    organizations: Vec<Organization>,
+}
+
+fn relay_id(value: &str) -> bool {
+    (8..=64).contains(&value.len())
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+#[tauri::command]
+pub async fn cloud_organizations() -> Result<Organizations, String> {
+    blocking(|| {
+        let _storage = STORAGE.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(saved) = load()? else {
+            return Ok(Organizations {
+                user: None,
+                origin: default_origin()?,
+                organizations: vec![],
+            });
+        };
+        let (code, value) = http(
+            &saved.origin,
+            Method::GET,
+            "/api/organizations",
+            Some(&saved.token),
+            None,
+            262_144,
+        )?;
+        if code != 200 {
+            return Err(i18n::t("err.cloud.network"));
+        }
+        let organizations: Vec<Organization> =
+            serde_json::from_value(value["organizations"].clone())
+                .map_err(|_| i18n::t("err.cloud.response"))?;
+        let mut ids = std::collections::BTreeSet::new();
+        if organizations.iter().any(|org| {
+            !relay_id(&org.id)
+                || !relay_id(&org.member)
+                || org.name.trim().is_empty()
+                || org.name.len() > 320
+                || org.slug.is_empty()
+                || org.slug.len() > 48
+                || !org
+                    .slug
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                || !matches!(org.role.as_str(), "owner" | "admin" | "member")
+                || !ids.insert(org.id.clone())
+        }) {
+            return Err(i18n::t("err.cloud.response"));
+        }
+        Ok(Organizations {
+            user: Some(saved.user),
+            origin: saved.origin,
+            organizations,
+        })
+    })
+    .await
+}
+
+fn relay_socket_url(relay: &str, organization: &str, ticket: &str) -> Result<String, String> {
+    if !relay_id(organization) || ticket.len() != 43 || !relay_id(ticket) {
+        return Err(i18n::t("err.cloud.response"));
+    }
+    let mut url = Url::parse(&origin(relay)?).map_err(|_| i18n::t("err.cloud.response"))?;
+    let scheme = if url.scheme() == "https" { "wss" } else { "ws" };
+    url.set_scheme(scheme)
+        .map_err(|_| i18n::t("err.cloud.response"))?;
+    url.set_path(&format!("/organization/{organization}"));
+    url.query_pairs_mut()
+        .append_pair("ticket", ticket)
+        .append_pair("p", "3");
+    Ok(url.to_string())
+}
+
+#[tauri::command]
+pub async fn cloud_relay_ticket(
+    organization: String,
+    user: String,
+    expected_origin: String,
+) -> Result<String, String> {
+    blocking(move || {
+        let _storage = STORAGE.lock().unwrap_or_else(|e| e.into_inner());
+        let saved = load()?.ok_or_else(|| i18n::t("err.catalog.disconnected"))?;
+        if saved.user.id != user || saved.origin != expected_origin || !relay_id(&organization) {
+            return Err(i18n::t("err.cloud.response"));
+        }
+        let (code, value) = http(
+            &saved.origin,
+            Method::POST,
+            &format!("/api/organizations/{organization}/relay-ticket"),
+            Some(&saved.token),
+            Some(json!({})),
+            16_384,
+        )?;
+        if code != 200 {
+            return Err(i18n::t("err.cloud.network"));
+        }
+        relay_socket_url(
+            value["relay"].as_str().unwrap_or(""),
+            &organization,
+            value["ticket"].as_str().unwrap_or(""),
+        )
+    })
+    .await
+}
+
 fn origin(value: &str) -> Result<String, String> {
     let url = Url::parse(value).map_err(|_| i18n::t("err.cloud.url"))?;
     let local = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
@@ -412,6 +533,39 @@ pub async fn cloud_logout() -> Result<Status, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn organization_socket_uses_only_a_short_lived_ticket_and_validated_origin() {
+        let ticket = "t".repeat(43);
+        let url = relay_socket_url("https://relay.example", "organization1", &ticket).unwrap();
+        let url = Url::parse(&url).unwrap();
+        assert_eq!(url.scheme(), "wss");
+        assert_eq!(url.path(), "/organization/organization1");
+        assert_eq!(url.query_pairs().count(), 2);
+        assert!(url
+            .query_pairs()
+            .any(|(key, value)| key == "ticket" && value == ticket));
+        for relay in [
+            "http://outside.example",
+            "https://user:password@relay.example",
+            "https://relay.example/path",
+            "https://relay.example?token=secret",
+        ] {
+            assert!(relay_socket_url(relay, "organization1", &ticket).is_err());
+        }
+        assert!(
+            relay_socket_url("http://127.0.0.1:8787", "organization1", &ticket)
+                .unwrap()
+                .starts_with("ws://")
+        );
+        assert!(relay_socket_url("https://relay.example", "../other", &ticket).is_err());
+        assert!(relay_socket_url(
+            "https://relay.example",
+            "organization1",
+            "long-lived-bearer"
+        )
+        .is_err());
+    }
 
     #[test]
     fn cloud_origin_requires_https_except_loopback() {

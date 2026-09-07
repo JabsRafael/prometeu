@@ -109,3 +109,6 @@ atual até que a implementação correspondente seja aceita.
   arquitetural.
 - [AWS — Architecture Decision Records](https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/adr-process.html):
   contexto, decisão, consequências e ciclo de vida de ADRs.
+
+- [Organizações no Cloud](contracts/cloud-organizations.md): CRUD, convites, catálogos e acesso ao relay.
+- [ADR 0021](decisions/0021-cloud-organizations.md): organização como autoridade de colaboração.

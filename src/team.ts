@@ -21,7 +21,8 @@ import {
   type Up,
   type Watching,
 } from "../relay/src/protocol";
-import { t } from "./i18n";
+import type { CloudStatus } from "./cloud";
+import { fromBack, t } from "./i18n";
 import { AttachLifecycle } from "./attach-lifecycle";
 import { invoke } from "./ipc";
 import { Mirror } from "./mirror";
@@ -64,7 +65,15 @@ export type TeamConfig = {
   member: string;
   credential: string;
   name: string;
+  cloud?: { user: string; origin: string; slug: string; name: string };
 };
+
+export type Organization = { id: string; slug: string; name: string; member: string; role: "owner" | "admin" | "member" };
+type Organizations = { user: CloudStatus["user"]; origin: string; organizations: Organization[] };
+let organizations: Organization[] = [];
+let account: CloudStatus = { user: null, origin: "", offline: false };
+let organizationRequest = 0;
+let connection = 0;
 
 export type Phase = "off" | "connecting" | "online";
 
@@ -149,6 +158,8 @@ export type TeamStatus = {
   relay: string;
   relayDefault: string;
   relayEffective: string;
+  organizations: Organization[];
+  account: CloudStatus;
 };
 
 export const status = (): TeamStatus => ({
@@ -160,10 +171,12 @@ export const status = (): TeamStatus => ({
   relay: cfg ? (cfg.relay ?? "") : relayDraft,
   relayDefault: env?.VITE_RELAY || RELAY,
   relayEffective: relayOf(cfg),
+  organizations,
+  account,
 });
 
 export const nameOf = (member: string) => members.find((m) => m.id === member)?.name ?? member.slice(0, 8);
-export const invite = () => (cfg ? formatInvite(cfg.team, cfg.secret) : null);
+export const invite = () => (cfg && !cfg.cloud ? formatInvite(cfg.team, cfg.secret) : null);
 export const inboxItems = () => inbox;
 export const supportsThreads = () => comments;
 
@@ -175,8 +188,8 @@ export async function init() {
     defaultName = file.default_name;
     const stored = storedConfig(file.config);
     if (stored) relayDraft = stored.relay ?? "";
-    if (stored?.credential) {
-      cfg = { ...stored, credential: stored.credential };
+    if (stored?.credential || stored?.cloud) {
+      cfg = { ...stored, credential: stored.credential ?? "" };
     } else if (stored) {
       // v2 usava o segredo compartilhado como identidade. Tenta trocar o
       // convite por uma matrícula v3 sem apagar o arquivo antigo se o relay
@@ -198,7 +211,42 @@ export async function init() {
   // Toda linha de toda conversa passa aqui; o que é de aba que alguém está
   // olhando vai para o relay.
   listen<[string, string, number]>("chat", ({ payload: [key, line, seq] }) => output(key, line, seq));
-  if (cfg) connect();
+  if (cfg && !cfg.cloud) void connect();
+}
+
+export async function refreshOrganizations(value: CloudStatus) {
+  const request = ++organizationRequest;
+  const identityChanged = account.user?.id !== value.user?.id || account.origin !== value.origin;
+  account = value;
+  if (identityChanged || !value.user) organizations = [];
+  if (cfg?.cloud && (!value.user || cfg.cloud.user !== value.user.id || cfg.cloud.origin !== value.origin)) {
+    disconnect(); reset(); cfg = null;
+  }
+  changed();
+  if (!value.user || value.offline) return;
+  try {
+    const result = await invoke<Organizations>("cloud_organizations");
+    if (request !== organizationRequest || result.user?.id !== account.user?.id || result.origin !== account.origin) return;
+    organizations = result.organizations;
+    if (cfg?.cloud) {
+      const org = organizations.find(org => org.id === cfg!.team && org.member === cfg!.member);
+      if (!org) { disconnect(); reset(); cfg = null; }
+      else {
+        cfg = { ...cfg, name: value.user.name, cloud: { ...cfg.cloud, slug: org.slug, name: org.name } };
+        if (!sock && !retry) void connect();
+      }
+    }
+    changed();
+  } catch (error) {
+    if (request === organizationRequest) fail?.(fromBack(error));
+  }
+}
+
+export async function selectOrganization(id: string) {
+  const org = organizations.find(item => item.id === id);
+  if (!org || !account.user) throw t("err.cloud.response");
+  await adopt({ relay: null, team: org.id, secret: "", credential: "", member: org.member, name: account.user.name,
+    cloud: { user: account.user.id, origin: account.origin, slug: org.slug, name: org.name } });
 }
 
 /// O relay que vale para uma configuração: o dela, o do ambiente de dev, o
@@ -209,6 +257,15 @@ type StoredTeamConfig = Omit<TeamConfig, "credential"> & { credential?: string }
 function storedConfig(value: unknown): StoredTeamConfig | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;
+  if (raw.cloud && typeof raw.cloud === "object" && !Array.isArray(raw.cloud)) {
+    const cloud = raw.cloud as Record<string, unknown>;
+    if (typeof raw.team !== "string" || !/^[A-Za-z0-9_-]{8,64}$/.test(raw.team) ||
+      typeof raw.member !== "string" || !/^[A-Za-z0-9_-]{8,64}$/.test(raw.member) ||
+      typeof raw.name !== "string" || !raw.name.trim() ||
+      !["user", "origin", "slug", "name"].every(key => typeof cloud[key] === "string" && (cloud[key] as string).length > 0)) return null;
+    return { relay: null, team: raw.team, member: raw.member, secret: "", credential: "", name: raw.name,
+      cloud: cloud as TeamConfig["cloud"] };
+  }
   if (raw.relay !== null && typeof raw.relay !== "string") return null;
   if (typeof raw.team !== "string" || typeof raw.secret !== "string" || typeof raw.member !== "string") return null;
   const name = normalizeName(raw.name);
@@ -231,8 +288,10 @@ const relayOf = (c: Pick<TeamConfig, "relay"> | StoredTeamConfig | null) =>
 /// `https://x` vira `wss://x`, `http://x` vira `ws://x`; `ws(s)://` fica.
 const wsUrl = (relay: string) => transportWsUrl(relay, transport.needsRelay);
 
-function connect() {
+async function connect() {
   if (!cfg) return;
+  retry = 0;
+  const generation = ++connection;
   const base = relayOf(cfg);
   if (!base) {
     phase = "off";
@@ -242,16 +301,25 @@ function connect() {
   const c = cfg;
   let url: string;
   try {
-    const endpoint = new URL(`${wsUrl(base)}/team/${encodeURIComponent(c.team)}`);
-    endpoint.searchParams.set("c", c.credential);
-    endpoint.searchParams.set("m", c.member);
-    endpoint.searchParams.set("n", c.name);
-    endpoint.searchParams.set("p", String(PROTO));
-    url = endpoint.toString();
+    if (c.cloud) {
+      if (account.user?.id !== c.cloud.user || account.origin !== c.cloud.origin) return;
+      phase = "connecting"; changed();
+      url = await invoke<string>("cloud_relay_ticket", { organization: c.team, user: c.cloud.user, expectedOrigin: c.cloud.origin });
+      if (generation !== connection) return;
+    } else {
+      const endpoint = new URL(`${wsUrl(base)}/team/${encodeURIComponent(c.team)}`);
+      endpoint.searchParams.set("c", c.credential);
+      endpoint.searchParams.set("m", c.member);
+      endpoint.searchParams.set("n", c.name);
+      endpoint.searchParams.set("p", String(PROTO));
+      url = endpoint.toString();
+    }
   } catch (e) {
+    if (generation !== connection) return;
     phase = "off";
-    fail?.(String(e));
+    fail?.(fromBack(e));
     changed();
+    if (c.cloud) retry = setTimeout(() => void connect(), backoff());
     return;
   }
   phase = "connecting";
@@ -268,11 +336,13 @@ function connect() {
   s.binaryType = "arraybuffer";
   sock = s;
   s.onopen = () => {
+    if (sock !== s) return;
     attempt = 0;
     // O edge derruba socket parado; o relay responde sem acordar.
     pinger = setInterval(() => s.send("ping"), 30_000);
   };
   s.onmessage = (ev) => {
+    if (sock !== s) return;
     if (typeof ev.data === "string") {
       if (ev.data === "pong") return;
       // O relay é configurável. Mesmo um endpoint hostil não pode entregar um
@@ -320,7 +390,9 @@ function backoff(): number {
 }
 
 function disconnect() {
+  connection++;
   clearTimeout(retry);
+  retry = 0;
   clearInterval(pinger);
   attachLife.completeCurrent();
   const s = sock;
@@ -364,6 +436,14 @@ function handle(frame: Down) {
       // sabe o que é meu, e perguntar sobre um workspace que ele não tem é
       // ganhar um erro em vez de uma resposta.
       announced.clear();
+      if (cfg?.cloud && lastBoard) {
+        for (const share of frame.shares) {
+          const local = lastBoard.workspaces.find(w => w.id === share.id);
+          if (share.owner === frame.you && local && (!sharedHere(local) || local.archived || local.cleaned)) {
+            send({ t: "unshare", ws: share.id });
+          }
+        }
+      }
       if (lastBoard) boardChanged(lastBoard);
       // O que eu tinha em cache pode ter envelhecido enquanto eu estava fora.
       // Só se repete o pedido do que ainda existe daqui: o cache guarda todo
@@ -460,6 +540,10 @@ function reset() {
   announced.clear();
   watchers.clear();
   queue.clear();
+  holding.clear();
+  queued = 0;
+  clearTimeout(flushTimer);
+  flushTimer = 0;
   attached = null;
   mirror.clear();
   remoteIds.clear();
@@ -499,7 +583,7 @@ export async function leave() {
 }
 
 export async function setName(name: string) {
-  if (!cfg) return;
+  if (!cfg || cfg.cloud) return;
   const n = cleanName(name);
   cfg = { ...cfg, name: n };
   await invoke("team_config_set", { config: cfg });
@@ -508,6 +592,7 @@ export async function setName(name: string) {
 }
 
 export async function setRelay(url: string) {
+  if (cfg?.cloud) return;
   const u = url.trim().replace(/\/+$/, "");
   if (u) wsUrl(u);
   relayDraft = u;
@@ -564,7 +649,7 @@ export function boardChanged(board: Board) {
   if (!cfg) return;
   const seen = new Set<string>();
   for (const w of board.workspaces) {
-    if (!w.shared || w.remote) continue;
+    if (!sharedHere(w) || w.remote) continue;
     if (w.archived || w.cleaned) {
       void invoke("set_shared", { id: w.id, shared: false });
       continue;
@@ -593,13 +678,19 @@ const mine = (tab: string) => tabOwnedBy(tab, new Set(announced.keys()));
 /// para (`false`). Lista vazia é parar: não há "compartilhado com ninguém".
 export async function share(id: string, audience: string[] | null | false) {
   const on = audience !== false && (audience === null || audience.length > 0);
-  await invoke("set_shared", { id, shared: on, audience: on ? audience : null });
+  if (on && !cfg) throw t("err.team.noRelay");
+  await invoke("set_shared", { id, shared: on, audience: on ? audience : null, team: on ? shareScope() : null });
 }
+
+const shareScope = () => cfg?.cloud ? `organization:${cfg.team}:${cfg.member}` : cfg ? `team:${cfg.team}` : null;
+export const sharedHere = (workspace: Workspace) => !!cfg && workspace.shared &&
+  (workspace.share_team ? workspace.share_team === shareScope() : !cfg.cloud);
 
 export const isShared = (id: string) => announced.has(id);
 export const watchersOf = (tab: string): string[] => (watchers.get(tab) ?? []).map(nameOf);
 
 function watched(tab: string, who: string[], added: string[]) {
+  if (!mine(tab)) return;
   if (who.length) watchers.set(tab, who);
   else watchers.delete(tab);
   for (const member of added) void snapshot(tab, member);
@@ -610,7 +701,7 @@ function rewatch(watching: Watching) {
   watchers.clear();
   for (const tabs of Object.values(watching)) {
     for (const [tab, who] of Object.entries(tabs)) {
-      if (!who.length) continue;
+      if (!who.length || !mine(tab)) continue;
       watchers.set(tab, who);
       for (const member of who) void snapshot(tab, member);
     }
@@ -621,18 +712,23 @@ function rewatch(watching: Watching) {
 /// ela não sai toda, as linhas ao vivo da aba ficam presas: uma que saísse na
 /// frente e não estivesse na conversa seria ignorada do outro lado — e perdida.
 async function snapshot(tab: string, member: string) {
+  if (!mine(tab)) return;
+  const generation = connection;
   holding.set(tab, (holding.get(tab) ?? 0) + 1);
   try {
     const s = await invoke<{ text: string; seq: number }>("chat_snapshot", { session: tab });
+    if (generation !== connection || !mine(tab)) return;
     const parts = split(s.text);
     parts.forEach((part, i) => sendBinary(encodeSnapshot(tab, member, s.seq, enc.encode(part), i < parts.length - 1)));
   } catch {
     // Sessão que já não existe: o colega abre com o que tiver.
   } finally {
-    const left = (holding.get(tab) ?? 1) - 1;
-    if (left > 0) holding.set(tab, left);
-    else holding.delete(tab);
-    flush();
+    if (generation === connection) {
+      const left = (holding.get(tab) ?? 1) - 1;
+      if (left > 0) holding.set(tab, left);
+      else holding.delete(tab);
+      flush();
+    }
   }
 }
 
@@ -654,7 +750,7 @@ function split(text: string): string[] {
 /// Uma linha de alguma conversa. Só interessa se alguém está olhando a aba —
 /// o resto do tempo isto custa uma busca num mapa vazio.
 function output(key: string, line: string, seq: number) {
-  if (!watchers.has(key)) return;
+  if (!watchers.has(key) || !mine(key)) return;
   const list = queue.get(key) ?? [];
   const bytes = enc.encode(line + "\n");
   list.push({ seq, bytes });
@@ -671,7 +767,7 @@ function flush() {
     if (holding.has(tab)) continue;
     queue.delete(tab);
     queued -= segments.reduce((n, s) => n + s.bytes.length, 0);
-    if (!watchers.has(tab)) continue;
+    if (!watchers.has(tab) || !mine(tab)) continue;
     sendBinary(encodeLive(tab, segments));
   }
   if (queue.size && !flushTimer) flushTimer = setTimeout(flush, COALESCE);
@@ -892,7 +988,7 @@ function includeMentioned(id: string, mentions: string[]) {
   // O share vai pelo mesmo socket, na frente do comentário — esperar o Rust
   // gravar e o quadro voltar deixaria o comentário chegar primeiro.
   const w = lastBoard?.workspaces.find((x) => x.id === id);
-  if (w?.shared && !w.remote && w.audience) {
+  if (w && sharedHere(w) && !w.remote && w.audience) {
     const missing = mentions.filter((m) => !w.audience!.includes(m));
     if (missing.length) {
       const grown: Share = { ...toShare(w), audience: [...w.audience, ...missing] };

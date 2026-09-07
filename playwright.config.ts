@@ -22,7 +22,7 @@ export default defineConfig({
     // O app de verdade roda no WebKit. O que é gesto do motor — o canto que
     // estica, o arraste — precisa rodar nele também. A navegação pelos agentes
     // na barra lateral cobre foco, seleção e recolhimento no mesmo motor.
-    { name: "webkit", use: { ...devices["Desktop Safari"] }, grep: /catálogo pessoal|a mesa|a barra lateral|design system|comando reutilizável|perfil por projeto|Code review|arquivo solto|arraste de arquivo/ },
+    { name: "webkit", use: { ...devices["Desktop Safari"] }, grep: /organizações no desktop|catálogo pessoal|a mesa|a barra lateral|design system|comando reutilizável|perfil por projeto|Code review|arquivo solto|arraste de arquivo/ },
   ],
   webServer: {
     // O preview é estático: além de exercitar o bundle de produção, evita um
