@@ -4,6 +4,23 @@ O que muda no Prometeu, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.5.10] - 2026-09-07
+<!-- lang:pt-BR -->
+
+### Novidades
+
+- **catálogo:** Compartilha plugins, MCPs e skills por escolha
+- **barra lateral:** Agente na lista fica em uma linha só
+
+<!-- lang:en -->
+
+### New
+
+- **catalog:** Share plugins, MCPs and skills by choice
+
+- **sidebar:** Agent rows in the list fit on a single line
+
+<!-- lang:end -->
 ## [0.5.9] - 2026-09-07
 <!-- lang:pt-BR -->
 
