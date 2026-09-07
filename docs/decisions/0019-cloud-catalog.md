@@ -1,7 +1,7 @@
 # ADR 0019 — Catálogo portátil na conta Prometeu
 
 Data: 2026-09-06
-Status: Aceito
+Status: Substituído pelo [ADR 0020](0020-personal-catalog-and-local-items.md)
 
 ## Contexto
 

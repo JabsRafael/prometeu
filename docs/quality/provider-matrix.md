@@ -43,6 +43,7 @@ para virar capacidade contratual.
 | relatório de contexto | stream/transcript | sintetizado de token usage | `context.test.ts`, testes de `codex.rs` |
 | seleção de MCP por workspace | config estrita do CLI | tabela e ambiente montados pelo app | `mcp.rs`, `codex.rs`; erro de preparação impede spawn |
 | seleção de plugins por workspace | flags de sessão | marketplace + config isolada por workspace | `plugins.rs`, smoke do CLI, `codex.rs`, `launcher.ts`, E2E |
+| skills locais e da conta | pacote com SKILL.md via seleção de plugins | mesmo pacote com manifesto nativo | `skills.rs`, `catalog.rs`, `e2e/cloud.spec.ts`; instalação não ativa automaticamente |
 | hooks de plugin escolhido | ativos desde `SessionStart` | `enabled = true` + confiança limitada a `pluginId` e hash antes da thread | testes de `codex.rs`; falha impede a thread |
 | anexos na fala e miniaturas de captura | adaptado por caminho local; promessa materializada pelo macOS | adaptado por caminho local; promessa materializada pelo macOS | `file_drop.rs`, `chat.ts`; `e2e/file-drop.spec.ts` e cenários de arquivo solto em `e2e/critical-flows.spec.ts` cobrem UI sobre mock |
 | evento externo desconhecido | ignorado pelo adapter | ignorado pelo adapter | `conversation.test.ts`, testes de `claude.rs`/`codex.rs` |

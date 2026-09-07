@@ -212,10 +212,10 @@ function serverRow(server: McpServer): HTMLElement {
   edit.addEventListener("click", () => editor(server));
 
   const drop = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
-  drop.children[0].textContent = t("mcp.remove");
+  drop.children[0].textContent = t(catalog.shared("mcp", server.id) ? "catalog.delete" : "mcp.remove");
   drop.addEventListener("click", () => void remove(server));
 
-  row.querySelector(".act")!.append(edit, drop);
+  row.querySelector(".act")!.append(edit, ...catalog.controls("mcp", server.id), drop);
   return row;
 }
 
@@ -236,16 +236,18 @@ function subtitle(server: McpServer): string {
 }
 
 async function remove(server: McpServer) {
+  if (!await catalog.confirmRemoval("mcp", server.id)) return;
   try {
     hub = await invoke<McpServer[]>("mcp_remove", { id: server.id });
+    await catalog.load();
     announce();
   } catch (e) {
     ctx.say(fromBack(e), true);
   }
 }
 
-async function save(server: McpServer) {
-  hub = await invoke<McpServer[]>("mcp_save", { server });
+async function save(server: McpServer, revision = catalog.current().revision) {
+  hub = await invoke<McpServer[]>("mcp_save", { server, revision });
   announce();
 }
 
@@ -322,6 +324,7 @@ export function toServer(d: Draft): McpServer | null {
 /// endereço já estão certos, e quem quiser mexer neles clica no resumo lá em
 /// cima e volta.
 function editor(server: McpServer | null) {
+  let revision = server ? catalog.current().revision : null;
   const veil = $("veil");
   const sheet = template(
     "div",
@@ -444,6 +447,7 @@ function editor(server: McpServer | null) {
     );
     // Trocar de passo começa do começo: o corpo rola, e herdar a rolagem do
     // passo anterior deixaria o alto do novo escondido.
+    if (server) { const name = at(".mbody").querySelector<HTMLInputElement>("input"); if (name) name.readOnly = true; }
     at(".mbody").scrollTop = 0;
     paintCheck();
     foot(["mcp.cancel", hide], ["mcp.next", advance]);
@@ -463,6 +467,7 @@ function editor(server: McpServer | null) {
   function second() {
     at(".mt").textContent = t(server ? "mcp.title.edit" : "mcp.title.new");
     at(".mbody").replaceChildren(
+      h("p", "ui-hint", t(server && catalog.shared("mcp", server.id) ? "catalog.liveHint" : "catalog.privateHint")),
       resume(),
       // Login só existe em servidor remoto: um programa que roda aqui recebe
       // o segredo por variável de ambiente, e não há a quem pedir consentimento.
@@ -547,7 +552,8 @@ function editor(server: McpServer | null) {
     btn.disabled = true;
     say(t("mcp.login.doing"));
     try {
-      await save(built);
+      await save(built, revision);
+      await catalog.load(); revision = catalog.current().revision;
       await invoke("mcp_login", { server: built });
       await refreshLogins();
       say(t("mcp.login.ok"));
@@ -598,7 +604,7 @@ function editor(server: McpServer | null) {
   function store() {
     const built = toServer(draft);
     if (!built) return say(t("mcp.needFields"), true);
-    save(built)
+    save(built, revision)
       .then(hide)
       .catch((e) => say(fromBack(e), true));
   }

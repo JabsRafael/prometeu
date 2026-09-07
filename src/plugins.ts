@@ -5,6 +5,7 @@ import { icon } from "./icons";
 import { fromBack, t, type Key } from "./i18n";
 import * as menu from "./menu";
 import * as catalog from "./catalog";
+import * as skills from "./skills";
 import type { Plugin } from "./types";
 import { $, h, template } from "./util";
 
@@ -153,12 +154,12 @@ export function init(context: Ctx) {
 /// página é e o que se faz nela.
 export function settingsRows(): HTMLElement[] {
   // O que está na nuvem e ainda não neste Mac aparece com o botão de instalar.
-  const missing = catalog.current().plugins.filter((p) => !known(p.id));
-  const rows = [...hub.map(pluginRow), ...missing.map(cloudRow)];
+  const missing = catalog.current().plugins.filter((p) => !p.installed);
+  const rows = [...hub.filter(p => !skills.packageIds().has(p.id)).map(pluginRow), ...missing.map(cloudRow)];
   return [aboutRow(), ...(rows.length ? rows : [emptyRow()])];
 }
 
-function cloudRow(p: { id: string; source: string; note: string }): HTMLElement {
+function cloudRow(p: catalog.CatalogPlugin): HTMLElement {
   const row = template(
     "div",
     "setrow",
@@ -170,7 +171,11 @@ function cloudRow(p: { id: string; source: string; note: string }): HTMLElement 
   row.querySelector(".txt span")!.textContent = `${where} · ${t("catalog.notInstalled")}`;
   const get = template("button", "outline md", `<span></span>`) as HTMLButtonElement;
   get.children[0].textContent = t("catalog.install");
-  get.addEventListener("click", () => installer(p.source));
+  get.addEventListener("click", () => {
+    const dialog = ui.formDialog({ title: t("catalog.install"), save: t("catalog.install"), cancel: t("plugin.cancel"), error: fromBack,
+      submit: async () => { await invoke("catalog_install_plugin", { id: p.id }); await catalog.refresh(); } });
+    dialog.body.append(h("p", "ui-hint", p.source), h("p", "ui-hint", t("catalog.installHint"))); dialog.open();
+  });
   row.querySelector(".act")!.append(get);
   return row;
 }
@@ -219,9 +224,16 @@ function pluginRow(plugin: Plugin): HTMLElement {
   row.querySelector(".txt span")!.textContent = mark ? `${subtitle(plugin)} · ${mark}` : subtitle(plugin);
 
   const act = row.querySelector(".act")!;
+  act.append(...catalog.controls("plugins", plugin.id));
+  const cloud = catalog.current().plugins.find(p => p.local_id === plugin.id);
+  if (cloud?.source_changed) act.append(ui.button(t("catalog.replaceSource"), () => {
+    const dialog = ui.formDialog({ title: t("catalog.replaceSource"), save: t("catalog.install"), cancel: t("plugin.cancel"), error: fromBack,
+      submit: async () => { await invoke("catalog_install_plugin", { id: cloud.id }); await catalog.refresh(); } });
+    dialog.body.append(h("p", "ui-hint", cloud.source), h("p", "ui-hint", t("catalog.installHint"))); dialog.open();
+  }, "outline"));
   // Atualizar é o `git pull` da pasta clonada: só existe para o que veio de um
   // endereço, e some para o plugin apontado à mão.
-  if (plugin.made && plugin.from) {
+  if (plugin.from) {
     const up = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
     up.children[0].textContent = t("plugin.update");
     up.addEventListener("click", () => {
@@ -248,7 +260,7 @@ function pluginRow(plugin: Plugin): HTMLElement {
   edit.addEventListener("click", () => editor(plugin));
 
   const drop = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
-  drop.children[0].textContent = t("plugin.remove");
+  drop.children[0].textContent = t(catalog.shared("plugins", plugin.id) ? "catalog.delete" : "plugin.remove");
   drop.addEventListener("click", () => {
     // O que nasceu aqui sai do disco junto: apagar arquivo pergunta antes.
     if (!plugin.made) return void remove(plugin);
@@ -274,8 +286,10 @@ function subtitle(plugin: Plugin): string {
 }
 
 async function remove(plugin: Plugin) {
+  if (!await catalog.confirmRemoval("plugins", plugin.id)) return;
   try {
     hub = await invoke<Plugin[]>("plugin_remove", { id: plugin.id });
+    await catalog.load();
     announce();
   } catch (e) {
     ctx.say(fromBack(e), true);
@@ -288,8 +302,8 @@ export async function refresh() {
   announce();
 }
 
-async function save(plugin: Plugin) {
-  hub = await invoke<Plugin[]>("plugin_save", { plugin });
+async function save(plugin: Plugin, revision = catalog.current().revision) {
+  hub = await invoke<Plugin[]>("plugin_save", { plugin, revision });
   announce();
 }
 
@@ -301,6 +315,7 @@ async function save(plugin: Plugin) {
 /// muda. Uma folha só, e não os dois passos do MCP: aqui não há processo para
 /// subir nem rede para atravessar.
 function editor(plugin: Plugin | null) {
+  const revision = plugin ? catalog.current().revision : null;
   const veil = $("veil");
   const sheet = template(
     "div",
@@ -313,6 +328,7 @@ function editor(plugin: Plugin | null) {
     source: plugin?.source ?? "",
     note: plugin?.note ?? "",
     made: plugin?.made ?? false,
+    from: plugin?.from ?? "",
   };
 
   const hide = () => {
@@ -348,6 +364,7 @@ function editor(plugin: Plugin | null) {
     at(".mt").textContent = t(plugin ? "plugin.title.edit" : "plugin.title.new");
     at(".mbody").replaceChildren(
       h("p", "msay", t("plugin.intro")),
+      h("p", "ui-hint", t(plugin && catalog.shared("plugins", plugin.id) ? "catalog.liveHint" : "catalog.privateHint")),
       field({
         label: "plugin.field.source",
         hint: "plugin.field.source.hint",
@@ -368,6 +385,9 @@ function editor(plugin: Plugin | null) {
         on: (v) => (draft.note = v),
       }),
     );
+    const nameField = at(".mbody").querySelectorAll<HTMLInputElement>("input")[1];
+    if (plugin && nameField) nameField.readOnly = true;
+    if (plugin && catalog.shared("plugins", plugin.id)) at(".mbody").querySelector<HTMLInputElement>("input")!.readOnly = true;
     const back = h("button", "ghost", t("plugin.cancel"));
     back.addEventListener("click", hide);
     const go = h("button", "pri", t("plugin.save"));
@@ -377,7 +397,7 @@ function editor(plugin: Plugin | null) {
 
   function store() {
     if (!draft.id.trim() || !draft.source.trim()) return say(t("plugin.needFields"), true);
-    save({ id: draft.id.trim(), source: draft.source.trim(), note: draft.note.trim(), made: draft.made })
+    save({ ...draft, id: draft.id.trim(), source: draft.source.trim(), note: draft.note.trim() }, revision)
       .then(hide)
       .catch((e) => say(fromBack(e), true));
   }

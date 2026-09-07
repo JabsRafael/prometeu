@@ -29,6 +29,7 @@ mod plugins;
 mod pty;
 mod scripts;
 mod session;
+mod skills;
 mod state;
 mod team;
 mod transcript;
@@ -228,6 +229,13 @@ fn main() {
             cloud::cloud_logout,
             catalog::catalog_state,
             catalog::catalog_refresh,
+            catalog::catalog_share,
+            catalog::catalog_copy,
+            catalog::catalog_install_plugin,
+            catalog::catalog_install_skill,
+            skills::skill_hub,
+            skills::skill_save,
+            skills::skill_remove,
         ])
         .setup(|app| {
             file_drop::install(app.handle())?;

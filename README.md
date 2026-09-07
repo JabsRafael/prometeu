@@ -12,6 +12,13 @@ navegador ou mostra nome e menu da conta conectada. O app funciona sem login;
 esta primeira etapa não envia conversas para a nuvem. Ver
 [contrato da conta](docs/contracts/cloud-account.md) e `e2e/cloud.spec.ts`.
 
+O Cloud oferece **Catálogo** para cadastrar MCPs, plugins e skills pelo
+navegador. O desktop recebe esses itens e conserva os seus cadastros locais.
+Em **Configurações**, escolha **Compartilhar na nuvem** para sincronizar um
+item ou **Criar cópia local** para personalizar sua definição neste Mac.
+Instalação e seleção por conversa continuam explícitas; credenciais ficam
+locais. Veja o [contrato do catálogo](docs/contracts/cloud-catalog.md).
+
 Junta o que é bom no Conductor (worktree isolado por sessão, script de setup por
 repo) com o que é bom no Vibe Island (você fica sabendo na hora que o agente
 precisa de você), numa lista lateral que mantém cada trabalho à mão.

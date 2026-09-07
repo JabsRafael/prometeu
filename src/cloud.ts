@@ -1,4 +1,5 @@
 import { invoke } from "./ipc";
+import * as catalog from "./catalog";
 import { fromBack, t } from "./i18n";
 import { icon } from "./icons";
 import * as menu from "./menu";
@@ -29,7 +30,7 @@ export function init(redraw: () => void, onError: (message: string) => void) {
 async function refresh() {
   if (!status.user || refreshing) return;
   refreshing = true;
-  try { status = await invoke<CloudStatus>("cloud_status", { refresh: true }); changed(); }
+  try { status = await invoke<CloudStatus>("cloud_status", { refresh: true }); changed(); await catalog.load(); }
   catch (error) { fail(fromBack(error)); }
   finally { refreshing = false; }
 }
@@ -40,13 +41,14 @@ export function accountButton() {
     const at = control.getBoundingClientRect();
     control.setAttribute("aria-expanded", "true");
     menu.openAt({ x: at.left, y: at.bottom + 4 }, [
+      { label: t("catalog.manage"), run: () => { void invoke("open_external", { url: `${status.origin}/catalog` }).catch(error => fail(fromBack(error))); } },
       { label: t("cloud.manage"), glyph: icon("external-link"), run: () => {
         void invoke("open_external", { url: status.origin }).catch(error => fail(fromBack(error)));
       } },
       { label: t("cloud.refresh"), glyph: icon("rotate"), run: () => void refresh() },
       "sep",
       { label: t("cloud.logout"), run: () => {
-        void invoke<CloudStatus>("cloud_logout").then(value => { status = value; changed(); }).catch(error => fail(fromBack(error)));
+        void invoke<CloudStatus>("cloud_logout").then(value => { status = value; changed(); void catalog.load().catch(error => fail(fromBack(error))); }).catch(error => fail(fromBack(error)));
       } },
     ], undefined, () => control.setAttribute("aria-expanded", "false"));
   }, "ghost");
@@ -98,7 +100,7 @@ function connect() {
     try {
       const value = await invoke<CloudStatus | null>("cloud_login_poll", { id: attempt.id });
       if (closed) return;
-      if (value) { status = value; changed(); dialog.close(); } else schedule();
+      if (value) { status = value; changed(); await catalog.load(); dialog.close(); void refresh(); } else schedule();
     } catch (cause) {
       if (!closed) { error.textContent = fromBack(cause); attempt = null; open.disabled = true; }
     } finally { busy = false; }

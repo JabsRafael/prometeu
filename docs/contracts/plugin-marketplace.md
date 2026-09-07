@@ -183,3 +183,10 @@ uma coleção de skills quando a pessoa escolheu um comportamento automático.
   transformam conta, sessões ou cache compartilhado em ownership do app;
 - mudança no esquema do hub, na semântica de seleção ou nos manifests gerados
   exige atualização deste contrato e teste de compatibilidade.
+
+## Skills independentes
+
+Skills cadastradas no desktop ou instaladas da conta são materializadas em
+`<root>/skills-packages/<id>/`, com os dois manifestos e `skills/<id>/SKILL.md`.
+O hub usa o ID `skill-<id>` e os mesmos seletores de plugins, sem alterar
+configuração global dos CLIs. Veja o [contrato do catálogo](cloud-catalog.md).

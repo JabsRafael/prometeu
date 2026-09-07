@@ -15,8 +15,7 @@ como índice curto para agentes e `README.md` apresenta o produto.
 
 ## Contratos
 
-- [Catálogo na conta Prometeu](contracts/cloud-catalog.md): plugins, MCP e Ações
-  que valem em todos os Macs da pessoa; instalação e segredos ficam por Mac.
+- [Catálogo na conta Prometeu](contracts/cloud-catalog.md): plugins, MCP e skills gerenciados no SaaS, com itens privados e compartilhamento explícito no desktop.
 - [Conta opcional do Prometeu](contracts/cloud-account.md): SaaS, autenticação
   pelo navegador, conexão do desktop e persistência privada.
 
@@ -74,7 +73,9 @@ como índice curto para agentes e `README.md` apresenta o produto.
 
 - [ADR 0010](decisions/0010-default-code-review.md): Code review incluído no cadastro — aceito.
 
-- [ADR 0019](decisions/0019-cloud-catalog.md): catálogo de plugins, MCP e Ações na conta — aceito.
+- [ADR 0019](decisions/0019-cloud-catalog.md): catálogo de plugins, MCP e Ações na conta — substituído pelo ADR 0020.
+
+- [ADR 0020](decisions/0020-personal-catalog-and-local-items.md): autoria no SaaS e itens locais privados ou compartilhados.
 
 ## Qualidade e operação
 

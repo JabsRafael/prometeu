@@ -1,66 +1,132 @@
-# Catálogo na conta Prometeu
+# Catálogo pessoal e itens locais
 
-Status: implementado; decisão no [ADR 0019](../decisions/0019-cloud-catalog.md).
+Status: implementado; decisão no [ADR 0020](../decisions/0020-personal-catalog-and-local-items.md),
+que substitui o [ADR 0019](../decisions/0019-cloud-catalog.md).
 
-## Documento
+## Autoria e disponibilidade
 
-Uma conta tem no máximo um documento JSON, com até 256 KB:
+O navegador oferece `/catalog`, com cadastro, edição e exclusão de MCPs,
+plugins e skills da conta autenticada. Cada desktop reúne essas definições
+com seus próprios itens. Criar ou instalar um item no desktop é local por
+padrão, inclusive quando há conta. Conectar nunca publica o hub inteiro.
+
+`Compartilhar na nuvem` publica uma definição e estabelece um vínculo:
+edições posteriores atualizam a conta. `Criar cópia local` cria outra
+definição, sem vínculo, e conserva a compartilhada. Uma cópia de plugin
+referencia os mesmos arquivos instalados; remover qualquer dessas definições
+não apaga o clone compartilhado. Para modificar os arquivos independentemente,
+cadastre outro diretório. Skills copiadas têm pacote e conteúdo próprios.
+
+MCPs recebidos entram no hub, sem conexão ou ativação automática. Plugins e
+skills recebidos aparecem como disponíveis, com `Instalar aqui`. A seleção
+por workspace/conversa continua determinando o que os providers recebem.
+O desktop busca atualizações no login, ao recuperar foco, a cada 60 segundos
+enquanto visível e em **Atualizar conta**. Não há WebSocket de catálogo.
+Alterações na origem de um plugin exigem `Usar nova origem`; sincronizar
+metadados não substitui um clone por código novo automaticamente. O editor
+desktop altera a descrição de plugins compartilhados; a origem é editada no
+SaaS, preservando a diferença entre definição e instalação local. Atualizar
+um repositório continua sendo uma ação explícita no desktop.
+
+Excluir pelo navegador remove a definição compartilhada. Os desktops
+conservam os registros e arquivos já instalados como locais. Excluir um MCP
+ou plugin compartilhado pelo desktop exige confirmação de exclusão na nuvem.
+Remover uma skill do Mac apenas desinstala seu registro: ela volta à lista de
+itens disponíveis. Sair da conta mantém os hubs e esquece os vínculos.
+
+## Documento e HTTP
+
+Uma conta tem no máximo um documento JSON de 256 KB:
 
 ```ts
 type Doc = {
   plugins: { id: string; source: string; note: string }[];
   mcp: { id: string; config: object; note: string }[];
-  actions: Catalog | null; // Board.actions, ver actions.md
+  skills: { id: string; description: string; content: string }[];
+  actions: Catalog | null;
 };
 ```
 
-`plugins[].source` é o endereço de origem: `from` de um plugin clonado ou a
-URL de um `.zip`. Caminho local nunca entra. `mcp[].config` é o objeto do
-hub com todo valor de `env` e `headers` trocado por `""`; as chaves ficam.
+`skills` é aditivo: documentos antigos omitem a coleção. A API preserva
+skills existentes quando um desktop antigo envia PUT sem essa chave. Enviar
+`skills: []` remove suas definições. Ações anteriores conservam o contrato
+existente; ainda não possuem editor no SaaS nem controle individual de compartilhamento.
 
-## HTTP (Bearer do desktop)
-
-| Rota | Corpo | Retorno |
+| Rota | Autenticação | Corpo e resultado |
 | --- | --- | --- |
-| `GET /api/catalog` | nenhum | `{ catalog: Doc \| null, revision: number \| null }` |
-| `PUT /api/catalog` | `{ catalog: Doc, revision: number \| null }` | mesmo objeto, ou 409 com o documento atual |
+| `GET /api/catalog` | Bearer desktop | `{ catalog: Doc ou null, revision: number ou null }` |
+| `PUT /api/catalog` | Bearer desktop | `{ catalog: Doc, revision }`; retorna documento e revisão |
+| `/catalog` e `/catalog/:kind` | cookie de navegador e CSRF | CRUD de item em `plugins`, `mcp` ou `skills` |
 
-`revision` é a revisão lida por último; `null` significa "ainda não existe".
-Revisão diferente da guardada, ou `null` quando já existe, devolve 409 e o
-documento vigente. Corpo que não é objeto devolve 400; acima do limite, 413.
-Excluir a conta apaga o documento.
+`revision: null` significa primeira gravação. Revisão diferente devolve 409,
+sem escrever. Browser conserva o rascunho para revisão; desktop atualiza seu
+cache e informa conflito, sem reenviar silenciosamente. Editores desktop
+levam a revisão de quando foram abertos; um refresh no fundo não autoriza
+sobrescrever outra edição. Falha de rede impede somente a edição compartilhada.
+Edições privadas continuam disponíveis offline.
 
-## Desktop
+O servidor valida tipos, nomes únicos, origens remotas e limites antes de
+persistir. IDs de skills seguem `[a-z0-9][a-z0-9-]{0,55}`; descrição tem até
+2000 caracteres e conteúdo até 65536 bytes. O conteúdo é corpo Markdown,
+sem frontmatter: o desktop gera nome e descrição com strings YAML escapadas.
 
-`<root>/catalog.json` guarda `{ revision, doc }`. Sem `cloud.json`, o módulo
-não faz nada. Regras:
+Plugins guardam endereço Git ou URL de `.zip`, nunca upload de pasta local.
+MCPs guardam o comando portátil ou URL e argumentos. Valores de `env` e
+`headers` ficam vazios na nuvem; o servidor recusa valores preenchidos.
+Credenciais são preenchidas em cada Mac e preservadas durante atualizações.
+Argumentos e textos livres são conteúdo publicado pela pessoa: não coloque
+segredos neles. O serviço não executa comandos, instala plugins nem acessa
+as origens cadastradas.
 
-- `plugin_save`, `plugin_install`, `mcp_save`, `mcp_remove`, `plugin_remove` e
-  `actions_save` gravam primeiro na nuvem quando há conta; erro de rede
-  interrompe a gravação local. Plugin sem endereço grava só localmente.
-- `cloud_status({ refresh: true })` e o fim do login chamam `pull`: nuvem vazia
-  recebe o catálogo local; revisão nova aplica o documento aos hubs deste Mac.
-- Aplicar: plugin `.zip` por URL entra no hub; repositório fica pendente;
-  plugin que sumiu da nuvem sai daqui, apagando a pasta que o Prometeu criou.
-  Servidor MCP novo entra com valores vazios; existente recebe a forma nova e
-  mantém os valores locais. Ações substituem `Board.actions` após validação.
-- Primeira conexão com nuvem já preenchida guarda o catálogo local anterior em
-  `<root>/catalog.local.json`.
-- `cloud_logout` apaga o cache; os hubs locais ficam como estão.
+## Identidade e persistência local
+
+`<root>/catalog.json` guarda `{ revision, doc, links }`. `links` mapeia
+`<tipo>:<id na conta>` para um ID local. Nomes privados ocupados recebem um
+ID distinto para a definição remota (`cloud-<nome>-<n>`), preservando o item
+privado. Cache antigo sem `links` migra os vínculos históricos por nome.
+Trocar de conta/origem esquece o cache anterior, conservando itens locais.
+
+`<root>/skills.json` guarda definições instaladas. Cada skill é materializada
+em `<root>/skills-packages/<id>/`, com manifestos Claude/Codex e
+`skills/<id>/SKILL.md`. O hub de plugins contém `skill-<id>` e reutiliza
+seleção e adapters existentes. Esses pacotes aparecem na página Skills e
+nos seletores, sem duplicar cadastro na página Plugins.
+
+Nesta etapa o proprietário é a pessoa autenticada (`Catalog.user_id`).
+Times, projetos, organizações e suas permissões não são implementados. Ao
+introduzi-los, a identidade remota deve incluir o catálogo proprietário;
+nomes iguais não podem implicar união ou substituição de definições. O mapa
+local já separa identidade remota do nome usado no desktop.
 
 ## IPC
 
 | Comando | Argumentos | Retorno |
 | --- | --- | --- |
-| `catalog_state` | nenhum | `{ connected, plugins: Portable[], mcp: string[] }` |
-| `catalog_refresh` | nenhum | vazio; erro de rede como `err.cloud.network` |
+| `catalog_state` | nenhum | connected, revision, plugins, mcp, skills e shared |
+| `catalog_refresh` | nenhum | vazio; busca definições da conta |
+| `catalog_share` | kind, id local | vazio; publica e vincula |
+| `catalog_copy` | kind, id local, newId | vazio; cria definição privada |
+| `catalog_install_plugin` | id da conta | vazio; instala origem selecionada |
+| `catalog_install_skill` | id da conta | vazio; materializa skill |
+| `skill_hub` | nenhum | Skill[] instaladas |
+| `skill_save` | skill, revision | Skill[]; publica somente se vinculada |
+| `skill_remove` | id local | Skill[]; remove somente deste Mac |
 
-O evento `catalog` avisa a webview que os hubs mudaram por causa da nuvem. A
-tela marca cada linha como "na nuvem" ou "só neste Mac" e lista plugins da
-nuvem ainda não instalados com o botão de instalar.
+`plugin_save` e `mcp_save` também recebem `revision` quando editam um item
+compartilhado. Novos itens privados não precisam de revisão. O evento
+`catalog` atualiza hubs e marcas da interface. `plugins` e `skills` no estado
+incluem `local_id` e `installed`; plugins também incluem `source_changed`.
+`shared` mapeia `<tipo>:<id local>` para o ID na conta.
 
 ## Evidência
 
-- `src-tauri/src/catalog.rs`: testes de forma sem segredo, merge e portabilidade.
-- `prometeu-cloud/test/integration/catalog_test.rb`: contrato HTTP completo.
-- `e2e/cloud.spec.ts`: marcas e plugin pendente no mock após conectar.
+- `src-tauri/src/catalog.rs`: migração de vínculos, colisão de nomes, preservação
+  de itens privados e credenciais, rejeição de documentos malformados.
+- `src-tauri/src/skills.rs`: validação, isolamento de diretórios, frontmatter,
+  manifestos dos dois providers e atualização de conteúdo.
+- `e2e/cloud.spec.ts`: instalação, compartilhamento explícito, cópia privada,
+  edição offline e conflito de revisão sobre mock.
+- `prometeu-cloud/test/integration/catalog_test.rb` e `catalog_browser_test.rb`:
+  autenticação, isolamento por conta, CRUD browser/API, conflito e compatibilidade.
+- `prometeu-cloud/test/browser/catalog.spec.js`: formulários Rails reais,
+  CSRF, consumo da API desktop e layout em Chromium/WebKit.
