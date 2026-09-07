@@ -68,7 +68,7 @@ export type Draft = {
   plugins: string[] | null;
 };
 
-type Branches = { all: string[]; default: string };
+type Branches = { all: string[]; default: string; git: boolean };
 
 /// Sempre solto (`--dangerously-skip-permissions`): não há chavinha. Agente
 /// que para a cada `Write` não trabalha enquanto você olha outra coisa, e é
@@ -341,8 +341,9 @@ export function openLauncher(board: Board, opts: Open) {
   const others = () => board.projects.filter((p) => p.id !== draft.project && !draft.extras.includes(p.id));
   const drawExtras = () => {
     more.hidden = board.projects.length < 2;
-    more.disabled = !others().length;
-    more.title = t(others().length ? "launcher.addRepo" : "launcher.addRepo.none");
+    // Mais de um repositório é um worktree de cada, e worktree pede git.
+    more.disabled = !others().length || !isGit;
+    more.title = t(!isGit ? "launcher.noGit" : others().length ? "launcher.addRepo" : "launcher.addRepo.none");
     reposBox.hidden = !draft.extras.length;
     reposBox.replaceChildren(
       ...draft.extras.map((id) => {
@@ -387,6 +388,11 @@ export function openLauncher(board: Board, opts: Open) {
   const wt = $<HTMLButtonElement>("d-wt");
   const nb = $<HTMLButtonElement>("d-nb");
 
+  // Pasta registrada sem git: worktree e branch nova não têm do que sair, e as
+  // duas chavinhas ficam desligadas e travadas. Quem sabe é o `loadBranches` —
+  // até ele responder, o projeto é tratado como repositório.
+  let isGit = true;
+
   const drawSwitches = () => {
     for (const [el, on] of [
       [wt, draft.worktree],
@@ -395,10 +401,10 @@ export function openLauncher(board: Board, opts: Open) {
       el.classList.toggle("on", on);
       el.setAttribute("aria-checked", String(on));
     }
-    nb.disabled = draft.worktree;
-    nb.title = t(draft.worktree ? "launcher.nb.locked" : "launcher.nb.off");
-    wt.disabled = !!git || draft.extras.length > 0;
-    wt.title = t(draft.extras.length ? "launcher.wt.locked" : draft.worktree ? "launcher.wt.on" : "launcher.wt.off");
+    nb.disabled = draft.worktree || !isGit;
+    nb.title = t(!isGit ? "launcher.noGit" : draft.worktree ? "launcher.nb.locked" : "launcher.nb.off");
+    wt.disabled = !!git || draft.extras.length > 0 || !isGit;
+    wt.title = t(!isGit ? "launcher.noGit" : draft.extras.length ? "launcher.wt.locked" : draft.worktree ? "launcher.wt.on" : "launcher.wt.off");
     // Sem branch nova não há de onde sair.
     baseBtn.disabled = !draft.newBranch || !branches.length;
     if (!draft.newBranch) basePick.close();
@@ -571,12 +577,20 @@ export function openLauncher(board: Board, opts: Open) {
     const loadingProject = draft.project;
     const fromGit = loadingProject === project ? git : undefined;
     branches = [];
+    isGit = true;
     baseBtn.disabled = true;
     baseName.textContent = t("launcher.loading");
     try {
       const got = await invoke<Branches>("list_branches", { project: draft.project });
       if (draft.project !== loadingProject) return;
       branches = got.all;
+      isGit = got.git;
+      // Pasta sem git abre a sessão onde ela está, e mais nada.
+      if (!isGit) {
+        draft.worktree = false;
+        draft.newBranch = false;
+      }
+      drawSwitches();
       // O repositório é que sabe quais nomes já existem, e ele acabou de
       // chegar (ou mudou, se trocaram de projeto). Git e issue preservam o nome escolhido.
       if (!seed) draft.branch = fromGit?.branch || freshBranch(branches);
@@ -585,6 +599,7 @@ export function openLauncher(board: Board, opts: Open) {
       if (draft.project !== loadingProject) return;
       // Repo sem ref nenhuma (recém-init): cria a branch de onde o HEAD estiver.
       setBase(fromGit?.base ?? "");
+      drawSwitches();
     }
     baseBtn.disabled = !draft.newBranch || !branches.length;
   };

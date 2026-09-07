@@ -22,8 +22,12 @@ pub fn load_board(state: State<AppState>) -> Board {
 
 /* ---------- projetos ---------- */
 
-/// Registrar o repositório uma vez é o que torna criar workspace rápido depois:
-/// o lançador vira um seletor e uma caixa de texto.
+/// Registrar a pasta uma vez é o que torna criar workspace rápido depois: o
+/// lançador vira um seletor e uma caixa de texto.
+///
+/// A pasta não precisa ser um repositório git. Sem git não há worktree nem
+/// branch nova — o lançador desliga as duas chavinhas —, e o que sobra é o que
+/// muita pasta precisa: abrir o agente ali dentro.
 #[tauri::command]
 pub fn add_project(
     app: AppHandle,
@@ -31,12 +35,6 @@ pub fn add_project(
     path: String,
 ) -> Result<Project, String> {
     let path = PathBuf::from(expand(&path));
-    if !path.join(".git").exists() {
-        return Err(i18n::ta(
-            "err.session.notGit",
-            &[("path", path.display().to_string())],
-        ));
-    }
     let id = path.display().to_string();
     let project = Project {
         id: id.clone(),
@@ -824,6 +822,21 @@ pub fn create_workspace(
         return Err(i18n::t("err.session.extrasNeedWorktree"));
     }
 
+    // Worktree e branch são do git, e uma pasta registrada pode não ter nenhum.
+    // O lançador já desliga as duas chavinhas quando não há; o não daqui é para
+    // quem chegou por outro caminho — e é melhor recusar agora do que deixar o
+    // card nascer para falhar no `git worktree add`.
+    if draft.worktree || !draft.branch.trim().is_empty() {
+        for path in std::iter::once(&repo_path).chain(extras.iter().map(|(p, _)| p)) {
+            if !path.join(".git").exists() {
+                return Err(i18n::ta(
+                    "err.session.notGit",
+                    &[("path", path.display().to_string())],
+                ));
+            }
+        }
+    }
+
     // Branch vazia é a escolha de não criar branch nenhuma: a sessão abre no
     // repositório onde ele estiver. Worktree, esse, sempre precisa de uma —
     // é a branch que dá nome e destino à pasta.
@@ -851,9 +864,11 @@ pub fn create_workspace(
             )
         }
         (false, false) => (repo_path.clone(), draft.branch.clone()),
+        // Sem branch: a que o clone já tem. Pasta sem git não tem nenhuma, e
+        // ficar sem é mais honesto que inventar um "HEAD".
         (false, true) => (
             repo_path.clone(),
-            head_branch(&repo_path).unwrap_or_else(|| "HEAD".into()),
+            head_branch(&repo_path).unwrap_or_default(),
         ),
     };
     // A base escolhida no lançador é do principal — a lista de branches era
@@ -1680,14 +1695,8 @@ fn has_commit(repo: &Path, reference: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// O nome de um clone, conferindo antes que ele é um repositório git.
+/// O nome de uma pasta registrada, que é o nome dela no disco.
 fn repo_named(path: &Path) -> Result<String, String> {
-    if !path.join(".git").exists() {
-        return Err(i18n::ta(
-            "err.session.notGit",
-            &[("path", path.display().to_string())],
-        ));
-    }
     path.file_name()
         .and_then(|s| s.to_str())
         .map(str::to_string)
@@ -1741,11 +1750,16 @@ fn default_base(repo: &Path) -> String {
 pub struct Branches {
     pub all: Vec<String>,
     pub default: String,
+    /// Se a pasta é um repositório git. Lista vazia não responde isso: repo
+    /// recém-`init` também não tem ref nenhuma, e é o que o lançador precisa
+    /// saber para desligar worktree e branch nova.
+    pub git: bool,
 }
 
 #[tauri::command(async)]
 pub fn list_branches(project: String) -> Branches {
     let repo = PathBuf::from(expand(&project));
+    let git_repo = repo.join(".git").exists();
     let refs = |pattern: &str| -> Vec<String> {
         git(
             &repo,
@@ -1793,7 +1807,11 @@ pub fn list_branches(project: String) -> Branches {
             all.push(name);
         }
     }
-    Branches { all, default }
+    Branches {
+        all,
+        default,
+        git: git_repo,
+    }
 }
 
 #[cfg(test)]

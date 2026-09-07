@@ -26,7 +26,8 @@ use super::files::Entry;
 /// Quem sabe o que existe é o git, e não uma varredura própria: `ls-files`
 /// traz o que está rastreado e o que é novo, sem nada que o `.gitignore`
 /// mandou esquecer — o mesmo recorte que o agente enxerga, e sem entrar em
-/// `node_modules` ou `target`. Num workspace de mais de um repositório cada
+/// `node_modules` ou `target`. Pasta registrada sem git não tem esse recorte,
+/// e aí a varredura é própria. Num workspace de mais de um repositório cada
 /// caminho vem com a pasta do repositório na frente, como o agente precisa
 /// escrever para achar o arquivo.
 ///
@@ -589,6 +590,55 @@ fn cached(id: &str, make: impl FnOnce() -> Vec<String> + Send + 'static) -> Arc<
     fresh
 }
 
+/// Os arquivos de uma pasta. Onde há git, quem sabe o que existe é ele —
+/// `ls-files` traz o rastreado e o novo, sem nada que o `.gitignore` esconde.
+/// Pasta sem git não tem quem responda isso, e aí a varredura é própria.
+fn list(dir: &Path) -> Vec<String> {
+    if dir.join(".git").exists() {
+        // `-z` porque o git põe aspas em nome com acento ou espaço quando o
+        // separador é a quebra de linha.
+        return git(dir, &["ls-files", "-coz", "--exclude-standard"])
+            .split('\0')
+            .filter(|rel| !rel.is_empty())
+            .map(str::to_string)
+            .collect();
+    }
+    let mut out = Vec::new();
+    walk(dir, "", &mut out);
+    out
+}
+
+/// Sem `.gitignore` para obedecer, o que fica de fora é o que ninguém digita
+/// num `@`: pasta escondida e os depósitos que todo projeto tem.
+///
+/// ponytail: lista fixa de pastas ignoradas e teto de arquivos; ler o
+/// `.gitignore` da pasta se pasta sem git virar caso comum.
+const LOOSE_SKIP: [&str; 3] = ["node_modules", "target", "vendor"];
+const LOOSE_MAX: usize = 20_000;
+
+fn walk(dir: &Path, prefix: &str, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if out.len() >= LOOSE_MAX {
+            return;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') || LOOSE_SKIP.contains(&name.as_str()) {
+            continue;
+        }
+        let rel = match prefix.is_empty() {
+            true => name,
+            false => format!("{prefix}/{name}"),
+        };
+        match entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+            true => walk(&entry.path(), &rel, out),
+            false => out.push(rel),
+        }
+    }
+}
+
 /// Todo caminho do workspace: os arquivos que o git conhece, e as pastas que
 /// eles implicam — o git não lista pasta, e quem escreve "@app/" quer ver a
 /// pasta antes de escolher o que tem dentro. Pasta termina em barra, que é o
@@ -598,14 +648,9 @@ fn scan(root: &Path, repos: &[Repo]) -> Vec<String> {
     let mut dirs: HashSet<String> = HashSet::new();
 
     let mut collect = |dir: &Path, prefix: &str| {
-        // `-z` porque o git põe aspas em nome com acento ou espaço quando o
-        // separador é a quebra de linha.
-        for rel in git(dir, &["ls-files", "-coz", "--exclude-standard"]).split('\0') {
-            if rel.is_empty() {
-                continue;
-            }
+        for rel in list(dir) {
             let path = match prefix.is_empty() {
-                true => rel.to_string(),
+                true => rel,
                 false => format!("{prefix}/{rel}"),
             };
             let mut at = 0;
@@ -816,6 +861,27 @@ mod tests {
         assert!(found.contains(&"app/".to_string()));
         assert!(found.contains(&"app/models/".to_string()));
         assert!(!found.iter().any(|p| p.contains("node_modules")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Pasta registrada sem git: a varredura é própria, e o que ela pula é o
+    /// que ninguém digita num `@`.
+    #[test]
+    fn a_varredura_da_pasta_sem_git() {
+        let root = std::env::temp_dir().join(format!("prometeu-solta-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("app/models")).unwrap();
+        std::fs::create_dir_all(root.join("node_modules/x")).unwrap();
+        std::fs::create_dir_all(root.join(".cache")).unwrap();
+        std::fs::write(root.join("app/models/user.rb"), "").unwrap();
+        std::fs::write(root.join("node_modules/x/y.js"), "").unwrap();
+        std::fs::write(root.join(".cache/z.bin"), "").unwrap();
+
+        let found = scan(&root, &[]);
+        assert!(found.contains(&"app/models/user.rb".to_string()));
+        assert!(found.contains(&"app/models/".to_string()));
+        assert!(!found.iter().any(|p| p.contains("node_modules")));
+        assert!(!found.iter().any(|p| p.contains(".cache")));
         let _ = std::fs::remove_dir_all(&root);
     }
 
