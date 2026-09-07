@@ -687,12 +687,31 @@ export function finish(id: string) {
 
 /* ---------- abas ---------- */
 
+let tabsFrame = 0;
+
+// Refazer a barra entre pressionar e soltar remove o alvo do clique. Aguarda
+// o fim do gesto nativo, juntando os redesenhos no próximo quadro disponível.
+function deferTabs() {
+  const active = $("tabbar").matches(":active");
+  if (active && !tabsFrame) {
+    tabsFrame = requestAnimationFrame(() => {
+      tabsFrame = 0;
+      if (proj) drawProjectTabs();
+      else {
+        const ws = current();
+        if (ws) drawTabs(ws);
+      }
+    });
+  }
+  return active;
+}
+
 /// Abas sublinhadas: uma por conversa, depois as que você abriu — Mudanças,
 /// navegador, terminais e arquivos — e o + logo depois da última.
 function drawTabs(ws: Workspace) {
   // Refazer a barra com um campo de renomear aberto nela apaga o que foi
   // digitado — e o diff, que redesenha sozinho, chega aqui a toda hora.
-  if (rename.editing()) return;
+  if (rename.editing() || deferTabs()) return;
   const bar = $("tabbar");
   bar.replaceChildren();
   const fs = files(ws.id);
@@ -1285,7 +1304,7 @@ export function openProject(project: Project) {
 /// Sem conversa não há aba de agente nem Mudanças, e o "+" abre terminal — que
 /// é o que se cria aqui.
 function drawProjectTabs() {
-  if (!proj) return;
+  if (!proj || deferTabs()) return;
   const bar = $("tabbar");
   bar.replaceChildren();
   appendTermTabs(bar);
