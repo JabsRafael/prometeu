@@ -144,7 +144,7 @@ As regras detalhadas e o estado atual de cada uma estão em
 | conversa | `src/chat.ts`, `src/timeline.ts`, `src/chat-presentation.ts`, `src/desk.ts` |
 | agentes | `src/agents.ts`, `src/launcher.ts`, `src-tauri/src/agents.rs`, `src-tauri/src/claude.rs`, `src-tauri/src/codex.rs` |
 | workspaces | `src-tauri/src/session.rs`, `src-tauri/src/state.rs` |
-| Git e arquivos | `src/workspace-changes.ts`, `src/git-diff.ts`, `src/viewer.ts`, `src/csv.ts`, `src-tauri/src/session/git.rs`, `src-tauri/src/session/diff.rs`, `src-tauri/src/session/files.rs` |
+| Git e arquivos | `src/workspace-changes.ts`, `src/diff.ts`, `src/viewer.ts`, `src/csv.ts`, `src-tauri/src/session/git.rs`, `src-tauri/src/session/diff.rs`, `src-tauri/src/session/files.rs` |
 | MCP e plugins | `src/mcp.ts`, `src/plugins.ts`, `src-tauri/src/mcp.rs`, `src-tauri/src/plugins.rs`, `docs/contracts/plugin-marketplace.md` |
 | colaboração | `src/team.ts`, `src/team-transport.ts`, `src/team-control.ts`, `relay/src/` |
 | terminal e preview | `src/dock*.ts`, `src/term.ts`, `src/browser.ts`, `src-tauri/src/dock.rs`, `src-tauri/src/pty.rs` |

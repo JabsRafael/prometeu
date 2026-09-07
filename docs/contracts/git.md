@@ -6,9 +6,10 @@ Status: implementado. O Git executa somente no Mac que possui o workspace.
 
 `src/workspace-changes.ts` controla seleção, rascunhos e apresentação. O backend
 `src-tauri/src/session/git.rs` resolve o repositório pelo workspace e executa Git
-com argumentos separados, sem shell. `src/git-diff.ts` alinha os hunks para a
-comparação lado a lado. O viewer existente continua responsável pela edição
-completa de arquivos.
+com argumentos separados, sem shell. `src/diff.ts` empilha os arquivos do escopo
+num scroll só, em diff unificado, tanto em Alterações quanto em comparação e
+commit. O viewer existente continua responsável pela edição completa de
+arquivos.
 
 O painel mantém repositório, branch e remoto no cabeçalho, com contadores de
 pull/push e um menu de ações. Commit e grupos recolhíveis de alterações ficam
@@ -72,8 +73,12 @@ usado pelo viewer de revisão. Os escopos são:
 
 Comparação de branch e histórico excluem mudanças locais. Patches vazios
 podem indicar binário, metadados ou limite de 400.000 bytes; a UI declara essa
-limitação. A comparação lado a lado exibe até 2.500 linhas por arquivo. A
-revisão de branch preserva a montagem de hunks conforme entram na área visível.
+limitação. O diff exibe até 2.500 linhas por arquivo e monta o corpo de cada um
+conforme ele entra na área visível.
+
+Alterações mostra um escopo por vez — `staged` ou `changes`, decidido pelo
+arquivo escolhido na lista —, porque o mesmo arquivo tem dois diffs diferentes.
+Clicar num arquivo do escopo já exibido rola até ele, sem redesenhar a tela.
 
 ### Mutações
 
@@ -120,7 +125,7 @@ transcript ou protocolo de colaboração.
 
 - `src-tauri/src/session/git_tests.rs`: repositórios Git reais, índice parcial,
   caminhos especiais, commit, remotos locais, conflitos e merge.
-- `src/git-diff.test.ts`: alinhamento e numeração dos dois lados.
+- `src/diff.test.ts`: numeração de linhas do patch unificado.
 - `e2e/git.spec.ts`: operações e estados da UI sobre o mock.
 - `e2e/critical-flows.spec.ts`: navegação ao viewer, revisão grande e isolamento
   entre repositórios.

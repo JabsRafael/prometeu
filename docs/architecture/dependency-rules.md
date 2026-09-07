@@ -13,7 +13,7 @@ apenas para aumentar o número de camadas.
 | Camada | Exemplos atuais | Pode conhecer |
 | --- | --- | --- |
 | apresentação | `chat.ts`, `workspace.ts`, `workspace-changes.ts`, `sidebar.ts` | view models, casos de uso e contratos IPC |
-| domínio derivado | `timeline.ts`, `git-diff.ts`, `relay/src/logic.ts` | tipos de domínio e funções puras |
+| domínio derivado | `timeline.ts`, `relay/src/logic.ts` | tipos de domínio e funções puras |
 | aplicação | `session.rs`, coordenação em `main.ts` | domínio e ports externos |
 | adapters | `claude.rs`, `codex.rs`, IPC, relay transport, Git/files | protocolos externos e contratos do core |
 
