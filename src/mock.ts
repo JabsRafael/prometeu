@@ -1876,8 +1876,9 @@ w.mock = {
   /// manda quando você arrasta de fora para dentro da janela. Em pontos
   /// lógicos, como o wry do macOS manda de verdade (ver `dropTarget` no main).
   drop: (paths: string[], x = innerWidth / 2, y = innerHeight / 2, dropX = x, dropY = y) => {
-    emit("tauri://drag-over", { position: { x, y } });
-    emit("tauri://drag-drop", { paths, position: { x: dropX, y: dropY } });
+    emit("file-drag", { type: "over", paths: [], position: { x, y } });
+    emit("file-drag", { type: "drop", paths, position: { x: dropX, y: dropY } });
   },
-  over: (position: { x: number; y: number }) => emit("tauri://drag-over", { position }),
+  over: (position: { x: number; y: number }) => emit("file-drag", { type: "over", paths: [], position }),
+  drag: (type: "enter" | "over" | "drop" | "leave" | "pending" | "received", payload: { paths?: string[]; position?: { x: number; y: number }; id?: string; error?: string } = {}) => emit("file-drag", { type, paths: [], ...payload }),
 };

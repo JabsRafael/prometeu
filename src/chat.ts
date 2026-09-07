@@ -125,7 +125,10 @@ function settleNow() {
 const drafts = {
   says: new Map<string, string>(),
   files: new Map<string, string[]>(),
+  pending: new Map<string, number>(),
 };
+const draftListeners = new Set<(key: string) => void>();
+const draftChanged = (key: string) => draftListeners.forEach(listener => listener(key));
 
 export class ChatView {
   private feed!: HTMLElement;
@@ -170,6 +173,9 @@ export class ChatView {
     this.box = h("div", "composer");
     host.append(this.feed, this.box);
     this.buildComposer();
+    const draftChangedHere = (key: string) => { if (this.key === key) this.paintComposer(); };
+    draftListeners.add(draftChangedHere);
+    this.cleanup.push(() => draftListeners.delete(draftChangedHere));
 
     void listen<[string, string, number]>("chat", ({ payload: [session, line, seq] }) => {
       if (session !== this.key || this.remote) return;
@@ -321,13 +327,36 @@ export class ChatView {
   /// Arquivos escolhidos no Finder ou soltos em cima da conversa entram no
   /// mesmo rascunho, sem mexer no texto que já estava sendo escrito.
   attachFiles(paths: string[]): boolean {
-    if (!this.canAttachFiles()) return false;
-    const files = this.attached().slice();
-    for (const path of paths) if (path && !files.includes(path)) files.push(path);
-    if (this.key) drafts.files.set(this.key, files);
-    this.paintComposer();
-    this.area.focus();
+    const target = this.fileDropTarget();
+    if (!target) return false;
+    target.put(paths);
     return true;
+  }
+
+  /// A captura pode chegar depois de trocar de aba. O destino é o rascunho
+  /// escolhido ao soltar, mesmo se esta apresentação já tiver sido desmontada.
+  fileDropTarget(): { put: (paths: string[]) => void; wait: () => () => void } | null {
+    if (!this.canAttachFiles() || !this.key) return null;
+    const key = this.key;
+    return {
+      put: (paths) => {
+        const files = (drafts.files.get(key) ?? []).slice();
+        for (const path of paths) if (path && !files.includes(path)) files.push(path);
+        drafts.files.set(key, files);
+        draftChanged(key);
+        if (!this.disposed && this.key === key && this.box.getClientRects().length) this.area.focus();
+      },
+      wait: () => {
+        drafts.pending.set(key, (drafts.pending.get(key) ?? 0) + 1);
+        draftChanged(key);
+        return () => {
+          const remaining = (drafts.pending.get(key) ?? 1) - 1;
+          if (remaining) drafts.pending.set(key, remaining);
+          else drafts.pending.delete(key);
+          draftChanged(key);
+        };
+      },
+    };
   }
 
   /* ---------- as linhas ---------- */
@@ -1144,6 +1173,7 @@ export class ChatView {
   }
 
   private send() {
+    if (this.key && drafts.pending.has(this.key)) return;
     // O que foi marcado no seletor e ainda não foi gravado vai agora: a fala
     // sobe o processo, e a gravação atrasada o derrubaria em seguida.
     settleNow();
@@ -1283,11 +1313,13 @@ export class ChatView {
           : info.status === "desligada"
             ? t("chat.placeholder.off")
             : t("chat.placeholder");
-    q(".hint").textContent = this.tl.compacting ? t("chat.compacting") : this.tl.busy ? t("chat.busy") : "";
+    const receiving = !!this.key && drafts.pending.has(this.key);
+    q(".hint").textContent = receiving ? t("chat.drop.receiving") : this.tl.compacting ? t("chat.compacting") : this.tl.busy ? t("chat.busy") : "";
     this.paintWith(info);
     this.paintMcp(info);
     this.paintPlugins(info);
     const send = q(".send");
+    (send as HTMLButtonElement).disabled = receiving;
     send.className = "send pri round";
     send.title = t("chat.send");
     send.innerHTML = icon("arrow-up", 16);

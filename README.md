@@ -155,6 +155,30 @@ desativar a bolinha do Dock. Cobertura: `src/alert.test.ts` e `e2e/alerts.spec.t
    pedido de permissão é **quer você**, `result` é **pronta**, fim do processo
    é **desligada**. Não há hook nem socket: o stream já conta tudo.
 
+### Anexar arquivos
+
+Arraste arquivos do Finder ou a miniatura de uma captura de tela para a
+conversa ou para um quadro da mesa, ou use o botão `+` da caixa de mensagem.
+Os arquivos entram como anexos do rascunho,
+sem apagar o texto; caminhos repetidos não criam anexos duplicados. No terminal,
+soltar arquivos escreve os caminhos escapados para o shell.
+
+A posição onde o arquivo é solto escolhe a conversa. Soltar fora das conversas
+não anexa ao último chat visitado. Diálogos bloqueiam anexos nas conversas
+atrás deles; o lançador recebe os anexos da primeira fala. Conversas remotas
+não recebem arquivos deste Mac.
+
+Miniaturas de captura usam uma promessa de arquivo do macOS. O app mostra
+“Recebendo arquivo…” enquanto salva a captura numa pasta privada, e então
+anexa à conversa escolhida, mesmo se você trocar de aba durante a espera.
+O envio fica desabilitado até o recebimento terminar, para a fala não sair sem a captura.
+Falhas de recebimento mostram um aviso e preservam o rascunho. Fontes que não
+entregam caminho nem promessa de arquivo precisam salvar o arquivo antes do arraste.
+Os testes em `e2e/file-drop.spec.ts` e `e2e/critical-flows.spec.ts` cobrem o
+roteamento e os rascunhos em Chromium e WebKit sobre o mock; não substituem
+um teste manual de arraste no app Tauri. Os arquivos recebidos ficam em
+`~/.prometeu/attachments/`, fora do worktree, para continuarem disponíveis no histórico.
+
 ### Sempre solto
 
 Toda sessão nasce com `--dangerously-skip-permissions`, sem chavinha. Nada

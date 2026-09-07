@@ -43,7 +43,7 @@ para virar capacidade contratual.
 | seleção de MCP por workspace | config estrita do CLI | tabela e ambiente montados pelo app | `mcp.rs`, `codex.rs`; erro de preparação impede spawn |
 | seleção de plugins por workspace | flags de sessão | marketplace + config isolada por workspace | `plugins.rs`, smoke do CLI, `codex.rs`, `launcher.ts`, E2E |
 | hooks de plugin escolhido | ativos desde `SessionStart` | `enabled = true` + confiança limitada a `pluginId` e hash antes da thread | testes de `codex.rs`; falha impede a thread |
-| anexos na fala | adaptado por caminho local | adaptado por caminho local | capability + `chat.ts`; falta teste transversal dedicado |
+| anexos na fala e miniaturas de captura | adaptado por caminho local; promessa materializada pelo macOS | adaptado por caminho local; promessa materializada pelo macOS | `file_drop.rs`, `chat.ts`; `e2e/file-drop.spec.ts` e cenários de arquivo solto em `e2e/critical-flows.spec.ts` cobrem UI sobre mock |
 | evento externo desconhecido | ignorado pelo adapter | ignorado pelo adapter | `conversation.test.ts`, testes de `claude.rs`/`codex.rs` |
 | subagentes do CLI | sidechain fora da tela | threads de outro `threadId` ignoradas; o turno da conversa segue | `claude.rs`, teste `turno_de_subagente_nao_encerra_a_conversa` em `codex.rs` |
 | som de conclusão ou pergunta | eventos V1 locais ao vivo | eventos V1 locais ao vivo | `src/alert.test.ts`, `e2e/alerts.spec.ts`; status e replay não avisam, pendência não repete sem interação |
@@ -74,7 +74,10 @@ Ausência de teste não deve virar `true` por semelhança entre providers.
   permanece exclusivo do Claude porque não integra o manifesto Codex atual;
 - plugins habilitados fora do Prometeu continuam sujeitos ao cadastro global
   de cada CLI e não fazem parte da seleção do workspace;
-- anexos ainda não possuem teste transversal dedicado.
+- anexos possuem testes de UI sobre mock e validação nativa do destino salvo;
+  o gesto real da miniatura foi confirmado no Prometeu Dev em 2026-09-06.
+  A leitura efetiva pelo CLI ainda exige verificação manual. Promessas que
+  falham ou excedem 30 segundos produzem erro visível.
 
 ## Suíte de conformidade desejada
 

@@ -50,3 +50,10 @@ base64 = "0.22"
 # A versão do cache de plugin do Codex precisa continuar sendo semver mesmo
 # quando um manifesto compatível traz uma versão livre.
 semver = "1"
+
+# Bindings já usados pelo Tauri; o receptor recebe capturas ainda sem arquivo.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSFilePromiseReceiver", "NSPasteboard", "NSView", "NSResponder", "block2"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSDictionary", "NSString", "NSURL", "NSError", "NSOperation"] }
+block2 = "0.6"

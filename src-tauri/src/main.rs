@@ -12,6 +12,7 @@ mod codex;
 mod conversation;
 mod dock;
 mod domain;
+mod file_drop;
 mod github;
 mod i18n;
 mod linear;
@@ -226,11 +227,13 @@ fn main() {
             cloud::cloud_logout,
         ])
         .setup(|app| {
+            file_drop::install(app.handle())?;
             actions::watch(app.handle().clone());
             machine::watch(app.handle().clone());
             usage::watch(app.handle().clone());
             Ok(())
         })
+        .on_webview_event(file_drop::on_webview_event)
         .build(tauri::generate_context!())
         .expect("erro ao subir o Prometeu")
         .run(|app, event| {

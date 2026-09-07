@@ -52,6 +52,28 @@ Não retornam token nem senha para a webview.
 | `plugin-make` | `plugins.rs` | `[run, step]` |
 | `plugin-made` | `plugins.rs` | `[run, error]` |
 | `browser:url` | `browser.rs` | `[workspace, url]` |
+| `file-drag` | `file_drop.rs`, webview principal | `{ type, paths, position?, id?, error? }` |
+
+`file-drag` adapta o arraste nativo sem alterar os eventos internos do Tauri.
+O registro usa `on_webview_event`, filtrando a webview `main`: com a feature
+`unstable`, o runtime cria até a webview principal como filha da janela e
+não entrega seu arraste aos listeners de `WindowEvent`.
+`enter`, `over`, `leave` e `drop` representam o gesto; `paths` é sempre uma
+lista. `position` contém `{ x, y }` nas coordenadas do runtime: no macOS/wry
+0.55 são pontos lógicos da janela, sem divisão por DPR.
+
+Para uma promessa do macOS, `pending` substitui `drop`, com `id` único e a
+posição final. O frontend captura o rascunho de destino nesse instante.
+O rascunho conta recebimentos pendentes e bloqueia o envio em todas as suas
+apresentações; conclusão ou erro libera o envio quando a contagem chega a zero.
+`received` conclui o mesmo `id` com os caminhos locais materializados e
+`error` opcional; pode trazer arquivos válidos mesmo quando outro falha.
+Recebimentos desconhecidos ou duplicados são ignorados. A espera nativa tem
+limite de 30 segundos, sem bloquear a UI. `src/mock.ts` simula as mesmas fases.
+
+O contrato é aditivo, interno ao bundle app/frontend. Não há mudança em
+`chat_send`, no V1 ou no relay: o agente continua recebendo menções de caminhos.
+Veja [ADR 0018](../decisions/0018-native-file-promises.md).
 
 Os comandos `accounts`, `account_select`, `account_remove`, `account_login` e
 `account_login_cancel` estão definidos em [`accounts.md`](accounts.md).
