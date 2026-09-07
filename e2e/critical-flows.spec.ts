@@ -228,12 +228,10 @@ test("a barra lateral lista agentes por workspace, acompanha status e abre a aba
   await expect(first).toHaveAttribute("title", /Claude Code/);
   await expect(second.locator(".provider path")).toHaveCount(1);
   await expect(second).toHaveAttribute("title", /Codex/);
-  // Aba sem nome é dita pelo modelo; embaixo, o que o agente está fazendo.
+  // Aba sem nome é dita pelo modelo, numa linha só.
   await expect(first.locator(".lbl")).toHaveText("Opus · 1M");
   await expect(second.locator(".lbl")).toHaveText("GPT-5.6-Sol");
-  await expect(first.locator(".note")).toBeHidden();
-  const busy = page.locator('.railagent[data-tab="t3"]');
-  await expect(busy.locator(".note")).toHaveText("Edit src/style.css");
+  await expect(first.locator(".note")).toHaveCount(0);
 
   // O status vem do board, inclusive quando o workspace não está aberto.
   for (const status of ["rodando", "querendo", "desligada", "pronta"] as Status[]) {
