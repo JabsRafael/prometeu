@@ -4,6 +4,40 @@ O que muda no Prometeu, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.5.11] - 2026-09-07
+<!-- lang:pt-BR -->
+
+### Novidades
+
+- **projetos:** Pasta sem git também vira projeto
+- **ui:** Abas, menu com separadores e densidade compacta no design system
+- **ui:** Avatar com foto ou glifo no menu da conta e na identidade
+- **organizações:** Compartilha workspaces pelas organizações do cloud
+
+### Correções
+
+- **mudanças:** Clicar num arquivo não empurra mais a tela para cima
+- **abas:** Preserva cliques durante atualizações do workspace
+
+<!-- lang:en -->
+
+### New
+
+- **projects:** A folder without git can be a project too
+
+- **ui:** Tabs, menu separators and compact density in the design system
+
+- **ui:** Avatar with photo or glyph in the account menu and identity blocks
+
+- **organizations:** Shares workspaces through Cloud organizations
+
+### Fixes
+
+- **changes:** Clicking a file no longer pushes the app header off screen
+
+- **tabs:** Preserves clicks during workspace updates
+
+<!-- lang:end -->
 ## [0.5.10] - 2026-09-07
 <!-- lang:pt-BR -->
 
