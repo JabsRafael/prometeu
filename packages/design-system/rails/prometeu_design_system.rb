@@ -90,9 +90,27 @@ module Prometeu
           **options, class: class_names("ui-disclosure", options[:class]))
       end
 
+      # Foto ou logotipo; sem imagem, o glifo de pessoa ou de organização.
+      # Decorativo: o nome fica no texto ao lado. Glifos iguais aos de icons.ts.
+      GLYPHS = {
+        person: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+        organization: '<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>'
+      }.freeze
+
+      def ds_avatar(image: nil, kind: :person, size: :sm)
+        content = if image
+          image_tag(image, alt: "")
+        else
+          tag.svg(GLYPHS.fetch(kind.to_sym).html_safe, class: "ic", width: 14, height: 14, viewBox: "0 0 24 24", fill: "none",
+            stroke: "currentColor", "stroke-width": "1.75", "stroke-linecap": "round", "stroke-linejoin": "round")
+        end
+        tag.span(content, class: class_names("ui-avatar", size, "org" => kind.to_sym == :organization), aria: { hidden: true })
+      end
+
       # Sem JavaScript, o menu continua sendo um disclosure com links nativos.
       # `:sep` separa grupos; `method:` envia um formulário nativo com CSRF.
-      def ds_menu(label, items:)
+      # `avatar:` entra no gatilho ao lado do rótulo.
+      def ds_menu(label, items:, avatar: nil)
         links = items.map do |item|
           next tag.hr if item == :sep
           if item[:method]
@@ -102,7 +120,7 @@ module Prometeu
           link_to(item.fetch(:label), item.fetch(:url), class: class_names("ui-link", "danger" => item[:danger]),
             lang: item[:lang], hreflang: item[:lang], aria: { current: item[:current] ? "true" : nil })
         end
-        tag.details(safe_join([tag.summary(label, class: "ui-button ghost"), tag.div(safe_join(links))]),
+        tag.details(safe_join([tag.summary(safe_join([avatar, label].compact), class: "ui-button ghost"), tag.div(safe_join(links))]),
           class: "ui-menu-fallback", data: { ui_menu: true })
       end
 

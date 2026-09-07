@@ -14,6 +14,19 @@ export function button(label: string, run: () => void = () => {}, variant: Butto
   return control;
 }
 
+/** Foto ou logotipo; sem imagem, o glifo de pessoa ou de organização. Decorativo:
+ *  o nome já está no texto ao lado. */
+export function avatar(image?: string, kind: "person" | "organization" = "person", size: "sm" | "md" | "lg" = "sm") {
+  const root = document.createElement("span");
+  root.className = `ui-avatar ${size}${kind === "organization" ? " org" : ""}`;
+  root.setAttribute("aria-hidden", "true");
+  if (image) {
+    const img = document.createElement("img"); img.src = image; img.alt = "";
+    root.append(img);
+  } else root.innerHTML = icon(kind === "organization" ? "building" : "user", 14);
+  return root;
+}
+
 export function input(value?: string, multiline?: false): HTMLInputElement;
 export function input(value: string | undefined, multiline: true): HTMLTextAreaElement;
 export function input(value?: string, multiline?: boolean): HTMLInputElement | HTMLTextAreaElement;
