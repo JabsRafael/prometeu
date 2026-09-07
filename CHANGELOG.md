@@ -4,6 +4,31 @@ O que muda no Prometeu, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.5.9] - 2026-09-07
+<!-- lang:pt-BR -->
+
+### Novidades
+
+- **alterações:** Mostra o diff do grupo inteiro num scroll só
+- **cloud:** Leva plugins, MCP e Ações para a conta Prometeu
+
+### Correções
+
+- **conta:** Botão da conta fica compacto na barra lateral
+
+<!-- lang:en -->
+
+### New
+
+- **changes:** Shows the whole group's diff in one scroll
+
+- **cloud:** Plugins, MCP and Actions follow your account across Macs
+
+### Fixes
+
+- **account:** Sidebar account button is compact
+
+<!-- lang:end -->
 ## [0.5.8] - 2026-09-07
 <!-- lang:pt-BR -->
 
