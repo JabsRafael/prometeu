@@ -2,7 +2,6 @@ import * as actions from "./actions";
 import * as cloud from "./cloud";
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import * as alert from "./alert";
 import { installed, loadAgents } from "./agents";
@@ -21,7 +20,7 @@ import { current, fromBack, paint, t } from "./i18n";
 import * as issues from "./issues";
 import * as mcp from "./mcp";
 import * as plugins from "./plugins";
-import { dropFiles, openLauncher, type Draft, type Open } from "./launcher";
+import { fileDropTarget as launcherDropTarget, openLauncher, type Draft, type Open } from "./launcher";
 import * as menu from "./menu";
 import * as news from "./news";
 import * as rename from "./rename";
@@ -326,14 +325,19 @@ invoke<statusbar.Machine>("machine").then(statusbar.showMachine).catch(() => {})
 /// verdade, então quem escuta é a webview, não o documento. Na conversa o
 /// arquivo vira anexo da fala; no dock, o caminho ainda entra no pty como no
 /// Terminal do macOS.
-type Drag = { type: string; paths?: string[]; position?: { x: number; y: number } };
-
+type Drag = {
+  type: "enter" | "over" | "leave" | "drop" | "pending" | "received";
+  position?: { x: number; y: number };
+  paths: string[];
+  id?: string;
+  error?: string;
+};
 /// Caminho vai escapado como o Terminal escapa ao soltar um arquivo: barra
 /// invertida em tudo que o shell leria como outra coisa.
 const escapePath = (p: string) => p.replace(/([\s!"#$&'()*,:;<>?[\\\]^`{|}~])/g, "\\$1");
 
 /// Onde o arquivo caiu: a conversa, o terminal do dock, ou lugar nenhum.
-type Drop = { host: HTMLElement; put: (paths: string[]) => void } | null;
+type Drop = { host: HTMLElement; put: (paths: string[]) => void; wait?: () => () => void } | null;
 function targetFrom(el: Element | null): Drop {
   if (!el) return null;
   // O painel da direita e a aba de terminal são dois xterms: cada um escreve
@@ -353,24 +357,22 @@ function targetFrom(el: Element | null): Drop {
       },
     };
   }
-  if (el.closest("#chatwrap") && session.canAttachFiles()) return { host: $("chatwrap"), put: session.attachFiles };
+  if (el.closest("#chatwrap")) {
+    const target = session.fileDropTarget();
+    if (target) return { host: $("chatwrap"), ...target };
+  }
   // Na mesa, o arquivo cai no quadro debaixo do cursor.
   return desk.dropTarget(el);
 }
 
 function dropTarget(at?: { x: number; y: number }): Drop {
-  if (!at || !$("veil").hidden) return null;
-
+  if (!at) return null;
   // A coordenada chega como ponto lógico da janela, apesar do tipo
   // `PhysicalPosition`: no macOS o wry (0.55, `wkwebview/drag_drop.rs`) passa
   // o `draggingLocation` adiante sem escala. Dividir pelo DPR jogava o ponto
   // para o canto de cima da tela — e, na mesa, o arquivo caía no quadro errado.
-  // O :hover é só reserva: durante o arraste nativo o mouse não anda para a
-  // webview, e ele aponta o último lugar por onde o cursor passou antes.
-  return (
-    targetFrom(document.elementFromPoint(at.x, at.y)) ??
-    targetFrom(document.querySelector("#dock:hover, #termview:hover, #chatwrap:hover"))
-  );
+  // Não use :hover: o arraste nativo não atualiza o mouse da webview.
+  return targetFrom(document.elementFromPoint(at.x, at.y));
 }
 
 let activeDrop: Drop = null;
@@ -386,28 +388,57 @@ function markDrop(target: Drop) {
   host?.classList.add("dropping");
 }
 
-getCurrentWebview().onDragDropEvent(({ payload }) => {
-  const drag = payload as Drag;
+const pendingDrops = new Map<string, { target: NonNullable<Drop>; done?: () => void }>();
+function receiveDrop(drag: Drag, target: Drop) {
+  if (!target) return;
+  if (drag.type === "pending" && drag.id) {
+    if (pendingDrops.has(drag.id)) return;
+    pendingDrops.set(drag.id, { target, done: target.wait?.() });
+    say(t("chat.drop.receiving"));
+    return;
+  }
+  if (drag.paths.length) target.put(drag.paths);
+  if (drag.error || !drag.paths.length) say(t(drag.error ? "chat.drop.failed" : "chat.drop.noFiles"), true);
+}
+
+listen<Drag>("file-drag", ({ payload: drag }) => {
+  if (drag.type === "received") {
+    const pending = drag.id ? pendingDrops.get(drag.id) : undefined;
+    if (drag.id) pendingDrops.delete(drag.id);
+    if (!pending) return;
+    say("");
+    receiveDrop(drag, pending.target);
+    pending.done?.();
+    return;
+  }
   if (drag.type === "leave") return markDrop(null);
+  if (drag.type === "enter") markDrop(null);
+  if (document.querySelector("dialog:modal")) return markDrop(null);
 
   // Lançador aberto: o arquivo vira anexo da primeira fala, e nada vai ao pty.
   if (!$("veil").hidden) {
     markDrop(null);
-    if (drag.type === "drop" && $("veil").querySelector("#d-prompt")) dropFiles(drag.paths ?? []);
+    if ((drag.type === "drop" || drag.type === "pending") && $("veil").querySelector("#d-prompt")) {
+      const target = launcherDropTarget();
+      receiveDrop(drag, target ? { host: $("veil"), ...target } : null);
+    }
     return;
   }
 
   const target = dropTarget(drag.position);
-  if (drag.type !== "drop") return markDrop(target);
+  if (drag.type !== "drop" && drag.type !== "pending") return markDrop(target);
 
-  // O alvo que a moldura mostrou manda. O Tauri tem casos em que a posição do
-  // `drop` final difere dos eventos `over`; recalculá-la e descartar o último
-  // alvo válido fazia o mesmo gesto funcionar ou não conforme o ponto exato.
-  const accepted = activeDrop ?? target;
+  // O ponto final manda, inclusive quando não aceita anexos. Só recuperamos
+  // a moldura anterior se o Tauri entregar um ponto fora da viewport. Revalidar
+  // o host impede anexar numa conversa escondida ou removida durante o gesto.
+  const at = drag.position;
+  const outside = !at || at.x < 0 || at.y < 0 || at.x >= innerWidth || at.y >= innerHeight;
+  const host = activeDrop?.host;
+  const accepted = outside && host?.isConnected && host.getClientRects().length
+    ? targetFrom(host)
+    : target;
   markDrop(null);
-  const paths = drag.paths ?? [];
-  if (!accepted || !paths.length) return;
-  accepted.put(paths);
+  receiveDrop(drag, accepted);
 });
 
 /* ---------- ações ---------- */

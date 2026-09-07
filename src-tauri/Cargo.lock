@@ -2555,8 +2555,12 @@ name = "prometeu"
 version = "0.5.7"
 dependencies = [
  "base64 0.22.1",
+ "block2",
  "dirs",
  "libc",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "portable-pty",
  "reqwest",
  "rustls",

@@ -35,6 +35,8 @@ como índice curto para agentes e `README.md` apresenta o produto.
 
 ## Decisões
 
+- [ADR 0018](decisions/0018-native-file-promises.md): miniaturas de captura e promessas de arquivos no macOS.
+
 - [ADR 0017](decisions/0017-executable-design-system.md): componentes executáveis, comportamento compartilhado e adaptação Rails.
 
 - [ADR 0016](decisions/0016-company-design-system.md): Design System compartilhado da empresa, pacote e consumo pelo Cloud.

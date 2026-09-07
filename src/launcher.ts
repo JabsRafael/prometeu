@@ -193,8 +193,8 @@ const PLUGIN_KEY = "prometeu:plugins";
 /// Arquivo solto em cima do lançador aberto entra como anexo. É o `main.ts`
 /// quem vê o drop (o Tauri entrega caminho de verdade só pela webview), e é
 /// aqui que ele cai enquanto a folha estiver na tela.
-let takeFiles: ((paths: string[]) => void) | null = null;
-export const dropFiles = (paths: string[]) => takeFiles?.(paths);
+let takeFiles: { put: (paths: string[]) => void; wait: () => () => void } | null = null;
+export const fileDropTarget = () => takeFiles;
 
 /// O lançador é uma caixa de texto e um seletor de projeto — o "Create" do
 /// Conductor. O que dá para deduzir é deduzido, sem campo para editar: o nome
@@ -303,6 +303,7 @@ export function openLauncher(board: Board, opts: Open) {
   // não adianta criar, e o botão fica travado — o git recusaria o segundo
   // check-out, e recusar aqui é não perder o que já foi digitado.
   let taken: Workspace | null = null;
+  let receiving = 0;
   const drawHint = () => {
     $("d-avatar").innerHTML = avatar(projectName());
     const from = draft.base ? ` ← ${draft.base}` : "";
@@ -325,7 +326,7 @@ export function openLauncher(board: Board, opts: Open) {
     hint.classList.toggle("bad", !!aviso);
     hint.title = aviso || `${names} · ${onde}`;
     hint.textContent = aviso || onde;
-    $<HTMLButtonElement>("d-go").disabled = !!aviso;
+    $<HTMLButtonElement>("d-go").disabled = !!aviso || receiving > 0;
   };
   drawHint();
 
@@ -707,14 +708,21 @@ export function openLauncher(board: Board, opts: Open) {
   };
   const addFiles = (paths: string[]) => {
     if (!capabilitiesOf(draft.agent).attachments) return;
-    draft.inject.push(...paths.filter((p) => p && !draft.inject.includes(p)));
+    for (const path of paths) if (path && !draft.inject.includes(path)) draft.inject.push(path);
     drawInject();
   };
   $("d-add").addEventListener("click", async () => {
     const picked = await open({ multiple: true, title: t("launcher.attach.dialog") });
     addFiles(Array.isArray(picked) ? picked : picked ? [picked] : []);
   });
-  takeFiles = addFiles;
+  takeFiles = {
+    put: addFiles,
+    wait: () => {
+      receiving++;
+      drawHint();
+      return () => { receiving--; drawHint(); };
+    },
+  };
 
   const hide = () => {
     forgetMcp();
@@ -724,7 +732,7 @@ export function openLauncher(board: Board, opts: Open) {
     veil.hidden = true;
   };
   const submit = () => {
-    if (taken) return;
+    if (taken || receiving) return;
     // Vazia é o que o back lê como "não cria branch, abre onde o repo está".
     if (!draft.newBranch) draft.branch = "";
     draft.prompt = seed ? issueBlock(seed, prompt.value) : prompt.value;

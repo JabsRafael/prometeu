@@ -30,12 +30,22 @@ isoladas.
 | perfis autenticados adicionais | `<root>/accounts/<uuid>/` | adapters Claude e Codex |
 | último snapshot de cotas por conta | `<root>/usage.json` | `usage.rs` |
 | transcript V1 do Codex | `<root>/chats/<tab>.jsonl` | `chat.rs` |
+| arquivos recebidos por promessa nativa | `<root>/attachments/<uuid>/<nome>` | `file_drop.rs`; diretório privado `0700`, arquivo `0600` |
 | hub de plugins | `<root>/plugins.json` | `plugins.rs` |
 | home/marketplace Codex derivado | `<root>/codex-workspaces/<workspace-hash>/[<conta>/]` | `plugins.rs`; reconstruível |
 | manifesto de importação | `<root>/imports/prometheus-v1.json` | `migration.rs` |
 | snapshots da importação | `<root>/imports/prometheus-<data>-<id>/` | `migration.rs` |
 
 Worktrees ficam em `~/prometeu/worktrees[-dev]/...`, fora da raiz de estado.
+
+Arquivos prometidos (como a miniatura de uma captura) são materializados pelo
+AppKit em um diretório novo por gesto, sem sobrescrever anexos anteriores.
+O backend só entrega à UI arquivos existentes dentro desse diretório.
+Não são removidos ao enviar a fala, encerrar a sessão ou apagar o worktree,
+pois o transcript pode referenciar seus caminhos. Não há limpeza automática
+nesta etapa. Arquivos normais do Finder continuam usando seus caminhos originais.
+Essa pasta é aditiva: rollback ignora a pasta e preserva os caminhos já enviados;
+nenhum formato existente exige migração.
 
 O Prometeu não procura nem escreve automaticamente nas raízes do Prometheus.
 Os dois aplicativos podem permanecer instalados e abertos sem compartilhar

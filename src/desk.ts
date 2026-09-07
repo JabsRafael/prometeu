@@ -314,9 +314,9 @@ function grip(el: HTMLElement, id: string) {
 /// Onde um arquivo solto sobre a mesa cai: no quadro debaixo do cursor, como
 /// anexo da fala daquela conversa — a mesma regra do "+" da caixa. Fora de um
 /// quadro, ou num quadro que não aceita anexo, não cai em lugar nenhum.
-export function dropTarget(el: Element | null): { host: HTMLElement; put: (paths: string[]) => void } | null {
+export function dropTarget(el: Element | null): { host: HTMLElement; put: (paths: string[]) => void; wait: () => () => void } | null {
   const id = el?.closest<HTMLElement>(".tile")?.dataset.tab;
   const tile = id ? tiles.get(id) : undefined;
-  if (!tile || !tile.view.canAttachFiles()) return null;
-  return { host: tile.el, put: (paths) => void tile.view.attachFiles(paths) };
+  const target = tile?.view.fileDropTarget();
+  return tile && target ? { host: tile.el, ...target } : null;
 }

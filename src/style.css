@@ -1583,8 +1583,8 @@ body.noside .side { display: none; }
 
 /* ---------- arquivo arrastado de fora ---------- */
 
-/* Soltar em cima da conversa escreve o caminho na caixa, e em cima do dock no
-   terminal; a moldura diz em qual. */
+/* Soltar em cima da conversa anexa o arquivo ao rascunho; no terminal, escreve
+   o caminho escapado. A moldura mostra o destino. */
 .dropping { position: relative; }
 .dropping::after {
   content: ""; position: absolute; inset: 2px; pointer-events: none; z-index: 3;
