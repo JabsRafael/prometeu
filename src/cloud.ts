@@ -50,7 +50,7 @@ export function accountButton() {
       } },
     ], undefined, () => control.setAttribute("aria-expanded", "false"));
   }, "ghost");
-  control.className = "ui-button navitem brand cloud-account";
+  control.classList.remove("md"); control.classList.add("navitem", "brand", "cloud-account");
   control.classList.toggle("cloud-guest", !status.user);
   const glyph = h("span", "av");
   glyph.innerHTML = icon("flame");
