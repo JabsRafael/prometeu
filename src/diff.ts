@@ -136,7 +136,10 @@ function scrollTo(host: HTMLElement, k: string) {
   // Montar antes de rolar: chegar num arquivo é chegar no conteúdo dele, e não
   // no lugar onde ele vai estar quando o observador o alcançar.
   filler.get(target)?.();
-  target.scrollIntoView({ block: "start" });
+  // `scrollIntoView` anda em todo ancestral rolável — inclusive a raiz do app,
+  // que é `overflow: hidden` e não tem barra para voltar: o cabeçalho subia
+  // para fora da janela e ficava lá. Aqui só o scroll desta lista se mexe.
+  host.scrollTop += target.getBoundingClientRect().top - host.getBoundingClientRect().top;
 }
 
 function none(text: string): HTMLElement {
