@@ -63,8 +63,11 @@ Veja [`docs/architecture/conversation-flow.md`](docs/architecture/conversation-f
 
 ## Interface compartilhada
 
-A apresentação compartilha tokens e primitivas de `src/ui.ts`, `src/ui.css` e
-`src/ui-tokens.css`. Veja o [Design System](docs/architecture/design-system.md)
+A interface compartilhada vem de `packages/design-system`: componentes DOM,
+comportamento, estilos, tipos TypeScript e adaptador Rails distribuíveis.
+`src/ui.ts` e `src/menu.ts` reexportam o pacote; `src/ui-tokens.css` mantém a
+geometria do desktop. O Cloud usa o FormBuilder, os helpers e o runtime do
+mesmo pacote. Veja o [Design System](docs/architecture/design-system.md)
 para adoção, galeria e regras de dependência.
 
 ## Conta opcional

@@ -1,6 +1,7 @@
 # ADR 0011 — Primitivas compartilhadas de interface
 
-Status: aceito.
+Status: localização dos tokens e do CSS compartilhado substituída pelo
+[ADR 0016](0016-company-design-system.md). Contratos de interação preservados.
 
 ## Contexto
 

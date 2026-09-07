@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Prometeu — Design System</title>
+  <link rel="icon" href="./prometeu.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./components.css">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: var(--text-base)/1.6 var(--font); }
+    main { max-width: 1080px; margin: auto; padding: var(--space-12) var(--space-6); }
+    header { display: flex; justify-content: space-between; gap: var(--space-6); align-items: center; border-bottom: 1px solid var(--line); padding-bottom: var(--space-8); }
+    .brand { display: flex; align-items: center; gap: var(--space-3); font-size: 22px; letter-spacing: -.03em; }
+    h1 { font-size: clamp(36px, 6vw, 64px); letter-spacing: -.045em; line-height: 1.1; font-weight: 500; margin: var(--space-6) 0; }
+    h2 { font-size: 20px; font-weight: 500; margin: 0; }
+    p { margin: 0; color: var(--fg-2); }
+    .intro { padding: var(--space-12) 0; max-width: 620px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); }
+    .wide { grid-column: 1 / -1; }
+    .palette { display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--space-3); }
+    .swatch { height: 64px; border: 1px solid var(--line-raised); border-radius: var(--r); margin-bottom: var(--space-2); }
+    code { font: var(--text-sm) var(--mono); }
+    .space { display: inline-block; height: 12px; background: var(--accent); }
+    .sample-title { font-size: var(--text-title); letter-spacing: -.035em; }
+    footer { margin-top: var(--space-12); padding-top: var(--space-6); border-top: 1px solid var(--line); }
+    @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } .palette { grid-template-columns: repeat(3, 1fr); } header { flex-wrap: wrap; } }
+  </style>
+</head>
+<body class="ui-comfortable">
+  <main>
+    <header>
+      <div class="brand"><img src="./prometeu.svg" width="36" height="36" alt="">prometeu <span class="ui-badge">Design System</span></div>
+      <span class="ui-badge">v0.2.0 · Componentes</span>
+    </header>
+    <div class="intro">
+      <p class="ui-eyebrow">Uma identidade. Todos os produtos.</p>
+      <h1>Feito para ser<br>Prometeu.</h1>
+      <p>Superfícies escuras e quentes, texto claro, laranja na marca. Componentes compartilhados para o desktop, o Cloud e os próximos projetos.</p>
+    </div>
+    <div class="grid">
+      <section class="ui-card ui-stack wide">
+        <h2>01 / Cores</h2>
+        <div class="palette">
+          <div><div class="swatch" style="background:var(--bg)"></div><code>--bg</code><p class="ui-hint">Canvas</p></div>
+          <div><div class="swatch" style="background:var(--bg-side)"></div><code>--bg-side</code><p class="ui-hint">Superfície</p></div>
+          <div><div class="swatch" style="background:var(--bg-raised)"></div><code>--bg-raised</code><p class="ui-hint">Elevação</p></div>
+          <div><div class="swatch" style="background:var(--fg)"></div><code>--fg</code><p class="ui-hint">Texto</p></div>
+          <div><div class="swatch" style="background:var(--accent)"></div><code>--accent</code><p class="ui-hint">Marca</p></div>
+          <div><div class="swatch" style="background:var(--err)"></div><code>--err</code><p class="ui-hint">Erro</p></div>
+        </div>
+      </section>
+      <section class="ui-card ui-stack">
+        <h2>02 / Tipografia e espaço</h2>
+        <p class="sample-title">Clareza para criar.</p>
+        <p>Texto de interface com a fonte nativa da plataforma.</p>
+        <code>ui-monospace · códigos e metadados</code>
+        <div class="ui-actions"><span class="space" style="width:var(--space-1)"></span>4 <span class="space" style="width:var(--space-2)"></span>8 <span class="space" style="width:var(--space-4)"></span>16 <span class="space" style="width:var(--space-6)"></span>24 <span class="space" style="width:var(--space-8)"></span>32</div>
+      </section>
+      <div id="examples" class="grid wide"></div>
+    </div>
+    <footer><p class="ui-hint">Fonte: @prometeu/design-system. Componentes renderizados pelo pacote, com estado, teclado, validação e diálogos. Nenhum código do aplicativo.</p></footer>
+  </main>
+  <script type="module" src="./gallery.js"></script>
+</body>
+</html>

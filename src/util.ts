@@ -2,14 +2,8 @@
 
 export const $ = (id: string) => document.getElementById(id)!;
 
-/// Cria um elemento cujo conteúdo é sempre texto. Dados do agente, do relay ou
-/// de uma integração nunca devem ganhar semântica HTML só por passar aqui.
-export function h(tag: string, className: string, text = ""): HTMLElement {
-  const node = document.createElement(tag);
-  node.className = className;
-  node.textContent = text;
-  return node;
-}
+import { h } from "../packages/design-system/src/dom";
+export { h };
 
 /// Cria a estrutura fixa de um componente. O nome deixa cada uso de
 /// `innerHTML` visível na revisão; só templates produzidos pelo próprio app

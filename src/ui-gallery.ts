@@ -8,6 +8,9 @@ import "./ui-gallery.css";
 document.documentElement.lang = current();
 const gallery = document.querySelector("#gallery")!;
 gallery.append(h("h1", "", t("ui.gallery")), h("p", "ui-hint", t("ui.galleryHint")));
+const companyGallery = h("a", "ui-link", "@prometeu/design-system");
+companyGallery.setAttribute("href", "/packages/design-system/index.html");
+gallery.append(companyGallery);
 
 function section(title: string, ...content: HTMLElement[]) {
   const root = h("section", "ui-gallery-section");
