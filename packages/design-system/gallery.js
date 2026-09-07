@@ -34,6 +34,8 @@ examples.append(card("06 / Menus e diálogos", menuButton("Ações do projeto", 
   { label: "Renomear", run: () => { output.textContent = "Renomear selecionado."; } },
   { label: "Indisponível", disabled: true },
   { label: "Exportar", sub: [{ label: "Copiar", run: () => { output.textContent = "Copiar selecionado."; } }] },
+  "sep",
+  { label: "Excluir", danger: true, run: () => { output.textContent = "Excluir selecionado."; } },
 ]), button("Editar perfil", () => {
   const name = input(); name.required = true;
   const simulate = checkbox("Simular erro ao salvar", false);
@@ -49,3 +51,17 @@ examples.append(card("06 / Menus e diálogos", menuButton("Ações do projeto", 
   dialog.body.append(field("Nome do perfil", name), field("Projeto", project.control), simulate.label);
   dialog.open();
 })));
+
+// Navegação: abas sublinhadas e links de barra lateral, o mesmo HTML do adaptador Rails.
+const tabs = document.createElement("nav"); tabs.className = "ui-tabs"; tabs.setAttribute("aria-label", "Catálogo");
+const sidebar = document.createElement("nav"); sidebar.className = "ui-stack"; sidebar.style.gap = "2px"; sidebar.style.maxWidth = "220px";
+for (const [list, labels, current] of [[tabs, ["MCPs", "Plugins", "Skills"], "MCPs"], [sidebar, ["Perfil", "Segurança", "Sessões"], "Segurança"]]) {
+  for (const label of labels) {
+    const link = document.createElement("a"); link.href = "#"; link.textContent = label;
+    if (list === sidebar) link.className = "ui-nav-link";
+    if (label === current) link.setAttribute("aria-current", "page");
+    link.addEventListener("click", event => { event.preventDefault(); output.textContent = `${label} selecionado.`; });
+    list.append(link);
+  }
+}
+examples.append(card("07 / Navegação", tabs, sidebar));
