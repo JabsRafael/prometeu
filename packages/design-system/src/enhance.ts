@@ -30,12 +30,15 @@ export function enhance(root: ParentNode = document) {
   mount("details[data-ui-menu]", node => {
     // Links, botões de formulário e separadores viram itens; o clique nativo
     // preserva navegação, método HTTP e CSRF do HTML de origem.
-    const control = menuButton(node.querySelector("summary")!.textContent!, () =>
+    const summary = node.querySelector("summary")!;
+    const control = menuButton(summary.textContent!, () =>
       Array.from(node.querySelectorAll<HTMLElement>("a[href], button, hr")).map(item =>
         item instanceof HTMLHRElement ? "sep" as const : {
           label: item.textContent!.trim(), checked: item.hasAttribute("aria-current"),
           danger: item.classList.contains("danger"), run: () => item.click(),
         }));
+    // O gatilho repete o conteúdo do summary: avatar e nome, não só o texto.
+    control.replaceChildren(...Array.from(summary.childNodes, child => child.cloneNode(true)));
     node.before(control); node.hidden = true;
     return () => {
       if (control.getAttribute("aria-expanded") === "true") menu.close();

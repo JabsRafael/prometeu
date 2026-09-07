@@ -1,6 +1,6 @@
 # Design System da Prometeu
 
-`@prometeu/design-system` 0.3.0 distribui componentes executáveis: renderização,
+`@prometeu/design-system` 0.4.0 distribui componentes executáveis: renderização,
 estado, eventos, teclado, foco, validação, CSS e marca. A implementação vive
 neste pacote. O desktop importa os componentes TypeScript; o Cloud usa o
 adaptador Rails do pacote e o mesmo runtime JavaScript no navegador.
@@ -18,7 +18,7 @@ npm run design-system:build
 npm pack ./packages/design-system
 ```
 
-O artefato `prometeu-design-system-0.3.0.tgz` inclui módulos ESM, declarações
+O artefato `prometeu-design-system-0.4.0.tgz` inclui módulos ESM, declarações
 TypeScript, bundle de navegador, adaptador Ruby, CSS, SVG e galeria. `prepack`
 reconstrói o JavaScript para impedir a distribuição de código desatualizado.
 O pacote ainda não foi publicado em um registry.
@@ -26,7 +26,7 @@ O pacote ainda não foi publicado em um registry.
 Em outro projeto:
 
 ```sh
-npm install /caminho/prometeu-design-system-0.3.0.tgz
+npm install /caminho/prometeu-design-system-0.4.0.tgz
 ```
 
 ```ts
@@ -69,6 +69,7 @@ apresenta falhas sem perder dados e devolve o foco ao fechar. Não faz requests.
 | `confirmDialog(options)` | confirmação acessível que resolve `Promise<boolean>` e aceita `AbortSignal` |
 | `disclosure(title, ...content)` | disclosure nativo sem controle de estado externo |
 | `card`, `badge`, `notice` | renderização de contêineres, indicadores e feedback com roles apropriados |
+| `avatar(image, kind, size)` | foto ou logotipo; sem imagem, glifo de pessoa ou organização, decorativo |
 | `icon(name, size)` | catálogo tipado de ícones vetoriais compartilhados |
 | `enhance(root)` | conecta o HTML do adaptador Rails ao runtime; devolve função de limpeza |
 
@@ -119,9 +120,11 @@ O adaptador renderiza campos completos, rótulos, mensagens e botões. Não copi
 seu markup para as views. `form.field` aceita `text`, `email`, `password`,
 `textarea`, `number` e `date`. `form.checkbox` preserva o valor desmarcado nativo
 do Rails. Helpers `ds_button_to`, `ds_link`, `ds_card`, `ds_badge`, `ds_notice`,
-`ds_disclosure`, `ds_menu` e `ds_tabs` compõem as demais primitivas do servidor.
-`ds_menu` aceita `:sep` entre grupos e itens com `method:`, renderizados como
-formulário nativo com CSRF; `danger: true` marca ações destrutivas. `ds_tabs`
+`ds_disclosure`, `ds_menu`, `ds_tabs` e `ds_avatar` compõem as demais primitivas
+do servidor. `ds_menu` aceita `:sep` entre grupos, itens com `method:`,
+renderizados como formulário nativo com CSRF, `danger: true` para ações
+destrutivas e `avatar:` no gatilho. `ds_avatar(image:, kind:, size:)` mostra
+foto ou logotipo; sem imagem, o glifo de pessoa ou de organização. `ds_tabs`
 renderiza abas sublinhadas (`ui-tabs`) e `ui-nav-link` serve a barras laterais.
 
 Inclua `components.css` e o bundle `design-system.js` pelo pipeline de assets.

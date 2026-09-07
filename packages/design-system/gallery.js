@@ -1,4 +1,4 @@
-import { button, input, field, checkbox, select, password, card, badge, notice, disclosure, menuButton, formDialog, confirmDialog } from "./dist/index.js";
+import { avatar, button, input, field, checkbox, select, password, card, badge, notice, disclosure, menuButton, formDialog, confirmDialog } from "./dist/index.js";
 
 const examples = document.querySelector("#examples");
 const output = notice("Interaja com os componentes para ver seus estados.");
@@ -64,4 +64,7 @@ for (const [list, labels, current] of [[tabs, ["MCPs", "Plugins", "Skills"], "MC
     list.append(link);
   }
 }
-examples.append(card("07 / Navegação", tabs, sidebar));
+const identity = row(avatar(), avatar(undefined, "person", "md"), avatar(undefined, "organization", "md"), avatar(undefined, "organization", "lg"));
+const account = menuButton("Gustavo", () => [{ label: "Configurações" }, "sep", { label: "Sair", danger: true }]);
+account.prepend(avatar());
+examples.append(card("07 / Navegação", tabs, sidebar, identity, row(account)));

@@ -1,6 +1,6 @@
 {
   "name": "@prometeu/design-system",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Componentes, comportamento, acessibilidade e adaptadores do Design System da Prometeu.",
   "license": "UNLICENSED",
   "type": "module",
