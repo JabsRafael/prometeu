@@ -106,6 +106,10 @@ conflitos, alterações em stage e alterações locais. `+` adiciona um arquivo 
 aparece nos dois grupos, cada um com seu diff. Commit inclui somente o índice;
 push é uma ação separada, com upstream e contadores visíveis.
 
+O diff do grupo escolhido vem inteiro no centro, um arquivo embaixo do outro,
+como uma revisão de PR: dá para ler tudo rolando. Clicar num arquivo da lista
+rola até ele em vez de trocar a tela.
+
 O diff empilhado no centro é aba, e a aba é sua: ela entra na barra quando
 você a abre — pelo segundo clique em **Alterações**, ou pelo **Revisar** — e sai
 no ✕. Worktree sujo não a traz de volta; que há o que ver está no contador do
@@ -117,7 +121,7 @@ partir dali usa outro worktree; a sessão atual continua onde estava. O editor
 de conflitos prepara o resultado revisado antes de concluir o merge.
 
 Detalhes e limites estão em [`docs/contracts/git.md`](docs/contracts/git.md).
-Cobertura: `src-tauri/src/session/git_tests.rs`, `src/git-diff.test.ts`,
+Cobertura: `src-tauri/src/session/git_tests.rs`, `src/diff.test.ts`,
 `e2e/git.spec.ts` e os fluxos de revisão em `e2e/critical-flows.spec.ts`.
 
 ### A mesa

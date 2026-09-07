@@ -15,10 +15,14 @@ test("stage parcial mostra dois diffs e commit deixa alterações posteriores fo
   await expect(changes.locator('.git-file[data-path="src/style.css"]')).toHaveCount(1);
   await staged.locator(".git-file-name").first().click();
   await expect(page.locator(".git-review-scope")).toContainText("Alterações em stage");
-  const stagedPatch = await page.locator(".git-split").innerText();
+  const stagedPatch = await page.locator('#dlist .dfile[data-key$="src/style.css"] .dbody').innerText();
   await changes.locator('.git-file[data-path="src/style.css"] .git-file-name').click();
   await expect(page.locator(".git-review-scope")).toContainText("Alterações locais");
-  expect(await page.locator(".git-split").innerText()).not.toBe(stagedPatch);
+  expect(await page.locator('#dlist .dfile[data-key$="src/style.css"] .dbody').innerText()).not.toBe(stagedPatch);
+  // Um clique traz o grupo inteiro empilhado: ler o resto é rolar, não voltar
+  // à lista para escolher o próximo arquivo.
+  await expect(page.locator("#dlist .dfile")).toHaveCount(2);
+  await expect(page.locator('#dlist .dfile[data-key$="public/logo.png"]')).toBeVisible();
   await page.locator("#git-message").fill("   ");
   await expect(page.locator("#git-commit")).toBeDisabled();
   await page.locator("#git-message").fill("fix: preparar somente o snapshot revisado");
@@ -116,11 +120,11 @@ test("erro temporário de status preserva os rascunhos e restaura o editor de co
 test("botão antigo de stage não prepara arquivos de outro repositório durante carregamento", async ({ page }) => {
   await open(page, "Contratação pelo portal");
   await group(page, "changes").locator('.git-file[data-path="src/style.css"] .git-file-name').click();
-  await expect(page.locator("#dcrumb").getByRole("button", { name: "Adicionar ao stage", exact: true })).toBeEnabled();
+  await expect(page.locator("#dcrumb").getByRole("button", { name: "Adicionar tudo ao stage", exact: true })).toBeEnabled();
   await page.evaluate(() => {
     const w = window as any, original = w.__TAURI_INTERNALS__.invoke;
     w.oldGitStage = [...document.querySelectorAll<HTMLButtonElement>("#dcrumb button")]
-      .find(button => button.textContent === "Adicionar ao stage");
+      .find(button => button.textContent === "Adicionar tudo ao stage");
     w.gitActions = [];
     w.delayedGitDiffs = [];
     w.delayGitDiff = true;
@@ -136,7 +140,7 @@ test("botão antigo de stage não prepara arquivos de outro repositório durante
   await page.locator(".menu .mrow", { hasText: "njord" }).click();
   await expect.poll(() => page.evaluate(() => (window as any).delayedGitDiffs.length)).toBeGreaterThan(0);
   await expect(page.getByRole("button", { name: "Repositório", exact: true })).toContainText("njord");
-  await expect(page.locator("#dcrumb").getByRole("button", { name: "Adicionar ao stage", exact: true })).toHaveCount(0);
+  await expect(page.locator("#dcrumb").getByRole("button", { name: "Adicionar tudo ao stage", exact: true })).toHaveCount(0);
   await page.evaluate(() => { (window as any).oldGitStage.click(); });
   expect(await page.evaluate(() => (window as any).gitActions)).toEqual([]);
   await page.evaluate(() => {
@@ -144,7 +148,7 @@ test("botão antigo de stage não prepara arquivos de outro repositório durante
     w.delayGitDiff = false;
     w.delayedGitDiffs.splice(0).forEach((release: () => void) => release());
   });
-  await expect(page.locator(".git-split")).toBeVisible();
+  await expect(page.locator("#dlist .dfile").first()).toBeVisible();
   await expect(group(page, "staged").locator(".git-file")).toHaveCount(1);
   expect(await page.evaluate(() => (window as any).gitActions)).toEqual([]);
 });
@@ -207,6 +211,6 @@ test("grupos recolhidos sobrevivem à atualização e ações Git ficam no cabe�
   await expect(history).toHaveAttribute("aria-current", "true");
   await expect(page.locator(".git-history-row").first()).toBeVisible();
   await page.locator(".git-nav").getByRole("button", { name: "Alterações", exact: true }).click();
-  await expect(page.locator(".git-split")).toBeVisible();
+  await expect(page.locator("#dlist .dfile").first()).toBeVisible();
   await expect(page.locator("#git-message")).toHaveValue("fix: manter rascunho");
 });

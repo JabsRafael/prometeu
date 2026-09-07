@@ -2,10 +2,9 @@ import { invoke } from "./ipc";
 import { avatar, icon } from "./icons";
 import { current as language, fromBack, t, type Key } from "./i18n";
 import { $, h, template } from "./util";
-import { splitPatch } from "./git-diff";
 import * as diff from "./diff";
 import * as menu from "./menu";
-import type { Change, GitAction, GitBranch, GitCommit, GitConflict, GitDiff, GitFile, GitScope, GitStatus, RepoDiff, Workspace } from "./types";
+import type { GitAction, GitBranch, GitCommit, GitConflict, GitDiff, GitFile, GitStatus, RepoDiff, Workspace } from "./types";
 
 type Mode = "changes" | "branches" | "history" | "compare" | "commit" | "conflict";
 type Selection = { path: string; scope: "staged" | "changes" | "conflict" };
@@ -23,6 +22,10 @@ let context: Context;
 const views = new Map<string, View>();
 const data = new Map<string, GitStatus[]>();
 let busy = false, ticket = 0, sidebarSignature = "", editorSignature = "";
+/// O arquivo a rolar até no próximo desenho: clicar na lista é andar no diff
+/// empilhado, não trocar de tela. Fica vazio nos redesenhos do quadro, para a
+/// rolagem de quem está lendo não voltar sozinha a cada evento do agente.
+let pendingFocus = "";
 let review: RepoDiff[] = [];
 
 export function init(ctx: Context) {
@@ -113,7 +116,12 @@ function iconButton(label: string, glyph: Parameters<typeof icon>[0], click: () 
 }
 
 function selectFile(file: GitFile, scope: Selection["scope"]) {
-  const view = state(); view.selection = { path: file.path, scope };
+  const view = state();
+  const stay = scope !== "conflict" && view.mode === "changes" && view.selection?.scope === scope;
+  view.selection = { path: file.path, scope };
+  pendingFocus = scope === "conflict" ? "" : file.path;
+  // Mesmo escopo, mesma tela: o diff já está montado, então só a rolagem anda.
+  if (stay) { drawSidebar(); void drawEditor(); return; }
   show(scope === "conflict" ? "conflict" : "changes");
 }
 
@@ -280,21 +288,6 @@ function heading(title: string) {
   $("dseen").hidden = true; $("dfold").hidden = true;
 }
 
-function splitFile(file: Change, left: string, right: string): HTMLElement {
-  const box = h("div", "git-diff-file");
-  const labels = h("div", "git-diff-labels"); labels.append(h("span", "", left), h("span", "", right)); box.append(labels);
-  if (!file.patch) { box.append(h("div", "none", t("git.binary"))); return box; }
-  const rows = splitPatch(file.patch), table = h("div", "git-split");
-  for (const row of rows.slice(0, 2500)) {
-    const line = h("div", `git-split-row ${row.kind}`);
-    line.append(h("span", "git-line-number", row.old?.toString() ?? ""), h("pre", row.kind === "change" && row.old !== null ? "del" : "", row.before), h("span", "git-line-number", row.next?.toString() ?? ""), h("pre", row.kind === "change" && row.next !== null ? "add" : "", row.after));
-    table.append(line);
-  }
-  box.append(table);
-  if (rows.length > 2500) box.append(h("div", "git-hint", t("git.truncated", { n: 2500 })));
-  return box;
-}
-
 async function drawEditor() {
   const ws = context.workspace(), repo = current(); if (!ws || ws.remote || $("diffview").hidden) return;
   const view = state(), mode = view.mode;
@@ -400,25 +393,31 @@ async function drawEditor() {
       host.replaceChildren(box); editorSignature = signature; return;
     }
     heading(t("git.changes"));
-    if (!view.selection) {
-      const first = repo.conflicts[0] ?? repo.changes[0] ?? repo.staged[0];
-      if (first) { view.selection = { path: first.path, scope: repo.conflicts.length ? "conflict" : repo.changes.length ? "changes" : "staged" }; view.mode = view.selection.scope === "conflict" ? "conflict" : "changes"; drawSidebar(); return void drawEditor(); }
+    if (!view.selection && repo.conflicts.length) {
+      view.selection = { path: repo.conflicts[0].path, scope: "conflict" }; view.mode = "conflict";
+      drawSidebar(); return void drawEditor();
+    }
+    if (!repo.staged.length && !repo.changes.length) {
       host.replaceChildren(h("div", "git-clean", t("git.clean")), h("p", "git-clean-hint", t("git.clean.hint"))); editorSignature = ""; return;
     }
-    const selected = view.selection;
-    const result = await invoke<GitDiff>("workspace_git_diff", { ...args, scope: selected.scope as GitScope, path: selected.path, reference: null }); if (!valid()) return;
-    const signature = JSON.stringify([args, selected, result]);
-    heading(selected.path);
-    $("dcrumb").append(h("span", "git-review-scope git-scope-badge", t(selected.scope === "staged" ? "git.scope.staged" : "git.scope.changes")));
-    $("dcrumb").append(button(t(selected.scope === "staged" ? "git.unstage" : "git.stage"), () => void act(selected.scope === "staged" ? "unstage" : "stage", [selected.path]), busy || !!repo.error));
-    const file = result.files[0];
-    if (file && !file.deleted) $("dcrumb").append(button(t("git.openFile"), () => context.openFile(repo.name, file.path)));
+    // O stage e o local são dois diffs diferentes do mesmo arquivo, então a
+    // tela mostra um escopo por vez — o do arquivo escolhido na lista.
+    const scope = view.selection?.scope === "staged" || !repo.changes.length ? "staged" : "changes";
+    const group = scope === "staged" ? repo.staged : repo.changes;
+    const result = await invoke<GitDiff>("workspace_git_diff", { ...args, scope, path: null, reference: null }); if (!valid()) return;
+    const signature = JSON.stringify([args, scope, result]);
+    $("dcrumb").append(h("span", "git-review-scope git-scope-badge", t(scope === "staged" ? "git.scope.staged" : "git.scope.changes")));
+    $("dcrumb").append(button(t(scope === "staged" ? "git.unstageAll" : "git.stageAll"), () => void act(scope === "staged" ? "unstage" : "stage", group.map(file => file.path)), busy || !!repo.error || !group.length));
     if (signature !== editorSignature) {
-      host.replaceChildren();
-      if (file) host.append(splitFile(file, t(selected.scope === "staged" ? "git.head" : "git.index"), t(selected.scope === "staged" ? "git.index" : "git.worktree")));
-      else host.append(h("div", "none", t("git.empty")));
-      editorSignature = signature;
+      host.replaceChildren(h("div", "git-review-list dlist")); diff.invalidate(); editorSignature = signature;
     }
+    review = [{ name: repo.name, base: "", ahead: 0, unpushed: repo.ahead, dirty: 0, files: result.files }];
+    const focus = pendingFocus; pendingFocus = "";
+    diff.render(host.querySelector<HTMLElement>(".git-review-list")!, {
+      id: ws.id, repos: review, focus: focus ? diff.key(repo.name, focus) : undefined,
+      empty: t("git.empty"), onSeen: () => {}, onOpen: context.openFile,
+    });
+    $("dseen").hidden = false; $("dfold").hidden = false;
   } catch (error) {
     if (!valid()) return;
     editorSignature = "";

@@ -763,8 +763,7 @@ test("duplo clique numa mudança abre o arquivo no viewer", async ({ page }) => 
 
   // Um clique é ir até o arquivo no diff do centro, e não abrir.
   await row.click();
-  await expect(page.locator("#dcrumb")).toContainText("style.css");
-  await expect(page.locator("#dlist .git-split")).toBeVisible();
+  await expect(page.locator('#dlist .dfile[data-key$="src/style.css"] .dbody')).toBeVisible();
   await expect(page.locator("#viewer")).toBeHidden();
 
   await row.dblclick();
@@ -774,7 +773,7 @@ test("duplo clique numa mudança abre o arquivo no viewer", async ({ page }) => 
 
   // E o mesmo gesto no cabeçalho do arquivo dentro do diff empilhado.
   await page.locator("#tab-diff").click();
-  await page.locator("#dcrumb").getByRole("button", { name: "Abrir arquivo", exact: true }).click();
+  await page.locator('#dlist .dfile[data-key$="src/style.css"] .dhead').dblclick();
   await expect(page.locator("#viewer")).toBeVisible();
   await expect(page.locator("#vcrumb")).toContainText("style.css");
 });

@@ -900,16 +900,6 @@ body.noside .side { display: none; }
 .git-review-list { min-height: 0; flex: 1; }
 .git-review-scope { padding: 9px 14px; color: var(--fg-2); font-size: 11px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); flex: none; }
 .git-scope-badge { padding: 2px 6px; border: 0; background: var(--bg-raised); font-size: 10px; }
-.git-diff-labels { display: grid; grid-template-columns: 1fr 1fr; background: var(--bg-side); border-bottom: 1px solid var(--line); }
-.git-diff-labels span { padding: 8px 12px; color: var(--fg-2); font-size: 11px; }
-.git-split { overflow-x: auto; padding: 10px 0; }
-.git-split-row { display: grid; grid-template-columns: 40px minmax(180px,1fr) 40px minmax(180px,1fr); min-width: 500px; }
-.git-split-row pre { margin: 0; padding: 0 8px; font: 12px/20px var(--mono); min-height: 20px; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; }
-.git-split-row .del { background: var(--del-bg); color: var(--err); }
-.git-split-row .add { background: var(--add-bg); color: var(--done); }
-.git-split-row.hunk { background: var(--bg-raised); color: var(--fg-2); }
-.git-line-number { font: 11px/20px var(--mono); padding-right: 8px; text-align: right; color: var(--fg-3); user-select: none; }
-.git-diff-file { user-select: text; }
 .git-page { padding: 12px; }
 .git-search, .git-base { font: 12px var(--mono); }
 .git-search { width: 100%; margin-bottom: 15px; }
