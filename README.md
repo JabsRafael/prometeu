@@ -113,22 +113,29 @@ explicado no cabeçalho desse arquivo. O catálogo de modelos sai do
 
 ### Git e mudanças
 
-**Alterações** mostra o trabalho local do repositório selecionado, separado em
-conflitos, alterações em stage e alterações locais. `+` adiciona um arquivo ao stage;
-`−` retira do stage sem apagar o trabalho. Um arquivo parcialmente preparado
-aparece nos dois grupos, cada um com seu diff. Commit inclui somente o índice;
-push é uma ação separada, com upstream e contadores visíveis.
+**Alterações** mantém abas explícitas para **Arquivos locais**, **Stage**,
+**Histórico** e **Comparar** no painel direito. Os botões **Stage** e **Unstage**
+preparam ou retiram arquivos do índice sem apagar o trabalho nem trocar a aba.
+Um arquivo parcialmente preparado aparece nos dois escopos, cada um com seu
+diff. A mensagem e o botão de commit ficam junto ao snapshot em Stage; o commit
+inclui somente esse índice. Push continua separado, com upstream e contadores
+visíveis. Conflitos permanecem acessíveis nos escopos locais.
 
 O diff do grupo escolhido vem inteiro no centro, um arquivo embaixo do outro,
 como uma revisão de PR: dá para ler tudo rolando. Clicar num arquivo da lista
-rola até ele em vez de trocar a tela.
+rola até ele em vez de trocar a tela. O filtro reduz a lista e os diffs pelo
+caminho. **Unificado** conserva as duas numerações; **Lado a lado** alinha
+remoções e adições. **Abrir arquivo** leva ao viewer existente. **Revisado**,
+o progresso e **Próximo não revisado** acompanham a leitura sem alterar o stage;
+um patch que muda perde a marca de revisão.
 
 O diff empilhado no centro é aba, e a aba é sua: ela entra na barra quando
 você a abre — pelo segundo clique em **Alterações**, ou pelo **Revisar** — e sai
 no ✕. Worktree sujo não a traz de volta; que há o que ver está no contador do
 painel da direita.
 
-Histórico e **Comparar branch** mostram commits sem misturar edições locais.
+**Histórico** lista commits no painel direito e abre o snapshot selecionado
+no centro. **Comparar** mostra commits sem misturar edições locais.
 A branch no cabeçalho abre a lista de branches e workspaces. Criar trabalho a
 partir dali usa outro worktree; a sessão atual continua onde estava. O editor
 de conflitos prepara o resultado revisado antes de concluir o merge.
@@ -462,8 +469,6 @@ leva de volta à thread. Também é possível criar um comentário geral da aba.
 `@` abre a lista do time. Quem foi marcado ganha **Para mim** na barra, mesmo
 que estivesse offline. Abrir o comentário não o tira dali: ele permanece até a
 thread ser resolvida para todos. ⌘↵ envia; Enter quebra linha.
-
-[Apresentação visual desta interação](docs/prototypes/multiplayer-comments.html).
 
 ### O relay
 

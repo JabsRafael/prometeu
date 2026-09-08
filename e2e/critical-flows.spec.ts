@@ -748,10 +748,9 @@ test("escrever no arquivo aberto sobrevive ao redesenho do quadro e salva", asyn
   await expect(page.locator("#vpre")).not.toContainText("Corrigido à mão pelo E2E.");
 });
 
-/// Ler o diff e ir mexer no arquivo são o mesmo movimento: o duplo clique
-/// atravessa da lista de Mudanças, e do diff empilhado no centro, para o
-/// arquivo inteiro aberto no viewer.
-test("duplo clique numa mudança abre o arquivo no viewer", async ({ page }) => {
+/// A lista mantém o atalho de duplo clique; o diff também oferece um botão
+/// visível e acessível por teclado para abrir o arquivo inteiro no viewer.
+test("Git abre o arquivo pelo duplo clique e pelo botão do diff", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Ola");
 
@@ -769,9 +768,11 @@ test("duplo clique numa mudança abre o arquivo no viewer", async ({ page }) => 
   await expect(page.locator("#vcrumb")).toContainText("style.css");
   await expect(page.locator("#vpre")).toContainText("padding: 12px");
 
-  // E o mesmo gesto no cabeçalho do arquivo dentro do diff empilhado.
+  // O botão explícito funciona sem depender de descobrir o duplo clique.
   await page.locator("#tab-diff").click();
-  await page.locator('#dlist .dfile[data-key$="src/style.css"] .dhead').dblclick();
+  const open = page.locator('#dlist .dfile[data-key$="src/style.css"] .dopen');
+  await open.focus();
+  await page.keyboard.press("Enter");
   await expect(page.locator("#viewer")).toBeVisible();
   await expect(page.locator("#vcrumb")).toContainText("style.css");
 });
@@ -784,14 +785,17 @@ test("Git mantém repositórios limpos e isola o stage de cada repositório", as
   await page.locator("#tab-diff").click();
   const picker = page.getByRole("button", { name: "Repositório", exact: true });
   await expect(picker).toContainText("prometeu");
+  await page.locator('.git-nav [data-mode="staged"]').click();
   await page.locator('[data-scope="staged"]').getByRole("button", { name: "Remover tudo do stage", exact: true }).click();
   await expect(page.locator('[data-scope="staged"] .git-file')).toHaveCount(0);
   await picker.click();
   await page.locator(".menu .mrow", { hasText: "njord" }).click();
   await expect(picker).toContainText("njord");
+  await page.locator('.git-nav [data-mode="staged"]').click();
   await expect(page.locator('[data-scope="staged"] .git-file')).toHaveCount(1);
   await picker.click();
   await page.locator(".menu .mrow", { hasText: "prometeu" }).click();
+  await page.locator('.git-nav [data-mode="staged"]').click();
   await expect(page.locator('[data-scope="staged"] .git-file')).toHaveCount(0);
   await expect(page.locator('.git-repository .avatar')).toHaveText("P");
 });
