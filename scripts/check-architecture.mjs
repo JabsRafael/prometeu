@@ -28,6 +28,27 @@ for (const name of await readdir(componentRoot)) {
     }
   }
 }
+// ADR 0026 fitness check: the collaboration core (team-member.ts and team-* features) must compose in any
+// browser. Tauri, IPC and the mock backend belong to the desktop shell in src/team.ts.
+for (const name of await readdir("src")) {
+  if (!/^team-[\w-]+\.ts$/.test(name) || name.endsWith(".test.ts")) continue;
+  const source = await readFile(`src/${name}`, "utf8");
+  for (const match of source.matchAll(/(?:from|import)\s+["']([^"']+)["']/g)) {
+    if (/^@tauri-apps\//.test(match[1]) || /^\.\/(?:ipc|mock|team)$/.test(match[1])) {
+      failures.push(`src/${name}: núcleo de colaboração acoplado ao desktop: ${match[1]}`);
+    }
+  }
+}
+// ADR 0028 fitness check: the browser shell composes the core without the desktop shell, IPC or Tauri.
+for (const name of await readdir("src/mobile")) {
+  if (!name.endsWith(".ts") || name.endsWith(".test.ts")) continue;
+  const source = await readFile(`src/mobile/${name}`, "utf8");
+  for (const match of source.matchAll(/(?:from|import)\s+["']([^"']+)["']/g)) {
+    if (/^@tauri-apps\//.test(match[1]) || /^\.\.\/(?:ipc|mock|team|chat|session|main)$/.test(match[1])) {
+      failures.push(`src/mobile/${name}: shell móvel acoplado ao desktop: ${match[1]}`);
+    }
+  }
+}
 const actionSettings = await readFile("src/action-settings.ts", "utf8");
 if (!actionSettings.includes('from "./ui"') || /createElement\(["'](?:select|input|textarea)["']\)/.test(actionSettings)) {
   failures.push("src/action-settings.ts: reutilize os controles de src/ui.ts");

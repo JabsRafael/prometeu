@@ -411,7 +411,7 @@ function shareLabel(ws: Workspace): string {
 /// Toggle individual viewers or the whole team; removing the final viewer stops sharing.
 function shareItems(ws: Workspace): menu.Item[] {
   const me = team.status();
-  const others = me.members.filter((m) => m.id !== me.you);
+  const others = team.people().filter((m) => m.id !== me.you);
   const set = (audience: string[] | null | false) => team.share(ws.id, audience).catch((e) => ctx.say(fromBack(e), true));
   const all = team.sharedHere(ws) && !ws.audience;
   const some = team.sharedHere(ws) && ws.audience ? ws.audience : [];

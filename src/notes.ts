@@ -362,7 +362,7 @@ function quoteChip(quote: string, drop: () => void): HTMLElement {
 }
 
 function mark(text: string): Node[] {
-  const names = team.status().members.map((member) => member.name).filter(Boolean).sort((a, b) => b.length - a.length);
+  const names = team.people().map((member) => member.name).filter(Boolean).sort((a, b) => b.length - a.length);
   if (!names.length) return [document.createTextNode(text)];
   const out: Node[] = [];
   let rest = text;
@@ -386,7 +386,7 @@ function mark(text: string): Node[] {
 }
 
 export function mentionsIn(text: string): string[] {
-  return team.status().members.filter((member) => member.name && text.includes(`@${member.name}`)).map((member) => member.id);
+  return team.people().filter((member) => member.name && text.includes(`@${member.name}`)).map((member) => member.id);
 }
 
 export function typing(text: string, cut: number): { from: number; query: string } | null {
@@ -405,7 +405,7 @@ let picking: { first: () => void } | null = null;
 
 export function pickMention(area: HTMLTextAreaElement, onChange: () => void) {
   const status = team.status();
-  const others = status.members.filter((member) => member.id !== status.you);
+  const others = team.people().filter((member) => member.id !== status.you);
   const at = typing(area.value, area.selectionStart);
   const list = at ? matches(at.query, others) : others;
   if (!list.length) return dropMention();

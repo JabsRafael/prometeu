@@ -58,3 +58,6 @@ Status: Proposto
 | [0023](0023-ordered-publication.md) | Accepted | ordered board publication and conversation delivery |
 | [0024](0024-typed-ipc.md) | Accepted | command-owned IPC arguments and results |
 | [0025](0025-completion-sound-per-execution.md) | Aceito | som de conclusão por execução aceita |
+| [0026](0026-portable-collaboration-core.md) | Aceito; etapas decididas no 0027 e no 0028 | núcleo de colaboração portável e acesso pelo celular via relay |
+| [0027](0027-companion-devices.md) | Aceito | dispositivos companheiros no relay com campo aditivo `person` |
+| [0028](0028-mobile-web-app.md) | Aceito | Prometeu no celular como app web servido pelo Cloud |

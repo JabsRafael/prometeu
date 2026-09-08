@@ -56,7 +56,9 @@ As regras de dependência completas estão em
 - `src-tauri/src/codex.rs`: adapter JSON-RPC do Codex.
 - `src-tauri/src/session.rs`: casos de uso e lifecycle de workspace/aba.
 - `src-tauri/src/state.rs`: estado persistido do quadro.
-- `src/team*.ts`: transporte, controle e apresentação de colaboração.
+- `src/team.ts`: shell do desktop da colaboração (team.json, organizações, ports do Tauri, fachada).
+- `src/team-member.ts` e `src/team-*.ts`: núcleo portável de colaboração e suas features; nunca importam Tauri ou IPC (ADR 0026).
+- `src/mobile/`: shell do navegador sobre o mesmo núcleo, vendido no Cloud como bundle (ADR 0028).
 - `relay/src/protocol.ts`: contrato de rede compartilhado por app e Worker.
 - `relay/src/logic.ts`: regras puras do relay.
 

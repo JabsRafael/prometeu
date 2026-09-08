@@ -5,7 +5,7 @@ export type OrganizationAccess = {
   member: string;
   name: string;
   expires_at: number;
-  members: { id: string; name: string }[];
+  members: { id: string; name: string; person?: string }[];
 };
 
 export function parseOrganizationAccess(value: unknown, organization: string, now = Date.now()): OrganizationAccess | null {
@@ -17,8 +17,11 @@ export function parseOrganizationAccess(value: unknown, organization: string, no
   const members: OrganizationAccess["members"] = [];
   for (const item of v.members) {
     if (!item || typeof item !== "object" || !isId(item.id) || !normalizeName(item.name) || members.some(m => m.id === item.id)) return null;
-    members.push({ id: item.id, name: normalizeName(item.name) });
+    if (item.person !== undefined && (!isId(item.person) || item.person === item.id)) return null;
+    members.push({ id: item.id, name: normalizeName(item.name), ...(typeof item.person === "string" ? { person: item.person } : {}) });
   }
+  // A companion device belongs to a primary member listed in the same roster; no chains.
+  if (members.some(m => m.person && !members.some(p => p.id === m.person && !p.person))) return null;
   if (!members.some(m => m.id === v.member && m.name === normalizeName(v.name))) return null;
   return { organization, member: v.member, name: normalizeName(v.name), expires_at: Math.min(v.expires_at, now + 60_000), members };
 }

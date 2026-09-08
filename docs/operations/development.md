@@ -46,6 +46,12 @@ npm run check
 Clippy com warnings como erro, além da integridade da documentação. É a mesma
 validação principal da CI.
 
+O app do celular é um bundle separado: `npm run build:mobile` gera
+`dist-mobile/` a partir de `src/mobile/`; no `prometeu-cloud`,
+`bin/mobile <caminho do prometeu>` vende os arquivos em `vendor/mobile/assets`
+com manifesto de hashes e `bin/mobile --check` acusa divergência. O Cloud não
+precisa de Node para servi-lo. Ver [ADR 0028](../decisions/0028-mobile-web-app.md).
+
 Durante desenvolvimento, rode primeiro a menor suíte que cobre a mudança. Use
 `npm run check` antes de concluir uma alteração transversal ou abrir PR.
 
