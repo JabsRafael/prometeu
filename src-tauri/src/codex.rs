@@ -168,6 +168,8 @@ pub struct Link {
     ctx: Option<u64>,
     turn: Option<String>,
     asks: HashMap<String, Ask>,
+    /// Keep known identities after completion so child restarts cannot change the primary turn.
+    subagents: HashMap<String, (Value, bool)>,
     /// Retain files from open fileChange items because approval requests do not repeat them.
     patches: HashMap<String, Vec<String>>,
     /// Assign streaming drafts the same block indexes used by final assistant.block events.
@@ -193,6 +195,7 @@ impl Link {
             ctx: None,
             turn: None,
             asks: HashMap::new(),
+            subagents: HashMap::new(),
             patches: HashMap::new(),
             block: 0,
             message_open: false,
@@ -722,11 +725,24 @@ impl Link {
     }
 
     fn notification(&mut self, method: &str, p: &Value) -> Vec<Value> {
-        // Only the primary thread can update this conversation. Subagent turn/completed events must
-        // not mark its card ready or trigger completion sounds while the primary agent is still
-        // working.
+        // Known child threads update background activity only, never the primary turn or content.
         if let (Some(mine), Some(thread)) = (self.thread.as_deref(), p["threadId"].as_str()) {
             if thread != mine {
+                if self.subagents.contains_key(thread) {
+                    let active = match method {
+                        "turn/started" => Some(true),
+                        "turn/completed" | "thread/closed" => Some(false),
+                        "thread/status/changed" => match p["status"]["type"].as_str() {
+                            Some("active") => Some(true),
+                            Some("idle" | "notLoaded" | "systemError") => Some(false),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    if active.is_some_and(|active| self.update_subagent(thread, active, "", None)) {
+                        return vec![self.background()];
+                    }
+                }
                 return vec![];
             }
         }
@@ -914,7 +930,49 @@ impl Link {
                 let failed = item["success"].as_bool() == Some(false);
                 vec![tool_completed(&id, &texts(&item["contentItems"]), failed)]
             }
-            Some("webSearch" | "collabAgentToolCall" | "imageView") => {
+            Some("collabAgentToolCall") => {
+                let mut changed = false;
+                for (thread, state) in item["agentsStates"].as_object().into_iter().flatten() {
+                    let active = match state["status"].as_str() {
+                        Some("pendingInit" | "running") => true,
+                        Some("interrupted" | "completed" | "errored" | "shutdown" | "notFound") => {
+                            false
+                        }
+                        _ => continue,
+                    };
+                    changed |= self.update_subagent(
+                        thread,
+                        active,
+                        item["prompt"].as_str().unwrap_or(""),
+                        Some(&id),
+                    );
+                }
+                let mut out = vec![tool_completed(&id, "", false)];
+                if changed {
+                    out.push(self.background());
+                }
+                out
+            }
+            Some("subAgentActivity") => {
+                // This item describes an activity; its item/started and item/completed envelopes
+                // are not themselves child lifecycle transitions. Consume only the final item.
+                let active = match item["kind"].as_str() {
+                    Some("started") => true,
+                    Some("completed" | "interrupted") => false,
+                    _ => return vec![],
+                };
+                if self.update_subagent(
+                    item["agentThreadId"].as_str().unwrap_or(""),
+                    active,
+                    item["agentPath"].as_str().unwrap_or(""),
+                    None,
+                ) {
+                    vec![self.background()]
+                } else {
+                    vec![]
+                }
+            }
+            Some("webSearch" | "imageView") => {
                 vec![tool_completed(&id, "", false)]
             }
             Some("contextCompaction") => {
@@ -932,6 +990,36 @@ impl Link {
             }
             _ => vec![],
         }
+    }
+
+    fn update_subagent(
+        &mut self,
+        thread: &str,
+        active: bool,
+        description: &str,
+        tool_id: Option<&str>,
+    ) -> bool {
+        if thread.is_empty() || self.thread.as_deref() == Some(thread) {
+            return false;
+        }
+        let (_, previous) = self.subagents.entry(thread.to_string()).or_insert_with(|| {
+            (
+                json!({ "id": thread, "description": if description.is_empty() { thread } else { description }, "toolId": tool_id }),
+                false,
+            )
+        });
+        let changed = *previous != active;
+        *previous = active;
+        changed
+    }
+
+    fn background(&self) -> Value {
+        let tasks: Vec<&Value> = self
+            .subagents
+            .values()
+            .filter_map(|(task, active)| active.then_some(task))
+            .collect();
+        canonical("background.changed", json!({ "tasks": tasks }))
     }
 
     /// Close an existing streaming block before opening another so block numbering remains stable
@@ -1545,6 +1633,124 @@ mod tests {
         assert_eq!(f[0]["messageId"], "turn-1");
         let f = link.on_line(r#"{"method":"turn/completed","params":{"threadId":"t-1","turn":{"id":"turn-1","status":"completed"}}}"#);
         assert_eq!(f.last().unwrap()["type"], "turn.completed");
+    }
+
+    #[test]
+    fn chamada_spawn_concluida_mantem_background_ate_o_filho_terminar() {
+        let (mut link, out) = link(None);
+        opened(&mut link, &out);
+        link.on_line(
+            r#"{"method":"turn/started","params":{"threadId":"t-1","turn":{"id":"turn-1"}}}"#,
+        );
+        let spawn = json!({
+            "method": "item/completed", "params": { "threadId": "t-1", "item": {
+                "type": "collabAgentToolCall", "id": "spawn-1", "tool": "spawnAgent",
+                "status": "completed", "senderThreadId": "t-1", "receiverThreadIds": ["sub-1"],
+                "prompt": "mapear", "agentsStates": { "sub-1": { "status": "running", "message": null } },
+            } },
+        }).to_string();
+        let events = link.on_line(&spawn);
+        assert_eq!(events[0]["type"], "tool.completed");
+        assert_eq!(events[1]["type"], "background.changed");
+        assert_eq!(
+            events[1]["tasks"],
+            json!([{ "id": "sub-1", "description": "mapear", "toolId": "spawn-1" }])
+        );
+        assert_eq!(link.on_line(&spawn).len(), 1);
+
+        let events = link.on_line(r#"{"method":"turn/completed","params":{"threadId":"t-1","turn":{"id":"turn-1","status":"completed"}}}"#);
+        assert_eq!(events.last().unwrap()["type"], "turn.completed");
+        assert_eq!(link.background()["tasks"].as_array().unwrap().len(), 1);
+        assert!(link.on_line(r#"{"method":"turn/completed","params":{"threadId":"unknown","turn":{"id":"other","status":"completed"}}}"#).is_empty());
+
+        link.on_line(
+            r#"{"method":"turn/started","params":{"threadId":"t-1","turn":{"id":"turn-2"}}}"#,
+        );
+        let events = link.on_line(r#"{"method":"turn/completed","params":{"threadId":"sub-1","turn":{"id":"child-turn","status":"completed"}}}"#);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["type"], "background.changed");
+        assert_eq!(events[0]["tasks"], json!([]));
+        assert_eq!(link.turn.as_deref(), Some("turn-2"));
+        assert!(link.on_line(r#"{"method":"turn/completed","params":{"threadId":"sub-1","turn":{"id":"child-turn","status":"completed"}}}"#).is_empty());
+    }
+
+    #[test]
+    fn atividade_de_subagente_nao_confunde_envelopes_com_inicio_e_fim() {
+        let (mut link, out) = link(None);
+        opened(&mut link, &out);
+        let activity = |method: &str, kind: &str| {
+            json!({
+                "method": method, "params": { "threadId": "t-1", "item": {
+                    "type": "subAgentActivity", "id": "activity-1", "kind": kind,
+                    "agentThreadId": "sub-1", "agentPath": "/root/review",
+                } },
+            })
+            .to_string()
+        };
+        assert!(link
+            .on_line(&activity("item/started", "started"))
+            .is_empty());
+        let events = link.on_line(&activity("item/completed", "started"));
+        assert_eq!(events[0]["type"], "background.changed");
+        assert_eq!(events[0]["tasks"][0]["id"], "sub-1");
+        assert!(link
+            .on_line(&activity("item/completed", "started"))
+            .is_empty());
+        assert!(link
+            .on_line(&activity("item/completed", "interacted"))
+            .is_empty());
+        assert!(link
+            .on_line(&activity("item/started", "completed"))
+            .is_empty());
+        let events = link.on_line(&activity("item/completed", "completed"));
+        assert_eq!(events[0]["tasks"], json!([]));
+        assert!(link
+            .on_line(&activity("item/started", "started"))
+            .is_empty());
+
+        // A known child can run again without changing the primary turn.
+        let events = link.on_line(
+            r#"{"method":"turn/started","params":{"threadId":"sub-1","turn":{"id":"child-2"}}}"#,
+        );
+        assert_eq!(events[0]["type"], "background.changed");
+        assert_eq!(events[0]["tasks"][0]["id"], "sub-1");
+        assert_eq!(link.turn, None);
+        let events = link.on_line(r#"{"method":"thread/status/changed","params":{"threadId":"sub-1","status":{"type":"idle"}}}"#);
+        assert_eq!(events[0]["tasks"], json!([]));
+        assert!(link.on_line(r#"{"method":"thread/status/changed","params":{"threadId":"unknown","status":{"type":"active","activeFlags":[]}}}"#).is_empty());
+    }
+
+    #[test]
+    fn estados_parciais_de_subagentes_preservam_outros_filhos() {
+        let (mut link, out) = link(None);
+        opened(&mut link, &out);
+        let collab = |states: Value| {
+            json!({
+            "method": "item/completed", "params": { "threadId": "t-1", "item": {
+                "type": "collabAgentToolCall", "id": "call-1", "tool": "wait", "status": "completed",
+                "agentsStates": states,
+            } },
+        }).to_string()
+        };
+        link.on_line(&collab(json!({
+            "sub-1": { "status": "pendingInit" }, "sub-2": { "status": "running" },
+            "t-1": { "status": "running" }, "": { "status": "running" },
+        })));
+        assert_eq!(link.background()["tasks"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            link.on_line(&collab(json!({ "sub-1": { "status": "futureStatus" } })))
+                .len(),
+            1
+        );
+        assert_eq!(link.on_line(&collab(json!({}))).len(), 1);
+        let events = link.on_line(&collab(json!({ "sub-1": { "status": "completed" } })));
+        assert_eq!(events[1]["tasks"][0]["id"], "sub-2");
+        for terminal in ["interrupted", "errored", "shutdown", "notFound"] {
+            link.on_line(&collab(json!({ "sub-1": { "status": "running" } })));
+            let events = link.on_line(&collab(json!({ "sub-1": { "status": terminal } })));
+            assert_eq!(events[1]["tasks"].as_array().unwrap().len(), 1);
+            assert_eq!(events[1]["tasks"][0]["id"], "sub-2");
+        }
     }
 
     #[test]

@@ -57,3 +57,4 @@ Status: Proposto
 | [0022](0022-end-to-end-encryption.md) | Aceito | criptografia ponta a ponta na colaboração |
 | [0023](0023-ordered-publication.md) | Accepted | ordered board publication and conversation delivery |
 | [0024](0024-typed-ipc.md) | Accepted | command-owned IPC arguments and results |
+| [0025](0025-completion-sound-per-execution.md) | Aceito | som de conclusão por execução aceita |

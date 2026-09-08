@@ -55,11 +55,19 @@ impl Lines {
         mut record: impl FnMut(&mut Self, &Value),
     ) -> Result<Vec<Value>, String> {
         let echo = send(&self.text)?;
+        // Publish accepted app input separately from user events, which providers can also synthesize.
+        let started = (command["type"] == "message.send").then(|| {
+            conversation::event(
+                "session.state",
+                conversation::now(),
+                json!({ "state": "busy" }),
+            )
+        });
         let event = match command["type"].as_str() {
             Some("message.send") => command["text"].as_str().map(user),
             _ => closed_request(command),
         };
-        let events: Vec<Value> = event.into_iter().chain(echo).collect();
+        let events: Vec<Value> = started.into_iter().chain(event).chain(echo).collect();
         for event in &events {
             record(self, event);
         }
@@ -412,6 +420,15 @@ pub(crate) fn launch(
         pid,
         pump: pump.clone(),
     };
+    // A replacement process has no background tasks from its predecessor.
+    pump.feed(
+        &conversation::event(
+            "session.state",
+            conversation::now(),
+            json!({ "state": "starting" }),
+        )
+        .to_string(),
+    );
     // Request slash-command metadata before the first prompt. Claude's stream init requires a
     // prompt; Codex handles initialization in its adapter.
     match chat.write(&json!({ "v": 1, "type": "commands.list" }), "") {
@@ -1147,7 +1164,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn command_records_user_and_echo_before_concurrent_response() {
+    fn command_records_busy_user_and_echo_before_concurrent_response() {
         let lines = Mutex::new(Lines::default());
         let emitted = Mutex::new(Vec::new());
         let directory =
@@ -1176,6 +1193,11 @@ mod tests {
                         Ok(vec![json!({ "v": 1, "type": "system.notice" })])
                     },
                     |lines, event| {
+                        if event["type"] == "session.state" {
+                            assert_eq!(event["v"], 1);
+                            assert_eq!(event["state"], "busy");
+                            assert!(event["at"].is_u64());
+                        }
                         lines.deliver(&event.to_string(), keep(event), Some(log), |seq| {
                             lock(emitted).push((seq, event["type"].as_str().unwrap().to_string()));
                         });
@@ -1186,12 +1208,14 @@ mod tests {
         assert_eq!(
             *lock(&emitted),
             [
-                (1, "user.message".into()),
-                (2, "system.notice".into()),
-                (3, "assistant.block".into()),
+                (1, "session.state".into()),
+                (2, "user.message".into()),
+                (3, "system.notice".into()),
+                (4, "assistant.block".into()),
             ]
         );
         assert_eq!(std::fs::read_to_string(&log).unwrap(), lock(&lines).text);
+        assert!(!lock(&lines).text.contains("session.state"));
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -1265,20 +1289,21 @@ mod tests {
             sent.unwrap();
         });
         let emitted = lock(&emitted);
-        assert_eq!(emitted.len(), 258);
-        assert_eq!(emitted[0], (1, "user.message".into()));
-        assert_eq!(emitted[257], (258, "turn.completed".into()));
+        assert_eq!(emitted.len(), 259);
+        assert_eq!(emitted[0], (1, "session.state".into()));
+        assert_eq!(emitted[1], (2, "user.message".into()));
+        assert_eq!(emitted[258], (259, "turn.completed".into()));
         assert!(emitted
             .iter()
             .enumerate()
             .all(|(index, (seq, _))| *seq == index as u64 + 1));
         let lines = lock(&lines);
-        assert_eq!(lines.seq, 258);
+        assert_eq!(lines.seq, 259);
         assert_eq!(lines.text.lines().count(), 2);
     }
 
     #[test]
-    fn failed_command_does_not_record_a_user_message() {
+    fn failed_command_does_not_record_busy_or_user_message() {
         let mut lines = Lines::default();
         let error = lines.command(
             &json!({ "v": 1, "type": "message.send", "text": "retry me" }),
@@ -1288,6 +1313,28 @@ mod tests {
         assert_eq!(error.unwrap_err(), "broken pipe");
         assert!(lines.text.is_empty());
         assert_eq!(lines.seq, 0);
+    }
+
+    #[test]
+    fn answering_a_request_does_not_start_another_notification_cycle() {
+        let mut lines = Lines::default();
+        let events = lines
+            .command(
+                &json!({
+                    "v": 1,
+                    "type": "request.respond",
+                    "requestId": "ask-1",
+                    "response": { "outcome": "allow" },
+                }),
+                |_| Ok(vec![]),
+                |lines, event| {
+                    lines.deliver(&event.to_string(), keep(event), None, |_| {});
+                },
+            )
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["type"], "request.closed");
+        assert_eq!(lines.seq, 1);
     }
 
     /// Caller-supplied environment values, including MCP secrets, survive inherited Claude-variable

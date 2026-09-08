@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Board, Status, Workspace } from "./types";
 
 const { badge, start, inbox } = vi.hoisted(() => ({
@@ -19,6 +19,14 @@ const emit = (tab: string, event: Record<string, unknown>) =>
 const done = (tab = "a-t") => emit(tab, {
   type: "turn.completed", outcome: "ok", message: "", durationMs: null, costUsd: null,
 });
+const begin = (tab = "a-t") => {
+  emit(tab, { type: "session.state", state: "busy" });
+  emit(tab, { type: "assistant.started", messageId: "m" });
+};
+const settle = () => vi.advanceTimersByTime(1_000);
+const background = (tasks: string[], tab = "a-t") => emit(tab, {
+  type: "background.changed", tasks: tasks.map((id) => ({ id, description: id, toolId: null })),
+});
 const question = (tab = "a-t") => emit(tab, {
   type: "request.opened", requestId: "q", kind: "question", toolId: null, tool: "AskUserQuestion", input: {},
 });
@@ -29,6 +37,7 @@ let focused = false;
 const visible = new Set<string>();
 
 beforeEach(() => {
+  vi.useFakeTimers();
   focused = false;
   visible.clear();
   inbox.length = 0;
@@ -57,115 +66,214 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("avisos da conversa", () => {
-  it("atualizações do quadro não tocam som sem um evento de conclusão ou pergunta", () => {
+afterEach(() => vi.useRealTimers());
+
+describe("som de conclusão", () => {
+  it("exige envio aceito e conclusão; status, mensagens sintéticas e perguntas não tocam", () => {
+    boardChanged(board(workspace("a")));
     for (let i = 0; i < 5; i++) {
-      boardChanged(board(workspace("a", [tab("a-t", "rodando")])));
-      boardChanged(board(workspace("a", [tab("a-t", "pronta")])));
-      boardChanged(board(workspace("a", [tab("a-t", "querendo")])));
+      boardChanged(board(workspace("a", [tab("a-t", i % 2 ? "pronta" : "rodando")])));
+      speak();
+      emit("a-t", { type: "assistant.started", messageId: "m" });
+      question();
+      emit("a-t", { type: "request.closed", requestId: "q", outcome: "answered" });
+      done();
+      settle();
     }
     expect(sounds()).toBe(0);
-    expect(waiting()).toBe(0);
+    begin();
+    question();
+    settle();
+    expect(sounds()).toBe(0);
+    expect(waiting()).toBe(1);
+    emit("a-t", { type: "request.closed", requestId: "q", outcome: "answered" });
+    done();
+    settle();
+    expect(sounds()).toBe(1);
   });
 
-  it("streaming, ferramentas, background e contexto não tocam; fim real toca uma vez", () => {
+  it("ferramentas e streaming longos ficam silenciosos; conclusão avisa uma vez", () => {
     boardChanged(board(workspace("a")));
+    begin();
     for (let i = 0; i < 10; i++) {
-      emit("a-t", { type: "assistant.started", messageId: "m" });
       emit("a-t", { type: "assistant.block", messageId: "m", index: i, block: { kind: "text", text: "trabalhando" } });
       emit("a-t", { type: "tool.completed", toolId: "tool", output: "ok", error: false, background: false });
-      emit("a-t", { type: "background.changed", tasks: [] });
       emit("a-t", { type: "context.updated", used: i, window: 100 });
+      settle();
     }
     expect(sounds()).toBe(0);
     done();
+    emit("a-t", { type: "context.compaction", state: "stopped", detail: "" });
     done();
+    settle();
     expect(sounds()).toBe(1);
     expect(waiting()).toBe(1);
     expect(badge).toHaveBeenLastCalledWith(1);
   });
 
-  it("continuações automáticas não repetem aviso pendente; nova fala rearma", () => {
+  it("não confunde resultados intermediários com fim enquanto há tarefas em background", () => {
     boardChanged(board(workspace("a")));
+    begin();
+    background(["one", "two"]);
     done();
-    emit("a-t", { type: "assistant.block", messageId: "next", index: 0, block: { kind: "text", text: "mais" } });
-    done();
-    expect(sounds()).toBe(1);
-    speak();
-    done();
-    expect(sounds()).toBe(2);
-  });
-
-  it("pergunta avisa; responder permite avisar a próxima conclusão", () => {
-    boardChanged(board(workspace("a")));
-    question();
-    question();
-    expect(sounds()).toBe(1);
-    emit("a-t", { type: "request.closed", requestId: "q", outcome: "answered" });
-    done();
-    expect(sounds()).toBe(2);
-  });
-
-  it("abas visíveis na mesa ou workspace não apitam com a janela em foco", () => {
-    focused = true;
-    visible.add("a-t");
-    visible.add("b-t");
-    boardChanged(board(workspace("a"), workspace("b")));
-    done();
-    question("b-t");
+    settle();
     expect(sounds()).toBe(0);
-    expect(waiting()).toBe(0);
-    // Collapsed or nonselected tabs still require notifications.
-    visible.delete("b-t");
-    question("b-t");
+    focused = true;
+    visible.add("a-t");
+    looked();
+    focused = false;
+    background(["two"]);
+    speak();
+    emit("a-t", { type: "assistant.started", messageId: "automatic" });
+    done();
+    settle();
+    expect(sounds()).toBe(0);
+    background([]);
+    settle();
+    expect(sounds()).toBe(0);
+    emit("a-t", { type: "assistant.started", messageId: "final" });
+    done();
+    settle();
     expect(sounds()).toBe(1);
   });
 
-  it("janela atrás avisa; voltar às conversas visíveis reconhece a pendência", () => {
-    visible.add("a-t");
+  it("retomada antes do som cancela conclusão candidata, sem inferir fim por silêncio", () => {
     boardChanged(board(workspace("a")));
+    begin();
     done();
-    looked();
-    expect(waiting()).toBe(1);
-    focused = true;
-    looked();
-    expect(waiting()).toBe(0);
-    expect(badge).toHaveBeenLastCalledWith(undefined);
+    vi.advanceTimersByTime(500);
+    emit("a-t", { type: "assistant.started", messageId: "continued" });
+    vi.advanceTimersByTime(30_000);
+    expect(sounds()).toBe(0);
+    done();
+    settle();
+    expect(sounds()).toBe(1);
   });
 
-  it("cada aba avisa independentemente; o Dock conta um workspace", () => {
+  it("olhar, responder e receber mensagens sintéticas nunca rearmam execução já avisada", () => {
+    boardChanged(board(workspace("a")));
+    begin();
+    done();
+    settle();
+    focused = true;
+    visible.add("a-t");
+    looked();
+    expect(waiting()).toBe(0);
+    focused = false;
+    speak();
+    question();
+    emit("a-t", { type: "request.closed", requestId: "q", outcome: "answered" });
+    emit("a-t", { type: "assistant.started", messageId: "automatic" });
+    done();
+    settle();
+    expect(sounds()).toBe(1);
+    begin();
+    done();
+    settle();
+    expect(sounds()).toBe(2);
+  });
+
+  it("consome conclusão vista ou silenciada; sair da aba ou ligar som não toca depois", () => {
+    boardChanged(board(workspace("a")));
+    focused = true;
+    visible.add("a-t");
+    begin();
+    done();
+    settle();
+    focused = false;
+    done();
+    settle();
+    expect(sounds()).toBe(0);
+    setSound(false);
+    begin();
+    done();
+    settle();
+    expect(waiting()).toBe(1);
+    setSound(true);
+    done();
+    settle();
+    expect(sounds()).toBe(0);
+    begin();
+    done();
+    settle();
+    expect(sounds()).toBe(1);
+  });
+
+  it("ver conclusão durante espera cancela som mesmo saindo antes de tocar", () => {
+    boardChanged(board(workspace("a")));
+    begin();
+    done();
+    focused = true;
+    visible.add("a-t");
+    looked();
+    focused = false;
+    settle();
+    expect(sounds()).toBe(0);
+    done();
+    settle();
+    expect(sounds()).toBe(0);
+  });
+
+  it("cada aba conclui independentemente; Dock conta workspaces e preserva unread", () => {
     boardChanged(board(workspace("a", [tab("a-t"), tab("b-t")], true)));
+    begin();
+    begin("b-t");
     done();
     done("b-t");
+    settle();
     expect(sounds()).toBe(2);
     expect(waiting()).toBe(1);
     boardChanged(board());
     expect(waiting()).toBe(0);
   });
 
-  it("som desligado preserva a bolinha sem tocar", () => {
-    setSound(false);
+  it("arquivar ou remover aba cancela som pendente; remotos nunca armam aviso", () => {
+    boardChanged(board(workspace("a"), { ...workspace("b"), remote: {} } as Workspace));
+    begin();
+    done();
+    begin("b-t");
+    done("b-t");
+    boardChanged(board({ ...workspace("a"), archived: true }));
+    settle();
+    expect(sounds()).toBe(0);
+    expect(waiting()).toBe(0);
+  });
+
+  it("reiniciar processo descarta background antigo; novo envio no mesmo processo preserva tarefas", () => {
     boardChanged(board(workspace("a")));
+    begin();
+    background(["old"]);
+    begin();
     done();
+    settle();
     expect(sounds()).toBe(0);
-    expect(waiting()).toBe(1);
-    setSound(true);
+    emit("a-t", { type: "session.state", state: "starting" });
+    begin();
     done();
-    expect(sounds()).toBe(0);
-    speak();
-    done();
+    settle();
     expect(sounds()).toBe(1);
   });
 
-  it("ignora interrupção, dados inválidos e sessões ausentes, remotas ou arquivadas", () => {
-    boardChanged(board(workspace("a"), { ...workspace("b"), archived: true }, { ...workspace("c"), remote: {} } as Workspace));
+  it("ignora dados inválidos, comandos locais e interrupções; erro terminal avisa", () => {
+    boardChanged(board(workspace("a")));
     chatChanged("a-t", "invalid json");
     emit("a-t", { type: "turn.completed" });
-    emit("a-t", { type: "turn.completed", outcome: "interrupted", message: "", durationMs: null, costUsd: null });
-    done("unknown");
-    done("b-t");
-    done("c-t");
+    emit("a-t", { type: "session.state", state: "busy" });
+    emit("a-t", { type: "context.reported", markdown: "context" });
+    done();
+    emit("a-t", { type: "assistant.started", messageId: "automatic" });
+    done();
+    settle();
     expect(sounds()).toBe(0);
+    begin();
+    emit("a-t", { type: "turn.completed", outcome: "interrupted", message: "", durationMs: null, costUsd: null });
+    done();
+    settle();
+    expect(sounds()).toBe(0);
+    emit("a-t", { type: "session.state", state: "busy" });
+    emit("a-t", { type: "turn.completed", outcome: "error", message: "failed", durationMs: null, costUsd: null });
+    settle();
+    expect(sounds()).toBe(1);
   });
 });
 

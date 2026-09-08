@@ -64,6 +64,7 @@ como índice curto para agentes e `README.md` apresenta o produto.
 - [ADR 0022](decisions/0022-end-to-end-encryption.md): criptografia ponta a ponta, TOFU e limites de segurança — Aceito.
 - [ADR 0023](decisions/0023-ordered-publication.md): ordered board publication and conversation delivery — Accepted.
 - [ADR 0024](decisions/0024-typed-ipc.md): command-owned IPC arguments and results — Accepted.
+- [ADR 0025](decisions/0025-completion-sound-per-execution.md): som de conclusão por execução aceita, independente da leitura — Aceito.
 
 ## Qualidade e operação
 

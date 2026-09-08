@@ -3,6 +3,7 @@ import { emptyCatalog, initializeDefaults, type Catalog, type Profile } from "./
 /// Browser backend for sample data. Loaded only when window.__TAURI_INTERNALS__ is absent; never loaded in Tauri.
 import { simulatedSocket } from "./team-mock";
 import type { Share } from "../relay/src/protocol";
+import { parseConversationEvent } from "./conversation";
 import { LegacyConversationAdapter } from "./conversation-legacy";
 import * as team from "./team";
 import type { Accounts } from "./statusbar";
@@ -531,7 +532,8 @@ function pushLine(tab: string, o: unknown, keep = true) {
   const s = scrollOf(tab);
   let adapter = conversationAdapters.get(tab);
   if (!adapter) conversationAdapters.set(tab, (adapter = new LegacyConversationAdapter()));
-  for (const event of adapter.translate(o)) {
+  const canonical = parseConversationEvent(o);
+  for (const event of canonical ? [canonical] : adapter.translate(o)) {
     const text = line(event);
     if (keep) s.text += text + "\n";
     s.seq += 1;
@@ -592,6 +594,7 @@ let mcpLogins: string[] = [];
 
 const CONTEXT_MD = "## Context Usage\n\n**Model:** claude-fable-5  \n**Tokens:** 20.2k / 1m (2%)\n\n### Estimated usage by category\n\n| Category | Tokens | Percentage |\n|----------|--------|------------|\n| System prompt | 4k | 0.4% |\n| System tools | 6.5k | 0.7% |\n| MCP tools (deferred) | 14.3k | 1.4% |\n| System tools (deferred) | 14k | 1.4% |\n| Custom agents | 368 | 0.0% |\n| Skills | 3k | 0.3% |\n| Messages | 6.3k | 0.6% |\n| Compact buffer | 3k | 0.3% |\n| Free space | 976.8k | 97.7% |\n\n### MCP Tools\n\n| Tool | Server | Tokens |\n|------|--------|--------|\n| mcp__capim-ds__get_components | capim-ds | 250 |\n| mcp__capim-ds__get_foundations | capim-ds | 209 |\n| mcp__capim-ds__get_icon_details | capim-ds | 168 |\n| mcp__capim-ds__get_illustration_details | capim-ds | 194 |\n| mcp__capim-ds__get_logo_details | capim-ds | 171 |\n| mcp__capim-ds__list_components | capim-ds | 130 |\n| mcp__capim-ds__list_icons | capim-ds | 107 |\n| mcp__capim-ds__list_illustrations | capim-ds | 120 |\n| mcp__capim-ds__list_logos | capim-ds | 112 |\n| mcp__claude_ai_Google_Drive__copy_file | claude_ai_Google_Drive | 444 |\n| mcp__claude_ai_Google_Drive__create_file | claude_ai_Google_Drive | 965 |\n| mcp__claude_ai_Google_Drive__download_file_content | claude_ai_Google_Drive | 433 |\n| mcp__claude_ai_Google_Drive__get_file_metadata | claude_ai_Google_Drive | 237 |\n| mcp__claude_ai_Google_Drive__get_file_permissions | claude_ai_Google_Drive | 143 |\n\n### Custom Agents\n\n| Agent Type | Source | Tokens |\n|------------|--------|--------|\n| caveman:cavecrew-builder | Plugin | 134 |\n| caveman:cavecrew-investigator | Plugin | 112 |\n| caveman:cavecrew-reviewer | Plugin | 122 |\n\n### Skills\n\n| Skill | Source | Tokens |\n|-------|--------|--------|\n| para-memory-files | User | ~190 |\n| caveman:cavecrew | Plugin (caveman) | ~190 |\n| caveman:caveman | Plugin (caveman) | ~140 |\n| caveman:caveman-commit | Plugin (caveman) | ~120 |\n| caveman:caveman-compress | Plugin (caveman) | ~120 |\n| caveman:caveman-help | Plugin (caveman) | ~70 |\n| caveman:caveman-review | Plugin (caveman) | ~110 |\n| caveman:caveman-stats | Plugin (caveman) | ~90 |\n| dataviz | Built-in | ~380 |\n| update-config | Built-in | ~240 |\n| keybindings-help | Built-in | ~80 |\n| code-review | Built-in | ~270 |\n| simplify | Built-in | ~60 |\n| fewer-permission-prompts | Built-in | ~60 |\n| loop | Built-in | ~120 |\n| schedule | Built-in | ~130 |\n| claude-api | Built-in | ~360 |\n| workflow-authoring | Built-in | ~80 |\n| run | Built-in | ~120 |\n| init | Built-in | ~20 |\n| security-review | Built-in | ~30 |";
 function sayInto(tab: string, text: string) {
+  pushLine(tab, { v: 1, type: "session.state", at: Date.now(), state: "busy" }, false);
   pushLine(tab, { type: "user", message: { role: "user", content: text }, ts: Date.now() });
   const id = `mm${++msgN}`;
   if (text.trim() === "/context") {

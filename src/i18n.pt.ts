@@ -870,7 +870,7 @@ export const PT = {
   "settings.lang.body": "A tela inteira, neste Mac. Trocar recarrega a janela.",
   "settings.lang.system": "Do sistema ({name})",
   "settings.sound": "Som de aviso",
-  "settings.sound.body": "Um pling quando um agente termina ou pergunta algo e você está olhando outra coisa, e quando um comentário espera você.",
+  "settings.sound.body": "Um pling quando um agente termina e você está olhando outra coisa, e quando um comentário espera você.",
   "settings.sound.on": "Ligado",
   "settings.sound.off": "Desligado",
   "settings.news": "Novidades",

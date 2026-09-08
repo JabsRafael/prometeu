@@ -836,7 +836,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "settings.lang.body": "The whole interface, on this Mac. Switching reloads the window.",
   "settings.lang.system": "From the system ({name})",
   "settings.sound": "Alert sound",
-  "settings.sound.body": "A ping when an agent finishes or asks something while you're looking elsewhere, and when a comment needs you.",
+  "settings.sound.body": "A ping when an agent finishes while you're looking elsewhere, and when a comment needs you.",
   "settings.sound.on": "On",
   "settings.sound.off": "Off",
   "settings.news": "What's new",
