@@ -47,7 +47,7 @@ let sockets: Socket[];
 let urls: string[];
 const workspace = (scope?: string): Workspace => ({ id: "workspace1", title: "Work", repo_name: "repo", branch: "main", stage: "", issue: null,
   active: "tab1", tabs: [{ id: "tab1", title: "Chat", status: "pronta", note: null, tokens: null }], shared: true,
-  share_team: scope, audience: null, remote: null, archived: false, cleaned: false } as Workspace);
+  share_team: scope, audience: null, remote_control: false, remote: null, archived: false, cleaned: false } as Workspace);
 const board = (work: Workspace): Board => ({ workspaces: [work], projects: [], stages: [] });
 
 beforeEach(async () => {
@@ -76,7 +76,39 @@ it("selects accepted organizations without enrolling and keeps the desktop beare
   await sockets[0].welcome("membership1");
   expect(team.status().phase).toBe("online");
   await team.share("workspace1", null);
-  expect(fake.invoke).toHaveBeenCalledWith("set_shared", { id: "workspace1", shared: true, audience: null, team: "organization:organization1:membership1" }, undefined);
+  expect(fake.invoke).toHaveBeenCalledWith("set_shared", { id: "workspace1", shared: true, audience: null, remoteControl: false, team: "organization:organization1:membership1" }, undefined);
+});
+
+it("persists remote control independently and encrypts only for owner devices", async () => {
+  await team.selectOrganization("organization1"); await vi.advanceTimersByTimeAsync(0);
+  const phone = await generateIdentity();
+  await sockets[0].welcome("membership1", {}, [
+    { id: "phone1", name: "Alice (iPhone)", person: "membership1", online: true, key: phone.publicKey },
+  ]);
+  const work = { ...workspace("organization:organization1:membership1"), shared: false, audience: null };
+  team.boardChanged(board(work));
+
+  await team.remoteControl(work.id, true);
+  expect(fake.invoke).toHaveBeenCalledWith("set_shared", {
+    id: work.id, shared: true, audience: [], remoteControl: true,
+    team: "organization:organization1:membership1",
+  }, undefined);
+  const share = sockets[0].sent.find((frame): frame is Extract<Up, { t: "share" }> => !(frame instanceof Uint8Array) && frame.t === "share");
+  expect(Object.keys(share!.share.encrypted!.boxes).sort()).toEqual(["membership1", "phone1"]);
+
+  await team.remoteControl(work.id, false);
+  expect(fake.invoke).toHaveBeenLastCalledWith("set_shared", {
+    id: work.id, shared: false, audience: null, remoteControl: false, team: null,
+  }, undefined);
+
+  const teamWork = workspace("organization:organization1:membership1");
+  team.boardChanged(board(teamWork));
+  await team.remoteControl(teamWork.id, true);
+  await team.remoteControl(teamWork.id, false);
+  expect(fake.invoke).toHaveBeenCalledWith("set_shared", {
+    id: teamWork.id, shared: true, audience: null, remoteControl: false,
+    team: "organization:organization1:membership1",
+  }, undefined);
 });
 
 it("does not publish legacy shares, another organization's shares or stale transcript responses after switching", async () => {

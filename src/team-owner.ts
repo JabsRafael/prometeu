@@ -1,7 +1,7 @@
 import { SNAPSHOT, decodeBinary, encodeLive, encodeSnapshot, type Down, type Segment, type Share, type Up, type Watching } from "../relay/src/protocol";
 import { t } from "./i18n";
 import type { TeamChannel } from "./team-channel";
-import { remoteControl } from "./team-control";
+import { remoteControl as parseRemoteControl } from "./team-control";
 import type { Context, Feature, Gate, OwnerHost } from "./team-ports";
 import type { Board, Workspace } from "./types";
 
@@ -35,7 +35,8 @@ let flushTimer = 0;
 /// Hold live output while its snapshot is being sent to preserve ordering.
 const holding = new Map<string, number>();
 const accessVersions = new Map<string, number>();
-const pendingAudience = new Map<string, string[] | null | false>();
+type Access = { audience: string[] | null; remoteControl: boolean };
+const pendingAccess = new Map<string, Access | false>();
 
 export function install(context: Context, actions: OwnerHost): Feature {
   ctx = context;
@@ -47,7 +48,7 @@ export function install(context: Context, actions: OwnerHost): Feature {
 
 function connecting(channel: TeamChannel) {
   for (const workspace of lastBoard?.workspaces ?? []) {
-    if (sharedHere(workspace) && !workspace.remote && !workspace.archived && !workspace.cleaned) channel.own(toShare(workspace));
+    if (sharedHere(workspace) && !workspace.remote && !workspace.archived && !workspace.cleaned) channel.own(toShare(workspace), workspace.remote_control);
   }
 }
 
@@ -56,10 +57,10 @@ function outgoing(frame: Up): Gate | null {
   const ws = frame.t === "share" ? frame.share.id : "ws" in frame ? frame.ws : undefined;
   if (!ws) return null;
   const content = CONTENT.has(frame.t);
-  if (content && pendingAudience.has(ws)) return () => false;
+  if (content && pendingAccess.has(ws)) return () => false;
   if (frame.t === "share" || frame.t === "unshare") accessVersions.set(ws, (accessVersions.get(ws) ?? 0) + 1);
   const version = accessVersions.get(ws);
-  return () => version === accessVersions.get(ws) && !(content && pendingAudience.has(ws));
+  return () => version === accessVersions.get(ws) && !(content && pendingAccess.has(ws));
 }
 
 function frame(down: Down) {
@@ -106,7 +107,7 @@ function closed() {
 function reset() {
   closed();
   accessVersions.clear();
-  pendingAudience.clear();
+  pendingAccess.clear();
 }
 
 /* Announcements. */
@@ -134,13 +135,14 @@ export function boardChanged(board: Board) {
   for (const w of board.workspaces) {
     if (!sharedHere(w) || w.remote) continue;
     if (w.archived || w.cleaned) {
-      void host.setShared(w.id, false, null, null);
+      void host.setShared(w.id, false, null, false, null);
       continue;
     }
     seen.add(w.id);
     const share = toShare(w);
-    const json = JSON.stringify(share);
+    const json = JSON.stringify([share, w.remote_control]);
     if (announced.get(w.id) === json) continue;
+    ctx.channel()?.own(share, w.remote_control);
     if (ctx.send({ t: "share", share })) announced.set(w.id, json);
   }
   for (const id of [...announced.keys()]) {
@@ -158,44 +160,62 @@ const tabOwnedBy = (tab: string, ids: Set<string>) =>
 const mine = (tab: string) => tabOwnedBy(tab, new Set(announced.keys()));
 
 /// Local audiences list people; a companion device is admitted through the person it belongs to.
-function admitted(audience: string[], member: string): boolean {
-  if (audience.includes(member)) return true;
+function admitted(audience: string[] | null, remoteControl: boolean, member: string): boolean {
+  const owner = ctx.you();
+  if (member === owner) return true;
   const person = ctx.members().find(m => m.id === member)?.person;
-  return !!person && audience.includes(person);
+  if (person === owner) return remoteControl;
+  return !audience || audience.includes(member) || (!!person && audience.includes(person));
 }
 
 function canReceive(tab: string, member: string): boolean {
   const w = lastBoard?.workspaces.find(w => w.tabs.some(t => t.id === tab));
   if (!w || !sharedHere(w) || w.archived || w.cleaned || !ctx.channel()?.security.key(member)) return false;
-  const audience = pendingAudience.has(w.id) ? pendingAudience.get(w.id) : w.audience;
-  return audience !== false && (!audience || admitted(audience, member));
+  const pending = pendingAccess.get(w.id);
+  if (pending === false) return false;
+  const access = pending ?? { audience: w.audience, remoteControl: w.remote_control };
+  return admitted(access.audience, access.remoteControl, member);
 }
 
-/// Share with everyone using null, selected members using IDs, or stop using false. An empty audience also stops sharing.
+/// Share with everyone using null, selected members using IDs, or stop team sharing using false.
 export async function share(id: string, audience: string[] | null | false) {
-  const on = audience !== false && (audience === null || audience.length > 0);
+  const workspace = lastBoard?.workspaces.find(w => w.id === id);
+  const teamAudience = audience !== false && (audience === null || audience.length > 0) ? audience : [];
+  await setAccess(id, teamAudience, workspace?.remote_control ?? false);
+}
+
+/// Toggle access for the owner's companion devices without changing the team audience.
+export async function remoteControl(id: string, enabled: boolean) {
+  const workspace = lastBoard?.workspaces.find(w => w.id === id);
+  if (!workspace) return;
+  const audience = workspace.shared && (workspace.audience === null || workspace.audience.length > 0) ? workspace.audience : [];
+  await setAccess(id, audience, enabled);
+}
+
+async function setAccess(id: string, audience: string[] | null, remoteControl: boolean) {
+  const on = remoteControl || audience === null || audience.length > 0;
   const membership = ctx.membership();
   if (on && !membership) throw t("err.team.noRelay");
-  if (pendingAudience.has(id)) throw t("err.team.encryption");
+  if (pendingAccess.has(id)) throw t("err.team.encryption");
   const generation = ctx.generation();
-  pendingAudience.set(id, on ? audience : false);
+  pendingAccess.set(id, on ? { audience, remoteControl } : false);
   accessVersions.set(id, (accessVersions.get(id) ?? 0) + 1);
   try {
-    await host.setShared(id, on, on ? audience : null, on ? membership!.shareScope : null);
+    await host.setShared(id, on, on ? audience : null, on && remoteControl, on ? membership!.shareScope : null);
     if (generation !== ctx.generation()) return;
     // IPC completion can precede the board event. Presence must not reannounce
     // the old audience during that gap.
     if (lastBoard) lastBoard = { ...lastBoard, workspaces: lastBoard.workspaces.map(w => w.id === id
-      ? { ...w, shared: on, audience: on ? audience as string[] | null : null, share_team: on ? membership!.shareScope : null } : w) };
+      ? { ...w, shared: on, audience: on ? audience : null, remote_control: on && remoteControl, share_team: on ? membership!.shareScope : null } : w) };
     const w = lastBoard?.workspaces.find(w => w.id === id);
     if (w && on) {
-      const updated = { ...toShare(w), audience: audience as string[] | null };
-      ctx.channel()?.own(updated);
+      const updated = { ...toShare(w), audience };
+      ctx.channel()?.own(updated, remoteControl);
       if (ctx.phase() === "online" && !await ctx.sendConfirmed({ t: "share", share: updated })) throw t("err.team.encryption");
     } else if (!on && ctx.phase() === "online") {
       if (!await ctx.sendConfirmed({ t: "unshare", ws: id })) throw t("err.team.encryption");
     }
-  } finally { if (generation === ctx.generation()) pendingAudience.delete(id); }
+  } finally { if (generation === ctx.generation()) pendingAccess.delete(id); }
 }
 
 /// Expand an owned share's audience before mentioning a new member, so the relay accepts the mention that follows.
@@ -212,6 +232,9 @@ export const sharedHere = (workspace: Workspace) => {
   return !!membership && workspace.shared &&
     (workspace.share_team ? workspace.share_team === membership.shareScope : membership.legacy);
 };
+
+export const sharedWithTeam = (workspace: Workspace) =>
+  sharedHere(workspace) && (workspace.audience === null || workspace.audience.length > 0);
 
 export const isShared = (id: string) => announced.has(id);
 export const watchersOf = (tab: string): string[] => [...new Set((watchers.get(tab) ?? []).map(ctx.nameOf))];
@@ -315,10 +338,8 @@ function push(data: Uint8Array): boolean {
 /// Revalidate remote input and control against announced local tabs before writing to a real process, even though the relay already filters it.
 function typed(ws: string, tab: string, data: string, from: string) {
   if (!announced.has(ws) || !mine(tab)) return;
-  const workspace = lastBoard?.workspaces.find(w => w.id === ws);
-  const audience = pendingAudience.has(ws) ? pendingAudience.get(ws) : workspace?.audience;
-  if (audience === false || (audience && !admitted(audience, from)) || !ctx.channel()?.security.key(from)) return;
-  const parsed = remoteControl(data);
+  if (!canReceive(tab, from)) return;
+  const parsed = parseRemoteControl(data);
   if (parsed.recognized) {
     if (parsed.frame) void host.control(tab, parsed.frame).catch(() => {});
     return;

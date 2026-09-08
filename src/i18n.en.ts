@@ -918,6 +918,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "share.alone": "Nobody else in this organization yet",
   "share.stop": "Stop sharing",
   "share.watching": "{name} is watching this conversation",
+  "remoteControl.label": "Remote control",
+  "remoteControl.title": "Lets your devices follow and send messages. This Mac must remain open.",
   "settings.team": "Organizations",
   "team.title": "Organization",
   "team.pitch": "Create a team, or join one with the code from whoever created it: it's who you share sessions and comments with.",

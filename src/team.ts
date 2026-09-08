@@ -39,7 +39,7 @@ member.useSecurityStore({
   write: (state) => invoke("team_security_set", { state }),
 });
 member.register((ctx) => owner.install(ctx, {
-  setShared: (id, shared, audience, team) => invoke("set_shared", { id, shared, audience, team }),
+  setShared: (id, shared, audience, remoteControl, team) => invoke("set_shared", { id, shared, audience, remoteControl, team }),
   snapshot: (tab) => invoke("chat_snapshot", { session: tab }),
   control: (tab, frame) => invoke("chat_control_remote", { session: tab, frame }),
   prompt: (tab, text) => invoke("chat_send", { session: tab, text }),
@@ -52,7 +52,7 @@ export const {
   securityChanges, securityCode, securityChangeCodes, acceptSecurityKey,
 } = member;
 export const { setSink, isRemote, attachedTab, attach, detach, write } = viewer;
-export const { boardChanged, share, sharedHere, isShared, watchersOf } = owner;
+export const { boardChanged, share, remoteControl, sharedHere, sharedWithTeam, isShared, watchersOf } = owner;
 export const { inboxCount, inboxItems, supportsThreads, inboxList } = comments;
 
 /* Configuration. */
@@ -349,6 +349,7 @@ export function remotes(): Workspace[] {
     cleaned: false,
     shared: false,
     audience: null,
+    remote_control: false,
     // Remote shares are announced only after preparation is complete.
     preparing: false,
     failed: null,

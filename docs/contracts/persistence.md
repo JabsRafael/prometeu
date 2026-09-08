@@ -235,3 +235,8 @@ Ausência autoriza somente o caminho legado. `team.json` aceita o campo `cloud`
 com identidade, origem e organização; tickets não são gravados. Antes de
 substituir configuração legada, `team.rs` grava `team-legacy-<uuid>.json` privado.
 Ver [migração e rollback](cloud-organizations.md).
+
+`Workspace.remote_control`, falso por padrão, registra consentimento para os
+dispositivos companheiros do dono. Ele é independente de `audience`: uma lista
+vazia representa controle remoto sem audiência de time. Desligar o último tipo
+de acesso também limpa `shared`, `share_team` e `audience`.

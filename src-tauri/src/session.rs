@@ -265,6 +265,7 @@ pub fn set_shared(
     id: String,
     shared: bool,
     audience: Option<Vec<String>>,
+    remote_control: bool,
     team: Option<String>,
 ) {
     {
@@ -273,6 +274,7 @@ pub fn set_shared(
             ws.shared = shared;
             ws.share_team = if shared { team } else { None };
             ws.audience = if shared { audience } else { None };
+            ws.remote_control = shared && remote_control;
         }
     }
     publish(&app);
@@ -849,6 +851,7 @@ pub fn create_workspace(
         shared: false,
         share_team: None,
         audience: None,
+        remote_control: false,
         preparing: true,
         failed: None,
         agent: draft.launch.agent,
@@ -1666,6 +1669,7 @@ mod tests {
             shared: false,
             share_team: None,
             audience: None,
+            remote_control: false,
             preparing: false,
             mcp: None,
             plugins: None,
@@ -1868,6 +1872,7 @@ mod tests {
             shared: false,
             share_team: None,
             audience: None,
+            remote_control: false,
             preparing: false,
             mcp: None,
             plugins: None,
@@ -2378,6 +2383,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
             shared: false,
             share_team: None,
             audience: None,
+            remote_control: false,
             preparing: false,
             mcp: None,
             plugins: None,

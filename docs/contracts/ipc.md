@@ -65,7 +65,7 @@ Os comandos `cloud_status`, `cloud_login_start`, `cloud_login_poll`,
 `cloud_login_cancel` e `cloud_logout` estão no [contrato da conta](cloud-account.md);
 `catalog_state` e `catalog_refresh`, no [contrato do catálogo](cloud-catalog.md).
 Não retornam Bearer nem senha para a webview. `cloud_organizations`,
-`cloud_relay_ticket` e o argumento opcional `team` de `set_shared` estão no
+`cloud_relay_ticket` e os argumentos `remoteControl` e `team` de `set_shared` estão no
 [contrato de organizações](cloud-organizations.md); somente o ticket curto
 atravessa IPC para autenticar o WebSocket.
 

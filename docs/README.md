@@ -69,6 +69,7 @@ como índice curto para agentes e `README.md` apresenta o produto.
 - [ADR 0027](decisions/0027-companion-devices.md): dispositivos companheiros no relay com campo aditivo `person` — Aceito.
 - [ADR 0028](decisions/0028-mobile-web-app.md): Prometeu no celular como app web servido pelo Cloud — Aceito.
 - [ADR 0029](decisions/0029-remove-alert-sound.md): remoção dos avisos sonoros, preservando indicadores visuais — Aceito.
+- [ADR 0030](decisions/0030-remote-control.md): controle remoto pessoal independente da audiência do time — Aceito.
 
 ## Qualidade e operação
 

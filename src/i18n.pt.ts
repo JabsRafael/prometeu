@@ -952,6 +952,8 @@ export const PT = {
   "share.alone": "Ninguém mais nesta organização ainda",
   "share.stop": "Parar de compartilhar",
   "share.watching": "{name} está olhando esta conversa",
+  "remoteControl.label": "Controle remoto",
+  "remoteControl.title": "Permite acompanhar e enviar mensagens pelos seus dispositivos. Este Mac precisa continuar aberto.",
   "settings.team": "Organizações",
   "team.title": "Organização",
   "team.pitch": "Crie um time, ou entre num com o código de quem criou: é com quem você compartilha sessões e comentários.",

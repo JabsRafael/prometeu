@@ -344,7 +344,7 @@ function drawShare(ws: Workspace, tab?: Tab) {
   const chips = $("watchers");
   chips.replaceChildren();
   // Keep inactive sharing in the menu; active sharing uses its icon and avatars without a long status label.
-  if (ws.remote || ws.cleaned || !team.status().config || !team.sharedHere(ws)) {
+  if (ws.remote || ws.cleaned || !team.status().config || !team.sharedWithTeam(ws)) {
     btn.hidden = true;
     return;
   }
@@ -393,7 +393,7 @@ function drawMore(ws: Workspace) {
       })),
     },
   ];
-  if (team.status().config && !team.sharedHere(ws)) {
+  if (team.status().config && !team.sharedWithTeam(ws)) {
     items.unshift({ label: t("share.on"), glyph: icon("share-2", 14), sub: shareItems(ws) });
   }
   btn.onclick = () => {
@@ -403,7 +403,7 @@ function drawMore(ws: Workspace) {
 }
 
 function shareLabel(ws: Workspace): string {
-  if (!team.sharedHere(ws)) return t("share.on");
+  if (!team.sharedWithTeam(ws)) return t("share.on");
   if (!ws.audience) return t("share.off");
   return tn(ws.audience.length, "share.some");
 }
@@ -413,8 +413,8 @@ function shareItems(ws: Workspace): menu.Item[] {
   const me = team.status();
   const others = team.people().filter((m) => m.id !== me.you);
   const set = (audience: string[] | null | false) => team.share(ws.id, audience).catch((e) => ctx.say(fromBack(e), true));
-  const all = team.sharedHere(ws) && !ws.audience;
-  const some = team.sharedHere(ws) && ws.audience ? ws.audience : [];
+  const all = team.sharedWithTeam(ws) && !ws.audience;
+  const some = team.sharedWithTeam(ws) && ws.audience ? ws.audience : [];
   const items: menu.Item[] = [
     { label: t("share.all"), glyph: icon("users", 14), checked: all, run: () => set(all ? false : null) },
     "sep",
@@ -430,7 +430,7 @@ function shareItems(ws: Workspace): menu.Item[] {
     }),
   ];
   if (!others.length) items.push({ label: t("share.alone"), disabled: true });
-  if (ws.shared) items.push("sep", { label: t("share.stop"), glyph: icon("x", 14), danger: true, run: () => set(false) });
+  if (team.sharedWithTeam(ws)) items.push("sep", { label: t("share.stop"), glyph: icon("x", 14), danger: true, run: () => set(false) });
   return items;
 }
 

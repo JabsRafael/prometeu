@@ -62,3 +62,4 @@ Status: Proposto
 | [0027](0027-companion-devices.md) | Aceito | dispositivos companheiros no relay com campo aditivo `person` |
 | [0028](0028-mobile-web-app.md) | Aceito | Prometeu no celular como app web servido pelo Cloud |
 | [0029](0029-remove-alert-sound.md) | Aceito | remoção dos avisos sonoros, preservando indicadores visuais |
+| [0030](0030-remote-control.md) | Aceito | controle remoto pessoal independente da audiência do time |

@@ -51,6 +51,8 @@ export type Info = {
   worktree: string | null;
   /// Comments require an active local or remote share, not merely configured team membership.
   team: boolean;
+  /// Owner companion devices may view and control this workspace.
+  remoteControl: boolean;
   /// Resolved tab or workspace model/effort; empty values mean CLI defaults.
   agent: ProviderId;
   model: string;
@@ -959,6 +961,7 @@ export class ChatView {
         <button class="ghost sm taskwatch" hidden></button>
         <button class="ghost sm mcpbtn" hidden><span></span></button>
         <button class="ghost sm plugbtn" hidden><span></span></button>
+        <button class="ghost sm remotebtn sw" hidden><span></span><i class="knob"></i></button>
         <button class="outline md quotesel" hidden></button>
         <span class="hint"></span>
         <span class="spacer"></span>
@@ -1208,6 +1211,7 @@ export class ChatView {
     this.paintWith(info);
     this.paintMcp(info);
     this.paintPlugins(info);
+    this.paintRemoteControl(info);
     const send = q(".send");
     (send as HTMLButtonElement).disabled = receiving;
     send.className = "send pri round";
@@ -1370,6 +1374,23 @@ export class ChatView {
         at: () => ({ x: at.left, y: at.bottom + 4 }),
         locked: () => (working ? t("plugin.busy") : ""),
       });
+    };
+  }
+
+  /// Keep personal companion access beside conversation controls and independent from team sharing.
+  private paintRemoteControl(info: Info) {
+    const btn = this.box.querySelector<HTMLButtonElement>(".remotebtn")!;
+    btn.hidden = !!info.remote || !info.workspace || !team.status().config?.cloud;
+    if (btn.hidden) return;
+    btn.querySelector("span")!.textContent = t("remoteControl.label");
+    btn.title = t("remoteControl.title");
+    btn.classList.toggle("on", info.remoteControl);
+    btn.setAttribute("aria-pressed", String(info.remoteControl));
+    btn.onclick = () => {
+      btn.disabled = true;
+      void team.remoteControl(info.workspace!, !info.remoteControl)
+        .catch(error => this.ctx.say(fromBack(error), true))
+        .finally(() => { btn.disabled = false; });
     };
   }
 
