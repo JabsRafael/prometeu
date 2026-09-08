@@ -67,5 +67,4 @@ Negativas:
 - `relay/src/protocol.test.ts` e `relay/src/logic.test.ts` cobrem validação,
   persistência, audiência, atribuição e compatibilidade;
 - `e2e/critical-flows.spec.ts` cobre criação contextual, resposta, resolução e
-  permanência da caixa principal no agente;
-- `docs/prototypes/multiplayer-comments.html` registra a proposta visual.
+  permanência da caixa principal no agente.
