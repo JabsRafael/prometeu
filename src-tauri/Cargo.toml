@@ -1,6 +1,6 @@
 [package]
 name = "prometeu"
-version = "0.5.11"
+version = "0.5.12"
 edition = "2021"
 rust-version = "1.88"
 # Cargo não aceita espaço em nome de bin, e de todo modo não é daqui que sai o
