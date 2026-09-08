@@ -54,5 +54,6 @@ Status: Proposto
 | [0019](0019-cloud-catalog.md) | Substituído pelo 0020 | catálogo portátil de plugins, MCP e Ações na conta Prometeu |
 | [0020](0020-personal-catalog-and-local-items.md) | Parcialmente substituído pelo 0021 | autoria no SaaS e compartilhamento explícito de itens locais |
 | [0021](0021-cloud-organizations.md) | Aceito | organizações, convites por email e colaboração autorizada pelo Cloud |
-| [0022](0022-typed-ipc.md) | Accepted | command-owned IPC arguments and results |
+| [0022](0022-end-to-end-encryption.md) | Aceito | criptografia ponta a ponta na colaboração |
 | [0023](0023-ordered-publication.md) | Accepted | ordered board publication and conversation delivery |
+| [0024](0024-typed-ipc.md) | Accepted | command-owned IPC arguments and results |

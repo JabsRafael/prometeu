@@ -34,8 +34,8 @@ Comece por `docs/README.md` para o índice completo.
 - Etapa do workspace é decisão da pessoa; status da aba é estado observado do
   agente. Não misture os dois.
 - A sessão compartilhada continua executando somente no Mac do dono. O relay
-  coordena e persiste o mínimo necessário; ele é uma fronteira de confiança,
-  não criptografia ponta a ponta.
+  coordena e persiste ciphertext e metadados; conteúdo usa E2EE v4 com
+  confiança no primeiro contato. Limites estão no ADR 0022.
 - A fonte de tipos e validação do relay é `relay/src/protocol.ts`.
 - Texto visível da interface passa por i18n. Dados do usuário e saída do agente
   permanecem no idioma original.

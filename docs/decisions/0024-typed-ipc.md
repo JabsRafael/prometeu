@@ -1,4 +1,4 @@
-# ADR 0022 — Command-owned IPC argument and result types
+# ADR 0024 — Command-owned IPC argument and result types
 
 Date: 2026-09-07
 Status: Accepted

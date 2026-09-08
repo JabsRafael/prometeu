@@ -113,22 +113,29 @@ explicado no cabeçalho desse arquivo. O catálogo de modelos sai do
 
 ### Git e mudanças
 
-**Alterações** mostra o trabalho local do repositório selecionado, separado em
-conflitos, alterações em stage e alterações locais. `+` adiciona um arquivo ao stage;
-`−` retira do stage sem apagar o trabalho. Um arquivo parcialmente preparado
-aparece nos dois grupos, cada um com seu diff. Commit inclui somente o índice;
-push é uma ação separada, com upstream e contadores visíveis.
+**Alterações** mantém abas explícitas para **Arquivos locais**, **Stage**,
+**Histórico** e **Comparar** no painel direito. Os botões **Stage** e **Unstage**
+preparam ou retiram arquivos do índice sem apagar o trabalho nem trocar a aba.
+Um arquivo parcialmente preparado aparece nos dois escopos, cada um com seu
+diff. A mensagem e o botão de commit ficam junto ao snapshot em Stage; o commit
+inclui somente esse índice. Push continua separado, com upstream e contadores
+visíveis. Conflitos permanecem acessíveis nos escopos locais.
 
 O diff do grupo escolhido vem inteiro no centro, um arquivo embaixo do outro,
 como uma revisão de PR: dá para ler tudo rolando. Clicar num arquivo da lista
-rola até ele em vez de trocar a tela.
+rola até ele em vez de trocar a tela. O filtro reduz a lista e os diffs pelo
+caminho. **Unificado** conserva as duas numerações; **Lado a lado** alinha
+remoções e adições. **Abrir arquivo** leva ao viewer existente. **Revisado**,
+o progresso e **Próximo não revisado** acompanham a leitura sem alterar o stage;
+um patch que muda perde a marca de revisão.
 
 O diff empilhado no centro é aba, e a aba é sua: ela entra na barra quando
 você a abre — pelo segundo clique em **Alterações**, ou pelo **Revisar** — e sai
 no ✕. Worktree sujo não a traz de volta; que há o que ver está no contador do
 painel da direita.
 
-Histórico e **Comparar branch** mostram commits sem misturar edições locais.
+**Histórico** lista commits no painel direito e abre o snapshot selecionado
+no centro. **Comparar** mostra commits sem misturar edições locais.
 A branch no cabeçalho abre a lista de branches e workspaces. Criar trabalho a
 partir dali usa outro worktree; a sessão atual continua onde estava. O editor
 de conflitos prepara o resultado revisado antes de concluir o merge.
@@ -400,10 +407,23 @@ só coordena — repassa frames e guarda o pouco que precisa sobreviver a algué
 estar offline (membros, o que está compartilhado, os comentários). Dono fora do ar =
 conversa congelada para os outros, e o card diz isso.
 
-**O relay é uma fronteira de confiança, não criptografia ponta a ponta.** Quem
-opera o Worker pode ver metadados, conversa e comentários que passam por ele. Fora da
-máquina local o app só aceita HTTPS/WSS; para conteúdo que o operador do relay
-não possa ler, ainda é preciso hospedar o seu próprio relay.
+**O conteúdo compartilhado usa criptografia ponta a ponta.** Conversas,
+falas remotas, comentários, citações e títulos são cifrados nos dispositivos.
+A configuração é automática: o app aceita a primeira chave de cada membro e a
+conserva localmente. Trocas de chave bloqueiam conteúdo com aquele membro até
+revisão em **Configurações / Organizações**. Códigos de segurança podem ser
+comparados por outro canal; isso é opcional.
+
+O relay ainda vê membros, destinatários, IDs, menções, presença, horários e
+tamanhos. Um servidor malicioso no primeiro contato pode substituir uma chave.
+Não há forward secrecy: roubar uma chave privada pode expor conteúdo antigo
+gravado para ela. Um segundo Mac usa o fluxo de troca de chave, sem sincronização
+automática do histórico. Não equivale às garantias do WhatsApp nem protege um
+Mac comprometido ou prompts enviados aos providers. Veja o [ADR 0022](docs/decisions/0022-end-to-end-encryption.md).
+
+App e relay precisam de v4; não há fallback em texto. Dados v3 permanecem no
+relay, mas comentários v3 não aparecem no cliente novo. Fora da máquina local,
+o app continua exigindo HTTPS/WSS.
 
 Quem fala com o relay é o **front**. O Rust guarda credenciais e obtém tickets
 curtos usando a conta conectada. Organizações e convites são administrados no
@@ -462,8 +482,6 @@ leva de volta à thread. Também é possível criar um comentário geral da aba.
 `@` abre a lista do time. Quem foi marcado ganha **Para mim** na barra, mesmo
 que estivesse offline. Abrir o comentário não o tira dali: ele permanece até a
 thread ser resolvida para todos. ⌘↵ envia; Enter quebra linha.
-
-[Apresentação visual desta interação](docs/prototypes/multiplayer-comments.html).
 
 ### O relay
 

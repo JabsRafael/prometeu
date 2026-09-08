@@ -544,3 +544,41 @@ describe("acordar do storage", () => {
     expect(woke.socks.get("alice-sock")?.attached).toEqual({ ws: "ws1", tab: "t1" });
   });
 });
+
+
+describe("limites de ciphertext persistido", () => {
+  const envelope = (id: string, length = 1024) => ({ id, boxes: {
+    alice: { enc: "A".repeat(87), ct: "B".repeat(length) },
+    bob: { enc: "A".repeat(87), ct: "B".repeat(length) },
+  } });
+  it("não sobrescreve ID de comentário e persiste somente caixa do destinatário na inbox", () => {
+    const s = team();
+    const frame: Up = { t: "note", ws: "ws1", text: "", quote: null, mentions: ["bob"], encrypted: envelope("same-id") };
+    const created = reduce(s, text("a1", frame));
+    expect(puts(created)).toContain("note:ws1:same-id");
+    expect(Object.keys(s.inbox.get("bob")![0].encrypted!.boxes)).toEqual(["bob"]);
+    expect(one(reduce(s, text("b1", frame)), "b1", "error")?.code).toBe("bad");
+    expect(s.notes.get("ws1")).toHaveLength(1);
+    expect(s.notes.get("ws1")![0].author).toBe("alice");
+  });
+  it("limita expansão de shares e comentários antes de alterar storage", () => {
+    const s = team();
+    const tooBig: Up = { t: "note", ws: "ws1", text: "", quote: null, mentions: [], encrypted: envelope("huge", 800_000) };
+    const refused = reduce(s, text("a1", tooBig));
+    expect(one(refused, "a1", "error")?.code).toBe("tooBig");
+    expect(puts(refused)).toEqual([]);
+    for (let i = 0; i < 8; i++) {
+      const accepted = reduce(s, text("a1", { ...tooBig, encrypted: envelope(`note-${i}`, 500_000) }));
+      expect(one(accepted, "a1", "error")).toBeUndefined();
+    }
+    expect(one(reduce(s, text("a1", { ...tooBig, encrypted: envelope("over-quota", 500_000) })), "a1", "error")?.code).toBe("quota");
+    expect(s.notes.get("ws1")).toHaveLength(8);
+    for (let i = 0; i < 4; i++) {
+      const frame: Up = { t: "share", share: { ...share(`ws-${i}`, [`tab-${i}`]), encrypted: envelope(`share-${i}`, 500_000) } };
+      expect(one(reduce(s, text("a1", frame)), "a1", "error")).toBeUndefined();
+    }
+    const extra: Up = { t: "share", share: { ...share("over-quota", ["extra-tab"]), encrypted: envelope("extra-share", 500_000) } };
+    expect(one(reduce(s, text("a1", extra)), "a1", "error")?.code).toBe("quota");
+    expect(s.shares.has("over-quota")).toBe(false);
+  });
+});

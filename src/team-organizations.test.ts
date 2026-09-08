@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Board, Workspace } from "./types";
-import type { Down, Up } from "../relay/src/protocol";
+import { PROTO, type Down, type Member, type Up } from "../relay/src/protocol";
+import { generateIdentity } from "./team-crypto";
 
 const fake = vi.hoisted(() => ({
   config: null as unknown,
+  security: null as unknown,
   invoke: vi.fn(),
   organizations: [{ id: "organization1", slug: "one", name: "One", member: "membership1", role: "owner" },
     { id: "organization2", slug: "two", name: "Two", member: "membership2", role: "member" }],
@@ -19,10 +21,26 @@ class Socket {
   onmessage: ((event: { data: unknown }) => void) | null = null;
   onclose: (() => void) | null = null;
   onerror: (() => void) | null = null;
-  send(data: string | ArrayBuffer | Uint8Array) { if (data !== "ping") this.sent.push(typeof data === "string" ? JSON.parse(data) : new Uint8Array(data as ArrayBuffer)); }
+  member = "";
+  peers: Member[] = [];
+  send(data: string | ArrayBuffer | Uint8Array) {
+    if (data === "ping") return;
+    const frame = typeof data === "string" ? JSON.parse(data) : new Uint8Array(data as ArrayBuffer);
+    this.sent.push(frame);
+    if (frame.t === "identity") this.says({ t: "presence", members: [
+      { id: this.member, name: "Alice", online: true, key: frame.key }, ...this.peers,
+    ] });
+  }
   close() { this.onclose?.(); }
   says(frame: Down) { this.onmessage?.({ data: JSON.stringify(frame) }); }
-  welcome(member: string, watching = {}) { this.onopen?.(); this.says({ t: "welcome", you: member, members: [], shares: [], inbox: [], watching }); }
+  async welcome(member: string, watching = {}, peers: Member[] = []) {
+    this.member = member; this.peers = peers;
+    this.onopen?.();
+    this.says({ t: "welcome", comments: 1, e2ee: 1, challenge: crypto.randomUUID(),
+      you: member, members: peers, shares: [], inbox: [], watching });
+    await vi.waitFor(() => expect(team.status().phase).toBe("online"));
+  }
+  content() { return this.sent.filter(frame => frame instanceof Uint8Array || frame.t !== "identity"); }
 }
 let team: typeof import("./team");
 let sockets: Socket[];
@@ -33,12 +51,14 @@ const workspace = (scope?: string): Workspace => ({ id: "workspace1", title: "Wo
 const board = (work: Workspace): Board => ({ workspaces: [work], projects: [], stages: [] });
 
 beforeEach(async () => {
-  vi.useFakeTimers(); vi.resetModules(); fake.config = null; sockets = []; urls = [];
+  vi.useFakeTimers(); vi.resetModules(); fake.config = null; fake.security = null; sockets = []; urls = [];
   fake.invoke.mockReset().mockImplementation(async (command: string, args: any) => {
     if (command === "team_config") return { config: fake.config, default_name: "Alice" };
     if (command === "team_config_set") { fake.config = args.config; return; }
+    if (command === "team_security") return structuredClone(fake.security);
+    if (command === "team_security_set") { fake.security = structuredClone(args.state); return; }
     if (command === "cloud_organizations") return { ...account, organizations: fake.organizations };
-    if (command === "cloud_relay_ticket") return `wss://relay.test/organization/${args.organization}?ticket=${"t".repeat(43)}&p=3`;
+    if (command === "cloud_relay_ticket") return `wss://relay.test/organization/${args.organization}?ticket=${"t".repeat(43)}&p=${PROTO}`;
     if (command === "chat_snapshot") return { text: "private transcript", seq: 1 };
   });
   team = await import("./team");
@@ -53,7 +73,7 @@ it("selects accepted organizations without enrolling and keeps the desktop beare
   expect(urls[0]).toContain("/organization/organization1?ticket=");
   expect(fake.config).toMatchObject({ team: "organization1", member: "membership1", credential: "", secret: "" });
   expect(JSON.stringify(fake.config)).not.toContain("ticket");
-  sockets[0].welcome("membership1");
+  await sockets[0].welcome("membership1");
   expect(team.status().phase).toBe("online");
   await team.share("workspace1", null);
   expect(fake.invoke).toHaveBeenCalledWith("set_shared", { id: "workspace1", shared: true, audience: null, team: "organization:organization1:membership1" }, undefined);
@@ -61,36 +81,42 @@ it("selects accepted organizations without enrolling and keeps the desktop beare
 
 it("does not publish legacy shares, another organization's shares or stale transcript responses after switching", async () => {
   await team.selectOrganization("organization1"); await vi.advanceTimersByTimeAsync(0);
-  sockets[0].welcome("membership1");
+  const guest = await generateIdentity();
+  await sockets[0].welcome("membership1", {}, [{ id: "guest", name: "Guest", online: true, key: guest.publicKey }]);
   team.boardChanged(board(workspace()));
-  expect(sockets[0].sent).toEqual([]);
+  expect(sockets[0].content()).toEqual([]);
   const work = workspace("organization:organization1:membership1");
   team.boardChanged(board(work));
-  expect(sockets[0].sent).toContainEqual(expect.objectContaining({ t: "share" }));
+  await vi.waitFor(() => expect(sockets[0].sent).toContainEqual(expect.objectContaining({ t: "share" })));
   let finish!: (value: { text: string; seq: number }) => void;
-  fake.invoke.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const previous = fake.invoke.getMockImplementation()!;
+  fake.invoke.mockImplementation((command, args) => command === "chat_snapshot"
+    ? new Promise(resolve => { finish = resolve; }) : previous(command, args));
   sockets[0].says({ t: "watch", ws: work.id, tab: "tab1", members: ["guest"], added: ["guest"] });
+  await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
   await team.selectOrganization("organization2"); await vi.advanceTimersByTimeAsync(0);
-  sockets[1].welcome("membership2", { workspace1: { tab1: ["guest"] } });
+  await sockets[1].welcome("membership2", { workspace1: { tab1: ["guest"] } });
   finish({ text: "private transcript", seq: 1 }); await vi.advanceTimersByTimeAsync(0);
-  expect(sockets[1].sent).toEqual([]);
+  expect(sockets[1].content()).toEqual([]);
+  expect(sockets[0].sent.some(frame => frame instanceof Uint8Array)).toBe(false);
   expect(team.sharedHere(work)).toBe(false);
   sockets[0].says({ t: "presence", members: [{ id: "leak", name: "Old", online: true }] });
-  expect(team.status().members).toEqual([]);
+  expect(team.status().members.map(member => member.id)).toEqual(["membership2"]);
 });
 
 it("discards a pending relay ticket after logout and drops revoked membership", async () => {
   let finish!: (value: string) => void;
   const previous = fake.invoke.getMockImplementation()!;
   fake.invoke.mockImplementation((command, args) => command === "cloud_relay_ticket" ? new Promise(resolve => { finish = resolve; }) : previous(command, args));
-  await team.selectOrganization("organization1");
+  const selection = team.selectOrganization("organization1");
+  await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
   await team.refreshOrganizations({ ...account, user: null });
-  finish("wss://relay.test/organization/organization1?ticket=old"); await vi.advanceTimersByTimeAsync(0);
+  finish("wss://relay.test/organization/organization1?ticket=old"); await selection; await vi.advanceTimersByTimeAsync(0);
   expect(sockets).toHaveLength(0);
   expect(team.status().config).toBeNull();
   fake.invoke.mockImplementation(previous);
   await team.refreshOrganizations(account); await team.selectOrganization("organization1"); await vi.advanceTimersByTimeAsync(0);
-  sockets[0].welcome("membership1");
+  await sockets[0].welcome("membership1");
   fake.invoke.mockImplementation((command, args) => command === "cloud_organizations" ? Promise.resolve({ ...account, organizations: [] }) : previous(command, args));
   await team.refreshOrganizations(account);
   expect(team.status().config).toBeNull();

@@ -1,7 +1,8 @@
 import type { IpcCommand, IpcHandlers, IpcResult } from "./ipc";
 import { emptyCatalog, initializeDefaults, type Catalog, type Profile } from "./actions";
 /// Browser backend for sample data. Loaded only when window.__TAURI_INTERNALS__ is absent; never loaded in Tauri.
-import { encodeLive, encodeSnapshot, type Inbox, type Note } from "../relay/src/protocol";
+import { simulatedSocket } from "./team-mock";
+import type { Share } from "../relay/src/protocol";
 import { LegacyConversationAdapter } from "./conversation-legacy";
 import * as team from "./team";
 import type { Accounts } from "./statusbar";
@@ -808,7 +809,7 @@ const mockCommands: IpcHandlers = {
     const cloud = mockCloud();
     const org = JSON.parse(localStorage.getItem("mock:organizations") ?? "[]").find((org: team.Organization) => org.id === args.organization);
     if (!org || cloud.user?.id !== args.user || cloud.origin !== args.expectedOrigin) throw 'i18n:{"code":"err.cloud.response"}';
-    return `ws://mock/organization/${org.id}?p=3&ticket=${"t".repeat(43)}&m=${org.member}&n=${encodeURIComponent(cloud.user!.name)}`;
+    return `ws://mock/organization/${org.id}?p=4&ticket=${"t".repeat(43)}&m=${org.member}&n=${encodeURIComponent(cloud.user!.name)}`;
   },
   cloud_login_start() {
     if (localStorage.getItem("mock:cloudOffline")) throw 'i18n:{"code":"err.cloud.network"}';
@@ -921,6 +922,12 @@ const mockCommands: IpcHandlers = {
   // Use localStorage for browser team state; Tauri stores it in team.json.
   team_config() {
     return { config: JSON.parse(localStorage.getItem("mock:team") ?? "null"), default_name: "Você" };
+  },
+  team_security() {
+    return JSON.parse(localStorage.getItem("mock:team-security") ?? "null");
+  },
+  team_security_set({ state }) {
+    localStorage.setItem("mock:team-security", JSON.stringify(state));
   },
   team_config_set(args) {
     if (args.config) localStorage.setItem("mock:team", JSON.stringify(args.config));
@@ -1766,9 +1773,8 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
 /// A fixed two-member team enables collaboration UI without a relay. mock.presence(false) simulates an offline member.
 let marcusOnline = true;
 const fakes: team.SocketLike[] = [];
-const enc = new TextEncoder();
 /// Marcus's shared workspace provides a running remote conversation.
-const marcusShare = () => ({
+const marcusShare = (): Share => ({
   id: "ws-marcus",
   title: "Arquivar todos os concluídos",
   repo_name: "capim-backend",
@@ -1782,198 +1788,11 @@ const marcusShare = () => ({
   ],
   sizes: { mt1: [100, 30], mt2: [100, 30] },
   audience: null,
-  owner: "marcus",
-  online: marcusOnline,
 });
 function fakeSocket(url: string): team.SocketLike {
-  const u = new URL(url);
-  const me = u.searchParams.get("m") ?? "eu";
-  let name = u.searchParams.get("n") ?? "Você";
-  let seq = 1;
-  let ticking = 0;
-  let attached: string | null = null;
-  /// Seed workspace comments so the remote comments panel has initial content.
-  const notes = new Map<string, Note[]>([
-    [
-      "ws-marcus",
-      [
-        {
-          id: "1-a",
-          ws: "ws-marcus",
-          author: "marcus",
-          text: `Completar um todo agora carimba \`completed_at\` em vez de apagar a linha. @${name} a chamada que sobrou é sua: manter o histórico na tabela de todos, ou mover para uma tabela só delas?`,
-          mentions: [me],
-          quote: "edit migrations/0007_todo_completed_at.sql · +11",
-          ts: Date.now() - 9 * 60_000,
-          tab: "mt1",
-          anchor: "w3.0",
-          parent: null,
-          resolved: false,
-        },
-      ],
-    ],
-  ]);
-  let inbox: Inbox[] = [{
-    id: "1-a",
-    ws: "ws-marcus",
-    author: "marcus",
-    ts: Date.now() - 9 * 60_000,
-    tab: "mt1",
-    text: `Completar um todo agora carimba completed_at. @${name}, a chamada que sobrou é sua.`,
-  }];
-  const members = () => [
-    { id: me, name, online: true },
-    { id: "marcus", name: "Marcus Hale", online: marcusOnline },
-    { id: "john", name: "John Okafor", online: false },
-  ];
-  const text = (frame: unknown) => s.onmessage?.({ data: JSON.stringify(frame) });
-  const bin = (bytes: Uint8Array) => s.onmessage?.({ data: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) });
-  const live = (o: unknown) => {
-    if (!attached) return;
-    bin(encodeLive(attached, [{ seq: ++seq, bytes: enc.encode(line(o) + "\n") }]));
-  };
-  const s: team.SocketLike & { presence: () => void } = {
-    binaryType: "blob",
-    onopen: null,
-    onmessage: null,
-    onclose: null,
-    onerror: null,
-    presence: () => {
-      text({ t: "presence", members: members() });
-      text({ t: "share", share: marcusShare() });
-    },
-    send(data) {
-      if (typeof data !== "string" || data === "ping") return;
-      const frame = JSON.parse(data);
-      switch (frame.t) {
-        case "me":
-          name = frame.name;
-          s.presence();
-          break;
-        // Send the initial remote transcript, then periodic updates to exercise live rendering.
-        case "attach":
-          attached = frame.tab;
-          clearInterval(ticking);
-          setTimeout(() => bin(encodeSnapshot(frame.tab, me, seq, enc.encode(SAMPLE))), 200);
-          ticking = setInterval(
-            () => live({ type: "assistant", message: { id: `mk${Date.now()}`, role: "assistant", content: [{ type: "text", text: `${new Date().toLocaleTimeString()} — ✓ 1 test passed` }] } }),
-            2500,
-          );
-          break;
-        case "detach":
-          attached = null;
-          clearInterval(ticking);
-          break;
-        // Echo remote input as its owner's backend would.
-        case "write":
-          if (!String(frame.data).startsWith("{")) live({ type: "user", message: { role: "user", content: frame.data }, ts: Date.now() });
-          break;
-        // Simulate Marcus watching shortly after a workspace is shared.
-        case "share":
-          setTimeout(() => text({ t: "watch", ws: frame.share.id, tab: frame.share.active ?? frame.share.tabs[0]?.id, members: ["marcus"], added: ["marcus"] }), 500);
-          break;
-        case "unshare":
-          break;
-        case "notes":
-          text({ t: "notes", ws: frame.ws, items: notes.get(frame.ws) ?? [] });
-          break;
-        // Assign each comment an ID and broadcast it to all members, including its author.
-        case "note": {
-          const note: Note = {
-            id: `${Date.now()}-m`,
-            ws: frame.ws,
-            author: me,
-            text: frame.text,
-            mentions: frame.mentions,
-            quote: frame.quote,
-            ts: Date.now(),
-            tab: frame.tab,
-            anchor: frame.anchor,
-            parent: null,
-            resolved: false,
-          };
-          notes.set(frame.ws, [...(notes.get(frame.ws) ?? []), note]);
-          text({ t: "note", note });
-          // Marcus replies when mentioned.
-          if (frame.mentions.includes("marcus")) {
-            setTimeout(() => {
-              const reply: Note = {
-                id: `${Date.now()}-r`,
-                ws: frame.ws,
-                author: "marcus",
-                text: "Vi. Coluna, então — uma migração contra um join em toda leitura não se paga.",
-                mentions: [me],
-                quote: null,
-                ts: Date.now(),
-                tab: note.tab,
-                anchor: null,
-                parent: note.id,
-                resolved: false,
-              };
-              notes.set(frame.ws, [...(notes.get(frame.ws) ?? []), reply]);
-              text({ t: "note", note: reply });
-              inbox = [{ id: note.id, ws: frame.ws, author: "marcus", ts: reply.ts, tab: note.tab, text: reply.text }];
-              text({ t: "inbox", items: inbox });
-            }, 1200);
-          }
-          break;
-        }
-        case "note_reply": {
-          const root = notes.get(frame.ws)?.find((note) => note.id === frame.note && !note.parent);
-          if (!root || root.resolved) break;
-          const reply: Note = {
-            id: `${Date.now()}-r`,
-            ws: frame.ws,
-            author: me,
-            text: frame.text,
-            mentions: frame.mentions,
-            quote: null,
-            ts: Date.now(),
-            tab: root.tab,
-            anchor: null,
-            parent: root.id,
-            resolved: false,
-          };
-          notes.set(frame.ws, [...(notes.get(frame.ws) ?? []), reply]);
-          text({ t: "note", note: reply });
-          break;
-        }
-        case "note_resolve": {
-          const list = notes.get(frame.ws) ?? [];
-          const at = list.findIndex((note) => note.id === frame.note && !note.parent);
-          if (at === -1) break;
-          list[at] = { ...list[at], resolved: true };
-          text({ t: "note", note: list[at] });
-          inbox = inbox.filter((item) => item.id !== frame.note || item.ws !== frame.ws);
-          text({ t: "inbox", items: inbox });
-          break;
-        }
-        case "inbox_read":
-          inbox = inbox.filter((item) => item.id !== frame.id);
-          text({ t: "inbox", items: inbox });
-          break;
-      }
-    },
-    close() {
-      fakes.splice(fakes.indexOf(s), 1);
-      clearInterval(ticking);
-      setTimeout(() => s.onclose?.());
-    },
-  };
-  fakes.push(s);
-  setTimeout(() => {
-    s.onopen?.();
-    text({
-      t: "welcome",
-      comments: 1,
-      you: me,
-      members: members(),
-      shares: [marcusShare()],
-      inbox,
-      watching: {},
-    });
-  }, 500);
-  return s;
+  const socket = simulatedSocket(url, SAMPLE, marcusShare(), () => marcusOnline);
+  fakes.push(socket);
+  return socket;
 }
 // VITE_RELAY connects browsers to a real relay while retaining the mock backend for end-to-end sharing tests.
 if (!(import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_RELAY) {

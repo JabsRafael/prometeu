@@ -1,7 +1,8 @@
 import { createServer, type Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { unstable_dev, type Unstable_DevWorker } from "wrangler";
-import { parseCreatedTeam, parseMembership, PROTO, type CreatedTeam } from "./protocol";
+import { encryptedBinary, encodeLive, encodeSnapshot, parseCreatedTeam, parseMembership, PROTO, type CreatedTeam, type Encrypted, type Share } from "./protocol";
+import { generateIdentity, open, seal, signIdentity, type Identity } from "../../src/team-crypto";
 
 let worker: Unstable_DevWorker;
 let created: CreatedTeam;
@@ -99,7 +100,12 @@ describe("relay no runtime do Worker", () => {
     expect(swapped.open).toBe(false);
 
     const ok = await socketResult(`${base}/team/${created.team}?c=${created.credential}&m=${created.member}&n=Alice&p=${PROTO}`);
-    expect(ok).toMatchObject({ open: true, first: { t: "welcome", you: created.member } });
+    expect(ok).toMatchObject({ open: true, first: { t: "welcome", you: created.member, e2ee: 1, challenge: expect.any(String) } });
+  });
+
+  it("rejects protocol 3 before accepting a socket", async () => {
+    const base = `ws://${worker.address}:${worker.port}`;
+    expect((await socketResult(`${base}/team/${created.team}?c=${created.credential}&m=${created.member}&p=3`)).open).toBe(false);
   });
 });
 
@@ -110,6 +116,23 @@ describe("organization sharing through Cloud authorization", () => {
   const tickets = new Map<string, { organization: string; member: string; name: string; lifetime: number }>();
   const members = [{ id: "owner001", name: "Alice" }, { id: "guest001", name: "Bob" }];
   const sockets: WebSocket[] = [];
+  const identities = new Map<string, Identity>();
+  async function encrypted(sender: Identity, recipients: string[], text: string): Promise<Encrypted> {
+    const id = crypto.randomUUID();
+    const boxes = Object.fromEntries(await Promise.all(recipients.map(async member => [
+      member, await seal(sender, identities.get(member)!.publicKey, ["worker-test", id], new TextEncoder().encode(text)),
+    ])));
+    return { id, boxes };
+  }
+  async function decrypted(recipient: Identity, sender: Identity, value: Encrypted, member: string): Promise<string> {
+    return new TextDecoder().decode(await open(recipient, sender.publicKey, ["worker-test", value.id], value.boxes[member]));
+  }
+  async function share(identity: Identity): Promise<Share> {
+    return { id: "workspace1", title: "", repo_name: "", branch: "", stage: "", issue: null,
+      active: "tab1", tabs: [{ id: "tab1", title: "", status: "desligada", note: null, tokens: null }],
+      sizes: { tab1: [80, 24] }, audience: ["guest001"],
+      encrypted: await encrypted(identity, ["owner001", "guest001"], "Private workspace metadata") };
+  }
   const issue = (char: string, member: number, lifetime = 60_000) => {
     const ticket = char.repeat(43);
     tickets.set(ticket, { organization: "organization1", member: members[member].id, name: members[member].name, lifetime });
@@ -141,21 +164,32 @@ describe("organization sharing through Cloud authorization", () => {
     await new Promise<void>(resolve => cloud?.close(() => resolve()));
   });
   const base = () => `ws://${relay.address}:${relay.port}`;
-  async function connect(ticket: string, identity = "spoofed") {
-    const socket = new WebSocket(`${base()}/organization/organization1?ticket=${ticket}&m=${identity}&n=Impersonated&p=${PROTO}`);
+  async function connect(ticket: string, spoofed = "spoofed", authenticate = true) {
+    const socket = new WebSocket(`${base()}/organization/organization1?ticket=${ticket}&m=${spoofed}&n=Impersonated&p=${PROTO}`);
+    socket.binaryType = "arraybuffer";
     sockets.push(socket);
     const frames: any[] = [];
+    const binaries: ArrayBuffer[] = [];
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("missing welcome")), 5_000);
       socket.addEventListener("message", event => {
         if (typeof event.data === "string") {
           const frame = JSON.parse(event.data); frames.push(frame);
           if (frame.t === "welcome") { clearTimeout(timer); resolve(); }
-        }
+        } else binaries.push(event.data);
       });
       socket.addEventListener("error", () => { clearTimeout(timer); reject(new Error("socket rejected")); });
     });
-    return { socket, frames };
+    const welcome = frames[0];
+    expect(welcome).toMatchObject({ t: "welcome", e2ee: 1, challenge: expect.any(String) });
+    const member = welcome.you as string;
+    const identity = identities.get(member) ?? await generateIdentity();
+    identities.set(member, identity);
+    if (authenticate) {
+      socket.send(JSON.stringify({ t: "identity", key: identity.publicKey, proof: await signIdentity(identity, [member, welcome.challenge]) }));
+      await expect.poll(() => frames.some(frame => frame.t === "presence" && frame.members.some((item: { id: string; key?: string }) => item.id === member && item.key === identity.publicKey))).toBe(true);
+    }
+    return { socket, frames, binaries, identity, member };
   }
   it("isolates organizations and refuses anonymous or legacy enrollment", async () => {
     const ticket = issue("a", 0);
@@ -170,16 +204,75 @@ describe("organization sharing through Cloud authorization", () => {
     expect(guest.frames[0]).toMatchObject({ t: "welcome", you: "guest001", members: expect.arrayContaining([{ id: "guest001", name: "Bob", online: true }]) });
     expect((await socketResult(`${base()}/organization/organization1?ticket=${guestTicket}&p=${PROTO}`)).open).toBe(false);
     guest.socket.send(JSON.stringify({ t: "me", name: "Alice" }));
-    owner.socket.send(JSON.stringify({ t: "share", share: { id: "workspace1", title: "Shared work", repo_name: "repo", branch: "main", stage: "", issue: null,
-      active: "tab1", tabs: [{ id: "tab1", title: "Chat", status: "pronta", note: null, tokens: null }], sizes: { tab1: [80, 24] }, audience: ["guest001"] } }));
+    owner.socket.send(JSON.stringify({ t: "share", share: await share(owner.identity) }));
     await expect.poll(() => guest.frames.some(frame => frame.t === "share")).toBe(true);
     guest.socket.send(JSON.stringify({ t: "attach", ws: "workspace1", tab: "tab1" }));
     await expect.poll(() => owner.frames.some(frame => frame.t === "watch" && frame.members.includes("guest001"))).toBe(true);
-    guest.socket.send(JSON.stringify({ t: "write", ws: "workspace1", tab: "tab1", data: "Please check this" }));
+    guest.socket.send(JSON.stringify({ t: "write", ws: "workspace1", tab: "tab1", data: "", encrypted: await encrypted(guest.identity, ["owner001"], "Please check this") }));
     await expect.poll(() => owner.frames.some(frame => frame.t === "write" && frame.from === "guest001")).toBe(true);
+    const write = owner.frames.find(frame => frame.t === "write");
+    expect(write.data).toBe("");
+    expect(await decrypted(owner.identity, guest.identity, write.encrypted, owner.member)).toBe("Please check this");
     await expect.poll(() => guest.socket.readyState, { timeout: 5_000 }).toBe(WebSocket.CLOSED);
     const presence = owner.frames.filter(frame => frame.t === "presence").at(-1);
     expect(presence.members.find((member: { id: string }) => member.id === "guest001").name).toBe("Bob");
     expect((await socketResult(`${base()}/organization/organization1?ticket=${"d".repeat(43)}&p=${PROTO}`)).open).toBe(false);
+    owner.socket.close();
+    await expect.poll(() => owner.socket.readyState).toBe(WebSocket.CLOSED);
+  });
+
+  it("persists and routes only recipient ciphertext for comments, snapshots and inbox", async () => {
+    const owner = await connect(issue("e", 0));
+    const guest = await connect(issue("f", 1));
+    owner.socket.send(JSON.stringify({ t: "share", share: await share(owner.identity) }));
+    await expect.poll(() => guest.frames.some(frame => frame.t === "share")).toBe(true);
+    const metadata = guest.frames.find(frame => frame.t === "share").share;
+    expect(metadata.title).toBe("");
+    expect(Object.keys(metadata.encrypted.boxes)).toEqual([guest.member]);
+    expect(await decrypted(guest.identity, owner.identity, metadata.encrypted, guest.member)).toBe("Private workspace metadata");
+    guest.socket.send(JSON.stringify({ t: "attach", ws: "workspace1", tab: "tab1" }));
+    await expect.poll(() => owner.frames.some(frame => frame.t === "watch" && frame.members.includes(guest.member))).toBe(true);
+    const stream = await encrypted(owner.identity, [guest.member], "Private transcript");
+    owner.socket.send(encodeSnapshot("tab1", guest.member, 0, new TextEncoder().encode(JSON.stringify(stream))));
+    await expect.poll(() => guest.binaries.length).toBe(1);
+    const binary = encryptedBinary(guest.binaries[0]);
+    expect(binary).not.toBeNull();
+    expect(await decrypted(guest.identity, owner.identity, binary!.encrypted, guest.member)).toBe("Private transcript");
+    const body = await encrypted(owner.identity, [owner.member, guest.member], "Private comment");
+    owner.socket.send(JSON.stringify({ t: "note", ws: "workspace1", tab: "tab1", text: "", quote: null, mentions: [guest.member], encrypted: body }));
+    await expect.poll(() => guest.frames.some(frame => frame.t === "note")).toBe(true);
+    const note = guest.frames.find(frame => frame.t === "note").note;
+    expect(note.text).toBe("");
+    expect(Object.keys(note.encrypted.boxes)).toEqual([guest.member]);
+    expect(await decrypted(guest.identity, owner.identity, note.encrypted, guest.member)).toBe("Private comment");
+    guest.socket.close();
+    await expect.poll(() => guest.socket.readyState).toBe(WebSocket.CLOSED);
+    const returned = await connect(issue("g", 1));
+    expect(returned.frames[0].inbox).toHaveLength(1);
+    expect(Object.keys(returned.frames[0].inbox[0].encrypted.boxes)).toEqual([guest.member]);
+    expect(await decrypted(guest.identity, owner.identity, returned.frames[0].inbox[0].encrypted, guest.member)).toBe("Private comment");
+    returned.socket.send(JSON.stringify({ t: "notes", ws: "workspace1" }));
+    await expect.poll(() => returned.frames.some(frame => frame.t === "notes")).toBe(true);
+    const stored = returned.frames.find(frame => frame.t === "notes").items[0];
+    expect(stored.id).toBe(note.id);
+    expect(stored.encrypted).toEqual(note.encrypted);
+    expect(JSON.stringify(returned.frames)).not.toContain("Private comment");
+    owner.socket.close();
+    returned.socket.close();
+    await expect.poll(() => owner.socket.readyState).toBe(WebSocket.CLOSED);
+    await expect.poll(() => returned.socket.readyState).toBe(WebSocket.CLOSED);
+  });
+
+  it("rejects forged identity proof and plaintext text or binary content", async () => {
+    const forged = await connect(issue("h", 0), "spoofed", false);
+    forged.socket.send(JSON.stringify({ t: "identity", key: forged.identity.publicKey,
+      proof: await signIdentity(forged.identity, [forged.member, "wrong-challenge"]) }));
+    await expect.poll(() => forged.socket.readyState).toBe(WebSocket.CLOSED);
+    const plaintext = await connect(issue("i", 0));
+    plaintext.socket.send(JSON.stringify({ t: "write", ws: "workspace1", tab: "tab1", data: "Unencrypted input" }));
+    await expect.poll(() => plaintext.socket.readyState).toBe(WebSocket.CLOSED);
+    const binary = await connect(issue("j", 0));
+    binary.socket.send(encodeLive("tab1", [{ seq: 1, bytes: new TextEncoder().encode("Unencrypted output") }]));
+    await expect.poll(() => binary.socket.readyState).toBe(WebSocket.CLOSED);
   });
 });

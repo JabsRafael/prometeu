@@ -26,7 +26,7 @@ These checks do not generate Rust DTOs or validate runtime payloads. Rust
 argument names, serde behavior, and serialized results must still match the
 map and the existing boundary tests. Untrusted relay/control input remains
 subject to backend validation. Errors keep their existing rejection format.
-See [ADR 0022](../decisions/0022-typed-ipc.md).
+See [ADR 0024](../decisions/0024-typed-ipc.md).
 
 ## Regras de comando
 
@@ -45,6 +45,19 @@ anterior e não passa a significar stage.
 
 Os comandos `actions_save`, `action_start` e `action_pause` estão descritos no
 [contrato de ações](actions.md). Usam o evento `board` existente.
+
+## Estado privado de E2EE
+
+- `team_security`: sem argumentos, retorna o envelope de segurança ou `null`
+  somente quando o arquivo não existe. Leitura inválida retorna erro.
+- `team_security_set`: recebe `{ state }`, valida versão e limite de 8 MiB e
+  grava atomicamente o arquivo privado; retorna vazio ou erro. Um arquivo
+  existente ilegível não é sobrescrito.
+
+Os comandos existem no Rust, no registro tipado e no mock. A webview precisa
+da identidade privada para WebCrypto; ela não atravessa o WebSocket. O schema
+interno dos escopos pertence a `team-security.ts`; os payloads permanecem `unknown`
+no mapa IPC até essa validação em runtime; veja [persistência](persistence.md).
 
 ## Eventos emitidos atualmente
 

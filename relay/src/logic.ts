@@ -2,11 +2,12 @@
 /// transport and storage effects; `room.ts` adapts WebSockets and storage. State is restored after
 /// hibernation, while socket attachments retain each member and viewed tab.
 
-import type { Down, Inbox, Member, Note, Share, Shared, Watching } from "./protocol";
+import type { Down, Encrypted, Inbox, Member, Note, Share, Shared, Watching } from "./protocol";
 import {
   decodeBinary,
   INBOX_MAX,
   isId,
+  isPublicKey,
   LIVE,
   normalizeName,
   NOTES_PER_WORKSPACE_MAX,
@@ -20,14 +21,24 @@ import {
   parseUp,
   SHARES_MAX,
   SNAPSHOT,
+  STORED_ENCRYPTED_MAX,
+  SHARES_ENCRYPTED_MAX,
+  NOTES_ENCRYPTED_MAX,
 } from "./protocol";
+
+// Ciphertext is ASCII. Account for box metadata without serializing the room
+// on every message; keep stored rows below the SQLite limit and aggregates bounded.
+const encryptedSize = (value?: Encrypted): number => value
+  ? 128 + Object.entries(value.boxes).reduce((size, [member, box]) => size + member.length + box.enc.length + box.ct.length + 40, 0) : 0;
+const noteSize = (note: Note) => encryptedSize(note.encrypted) + encryptedSize(note.resolution?.encrypted);
+const notesSize = (s: State) => [...s.notes.values()].reduce((size, list) => size + list.reduce((size, note) => size + noteSize(note), 0), 0);
 
 export type Attached = { ws: string; tab: string } | null;
 export type Sock = { id: string; member: string; attached: Attached };
 export type Entry = { share: Share; owner: string; online: boolean };
 
 export type State = {
-  members: Map<string, { name: string; last_seen: number }>;
+  members: Map<string, { name: string; last_seen: number; key?: string }>;
   socks: Map<string, Sock>;
   shares: Map<string, Entry>;
   /// Comments by workspace, in creation order.
@@ -64,7 +75,7 @@ export type Effect =
 const online = (s: State, member: string) => [...s.socks.values()].some((k) => k.member === member);
 
 export function members(s: State): Member[] {
-  return [...s.members].map(([id, m]) => ({ id, name: m.name, online: online(s, id) }));
+  return [...s.members].map(([id, m]) => ({ id, name: m.name, online: online(s, id), ...(m.key ? { key: m.key } : {}) }));
 }
 
 const socksOf = (s: State, member: string) =>
@@ -179,6 +190,11 @@ function purgeNotes(s: State, ws: string): Effect[] {
 }
 
 function assign(s: State, member: string, item: Inbox): Effect[] {
+  if (item.encrypted) {
+    const own = item.encrypted.boxes[member];
+    if (!own) return [];
+    item = { ...item, encrypted: { id: item.encrypted.id, boxes: { [member]: own } } };
+  }
   const box = s.inbox.get(member) ?? [];
   const at = box.findIndex((old) => old.ws === item.ws && old.id === item.id);
   if (at === -1) box.push(item);
@@ -292,7 +308,7 @@ export function reduce(s: State, ev: Event): Effect[] {
         s.inbox.delete(id);
       }
       for (const member of ev.members) {
-        const value = { name: member.name, last_seen: s.members.get(member.id)?.last_seen ?? ev.now };
+        const value = { ...s.members.get(member.id), name: member.name, last_seen: s.members.get(member.id)?.last_seen ?? ev.now };
         s.members.set(member.id, value);
         out.push({ e: "put", key: `member:${member.id}`, value: { id: member.id, ...value } });
       }
@@ -302,7 +318,7 @@ export function reduce(s: State, ev: Event): Effect[] {
       const cleanup = prune(s, ev.now);
       const known = s.members.get(ev.member);
       const name = normalizeName(ev.name, known?.name || ev.member.slice(0, 8));
-      s.members.set(ev.member, { name, last_seen: ev.now });
+      s.members.set(ev.member, { ...known, name, last_seen: ev.now });
       s.socks.set(ev.sock, { id: ev.sock, member: ev.member, attached: null });
       // Restore an owner's shares immediately on reconnect so viewers can interact before another
       // advertisement arrives.
@@ -315,7 +331,7 @@ export function reduce(s: State, ev: Event): Effect[] {
       const presence: Down = { t: "presence", members: members(s) };
       return [
         ...cleanup,
-        { e: "put", key: `member:${ev.member}`, value: { id: ev.member, name, last_seen: ev.now } },
+        { e: "put", key: `member:${ev.member}`, value: { id: ev.member, ...known, name, last_seen: ev.now } },
         {
           e: "send",
           sock: ev.sock,
@@ -388,6 +404,15 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
   if (!f) return error(sock.id, "bad");
 
   switch (f.t) {
+    case "identity": {
+      const member = s.members.get(me);
+      if (!member) return [];
+      member.key = f.key;
+      return [
+        { e: "put", key: `member:${me}`, value: { id: me, ...member } },
+        ...broadcast(s, { t: "presence", members: members(s) }),
+      ];
+    }
     case "me": {
       const name = normalizeName(f.name);
       if (!name) return error(sock.id, "empty");
@@ -403,6 +428,10 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
     case "share": {
       const share = f.share;
       const had = s.shares.get(share.id);
+      const bytes = encryptedSize(share.encrypted);
+      if (bytes > STORED_ENCRYPTED_MAX) return error(sock.id, "tooBig");
+      if ([...s.shares.values()].reduce((size, entry) => size + encryptedSize(entry.share.encrypted), 0)
+        - encryptedSize(had?.share.encrypted) + bytes > SHARES_ENCRYPTED_MAX) return error(sock.id, "quota");
       if (had && had.owner !== me) return error(sock.id, "owner");
       if (!had && s.shares.size >= SHARES_MAX) return error(sock.id, "quota");
       // Tab IDs must identify conversations uniquely because binary frames omit workspace IDs.
@@ -506,13 +535,16 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
       if (!e.share.tabs.some((tab) => tab.id === f.tab)) return error(sock.id, "noTab");
       if (sock.attached?.ws !== f.ws || sock.attached.tab !== f.tab) return error(sock.id, "notAttached");
       if (!e.online) return error(sock.id, "offline");
-      return toMember(s, e.owner, { t: "write", ws: f.ws, tab: f.tab, data: f.data, from: me });
+      return toMember(s, e.owner, { t: "write", ws: f.ws, tab: f.tab, data: f.data, from: me, ...(f.encrypted ? { encrypted: f.encrypted } : {}) });
     }
 
     case "note": {
+      if (f.encrypted && [...s.notes.values()].some(list => list.some(note => note.id === f.encrypted!.id))) return error(sock.id, "bad");
+      if (encryptedSize(f.encrypted) > STORED_ENCRYPTED_MAX) return error(sock.id, "tooBig");
+      if (notesSize(s) + encryptedSize(f.encrypted) > NOTES_ENCRYPTED_MAX) return error(sock.id, "quota");
       const textBody = f.text.trim();
       const quote = f.quote;
-      if (!textBody) return error(sock.id, "empty");
+      if (!textBody && !f.encrypted) return error(sock.id, "empty");
       if (textBody.length > NOTE_TEXT_MAX || (quote?.length ?? 0) > NOTE_QUOTE_MAX) return error(sock.id, "tooBig");
       const entry = s.shares.get(f.ws);
       if (!entry || !canSee(entry, me)) return error(sock.id, "noShare");
@@ -523,7 +555,8 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
       // grants workspace access.
       const mentions = visibleMentions(s, f.ws, me, f.mentions);
       const note: Note = {
-        id: `${ev.now}-${ev.rand}`,
+        ...(f.encrypted ? { encrypted: f.encrypted } : {}),
+        id: f.encrypted?.id ?? `${ev.now}-${ev.rand}`,
         ws: f.ws,
         author: me,
         text: textBody,
@@ -544,14 +577,17 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
       ];
       out.push(...trimNotes(s, f.ws, list));
       for (const m of mentions) {
-        out.push(...assign(s, m, { id: note.id, ws: f.ws, author: me, ts: ev.now, tab: note.tab, text: note.text }));
+        out.push(...assign(s, m, { id: note.id, ws: f.ws, author: me, ts: ev.now, tab: note.tab, text: note.text, ...(note.encrypted ? { encrypted: note.encrypted } : {}) }));
       }
       return out;
     }
 
     case "note_reply": {
+      if (f.encrypted && [...s.notes.values()].some(list => list.some(note => note.id === f.encrypted!.id))) return error(sock.id, "bad");
+      if (encryptedSize(f.encrypted) > STORED_ENCRYPTED_MAX) return error(sock.id, "tooBig");
+      if (notesSize(s) + encryptedSize(f.encrypted) > NOTES_ENCRYPTED_MAX) return error(sock.id, "quota");
       const textBody = f.text.trim();
-      if (!textBody) return error(sock.id, "empty");
+      if (!textBody && !f.encrypted) return error(sock.id, "empty");
       if (textBody.length > NOTE_TEXT_MAX) return error(sock.id, "tooBig");
       const entry = s.shares.get(f.ws);
       if (!entry || !canSee(entry, me)) return error(sock.id, "noShare");
@@ -562,7 +598,8 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
       if ([...s.notes.values()].reduce((total, notes) => total + notes.length, 0) >= NOTES_TOTAL_MAX) return error(sock.id, "quota");
       const mentions = visibleMentions(s, f.ws, me, f.mentions);
       const reply: Note = {
-        id: `${ev.now}-${ev.rand}`,
+        ...(f.encrypted ? { encrypted: f.encrypted } : {}),
+        id: f.encrypted?.id ?? `${ev.now}-${ev.rand}`,
         ws: f.ws,
         author: me,
         text: textBody,
@@ -583,7 +620,7 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
       ];
       for (const member of new Set([root.author, ...mentions])) {
         if (member === me || !visibleTo(s, f.ws, member)) continue;
-        out.push(...assign(s, member, { id: root.id, ws: f.ws, author: me, ts: ev.now, tab: root.tab, text: reply.text }));
+        out.push(...assign(s, member, { id: root.id, ws: f.ws, author: me, ts: ev.now, tab: root.tab, text: reply.text, ...(reply.encrypted ? { encrypted: reply.encrypted } : {}) }));
       }
       return out;
     }
@@ -595,7 +632,9 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
       const at = list.findIndex((note) => note.id === f.note && !note.parent);
       if (at === -1) return error(sock.id, "noNote");
       if (list[at].resolved) return [];
-      const note: Note = { ...list[at], resolved: true };
+      if (noteSize(list[at]) + encryptedSize(f.encrypted) > STORED_ENCRYPTED_MAX) return error(sock.id, "tooBig");
+      if (notesSize(s) + encryptedSize(f.encrypted) > NOTES_ENCRYPTED_MAX) return error(sock.id, "quota");
+      const note: Note = { ...list[at], resolved: true, ...(f.encrypted ? { resolution: { author: me, encrypted: f.encrypted } } : {}) };
       list[at] = note;
       return [
         { e: "put", key: noteKey(note), value: note },
@@ -630,8 +669,8 @@ export function hydrate(rows: Iterable<[string, unknown]>, socks: Sock[]): State
     if (key.startsWith("member:")) {
       const member = key.slice("member:".length);
       const name = normalizeName(v.name);
-      if (isId(member) && name && typeof v.last_seen === "number" && Number.isFinite(v.last_seen)) {
-        s.members.set(member, { name, last_seen: v.last_seen });
+      if (isId(member) && name && typeof v.last_seen === "number" && Number.isFinite(v.last_seen) && (v.key === undefined || isPublicKey(v.key))) {
+        s.members.set(member, { name, last_seen: v.last_seen, ...(isPublicKey(v.key) ? { key: v.key } : {}) });
       }
     } else if (key.startsWith("share:")) {
       const ws = key.slice("share:".length);

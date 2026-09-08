@@ -95,9 +95,10 @@
             <div class="diffview" id="diffview" hidden>
               <div class="vbar">
                 <span class="vcrumb" id="dcrumb"></span>
-                <span class="spacer"></span>
-                <!-- Mark the current diff reviewed; only subsequent agent changes increase the badge
-                     again. -->
+                <div id="dlayout" role="group" hidden></div>
+                <span id="dprogress" role="status" hidden></span>
+                <span id="dnext" hidden></span>
+                <!-- Mark current diffs reviewed; subsequent agent changes increase the badge again. -->
                 <button id="dseen" class="ico" data-t-title="diff.seenAll"></button>
                 <button id="dfold" class="ico" data-t-title="diff.foldAll"></button>
               </div>

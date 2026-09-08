@@ -13,7 +13,8 @@ para virar capacidade contratual.
 
 | Capacidade | Claude | Codex | Evidência principal |
 | --- | --- | --- | --- |
-| organizações, convites e compartilhamento institucional | mesmo relay V3; execução local | mesmo relay V3; execução local | `team-organizations.test.ts`, `worker.integration.test.ts`, `e2e/organizations.spec.ts`, integração/browser Rails |
+| organizações, convites e compartilhamento institucional | mesmo relay V4; execução local | mesmo relay V4; execução local | `team-organizations.test.ts`, `worker.integration.test.ts`, `e2e/organizations.spec.ts`, integração/browser Rails |
+| E2EE automática com TOFU na colaboração | mesmo canal HPKE Auth; sem forward secrecy | mesmo canal HPKE Auth; sem forward secrecy | `team-crypto.test.ts`, `team-security.test.ts`, `team-channel.test.ts`, `worker.integration.test.ts`, comentários E2E Chromium/WebKit |
 | conta opcional do Prometeu na barra lateral | independente do CLI | independente do CLI | `cloud.rs`, `e2e/cloud.spec.ts`; nenhum transcript é enviado |
 | catálogo de plugins, MCP e Ações na conta | independente do CLI | independente do CLI | `catalog.rs`, `catalog_test.rb`; segredos e instalação ficam por Mac |
 | formulário de Ações com componentes compartilhados | mesma UI | mesma UI; opções vêm do catálogo | `e2e/ui.spec.ts`, `e2e/actions.spec.ts`, Chromium e WebKit |
@@ -55,7 +56,7 @@ para virar capacidade contratual.
 | compartilhamento ao vivo | V1 após normalização | V1 após normalização | `team*.test.ts`, E2E sobre mock |
 | comentários em sessão compartilhada | adaptado após V1 | adaptado após V1 | `notes.test.ts`, `team.test.ts`, `relay/src/logic.test.ts`, E2E sobre mock |
 | mesa com várias conversas ao mesmo tempo | adaptado (mesma tela da conversa) | adaptado (mesma tela da conversa) | `desk.test.ts`, E2E sobre mock |
-| Git: stage, commit, remotos, branches e conflitos | adaptado pelo app; independente do CLI | adaptado pelo app; independente do CLI | `session/git_tests.rs`, `diff.test.ts`, `e2e/git.spec.ts`; contrato `git.md` |
+| Git: revisão unificada/lado a lado, stage, commit, remotos, branches e conflitos | adaptado pelo app; independente do CLI | adaptado pelo app; independente do CLI | `session/git_tests.rs`, `diff.test.ts`, `e2e/git.spec.ts` em Chromium/WebKit e revisão grande em `e2e/critical-flows.spec.ts`; contrato `git.md` |
 | agentes por workspace na barra lateral | marca e status de cada aba | marca e status de cada aba | fluxos da barra lateral em `e2e/critical-flows.spec.ts`; remoto usa avatar do dono, sem inferir provider |
 
 ## Regra para feature nova

@@ -27,6 +27,8 @@ it("infers results from command names and forwards arguments and options unchang
     invoke("pty_resize", { session: "terminal", cols: "80", rows: 24 });
     // @ts-expect-error Callers cannot invent a response type.
     invoke<number>("read_file", args);
+    // @ts-expect-error Persisting security state requires an explicit state payload.
+    invoke("team_security_set", {});
     // @ts-expect-error Mock responses use the same command result type.
     const invalidHandler: IpcHandlers["read_file"] = () => 42;
     void invalidHandler;

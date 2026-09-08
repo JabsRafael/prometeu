@@ -1,7 +1,7 @@
 {
   "name": "prometeu",
   "private": true,
-  "version": "0.5.11",
+  "version": "0.5.12",
   "type": "module",
   "packageManager": "npm@11.9.0",
   "engines": {
@@ -31,6 +31,7 @@
     "predev": "npm run design-system:build"
   },
   "dependencies": {
+    "@hpke/core": "1.9.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.2",
     "@tauri-apps/plugin-process": "^2.3.1",

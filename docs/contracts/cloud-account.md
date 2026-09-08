@@ -90,8 +90,8 @@ substituídas por formulários Rails com CSRF; não eram consumidas pelo desktop
 Ver [ADR 0015](../decisions/0015-cloud-rails.md).
 
 O catálogo de plugins, MCP e Ações passou a ter a conta como repositório; ver
-[`cloud-catalog.md`](cloud-catalog.md). Transcripts na nuvem, comandos remotos,
-criptografia ponta a ponta permanecem fora desta etapa. Organizações usam a
+[`cloud-catalog.md`](cloud-catalog.md). Transcripts na nuvem permanecem fora desta etapa. A colaboração usa
+[E2EE v4](relay-v4.md), separada da credencial da conta. Organizações usam a
 identidade da conta para autorizar colaboração no relay; ver
 [contrato de organizações](cloud-organizations.md).
 

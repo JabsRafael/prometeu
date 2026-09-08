@@ -95,7 +95,7 @@ export function init(context: Ctx) {
   $("tab-files").addEventListener("click", () => setSidePane("files"));
   $("tab-diff").addEventListener("click", () => {
     // Clicking the already-selected Changes panel restores its center diff after the tab was closed.
-    if (sidePane === "diff") changesUi.show("changes");
+    if (sidePane === "diff") changesUi.show();
     else setSidePane("diff");
   });
   $("tab-comments").addEventListener("click", openComments);

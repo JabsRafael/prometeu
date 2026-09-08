@@ -9,11 +9,15 @@ import {
   BINARY_FRAME_MAX,
   BYTES_PER_WINDOW_MAX,
   FRAMES_PER_WINDOW_MAX,
+  downForMember,
   isCredential,
+  isEncryptedBinary,
+  isEncryptedUp,
   isId,
   isInviteSecret,
   MEMBERS_MAX,
   normalizeName,
+  parseUp,
   PROTO,
   RATE_WINDOW_MS,
   SOCKETS_MAX,
@@ -25,7 +29,7 @@ import {
 
 export type Env = { TEAM: DurableObjectNamespace<TeamRoom>; CLOUD_URL?: string };
 
-type Attachment = { auth: typeof PROTO; sock: string; member: string; attached: Sock["attached"]; expires_at?: number };
+type Attachment = { auth: typeof PROTO; sock: string; member: string; attached: Sock["attached"]; challenge: string; identified: boolean; expires_at?: number };
 type Meta = { invite_hash: string; created_at: number; member_count: number };
 type Credential = { hash: string; created_at: number };
 
@@ -64,13 +68,13 @@ export class TeamRoom extends DurableObject<Env> {
   /// Current state, restored from storage and socket attachments when needed.
   private async load(): Promise<State> {
     if (this.state) return this.state;
-    const rows = await this.ctx.storage.list<unknown>();
+    const rows = await this.ctx.storage.list<unknown>({ prefix: "v4:" });
     const socks: Sock[] = [];
     const perMember = new Map<string, number>();
     this.bySock.clear();
     for (const ws of this.ctx.getWebSockets()) {
       const att = ws.deserializeAttachment() as Attachment | null;
-      if (!att || att.auth !== PROTO || !isId(att.sock) || !isId(att.member) || (att.expires_at !== undefined && att.expires_at <= Date.now())) {
+      if (!att || att.auth !== PROTO || !isId(att.sock) || !isId(att.member) || !isId(att.challenge) || typeof att.identified !== "boolean" || (att.expires_at !== undefined && att.expires_at <= Date.now())) {
         ws.close(1008, "reauthenticate");
         continue;
       }
@@ -83,7 +87,7 @@ export class TeamRoom extends DurableObject<Env> {
       this.bySock.set(att.sock, ws);
       perMember.set(att.member, count + 1);
     }
-    this.state = hydrate([...rows].filter(([k]) => k !== "meta" && !k.startsWith("credential:")), socks);
+    this.state = hydrate([...rows].filter(([key]) => key.startsWith("v4:")).map(([key, value]) => [key.slice(3), value]), socks);
     return this.state;
   }
 
@@ -180,7 +184,7 @@ export class TeamRoom extends DurableObject<Env> {
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     const sock = crypto.randomUUID();
     this.ctx.acceptWebSocket(server, [`m:${member}`]);
-    server.serializeAttachment({ auth: PROTO, sock, member, attached: null, expires_at } satisfies Attachment);
+    server.serializeAttachment({ auth: PROTO, sock, member, attached: null, challenge: randomToken(32), identified: false, expires_at } satisfies Attachment);
     this.bySock.set(sock, server);
     if (expires_at) {
       const alarm = await this.ctx.storage.getAlarm();
@@ -193,7 +197,7 @@ export class TeamRoom extends DurableObject<Env> {
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
     const state = await this.load();
     const att = ws.deserializeAttachment() as Attachment | null;
-    if (!att || att.auth !== PROTO || !this.liveSocket(att.sock)) return;
+    if (!att || att.auth !== PROTO || this.liveSocket(att.sock) !== ws) return;
     if ((typeof message === "string" && message.length > TEXT_FRAME_MAX) || (typeof message !== "string" && message.byteLength > BINARY_FRAME_MAX)) {
       ws.close(1009, "message too big");
       return;
@@ -223,15 +227,48 @@ export class TeamRoom extends DurableObject<Env> {
         ws.send(JSON.stringify({ t: "error", code: "bad" }));
         return;
       }
-      if (att.expires_at !== undefined && frame && typeof frame === "object" && (frame as { t?: string }).t === "me") return;
-      this.apply(reduce(state, { k: "text", sock: att.sock, frame, now: Date.now(), rand: crypto.randomUUID().slice(0, 8) }));
+      const parsed = parseUp(frame);
+      if (!parsed) {
+        ws.send(JSON.stringify({ t: "error", code: "bad" }));
+        return;
+      }
+      if (parsed.t === "identity") {
+        let verified = false;
+        try {
+          const decode = (value: string) => Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+          const key = await crypto.subtle.importKey("raw", decode(parsed.key), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+          verified = await crypto.subtle.verify(
+            { name: "ECDSA", hash: "SHA-256" }, key, decode(parsed.proof),
+            new TextEncoder().encode(JSON.stringify(["prometeu-identity-v4", att.member, att.challenge])),
+          );
+        } catch { /* Invalid keys or signatures never authenticate the socket. */ }
+        // Asynchronous verification does not extend an expired or revoked enrollment.
+        if (this.liveSocket(att.sock) !== ws) return;
+        const current = ws.deserializeAttachment() as Attachment;
+        if (!verified || current.challenge !== att.challenge || current.identified) {
+          ws.close(1008, "identity proof");
+          return;
+        }
+        ws.serializeAttachment({ ...current, identified: true } satisfies Attachment);
+      } else if (!att.identified || !isEncryptedUp(parsed)) {
+        ws.close(1008, "encryption required");
+        return;
+      }
+      if (att.expires_at !== undefined && parsed.t === "me") return;
+      this.apply(reduce(state, { k: "text", sock: att.sock, frame: parsed, now: Date.now(), rand: crypto.randomUUID().slice(0, 8) }));
     } else {
-      // Forward live output without awaiting so each socket preserves transcript order.
-      this.apply(reduce(state, { k: "binary", sock: att.sock, data: new Uint8Array(message) }));
+      // Forward without awaiting so each socket preserves transcript order.
+      const data = new Uint8Array(message);
+      if (!att.identified || !isEncryptedBinary(data)) {
+        ws.close(1008, "encryption required");
+        return;
+      }
+      this.apply(reduce(state, { k: "binary", sock: att.sock, data }));
     }
   }
 
   async webSocketClose(ws: WebSocket) {
+    ws.close(1000, "closed");
     await this.gone(ws);
   }
 
@@ -278,9 +315,16 @@ export class TeamRoom extends DurableObject<Env> {
   private apply(effects: Effect[]) {
     for (const fx of effects) {
       switch (fx.e) {
-        case "send":
-          this.liveSocket(fx.sock)?.send(JSON.stringify(fx.frame));
+        case "send": {
+          const ws = this.liveSocket(fx.sock);
+          if (!ws) break;
+          const att = ws.deserializeAttachment() as Attachment;
+          if (!att.identified && fx.frame.t !== "welcome") break;
+          const frame = downForMember(fx.frame, att.member);
+          if (!frame) break;
+          ws.send(JSON.stringify(frame.t === "welcome" ? { ...frame, e2ee: 1, challenge: att.challenge } : frame));
           break;
+        }
         case "sendBinary":
           this.liveSocket(fx.sock)?.send(fx.data);
           break;
@@ -291,12 +335,11 @@ export class TeamRoom extends DurableObject<Env> {
           } satisfies Attachment);
           break;
         case "put":
-          // Platform output gating delays messages until storage writes commit; input gating preserves
-          // event order.
-          void this.ctx.storage.put(fx.key, fx.value);
+          // Platform output gating delays messages until storage writes commit; input gating preserves event order.
+          void this.ctx.storage.put(`v4:${fx.key}`, fx.value);
           break;
         case "del":
-          void this.ctx.storage.delete(fx.key);
+          void this.ctx.storage.delete(`v4:${fx.key}`);
           break;
       }
     }

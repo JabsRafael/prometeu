@@ -126,6 +126,8 @@ export type Commands = {
   skill_save: { args: { skill: Skill; revision?: number | null }; result: Skill[] };
   team_config: { args: undefined; result: { config: unknown; default_name: string } };
   team_config_set: { args: { config?: TeamConfig | null }; result: void };
+  team_security: { args: undefined; result: unknown };
+  team_security_set: { args: { state: unknown }; result: void };
   usage: { args: undefined; result: Usage };
   workspace_branch: { args: { id: string }; result: string | null };
   workspace_diff: { args: { id: string }; result: T.RepoDiff[] };

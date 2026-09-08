@@ -34,7 +34,8 @@ como índice curto para agentes e `README.md` apresenta o produto.
 - [`contracts/ipc.md`](contracts/ipc.md): fronteira TypeScript/Rust.
 - [`contracts/git.md`](contracts/git.md): índice, worktree, revisão e operações Git.
 - [`contracts/persistence.md`](contracts/persistence.md): board e transcripts.
-- [`contracts/relay-v3.md`](contracts/relay-v3.md): protocolo de colaboração.
+- [`contracts/relay-v4.md`](contracts/relay-v4.md): colaboração cifrada e TOFU.
+- [`contracts/relay-v3.md`](contracts/relay-v3.md): histórico do protocolo sem E2EE.
 
 ## Decisões
 
@@ -60,8 +61,9 @@ como índice curto para agentes e `README.md` apresenta o produto.
 - [ADR 0019](decisions/0019-cloud-catalog.md): catálogo portátil de plugins, MCP e Ações na conta Prometeu — Substituído pelo 0020.
 - [ADR 0020](decisions/0020-personal-catalog-and-local-items.md): autoria no SaaS e compartilhamento explícito de itens locais — Parcialmente substituído pelo 0021.
 - [ADR 0021](decisions/0021-cloud-organizations.md): organizações, convites por email e colaboração autorizada pelo Cloud — Aceito.
-- [ADR 0022](decisions/0022-typed-ipc.md): command-owned IPC arguments and results — Accepted.
+- [ADR 0022](decisions/0022-end-to-end-encryption.md): criptografia ponta a ponta, TOFU e limites de segurança — Aceito.
 - [ADR 0023](decisions/0023-ordered-publication.md): ordered board publication and conversation delivery — Accepted.
+- [ADR 0024](decisions/0024-typed-ipc.md): command-owned IPC arguments and results — Accepted.
 
 ## Qualidade e operação
 

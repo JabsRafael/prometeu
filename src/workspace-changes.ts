@@ -1,14 +1,15 @@
 import { invoke } from "./ipc";
 import { avatar, icon } from "./icons";
-import { current as language, fromBack, t, type Key } from "./i18n";
+import { current as language, fromBack, t, tn, type Key } from "./i18n";
 import { $, h, template } from "./util";
+import { button as uiButton, input as uiInput, field } from "./ui";
 import * as diff from "./diff";
 import * as menu from "./menu";
-import type { GitAction, GitConflict, GitFile, GitStatus, RepoDiff, Workspace } from "./types";
+import type { GitAction, GitConflict, GitDiff, GitFile, GitStatus, RepoDiff, Workspace } from "./types";
 
-type Mode = "changes" | "branches" | "history" | "compare" | "commit" | "conflict";
+type Mode = "changes" | "staged" | "branches" | "history" | "compare" | "conflict";
 type Selection = { path: string; scope: "staged" | "changes" | "conflict" };
-type View = { repo: number; mode: Mode; selection: Selection | null; reference: string; collapsed: Set<string>; messages: Map<number, string>; remotes: Map<number, string>; conflicts: Map<string, { source: GitConflict; text: string }> };
+type View = { repo: number; mode: Mode; selection: Selection | null; reference: string; filter: string; layout: "unified" | "split"; collapsed: Set<string>; messages: Map<number, string>; remotes: Map<number, string>; conflicts: Map<string, { source: GitConflict; text: string }> };
 type Context = {
   workspace: () => Workspace | undefined;
   refresh: () => Promise<void>;
@@ -28,6 +29,23 @@ let review: RepoDiff[] = [];
 
 export function init(ctx: Context) {
   context = ctx;
+  $("dlayout").setAttribute("aria-label", t("diff.layout"));
+  for (const layout of ["unified", "split"] as const) {
+    const control = uiButton(t(`diff.${layout}`), () => { state().layout = layout; void drawEditor(); }, "ghost");
+    control.dataset.layout = layout;
+    $("dlayout").append(control);
+  }
+  $("dnext").append(uiButton(t("diff.next"), () => {
+    const ws = context.workspace(); if (!ws) return;
+    const view = state(), all = review.flatMap(repo => repo.files.map(file => ({ repo: repo.name, file })));
+    const start = all.findIndex(({ file }) => file.path === view.selection?.path);
+    const next = [...all.slice(start + 1), ...all.slice(0, start + 1)].find(({ repo, file }) => !diff.isSeen(ws.id, repo, file));
+    if (!next) return;
+    view.filter = ""; pendingFocus = next.file.path;
+    view.selection = { path: next.file.path, scope: view.mode === "staged" ? "staged" : "changes" };
+    drawSidebar();
+    void drawEditor();
+  }, "ghost"));
   $("dfold").onclick = () => { diff.foldAll(diff.keys(review)); void drawEditor(); };
   $("dseen").onclick = () => {
     const ws = context.workspace();
@@ -38,7 +56,7 @@ export function init(ctx: Context) {
 
 function state(): View {
   const id = context.workspace()!.id;
-  if (!views.has(id)) views.set(id, { repo: 0, mode: "changes", selection: null, reference: "", collapsed: new Set(), messages: new Map(), remotes: new Map(), conflicts: new Map() });
+  if (!views.has(id)) views.set(id, { repo: 0, mode: "changes", selection: null, reference: "", filter: "", layout: "unified", collapsed: new Set(), messages: new Map(), remotes: new Map(), conflicts: new Map() });
   return views.get(id)!;
 }
 const current = () => data.get(context.workspace()?.id ?? "")?.find(repo => repo.repo === state().repo);
@@ -46,7 +64,7 @@ export const statuses = (id: string) => data.get(id);
 export const count = (id: string) => (data.get(id) ?? []).reduce((n, repo) => n + new Set([...repo.staged, ...repo.changes, ...repo.conflicts].map(file => file.path)).size, 0);
 
 function clearEditor() {
-  ticket++; editorSignature = ""; heading(t("git.changes"));
+  ticket++; editorSignature = ""; review = []; heading(t("git.changes"));
   $("dlist").replaceChildren(h("div", "none", t("git.loading")));
 }
 
@@ -89,20 +107,25 @@ export function fail(id: string, error: unknown) {
 export function show(mode?: Mode) {
   const ws = context.workspace();
   if (!ws || ws.remote || ws.cleaned) return;
-  if (mode) state().mode = mode;
-  if (state().mode === "changes" && state().selection?.scope === "conflict") state().mode = "conflict";
+  if (mode) {
+    const view = state();
+    view.mode = mode;
+    if (mode !== "conflict") view.selection = null;
+    view.filter = "";
+  }
   clearEditor();
   if (mode === "compare") state().reference = current()?.base ?? "";
   context.show(); drawSidebar(); void drawEditor();
 }
 
 export function selectRepo(index: number) {
-  state().repo = index; state().selection = null; show("changes");
+  state().repo = index; state().selection = null; state().reference = ""; pendingFocus = ""; show("changes");
 }
 
 function button(label: string, click: () => void, disabled = false, className = "") {
-  const node = h("button", className, label) as HTMLButtonElement;
-  node.type = "button"; node.disabled = disabled; node.onclick = click;
+  const node = uiButton(label, click, className === "pri" ? "pri" : "ghost");
+  if (className) node.classList.add(...className.split(" "));
+  node.disabled = disabled;
   return node;
 }
 
@@ -115,29 +138,34 @@ function iconButton(label: string, glyph: Parameters<typeof icon>[0], click: () 
 
 function selectFile(file: GitFile, scope: Selection["scope"]) {
   const view = state();
-  const stay = scope !== "conflict" && view.mode === "changes" && view.selection?.scope === scope;
+  const mode = scope === "conflict" ? "conflict" : scope;
+  const stay = !$("diffview").hidden && view.mode === mode;
   view.selection = { path: file.path, scope };
+  view.mode = mode;
   pendingFocus = scope === "conflict" ? "" : file.path;
   // Reuse the mounted diff when the scope is unchanged; only scroll.
   if (stay) { drawSidebar(); void drawEditor(); return; }
-  show(scope === "conflict" ? "conflict" : "changes");
+  show();
 }
 
 function drawSidebar() {
   const ws = context.workspace(); if (!ws || ws.remote) return;
   const view = state(), repo = current();
   for (const row of $("difflist").querySelectorAll<HTMLElement>(".git-file")) {
-    row.classList.toggle("selected", row.dataset.path === view.selection?.path && row.closest<HTMLElement>(".git-group")?.dataset.scope === view.selection?.scope);
+    const selected = row.dataset.path === view.selection?.path && row.closest<HTMLElement>(".git-group")?.dataset.scope === view.selection?.scope;
+    row.classList.toggle("selected", selected);
+    row.querySelector(".git-file-name")?.setAttribute("aria-current", String(selected));
   }
-  const activeMode = view.mode === "conflict" ? "changes" : view.mode === "commit" ? "history" : view.mode;
+  const activeMode = view.mode === "conflict" ? "changes" : view.mode;
   for (const item of $("difflist").querySelectorAll<HTMLElement>(".git-nav button")) item.setAttribute("aria-current", String(item.dataset.mode === activeMode));
-  const signature = JSON.stringify([ws.id, language(), view.repo, view.remotes.get(view.repo), data.get(ws.id), busy]);
+  const signature = JSON.stringify([ws.id, language(), view.repo, view.mode, view.filter, view.remotes.get(view.repo), data.get(ws.id), busy]);
   if (signature === sidebarSignature) return;
   sidebarSignature = signature;
-  const oldInput = document.getElementById("git-message") as HTMLTextAreaElement | null;
-  const focused = oldInput === document.activeElement;
-  const range = oldInput && [oldInput.selectionStart, oldInput.selectionEnd];
   const list = $("difflist");
+  const focused = list.contains(document.activeElement) ? document.activeElement as HTMLElement : null;
+  const focusId = focused?.id;
+  const focusMode = focused?.dataset.mode;
+  const range = focused instanceof HTMLTextAreaElement || focused instanceof HTMLInputElement ? [focused.selectionStart, focused.selectionEnd] : null;
   list.classList.add("git-panel");
   list.replaceChildren();
   const picker = h("div", "git-repository");
@@ -146,7 +174,7 @@ function drawSidebar() {
     const at = select.getBoundingClientRect();
     menu.openAt({ x: at.left, y: at.bottom + 4 }, ws.repos.map((item, index) => ({
       label: item.name, glyph: avatar(item.name), checked: index === view.repo,
-      run: () => { view.repo = index; view.selection = null; view.mode = "changes"; view.reference = ""; clearEditor(); drawSidebar(); if (!$("diffview").hidden) void drawEditor(); },
+      run: () => selectRepo(index),
     })));
   });
   select.setAttribute("aria-label", t("git.repository"));
@@ -170,7 +198,7 @@ function drawSidebar() {
   pull.title = ws.tabs.some(tab => tab.status === "rodando") ? t("err.git.agent") : repo.staged.length || repo.changes.length ? t("err.git.dirtyPull") : t("git.pull.hint");
   tools.append(pull);
   if (repo.upstream) {
-    const push = button(`↑${repo.ahead}`, () => void act("push"), disabled || !repo.branch || !repo.ahead, "ghost");
+    const push = button(t("git.push", { n: repo.ahead }), () => void act("push"), disabled || !repo.branch || !repo.ahead, "ghost");
     push.setAttribute("aria-label", t("git.push", { n: repo.ahead }));
     push.title = `${t("git.push.hint")} · ${repo.upstream}`; tools.append(push);
   } else {
@@ -204,23 +232,30 @@ function drawSidebar() {
   const upstream = h("div", "git-hint git-upstream", destination);
   upstream.title = t("git.destination", { name: destination }); list.append(upstream);
   const nav = h("div", "git-nav");
-  for (const mode of ["changes", "history", "compare"] as const) {
-    const item = button(t(`git.${mode}`), () => show(mode), false, "ghost");
-    item.dataset.mode = mode; item.setAttribute("aria-current", String(mode === activeMode)); nav.append(item);
+  nav.setAttribute("aria-label", t("git.scope"));
+  for (const mode of ["changes", "staged", "history", "compare"] as const) {
+    const item = button(t(`git.tab.${mode}`), () => show(mode), false, "ghost");
+    item.dataset.mode = mode; item.setAttribute("aria-current", String(mode === activeMode));
+    if (mode === "changes" || mode === "staged") item.append(h("span", "git-count", String(repo[mode].length)));
+    nav.append(item);
   }
   list.append(nav);
-  const composer = h("div", "git-composer");
-  const input = h("textarea", "") as HTMLTextAreaElement;
-  input.id = "git-message"; input.value = view.messages.get(view.repo) ?? ""; input.placeholder = t("git.message.placeholder"); input.disabled = busy;
-  input.setAttribute("aria-label", t("git.message")); input.rows = 2;
-  const canCommit = () => disabled || !repo.branch || !!repo.conflicts.length || (!repo.staged.length && !repo.merging) || !input.value.trim();
-  const commit = button(t(repo.merging ? "git.commit.merge" : "git.commit", { n: repo.staged.length }), () => void act("commit"), canCommit(), "pri"); commit.id = "git-commit";
-  commit.prepend(template("span", "", icon("check", 14)));
-  commit.title = t(repo.conflicts.length ? "git.conflict.hint" : repo.staged.length ? "git.commit.hint" : "git.stage.hint");
-  input.oninput = () => { view.messages.set(view.repo, input.value); commit.disabled = canCommit(); };
-  composer.append(input, commit);
-  list.append(composer);
-  for (const scope of ["conflict", "staged", "changes"] as const) {
+  const local = activeMode === "changes" || activeMode === "staged";
+  if (activeMode === "history") {
+    list.append(h("div", "git-history-list", t("git.loading")));
+  } else if (local || activeMode === "compare") {
+    const search = uiInput(view.filter); search.type = "search"; search.id = "git-filter";
+    search.placeholder = t("git.filter"); search.setAttribute("aria-label", t("git.filter"));
+    search.oninput = () => { view.filter = search.value; drawSidebar(); void drawEditor(); };
+    const filter = h("div", "git-filter"); filter.append(search);
+    const clear = iconButton(t("git.filter.clear"), "x", () => {
+      view.filter = ""; drawSidebar(); void drawEditor(); $("git-filter").focus();
+    });
+    clear.hidden = !view.filter; filter.append(clear); list.append(filter);
+  }
+  if (activeMode === "compare") list.append(h("div", "git-comparison-files"));
+  const scopes: Selection["scope"][] = local ? ["conflict", activeMode === "staged" ? "staged" : "changes"] : [];
+  for (const scope of scopes) {
     const group = scope === "conflict" ? repo.conflicts : repo[scope];
     if (scope === "conflict" && !group.length) continue;
     const section = h("section", "git-group"); section.dataset.scope = scope;
@@ -233,35 +268,58 @@ function drawSidebar() {
       toggle.setAttribute("aria-expanded", String(!body.hidden));
     }, false, "ghost git-group-toggle");
     toggle.setAttribute("aria-expanded", String(!body.hidden)); toggle.setAttribute("aria-controls", body.id);
-    toggle.append(template("span", "", icon("chevron-down", 12)), h("strong", "", t(scope === "conflict" ? "git.conflicts" : scope === "staged" ? "git.staged" : "git.changes")), h("span", "git-count", String(group.length)));
+    toggle.append(template("span", "", icon("chevron-down", 12)), h("strong", "", scope === "conflict" ? t("git.conflicts") : tn(group.length, "diff.files")));
     head.append(toggle, h("span", "spacer"));
     if (scope !== "conflict") {
-      const all = button(scope === "staged" ? "−" : "+", () => void act(scope === "staged" ? "unstage" : "stage", group.map(file => file.path)), disabled || !group.length, "ghost git-file-action");
+      const all = button(t(scope === "staged" ? "git.unstageAll" : "git.stageAll"), () => void act(scope === "staged" ? "unstage" : "stage", group.map(file => file.path)), disabled || !group.length, "ghost git-file-action");
       all.title = t(scope === "staged" ? "git.unstageAll" : "git.stageAll"); all.setAttribute("aria-label", all.title); head.append(all);
     }
     section.append(head, body);
-    for (const file of group) {
+    const visible = group.filter(file => file.path.toLowerCase().includes(view.filter.toLowerCase()));
+    for (const file of visible) {
       const selected = view.selection?.path === file.path && view.selection.scope === scope;
       const row = h("div", `git-file${selected ? " selected" : ""}`); row.dataset.path = file.path;
       const cut = file.path.lastIndexOf("/");
       const open = button("", () => selectFile(file, scope), false, "git-file-name"); open.title = file.path;
-      open.append(h("span", "", file.path.slice(cut + 1)), h("small", "", file.path.slice(0, cut + 1)));
+      open.setAttribute("aria-current", String(selected));
+      open.append(template("span", "git-reviewed", icon("check", 12)), h("span", "", file.path.slice(cut + 1)), h("small", "", file.path.slice(0, cut + 1)));
       if (file.status !== "D") open.ondblclick = () => context.openFile(repo.name, file.path);
       const letter = h("span", `git-letter status-${file.status === "?" ? "new" : file.status}`, file.status === "?" ? "U" : file.status);
       const key = `git.status.${file.status}` as Key; letter.title = t(key);
       row.append(open, letter);
       if (scope !== "conflict") {
-        const action = button(scope === "staged" ? "−" : "+", () => void act(scope === "staged" ? "unstage" : "stage", [file.path]), disabled, "ghost git-file-action");
+        const action = button(t(scope === "staged" ? "git.unstage.short" : "git.stage.short"), () => void act(scope === "staged" ? "unstage" : "stage", [file.path]), disabled, "ghost git-file-action");
         action.title = `${t(scope === "staged" ? "git.unstage" : "git.stage")}: ${file.path}`;
         action.setAttribute("aria-label", action.title); row.append(action);
       }
       body.append(row);
     }
-    if (!group.length) body.append(h("div", "git-hint", t("git.empty")));
+    if (!visible.length) body.append(h("div", "git-hint", t(group.length ? "git.filter.empty" : "git.empty")));
     list.append(section);
   }
+  if (local) {
+    const composer = h("div", "git-composer");
+    if (activeMode === "staged") {
+      const input = uiInput(view.messages.get(view.repo) ?? "", true);
+      input.id = "git-message"; input.placeholder = t("git.message.placeholder"); input.disabled = busy; input.rows = 3;
+      const canCommit = () => disabled || !repo.branch || !!repo.conflicts.length || (!repo.staged.length && !repo.merging) || !input.value.trim();
+      const commit = button(repo.merging ? t("git.commit.merge") : tn(repo.staged.length, "git.commit.files"), () => void act("commit"), canCommit(), "pri"); commit.id = "git-commit";
+      commit.prepend(template("span", "", icon("check", 14)));
+      commit.title = t(repo.conflicts.length ? "git.conflict.hint" : repo.staged.length ? "git.commit.hint" : "git.stage.hint");
+      input.oninput = () => { view.messages.set(view.repo, input.value); commit.disabled = canCommit(); };
+      composer.append(field(t("git.message"), input), commit, h("p", "git-hint", t("git.commit.hint")));
+    } else {
+      composer.append(h("strong", "", repo.staged.length ? tn(repo.staged.length, "git.ready") : t("git.prepare")), h("p", "git-hint", t("git.stage.hint")));
+      if (repo.staged.length || repo.merging) composer.append(button(t("git.reviewStaged"), () => show("staged")));
+    }
+    list.append(composer);
+  }
   if (busy) list.append(h("div", "git-hint", t("git.busy")));
-  if (focused) { input.focus(); if (range) input.setSelectionRange(range[0], range[1]); }
+  if (focusId) {
+    const control = document.getElementById(focusId); control?.focus({ preventScroll: true });
+    if (range && (control instanceof HTMLTextAreaElement || control instanceof HTMLInputElement)) control.setSelectionRange(range[0], range[1]);
+  } else if (focusMode) list.querySelector<HTMLElement>(`[data-mode="${focusMode}"]`)?.focus({ preventScroll: true });
+  syncReview();
 }
 
 async function perform(target: { id: string; repo: number; index: string }, operation: GitAction, paths: string[] = [], remote?: string) {
@@ -273,17 +331,72 @@ async function perform(target: { id: string; repo: number; index: string }, oper
     await invoke("workspace_git_action", { id: ws.id, repo: selectedRepo, operation, paths, message, expected: target.index, remote: remote ?? null });
     if (operation === "commit") view.messages.delete(selectedRepo);
     if ((operation === "stage" || operation === "unstage") && view.selection && paths.includes(view.selection.path)) {
-      view.selection.scope = operation === "stage" ? "staged" : "changes";
-      if (view.mode === "conflict") view.mode = "changes";
+      view.selection = null;
+      if (view.mode === "conflict") view.mode = "staged";
     }
     context.say(t("git.done"));
   } catch (error) { context.say(fromBack(error), true); }
-  finally { busy = false; await context.refresh(); drawSidebar(); }
+  finally {
+    busy = false; await context.refresh(); drawSidebar();
+    if ((operation === "stage" || operation === "unstage") && context.workspace()?.id === target.id && state().repo === target.repo) {
+      $("difflist").querySelector<HTMLElement>(`.git-nav [data-mode="${state().mode}"]`)?.focus({ preventScroll: true });
+    }
+  }
 }
 
-function heading(title: string) {
+function heading(title: string, reader = false) {
   $("dcrumb").replaceChildren(h("span", "nm", title));
-  $("dseen").hidden = true; $("dfold").hidden = true;
+  $("dcrumb").title = "";
+  if (!reader) for (const id of ["dseen", "dfold", "dlayout", "dprogress", "dnext"]) $(id).hidden = true;
+}
+
+function syncReview() {
+  const ws = context.workspace(); if (!ws) return;
+  const total = diff.keys(review).length, remaining = diff.unseen(ws.id, review);
+  const progress = h("progress", "") as HTMLProgressElement;
+  progress.max = Math.max(1, total); progress.value = total - remaining;
+  progress.setAttribute("aria-label", t("diff.progress", { n: total - remaining, total }));
+  $("dprogress").replaceChildren(progress, h("span", "", t("diff.progress", { n: total - remaining, total })));
+  ($("dnext").firstElementChild as HTMLButtonElement).disabled = remaining === 0;
+  for (const button of $("dlayout").querySelectorAll<HTMLButtonElement>("button")) button.setAttribute("aria-pressed", String(button.dataset.layout === state().layout));
+  for (const row of $("difflist").querySelectorAll<HTMLElement>(".git-file")) {
+    const repo = review.find(repo => repo.name === current()?.name), file = repo?.files.find(file => file.path === row.dataset.path);
+    row.classList.toggle("reviewed", !!repo && !!file && diff.isSeen(ws.id, repo.name, file));
+  }
+}
+
+function renderReview(ws: Workspace, repo: GitStatus, result: GitDiff, caption: string, empty: string) {
+  const view = state(), host = $("dlist");
+  let target = host.querySelector<HTMLElement>(".git-review-list");
+  if (!target) {
+    target = h("div", "git-review-list dlist");
+    host.replaceChildren(target, h("div", "git-review-scope")); diff.invalidate();
+  }
+  host.querySelector<HTMLElement>(".git-review-scope")!.textContent = caption;
+  review = [{ name: repo.name, base: view.reference, ahead: 0, unpushed: repo.ahead, dirty: 0, files: result.files }];
+  const filtered = review.map(repo => ({ ...repo, files: repo.files.filter(file => file.path.toLowerCase().includes(view.filter.toLowerCase())) }));
+  const focus = pendingFocus; pendingFocus = "";
+  diff.render(target, {
+    id: ws.id, repos: filtered, layout: view.layout, focus: focus ? diff.key(repo.name, focus) : undefined,
+    empty: result.files.length && view.filter ? t("git.filter.empty") : empty,
+    onSeen: syncReview, onOpen: context.openFile,
+  });
+  if (view.mode === "compare") {
+    const files = $("difflist").querySelector<HTMLElement>(".git-comparison-files");
+    if (files) {
+      const previous = files.querySelector<HTMLElement>(":focus")?.dataset.path;
+      files.replaceChildren(...filtered[0].files.map(file => {
+        const pick = button(file.path, () => {
+          pendingFocus = file.path; void drawEditor();
+        }, false, "git-file-name");
+        pick.dataset.path = file.path; pick.title = file.path; return pick;
+      }));
+      if (previous) files.querySelector<HTMLElement>(`[data-path="${CSS.escape(previous)}"]`)?.focus({ preventScroll: true });
+      if (!files.children.length) files.append(h("p", "git-hint", t(result.files.length ? "git.filter.empty" : "git.empty")));
+    }
+  }
+  syncReview();
+  for (const id of ["dseen", "dfold", "dlayout", "dprogress", "dnext"]) $(id).hidden = !result.files.length;
 }
 
 async function drawEditor() {
@@ -291,7 +404,8 @@ async function drawEditor() {
   const view = state(), mode = view.mode;
   if (mode === "compare" && document.activeElement?.classList.contains("git-base")) return;
   const mine = ++ticket;
-  const valid = () => mine === ticket && context.workspace()?.id === ws.id && !$("diffview").hidden;
+  const selectedRepo = view.repo;
+  const valid = () => mine === ticket && context.workspace()?.id === ws.id && state().repo === selectedRepo && !$("diffview").hidden;
   const host = $("dlist"); host.classList.add("git-content");
   if (!repo) { clearEditor(); return; }
   if (repo.error) { editorSignature = ""; heading(t("git.changes")); host.replaceChildren(h("div", "git-error", fromBack(repo.error))); return; }
@@ -302,7 +416,7 @@ async function drawEditor() {
       if (editorSignature === `${ws.id}/${view.repo}/branches`) return;
       const branches = await invoke("workspace_git_branches", args); if (!valid()) return;
       heading(t("git.branches"));
-      const box = h("div", "git-page"), search = h("input", "git-search") as HTMLInputElement;
+      const box = h("div", "git-page"), search = uiInput(); search.classList.add("git-search");
       search.placeholder = t("git.branch.search"); search.setAttribute("aria-label", t("git.branch.search"));
       const list = h("div", "git-branches");
       const render = () => {
@@ -324,41 +438,44 @@ async function drawEditor() {
     }
     if (mode === "history") {
       const history = await invoke("workspace_git_history", args); if (!valid()) return;
-      const signature = JSON.stringify([args, mode, history]); if (signature === editorSignature) return;
-      heading(t("git.history")); const box = h("div", "git-page");
-      box.append(h("p", "git-hint", `${repo.branch ?? t("git.detached")} · ${t("git.history.limit")}`));
+      if (!history.some(commit => commit.oid === view.reference)) view.reference = history[0]?.oid ?? "";
+      const box = $("difflist").querySelector<HTMLElement>(".git-history-list")!;
+      const focused = box.querySelector<HTMLElement>(":focus")?.dataset.oid;
+      box.replaceChildren(h("p", "git-hint", t("git.history.limit")));
       for (const commit of history) {
-        const row = button("", () => { view.reference = commit.oid; show("commit"); }, false, "git-history-row");
+        const row = button("", () => {
+          view.reference = commit.oid;
+          const list = host.querySelector<HTMLElement>(".git-review-list"); if (list) list.scrollTop = 0;
+          void drawEditor();
+        }, false, "git-history-row");
+        row.dataset.oid = commit.oid; row.setAttribute("aria-current", String(commit.oid === view.reference));
         const description = h("div", ""); description.append(h("strong", "", commit.subject), h("small", "", `${commit.oid.slice(0,7)} · ${commit.author} · ${new Date(commit.date).toLocaleString()}`));
         row.append(h("span", "git-history-node"), description, h("span", "spacer"));
         if (commit.outgoing) row.append(h("span", "git-badge", t("git.outgoing")));
         box.append(row);
       }
       if (!history.length) box.append(h("div", "none", t("git.history.empty")));
-      host.replaceChildren(box); editorSignature = signature; return;
+      if (focused) box.querySelector<HTMLElement>(`[data-oid="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
+      if (!history.length) { heading(t("git.history")); host.replaceChildren(h("div", "none", t("git.history.empty"))); return; }
     }
-    if (mode === "compare" || mode === "commit") {
-      heading(mode === "compare" ? t("git.compare") : t("git.saved"));
+    if (mode === "compare" || mode === "history") {
+      heading(mode === "compare" ? t("git.compare") : t("git.saved"), true);
       if (mode === "compare") {
-        const base = h("input", "git-base") as HTMLInputElement; base.value = view.reference || repo.base; base.setAttribute("aria-label", t("git.base"));
-        const apply = () => { view.reference = base.value; base.blur(); editorSignature = ""; void drawEditor(); };
+        const base = uiInput(view.reference || repo.base); base.classList.add("git-base"); base.setAttribute("aria-label", t("git.base"));
+        const apply = () => {
+          view.reference = base.value; base.blur(); editorSignature = "";
+          void drawEditor().then(() => {
+            if (context.workspace()?.id === ws.id && state().repo === args.repo && state().mode === "compare" && !$("diffview").hidden) $("dcrumb").querySelector<HTMLElement>(".git-base")?.focus();
+          });
+        };
         base.onkeydown = e => { if (e.key === "Enter") apply(); };
-        $("dcrumb").append(base, button(t("git.compare"), apply));
+        $("dcrumb").append(base, button(t("git.tab.compare"), apply));
       }
       if (!repo.has_head) { host.replaceChildren(h("div", "none", t("git.history.empty"))); return; }
-      const result = await invoke("workspace_git_diff", { ...args, scope: mode, path: null, reference: view.reference || null }); if (!valid()) return;
-      const signature = JSON.stringify([args, mode, view.reference, result]);
+      const result = await invoke("workspace_git_diff", { ...args, scope: mode === "compare" ? "compare" : "commit", path: null, reference: view.reference || null }); if (!valid()) return;
       const caption = mode === "compare" ? t("git.compare.scope", { base: view.reference || repo.base }) : `${t("git.saved")} · ${result.head.slice(0, 7)}`;
       $("dcrumb").title = caption;
-      const summary = h("div", "git-review-scope", caption);
-      const list = h("div", "git-review-list dlist");
-      if (signature !== editorSignature) {
-        host.replaceChildren(summary, list); diff.invalidate(); editorSignature = signature;
-      }
-      const target = host.querySelector<HTMLElement>(".git-review-list")!;
-      review = [{ name: repo.name, base: view.reference, ahead: 0, unpushed: repo.ahead, dirty: 0, files: result.files }];
-      diff.render(target, { id: ws.id, repos: review, empty: t("git.compare.empty"), onSeen: () => {}, onOpen: context.openFile });
-      $("dseen").hidden = false; $("dfold").hidden = false; return;
+      renderReview(ws, repo, result, caption, t("git.compare.empty")); return;
     }
     if (mode === "conflict" && view.selection?.scope === "conflict") {
       const selected = view.selection;
@@ -371,7 +488,7 @@ async function drawEditor() {
       const saved = draft;
       heading(`${t("git.conflicts")} · ${selected.path}`);
       const box = h("div", "git-page"), sides = h("div", "git-conflict-sides");
-      const input = h("textarea", "git-conflict-result") as HTMLTextAreaElement;
+      const input = uiInput("", true); input.classList.add("git-conflict-result");
       input.value = saved.text; input.oninput = () => { saved.text = input.value; }; input.setAttribute("aria-label", t("git.conflict.result")); input.spellcheck = false;
       for (const [text, key] of [[saved.source.ours, "ours"], [saved.source.theirs, "theirs"]] as const) {
         const side = h("section", "git-conflict-side");
@@ -381,7 +498,7 @@ async function drawEditor() {
         if (busy || context.workspace()?.id !== args.id || state().repo !== args.repo || current()?.error) return; busy = true; resolve.disabled = true; drawSidebar();
         void invoke("workspace_git_resolve", { ...args, path: selected.path, was: saved.source.current, text: input.value }).then(() => {
           view.conflicts.delete(draftKey);
-          if (context.workspace()?.id === ws.id && state().repo === args.repo) { view.mode = "changes"; view.selection = { scope: "staged", path: selected.path }; editorSignature = ""; }
+          if (context.workspace()?.id === ws.id && state().repo === args.repo) { view.mode = "staged"; view.selection = { scope: "staged", path: selected.path }; editorSignature = ""; }
         }).catch(error => context.say(fromBack(error), true)).finally(async () => { busy = false; resolve.disabled = false; await context.refresh(); });
       }, busy, "pri");
       if (saved.source.current !== result.current) {
@@ -390,34 +507,23 @@ async function drawEditor() {
       box.append(sides, h("label", "git-hint", t("git.conflict.result")), input, resolve, button(t("git.conflict.manual"), () => void act("stage", [selected.path]), busy), h("p", "git-hint", t("git.conflict.hint")));
       host.replaceChildren(box); editorSignature = signature; return;
     }
-    heading(t("git.changes"));
-    if (!view.selection && repo.conflicts.length) {
+    heading(t(view.mode === "staged" ? "git.tab.staged" : "git.tab.changes"), true);
+    if (view.mode === "conflict" && !view.selection && repo.conflicts.length) {
       view.selection = { path: repo.conflicts[0].path, scope: "conflict" }; view.mode = "conflict";
       drawSidebar(); return void drawEditor();
     }
-    if (!repo.staged.length && !repo.changes.length) {
+    if (!repo.staged.length && !repo.changes.length && !repo.conflicts.length && !repo.merging) {
+      review = []; heading(t("git.changes"));
       host.replaceChildren(h("div", "git-clean", t("git.clean")), h("p", "git-clean-hint", t("git.clean.hint"))); editorSignature = ""; return;
     }
-    // Staged and working-tree changes are separate scopes; show the scope of the selected file.
-    const scope = view.selection?.scope === "staged" || !repo.changes.length ? "staged" : "changes";
-    const group = scope === "staged" ? repo.staged : repo.changes;
+    // The explicit tab selects the reviewed snapshot, even when empty.
+    const scope = view.mode === "staged" ? "staged" : "changes";
     const result = await invoke("workspace_git_diff", { ...args, scope, path: null, reference: null }); if (!valid()) return;
-    const signature = JSON.stringify([args, scope, result]);
-    $("dcrumb").append(h("span", "git-review-scope git-scope-badge", t(scope === "staged" ? "git.scope.staged" : "git.scope.changes")));
-    $("dcrumb").append(button(t(scope === "staged" ? "git.unstageAll" : "git.stageAll"), () => void act(scope === "staged" ? "unstage" : "stage", group.map(file => file.path)), busy || !!repo.error || !group.length));
-    if (signature !== editorSignature) {
-      host.replaceChildren(h("div", "git-review-list dlist")); diff.invalidate(); editorSignature = signature;
-    }
-    review = [{ name: repo.name, base: "", ahead: 0, unpushed: repo.ahead, dirty: 0, files: result.files }];
-    const focus = pendingFocus; pendingFocus = "";
-    diff.render(host.querySelector<HTMLElement>(".git-review-list")!, {
-      id: ws.id, repos: review, focus: focus ? diff.key(repo.name, focus) : undefined,
-      empty: t("git.empty"), onSeen: () => {}, onOpen: context.openFile,
-    });
-    $("dseen").hidden = false; $("dfold").hidden = false;
+    renderReview(ws, repo, result, t(scope === "staged" ? "git.scope.staged" : "git.scope.changes"), t("git.empty"));
   } catch (error) {
     if (!valid()) return;
-    editorSignature = "";
+    editorSignature = ""; review = [];
+    for (const id of ["dseen", "dfold", "dlayout", "dprogress", "dnext"]) $(id).hidden = true;
     if (mode !== "compare") heading(t(mode === "conflict" ? "git.conflicts" : "git.changes"));
     host.replaceChildren(h("div", "git-error", fromBack(error)));
     if (mode === "conflict" && view.selection) {
