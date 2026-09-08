@@ -1,14 +1,11 @@
-//! O time mora no front: quem fala com o relay é a webview (`src/team.ts`),
-//! que já recebe todo byte de todo terminal e já sabe escrever neles. O back
-//! só guarda `team.json` — o segredo do time, com permissão restrita, fora do
-//! `localStorage` — e não lê o que há dentro: o formato é do front.
+//! The frontend owns relay transport and terminal forwarding. The backend only stores private
+//! team.json outside localStorage, preserving the frontend-owned format without interpreting it.
 
 use crate::{i18n, paths};
 use serde::Serialize;
 use serde_json::Value;
 
-/// O que o front recebe ao subir: o arquivo, se existe, e um nome para
-/// sugerir a quem ainda não escolheu o seu — o usuário deste Mac.
+/// Return stored team configuration and the local username as a suggested display name.
 #[derive(Serialize)]
 pub struct TeamFile {
     pub config: Option<Value>,
@@ -27,7 +24,7 @@ pub fn team_config() -> TeamFile {
     }
 }
 
-/// `None` é sair do time: o arquivo some.
+/// None leaves the team by removing its configuration file.
 #[tauri::command]
 pub fn team_config_set(config: Option<Value>) -> Result<(), String> {
     let path = paths::team_path();

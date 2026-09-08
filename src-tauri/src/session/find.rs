@@ -1,13 +1,6 @@
-//! A lista que o "@" da caixa de escrever abre: os caminhos do workspace que
-//! combinam com o que já foi digitado.
-//!
-//! O tamanho do repositório é o que desenha este módulo. Num de cinco mil
-//! arquivos qualquer coisa serve; num monorepo de trezentos mil, pontuar tudo
-//! a cada letra custa um quarto de segundo, e a lista passa a andar atrás de
-//! quem escreve. Por isso a busca tem duas passadas — uma barata que escolhe
-//! alguns milhares de candidatos, e a cara, que só eles pagam — e por isso a
-//! lista de caminhos fica pronta de véspera, em bytes, em vez de ser preparada
-//! de novo a cada tecla.
+//! Composer path suggestions use two-stage matching for large repositories: cheap candidate
+//! filtering followed by bounded detailed scoring. Cache packed path bytes so every keystroke
+//! avoids rebuilding hundreds of thousands of paths.
 
 use super::{cwd_of, git, repos_of};
 use crate::state::Repo;
@@ -21,19 +14,9 @@ use tauri::State;
 
 use super::files::Entry;
 
-/// O que o "@" da caixa de escrever oferece.
-///
-/// Quem sabe o que existe é o git, e não uma varredura própria: `ls-files`
-/// traz o que está rastreado e o que é novo, sem nada que o `.gitignore`
-/// mandou esquecer — o mesmo recorte que o agente enxerga, e sem entrar em
-/// `node_modules` ou `target`. Pasta registrada sem git não tem esse recorte,
-/// e aí a varredura é própria. Num workspace de mais de um repositório cada
-/// caminho vem com a pasta do repositório na frente, como o agente precisa
-/// escrever para achar o arquivo.
-///
-/// `recent` são os arquivos que o agente acabou de ler ou escrever nesta
-/// conversa, do último para o primeiro — o front os tira da timeline. Quem
-/// escreve "@" no meio de um trabalho quase sempre quer um deles.
+/// Use Git to list tracked and untracked files while respecting ignores; scan directly only for
+/// non-Git folders. Prefix multi-repository paths with their repository directory. Recent timeline
+/// file accesses provide an ordered relevance boost.
 #[tauri::command(async)]
 pub fn find_paths(
     state: State<AppState>,
@@ -76,28 +59,19 @@ pub fn find_paths(
         .collect()
 }
 
-/// Quantos cabem na lista sem ela virar a tela inteira.
+/// Limit suggestion rows to fit the composer menu.
 const MOST: usize = 40;
 
-/* ---------- os caminhos, prontos para a busca ---------- */
+/* Prepared path data */
 
-/// Todos os caminhos do workspace num pedaço só de memória.
-///
-/// Um `String` por caminho custaria três palavras de cabeçalho e uma alocação
-/// cada; num monorepo são novecentas mil alocações, e mais memória vai embora
-/// em cabeçalho e arredondamento do que nos caminhos. Aqui eles ficam colados
-/// num texto só, e um índice diz onde cada um começa.
-///
-/// A versão minúscula também não fica guardada — seriam os mesmos bytes uma
-/// segunda vez. Cada byte vira minúsculo na hora de comparar, o que é uma
-/// instrução e nenhuma alocação.
+/// Pack all paths into one text buffer with offsets to avoid per-path allocation overhead. Fold
+/// ASCII case during comparison rather than storing a second lowercase copy.
 struct Corpus {
     raw: String,
     at: Vec<Span>,
 }
 
-/// Onde um caminho está dentro do texto, e o que dele já se sabe. A barra que
-/// marca pasta fica fora de `to`: ela não é do caminho, é do que ele é.
+/// Record path offsets and metadata; exclude the directory marker slash from the path slice.
 struct Span {
     from: u32,
     name_at: u32,
@@ -107,7 +81,7 @@ struct Span {
 }
 
 impl Corpus {
-    /// O caminho como a pessoa escreve.
+    /// The original path text.
     fn text(&self, at: &Span) -> &str {
         &self.raw[at.from as usize..at.to as usize]
     }
@@ -141,27 +115,19 @@ fn corpus(paths: Vec<String>) -> Corpus {
     Corpus { raw, at }
 }
 
-/// Minúsculo, no que é ASCII. O resto fica como está — um caminho com acento
-/// casa com o acento escrito igual, que é o que qualquer busca de arquivo faz.
+/// Fold ASCII case only; non-ASCII bytes must match as written.
 fn low(b: u8) -> u8 {
     b.to_ascii_lowercase()
 }
 
-/* ---------- a primeira passada, barata ---------- */
+/* Candidate filtering */
 
-/// Os candidatos que valem a conta fina.
-///
-/// Aqui não há matriz nenhuma: só se pergunta onde as letras caem — se começam
-/// o nome, se estão nele coladas, se estão nele espalhadas, se estão só no
-/// caminho. É grosseiro de propósito, porque roda em tudo; a ordem final quem
-/// dá é a passada seguinte, e para ela sobram alguns milhares.
-///
-/// Em pedaços, um por thread: a passada é a mesma para cada caminho e não
-/// depende dos outros, e é o que faz um monorepo caber no tempo entre duas
-/// teclas.
+/// Cheaply rank name prefixes, contiguous matches, subsequences, and path matches before detailed
+/// scoring. Filter independent chunks in parallel for large repositories, retaining only a bounded
+/// candidate set.
 fn shortlist(all: &Corpus, q: &[u8], fresh: &HashMap<String, i32>) -> Vec<usize> {
     let hands = match all.at.len() {
-        // Repositório pequeno não paga o preço de espalhar o trabalho.
+        // Small repositories avoid parallel-dispatch overhead.
         0..=20_000 => 1,
         _ => std::thread::available_parallelism()
             .map(|n| n.get())
@@ -189,10 +155,8 @@ fn shortlist(all: &Corpus, q: &[u8], fresh: &HashMap<String, i32>) -> Vec<usize>
                             len: span.to - span.from,
                             at: first + at,
                         };
-                        // O topo do monte é o pior que está guardado. Com o
-                        // monte cheio, quem não for melhor que ele nem entra —
-                        // uma comparação no lugar de acomodar e derrubar, o que
-                        // num monorepo acontece centenas de milhares de vezes.
+                        // Keep the worst retained candidate at the heap top so inferior candidates
+                        // can be rejected with one comparison.
                         if best.len() >= SHORT {
                             if best.peek().is_some_and(|worst| *worst <= cand) {
                                 continue;
@@ -216,25 +180,21 @@ fn shortlist(all: &Corpus, q: &[u8], fresh: &HashMap<String, i32>) -> Vec<usize>
     found.into_iter().map(|r| r.at).collect()
 }
 
-/// Quantos candidatos cada thread leva para a conta fina. Com quarenta linhas
-/// na tela, alguns milhares no total é folga de sobra — e é um teto, então o
-/// custo da segunda passada não depende do tamanho do repositório.
+/// Bound candidates per worker so detailed-scoring cost does not grow with repository size.
 const SHORT: usize = 256;
 
-/// Onde as letras caem, sem conta nenhuma. Maior é melhor; `None` é não servir.
+/// Estimate match quality cheaply. Higher is better; None rejects the path.
 fn rough(q: &[u8], all: &Corpus, span: &Span, keep: &[&str]) -> Option<u8> {
-    // O que o agente acabou de mexer passa por cima desta triagem: seria uma
-    // pena o arquivo da vez cair aqui e nunca chegar na conta que o faria
-    // subir.
+    // Recently used files bypass candidate trimming so the detailed scorer can apply their
+    // relevance boost.
     if !keep.is_empty() && keep.contains(&all.text(span)) {
         return Some(5);
     }
     if q.is_empty() {
         return Some(0);
     }
-    // As letras na ordem primeiro, e só depois onde elas caem: quem não tem as
-    // letras não tem como estar coladas, e é a maioria. Procurar o trecho
-    // inteiro custa o tamanho da busca vezes o do texto; a ordem, só o texto.
+    // Check subsequence presence before substring placement because most paths lack the required
+    // letters and can be rejected cheaply.
     let name = all.name_bytes(span);
     if !q.contains(&b'/') && subsequence(q, name) {
         return Some(if starts(q, name) {
@@ -251,8 +211,7 @@ fn rough(q: &[u8], all: &Corpus, span: &Span, keep: &[&str]) -> Option<u8> {
     Some(window(q, all.bytes(span)).into())
 }
 
-/// Um candidato da primeira passada. A ordem é a do monte que os guarda: o
-/// "maior" é o pior, para ser ele a sair quando o monte enche.
+/// Order heap candidates with the worst first for efficient eviction.
 #[derive(PartialEq, Eq)]
 struct Rough {
     rank: u8,
@@ -278,12 +237,12 @@ impl PartialOrd for Rough {
     }
 }
 
-/// `text` começa com `q`. `q` já vem minúsculo.
+/// Test whether text starts with the already lowercase query.
 fn starts(q: &[u8], text: &[u8]) -> bool {
     text.len() >= q.len() && text.iter().zip(q).all(|(a, b)| low(*a) == *b)
 }
 
-/// `q` aparece inteiro e seguido em `text`. `q` já vem minúsculo.
+/// Test for a contiguous occurrence of the already lowercase query.
 fn window(q: &[u8], text: &[u8]) -> bool {
     q.len() <= text.len()
         && text
@@ -291,7 +250,7 @@ fn window(q: &[u8], text: &[u8]) -> bool {
             .any(|w| w.iter().zip(q).all(|(a, b)| low(*a) == *b))
 }
 
-/// As letras de `q` aparecem em `text` nesta ordem, não necessariamente juntas.
+/// Test whether query bytes appear in order, with gaps allowed.
 fn subsequence(q: &[u8], text: &[u8]) -> bool {
     let mut left = q.iter();
     let mut want = left.next();
@@ -306,16 +265,11 @@ fn subsequence(q: &[u8], text: &[u8]) -> bool {
     want.is_none()
 }
 
-/* ---------- a segunda passada, a que ordena ---------- */
+/* Detailed scoring */
 
-/// O quanto um caminho combina com o que foi digitado. Mais é melhor; `None`
-/// é não servir, e nada digitado serve tudo por igual.
-///
-/// Duas contas: uma no nome do arquivo e outra no caminho inteiro. O nome pesa
-/// o dobro, porque é ele que a pessoa tem na cabeça — "user" quer
-/// `models/user.rb` antes de `user/legacy/parser.rb`. Barra no que foi
-/// digitado é sinal de que a conta é só do caminho: "app/mod" não é nome de
-/// arquivo nenhum.
+/// Score filename and full path, weighting the filename twice as strongly. Queries containing a
+/// slash use only the full path. Higher scores are better; None rejects, while an empty query
+/// treats paths equally.
 fn points(q: &[u8], all: &Corpus, span: &Span) -> Option<i32> {
     if q.is_empty() {
         return Some(0);
@@ -324,8 +278,7 @@ fn points(q: &[u8], all: &Corpus, span: &Span) -> Option<i32> {
         return fuzzy(q, all.bytes(span));
     }
     let on_path = fuzzy(q, all.bytes(span))?;
-    // O nome é o fim do caminho: o que casa nele casa no caminho, e o contrário
-    // não. Sem match no nome sobra a conta do caminho.
+    // A filename match also matches the full path. Without one, retain only the full-path score.
     let name = all.name_bytes(span);
     let Some(on_name) = fuzzy(q, name) else {
         return Some(on_path);
@@ -333,19 +286,15 @@ fn points(q: &[u8], all: &Corpus, span: &Span) -> Option<i32> {
     Some(on_name * 2 + on_path / 4 + whole(q, name))
 }
 
-/// A mesma conta, a partir de um caminho solto. É por aqui que os testes
-/// entram, e o custo de preparar os bytes não importa fora do caminho quente.
+/// Prepare an individual path for scoring in tests, outside the hot loop.
 #[cfg(test)]
 fn score(query: &str, path: &str) -> Option<i32> {
     let all = corpus(vec![path.to_string()]);
     points(&query.to_ascii_lowercase().into_bytes(), &all, &all.at[0])
 }
 
-/// O quanto o que foi digitado dá conta do nome sozinho. Sem isto, "user" põe
-/// a pasta `db/seeds/users` na frente de `app/models/user.rb`: as duas casam
-/// quatro letras seguidas no começo do nome, e o desempate por caminho mais
-/// curto escolhe a errada. A extensão não conta — quem escreve "user" escreveu
-/// o nome do arquivo inteiro, e sabe disso.
+/// Reward matching the complete filename stem so user.rb ranks above a longer users directory.
+/// Ignore the extension for this bonus.
 fn whole(q: &[u8], name: &[u8]) -> i32 {
     let stem = match name.iter().rposition(|b| *b == b'.') {
         Some(at) if at > 0 => &name[..at],
@@ -360,49 +309,38 @@ fn whole(q: &[u8], name: &[u8]) -> i32 {
     }
 }
 
-/// O nome inteiro escrito, e o nome começando pelo que foi escrito.
+/// Bonuses for the full filename stem and a matching filename prefix.
 const WHOLE: i32 = 64;
 const STARTS: i32 = 24;
 
-/// Cada letra vale isto por si.
+/// Base reward for each matched byte.
 const MATCH: i32 = 16;
-/// Letra que começa uma parte do caminho — a primeira de tudo, ou a que vem
-/// depois de `/`, `_`, `-`, `.` ou espaço. É o que faz "amtr" achar
-/// `app/models/transcriber.rb` e "ur" preferir `user_repo.rb` a `nature.rb`.
+/// Reward path or word boundaries after slash, underscore, hyphen, dot, or space, allowing initials
+/// to locate nested paths.
 const BOUNDARY: i32 = 8;
-/// Letra maiúscula depois de minúscula: a fronteira de `userRepo`, que ninguém
-/// escreve com separador mas todo mundo lê como duas palavras.
+/// Treat a lowercase-to-uppercase transition as a word boundary in camelCase names.
 const CAMEL: i32 = 6;
-/// Letra colada na anterior. Premia o trecho inteiro escrito de uma vez.
+/// Reward consecutive matches.
 const CONSEC: i32 = 8;
-/// Cada letra pulada entre uma que casou e a seguinte.
+/// Penalize skipped bytes between matched positions.
 const GAP: i32 = 1;
-/// Texto mais longo que isto não é pontuado até o fim: a conta é o produto do
-/// tamanho da busca pelo do texto, e um caminho absurdo não pode custar o
-/// tempo de todos os outros.
+/// Bound scored text length because dynamic-programming cost grows with query length times path
+/// length.
 const LONGEST: usize = 260;
 
 const NEVER: i32 = i32::MIN / 4;
 
-/// As letras da busca no texto, na ordem, com a melhor pontuação possível.
-///
-/// É a conta que o quick open de um editor faz: uma matriz de programação
-/// dinâmica onde cada letra da busca pode casar em qualquer ponto do texto, e
-/// o que decide entre dois encaixes é onde eles caem — começo de palavra e
-/// letras coladas valem mais que letras espalhadas. Guloso não serve: em
-/// `under/models/user.rb`, "usr" casaria o "u" de "under" e perderia o encaixe
-/// bom mais à frente.
-///
-/// `text` vem como está escrito: a caixa das letras é o que faz enxergar a
-/// maiúscula de `userRepo`, e a comparação vira minúscula byte a byte. Só duas
-/// linhas da matriz existem por vez.
+/// Use dynamic programming to choose the best ordered match, rewarding boundaries and consecutive
+/// bytes. Greedy matching can select an early weak occurrence and miss a later filename match.
+/// Preserve original case for boundary detection, fold comparisons bytewise, and retain only two
+/// matrix rows.
 fn fuzzy(q: &[u8], text: &[u8]) -> Option<i32> {
     let n = text.len().min(LONGEST);
     if q.len() > n {
         return None;
     }
 
-    // Quanto vale casar na posição `j`, pelo lugar dela no texto.
+    // Compute the positional reward for matching at text index j.
     let place = |j: usize| -> i32 {
         if j == 0 {
             return BOUNDARY;
@@ -416,13 +354,11 @@ fn fuzzy(q: &[u8], text: &[u8]) -> Option<i32> {
         }
     };
 
-    // `exact[j]`: a melhor pontuação das letras da busca vistas até aqui,
-    // terminando exatamente na posição `j` do texto.
+    // exact[j] stores the best score ending at exactly j for the query prefix processed so far.
     let mut exact = vec![NEVER; n];
     for (i, want) in q.iter().enumerate() {
         let mut next = vec![NEVER; n];
-        // `carry` é o melhor encaixe da letra anterior em qualquer posição já
-        // passada, já descontado o que se pulou para chegar aqui.
+        // carry tracks the best preceding match after deducting gaps to the current position.
         let mut carry = NEVER;
         for j in 0..n {
             if j > 0 {
@@ -432,8 +368,7 @@ fn fuzzy(q: &[u8], text: &[u8]) -> Option<i32> {
                 continue;
             }
             next[j] = match i {
-                // A primeira letra pode casar em qualquer lugar: o que vem
-                // antes dela não é buraco, é só o começo do caminho.
+                // The first match may start anywhere without penalizing the path prefix.
                 0 => MATCH + place(j),
                 _ if carry <= NEVER => continue,
                 _ => {
@@ -451,15 +386,10 @@ fn fuzzy(q: &[u8], text: &[u8]) -> Option<i32> {
     exact.into_iter().max().filter(|best| *best > NEVER)
 }
 
-/* ---------- o que o agente acabou de mexer ---------- */
+/* Recent file relevance */
 
-/// O quanto cada arquivo tocado há pouco sobe na lista. O último vale mais que
-/// o anterior, e o décimo terceiro já não vale nada: o que interessa é o
-/// punhado de arquivos deste trabalho, não o histórico da conversa inteira.
-///
-/// O agente escreve o caminho como quiser — absoluto, ou relativo à pasta onde
-/// ele roda. Os dois viram o caminho relativo à raiz do workspace, que é a
-/// forma que a lista usa; o que não estiver dentro dela fica de fora.
+/// Boost only the most recent files, with descending weight. Normalize absolute and relative paths
+/// against the workspace root and exclude paths outside it.
 fn recency(state: &State<AppState>, id: &str, recent: &[String]) -> HashMap<String, i32> {
     match cwd_of(state, id) {
         Some(root) => under(&root, recent),
@@ -467,13 +397,13 @@ fn recency(state: &State<AppState>, id: &str, recent: &[String]) -> HashMap<Stri
     }
 }
 
-/// Os mesmos caminhos, medidos a partir da raiz.
+/// Normalize all recent paths relative to the workspace root.
 fn under(root: &Path, recent: &[String]) -> HashMap<String, i32> {
     let mut out = HashMap::new();
     for (at, raw) in recent.iter().take(RECENT_MOST).enumerate() {
         let rel = match Path::new(raw).strip_prefix(root) {
             Ok(rest) => rest.to_string_lossy().replace('\\', "/"),
-            // Relativo já: só o que não sobe de nível serve.
+            // Keep relative paths only when they do not traverse upward.
             Err(_) if !raw.starts_with('/') && !raw.starts_with("..") => raw.clone(),
             Err(_) => continue,
         };
@@ -483,41 +413,30 @@ fn under(root: &Path, recent: &[String]) -> HashMap<String, i32> {
     out
 }
 
-/// Quantos arquivos tocados há pouco ainda sobem na lista, e quanto vale cada
-/// um. `RECENT` é da ordem de uma query de quatro letras casada no nome: pesa,
-/// mas não passa por cima de quem a pessoa escreveu por extenso.
+/// Limit recent-file boosts and keep their weight below a strong explicitly typed filename match.
 const RECENT_MOST: usize = 12;
 const RECENT: i32 = 120;
 const RECENT_STEP: i32 = 8;
 
-/* ---------- a lista de caminhos, e quando ela se refaz ---------- */
+/* Path cache */
 
-/// Por quanto tempo a lista vale sem perguntar ao git de novo.
-///
-/// Passado isso ela não é refeita na hora: quem pediu leva a que existe, e a
-/// nova se monta atrás. Num monorepo o `ls-files` sozinho passa do segundo, e
-/// esperar por ele é a lista inteira travando no meio de uma palavra. O preço
-/// é um arquivo criado agora demorar até a próxima tecla depois desta para
-/// aparecer, o que ninguém percebe escrevendo.
+/// Serve cached paths immediately after expiry and refresh in the background. Large git ls-files
+/// calls must not block typing; newly created files can appear on a subsequent request.
 const FRESH: Duration = Duration::from_secs(30);
 
 struct Shelf {
     at: Instant,
-    /// Quando alguém buscou nela pela última vez. É por aqui que a prateleira
-    /// esquece: num monorepo a lista de um workspace passa de dezenas de
-    /// megabytes, e guardar a de todos que já foram abertos é memória que
-    /// nunca mais volta.
+    /// Track last use so large inactive workspace indexes can be evicted.
     used: Instant,
     list: Arc<Corpus>,
-    /// Já há alguém montando a lista nova: não adianta um segundo git.
+    /// Avoid starting a second refresh while one is already running.
     filling: bool,
 }
 
-/// Quantos workspaces ficam na prateleira. Quem escreve "@" está numa conversa
-/// e volta a outra logo em seguida; mais que um punhado é histórico.
+/// Retain only a small set of recently searched workspaces.
 const KEEP: usize = 4;
 
-/// Tira da prateleira quem não é usado há mais tempo, até caber.
+/// Evict least recently used indexes until the cache fits its limit.
 fn forget(cache: &mut HashMap<String, Shelf>) {
     while cache.len() > KEEP {
         let Some(oldest) = cache
@@ -539,10 +458,8 @@ fn shelf() -> &'static Cache {
     CACHE.get_or_init(Default::default)
 }
 
-/// A lista deste workspace, pronta para a busca.
-///
-/// Da primeira vez não há o que entregar, e quem pediu espera. Depois disso
-/// nunca mais: o que está na prateleira sai na hora, velho ou novo.
+/// Wait for the initial index only. Later requests return the cached index immediately, even while
+/// refreshing it.
 fn cached(id: &str, make: impl FnOnce() -> Vec<String> + Send + 'static) -> Arc<Corpus> {
     {
         let mut cache = shelf().lock().unwrap_or_else(|e| e.into_inner());
@@ -590,13 +507,11 @@ fn cached(id: &str, make: impl FnOnce() -> Vec<String> + Send + 'static) -> Arc<
     fresh
 }
 
-/// Os arquivos de uma pasta. Onde há git, quem sabe o que existe é ele —
-/// `ls-files` traz o rastreado e o novo, sem nada que o `.gitignore` esconde.
-/// Pasta sem git não tem quem responda isso, e aí a varredura é própria.
+/// Use git ls-files for tracked and untracked files with ignore handling; scan non-Git folders
+/// directly.
 fn list(dir: &Path) -> Vec<String> {
     if dir.join(".git").exists() {
-        // `-z` porque o git põe aspas em nome com acento ou espaço quando o
-        // separador é a quebra de linha.
+        // Use NUL separators so Git does not quote paths containing spaces or non-ASCII characters.
         return git(dir, &["ls-files", "-coz", "--exclude-standard"])
             .split('\0')
             .filter(|rel| !rel.is_empty())
@@ -608,11 +523,8 @@ fn list(dir: &Path) -> Vec<String> {
     out
 }
 
-/// Sem `.gitignore` para obedecer, o que fica de fora é o que ninguém digita
-/// num `@`: pasta escondida e os depósitos que todo projeto tem.
-///
-/// ponytail: lista fixa de pastas ignoradas e teto de arquivos; ler o
-/// `.gitignore` da pasta se pasta sem git virar caso comum.
+/// Skip hidden folders and common generated directories in non-Git scans. ponytail: fixed
+/// exclusions and a file limit; parse .gitignore if non-Git folders become a common use case.
 const LOOSE_SKIP: [&str; 3] = ["node_modules", "target", "vendor"];
 const LOOSE_MAX: usize = 20_000;
 
@@ -639,10 +551,8 @@ fn walk(dir: &Path, prefix: &str, out: &mut Vec<String>) {
     }
 }
 
-/// Todo caminho do workspace: os arquivos que o git conhece, e as pastas que
-/// eles implicam — o git não lista pasta, e quem escreve "@app/" quer ver a
-/// pasta antes de escolher o que tem dentro. Pasta termina em barra, que é o
-/// que distingue as duas coisas daqui para frente.
+/// Add directory suggestions implied by indexed files because Git lists files only. Mark directory
+/// entries with a trailing slash.
 fn scan(root: &Path, repos: &[Repo]) -> Vec<String> {
     let mut files: Vec<String> = Vec::new();
     let mut dirs: HashSet<String> = HashSet::new();
@@ -663,12 +573,12 @@ fn scan(root: &Path, repos: &[Repo]) -> Vec<String> {
     };
 
     match repos.is_empty() {
-        // Workspace sem repositório registrado: a pasta é o que houver.
+        // Without registered repositories, scan the workspace directory directly.
         true => collect(root, ""),
         false => {
             for repo in repos {
                 let dir = PathBuf::from(&repo.worktree);
-                // Um repositório só: o worktree é a raiz, e nada vai na frente.
+                // Single-repository paths need no repository prefix.
                 let prefix = match dir.strip_prefix(root) {
                     Ok(rest) => rest.to_string_lossy().replace('\\', "/"),
                     Err(_) => String::new(),
@@ -687,10 +597,8 @@ mod tests {
     use super::*;
     use std::process::Command;
 
-    /// A lista como `find_paths` a monta, com as duas passadas: a triagem
-    /// escolhe os candidatos e a conta fina os ordena. É a busca inteira, e não
-    /// só a pontuação — a triagem pode deixar alguém de fora, e é isso que os
-    /// testes precisam ver.
+    /// Test the complete filtering and scoring pipeline because candidate limits can discard a path
+    /// before detailed scoring.
     fn best(query: &str, paths: &[&str]) -> Vec<String> {
         ranked(query, paths, &HashMap::new())
     }
@@ -728,22 +636,17 @@ mod tests {
 
     #[test]
     fn comeco_de_palavra_vale_mais_que_letra_no_meio() {
-        // "ur" está nos dois: em `user_repo` começa as duas partes, em `nature`
-        // cai no meio das duas sílabas.
+        // Prefer ur at word boundaries in user_repo over interior matches in nature.
         assert!(fuzzy(b"ur", b"user_repo.rb") > fuzzy(b"ur", b"nature.rb"));
     }
 
-    /// "amtr" não é nome de arquivo nenhum: as letras começam as partes do
-    /// caminho, e é assim que se chega no que está fundo sem escrever pasta
-    /// por pasta.
+    /// Path initials such as amtr can locate deeply nested files without typing each directory.
     #[test]
     fn as_iniciais_do_caminho_acham_o_arquivo() {
         assert!(score("amtr", "app/models/transcriber.rb").is_some());
     }
 
-    /// Casar no nome ganha de casar espalhado pelo caminho, mesmo o segundo
-    /// caindo todo em começo de palavra: o nome é o que a pessoa tem na
-    /// cabeça.
+    /// Filename matches outrank matches scattered across path components, even at boundaries.
     #[test]
     fn nome_ganha_de_caminho() {
         let all = ["app/models/transcriber.rb", "lib/parametros.rb"];
@@ -764,8 +667,7 @@ mod tests {
 
     #[test]
     fn nao_e_guloso_com_a_primeira_letra() {
-        // O "u" de "under" é o primeiro que aparece, e o encaixe bom está
-        // depois dele.
+        // Skip an early weak occurrence when a later filename provides the better match.
         assert!(score("usr", "under/models/user.rb").is_some());
         let all = ["under/models/user.rb", "under/models/superset.rb"];
         assert_eq!(best("usr", &all)[0], "under/models/user.rb");
@@ -782,8 +684,8 @@ mod tests {
         assert!(score("zzz", "app/models/transcriber.rb").is_none());
     }
 
-    /// O nome escrito por extenso ganha de um nome maior que só começa igual —
-    /// e a extensão não conta, porque ninguém a escreve.
+    /// A complete filename stem outranks a longer prefix match; extensions do not affect that
+    /// bonus.
     #[test]
     fn o_nome_inteiro_ganha_de_quem_so_comeca_igual() {
         let all = ["db/seeds/users/", "app/models/user.rb"];
@@ -802,8 +704,7 @@ mod tests {
         assert!(score("CLAUDE", "CLAUDE.md").is_some());
     }
 
-    /// O arquivo que o agente acabou de mexer sobe — mas só entre os que já
-    /// serviam: quem não tem as letras continua de fora.
+    /// Recent files gain weight only if their path still matches the query.
     #[test]
     fn o_que_o_agente_acabou_de_tocar_sobe() {
         let all = ["app/models/user.rb", "spec/models/user_spec.rb"];
@@ -814,8 +715,7 @@ mod tests {
         assert_eq!(ranked("zzz", &all, &fresh), Vec::<String>::new());
     }
 
-    /// O agente escreve o caminho como quiser: o absoluto vira relativo à raiz,
-    /// o relativo fica como está, e o que está fora do workspace não entra.
+    /// Normalize absolute and relative recent paths while rejecting paths outside the workspace.
     #[test]
     fn os_recentes_viram_caminho_da_raiz() {
         let root = Path::new("/tmp/ws");
@@ -835,9 +735,8 @@ mod tests {
         assert!(fresh.keys().all(|k| !k.contains("hosts")));
     }
 
-    /// Num repositório de verdade: o que o git conhece entra, o que o
-    /// `.gitignore` mandou esquecer não, e as pastas aparecem com a barra no
-    /// fim mesmo o git nunca listando pasta.
+    /// Verify tracked and untracked Git paths, ignored-file exclusion, and synthesized directory
+    /// entries against a real repository.
     #[test]
     fn a_varredura_e_o_que_o_git_conhece() {
         let root = std::env::temp_dir().join(format!("prometeu-paths-{}", std::process::id()));
@@ -847,7 +746,7 @@ mod tests {
         std::fs::write(root.join(".gitignore"), "node_modules/\n").unwrap();
         std::fs::write(root.join("app/models/user.rb"), "").unwrap();
         std::fs::write(root.join("node_modules/x/y.js"), "").unwrap();
-        // Sem `git add`: `ls-files -co` também traz o que ainda é novo.
+        // Untracked files are included without git add through ls-files -co.
         let out = Command::new("git")
             .arg("-C")
             .arg(&root)
@@ -864,8 +763,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// Pasta registrada sem git: a varredura é própria, e o que ela pula é o
-    /// que ninguém digita num `@`.
+    /// Non-Git scans skip hidden and generated directories.
     #[test]
     fn a_varredura_da_pasta_sem_git() {
         let root = std::env::temp_dir().join(format!("prometeu-solta-{}", std::process::id()));
@@ -885,9 +783,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// A triagem é quem decide o que chega na conta fina, e ela tem teto: num
-    /// monorepo o que sobra são alguns milhares. O que casa bem tem de passar
-    /// por ela mesmo cercado de milhares que casam mal.
+    /// Strong matches must survive bounded filtering among thousands of weaker monorepo candidates.
     #[test]
     fn a_triagem_nao_perde_o_bom_no_meio_do_ruim() {
         let mut paths: Vec<String> = (0..50_000)
@@ -901,8 +797,8 @@ mod tests {
             .any(|at| all.text(&all.at[*at]) == "app/models/user.rb"));
     }
 
-    /// O caminho de um recente entra na conta fina mesmo que a triagem, sozinha,
-    /// o deixasse de fora por causa dos milhares que casam melhor.
+    /// Recent files reach detailed scoring even when ordinary candidate trimming would discard
+    /// them.
     #[test]
     fn a_triagem_guarda_lugar_para_o_recente() {
         let mut paths: Vec<String> = (0..50_000).map(|n| format!("app/user{n}.rb")).collect();
@@ -915,8 +811,7 @@ mod tests {
             .any(|at| all.text(&all.at[*at]) == "vendor/deep/nested/legacy/u_s_e_r.rb"));
     }
 
-    /// A prateleira esquece o workspace que ninguém usa há mais tempo: num
-    /// monorepo cada lista é dezenas de megabytes.
+    /// Evict the least recently used workspace index to bound memory.
     #[test]
     fn a_prateleira_so_guarda_alguns_workspaces() {
         let mut cache: HashMap<String, Shelf> = HashMap::new();
@@ -933,7 +828,7 @@ mod tests {
         }
         forget(&mut cache);
         assert_eq!(cache.len(), KEEP);
-        // Os que sobram são os usados mais recentemente.
+        // Retain the most recently used indexes.
         assert!(cache.contains_key(&format!("ws{}", KEEP + 2)));
         assert!(!cache.contains_key("ws0"));
     }

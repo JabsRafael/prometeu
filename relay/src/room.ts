@@ -1,14 +1,10 @@
-/// Um Durable Object por time: a tubulação entre os WebSockets da plataforma
-/// e o `reduce` de `logic.ts`. Nada é decidido aqui — só convertido.
-///
-/// Hibernação: entre uma mensagem e outra o objeto pode ser descarregado, e
-/// com ele a memória. Por isso o estado é reconstruído do storage na primeira
-/// mensagem depois de acordar, e o que é de cada socket (membro, aba que olha)
-/// mora no attachment do próprio socket, que a plataforma guarda.
+/// One Durable Object per team adapts platform WebSockets and storage to the reducer. After hibernation,
+/// restore state from storage and recover member/viewed-tab metadata from socket attachments.
 
 import { DurableObject } from "cloudflare:workers";
 import { hydrate, reduce, type Effect, type Sock, type State } from "./logic";
 import { authorizeOrganization } from "./cloud";
+import { smallJson } from "./http";
 import {
   BINARY_FRAME_MAX,
   BYTES_PER_WINDOW_MAX,
@@ -53,18 +49,6 @@ function sameHash(a: string, b: string): boolean {
   return difference === 0;
 }
 
-async function smallJson(req: Request, max: number): Promise<{ value?: unknown; error?: Response }> {
-  const declared = Number(req.headers.get("Content-Length") ?? "0");
-  if (declared > max) return { error: new Response("too big", { status: 413 }) };
-  const raw = await req.text();
-  if (new TextEncoder().encode(raw).length > max) return { error: new Response("too big", { status: 413 }) };
-  try {
-    return { value: JSON.parse(raw) };
-  } catch {
-    return { error: new Response("bad", { status: 400 }) };
-  }
-}
-
 export class TeamRoom extends DurableObject<Env> {
   private state: State | null = null;
   private bySock = new Map<string, WebSocket>();
@@ -72,11 +56,12 @@ export class TeamRoom extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    // Batimento sem acordar o objeto: o edge derruba socket parado em ~100 s.
+    // Automatic heartbeat avoids waking the object; the edge closes idle sockets after roughly 100
+    // seconds.
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
 
-  /// O estado em memória, ou o que o storage e os sockets contam ao acordar.
+  /// Current state, restored from storage and socket attachments when needed.
   private async load(): Promise<State> {
     if (this.state) return this.state;
     const rows = await this.ctx.storage.list<unknown>();
@@ -105,8 +90,8 @@ export class TeamRoom extends DurableObject<Env> {
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
 
-    // O Worker aponta cada IP para um objeto separado. A rota não é exposta
-    // por ele; aqui a transação apenas fecha requisições simultâneas.
+    // The Worker isolates rate limits by IP. This internal route uses a transaction to serialize
+    // concurrent requests.
     if (req.method === "POST" && url.pathname === "/permit-create") {
       const hour = Number(url.searchParams.get("h"));
       if (!Number.isSafeInteger(hour) || hour < 0) return new Response("bad", { status: 400 });
@@ -120,8 +105,7 @@ export class TeamRoom extends DurableObject<Env> {
       return new Response(allowed ? null : "rate limit", { status: allowed ? 204 : 429 });
     }
 
-    // Nasce com o hash do convite — chamado uma vez pelo Worker. O segredo
-    // em claro nunca é persistido.
+    // The Worker initializes the invite hash once. Never persist its plaintext secret.
     if (req.method === "POST" && url.pathname === "/init") {
       if (await this.ctx.storage.get("meta")) return new Response("exists", { status: 409 });
       const parsed = await smallJson(req, 1024);
@@ -133,9 +117,8 @@ export class TeamRoom extends DurableObject<Env> {
       return new Response("ok");
     }
 
-    // Convite é matrícula, não identidade: cada troca cria um id e uma
-    // credencial que só aquele cliente guardará. A transação fecha a corrida
-    // de duas matrículas atingindo a cota ao mesmo tempo.
+    // Each enrollment creates an individual identity and credential. The transaction prevents concurrent
+    // enrollments from exceeding capacity.
     if (req.method === "POST" && url.pathname === "/enroll") {
       const parsed = await smallJson(req, 1024);
       if (parsed.error) return parsed.error;
@@ -162,8 +145,8 @@ export class TeamRoom extends DurableObject<Env> {
     if (req.headers.get("Upgrade") !== "websocket") return new Response("expected websocket", { status: 426 });
     if (url.searchParams.get("p") !== String(PROTO)) return new Response("protocol", { status: 426 });
 
-    // Autenticação antes de aceitar: a matrícula é atribuída pelo relay e a
-    // credencial individual impede escolher o id de outra pessoa.
+    // Authenticate before accepting the socket. Relay-assigned enrollment credentials prevent
+    // impersonating another member.
     let member = url.searchParams.get("m") ?? "";
     let name = normalizeName(url.searchParams.get("n"));
     let expires_at: number | undefined;
@@ -243,8 +226,7 @@ export class TeamRoom extends DurableObject<Env> {
       if (att.expires_at !== undefined && frame && typeof frame === "object" && (frame as { t?: string }).t === "me") return;
       this.apply(reduce(state, { k: "text", sock: att.sock, frame, now: Date.now(), rand: crypto.randomUUID().slice(0, 8) }));
     } else {
-      // Caminho quente, sem `await` entre receber e repassar: a ordem por
-      // socket é o que faz a rolagem do colega bater com a do dono.
+      // Forward live output without awaiting so each socket preserves transcript order.
       this.apply(reduce(state, { k: "binary", sock: att.sock, data: new Uint8Array(message) }));
     }
   }
@@ -309,9 +291,8 @@ export class TeamRoom extends DurableObject<Env> {
           } satisfies Attachment);
           break;
         case "put":
-          // Sem `await`: o portão de saída da plataforma segura qualquer
-          // mensagem até a gravação confirmar, e a fila de entrada não deixa
-          // outro evento passar na frente.
+          // Platform output gating delays messages until storage writes commit; input gating preserves
+          // event order.
           void this.ctx.storage.put(fx.key, fx.value);
           break;
         case "del":

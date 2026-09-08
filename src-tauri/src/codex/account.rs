@@ -1,4 +1,4 @@
-//! Autenticação oficial do app-server, sem abrir thread ou enviar prompts.
+//! Use official app-server authentication without opening a thread or sending prompts.
 
 use crate::{
     accounts::{self, AuthProcess, Identity, Profile},
@@ -44,8 +44,8 @@ pub fn prepare_profile(profile: &Profile) -> Result<(), String> {
 }
 
 fn prepare_profile_at(base: &Path, home: &Path) -> Result<(), String> {
-    // O mesmo rollout e o mesmo índice nativo continuam disponíveis ao trocar
-    // de credencial. O perfil nunca recebe um link para auth.json.
+    // Share the same rollout and native index across account changes. Never link auth.json into the
+    // profile.
     for name in [
         "sessions",
         "archived_sessions",

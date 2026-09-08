@@ -6,44 +6,18 @@ import { current as locale, t } from "./i18n";
 import { openNotes } from "./news";
 import { $, h, template } from "./util";
 
-/// Atualização sem reinstalar nada: o app pergunta a um manifesto público se
-/// existe versão nova, baixa o bundle, confere a assinatura minisign com a
-/// chave que está embutida nele e troca o `.app` no lugar. O `.dmg` continua
-/// existindo, mas só serve para a primeira instalação.
-///
-/// Tudo em segundo plano e sem susto: nada é baixado sem você mandar, e nada é
-/// aplicado sem você reiniciar. Isso aparece em dois lugares, com papéis
-/// diferentes:
-///
-/// - o rodapé da barra lateral **avisa**. Fica escondido enquanto não há o que
-///   fazer, e acende quando tem o que baixar ou reiniciar.
-/// - a linha em Configurações **responde**. Está sempre lá, com a versão, o
-///   resultado da última pergunta e o botão de perguntar de novo — que é o
-///   "Check for Updates…" que todo app de Mac tem.
-///
-/// Uma fase só alimenta os dois: o mesmo verbo no botão dos dois lados.
+/// Check a public update manifest, verify downloaded bundles with the embedded minisign key, and replace the app after explicit download/restart actions. Sidebar shows actionable updates; Settings always shows version and check status. Both derive from one phase.
 
-/// De quanto em quanto tempo perguntar sozinho. O app fica aberto o dia
-/// inteiro, e checar só no boot faria a atualização esperar o próximo reinício.
+/// Check periodically because the app can remain open all day.
 const EVERY = 6 * 60 * 60 * 1000;
 
-/// Quanto esperar o app cair depois de pedir o reinício. O comando responde na
-/// hora e o processo morre logo depois; se passou isso e ainda estamos aqui, o
-/// reinício não aconteceu — e a pessoa precisa saber, em vez de clicar de novo.
+/// After requesting restart, detect when the app remains running long enough to indicate failure.
 const STUCK = 8_000;
 
-/// O que o botão precisa saber de uma atualização encontrada. É o `Update` do
-/// plugin, reduzido ao que se usa — e é isto que os testes fingem.
+/// Keep only updater-plugin fields needed by the UI and controlled test updates.
 export type Found = Pick<Update, "version" | "body" | "downloadAndInstall">;
 
-/// Por onde a atualização anda. Uma fase só, e não um par de booleanos: o
-/// clique faz uma coisa em cada fase, e não existe combinação sem sentido.
-/// Foi um `busy` esquecido em `true` depois do download que deixou o botão de
-/// reiniciar sem fazer nada.
-///
-/// `quiet` é só o instante antes da primeira resposta. Depois dela a fase
-/// sempre diz alguma coisa: `fresh` com a hora, `failed` com o motivo, ou uma
-/// atualização a caminho.
+/// A single phase determines button behavior and avoids contradictory flags, including a stale busy flag blocking restart. After bootstrap, expose a meaningful current status.
 export type Phase =
   | { at: "quiet" }
   | { at: "checking" }
@@ -54,27 +28,21 @@ export type Phase =
   | { at: "ready"; version: string }
   | { at: "restarting"; version: string };
 
-/// O que os dois lugares mostram numa fase. `footer` é o que o rodapé faz com
-/// isso: só aparece quando o botão tem serventia. `note` e `tone` são a linha
-/// de Configurações, que fala mesmo quando não há nada a fazer.
+/// Derive both views from one phase: the footer shows actionable states, while Settings also explains idle and failed checks.
 export type View = {
   text: string;
   title: string;
   disabled: boolean;
-  /// A cor cheia: a partir daí o clique reinicia o app, e o botão tem que
-  /// parecer isso.
+  /// Use the filled button when its action restarts the app.
   ready: boolean;
   footer: boolean;
   note: string;
   tone: "plain" | "ok" | "bad";
-  /// As notas da versão encontrada, quando o manifesto as trouxe. É o que a
-  /// linha de Configurações abre em "ver o que vem": elas já chegavam aqui e
-  /// morriam num `title`, que ninguém lê antes de decidir baixar.
+  /// Expose manifest release notes before downloading so the user can review the update.
   notes?: { version: string; body: string };
 };
 
-/// O botão parado: "pergunte de novo". Vale nas três fases em que não há
-/// download nem reinício a caminho, e é onde o texto é sempre o mesmo.
+/// Idle phases share the manual check action.
 const ask = () => ({
   text: t("update.ask"),
   title: t("update.ask.title"),
@@ -98,8 +66,7 @@ export function view(phase: Phase): View {
         tone: "plain",
       };
     case "fresh":
-      // Sem tom: estar em dia é o normal, e o verde fica valendo para quando
-      // alguma coisa de fato aconteceu.
+      // An up-to-date app needs no success color; reserve emphasis for meaningful events.
       return { ...ask(), note: t("update.fresh", { when: phase.when }), tone: "plain" };
     case "failed":
       return { ...ask(), note: t("update.failedCheck", { why: phase.why }), tone: "bad" };
@@ -151,9 +118,7 @@ export function view(phase: Phase): View {
   }
 }
 
-/// O que a máquina precisa do mundo: perguntar, reiniciar, ver que horas são,
-/// desenhar e avisar. Em `init` é o Tauri e a tela; nos testes, é o que o teste
-/// quiser.
+/// Inject update checking, restart, clock, rendering, and notices for deterministic tests.
 export type Io = {
   check: () => Promise<Found | null>;
   relaunch: () => Promise<void>;
@@ -162,8 +127,7 @@ export type Io = {
   say: (text: string, isError?: boolean) => void;
 };
 
-/// Fases em que perguntar de novo faz sentido: ninguém está esperando download
-/// nem reinício.
+/// Allow another check only when no download or restart is pending.
 const idle = (phase: Phase) => phase.at === "quiet" || phase.at === "fresh" || phase.at === "failed";
 
 export function updater(io: Io) {
@@ -172,14 +136,10 @@ export function updater(io: Io) {
     phase = next;
     io.show(view(phase));
   };
-  /// Em que fase estamos agora — depois de um `await`, e não antes dele. O
-  /// TypeScript não vê o `go` mexer no `phase`, e continuaria acreditando na
-  /// fase de quando a espera começou.
+  /// Read the current phase after await; TypeScript cannot see asynchronous mutations performed by go().
   const at = () => phase.at;
 
-  /// `mine` é o clique seu. É o que decide o que fazer quando dá errado: se foi
-  /// o relógio de seis horas que perguntou, sem rede não é problema seu e a
-  /// linha continua dizendo o que dizia. Se foi você, você merece o motivo.
+  /// Distinguish manual checks from scheduled checks so only requested failures replace the visible status.
   const look = async (mine = false) => {
     if (!idle(phase)) return;
     const before = phase;
@@ -188,8 +148,7 @@ export function updater(io: Io) {
     try {
       update = await io.check();
     } catch (err) {
-      // Sem rede, GitHub fora do ar, manifesto ainda não publicado — nenhum
-      // deles precisa de barulho se ninguém pediu.
+      // Background network or manifest failures do not require a user-facing alert.
       go(mine ? { at: "failed", why: String(err) } : before);
       return;
     }
@@ -208,15 +167,13 @@ export function updater(io: Io) {
       await update.downloadAndInstall(progress);
       go({ at: "ready", version: update.version });
     } catch (err) {
-      // Aqui o silêncio não serve: foi você que clicou.
+      // A manual check must report its error.
       go({ at: "found", update });
       io.say(t("update.failed", { err: String(err) }), true);
     }
   };
 
-  // O bundle já foi trocado no disco, falta trocar o que está na memória.
-  // Reiniciar derruba as sessões — nenhuma sobrevive ao fechamento do app de
-  // todo modo, mas quem escolhe a hora é você.
+  // The bundle on disk is ready; explicit restart replaces the running app and ends its processes.
   const restart = async (version: string) => {
     go({ at: "restarting", version });
     try {
@@ -241,7 +198,7 @@ export function updater(io: Io) {
   return { look, click, phase: () => phase };
 }
 
-/* ---------- as duas telas ---------- */
+/* Both UI entry points. */
 
 let now: View = view({ at: "quiet" });
 let ver = "";
@@ -274,14 +231,12 @@ function paint() {
   dress(foot);
   foot.classList.toggle("ready", now.ready);
 
-  // A página de Configurações é redesenhada inteira a cada visita; a linha de
-  // antes fica órfã, e pintar nela seria pintar no vazio.
+  // Settings rebuilds its page on visits; avoid updating detached rows.
   if (!row?.isConnected) row = null;
   else paintRow(row);
 }
 
-/// A linha de Configurações. Quem monta a página pede uma; ela se redesenha
-/// sozinha enquanto estiver na tela.
+/// Create a Settings row that updates itself while connected.
 export function settingsRow(): HTMLElement {
   const el = template(
     "div",
@@ -289,8 +244,7 @@ export function settingsRow(): HTMLElement {
     `<span class="glyph">${icon("rotate", 18)}</span><div class="txt"><b></b><span></span></div><div class="act"></div>`,
   );
   el.querySelector("b")!.textContent = ver ? `Prometeu ${ver}` : "Prometeu";
-  // Ler o que vem antes de decidir baixar: só aparece quando há notas, e some
-  // sozinho na fase seguinte.
+  // Offer release notes before download, only when notes exist.
   const link = h("button", "ghost md notes") as HTMLButtonElement;
   link.addEventListener("click", () => {
     if (now.notes) openNotes(now.notes.version, now.notes.body);
@@ -298,7 +252,7 @@ export function settingsRow(): HTMLElement {
   const btn = h("button", "outline md go") as HTMLButtonElement;
   btn.addEventListener("click", () => click());
   el.querySelector(".act")!.append(link, btn);
-  // Nasce já com a fase de agora — ela é mais velha que a página.
+  // Initialize new rows from the already-current phase.
   paintRow(el);
   row = el;
   return el;
@@ -321,8 +275,7 @@ export async function init(say: Io["say"]) {
   click = () => void up.click();
 
   $("update").addEventListener("click", () => click());
-  // A primeira pergunta sai junto com o app: o primeiro estado que a linha de
-  // Configurações mostra já é verdade, em vez de um "buscar" que ninguém pediu.
+  // Check during startup so the first Settings status reflects an actual result.
   void up.look();
   setInterval(() => void up.look(), EVERY);
 }

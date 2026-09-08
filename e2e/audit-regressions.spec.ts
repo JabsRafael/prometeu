@@ -1,0 +1,171 @@
+import { expect, test, type Page } from "@playwright/test";
+
+async function boot(page: Page) {
+  await page.goto("/");
+  await expect(page.locator("#deskView")).toBeVisible();
+}
+
+async function hold(page: Page, command: string) {
+  await page.evaluate(command => {
+    type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+    const target = window as unknown as {
+      __TAURI_INTERNALS__: { invoke: Invoke };
+      auditWaiting: boolean;
+      auditRelease: (error?: string) => void;
+    };
+    const original = target.__TAURI_INTERNALS__.invoke;
+    let release!: (error?: string) => void;
+    const ready = new Promise<string | undefined>(done => { release = done; });
+    target.auditWaiting = false;
+    target.__TAURI_INTERNALS__.invoke = async (next, args) => {
+      if (next === command) {
+        target.auditWaiting = true;
+        const error = await ready;
+        if (error) throw new Error(error);
+      }
+      return original(next, args);
+    };
+    target.auditRelease = error => {
+      target.__TAURI_INTERNALS__.invoke = original;
+      release(error);
+    };
+  }, command);
+}
+async function waiting(page: Page) {
+  await expect.poll(() => page.evaluate(() => (window as unknown as { auditWaiting: boolean }).auditWaiting)).toBe(true);
+}
+async function release(page: Page, error?: string) {
+  await page.evaluate(error => (window as unknown as { auditRelease: (error?: string) => void }).auditRelease(error), error);
+}
+
+async function openFile(page: Page, path: string) {
+  await page.locator("#tree .treerow", { hasText: path }).click();
+  await expect(page.locator("#vcrumb")).toContainText(path);
+}
+
+async function openEditor(page: Page) {
+  await boot(page);
+  await page.locator("#railbody .navitem.sub .lbl").getByText("Ola", { exact: true }).click();
+  await page.locator("#tab-files").click();
+  await openFile(page, "CLAUDE.md");
+}
+
+test("file saving preserves edits made while the write is pending", async ({ page }) => {
+  await openEditor(page);
+  await page.locator("#vtext").fill("submitted text");
+  await hold(page, "write_file");
+  await page.locator("#vsave").click();
+  await waiting(page);
+  await expect(page.locator("#vsave")).toBeDisabled();
+  await page.locator("#vtext").fill("newer draft");
+  await release(page);
+  await expect(page.locator("#vsave")).toBeEnabled();
+  await expect(page.locator("#vtext")).toHaveValue("newer draft");
+  await openFile(page, ".gitignore");
+  await openFile(page, "CLAUDE.md");
+  await expect(page.locator("#vtext")).toHaveValue("newer draft");
+  await page.locator("#vsave").click();
+  await expect(page.locator("#vsave")).toBeHidden();
+});
+
+test("finishing a save preserves another file's selection and draft", async ({ page }) => {
+  await openEditor(page);
+  await page.locator("#vtext").fill("submitted text");
+  await hold(page, "write_file");
+  await page.locator("#vsave").click();
+  await waiting(page);
+  await openFile(page, ".gitignore");
+  await page.locator("#vtext").fill("other file draft");
+  await release(page);
+  await expect(page.locator("#vcrumb")).toContainText(".gitignore");
+  await expect(page.locator("#vtext")).toHaveValue("other file draft");
+  await openFile(page, "CLAUDE.md");
+  await openFile(page, ".gitignore");
+  await expect(page.locator("#vtext")).toHaveValue("other file draft");
+});
+
+test("file saving preserves rejected edits and clears a rejected undo-to-original draft", async ({ page }) => {
+  await openEditor(page);
+  const original = await page.locator("#vtext").inputValue();
+  await page.locator("#vtext").fill("submitted text");
+  await hold(page, "write_file");
+  await page.locator("#vsave").click();
+  await waiting(page);
+  await page.locator("#vtext").fill("newer draft");
+  await release(page, "write rejected");
+  await expect(page.locator("#vsave")).toBeEnabled();
+  await openFile(page, ".gitignore");
+  await openFile(page, "CLAUDE.md");
+  await expect(page.locator("#vtext")).toHaveValue("newer draft");
+
+  await hold(page, "write_file");
+  await page.locator("#vsave").click();
+  await waiting(page);
+  await page.locator("#vtext").fill(original);
+  await release(page, "write rejected");
+  await expect(page.locator("#msg")).toContainText("write rejected");
+  await expect(page.locator("#vsave")).toBeHidden();
+  await expect(page.locator("#vcrumb")).not.toHaveClass(/\bdirty\b/);
+});
+
+test("file saving retains undo-to-original as a draft after a successful pending write", async ({ page }) => {
+  await openEditor(page);
+  const original = await page.locator("#vtext").inputValue();
+  await page.locator("#vtext").fill("submitted text");
+  await hold(page, "write_file");
+  await page.locator("#vsave").click();
+  await waiting(page);
+  await page.locator("#vtext").fill(original);
+  await release(page);
+  await expect(page.locator("#vsave")).toBeEnabled();
+  await openFile(page, ".gitignore");
+  await openFile(page, "CLAUDE.md");
+  await expect(page.locator("#vtext")).toHaveValue(original);
+  await page.locator("#vsave").click();
+  await expect(page.locator("#vsave")).toBeHidden();
+});
+
+test("file saving keeps the selected draft when an older file read finishes", async ({ page }) => {
+  await openEditor(page);
+  await page.locator("#vtext").fill("selected draft");
+  await hold(page, "read_file");
+  await page.locator("#tree .treerow", { hasText: ".gitignore" }).click();
+  await waiting(page);
+  await page.locator('#tabbar .tab').filter({ hasText: "CLAUDE.md" }).click();
+  await release(page);
+  await expect(page.locator("#vcrumb")).toContainText("CLAUDE.md");
+  await expect(page.locator("#vtext")).toHaveValue("selected draft");
+});
+
+test("cleanup keeps its dialog open while deleting worktrees", async ({ page }) => {
+  await boot(page);
+  await page.getByRole("button", { name: /^Arquivados/ }).click();
+  await page.locator("#aclean").click();
+  const dialog = page.locator("dialog.clean");
+  await expect(dialog.locator("#c-go")).toBeEnabled();
+  await hold(page, "cleanup_worktree");
+  await dialog.locator("#c-go").click();
+  await waiting(page);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("form")).toHaveAttribute("aria-busy", "true");
+  await release(page);
+  await expect(dialog).toHaveCount(0);
+});
+
+test("legacy import keeps its dialog open while importing", async ({ page }) => {
+  await boot(page);
+  await page.locator("#settings").click();
+  await page.locator(".setnavitem", { hasText: "Aplicativo" }).click();
+  await page.locator(".setrow", { hasText: "Migrar do Prometheus" }).getByText("Revisar", { exact: true }).click();
+  const dialog = page.locator("dialog.migration");
+  await dialog.locator(".migration-check input").check();
+  await hold(page, "legacy_import_run");
+  await dialog.getByRole("button", { name: "Importar", exact: true }).click();
+  await waiting(page);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("form")).toHaveAttribute("aria-busy", "true");
+  await release(page);
+  await expect(dialog).toHaveCount(0);
+});

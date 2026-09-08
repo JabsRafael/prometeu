@@ -1,11 +1,7 @@
 import { marked, type Tokens } from "marked";
 import { diffHtml, highlight } from "./highlight";
 
-/// O que o agente escreve é markdown, e é assim que a tela o mostra. O
-/// `marked` faz a conta; aqui só o que é deste app: HTML cru que o texto
-/// trouxer vira texto (o agente não desenha na nossa tela), código passa pelo
-/// mesmo colorizador do viewer, e link não navega — a janela é o app, não um
-/// navegador.
+/// Use marked for agent markdown, escaping raw HTML, sharing syntax highlighting with the viewer, and intercepting links to preserve the application window.
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -18,7 +14,7 @@ const safeHref = (href: string) => {
   }
 };
 
-/// O nome que o `highlight` entende, a partir do que veio depois do ```.
+/// Normalize fenced-code language names for highlight().
 const LANG: Record<string, string> = {
   typescript: "ts", javascript: "js", rust: "rs", python: "py", shell: "sh", bash: "sh", zsh: "sh",
   ruby: "rb", yml: "yaml", jsonc: "json", console: "sh", text: "txt", plaintext: "txt",

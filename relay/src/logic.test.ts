@@ -41,7 +41,7 @@ const one = <T extends Down["t"]>(fx: Effect[], sock: string, t: T) =>
 const puts = (fx: Effect[]) => fx.filter((f) => f.e === "put").map((f) => (f as Extract<Effect, { e: "put" }>).key);
 const dels = (fx: Effect[]) => fx.filter((f) => f.e === "del").map((f) => (f as Extract<Effect, { e: "del" }>).key);
 
-/// Alice e Bob conectados, Alice compartilhando `ws1`.
+/// Alice and Bob are connected; Alice shares `ws1`.
 function team(): State {
   const s = empty();
   reduce(s, open("a1", "alice"));
@@ -194,15 +194,15 @@ describe("compartilhar e olhar", () => {
     expect(got.share.online).toBe(false);
     expect(puts(gone)).toContain("share:ws1");
 
-    // Voltar já põe o share de pé — e avisa quem estava olhando —, sem
-    // esperar o dono reanunciar: o terminal volta a andar na mesma hora.
+    // Reconnecting immediately restores the share and notifies viewers, without waiting for the owner to
+    // advertise it again.
     const back = reduce(s, open("a2", "alice"));
     const welcome = one(back, "a2", "welcome")!;
     expect(welcome.shares[0].online).toBe(true);
     expect(welcome.watching).toEqual({ ws1: { t1: ["bob"] } });
     expect(one(back, "b1", "share")!.share.online).toBe(true);
     expect(puts(back)).toContain("share:ws1");
-    // Reanunciar depois não repete o aviso à toa.
+    // Readvertising the same share must not duplicate the notification.
     const again = reduce(s, text("a2", { t: "share", share: share() }));
     expect(one(again, "b1", "share")!.share.online).toBe(true);
   });
@@ -232,7 +232,7 @@ describe("compartilhar e olhar", () => {
 });
 
 describe("audiência", () => {
-  /// Alice, Bob e Carol conectados; Alice compartilha `ws1` só com Bob.
+  /// Alice, Bob and Carol are connected; Alice shares `ws1` only with Bob.
   function trio(): State {
     const s = empty();
     reduce(s, open("a1", "alice"));
@@ -383,7 +383,7 @@ describe("notas", () => {
     expect(s.inbox.get("bob")?.map((item) => item.id)).toEqual([root.id]);
     expect(s.inbox.get("carol")?.map((item) => item.id)).toEqual([root.id]);
 
-    // Pedir a thread ao abrir não altera a caixa.
+    // Opening a thread does not change the inbox.
     reduce(s, text("a1", { t: "notes", ws: "ws1" }));
     expect(s.inbox.get("alice")?.map((item) => item.id)).toEqual([root.id]);
 
@@ -492,7 +492,7 @@ describe("acordar do storage", () => {
     const s = team();
     reduce(s, text("b1", { t: "note", ws: "ws1", text: "@alice oi", mentions: ["alice"], quote: null }, "n1"));
     const rows: [string, unknown][] = [];
-    // O que os efeitos gravaram, na forma em que o storage devolveria.
+    // Reconstruct stored values from persistence effects.
     rows.push(["member:alice", { id: "alice", name: "alice", last_seen: NOW }]);
     rows.push(["member:bob", { id: "bob", name: "bob", last_seen: NOW }]);
     rows.push(["share:ws1", s.shares.get("ws1")]);

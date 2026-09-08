@@ -5,34 +5,21 @@ import { current as locale, t, type Key } from "./i18n";
 import { md } from "./markdown";
 import { h, template } from "./util";
 
-/// O que mudou no app, dentro do app. Até aqui a única forma de saber era abrir
-/// a página de releases no navegador — e ninguém abre.
-///
-/// A fonte é o `CHANGELOG.md` deste repositório, o mesmo arquivo de onde o CI
-/// tira o corpo de cada release. Ele entra no bundle como texto (`?raw`), então
-/// a lista existe sem rede, sem API do GitHub e sem depender de ter atualizado
-/// pelo app — quem instalou pelo `.dmg` vê a mesma coisa. Em troca, ele só
-/// conta até a versão instalada, que é exatamente o que se quer saber aqui.
-///
-/// Aparece em dois momentos: sozinho, uma vez, quando o app abre numa versão
-/// mais nova do que a última que você viu; e em Configurações, sempre, com o
-/// histórico inteiro.
+/// Bundle CHANGELOG.md, the same source CI uses for releases, so release history works offline and for DMG installs. Show unseen installed versions once at startup; Settings always offers the full bundled history.
 
 export type Release = { version: string; date: string; body: string };
 
-/// A versão instalada. Sem ela não dá para saber o que é novidade, então tudo
-/// que a usa espera o `init`.
+/// Version-dependent UI waits for init to identify the installed release.
 let version = "";
 
-/// Onde fica a última versão cujas novidades você já viu. Neste Mac e em mais
-/// lugar nenhum, como o idioma.
+/// Store the last viewed release locally, like the language preference.
 const KEY = "prometeu:novidades";
 const seen = () => localStorage.getItem(KEY);
 const markSeen = (v: string) => localStorage.setItem(KEY, v);
 
-/* ---------- ler o changelog ---------- */
+/* Changelog parsing. */
 
-/// O cabeçalho de uma versão no arquivo do git-cliff: `## [0.4.8] - 2026-08-31`.
+/// A git-cliff release heading, such as ## [0.4.8] - 2026-08-31.
 const HEAD = /^## \[(\d[^\]]*)\](?:\s*-\s*(\S+))?\s*$/;
 
 export function parse(src: string): Release[] {
@@ -47,14 +34,11 @@ export function parse(src: string): Release[] {
       at.body += `${line}\n`;
     }
   }
-  // O preâmbulo do arquivo não é versão nenhuma, e versão sem corpo não tem o
-  // que mostrar.
+  // Ignore the preamble and releases without content.
   return out.map((r) => ({ ...r, body: r.body.trim() })).filter((r) => r.body);
 }
 
-/// Qual das duas é a mais nova. Só as três partes do número: no 0.x não existe
-/// pré-lançamento, e o que vier depois de um `-` não muda a ordem de nada que
-/// esteja neste arquivo.
+/// Compare the three numeric components; this 0.x changelog does not contain prereleases.
 export function cmp(a: string, b: string): number {
   const pa = a.split(".");
   const pb = b.split(".");
@@ -65,21 +49,14 @@ export function cmp(a: string, b: string): number {
   return 0;
 }
 
-/// O que contar agora: as versões que saíram depois da última que você viu, até
-/// a que está instalada.
-///
-/// Sem nada guardado — instalação nova, ou a primeira vez que o app tem esta
-/// tela — mostra só a versão de agora. O histórico inteiro na cara de quem
-/// acabou de instalar seria uma parede; quem quiser está em Configurações.
+/// Show releases newer than the last viewed version, through the installed version. Fresh installs see only the current release; Settings offers older history.
 export function unseen(all: Release[], current: string, from: string | null): Release[] {
   const upTo = all.filter((r) => cmp(r.version, current) <= 0);
   if (!from) return upTo.slice(0, 1);
   return upTo.filter((r) => cmp(r.version, from) > 0);
 }
 
-/// Os títulos que o git-cliff escreve em português (`cliff.toml`). O que está
-/// escrito nos commits é conteúdo e fica como está — estes três são tela, e a
-/// tela fala o idioma de quem lê.
+/// Translate git-cliff section headings from cliff.toml; preserve commit descriptions as content.
 const SECTIONS: Record<string, Key> = {
   Novidades: "news.sec.feat",
   Correções: "news.sec.fix",
@@ -97,14 +74,13 @@ export function localize(body: string): string {
   });
 }
 
-/// Tudo que este bundle sabe contar, da mais nova para a mais velha.
+/// All bundled releases, newest first.
 export const all = (): Release[] =>
   parse(changelog).filter((r) => !version || cmp(r.version, version) <= 0);
 
-/* ---------- a folha ---------- */
+/* Dialog. */
 
-/// A data como quem lê. Data quebrada não vira "Invalid Date" na tela: some, e
-/// a versão continua lá.
+/// Hide invalid dates while retaining the release entry.
 function when(date: string): string {
   const at = new Date(`${date}T00:00:00`);
   if (!date || Number.isNaN(at.getTime())) return "";
@@ -131,8 +107,7 @@ export function openNews(releases: Release[], sub: string) {
     const head = template("div", "newsver", `<b></b><span></span>`);
     head.children[0].textContent = `v${rel.version}`;
     head.children[1].textContent = when(rel.date);
-    // O corpo é markdown gerado pelo nosso CI, mas passa pelo mesmo `md` da
-    // conversa: HTML cru vira texto e link nenhum navega.
+    // Render CI markdown through the conversation renderer, which escapes raw HTML and intercepts links.
     box.append(head, template("div", "md", md(localize(rel.body))));
     list.append(box);
   }
@@ -159,15 +134,14 @@ export function openNews(releases: Release[], sub: string) {
   close.focus();
 }
 
-/// As notas de uma versão que ainda não está aqui: é o que o updater tem em
-/// mãos quando encontra uma atualização, antes de baixar.
+/// Show updater release notes before the new version is installed.
 export function openNotes(next: string, body: string) {
   openNews([{ version: next, date: "", body }], t("news.sub.next", { version: `v${next}` }));
 }
 
-/* ---------- os dois lugares ---------- */
+/* Entry points. */
 
-/// A linha de Configurações: o histórico inteiro, sempre à mão.
+/// Settings always exposes the full release history.
 export function settingsRow(): HTMLElement {
   const row = template(
     "div",
@@ -184,13 +158,7 @@ export function settingsRow(): HTMLElement {
   return row;
 }
 
-/// No boot: se o app abriu numa versão mais nova do que a última que você viu,
-/// conte o que entrou. Uma vez por versão.
-///
-/// A versão é marcada como vista ao abrir a folha, e não ao fechá-la: fechar
-/// tem mais de um caminho (o botão, o Esc, o Esc do app), e uma folha que
-/// volta amanhã porque você a fechou "errado" é pior do que uma que você não
-/// leu.
+/// Show newly installed releases once at startup. Mark them seen on opening so every dismissal path behaves consistently.
 export async function init() {
   version = await getVersion();
   const fresh = unseen(all(), version, seen());

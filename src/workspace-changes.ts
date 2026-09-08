@@ -4,7 +4,7 @@ import { current as language, fromBack, t, type Key } from "./i18n";
 import { $, h, template } from "./util";
 import * as diff from "./diff";
 import * as menu from "./menu";
-import type { GitAction, GitBranch, GitCommit, GitConflict, GitDiff, GitFile, GitStatus, RepoDiff, Workspace } from "./types";
+import type { GitAction, GitConflict, GitFile, GitStatus, RepoDiff, Workspace } from "./types";
 
 type Mode = "changes" | "branches" | "history" | "compare" | "commit" | "conflict";
 type Selection = { path: string; scope: "staged" | "changes" | "conflict" };
@@ -22,9 +22,7 @@ let context: Context;
 const views = new Map<string, View>();
 const data = new Map<string, GitStatus[]>();
 let busy = false, ticket = 0, sidebarSignature = "", editorSignature = "";
-/// O arquivo a rolar até no próximo desenho: clicar na lista é andar no diff
-/// empilhado, não trocar de tela. Fica vazio nos redesenhos do quadro, para a
-/// rolagem de quem está lendo não voltar sozinha a cada evento do agente.
+/// Remember a requested file scroll only for explicit navigation. Board redraws must preserve the reader's current position.
 let pendingFocus = "";
 let review: RepoDiff[] = [];
 
@@ -120,7 +118,7 @@ function selectFile(file: GitFile, scope: Selection["scope"]) {
   const stay = scope !== "conflict" && view.mode === "changes" && view.selection?.scope === scope;
   view.selection = { path: file.path, scope };
   pendingFocus = scope === "conflict" ? "" : file.path;
-  // Mesmo escopo, mesma tela: o diff já está montado, então só a rolagem anda.
+  // Reuse the mounted diff when the scope is unchanged; only scroll.
   if (stay) { drawSidebar(); void drawEditor(); return; }
   show(scope === "conflict" ? "conflict" : "changes");
 }
@@ -302,7 +300,7 @@ async function drawEditor() {
   try {
     if (mode === "branches") {
       if (editorSignature === `${ws.id}/${view.repo}/branches`) return;
-      const branches = await invoke<GitBranch[]>("workspace_git_branches", args); if (!valid()) return;
+      const branches = await invoke("workspace_git_branches", args); if (!valid()) return;
       heading(t("git.branches"));
       const box = h("div", "git-page"), search = h("input", "git-search") as HTMLInputElement;
       search.placeholder = t("git.branch.search"); search.setAttribute("aria-label", t("git.branch.search"));
@@ -325,7 +323,7 @@ async function drawEditor() {
       host.replaceChildren(box); editorSignature = `${ws.id}/${view.repo}/branches`; return;
     }
     if (mode === "history") {
-      const history = await invoke<GitCommit[]>("workspace_git_history", args); if (!valid()) return;
+      const history = await invoke("workspace_git_history", args); if (!valid()) return;
       const signature = JSON.stringify([args, mode, history]); if (signature === editorSignature) return;
       heading(t("git.history")); const box = h("div", "git-page");
       box.append(h("p", "git-hint", `${repo.branch ?? t("git.detached")} · ${t("git.history.limit")}`));
@@ -348,7 +346,7 @@ async function drawEditor() {
         $("dcrumb").append(base, button(t("git.compare"), apply));
       }
       if (!repo.has_head) { host.replaceChildren(h("div", "none", t("git.history.empty"))); return; }
-      const result = await invoke<GitDiff>("workspace_git_diff", { ...args, scope: mode, path: null, reference: view.reference || null }); if (!valid()) return;
+      const result = await invoke("workspace_git_diff", { ...args, scope: mode, path: null, reference: view.reference || null }); if (!valid()) return;
       const signature = JSON.stringify([args, mode, view.reference, result]);
       const caption = mode === "compare" ? t("git.compare.scope", { base: view.reference || repo.base }) : `${t("git.saved")} · ${result.head.slice(0, 7)}`;
       $("dcrumb").title = caption;
@@ -366,7 +364,7 @@ async function drawEditor() {
       const selected = view.selection;
       const signature = `${ws.id}/${view.repo}/conflict/${selected.path}`;
       if (signature === editorSignature) return;
-      const result = await invoke<GitConflict>("workspace_git_conflict", { ...args, path: selected.path }); if (!valid()) return;
+      const result = await invoke("workspace_git_conflict", { ...args, path: selected.path }); if (!valid()) return;
       const draftKey = `${args.repo}/${selected.path}`;
       let draft = view.conflicts.get(draftKey);
       if (!draft) { draft = { source: result, text: result.current }; view.conflicts.set(draftKey, draft); }
@@ -400,11 +398,10 @@ async function drawEditor() {
     if (!repo.staged.length && !repo.changes.length) {
       host.replaceChildren(h("div", "git-clean", t("git.clean")), h("p", "git-clean-hint", t("git.clean.hint"))); editorSignature = ""; return;
     }
-    // O stage e o local são dois diffs diferentes do mesmo arquivo, então a
-    // tela mostra um escopo por vez — o do arquivo escolhido na lista.
+    // Staged and working-tree changes are separate scopes; show the scope of the selected file.
     const scope = view.selection?.scope === "staged" || !repo.changes.length ? "staged" : "changes";
     const group = scope === "staged" ? repo.staged : repo.changes;
-    const result = await invoke<GitDiff>("workspace_git_diff", { ...args, scope, path: null, reference: null }); if (!valid()) return;
+    const result = await invoke("workspace_git_diff", { ...args, scope, path: null, reference: null }); if (!valid()) return;
     const signature = JSON.stringify([args, scope, result]);
     $("dcrumb").append(h("span", "git-review-scope git-scope-badge", t(scope === "staged" ? "git.scope.staged" : "git.scope.changes")));
     $("dcrumb").append(button(t(scope === "staged" ? "git.unstageAll" : "git.stageAll"), () => void act(scope === "staged" ? "unstage" : "stage", group.map(file => file.path)), busy || !!repo.error || !group.length));

@@ -1,37 +1,9 @@
-//! O hub de MCP: quais servidores esta máquina conhece, e quais entram em cada
-//! sessão.
-//!
-//! Um servidor de MCP é uma ferramenta a mais na mão do agente — o Notion, o
-//! Metabase, o design system. Até aqui quem decidia isso era o CLI: o que
-//! estivesse no `~/.claude.json` entrava em toda conversa, em todo workspace,
-//! sempre. Duas contas ruins vinham daí. A janela de contexto: uma dúzia de
-//! servidores é um catálogo de ferramentas que o agente lê a cada turno, mesmo
-//! sem usar nenhuma (o `context.ts` mostra a conta). E o alcance: o agente
-//! roda solto, e um workspace de Rails não precisa poder escrever no Notion.
-//!
-//! O hub é a lista de servidores que o Prometeu guarda, e a escolha é do
-//! workspace — como o modelo e o esforço já são. Na hora de subir a conversa,
-//! os escolhidos viram um arquivo e o `claude` recebe `--mcp-config` mais
-//! `--strict-mcp-config`: a sessão vê exatamente o que foi marcado, e mais
-//! nada. Sem escolha nenhuma (`None`, que é todo workspace criado antes disto)
-//! nada é passado, e vale o que o CLI sempre fez.
-//!
-//! O arquivo gerado tem segredo dentro (chave de API, header de autorização),
-//! e por isso é `write_private` — `0600`, em `~/.prometeu`. É também o motivo
-//! de ser arquivo e não texto no comando: argumento de processo qualquer um lê
-//! com `ps`, e `--mcp-config` aceita os dois.
-//!
-//! O cadastro não começa vazio: `mcp_found` lê o que já está configurado no
-//! `~/.claude.json` (o do usuário e o de cada projeto) e no `.mcp.json` de cada
-//! repositório, e oferece para importar. Ninguém recadastra o que já tem.
-//!
-//! O que o hub não faz: OAuth. Servidor remoto que pede consentimento entra por
-//! `mcp_auth.rs`, que faz o OAuth e guarda o token.
-//!
-//! A escolha vale nos dois agentes. O Claude Code recebe `--mcp-config` e
-//! `--strict-mcp-config`; o Codex não tem isso, e recebe a mesma lista como
-//! `-c mcp_servers={…}` — ver `codex_config`, que é onde as duas formas de
-//! dizer a mesma coisa se separam.
+//! The MCP hub stores known servers and workspace selections. Explicit selections restrict
+//! available tools, reducing context cost and unnecessary access; None preserves CLI defaults.
+//! Claude receives a private 0600 config file with strict selection, while Codex receives a
+//! configuration override and protected secrets. Never place secrets in process arguments. Discover
+//! existing user/project CLI configuration for read-only import; mcp_auth owns OAuth and token
+//! refresh.
 
 use crate::i18n;
 use crate::mcp_auth;
@@ -43,35 +15,30 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// Um servidor como o hub o guarda. `config` é o objeto do `mcpServers` como o
-/// Claude Code o entende — guardado inteiro, e não em campos nossos, porque a
-/// forma é dele: um `type` novo do CLI passa por aqui sem release do
-/// Prometeu.
+/// Store each server's full mcpServers configuration object so new CLI-supported fields do not
+/// require an app release.
 #[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 pub struct Server {
-    /// O nome do servidor, que é a chave dentro de `mcpServers` e o prefixo de
-    /// toda ferramenta que ele oferece (`mcp__notion__…`).
+    /// The server name is its mcpServers key and the prefix of exported tool names.
     pub id: String,
     pub config: Value,
-    /// De onde veio, ou para que serve. Livre — é a linha embaixo do nome.
+    /// Free-form source or purpose shown below the server name.
     #[serde(default)]
     pub note: String,
 }
 
-/// Onde o cadastro mora. Tem chave de API dentro, então é dos arquivos que só
-/// o dono lê.
+/// Persist the registry privately because configurations may contain API keys.
 fn hub_path() -> PathBuf {
     paths::root().join("mcp.json")
 }
 
-/// O arquivo que uma sessão recebe. Um por aba: a escolha é do workspace, mas
-/// quem sobe processo é a aba, e duas abas subindo ao mesmo tempo não podem
-/// disputar o mesmo nome.
+/// Use one generated config file per tab so simultaneous launches cannot overwrite each other's
+/// input.
 fn session_path(id: &str) -> PathBuf {
     paths::root().join("mcp").join(format!("{id}.json"))
 }
 
-/// O arquivo de variáveis de um servidor stdio no Codex. Ver `codex_config`.
+/// Private environment file for a Codex stdio server; see codex_config.
 fn codex_env_path(id: &str, server: &str) -> PathBuf {
     paths::root()
         .join("mcp")
@@ -91,16 +58,14 @@ pub(crate) fn store(servers: &[Server]) -> Result<(), String> {
         .map_err(|cause| i18n::ta("err.mcp.save", &[("cause", cause)]))
 }
 
-/// O cadastro inteiro, para a tela de Configurações e para os seletores.
+/// Expose the registry to settings and selectors.
 #[tauri::command(async)]
 pub fn mcp_hub() -> Vec<Server> {
     let _sync = crate::catalog::guard();
     load()
 }
 
-/// Grava um servidor — novo, ou por cima do que tinha o mesmo nome. O nome é a
-/// identidade: é ele que o agente vê no prefixo das ferramentas, e dois
-/// servidores com o mesmo nome numa sessão seriam um só.
+/// Save or replace a server by name, which is also its tool-prefix identity within a session.
 #[tauri::command(async)]
 pub fn mcp_save(
     app: tauri::AppHandle,
@@ -137,15 +102,14 @@ pub fn mcp_remove(app: tauri::AppHandle, id: String) -> Result<Vec<Server>, Stri
     Ok(servers)
 }
 
-/// O que dá para importar: o que já está configurado nos arquivos do CLI e
-/// ainda não está no hub. Não mexe em arquivo nenhum do usuário — só lê.
+/// Discover importable CLI configuration absent from the hub without modifying user files.
 #[tauri::command]
 pub fn mcp_found() -> Vec<Server> {
     let known = load();
     let mut found: Vec<Server> = Vec::new();
     for server in from_claude_json().into_iter().chain(from_repo_files()) {
-        // Já cadastrado, ou já visto neste mesmo varrimento com a mesma
-        // configuração: o `capim-ds` de três projetos é um servidor só.
+        // Deduplicate identical named configurations across registered entries and discovered
+        // projects.
         if known.iter().any(|s| s.id == server.id)
             || found
                 .iter()
@@ -153,8 +117,8 @@ pub fn mcp_found() -> Vec<Server> {
         {
             continue;
         }
-        // Mesmo nome, configuração diferente (o `whatsapp` local e o de
-        // produção): os dois cabem, mas não com o mesmo nome.
+        // Keep different configurations with the same original name by assigning distinct import
+        // names.
         let clash = found.iter().any(|s| s.id == server.id);
         let id = match (clash, server.note.trim()) {
             (true, origin) if !origin.is_empty() => format!("{}-{}", server.id, slug(origin)),
@@ -166,8 +130,7 @@ pub fn mcp_found() -> Vec<Server> {
     found
 }
 
-/// Um nome de origem virando sufixo de nome de servidor: o agente vê isto no
-/// prefixo de cada ferramenta, então só o que passa em qualquer lugar.
+/// Sanitize source labels into suffixes valid in server and tool names.
 fn slug(text: &str) -> String {
     let cleaned: String = text
         .chars()
@@ -182,11 +145,9 @@ fn slug(text: &str) -> String {
     cleaned.trim_matches('-').replace("--", "-")
 }
 
-/// O `~/.claude.json`: o `mcpServers` do usuário, e o de cada projeto que ele
-/// guarda lá dentro. O nome do projeto (a última pasta do caminho) vira a
-/// origem, que é o que a tela mostra e o que desempata nome repetido. Origem
-/// vazia é o cadastro do usuário — o back não escreve frase, e "do usuário" é
-/// frase; quem a escreve é a tela.
+/// Read user and project mcpServers from ~/.claude.json. Use the final project path component for
+/// source labels and name collisions; an empty source represents user configuration for the
+/// frontend to label.
 fn from_claude_json() -> Vec<Server> {
     let path = paths::home().join(".claude.json");
     let Some(root) = read_json(&path) else {
@@ -205,8 +166,7 @@ fn from_claude_json() -> Vec<Server> {
     out
 }
 
-/// O `.mcp.json` na raiz de cada repositório que o `~/.claude.json` conhece —
-/// o cadastro que o time versiona junto do código.
+/// Read versioned .mcp.json files from repositories listed in ~/.claude.json.
 fn from_repo_files() -> Vec<Server> {
     let path = paths::home().join(".claude.json");
     let Some(root) = read_json(&path) else {
@@ -233,8 +193,7 @@ fn read_json(path: &Path) -> Option<Value> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
 
-/// O `mcpServers` de um objeto qualquer — a raiz do `~/.claude.json`, um
-/// projeto dele, ou um `.mcp.json`.
+/// Extract mcpServers from a user, project, or repository configuration object.
 fn servers_in(value: &Value, origin: &str) -> Vec<Server> {
     value
         .get("mcpServers")
@@ -253,19 +212,15 @@ fn servers_in(value: &Value, origin: &str) -> Vec<Server> {
         .unwrap_or_default()
 }
 
-/// O arquivo que vai no `--mcp-config` desta aba, quando o workspace escolheu.
-/// `None` é workspace que nunca escolheu — e aí nada é passado, que é o que o
-/// app fazia antes disto existir.
-///
-/// Escolher e marcar nenhum é escolha: o arquivo sai vazio, e com o
-/// `--strict-mcp-config` do lado é uma sessão sem MCP nenhum.
+/// Generate a Claude session config only for explicit selections. None preserves CLI defaults; an
+/// empty list still generates an empty file for strict MCP exclusion.
 pub fn config_for(id: &str, chosen: Option<&Vec<String>>) -> Result<Option<PathBuf>, String> {
     let Some(chosen) = chosen else {
         return Ok(None);
     };
     let path = session_path(id);
-    // O token entra aqui, e não no cadastro: é neste instante que ele é
-    // renovado, e é este arquivo que a sessão vai ler. Ver `mcp_auth.rs`.
+    // Refresh OAuth tokens while materializing session configuration, without persisting them in
+    // the registry; see mcp_auth.rs.
     let body = serde_json::to_string_pretty(&config_body(&load(), chosen, mcp_auth::bearer))
         .map_err(|e| e.to_string())?;
     paths::write_private(&path, &body)
@@ -273,12 +228,8 @@ pub fn config_for(id: &str, chosen: Option<&Vec<String>>) -> Result<Option<PathB
     Ok(Some(path))
 }
 
-/// O conteúdo do arquivo: os escolhidos que o hub ainda tem, na forma que o
-/// CLI espera. Servidor apagado do hub depois de escolhido some da sessão em
-/// vez de derrubá-la — o que o agente perde é uma ferramenta, e dizer isso é
-/// trabalho da tela, não motivo para a conversa não subir.
-/// `bearer` é quem sabe o token de cada servidor — parâmetro, e não chamada
-/// direta, para o teste desta função não depender de arquivo nenhum.
+/// Include selected servers still present in the hub, skipping deleted entries for compatibility.
+/// Inject token lookup so configuration tests do not require disk state.
 fn config_body(
     hub: &[Server],
     chosen: &[String],
@@ -290,8 +241,8 @@ fn config_body(
             continue;
         };
         let mut config = server.config.clone();
-        // Quem entrou pelo OAuth entra na sessão com o cabeçalho pronto: o
-        // `claude` não sabe (nem precisa saber) que houve login.
+        // Inject the OAuth bearer header so the CLI can use an authenticated server without owning
+        // the login flow.
         if let Some(token) = bearer(&server.id) {
             if let Some(object) = config.as_object_mut() {
                 let mut headers = object
@@ -308,29 +259,12 @@ fn config_body(
     json!({ "mcpServers": servers })
 }
 
-/* ---------- o mesmo conjunto, do jeito do Codex ---------- */
+/* Codex configuration */
 
-/// O Codex não lê `--mcp-config`: o cadastro dele é um `mcp_servers` no
-/// `config.toml`, e o que o app pode fazer é sobrescrevê-lo na linha de
-/// comando (`-c mcp_servers={…}`), do mesmo jeito que o nomeador já faz para
-/// rodar sem MCP nenhum. Sobrescrever a tabela inteira é o que dá aqui o mesmo
-/// que o `--strict-mcp-config` dá lá: a sessão vê o que foi marcado, e o
-/// `~/.codex/config.toml` não entra por baixo.
-///
-/// Devolve a tabela e as variáveis de ambiente que o processo do Codex precisa
-/// ter. As variáveis existem por um motivo: **segredo não vai em argumento de
-/// processo**, que qualquer um lê com `ps`.
-///
-///   - servidor remoto: `env_http_headers` diz "este cabeçalho vem desta
-///     variável", e o valor viaja no ambiente. Vale para o token do OAuth e
-///     para o cabeçalho que a pessoa digitou;
-///   - servidor que roda aqui: o `env` do Codex é literal, e o valor cairia no
-///     argumento. Então o comando vira `sh -c '. arquivo && exec "$@"'` com um
-///     arquivo `0600` — o caminho vai no argumento, o segredo não. Sem variável
-///     nenhuma (o caso comum) o comando vai direto, sem `sh` no meio.
-///
-/// `None` é workspace que nunca escolheu: nada é imposto, e o Codex segue com o
-/// cadastro dele.
+/// Override Codex's complete mcp_servers table for explicit selections, preserving its defaults for
+/// None. Remote headers reference process environment variables. Stdio secrets use a private 0600
+/// environment file sourced by a shell wrapper before exec. Commands without environment overrides
+/// run directly. Secrets must never appear in process arguments.
 pub type CodexMcp = (String, Vec<(String, String)>);
 
 pub fn codex_config(id: &str, chosen: Option<&Vec<String>>) -> Result<Option<CodexMcp>, String> {
@@ -383,8 +317,7 @@ fn pairs(value: Option<&Value>) -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
-/// O nome da variável que carrega um cabeçalho até o Codex. Só maiúsculas e
-/// `_`: é o que um nome de variável aceita em qualquer shell.
+/// Generate portable uppercase environment-variable names for header values.
 fn env_var_name(server: &str, header: &str) -> String {
     format!(
         "PROMETEU_MCP_{}_{}",
@@ -433,8 +366,8 @@ fn local_entry(id: &str, server: &Server) -> Result<String, String> {
             .collect::<String>();
         paths::write_private(&path, &body)
             .map_err(|cause| i18n::ta("err.mcp.session", &[("cause", cause)]))?;
-        // `"$@"` recebe o comando e os argumentos como estão: nada precisa ser
-        // citado dentro do script, e `exec` faz o `sh` desaparecer do caminho.
+        // Pass the original command and arguments through "$@" without additional interpolation;
+        // exec replaces the wrapper shell.
         let script = format!(". '{}' && exec \"$@\"", path.display());
         let mut wrapped = vec![
             "-c".to_string(),
@@ -453,9 +386,7 @@ fn local_entry(id: &str, server: &Server) -> Result<String, String> {
     Ok(format!("{{command={},args=[{args}]}}", toml_str(&command)))
 }
 
-/// Uma string TOML entre aspas. À mão porque é isto: o que vai dentro é
-/// caminho, nome e argumento — e escapar os dois caracteres que importam é
-/// menos do que uma dependência a mais.
+/// Quote TOML strings for configuration values without introducing another dependency.
 fn toml_str(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
@@ -474,43 +405,31 @@ fn toml_str(s: &str) -> String {
     out
 }
 
-/// Uma chave TOML. Nome de servidor e de cabeçalho podem ter `-` e `.`, então
-/// vai sempre entre aspas — é sempre válido.
+/// Always quote TOML keys so server and header names containing dots or hyphens remain literal.
 fn toml_key(s: &str) -> String {
     toml_str(s)
 }
 
-/* ---------- examinar um servidor ---------- */
+/* Server inspection */
 
-/// O que o exame descobriu. É o Prometeu falando com o servidor, e não o
-/// `claude` — o que se quer saber é se o cadastro está certo, e um agente no
-/// meio só somaria um jeito de errar.
+/// Inspect the server directly to validate its configuration without adding an agent process to the
+/// diagnostic path.
 #[derive(serde::Serialize, Default)]
 pub struct Probe {
-    /// Conectou e listou as ferramentas.
+    /// The connection succeeded and tools were listed.
     pub ok: bool,
-    /// Respondeu 401: o cadastro está certo, falta login. É outro problema, e
-    /// a tela diz outra coisa.
+    /// HTTP 401 distinguishes a server requiring login from a failed connection.
     pub auth: bool,
     pub tools: usize,
-    /// Como o servidor se chama — a prova de que quem respondeu é ele.
+    /// The returned server identity confirms which server answered.
     pub name: String,
-    /// A causa crua, quando não deu: o erro do sistema, o corpo do servidor.
-    /// Não é frase de tela; quem escreve a frase é o front.
+    /// Raw system or server error details; the frontend supplies the surrounding localized message.
     pub detail: String,
 }
 
-/// Um passo do exame: o que se tentou, e como foi.
-///
-/// O exame é uma sequência — subir o processo (ou conectar), apertar a mão,
-/// listar as ferramentas, e num remoto que pede login descobrir onde
-/// autorizar. Um `bool` no fim não diz em qual delas parou, e é justamente
-/// isso que muda o que a pessoa tem que fazer: consertar o comando, pôr um
-/// cabeçalho, ou entrar.
-///
-/// Nada aqui é frase de tela: `key` é código (a tela traduz), `note` é o dado
-/// que o passo trouxe (o status HTTP, o nome do servidor, a conta de
-/// ferramentas) e `detail` é a causa crua de quando não deu.
+/// Record each inspection stage so the UI can distinguish startup, handshake, tools, and OAuth
+/// discovery failures. Keys are translated codes; notes hold observed data; details preserve raw
+/// errors.
 #[derive(serde::Serialize)]
 pub struct Step {
     pub key: &'static str,
@@ -539,31 +458,25 @@ impl Step {
     }
 }
 
-/// O exame inteiro: os passos, e o resumo com que a tela decide o que oferecer
-/// depois — gravar, entrar, ou voltar e consertar o que está escrito.
+/// Return all inspection steps and a summary used to offer saving, login, or configuration repair.
 #[derive(serde::Serialize, Default)]
 pub struct Check {
     pub steps: Vec<Step>,
     pub probe: Probe,
 }
 
-/// O que uma conversa com um servidor remoto rendeu.
+/// Results of a remote-server exchange.
 struct Http {
     probe: Probe,
-    /// O `WWW-Authenticate` do `401`, quando veio: é por esse cabeçalho que a
-    /// descoberta do OAuth começa (`mcp_auth::discover`).
+    /// Preserve WWW-Authenticate from HTTP 401 to start OAuth discovery.
     challenge: Option<String>,
     steps: Vec<Step>,
 }
 
-/// Quanto se espera um servidor responder. Um stdio sobe `npx`, que baixa
-/// pacote na primeira vez; um remoto atravessa a internet. Passou disto, o
-/// problema é ele, e o exame tem que devolver a tela para quem clicou.
+/// Bound inspection time while allowing initial npx downloads and remote requests.
 const PROBE_WAIT: Duration = Duration::from_secs(25);
 
-/// A revisão do protocolo com que nos apresentamos. O servidor responde com a
-/// dele, e quem não fala esta negocia para baixo — é o handshake que o MCP
-/// prevê, e por isso um número fixo aqui não envelhece mal.
+/// Advertise a fixed MCP revision; the handshake negotiates an older revision when needed.
 const PROTOCOL: &str = "2025-06-18";
 
 fn hello() -> Value {
@@ -579,12 +492,10 @@ fn hello() -> Value {
     })
 }
 
-/// Examina o servidor como ele está no formulário — antes de gravar, e sem
-/// depender de estar cadastrado em lugar nenhum.
+/// Inspect the unsaved configuration directly from the form.
 #[tauri::command]
 pub async fn mcp_check(server: Server) -> Check {
-    // HTTP bloqueante e processo filho não podem rodar numa worker do runtime
-    // async (ver `linear::blocking`).
+    // Run synchronous HTTP and subprocess work outside async runtime workers; see linear::blocking.
     tauri::async_runtime::spawn_blocking(move || check(&server))
         .await
         .unwrap_or_else(|e| Check {
@@ -596,9 +507,7 @@ pub async fn mcp_check(server: Server) -> Check {
         })
 }
 
-/// Entrar num servidor que pede login. O caminho inteiro está em
-/// `mcp_auth.rs`; daqui sai só o `401` que dá a partida — é o cabeçalho dele
-/// que diz onde ficam os metadados do OAuth.
+/// Start MCP OAuth discovery with an unauthenticated 401 response; mcp_auth.rs owns the login flow.
 #[tauri::command]
 pub async fn mcp_login(server: Server) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -608,7 +517,7 @@ pub async fn mcp_login(server: Server) -> Result<(), String> {
             .and_then(Value::as_str)
             .ok_or_else(|| i18n::t("err.mcp.auth.notRemote"))?
             .to_string();
-        // Sem token de propósito: o que se quer aqui é justamente o `401`.
+        // Omit the token deliberately to obtain the OAuth challenge.
         let http = probe_http(&url, &server.config, None);
         mcp_auth::login(&server.id, &url, http.challenge.as_deref())
     })
@@ -621,24 +530,21 @@ pub fn mcp_logout(id: String) -> Result<(), String> {
     mcp_auth::forget(&id)
 }
 
-/// Em quais servidores já se entrou — a tela marca esses como conectados.
+/// Expose servers with stored login state for connection indicators.
 #[tauri::command]
 pub fn mcp_logins() -> Vec<String> {
     mcp_auth::logged_in()
 }
 
-/// O exame de um servidor, passo a passo. Remoto que pede login ganha dois
-/// passos a mais: o cadastro já se provou certo, e o que falta saber é se o
-/// Prometeu consegue se autorizar nele — achar os endereços do OAuth, e ter
-/// onde registrar um cliente. Sem registro dinâmico o "Entrar" não teria como
-/// funcionar, e é melhor dizer isso aqui do que depois de abrir o navegador.
+/// For servers requiring login, also inspect OAuth endpoint discovery and dynamic client
+/// registration support before offering a browser login that cannot succeed.
 fn check(server: &Server) -> Check {
     let Some(url) = server.config.get("url").and_then(Value::as_str) else {
         let (probe, steps) = probe_stdio(&server.config);
         return Check { steps, probe };
     };
-    // Com o token de quem já entrou: examinar depois do login tem que dizer
-    // "conectou", e não repetir "precisa de login".
+    // Use stored authentication during inspection so a successful login does not keep reporting
+    // that login is required.
     let mut http = probe_http(url, &server.config, mcp_auth::bearer(&server.id).as_deref());
     if http.probe.auth {
         match mcp_auth::discover(url, http.challenge.as_deref()) {
@@ -658,11 +564,10 @@ fn check(server: &Server) -> Check {
     }
 }
 
-/// Um servidor remoto: `initialize` por POST, e depois `tools/list` com a
-/// sessão que ele devolveu. A resposta vem como JSON ou como um fluxo de
-/// eventos — os dois são o mesmo objeto, e `frame` desembrulha os dois.
+/// POST initialize, then tools/list with the returned session. Accept both JSON and event-stream
+/// response envelopes.
 fn probe_http(url: &str, config: &Value, token: Option<&str>) -> Http {
-    /// Parou no primeiro passo: nem chegou a ser uma conversa.
+    /// The initial connection failed before a protocol exchange began.
     fn broke(key: &'static str, detail: String) -> Http {
         Http {
             probe: Probe {
@@ -690,8 +595,7 @@ fn probe_http(url: &str, config: &Value, token: Option<&str>) -> Http {
         let mut req = client
             .post(url)
             .header("Content-Type", "application/json")
-            // O transporte novo pode responder das duas formas, e recusar uma
-            // delas é recusar metade dos servidores que existem hoje.
+            // Streamable HTTP permits either JSON or event-stream responses.
             .header("Accept", "application/json, text/event-stream")
             .header("MCP-Protocol-Version", PROTOCOL);
         for (key, value) in &headers {
@@ -713,8 +617,7 @@ fn probe_http(url: &str, config: &Value, token: Option<&str>) -> Http {
         Err(e) => return broke("connect", e.to_string()),
     };
     let code = first.status().as_u16().to_string();
-    // 401 é o servidor dizendo "sei quem você quer ser, prove". O cadastro
-    // está certo; o que falta é login, e isso a tela resolve de outro jeito.
+    // Treat HTTP 401 as an authentication requirement rather than a malformed server configuration.
     if first.status() == reqwest::StatusCode::UNAUTHORIZED {
         let challenge = first
             .headers()
@@ -762,8 +665,8 @@ fn probe_http(url: &str, config: &Value, token: Option<&str>) -> Http {
         .to_string();
     steps.push(Step::ok("handshake", name.clone()));
 
-    // O `initialized` não tem resposta: é o aviso de que o aperto de mão
-    // acabou, e sem ele há servidor que recusa o resto.
+    // Send initialized without waiting for a response; servers may require it before later
+    // requests.
     let _ = post(
         &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
         session.as_deref(),
@@ -793,9 +696,7 @@ fn probe_http(url: &str, config: &Value, token: Option<&str>) -> Http {
     }
 }
 
-/// O passo das ferramentas. Conectar e não oferecer ferramenta nenhuma não é
-/// sucesso na prática — o agente não ganha nada com um servidor assim, e o
-/// passo diz que não deu mesmo tendo apertado a mão.
+/// A successful handshake without any tools is not a usable inspection result.
 fn tools_step(failed: Option<String>, tools: usize) -> Step {
     match (failed, tools) {
         (Some(why), _) => Step::bad("tools", why),
@@ -804,9 +705,7 @@ fn tools_step(failed: Option<String>, tools: usize) -> Step {
     }
 }
 
-/// A resposta de um POST, seja ela JSON puro ou um fluxo de eventos — no fluxo,
-/// o que interessa está depois de `data:`, e é a primeira linha dessas que
-/// carrega o resultado do pedido.
+/// Unwrap plain JSON or the first event-stream data line containing the request result.
 fn frame(body: &str) -> Option<Value> {
     if let Ok(value) = serde_json::from_str::<Value>(body) {
         return Some(value);
@@ -816,9 +715,8 @@ fn frame(body: &str) -> Option<Value> {
         .find_map(|data| serde_json::from_str::<Value>(data.trim()).ok())
 }
 
-/// Um servidor que roda aqui: sobe o processo, aperta a mão pelo stdin e conta
-/// as ferramentas. O processo morre no fim do exame — examinar não é deixar
-/// nada de pé.
+/// Start a local server, complete its stdio handshake, and list tools. Always stop the inspection
+/// process afterward.
 fn probe_stdio(config: &Value) -> (Probe, Vec<Step>) {
     let Some(command) = config.get("command").and_then(Value::as_str) else {
         let detail = "sem command nem url".to_string();
@@ -841,8 +739,7 @@ fn probe_stdio(config: &Value) -> (Probe, Vec<Step>) {
             }
         }
     }
-    // Grupo próprio: o `npx` de um servidor vira `node`, e matar o pai sem o
-    // grupo deixaria o filho de pé depois do exame.
+    // Use a separate process group so npx descendants cannot survive inspection cleanup.
     cmd.process_group(0)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -861,8 +758,7 @@ fn probe_stdio(config: &Value) -> (Probe, Vec<Step>) {
     };
 
     let mut probe = Probe::default();
-    // Chegou a resposta do `tools/list` — que é diferente de ter chegado uma
-    // lista vazia, e de nunca ter chegado nada.
+    // Distinguish a tools/list response from an empty list or a missing response.
     let mut answered = false;
     if let (Some(mut stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) {
         let (tx, rx) = std::sync::mpsc::channel();
@@ -885,8 +781,7 @@ fn probe_stdio(config: &Value) -> (Probe, Vec<Step>) {
         match sent {
             Ok(()) => {
                 let until = Instant::now() + PROBE_WAIT;
-                // Um servidor fala mais do que responde: log, notificação, e as
-                // duas respostas que pedimos, em qualquer ordem.
+                // Accept logs, notifications, and requested responses in any order.
                 while let Ok(line) =
                     rx.recv_timeout(until.saturating_duration_since(Instant::now()))
                 {
@@ -914,9 +809,8 @@ fn probe_stdio(config: &Value) -> (Probe, Vec<Step>) {
     let _ = child.kill();
     let _ = child.wait();
     if !probe.ok && probe.detail.is_empty() {
-        // Nada de válido em tempo nenhum: o que ele reclamou no stderr é a
-        // única pista que sobra, e costuma ser a certa (comando não achado,
-        // pacote inexistente, variável faltando).
+        // When no valid response arrives, retain stderr as the diagnostic for missing commands,
+        // packages, or variables.
         probe.detail = child
             .stderr
             .take()
@@ -928,8 +822,7 @@ fn probe_stdio(config: &Value) -> (Probe, Vec<Step>) {
             .unwrap_or_default();
     }
 
-    // Os passos saem no fim porque o stderr, que é a explicação de quando não
-    // deu, só se lê depois de o processo morrer.
+    // Finalize inspection steps after process exit so stderr can explain failures.
     let mut steps = vec![Step::ok("spawn", String::new())];
     if !probe.ok {
         steps.push(Step::bad("handshake", probe.detail.clone()));
@@ -943,7 +836,7 @@ fn probe_stdio(config: &Value) -> (Probe, Vec<Step>) {
     (probe, steps)
 }
 
-/// O bastante de uma mensagem para caber numa linha da tela.
+/// Truncate diagnostic text to fit a single UI line.
 fn short(text: &str) -> String {
     let line = text.trim().lines().next().unwrap_or_default().trim();
     if line.chars().count() > 200 {
@@ -977,8 +870,7 @@ mod tests {
         assert_eq!(found[0].note, "origem");
     }
 
-    /// O que uma resposta de fluxo de eventos tem dentro é o mesmo objeto que
-    /// a de JSON puro — e é dele que sai o nome do servidor.
+    /// JSON and event-stream envelopes expose the same server identity object.
     #[test]
     fn desembrulha_json_e_fluxo_de_eventos() {
         let puro = frame(r#"{"result":{"serverInfo":{"name":"x"}}}"#).expect("json");
@@ -996,12 +888,8 @@ mod tests {
         assert_eq!(short(&"a".repeat(300)).chars().count(), 200);
     }
 
-    /// Sobe um servidor de MCP de verdade e aperta a mão com ele. Fora do
-    /// `cargo test` de sempre porque baixa pacote com `npx`:
-    /// `cargo test -- --ignored sonda`.
-    ///
-    /// O caminho HTTP precisa do provedor de criptografia que o `main` instala
-    /// — fora do app ninguém o instalou, e o teste o instala por conta.
+    /// Ignored integration tests contact real MCP servers and may download packages: cargo test --
+    /// --ignored sonda. Install the crypto provider explicitly because main does not run here.
     #[test]
     #[ignore]
     fn sonda_servidores_de_verdade() {
@@ -1017,8 +905,7 @@ mod tests {
         );
         assert!(got.ok && got.tools > 0);
 
-        // Um servidor remoto que não pede login: o aperto de mão inteiro pela
-        // rede, com a resposta chegando como fluxo de eventos.
+        // Test a remote server without authentication using an event-stream handshake response.
         let _ = rustls::crypto::ring::default_provider().install_default();
         let remoto = Server {
             id: "deepwiki".into(),
@@ -1032,8 +919,7 @@ mod tests {
         );
         assert!(got.ok && got.tools > 0);
 
-        // Um que pede login: o cadastro está certo, e é isso que a tela precisa
-        // distinguir de "não conectou".
+        // Distinguish a reachable server requiring login from a failed connection.
         let precisa_login = Server {
             id: "notion".into(),
             config: json!({ "type": "http", "url": "https://mcp.notion.com/mcp" }),
@@ -1052,9 +938,8 @@ mod tests {
         assert!(!got.ok && !got.detail.is_empty());
     }
 
-    /// A tabela que o Codex recebe: o remoto com o cabeçalho vindo de variável,
-    /// e o que roda aqui embrulhado no `sh` só quando tem variável — que é o
-    /// que mantém segredo fora do argumento do processo.
+    /// Verify Codex header environment references and stdio wrappers keep secrets out of process
+    /// arguments.
     #[test]
     fn a_tabela_do_codex_nao_carrega_segredo() {
         let root = std::env::temp_dir().join(format!("prometeu-codex-{}", uuid::Uuid::new_v4()));
@@ -1089,19 +974,19 @@ mod tests {
             .expect("há escolha");
         std::env::remove_var("PROMETEU_ROOT");
 
-        // O segredo não aparece em lugar nenhum da linha de comando.
+        // No secret may appear anywhere in the command line.
         assert!(!table.contains("abracadabra"), "{table}");
-        // O cabeçalho vira variável, e é ela que carrega o valor.
+        // The header references an environment variable carrying its value.
         assert!(table.contains("env_http_headers"), "{table}");
         assert!(env.iter().any(|(_, v)| v == "abracadabra"));
-        // Com variável, o comando passa pelo `sh`; sem variável, vai direto.
+        // Only commands with environment overrides need a shell wrapper.
         assert!(table.contains("/bin/sh"), "{table}");
         assert!(table.contains("\"node\",args=[\"s.js\"]"), "{table}");
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// Sem escolha nenhuma não há arquivo — é o workspace de antes desta
-    /// funcionalidade, e ele tem que continuar subindo como sempre subiu.
+    /// Without an explicit selection, do not generate a configuration file or change legacy startup
+    /// behavior.
     #[test]
     fn sem_escolha_nao_ha_arquivo() {
         assert!(config_for("aba", None).expect("sem erro").is_none());
@@ -1127,10 +1012,8 @@ mod tests {
         assert!(servers.contains_key("notion"));
     }
 
-    /// Marcar nenhum é uma escolha, e ela tem arquivo: vazio, que com o
-    /// `--strict-mcp-config` do lado é uma sessão sem MCP nenhum.
-    /// Quem entrou pelo OAuth chega à sessão com o cabeçalho pronto, e o que
-    /// já tinha cabeçalho não perde o que tinha.
+    /// An empty selection still generates strict empty configuration. Inject OAuth authorization
+    /// without discarding other configured headers.
     #[test]
     fn o_token_vira_cabecalho_no_arquivo_da_sessao() {
         let hub = vec![Server {

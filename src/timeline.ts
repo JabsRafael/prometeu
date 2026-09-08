@@ -44,8 +44,7 @@ export type Item =
 
 export type Command = SlashCommand;
 
-/// Estado apresentável derivado exclusivamente do contrato de conversa.
-/// O adapter legado existe somente para replay de transcripts anteriores ao V1.
+/// Derive presentation state exclusively from the conversation contract. The legacy adapter only replays pre-V1 transcripts.
 export class Timeline {
   items: Item[] = [];
   busy = false;
@@ -435,15 +434,12 @@ function tryJson(text: string): unknown {
   }
 }
 
-/// Um resumo de uma linha do input de uma ferramenta — o que o card mostra
-/// fechado. Mesma escolha do `activity` do back: o comando, o arquivo, o
-/// padrão.
+/// Summarize tool input for collapsed cards using the command, file, or search pattern, matching backend activity.
 export function summary(_name: string, input: unknown, json = ""): string {
   const i = (input ?? {}) as Record<string, unknown>;
   const pick = SUMMARY_KEYS.map((k) => i[k]).find((v) => typeof v === "string" && v.trim()) as string | undefined;
   if (pick) return pick.split("\n")[0];
-  // O input ainda está chegando: o JSON não fecha, mas o começo de uma string
-  // já dá para ler — é o que o card mostra enquanto espera o resto.
+  // Partial input may expose a readable string before its JSON finishes streaming.
   for (const k of SUMMARY_KEYS) {
     const m = new RegExp(`"${k}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`).exec(json);
     if (m?.[1]) return m[1].replace(/\\n[\s\S]*/, "").replace(/\\(.)/g, "$1");
@@ -453,13 +449,7 @@ export function summary(_name: string, input: unknown, json = ""): string {
 
 const SUMMARY_KEYS = ["command", "file_path", "pattern", "path", "url", "query", "skill", "description", "prompt"];
 
-/// Os arquivos que o agente leu ou escreveu nesta conversa, do último para o
-/// primeiro e sem repetir. É o que faz o "@" da caixa oferecer primeiro o que
-/// está em cima da mesa: quem escreve "@" no meio de um trabalho quase sempre
-/// quer um arquivo que acabou de aparecer na conversa (ver `paths.ts`).
-///
-/// Só as ferramentas que apontam um arquivo — o `path` de um Grep é uma pasta
-/// onde procurar, e o de um Bash não existe.
+/// Collect recently read or written files without duplicates for @ completion. Exclude tools whose path denotes a search directory rather than a file.
 export function touched(items: Item[], most = 12): string[] {
   const out: string[] = [];
   for (let at = items.length - 1; at >= 0 && out.length < most; at--) {
@@ -476,24 +466,12 @@ export function touched(items: Item[], most = 12): string[] {
 }
 const FILE_TOOLS = new Set(["Read", "Edit", "Write", "NotebookEdit", "MultiEdit"]);
 
-/* ---------- a conversa em pedaços de tela ---------- */
+/* Conversation display pieces. */
 
-/// Um bloco, pelo lugar dele: em que item, e em que posição.
+/// Locate a block by item and block index.
 export type BlockRef = { at: number; block: number };
 
-/// Um pedaço da conversa na tela — que não é um item.
-///
-/// O agente trabalha em rajadas: pensa, chama uma ferramenta, pensa de novo,
-/// chama outra. Cada rajada dessas é uma mensagem, e uma tarefa banal vira
-/// vinte mensagens — desenhadas uma a uma, a fala que interessa se perde no
-/// meio de quarenta cartões. Aqui o trabalho seguido vira um pedaço só
-/// (`work`), e o que a pessoa lê fica de fora dele: a fala do agente (`say`),
-/// e tudo que não é mensagem dele (`item` — a fala da pessoa, o card que
-/// espera resposta, o fim do turno).
-///
-/// A `key` é o que a tela guarda de um quadro para o outro: os itens só
-/// crescem no fim, então o começo de um pedaço nunca muda de lugar — o mesmo
-/// pedaço é o mesmo nó, com a mesma seleção e o mesmo aberto/fechado.
+/// Group consecutive agent work into one piece while keeping speech, user input, requests, and turn results separate. Stable starting-item keys preserve DOM identity, selection, and collapsed state across append-only updates.
 export type Piece =
   | { kind: "item"; key: string; at: number }
   | { kind: "say"; key: string; at: number; block: number }

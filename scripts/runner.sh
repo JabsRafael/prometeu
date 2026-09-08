@@ -1,18 +1,15 @@
 #!/bin/sh
-# O runner self-hosted do CI é este Mac: ~/actions-runner-prometeu, de pé como serviço
-# de login (launchd), registrado no repositório. Este script confere se o
-# GitHub o vê online e, se não, sobe o serviço — para ninguém empurrar tag ou
-# abrir PR e ficar com o job na fila sem perceber (a fila espera 24h e falha).
+# Check the self-hosted runner registered from this Mac at ~/actions-runner-prometeu.
+# It runs as a launchd login service. Start it when offline so PR and release jobs do not sit queued.
 #
-#   sh scripts/runner.sh           online? senão sobe e espera
-#   sh scripts/runner.sh status    só diz
-#   sh scripts/runner.sh stop      para o serviço; volta no próximo login ou
-#                                  no próximo `sh scripts/runner.sh`
+# sh scripts/runner.sh         Check online status, then start and wait if needed.
+# sh scripts/runner.sh status  Report status without starting the service.
+# sh scripts/runner.sh stop    Stop until the next login or explicit start.
 #
-# Parado, o runner é um processo ocioso (~60 MB, CPU zero). O custo de verdade
-# é o cargo build rodando aqui quando há push — e é o mesmo build que rodaria
-# de qualquer jeito. Antes de usá-lo, o script exige repositório privado e
-# workflows de forks desativados, pois jobs de PR executam código do branch.
+# Queued GitHub jobs time out after 24 hours. The idle runner uses roughly 60 MB and no CPU.
+# Builds run locally when jobs arrive. Before starting, require a private repository and disabled fork PR
+# workflows.
+# PR jobs execute branch-controlled code, so preserve that trust boundary.
 set -eu
 
 REPO=gbrancaglione/prometeu

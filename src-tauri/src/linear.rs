@@ -1,32 +1,9 @@
-//! Conexão com o Linear: OAuth 2.0 com PKCE, inteira no Mac de quem usa.
-//!
-//! Não há servidor do Prometeu no meio. O app OAuth foi registrado uma vez
-//! no Linear — é o `CLIENT_ID` abaixo, público por definição — e cada pessoa
-//! só clica em "Conectar", aprova no navegador e volta. O cadastro pertence
-//! ao Prometeu e o `client_id` público identifica essa integração no Linear.
-//!
-//! O que substitui o `client_secret`, que num `.app` qualquer um extrai, é o
-//! PKCE: um segredo aleatório gerado na hora, que nunca sai deste processo.
-//!
-//! O fluxo, na ordem:
-//!
-//!   1. abre um socket em `127.0.0.1:17420`, gera `code_verifier` e `state`;
-//!   2. abre `linear.app/oauth/authorize` no navegador padrão;
-//!   3. o Linear devolve o navegador para `localhost:17420/linear?code=…`;
-//!   4. troca o `code` pelo token em `api.linear.app/oauth/token`, provando
-//!      com o verifier que quem pede é quem começou;
-//!   5. guarda em `~/.prometeu/linear.json`, que só o dono lê, e avisa a
-//!      tela pelo evento `linear`.
-//!
-//! A porta é fixa porque o Linear exige o redirect exato que foi registrado
-//! no app OAuth. O socket só existe enquanto o fluxo dura, então o app de dev
-//! e o instalado não brigam por ela.
-//!
-//! O token vale 24h e vem com um `refresh_token`; `token()` renova sozinho
-//! antes de cada uso. Fica num arquivo e não no Keychain de propósito: o
-//! `.app` não é assinado pela Apple, então cada atualização seria um binário
-//! novo aos olhos do Keychain — e um "Prometeu quer usar sua senha" a cada
-//! versão. O escopo é só leitura.
+//! Linear OAuth runs locally with PKCE and no Prometeu server. A public client ID identifies the
+//! integration; a fresh verifier replaces an embedded client secret. Listen on the registered fixed
+//! loopback port, open authorization in the browser, exchange the returned code, persist the
+//! credential privately, and publish status. The socket exists only during login. Tokens expire
+//! after 24 hours and token() refreshes them before use. Credentials use a private file; the
+//! requested scope is read-only.
 
 use crate::i18n;
 use crate::lock::lock;
@@ -40,8 +17,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
-/// Id público do cadastro OAuth do Prometeu. Não abre nada sem o consentimento
-/// da pessoa e o verifier PKCE gerado localmente.
+/// The public OAuth client ID grants no access without user consent and the locally generated PKCE
+/// verifier.
 pub const CLIENT_ID: &str = "31c6d308b9f6d485d04c04ed94c26071";
 const PORT: u16 = 17420;
 const REDIRECT: &str = "http://localhost:17420/linear";
@@ -49,19 +26,17 @@ const AUTHORIZE: &str = "https://linear.app/oauth/authorize";
 const TOKEN: &str = "https://api.linear.app/oauth/token";
 const REVOKE: &str = "https://api.linear.app/oauth/revoke";
 pub const GRAPHQL: &str = "https://api.linear.app/graphql";
-/// Quanto tempo o socket espera o navegador voltar. Aprovar leva segundos;
-/// cinco minutos é para quem foi buscar a senha.
+/// Allow five minutes for the browser authorization callback.
 const WAIT: Duration = Duration::from_secs(5 * 60);
-/// Renova o token com esta folga: uma chamada que começa com o token válido
-/// não pode terminar com ele vencido.
+/// Refresh early enough that an API call does not outlive its token.
 const SLACK: u64 = 5 * 60;
 
-/// Quem está do outro lado, para a tela dizer "conectado como…".
+/// Account identity displayed by the settings screen.
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct Who {
     pub name: String,
     pub email: String,
-    /// O workspace do Linear (a organização), e o `urlKey` dele.
+    /// The Linear organization and its urlKey.
     pub org: String,
     pub org_key: String,
 }
@@ -70,38 +45,32 @@ pub struct Who {
 pub struct Auth {
     pub access_token: String,
     pub refresh_token: Option<String>,
-    /// Unix, em segundos.
+    /// Unix timestamp in seconds.
     pub expires_at: u64,
     pub who: Who,
 }
 
-/// O que a tela de configurações desenha.
+/// Settings-screen connection status.
 #[derive(Serialize, Clone)]
 pub struct Status {
     pub connected: bool,
     pub who: Option<Who>,
-    /// Há um fluxo esperando o navegador. A tela mostra isso mesmo que você
-    /// saia e volte no meio.
+    /// Retain pending browser-login status when the settings screen is reopened.
     pub busy: bool,
 }
 
-/// Só um fluxo por vez: o segundo clique em "Conectar" com o primeiro ainda
-/// esperando o navegador ganharia a porta ocupada como erro, e isso é pior do
-/// que dizer o que está acontecendo.
+/// Permit one login flow at a time so repeated clicks cannot compete for the callback port.
 static PENDING: AtomicBool = AtomicBool::new(false);
 
-/* ---------- comandos ---------- */
+/* Commands */
 
 #[tauri::command]
 pub fn linear_status() -> Status {
     status()
 }
 
-/// Espera o navegador por minutos, e faz HTTP bloqueante — as duas coisas
-/// fora do runtime async, em `spawn_blocking`. Um `command(async)` comum
-/// roda numa worker do tokio, e o `reqwest::blocking` derruba o runtime
-/// interno dele ao sair: dentro de uma worker isso é panic ("Cannot drop a
-/// runtime in a context where blocking is not allowed").
+/// Run browser waits and synchronous HTTP in spawn_blocking. Dropping reqwest::blocking's runtime
+/// inside a Tokio async worker would panic.
 #[tauri::command]
 pub async fn linear_connect(app: AppHandle) -> Result<Status, String> {
     if PENDING.swap(true, Ordering::SeqCst) {
@@ -109,8 +78,7 @@ pub async fn linear_connect(app: AppHandle) -> Result<Status, String> {
     }
     let result = blocking(connect).await;
     PENDING.store(false, Ordering::SeqCst);
-    // De volta para a frente: o navegador ficou com o foco, e o que vem depois
-    // de aprovar acontece aqui.
+    // Restore app focus after browser authorization.
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.set_focus();
     }
@@ -123,9 +91,8 @@ pub async fn linear_connect(app: AppHandle) -> Result<Status, String> {
 pub async fn linear_disconnect(app: AppHandle) -> Status {
     let _ = blocking(|| {
         if let Some(auth) = load() {
-            // Melhor esforço: o token morre sozinho em 24h, e o refresh some
-            // com o arquivo. Revogar é cortesia com quem olha a lista de apps
-            // no Linear.
+            // Revocation is best effort; access expires after 24 hours, and removing the file also
+            // removes the refresh credential.
             let _ = reqwest::blocking::Client::new()
                 .post(REVOKE)
                 .bearer_auth(&auth.access_token)
@@ -144,9 +111,8 @@ pub async fn linear_disconnect(app: AppHandle) -> Status {
     now
 }
 
-/// Roda `work` numa thread de bloqueio do runtime e devolve o resultado.
-/// Todo `token()` e `graphql()` tem que passar por aqui quando chamado de um
-/// comando: são HTTP síncrono, e síncrono dentro de worker async é panic.
+/// Run token and graphql calls on a blocking thread because their synchronous HTTP cannot safely
+/// run inside an async worker.
 pub async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
@@ -155,7 +121,7 @@ pub async fn blocking<T: Send + 'static>(
         .map_err(|e| i18n::ta("err.linear.taskDied", &[("cause", e.to_string())]))?
 }
 
-/* ---------- o fluxo ---------- */
+/* Authorization flow */
 
 fn connect() -> Result<Auth, String> {
     let listener = TcpListener::bind(("127.0.0.1", PORT)).map_err(|e| {
@@ -183,8 +149,7 @@ fn connect() -> Result<Auth, String> {
     Ok(auth)
 }
 
-/// A espera é a genérica (`oauth::wait_for_code`); o que é do Linear é como
-/// cada recusa se chama na tela.
+/// Use the shared OAuth callback listener while mapping refusals to Linear-specific error codes.
 fn wait_for_code(listener: &TcpListener, state: &str, deadline: Instant) -> Result<String, String> {
     oauth::wait_for_code(listener, "/linear", state, deadline, &page).map_err(|denied| match denied
     {
@@ -199,10 +164,8 @@ fn wait_for_code(listener: &TcpListener, state: &str, deadline: Instant) -> Resu
     })
 }
 
-/// O que a página do fim do fluxo diz, nos dois idiomas. O HTML é do
-/// `oauth::page`; daqui saem só as duas linhas — que são das poucas frases que
-/// o back escreve por inteiro, porque quem as lê está no navegador, longe do
-/// catálogo do front.
+/// Provide localized OAuth completion text to the shared HTML page, since this browser page cannot
+/// use the frontend catalog.
 fn page(ok: bool, why: &str) -> String {
     let (title, text) = match (ok, i18n::pt()) {
         (true, true) => (
@@ -229,7 +192,7 @@ fn page(ok: bool, why: &str) -> String {
     oauth::page(title, &text)
 }
 
-/// Troca o `code` pelo token. Sem `client_secret`: o verifier é a prova.
+/// Exchange the code using the PKCE verifier, without a client secret.
 fn exchange(code: &str, verifier: &str) -> Result<Auth, String> {
     let got = token_request(&[
         ("grant_type", "authorization_code"),
@@ -251,7 +214,7 @@ fn refresh(auth: &Auth) -> Result<Auth, String> {
         ("refresh_token", rt),
         ("client_id", CLIENT_ID),
     ])?;
-    // Alguns servidores não devolvem refresh novo na renovação; o velho segue valendo.
+    // Keep the previous refresh token when a refresh response omits its replacement.
     if got.refresh_token.is_none() {
         got.refresh_token = auth.refresh_token.clone();
     }
@@ -299,9 +262,7 @@ fn token_request(fields: &[(&str, &str)]) -> Result<Auth, String> {
 
 /* ---------- GraphQL ---------- */
 
-/// Um token bom para usar agora: renovado se está para vencer, e gravado de
-/// volta quando renova. É por aqui que toda chamada ao Linear passa — a
-/// lista de issues é quem chama.
+/// Refresh and persist an expiring token before every Linear API use.
 pub fn token() -> Result<String, String> {
     let auth = load().ok_or_else(|| i18n::t("err.linear.off"))?;
     if auth.expires_at > now() + SLACK {
@@ -312,7 +273,7 @@ pub fn token() -> Result<String, String> {
     Ok(fresh.access_token)
 }
 
-/// Uma query, com variáveis. Devolve o `data`; erros do GraphQL viram `Err`.
+/// Execute a GraphQL query with variables. Return data or convert GraphQL errors into Err.
 pub fn graphql(
     token: &str,
     query: &str,
@@ -363,7 +324,7 @@ fn whoami(token: &str) -> Result<Who, String> {
     })
 }
 
-/* ---------- o arquivo ---------- */
+/* Persistence */
 
 fn path() -> PathBuf {
     paths::root().join("linear.json")
@@ -394,8 +355,7 @@ pub fn status() -> Status {
 
 /* ---------- issues ---------- */
 
-/// O que da issue o workspace guarda: o bastante para o chip no card, o link
-/// e para a aba saber que "esta já tem workspace". O resto vive no cache.
+/// Persist only issue identity, links, and card metadata; keep the remaining fields in the cache.
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct IssueRef {
     pub id: String,
@@ -407,8 +367,8 @@ pub struct IssueRef {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct IssueState {
     pub name: String,
-    /// `backlog`, `unstarted`, `started`, `triage` — os tipos do Linear. É
-    /// o que agrupa a aba; o `name` é o que o time escolheu chamar.
+    /// Group issues by Linear state type, such as backlog or started. The name is the team's custom
+    /// label.
     pub kind: String,
     pub color: String,
 }
@@ -426,10 +386,9 @@ pub struct Issue {
     pub title: String,
     pub description: Option<String>,
     pub url: String,
-    /// O nome de branch que o próprio Linear sugere. Usar esse é o que faz
-    /// o Linear reconhecer o PR como desta issue.
+    /// Use Linear's suggested branch name so it can associate the PR with this issue.
     pub branch_name: String,
-    /// 0 sem, 1 urgente, 2 alta, 3 média, 4 baixa — a escala do Linear.
+    /// Linear priority: 0 none, 1 urgent, 2 high, 3 medium, 4 low.
     pub priority: u8,
     pub priority_label: String,
     pub state: IssueState,
@@ -442,18 +401,16 @@ pub struct Issue {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Issues {
     pub issues: Vec<Issue>,
-    /// Unix, segundos. É o "atualizado há" da aba.
+    /// Unix timestamp in seconds for relative update times.
     pub fetched_at: u64,
 }
 
-/// Quanto tempo a lista vale sem perguntar de novo. Abrir a aba dez vezes
-/// num minuto é uma chamada; o botão de atualizar ignora isto.
+/// Reuse recently fetched lists; explicit refresh bypasses the cache.
 const FRESH: u64 = 120;
-/// Páginas de 50: dez é o teto — 500 issues no seu nome é mais do que
-/// qualquer lista mostra.
+/// Fetch at most ten pages of 50 issues.
 const PAGES: usize = 10;
 
-/// A lista em memória; o arquivo é a cópia que faz o app abrir já com ela.
+/// Keep the list in memory and persist a copy for immediate display after restart.
 static CACHE: Mutex<Option<Issues>> = Mutex::new(None);
 
 const ISSUES_QUERY: &str = r#"query Mine($after: String) {
@@ -469,8 +426,8 @@ const ISSUES_QUERY: &str = r#"query Mine($after: String) {
   }
 }"#;
 
-/// As issues no seu nome, fora concluídas e canceladas. `force` é o botão
-/// de atualizar; sem ele, o que foi buscado há menos de dois minutos serve.
+/// List assigned issues excluding completed and cancelled states. Force bypasses the two-minute
+/// cache.
 #[tauri::command]
 pub async fn linear_issues(force: bool) -> Result<Issues, String> {
     blocking(move || issues(force)).await
@@ -486,7 +443,7 @@ fn issues(force: bool) -> Result<Issues, String> {
     }
     let fresh = fetch_issues()?;
     *lock(&CACHE) = Some(fresh.clone());
-    // Cache que não grava não é erro: a lista chegou, e é isso que importa.
+    // A cache write failure must not discard a successfully fetched list.
     if let Ok(body) = serde_json::to_string(&fresh) {
         let _ = paths::write_private(&issues_path(), &body);
     }
@@ -521,8 +478,7 @@ fn load_issues() -> Option<Issues> {
     serde_json::from_str(&std::fs::read_to_string(issues_path()).ok()?).ok()
 }
 
-/// Abrir uma issue no navegador. Só links do Linear: é o único lugar de onde
-/// esta URL vem, e `open` com qualquer coisa é `open` com qualquer coisa.
+/// Open only Linear issue URLs in the system browser; reject other destinations and schemes.
 #[tauri::command]
 pub fn linear_open(url: String) -> Result<(), String> {
     if !url.starts_with("https://linear.app/") {
@@ -531,7 +487,7 @@ pub fn linear_open(url: String) -> Result<(), String> {
     oauth::browse(&url).map_err(|_| i18n::t("err.linear.noBrowser"))
 }
 
-/* O formato do GraphQL, e a tradução para o nosso. */
+/* Translate GraphQL response shapes into domain types. */
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -612,13 +568,13 @@ impl From<Raw> for Issue {
     }
 }
 
-/* ---------- miudezas ---------- */
+/* Utilities */
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    // Estas eram daqui e agora são de todo fluxo de OAuth (`oauth.rs`); os
-    // testes ficaram porque o que eles conferem é o redirect do Linear.
+    // Shared OAuth helpers retain these tests because the assertions cover Linear's callback
+    // contract.
     use crate::oauth::{parse_query, request_target, unescape};
 
     #[test]
@@ -662,9 +618,8 @@ mod tests {
         assert!(request_target("").is_none());
     }
 
-    /// Uma página como o Linear manda, com os campos opcionais vazios: sem
-    /// projeto, sem time, descrição em branco — nada disso pode derrubar a
-    /// lista inteira.
+    /// Optional project, team, and description fields must not invalidate an otherwise valid issue
+    /// page.
     #[test]
     fn le_uma_pagina_de_issues() {
         let json = serde_json::json!({

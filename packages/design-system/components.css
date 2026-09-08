@@ -1,6 +1,6 @@
 @import url("./tokens.css");
 
-/* Opt-in: nenhuma regra global de botão, formulário ou layout. */
+/* Opt-in components avoid global button, form or layout rules. */
 .ui-comfortable { --control-height: 44px; --button-height: 44px; --label-size: 13px; --hint-size: 12px; }
 .ui-comfortable .mrow { min-height: var(--control-height); }
 .ui-button {
@@ -36,7 +36,7 @@
 .ui-nav-link { display: flex; align-items: center; gap: var(--space-2); padding: 6px var(--space-2); border-radius: var(--r); color: var(--fg-2); text-decoration: none; font-size: var(--text-base); line-height: 20px; }
 .ui-nav-link:hover, .ui-nav-link[aria-current] { color: var(--fg); background: var(--bg-raised); }
 .ui-nav-link[aria-current] { font-weight: 500; box-shadow: inset 2px 0 var(--tab-line); }
-/* Avatar: foto ou logotipo; sem imagem, glifo de pessoa ou de organização. */
+/* Avatar images fall back to person or organization glyphs. */
 .ui-avatar { --avatar: 24px; flex: none; display: inline-grid; place-items: center; width: var(--avatar); height: var(--avatar); border-radius: 50%; overflow: hidden; background: var(--bg-raised-2); color: var(--fg-2); vertical-align: middle; }
 .ui-avatar.md { --avatar: 32px; }
 .ui-avatar.lg { --avatar: 40px; }
@@ -44,14 +44,14 @@
 .ui-avatar > img { width: 100%; height: 100%; object-fit: cover; }
 .ui-avatar > .ic { width: 58%; height: 58%; }
 .ui-button > .ui-avatar { margin-left: calc(var(--space-2) * -1); }
-/* Abas sublinhadas: a mesma marca de seleção das abas do desktop. */
+/* Underlined tabs share the desktop selection marker. */
 .ui-tabs { display: flex; gap: var(--space-1); overflow-x: auto; border-bottom: 1px solid var(--line-raised); }
 .ui-tabs > a { flex: none; padding: var(--space-2) var(--space-3); color: var(--fg-2); text-decoration: none; font-size: var(--text-base); line-height: 20px; }
 .ui-tabs > a:hover { color: var(--fg); }
 .ui-tabs > a[aria-current] { color: var(--fg); font-weight: 500; box-shadow: inset 0 -2px var(--tab-line); }
 .ui-tabs > a:focus-visible { outline: 2px solid var(--tab-line); outline-offset: -2px; }
 
-/* Campos, seletores e formulários compartilham as mesmas dimensões. */
+/* Fields, selectors and forms share control dimensions. */
 .ui-button:disabled, .ui-select:disabled { opacity: .45; cursor: not-allowed; }
 .ui-field { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
 .ui-label { font-size: var(--label-size); color: var(--fg-2); }
@@ -83,7 +83,7 @@ textarea.ui-input { resize: vertical; min-height: 112px; line-height: 1.5; }
 .ui-disclosure[open] > summary { margin-bottom: var(--space-4); }
 .ui-disclosure > .ui-field { margin-top: var(--space-3); }
 
-/* Diálogos e menus independentes do CSS do aplicativo. */
+/* Dialogs and menus work independently of application CSS. */
 .sheet.ui-dialog { box-sizing: border-box; width: min(600px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 0; margin: auto; color: var(--fg); background: var(--bg-raised); border: 1px solid var(--line-raised); border-radius: var(--r-xl); box-shadow: var(--shadow); font: inherit; }
 .sheet.ui-dialog[open] { display: flex; flex-direction: column; }
 .ui-dialog .sheettop { display: flex; align-items: center; flex: none; min-height: 44px; padding: 0 var(--space-4); border-bottom: 1px solid var(--line-raised); }
@@ -114,8 +114,7 @@ textarea.ui-input { resize: vertical; min-height: 112px; line-height: 1.5; }
 .mrow .mbadge { flex: none; padding: 1px 5px; border-radius: 4px; font-size: 10px; line-height: 16px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .mrow .mc { display: flex; color: var(--tab-line); width: 14px; flex: none; }
 .mrow .ic { flex: none; }
-/* Item que continua na lista mas não pode ser usado: apagado, e o porquê na
-   ponta onde mora o atalho. */
+/* Disabled items remain visible with an explanation in the shortcut position. */
 .mrow.off, .mrow.off:hover { color: var(--fg-3); background: none; cursor: default; }
 .mrow.off .mg { opacity: 0.5; }
 .mrow.danger { color: var(--err); }

@@ -1,8 +1,5 @@
-//! Adapter do protocolo stream-json do Claude para a conversa canônica.
-//!
-//! O processo recebe comandos no formato do Claude e produz eventos próprios.
-//! Este módulo traduz ambos os sentidos na fronteira do processo; tudo que
-//! entrega a `chat::Pump` já pertence ao Prometeu.
+//! Adapt Claude stream-json commands and events at the process boundary. Everything delivered to
+//! chat::Pump uses Prometeu's canonical conversation protocol.
 
 use crate::conversation::{event, now};
 use crate::{accounts, chat, i18n, paths};
@@ -97,8 +94,8 @@ fn prepare_profile_at(base: &Path, home: &Path) -> Result<(), String> {
         paths::write_private(&home.join("settings.json"), &settings.to_string())
             .map_err(i18n::io)?;
     }
-    // MCPs e confiança por projeto vivem fora de settings.json. A identidade
-    // escrita pelo login no perfil é preservada; a identidade global não é copiada.
+    // MCP configuration and project trust live outside settings.json. Preserve the profile's login
+    // identity without copying the global identity.
     let source = if base.join(".claude.json").exists() {
         base.join(".claude.json")
     } else {
@@ -167,7 +164,7 @@ fn account_status_at(
     while let Some(line) = process.line()? {
         body.push_str(&line);
     }
-    // `auth status` sai com 1 quando o JSON informa loggedIn=false.
+    // auth status exits with code 1 when its JSON reports loggedIn=false.
     let value: Value = serde_json::from_str(&body).map_err(|_| i18n::t("err.account.status"))?;
     if profile.managed
         && value["loggedIn"] == true
@@ -188,14 +185,16 @@ fn parse_account(value: &Value) -> Result<accounts::Identity, String> {
     })
 }
 
-/// Sobe o Claude numa conversa. Processo e bombeamento continuam sob
-/// responsabilidade de `chat`; este módulo fornece os dois lados do protocolo.
+/// Start Claude with provider-specific configuration and protocol adapters. The chat module owns
+/// process lifecycle and stream pumping.
 pub fn spawn(
     app: &AppHandle,
     id: &str,
     worktree: &Path,
-    args: Vec<String>,
+    resume: bool,
+    launch: &crate::session::Launch,
 ) -> Result<chat::Chat, String> {
+    let args = launch_args(id, resume, launch)?;
     let profile = accounts::active(crate::state::ProviderId::Claude)?;
     profile.prepare()?;
     if profile.managed && !account_status_at(&profile, worktree)?.connected {
@@ -223,11 +222,72 @@ pub fn spawn(
     )
 }
 
+/// Build headless stream-json arguments for a new or resumed session using the same ID. Route
+/// permission prompts through stdio so the process can receive replies. Plan mode permits a later
+/// switch to bypass, but must not start with the bypass flag because it overrides plan mode.
+fn launch_args(
+    id: &str,
+    resume: bool,
+    launch: &crate::session::Launch,
+) -> Result<Vec<String>, String> {
+    let mut args: Vec<String> = [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--include-partial-messages",
+        "--verbose",
+        "--permission-prompt-tool",
+        "stdio",
+        if resume { "--resume" } else { "--session-id" },
+        id,
+    ]
+    .map(String::from)
+    .to_vec();
+    if launch.plan {
+        args.extend(
+            [
+                "--permission-mode",
+                "plan",
+                "--allow-dangerously-skip-permissions",
+            ]
+            .map(String::from),
+        );
+    } else if launch.permission != Some(crate::actions::Permission::Ask) {
+        args.push("--dangerously-skip-permissions".into());
+    }
+    if !launch.instructions.is_empty() {
+        args.extend(["--append-system-prompt".into(), launch.instructions.clone()]);
+    }
+    if !launch.model.trim().is_empty() {
+        args.extend(["--model".into(), launch.model.trim().into()]);
+    }
+    if !launch.effort.trim().is_empty() {
+        args.extend(["--effort".into(), launch.effort.trim().into()]);
+    }
+    // An explicit MCP selection requires strict configuration; without one, retain the CLI
+    // defaults. Materialization failures must prevent startup rather than silently discard selected
+    // tools.
+    if let Some(path) = crate::mcp::config_for(id, launch.mcp.as_ref())? {
+        args.extend([
+            "--mcp-config".into(),
+            path.display().to_string(),
+            "--strict-mcp-config".into(),
+        ]);
+    }
+    // Inject selected plugins through session flags without modifying the CLI registry. Claude owns
+    // name-based deduplication with globally enabled plugins. Without a selection, leave those
+    // defaults intact; Codex materializes its own configuration in its adapter.
+    args.extend(crate::plugins::args_for(launch.plugins.as_ref()));
+    Ok(args)
+}
+
 fn passthrough_stderr(line: &str) -> Option<String> {
     Some(line.to_string())
 }
 
-/// Entrada stream-json do processo Claude.
+/// The Claude process's stream-json input transport.
 pub struct Link {
     stdin: ChildStdin,
 }
@@ -299,7 +359,7 @@ impl Adapter {
                 }),
             )],
             Some("system") => self.system(value, at),
-            // Discriminante histórico: somente leitura para uma importação futura.
+            // Read the historical discriminant for legacy imports only.
             Some("prometheus") => self.legacy_app(value, at),
             Some("rate_limit_event") => vec![event(
                 "usage.updated",
@@ -699,8 +759,8 @@ impl Adapter {
     }
 }
 
-/// Traduz o comando comum para a entrada stream-json do Claude. Durante o
-/// rollback, comandos antigos ainda atravessam sem alteração.
+/// Translate canonical commands into Claude stream-json input. Legacy commands remain unchanged for
+/// rollback compatibility.
 pub fn command(frame: &Value, buffer: &str) -> Option<Value> {
     if frame["v"] != 1 {
         return Some(frame.clone());
@@ -1012,7 +1072,7 @@ mod account_tests {
 
     #[test]
     fn status_261_expoe_somente_identidade_da_conta() {
-        // Forma capturada de `claude auth status --json` 2.1.261, sem dados pessoais.
+        // Sanitized shape captured from claude auth status --json 2.1.261.
         let value = json!({"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","analyticsDisabled":false,"projectsDirectory":"/privado/projects","email":"pessoa@example.com","orgId":"org-teste","orgName":"Time","subscriptionType":"max"});
         let identity = parse_account(&value).unwrap();
         assert!(identity.connected);
@@ -1022,5 +1082,124 @@ mod account_tests {
             .contains("/privado"));
         assert!(!parse_account(&json!({"loggedIn":false})).unwrap().connected);
         assert!(parse_account(&json!({"error":"indisponível"})).is_err());
+    }
+}
+
+#[cfg(test)]
+mod launch_tests {
+    use super::launch_args;
+    use crate::session::Launch;
+    use crate::state::ProviderId;
+
+    fn launch(model: &str, effort: &str, plan: bool) -> Launch {
+        Launch {
+            mcp: None,
+            plugins: None,
+            agent: ProviderId::Claude,
+            model: model.into(),
+            effort: effort.into(),
+            plan,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn task_permissions_and_instructions_reach_claude() {
+        let launch = Launch {
+            permission: Some(crate::actions::Permission::Ask),
+            instructions: "Review independently".into(),
+            ..Default::default()
+        };
+        let args = launch_args("id", true, &launch).unwrap();
+        assert!(!args.contains(&"--dangerously-skip-permissions".to_string()));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["--append-system-prompt", "Review independently"]));
+        let automatic = Launch {
+            permission: Some(crate::actions::Permission::Auto),
+            ..launch
+        };
+        assert!(launch_args("id", true, &automatic)
+            .unwrap()
+            .contains(&"--dangerously-skip-permissions".to_string()));
+    }
+
+    /// Without an explicit MCP selection, preserve CLI defaults. A selection supplies both the
+    /// generated file and strict configuration.
+    #[test]
+    fn mcp_so_entra_quando_alguem_escolheu() {
+        let sem = launch_args("id", false, &launch("", "", false)).unwrap();
+        assert!(!sem.contains(&"--mcp-config".to_string()));
+        assert!(!sem.contains(&"--strict-mcp-config".to_string()));
+
+        let root = std::env::temp_dir().join(format!("prometeu-mcp-{}", uuid::Uuid::new_v4()));
+        std::env::set_var("PROMETEU_ROOT", &root);
+        let escolheu = Launch {
+            mcp: Some(vec!["notion".into()]),
+            ..launch("", "", false)
+        };
+        let args = launch_args("id", false, &escolheu).unwrap();
+        std::env::remove_var("PROMETEU_ROOT");
+        let at = args
+            .iter()
+            .position(|a| a == "--mcp-config")
+            .expect("o arquivo");
+        assert!(std::path::Path::new(&args[at + 1]).exists());
+        assert!(args.contains(&"--strict-mcp-config".to_string()));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Without a plugin selection, preserve CLI defaults. Selected-plugin flag coverage belongs to
+    /// plugins.rs.
+    #[test]
+    fn sem_escolha_nao_ha_flag_de_plugin() {
+        let args = launch_args("id", false, &launch("", "", false)).unwrap();
+        assert!(!args.contains(&"--plugin-dir".to_string()));
+        assert!(!args.contains(&"--plugin-url".to_string()));
+    }
+
+    /// Bypass overrides plan mode, so plan mode must use the allow flag without enabling bypass
+    /// immediately.
+    #[test]
+    fn plan_mode_nao_leva_o_bypass_junto() {
+        let solto = launch_args("id", false, &launch("", "", false)).unwrap();
+        assert!(solto.contains(&"--dangerously-skip-permissions".to_string()));
+        assert!(!solto.contains(&"--permission-mode".to_string()));
+
+        let plano = launch_args("id", false, &launch("", "", true)).unwrap();
+        assert!(!plano.contains(&"--dangerously-skip-permissions".to_string()));
+        assert!(plano.contains(&"--allow-dangerously-skip-permissions".to_string()));
+        let at = plano.iter().position(|a| a == "--permission-mode").unwrap();
+        assert_eq!(plano[at + 1], "plan");
+    }
+
+    /// Omit empty model and effort flags so Claude can choose its defaults.
+    #[test]
+    fn modelo_e_esforco_so_quando_escolhidos() {
+        let padrao = launch_args("id", true, &launch("", " ", false)).unwrap();
+        assert!(!padrao.contains(&"--model".to_string()));
+        assert!(!padrao.contains(&"--effort".to_string()));
+        let at = padrao.iter().position(|a| a == "--resume").unwrap();
+        assert_eq!(padrao[at + 1], "id");
+
+        let escolhido = launch_args("id", false, &launch("opus[1m]", "max", false)).unwrap();
+        assert_eq!(
+            escolhido[escolhido.len() - 4..],
+            ["--model", "opus[1m]", "--effort", "max"]
+        );
+        let at = escolhido.iter().position(|a| a == "--session-id").unwrap();
+        assert_eq!(escolhido[at + 1], "id");
+    }
+
+    /// Keep conversation input, output, and permission requests on the same stream-json transport.
+    #[test]
+    fn a_conversa_e_stream_json_com_permissao_por_stdio() {
+        let args = launch_args("id", false, &launch("", "", false)).unwrap();
+        let has = |pair: [&str; 2]| args.windows(2).any(|w| w[0] == pair[0] && w[1] == pair[1]);
+        assert_eq!(args[0], "-p");
+        assert!(has(["--input-format", "stream-json"]));
+        assert!(has(["--output-format", "stream-json"]));
+        assert!(has(["--permission-prompt-tool", "stdio"]));
+        assert!(args.contains(&"--include-partial-messages".to_string()));
     }
 }

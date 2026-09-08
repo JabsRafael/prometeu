@@ -1,22 +1,18 @@
 import { icon } from "./icons.js";
 
-/// Menu de contexto: a lista que abre no botão direito da linha. É o lugar onde
-/// tudo que se faz com um workspace mora — renomear, mudar de etapa, arquivar —
-/// em vez de cada ação virar um botãozinho no card.
+/// Context menus group workspace actions such as rename, stage changes and archive.
 export type Item =
   | "sep"
   | {
       label: string;
-      /// Glifo já desenhado, e não um nome de ícone: assim o mesmo menu aceita
-      /// o ícone de etapa, que é calculado, e os ícones de nome fixo.
+      /// A rendered glyph supports both computed stage icons and named icons.
       glyph?: string;
-      /// Atalho escrito na ponta. Só aparece quem existe de verdade.
+      /// Display only keyboard shortcuts that actually exist.
       hint?: string;
       badge?: string;
       checked?: boolean;
       danger?: boolean;
-      /// Continua na lista, mas apagado e sem clique: item que some quando não
-      /// pode ser usado deixa quem procurava por ele achando que enlouqueceu.
+      /// Keep unavailable actions visible but disabled so users can discover them.
       disabled?: boolean;
       sub?: Item[];
       run?: () => void;
@@ -24,7 +20,7 @@ export type Item =
 
 let root: HTMLElement | null = null;
 let afterClose: (() => void) | undefined;
-/// A linha marcada — pelo mouse ou pelas setas. É a que Enter aciona.
+/// The mouse or keyboard selection activated by Enter.
 let sel: HTMLElement | null = null;
 let keyboardFocus = false;
 let previousFocus: HTMLElement | null = null;
@@ -33,9 +29,7 @@ const openers = new WeakMap<HTMLElement, HTMLElement>();
 
 export const isOpen = () => root !== null;
 
-/// Quem quer saber que o painel fechou. O app não se redesenha com um menu
-/// aberto — refazer a lista embaixo tiraria o painel do lugar no meio do
-/// clique —, e o que ficou para trás precisa acontecer quando ele sai.
+/// Notify listeners after the menu closes so deferred redraws cannot move controls during a click.
 const closers = new Set<() => void>();
 export const onClose = (fn: () => void) => { closers.add(fn); return () => { closers.delete(fn); }; };
 
@@ -53,9 +47,8 @@ export function close() {
   window.removeEventListener("blur", close);
   if (restore && previousFocus?.isConnected) previousFocus.focus();
   previousFocus = null;
-  // Reabrir o mesmo menu — o seletor que se remarca a cada clique — passa por
-  // aqui e não é fechar: o aviso sai no tique seguinte, e só se ninguém tiver
-  // aberto outro painel nesse meio-tempo.
+  // Reopening a selector is not a close. Defer notification until the next tick and suppress it if
+  // another panel opens.
   if (was) setTimeout(() => root === null && closers.forEach((fn) => fn()), 0);
 }
 
@@ -63,11 +56,8 @@ function onDown(e: MouseEvent) {
   if (!(e.target as HTMLElement).closest(".menu")) close();
 }
 
-/// Esc é do menu enquanto ele está aberto: o do app fecharia o lançador atrás.
-/// As setas andam pela lista e Enter aciona a linha marcada — é o que deixa
-/// escolher sem tirar a mão do teclado quando o menu abriu enquanto se
-/// escrevia (ver `commands.ts`, `notes.ts`). Sem linha marcada, Enter segue
-/// para quem estava com o foco.
+/// The open menu owns Escape, arrow navigation and Enter. With no selection, Enter stays with the
+/// focused editor.
 function onKey(e: KeyboardEvent) {
   if (e.key === "Escape") {
     e.preventDefault();
@@ -93,7 +83,7 @@ function onKey(e: KeyboardEvent) {
     const panel = sel.parentElement, opener = openers.get(panel)!;
     panel.remove(); opener.setAttribute("aria-expanded", "false"); select(opener);
   } else if (keyboardFocus && e.key === "Tab") {
-    // Autocomplete mantém o foco no editor, que usa Tab para aceitar a opção.
+    // Autocomplete keeps editor focus and uses Tab to accept the selected option.
     close();
   }
 }
@@ -109,8 +99,7 @@ function rowsIn(panel: HTMLElement) {
   return [...panel.children].filter((el): el is HTMLElement => el.matches(".mrow:not(.off)"));
 }
 
-/// Uma linha para baixo ou para cima, dando a volta nas pontas. Só as linhas
-/// do painel de cima: o submenu é do mouse.
+/// Wrap through top-level menu items; submenus use pointer navigation.
 function move(delta: number) {
   if (!root) return;
   const rows = rowsIn(sel?.isConnected ? sel.parentElement! : root);
@@ -124,14 +113,11 @@ function move(delta: number) {
 export type Where = {
   x: number;
   y: number;
-  /// O painel cresce para cima a partir do ponto, em vez de para baixo: é o
-  /// que abre em cima de uma caixa de texto sem tampá-la.
+  /// Open upward to keep the editor below the menu visible.
   above?: boolean;
 };
 
-/// Abre em cima do ponto do clique. Se não couber, encosta na borda em vez de
-/// sair da tela. `cls` é uma classe a mais no painel, para a lista que precisa
-/// de outro tamanho.
+/// Open at the click position, clamped to the viewport. `cls` allows a consumer-specific panel size.
 export function openAt(at: Where, items: Item[], cls?: string, onClosed?: () => void, focus = false) {
   close();
   keyboardFocus = focus;
@@ -159,7 +145,7 @@ function panel(items: Item[]): HTMLElement {
   box.className = "menu";
   box.tabIndex = -1;
   box.setAttribute("role", "menu");
-  // Um submenu por painel: abrir outra linha fecha o que estava aberto.
+  // Each panel has one submenu; opening another replaces it.
   let sub: HTMLElement | null = null;
   let opener: HTMLElement | null = null;
   const drop = () => {
@@ -196,15 +182,13 @@ function panel(items: Item[]): HTMLElement {
 
     const showSubmenu = () => {
       drop();
-      // Dentro do painel, não no body: `position: fixed` posiciona igual, e
-      // fechar o menu leva os submenus embora sem ninguém varrer atrás.
+      // Keep fixed-position submenus inside their parent so closing the menu removes them automatically.
       sub = panel(item.sub!);
       box.append(sub);
       opener = row; openers.set(sub, row);
       row.setAttribute("aria-expanded", "true");
       const at = row.getBoundingClientRect();
-      // Encostado na linha, e não no ponto do clique: o submenu sai de onde a
-      // seta aponta.
+      // Anchor the submenu to its row rather than the pointer position.
       place(sub, at.right - 4, at.top - 6);
       return sub;
     };

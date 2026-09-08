@@ -1,5 +1,5 @@
-//! Arquivos do Finder já têm caminho; miniaturas de captura entregam uma
-//! promessa. O AppKit materializa a promessa antes de a UI anexar o caminho.
+//! Finder files already have paths; screenshot thumbnails provide promises. AppKit materializes
+//! those promises before the UI attaches their paths.
 use serde::Serialize;
 use tauri::{DragDropEvent, Emitter, PhysicalPosition, Webview, WebviewEvent, Window};
 
@@ -22,8 +22,8 @@ pub fn install(app: &tauri::AppHandle) -> tauri::Result<()> {
         use tauri::Manager;
         if let Some(view) = app.get_webview("main") {
             view.with_webview(|view| unsafe {
-                // O handle pertence à WKWebView (subclasse de NSView) e esta
-                // closure roda na thread principal, como o AppKit exige.
+                // The handle belongs to WKWebView, an NSView subclass. This closure runs on the
+                // main thread as required by AppKit.
                 let view = &*view.inner().cast::<objc2_app_kit::NSView>();
                 view.registerForDraggedTypes(
                     &objc2_app_kit::NSFilePromiseReceiver::readableDraggedTypes(),
@@ -40,8 +40,8 @@ pub fn on_webview_event(webview: &Webview, event: &WebviewEvent) {
     if webview.label() != "main" {
         return;
     }
-    // Com `unstable`, até a webview principal é WindowChild no Tauri.
-    // O arraste não passa pelos listeners de WindowEvent.
+    // With unstable enabled, even Tauri's main webview is a WindowChild. Drag events bypass
+    // WindowEvent listeners.
     let WebviewEvent::DragDrop(event) = event else {
         return;
     };
@@ -99,14 +99,14 @@ mod macos {
     };
 
     thread_local! {
-        // Os eventos de janela e o AppKit rodam na thread principal. Reter os
-        // receptores durante o gesto evita consultar outro pasteboard depois.
+        // Window and AppKit events run on the main thread. Retain promise receivers for the gesture
+        // instead of querying a later pasteboard.
         static RECEIVERS: RefCell<Vec<Retained<NSFilePromiseReceiver>>> = const { RefCell::new(Vec::new()) };
     }
 
     fn promises(pasteboard: &NSPasteboard) -> Vec<Retained<NSFilePromiseReceiver>> {
         let classes = NSArray::from_slice(&[NSFilePromiseReceiver::class()]);
-        // A única classe pedida implementa NSPasteboardReading; não há opções.
+        // The requested class implements NSPasteboardReading and requires no options.
         unsafe { pasteboard.readObjectsForClasses_options(&classes, None) }
             .map(|objects| {
                 objects
@@ -177,8 +177,8 @@ mod macos {
             let keep_receiver = receiver.clone();
             let reader = block2::RcBlock::new(move |url: NonNull<NSURL>, error: *mut NSError| {
                 let _keep_alive = &keep_receiver;
-                // AppKit fornece URL/erro válidos durante o callback. Copiamos
-                // somente strings; nenhum objeto Cocoa atravessa a thread.
+                // AppKit guarantees URL and error validity during the callback. Copy only strings
+                // so Cocoa objects never cross threads.
                 let result = unsafe {
                     if let Some(error) = error.as_ref() {
                         Err(error.localizedDescription().to_string())
@@ -196,8 +196,8 @@ mod macos {
                     &reader,
                 );
             }
-            // fileNames só é preenchido depois de chamar a promessa. Uma
-            // promessa legada pode entregar vários arquivos no mesmo item.
+            // fileNames becomes available only after requesting the promise. A legacy promise may
+            // provide multiple files for one item.
             count += receiver.fileNames().len().max(1);
         }
         drop(send);

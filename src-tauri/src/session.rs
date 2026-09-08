@@ -20,14 +20,10 @@ pub fn load_board(state: State<AppState>) -> Board {
     lock(&state.board).clone()
 }
 
-/* ---------- projetos ---------- */
+/* ---------- projects ---------- */
 
-/// Registrar a pasta uma vez é o que torna criar workspace rápido depois: o
-/// lançador vira um seletor e uma caixa de texto.
-///
-/// A pasta não precisa ser um repositório git. Sem git não há worktree nem
-/// branch nova — o lançador desliga as duas chavinhas —, e o que sobra é o que
-/// muita pasta precisa: abrir o agente ali dentro.
+/// Register folders once so the launcher can reuse them. Non-Git folders support agent sessions but
+/// cannot create branches or worktrees.
 #[tauri::command]
 pub fn add_project(
     app: AppHandle,
@@ -66,8 +62,8 @@ pub fn remove_project(app: AppHandle, state: State<AppState>, id: String) {
 
 /* ---------- workspaces ---------- */
 
-/// A etapa é propriedade do workspace, não o lugar onde ele está: muda pelo
-/// menu, pelo cabeçalho ou arrastando o card — dá no mesmo.
+/// The workspace owns its stage, regardless of whether the menu, header, or drag gesture changes
+/// it.
 #[tauri::command]
 pub fn set_stage(app: AppHandle, state: State<AppState>, id: String, stage: String) {
     {
@@ -79,20 +75,17 @@ pub fn set_stage(app: AppHandle, state: State<AppState>, id: String, stage: Stri
     publish(&app);
 }
 
-/// Arquivar é sair da lista, não morrer: worktree, branch e transcript ficam, e
-/// desarquivar traz tudo de volta. Os processos, esses, param — agente vivo num
-/// workspace que ninguém vê é pergunta esperando resposta que ninguém lê.
+/// Archiving preserves the worktree, branch, and transcript. Stop hidden processes so their
+/// requests do not wait for an absent reader.
 #[tauri::command]
 pub fn archive_workspace(app: AppHandle, state: State<AppState>, id: String, archived: bool) {
     archive(&state, &id, archived);
     publish(&app);
 }
 
-/// Concluir: a etapa vai para a última da lista e o workspace sai da frente,
-/// num gesto só. São os dois que sempre andavam juntos quando o PR entrava —
-/// e arquivar já derruba o agente, os docks e o que o script `archive` tiver
-/// para derrubar. O worktree fica: devolver o disco é outra decisão, tomada
-/// depois e com o diff ainda ao alcance.
+/// Finishing moves the workspace to the final stage and archives it. Archiving stops agents, docks,
+/// and resources handled by the archive script. Worktree cleanup remains a separate decision with
+/// the diff still available.
 #[tauri::command]
 pub fn finish_workspace(app: AppHandle, state: State<AppState>, id: String) {
     {
@@ -108,14 +101,11 @@ pub fn finish_workspace(app: AppHandle, state: State<AppState>, id: String) {
 
 fn archive(state: &State<AppState>, id: &str, archived: bool) {
     let mut dead: Vec<String> = Vec::new();
-    // O `archive` derruba o que o workspace deixou fora do worktree — container,
-    // banco, túnel. Roda antes de arquivar, enquanto o que ele precisa apagar
-    // ainda existe, e solto: é limpeza, e prender a janela nela seria pior do
-    // que ela demorar. Sem pty, porque ninguém vai ler a saída.
+    // Run the archive script before archiving, while its resources still exist. It cleans up
+    // containers, databases, and tunnels asynchronously, without a PTY or blocking the window.
     if archived {
-        // Os docks caem primeiro: o `archive` não pode derrubar o banco com o
-        // servidor de dev ainda de pé em cima dele — e servidor de workspace
-        // arquivado é processo que ninguém vê.
+        // Stop docks before the archive script removes resources that development servers still
+        // use.
         dock::kill_docks(state, id);
         if let Some(ws) = workspace_copy(state, id) {
             if let Some(command) = dock::scripts_of(&ws).archive {
@@ -142,13 +132,12 @@ fn archive(state: &State<AppState>, id: &str, archived: bool) {
             }
         }
     }
-    // Fora do lock do quadro: encerrar é sinalizar e esperar, e isso com o
-    // quadro trancado pararia as outras sessões.
+    // Stop processes outside the board lock: signalling and waiting must not block other sessions.
     stop(state, &dead);
 }
 
-/// Encerra as sessões destas abas: o processo morre. Transcript e worktree
-/// ficam — a próxima fala retoma.
+/// Stop these tab processes. Preserve transcripts and worktrees so the next message can resume
+/// them.
 fn stop(state: &State<AppState>, tabs: &[String]) {
     for tab in tabs {
         chat::kill(state, tab);
@@ -156,8 +145,8 @@ fn stop(state: &State<AppState>, tabs: &[String]) {
     }
 }
 
-/// O nome nasce da primeira frase do prompt, que quase nunca é o nome que o
-/// trabalho tem no fim. Nome vazio é desistência, não apagar o que já existe.
+/// The initial title comes from the prompt. An empty rename cancels the change rather than erasing
+/// the existing title.
 #[tauri::command]
 pub fn rename_workspace(app: AppHandle, state: State<AppState>, id: String, title: String) {
     let title = title.trim();
@@ -173,8 +162,7 @@ pub fn rename_workspace(app: AppHandle, state: State<AppState>, id: String, titl
     publish(&app);
 }
 
-/// Fixar é a etiqueta de "é neste que eu volto agora" — sobe para o topo da
-/// lista sem mentir sobre a etapa em que o trabalho está.
+/// Pinning moves the workspace to the top without changing its stage.
 #[tauri::command]
 pub fn pin_workspace(app: AppHandle, state: State<AppState>, id: String, pinned: bool) {
     {
@@ -186,15 +174,9 @@ pub fn pin_workspace(app: AppHandle, state: State<AppState>, id: String, pinned:
     publish(&app);
 }
 
-/// Trocar as ferramentas do agente com o trabalho já andando: marcar o Notion
-/// no meio da tarde, porque só agora deu para ver que vai precisar dele.
-///
-/// O MCP entra na sessão quando ela sobe, e não há como acrescentar um a um
-/// processo de pé. Mas a sessão não é o processo — é o transcript no disco
-/// (`chat.rs`) —, então derrubar o processo aqui não perde conversa nenhuma: a
-/// próxima fala o levanta de novo com `--resume` e a lista nova. Quem está no
-/// meio de um turno fica de fora: a tela não deixa marcar enquanto o agente
-/// trabalha, e derrubá-lo aqui jogaria o turno fora.
+/// MCP selections apply at process startup. Stop idle processes so the next message resumes their
+/// transcripts with the new tools. Active turns must finish first; stopping them would lose ongoing
+/// work.
 #[tauri::command]
 pub fn set_workspace_mcp(
     app: AppHandle,
@@ -216,9 +198,8 @@ pub fn set_workspace_mcp(
     publish(&app);
 }
 
-/// Trocar os plugins do workspace, pela mesma regra do MCP: eles entram quando
-/// a sessão sobe, então as abas caem aqui e a próxima fala as levanta de novo
-/// com a lista nova. O que se perde é o processo, não a conversa.
+/// Plugin selections apply at process startup. Restart idle tabs on their next message without
+/// losing their transcripts.
 #[tauri::command]
 pub fn set_workspace_plugins(
     app: AppHandle,
@@ -240,15 +221,9 @@ pub fn set_workspace_plugins(
     publish(&app);
 }
 
-/// Trocar com quem uma conversa que já começou fala: o modelo e o esforço
-/// desta aba, pela mesma regra do MCP e dos plugins. As flags entram quando o
-/// processo sobe, então ele cai aqui e a próxima fala o levanta com `--resume`
-/// e as novas — o transcript é o mesmo, e o que muda é quem o lê daqui para a
-/// frente.
-///
-/// Trocar de CLI no meio não: o transcript do Claude Code o Codex não retoma,
-/// nem o contrário. Quem barra é a tela, que só oferece os modelos do CLI que
-/// já está de pé; aqui a conta é refeita porque comando é porta de entrada.
+/// Model and effort changes require a process restart; the next message resumes the same transcript
+/// with the new settings. Reject provider changes here as well as in the UI because providers
+/// cannot resume each other's transcripts.
 #[tauri::command]
 pub fn set_tab_choice(
     app: AppHandle,
@@ -269,8 +244,7 @@ pub fn set_tab_choice(
     Ok(())
 }
 
-/// Marcar como não lido à mão: dar de cara com a novidade e não poder lidar com
-/// ela agora é o caso mais comum de todos.
+/// Allow manual unread marking when the person needs to return to an update later.
 #[tauri::command]
 pub fn set_unread(app: AppHandle, state: State<AppState>, id: String, unread: bool) {
     {
@@ -282,9 +256,8 @@ pub fn set_unread(app: AppHandle, state: State<AppState>, id: String, unread: bo
     publish(&app);
 }
 
-/// Compartilhar com o time é uma marca no workspace: quem anuncia ao relay e
-/// repassa a saída é o front, que é quem tem os bytes. Fica gravada para o
-/// dono que fecha o app voltar compartilhando sozinho.
+/// Persist sharing intent so reopening the app restores it. The frontend owns relay announcements
+/// and stream forwarding.
 #[tauri::command]
 pub fn set_shared(
     app: AppHandle,
@@ -305,8 +278,7 @@ pub fn set_shared(
     publish(&app);
 }
 
-/// Qual workspace está na tela — e, por isso, deixa de ter novidade. Sem isto o
-/// back marcaria como não lido o que você está vendo acontecer na sua frente.
+/// The visible workspace must not acquire unread status for updates the person is already watching.
 #[tauri::command]
 pub fn look_at(app: AppHandle, state: State<AppState>, id: Option<String>) {
     *lock(&state.looking) = id.clone();
@@ -323,8 +295,8 @@ pub fn look_at(app: AppHandle, state: State<AppState>, id: Option<String>) {
     }
 }
 
-/// Tira o workspace do quadro. Não mexe no worktree nem na branch de propósito:
-/// apagar trabalho é decisão sua, feita no git, não num clique de limpeza.
+/// Remove the workspace from the board while preserving its worktree and branch. Deleting work
+/// requires a separate decision.
 #[tauri::command]
 pub fn remove_workspace(app: AppHandle, state: State<AppState>, id: String) {
     dock::kill_docks(&state, &id);
@@ -345,11 +317,10 @@ pub fn remove_workspace(app: AppHandle, state: State<AppState>, id: String) {
     publish(&app);
 }
 
-/* ---------- devolver o disco ---------- */
+/* ---------- disk cleanup ---------- */
 
-/// Um worktree que já pode sair do disco, e o que ele ocupa. `blocked` é o
-/// motivo de não poder — mudança fora de commit, trabalho que não entrou no
-/// alvo — e vem como código para a tela traduzir.
+/// Worktree disk usage and cleanup eligibility. A blocked reason is an error code translated by the
+/// frontend.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Cleanable {
@@ -358,22 +329,16 @@ pub struct Cleanable {
     pub repo_name: String,
     pub branch: String,
     pub worktree: String,
-    /// Quanto o worktree ocupa, em kilobytes. `node_modules` e `target` são a
-    /// maior parte disso, e é por eles que a limpeza vale a pena.
+    /// Disk usage in kilobytes, including large ignored directories such as node_modules and
+    /// target.
     pub size_kb: u64,
     pub pr: Option<u64>,
     pub blocked: Option<String>,
 }
 
-/// Os arquivados que ainda têm worktree, com o motivo de cada um poder ou não
-/// sair. Uma varredura só, pedida quando a tela de limpeza abre: cada linha
-/// custa um `git status` e um `du`, e isso não é coisa para o redesenho do
-/// quadro fazer.
-///
-/// Workspace que roda no próprio clone fica de fora: não há pasta para
-/// devolver, e medi-lo seria um `du` do repositório inteiro por linha — era
-/// isso que fazia a lista demorar. As linhas que sobram são medidas em
-/// paralelo: cada `du` anda numa árvore diferente, e o disco aguenta.
+/// Scan archived worktrees when the cleanup screen opens, not during board redraws. Exclude
+/// sessions in the original clone, and measure independent worktrees in parallel because each git
+/// status and du call traverses its own tree.
 #[tauri::command(async)]
 pub fn cleanup_list(state: State<AppState>) -> Vec<Cleanable> {
     let mine: Vec<Workspace> = lock(&state.board)
@@ -407,20 +372,15 @@ pub fn cleanup_list(state: State<AppState>) -> Vec<Cleanable> {
     })
 }
 
-/// Arquivado que ainda tem um worktree só dele para devolver. O que já foi
-/// devolvido não conta, e o que roda no próprio clone nunca contou: a pasta
-/// é o repositório.
+/// Only archived, uncleaned workspaces with separate worktrees own removable directories. The
+/// original clone is never eligible.
 fn has_worktree(ws: &Workspace) -> bool {
     ws.archived && !ws.cleaned && ws.worktree != ws.repo
 }
 
-/// Devolve o worktree ao disco: a pasta sai, a branch local sai, o card fica.
-/// Destrutivo e sem volta.
-///
-/// `force` é a tela dizendo que a pessoa leu o motivo em vermelho e marcou
-/// assim mesmo — mudança fora de commit e trabalho que não entrou no alvo vão
-/// junto. O que `force` não desliga é o que nem a pessoa quer: arquivar antes,
-/// e nunca apagar o próprio clone.
+/// Permanently remove the worktree and local branch while retaining the card. Force permits
+/// explicitly approved loss of uncommitted or unmerged work, but never bypasses archiving or
+/// permits deleting the original clone.
 #[tauri::command(async)]
 pub fn cleanup_worktree(
     app: AppHandle,
@@ -441,10 +401,8 @@ pub fn cleanup_worktree(
         validate_multi_root(&ws)?;
     }
 
-    // O agente e os docks caem antes de a pasta sumir debaixo deles. O script
-    // `archive` do repositório não roda aqui: ele já rodou quando este
-    // workspace foi arquivado, e ele sobe solto — dispará-lo agora seria soltar
-    // um processo no worktree ao mesmo tempo que o git o apaga.
+    // Stop agents and docks before removing their directories. The archive script already ran
+    // during archiving; starting it again would race Git while the worktree disappears.
     dock::kill_docks(&state, &id);
     let dead: Vec<String> = lock(&state.board)
         .workspace_mut(&id)
@@ -452,14 +410,13 @@ pub fn cleanup_worktree(
         .unwrap_or_default();
     stop(&state, &dead);
 
-    // Um worktree por repositório, e cada um sai do seu clone.
+    // Remove each repository's worktree through its own clone.
     for r in &ws.repos {
         let repo = PathBuf::from(&r.path);
         let wt = PathBuf::from(&r.worktree);
         if wt.exists() {
-            // `--force` porque o que sobrou é o que o `.gitignore` esconde:
-            // `node_modules`, `target`, `.env` — e, quando a pessoa marcou o
-            // vermelho, também a mudança fora de commit que ela decidiu perder.
+            // Force removes ignored files such as node_modules, target, and .env, plus uncommitted
+            // changes only when the person explicitly approved losing them.
             let out = Command::new("git")
                 .arg("-C")
                 .arg(&repo)
@@ -480,18 +437,16 @@ pub fn cleanup_worktree(
                 ));
             }
         }
-        // `-D` e não `-d`: sem `force` a branch já não tem nada que o alvo não
-        // tenha, e com `force` perdê-la é justamente o que foi marcado. Se o git
-        // recusar — ela está em check-out em outro lugar —, o worktree já foi e o
-        // trabalho aqui está feito: uma branch a mais no repositório não é motivo
-        // para devolver erro a quem só queria o disco de volta.
+        // Use -D after checking merge safety, or when force explicitly permits loss. A branch
+        // deletion failure can leave a harmless ref after successful worktree cleanup, so it must
+        // not turn that cleanup into an error.
         if !ws.branch.is_empty() {
             let _ = git(&repo, &["branch", "-D", &ws.branch]);
         }
         let _ = git(&repo, &["worktree", "prune"]);
     }
-    // A pasta que reunia os worktrees é do Prometeu: sem eles, só sobra o
-    // que o app escreveu nela, e ela vai junto.
+    // Remove the application-owned directory that grouped the worktrees after its children are
+    // gone.
     if ws.multi() {
         let _ = std::fs::remove_dir_all(&ws.worktree);
     }
@@ -511,13 +466,11 @@ pub fn cleanup_worktree(
     Ok(())
 }
 
-/// Este worktree pode sair? O erro é o motivo, como código para a tela dizer a
-/// frase. Worktree que já sumiu do disco passa: limpar o que não existe mais é
-/// só acertar o quadro.
+/// Return a translated error code when cleanup is unsafe. A missing worktree passes so cleanup can
+/// reconcile the board with disk.
 fn check(ws: &Workspace) -> Result<(), String> {
     hard(ws)?;
-    // Cada repositório responde por si, e basta um segurar para nenhum sair:
-    // os worktrees são de um trabalho só, e devolver metade dele não é limpar.
+    // Every repository must pass before removing any part of a workspace.
     for r in &ws.repos {
         let wt = PathBuf::from(&r.worktree);
         if !wt.exists() {
@@ -537,12 +490,10 @@ fn check(ws: &Workspace) -> Result<(), String> {
     Ok(())
 }
 
-/// As duas guardas que `force` não levanta: nem a pessoa mais decidida quer
-/// apagar um worktree que ainda está em uso, nem o clone dela.
+/// Force never bypasses archiving or permits deleting the original clone.
 fn hard(ws: &Workspace) -> Result<(), String> {
-    // Arquivar primeiro é o que faz o `archive` do repositório rodar com o
-    // worktree ainda de pé. Devolver o disco é o passo depois dele, nunca no
-    // lugar dele.
+    // Archiving runs the repository's archive script while the worktree exists. Disk cleanup must
+    // follow that step.
     if !ws.archived {
         return Err(i18n::t("err.cleanup.notArchived"));
     }
@@ -552,11 +503,9 @@ fn hard(ws: &Workspace) -> Result<(), String> {
     Ok(())
 }
 
-/// A raiz agregadora é a única pasta que removemos diretamente; os worktrees
-/// individuais são removidos pelo próprio Git. Por isso o caminho precisa ser
-/// exatamente o que `create_workspace` teria produzido, e cada filho precisa
-/// estar imediatamente abaixo dele. Um `board.json` editado ou corrompido não
-/// pode transformar `remove_dir_all` numa remoção de pasta arbitrária.
+/// Only the exact grouping directory produced by create_workspace may be removed directly. Require
+/// every worktree to be an immediate child so edited or corrupted board data cannot authorize
+/// arbitrary recursive deletion.
 fn validate_multi_root(ws: &Workspace) -> Result<(), String> {
     use std::path::Component;
 
@@ -569,9 +518,8 @@ fn validate_multi_root(ws: &Workspace) -> Result<(), String> {
     }
     let names: Vec<String> = ws.repos.iter().map(|repo| repo.name.clone()).collect();
     let expected = paths::multi_dir(&names, &ws.branch);
-    // A importação preserva os worktrees no lugar para não copiar dezenas
-    // de gigabytes nem alterar a origem. A raiz antiga passa pela mesma conta
-    // exata; nenhum outro caminho ganha permissão para `remove_dir_all`.
+    // Legacy imports keep worktrees in place. Accept only the exact legacy grouping path, using the
+    // same validation as current paths.
     let legacy = paths::prometheus_multi_dir(&names, &ws.branch);
     let root = Path::new(&ws.worktree);
     let children_match = ws.repos.iter().all(|repo| {
@@ -585,10 +533,8 @@ fn validate_multi_root(ws: &Workspace) -> Result<(), String> {
     }
 }
 
-/// O trabalho já está em outro lugar? Duas respostas servem: o `gh` dizendo que
-/// o PR mergeou, ou o git dizendo que o que está aqui já é ancestral do alvo —
-/// que é o que sobra quando o merge foi por fora do GitHub, ou o `gh` não
-/// existe nesta máquina.
+/// Work is safe when GitHub reports the PR merged or Git reports the branch is an ancestor of its
+/// target. The latter also supports merges outside GitHub and machines without gh.
 fn merged(pr: Option<&Pr>, wt: &Path) -> bool {
     if pr.is_some_and(|pr| pr.merged()) {
         return true;
@@ -604,9 +550,8 @@ fn merged(pr: Option<&Pr>, wt: &Path) -> bool {
     has_commit(wt, &target) && git_ok(wt, &["merge-base", "--is-ancestor", "HEAD", &target])
 }
 
-/// Quanto a pasta ocupa, em kilobytes — o `du` do sistema, que é quem já sabe
-/// andar em árvore grande. Sem resposta, zero: o número é para você decidir se
-/// vale a pena, e não saber o tamanho não impede a limpeza.
+/// Use the system du command for kilobytes. Unknown size becomes zero because an unavailable
+/// estimate must not block cleanup.
 fn size_of(wt: &Path) -> u64 {
     if !wt.exists() {
         return 0;
@@ -621,41 +566,35 @@ fn size_of(wt: &Path) -> u64 {
     .unwrap_or(0)
 }
 
-/// O que o lançador montou. Um struct, e não doze parâmetros soltos: o front já
-/// tem esse objeto inteiro, e passá-lo como um só é o que impede a lista de
-/// argumentos de crescer a cada chavinha nova na tela.
+/// Keep launcher inputs together so adding an option does not expand the command's parameter list.
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Draft {
     project: String,
-    /// Os outros repositórios do workspace, quando a funcionalidade atravessa
-    /// mais de um: cada um ganha um worktree na mesma branch, lado a lado com
-    /// o do `project`. Só existe com `worktree` ligado — o agente precisa de
-    /// uma pasta que contenha todos, e clones espalhados não têm uma.
+    /// Additional repositories receive sibling worktrees on the same branch. This requires
+    /// worktrees because the agent needs a common parent directory.
     #[serde(default)]
     extras: Vec<String>,
-    /// Vazia é a escolha de não criar branch nenhuma.
+    /// An empty branch name means no branch should be created.
     branch: String,
-    /// De onde a branch nova sai.
+    /// The starting ref for a new branch.
     base: String,
-    /// Ligado, a branch nasce num worktree só dela; desligado, ela nasce no
-    /// próprio repositório — e é o diretório de trabalho dele que troca.
+    /// Create the branch in a separate worktree when enabled; otherwise switch the original clone.
     worktree: bool,
     title: String,
     stage: String,
     prompt: String,
     inject: Vec<String>,
-    /// A issue do Linear que deu origem, quando o lançador saiu de uma.
+    /// The Linear issue that opened the launcher, when present.
     #[serde(default)]
     issue: Option<crate::linear::IssueRef>,
-    /// `--model`, `--effort` e plan mode da primeira conversa. Modelo e
-    /// esforço ficam no workspace; plan mode é só desta primeira fala.
+    /// Model and effort persist on the workspace. Plan mode applies only to the initial
+    /// conversation.
     #[serde(flatten)]
     launch: Launch,
 }
 
-/// As chavinhas que viram argumento do `claude`. O que o lançador escolhe e o
-/// que o workspace guarda para as próximas conversas são o mesmo conjunto.
+/// Provider-neutral launch settings shared by the launcher and persisted workspace defaults.
 #[derive(serde::Deserialize, Clone, Default)]
 pub struct Launch {
     #[serde(default)]
@@ -664,32 +603,30 @@ pub struct Launch {
     pub instructions: String,
     #[serde(default)]
     pub config_scope: Option<String>,
-    /// Qual CLI sobe na aba. Sai do catálogo do modelo escolhido no lançador,
-    /// e não de um botão à parte.
+    /// The provider comes from the selected model's catalog entry.
     #[serde(default)]
     pub agent: ProviderId,
-    /// Vazio é não passar `--model`: o Claude Code escolhe.
+    /// An empty model lets the provider choose its default.
     #[serde(default)]
     pub model: String,
-    /// Vazio é não passar `--effort`.
+    /// An empty effort lets the provider choose its default.
     #[serde(default)]
     pub effort: String,
-    /// Nasce em plan mode: o agente lê e planeja, e aprovar o plano é o que o
-    /// solta. Só vale para a conversa que o lançador abre.
+    /// Start the initial conversation in plan mode, requiring plan approval before execution.
     #[serde(default)]
     pub plan: bool,
-    /// Os servidores de MCP que esta conversa enxerga, pelo nome no hub.
-    /// `None` é não impor nada ao CLI — ver `Workspace::mcp` e `mcp.rs`.
+    /// MCP server IDs from the hub. None preserves the CLI's own configuration; see Workspace::mcp
+    /// and mcp.rs.
     #[serde(default)]
     pub mcp: Option<Vec<String>>,
-    /// Os plugins do Claude Code que esta conversa carrega, pelo nome no hub.
-    /// `None` é não impor nada — ver `Workspace::plugins` e `plugins.rs`.
+    /// Plugin IDs from the hub. None preserves the CLI's own configuration; see Workspace::plugins
+    /// and plugins.rs.
     #[serde(default)]
     pub plugins: Option<Vec<String>>,
 }
 
-/// A escolha gravada na aba vira argumento do mesmo jeito que a do lançador —
-/// e nunca em plan mode: plan é de uma fala, não de uma conversa inteira.
+/// Convert a persisted tab choice into launch settings. Plan mode belongs to the initial request
+/// and is never restored from the tab choice.
 impl From<Choice> for Launch {
     fn from(c: Choice) -> Self {
         Launch {
@@ -705,9 +642,8 @@ impl From<Choice> for Launch {
 }
 
 impl Workspace {
-    /// Com o que uma conversa nasce aqui quando ninguém escolheu outra coisa: o
-    /// modelo e o esforço do workspace, e nunca em plan mode — isso é escolha
-    /// do lançador.
+    /// Default conversations inherit the workspace's model, effort, and tools. Plan mode remains an
+    /// explicit launcher choice.
     pub fn launch(&self) -> Launch {
         Launch {
             agent: self.agent,
@@ -720,11 +656,8 @@ impl Workspace {
         }
     }
 
-    /// Com o que uma aba sobe: o modelo que ela escolheu, ou o do workspace.
-    /// É o que separa retomar de recomeçar — a aba que nasceu no Sonnet volta
-    /// no Sonnet, mesmo que as irmãs sejam de outro modelo.
-    /// Abas comuns herdam MCP/plugins do workspace. Tarefas usam a cópia
-    /// resolvida do perfil, inclusive instruções e permissões.
+    /// Resume with the tab's model override or workspace defaults. Ordinary tabs inherit current
+    /// workspace tools; tasks retain their resolved profile, instructions, and permissions.
     pub fn launch_of(&self, tab: &str) -> Launch {
         if let Some(run) = self
             .tabs
@@ -741,28 +674,29 @@ impl Workspace {
                 ..Launch::from(run.profile.choice.clone())
             };
         }
-        self.tabs
-            .iter()
-            .find(|t| t.id == tab)
-            .and_then(|t| t.choice.clone())
-            .map_or_else(
-                || self.launch(),
-                |choice| Launch {
-                    mcp: self.mcp.clone(),
-                    plugins: self.plugins.clone(),
-                    ..Launch::from(choice)
-                },
-            )
+        self.launch_with(
+            self.tabs
+                .iter()
+                .find(|t| t.id == tab)
+                .and_then(|t| t.choice.clone()),
+        )
     }
 
-    /// Troca o modelo e o esforço de uma conversa de pé. O que fica gravado é a
-    /// escolha da aba (`Tab::choice`), que é onde já morava "esta conversa fala
-    /// com outro" — e escolher de volta o do workspace apaga a escolha, para
-    /// que a aba volte a acompanhar o workspace em vez de congelar o de hoje.
-    ///
-    /// Trocar de CLI é recusado: o `--resume` do Claude Code não abre a thread
-    /// do Codex, e o `thread/resume` do Codex não abre o transcript do Claude.
-    /// Falar com um GPT numa conversa do Claude é abrir aba nova.
+    /// Model overrides preserve workspace tool selections for new and resumed tabs.
+    fn launch_with(&self, choice: Option<Choice>) -> Launch {
+        choice.map_or_else(
+            || self.launch(),
+            |choice| Launch {
+                mcp: self.mcp.clone(),
+                plugins: self.plugins.clone(),
+                ..Launch::from(choice)
+            },
+        )
+    }
+
+    /// Persist model and effort overrides on the tab. Choosing the workspace defaults clears the
+    /// override so the tab follows later changes. Reject provider changes because providers cannot
+    /// resume each other's transcripts.
     pub fn retune(&mut self, tab: &str, choice: Choice) -> Result<(), String> {
         if self.tabs.iter().any(|t| t.id == tab && t.task.is_some()) {
             return Err(i18n::t("err.actions.frozen"));
@@ -783,20 +717,9 @@ impl Workspace {
     }
 }
 
-/// Criar é otimista: o card entra no quadro agora, e o que demora acontece
-/// atrás.
-///
-/// O que demora é o disco — `git worktree add` de um repositório com milhares
-/// de arquivos passa de um segundo, e o `fetch` da base soma rede a isso. Antes
-/// tudo isso ficava entre o clique e a resposta, e o lançador fechava para uma
-/// tela parada. Aqui só fica o que dá para saber sem tocar em disco: se o
-/// caminho é um repositório, onde o worktree vai ficar, qual é a branch, qual é
-/// a porta. Com isso o `Workspace` já é inteiro o bastante para desenhar, entra
-/// no quadro marcado como `preparing`, e a resposta volta em milissegundos.
-///
-/// A montagem de verdade é `prepare`, numa thread, e cada etapa dela chega à
-/// tela pelo `publish` — que é o mesmo caminho por onde toda mudança do quadro
-/// já chegava.
+/// Publish a preparing card before slow Git and filesystem work. Resolve enough metadata to render
+/// it, then run preparation on a worker thread and publish each result without blocking the
+/// launcher response.
 #[tauri::command(async)]
 pub fn create_workspace(
     app: AppHandle,
@@ -808,9 +731,8 @@ pub fn create_workspace(
     let repo_path = PathBuf::from(expand(&draft.project));
     let repo_name = repo_named(&repo_path)?;
 
-    // Os outros repositórios, conferidos do mesmo jeito. Dois clones com a
-    // mesma pasta de nome cairiam no mesmo worktree, e o principal repetido
-    // seria o mesmo repo duas vezes: os dois são erro, não dedução.
+    // Validate additional repositories too. Reject duplicate clones and duplicate directory names
+    // that would share a worktree path.
     let mut extras: Vec<(PathBuf, String)> = Vec::new();
     for extra in &draft.extras {
         let path = PathBuf::from(expand(extra));
@@ -824,10 +746,8 @@ pub fn create_workspace(
         return Err(i18n::t("err.session.extrasNeedWorktree"));
     }
 
-    // Worktree e branch são do git, e uma pasta registrada pode não ter nenhum.
-    // O lançador já desliga as duas chavinhas quando não há; o não daqui é para
-    // quem chegou por outro caminho — e é melhor recusar agora do que deixar o
-    // card nascer para falhar no `git worktree add`.
+    // Reject branch and worktree requests for non-Git folders at this boundary, even when callers
+    // bypass the launcher controls.
     if draft.worktree || !draft.branch.trim().is_empty() {
         for path in std::iter::once(&repo_path).chain(extras.iter().map(|(p, _)| p)) {
             if !path.join(".git").exists() {
@@ -839,17 +759,9 @@ pub fn create_workspace(
         }
     }
 
-    // Branch vazia é a escolha de não criar branch nenhuma: a sessão abre no
-    // repositório onde ele estiver. Worktree, esse, sempre precisa de uma —
-    // é a branch que dá nome e destino à pasta.
-    //
-    // Os dois saem de conta, não de disco: o destino é função do nome do repo e
-    // da branch, e a branch ou veio digitada ou é o HEAD do clone. Dá para
-    // saber os dois antes de existir pasta nenhuma, e é isso que deixa o card
-    // nascer já com o nome e o caminho certos.
-    //
-    // Com mais de um repositório, a raiz é uma pasta que reúne o worktree de
-    // cada um: é nela que o agente roda, e é ela que a árvore mostra.
+    // An empty branch keeps the clone's current checkout. A separate worktree requires a branch,
+    // which also determines its path before creation. Multiple repositories run under a common
+    // directory containing their worktrees.
     let (root, branch) = match (draft.worktree, draft.branch.trim().is_empty()) {
         (true, true) => return Err(i18n::t("err.session.worktreeNeedsBranch")),
         (true, false) if extras.is_empty() => (
@@ -866,17 +778,14 @@ pub fn create_workspace(
             )
         }
         (false, false) => (repo_path.clone(), draft.branch.clone()),
-        // Sem branch: a que o clone já tem. Pasta sem git não tem nenhuma, e
-        // ficar sem é mais honesto que inventar um "HEAD".
+        // Without a new branch, use the clone's current branch. Non-Git folders have none.
         (false, true) => (
             repo_path.clone(),
             head_branch(&repo_path).unwrap_or_default(),
         ),
     };
-    // A base escolhida no lançador é do principal — a lista de branches era
-    // dele. Nos outros, a branch nova sai do que cada clone tem como principal
-    // (`origin/main`, ou o que o clone gravou). Fica gravada por repo: é contra
-    // ela que a tela de mudanças conta o que esta branch tem.
+    // The launcher selects the primary repository's base. Other repositories use their own default
+    // bases, persisted separately for later diff comparisons.
     let repos: Vec<Repo> = match extras.is_empty() {
         true => vec![Repo {
             path: repo_path.display().to_string(),
@@ -900,24 +809,16 @@ pub fn create_workspace(
             .collect(),
     };
 
-    // A branch já aberta em outra pasta é o único "não" que dá para dar antes de
-    // o card nascer, e é o que separa recusar de fracassar: o `git worktree add`
-    // recusaria de qualquer jeito, mas lá atrás, com o card já no quadro e a
-    // pessoa olhando para um workspace que nunca vai montar. Ler
-    // `git worktree list` é ler metadado — não custa o segundo que fez a
-    // montagem inteira mudar de thread.
+    // Reject branches already checked out elsewhere before publishing a card. Reading worktree
+    // metadata is cheap and avoids a preparation failure for a known conflict.
     if draft.worktree {
         for r in &repos {
             branch_free(Path::new(&r.path), &branch, Path::new(&r.worktree))?;
         }
     }
 
-    // A porta sai antes de qualquer script, porque é ela que o `setup` e o `run`
-    // recebem no ambiente — e é o que deixa dois worktrees do mesmo projeto
-    // subirem o servidor ao mesmo tempo sem um matar o outro.
-    //
-    // O lock sai antes dos binds: `alloc_port` é syscall, e é neste mesmo lock
-    // que todo `publish` de toda sessão espera.
+    // Allocate the port before setup and run scripts need it. Release the board lock before binding
+    // sockets so allocation does not block publication from other sessions.
     let taken: Vec<u16> = lock(&state.board)
         .workspaces
         .iter()
@@ -960,18 +861,13 @@ pub fn create_workspace(
         tabs: Vec::new(),
     };
 
-    // O workspace entra no quadro antes de qualquer coisa subir: é no quadro
-    // que o fim do setup vai procurar as abas com fala guardada — e é ele que a
-    // tela abre enquanto o resto não chega.
+    // Publish the workspace before startup so setup completion can find pending prompts on its
+    // tabs.
     lock(&state.board).workspaces.push(ws.clone());
     publish(&app);
 
-    // O nome que veio do lançador é a primeira linha do prompt cortada; o bom
-    // vem de um agente lendo o pedido inteiro, em paralelo. Ele começa aqui, e
-    // não depois de montar a pasta: nomear não depende do worktree, e esperar o
-    // `git worktree add` de um repositório grande só para *começar* a pensar num
-    // título é somar segundos que ninguém precisava esperar.
-    // Workspace que saiu de uma issue já tem o nome que a issue deu.
+    // Generate a better title from the full prompt while filesystem preparation runs. Naming does
+    // not require a worktree. Workspaces created from issues retain their issue titles.
     if ws.issue.is_none() {
         crate::naming::rename_later(&app, &ws.id, &draft.prompt, &ws.title, &draft.launch);
     }
@@ -982,13 +878,8 @@ pub fn create_workspace(
     Ok(ws)
 }
 
-/// A parte demorada de criar um workspace, fora da thread que respondeu ao
-/// lançador: montar a pasta, subir o agente, subir o setup.
-///
-/// Falhar aqui não desfaz nada e não apaga o card. Quem falha é quase sempre o
-/// `git worktree add`, e quase sempre porque a branch pedida está viva em outro
-/// worktree — desfazer sozinho apagaria a única pista disso. O erro fica
-/// escrito no card, que é de onde se decide o que fazer com a branch.
+/// Prepare directories, the agent, and setup away from the launcher thread. Preserve failed cards
+/// and their errors so the person can resolve the cause.
 fn prepare(app: &AppHandle, id: &str, draft: Draft, cols: u16, rows: u16) {
     let Err(err) = build(app, id, &draft, cols, rows) else {
         return;
@@ -1022,16 +913,11 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
         )
     };
 
-    // A pasta. É o segundo que se sentia ao criar, e é por isso que ele mora
-    // aqui atrás e não entre o clique e a resposta.
-    //
-    // Com mais de um repositório é um worktree por repo, todos na mesma
-    // branch, cada um saindo da base gravada nele. Branch que já existe no
-    // repo ignora a base de qualquer jeito.
+    // Create one worktree per repository on the shared branch, using each repository's saved base.
+    // Existing branches retain their own history.
     if draft.worktree {
-        // Meio workspace no disco é pior que nenhum: a pessoa veria a pasta de
-        // um repositório só, e o card não teria como contar que está pela
-        // metade. Recusou um, desfaz os que esta montagem tinha feito.
+        // If any repository fails, roll back only the worktrees created by this preparation. A
+        // partially assembled workspace is not usable.
         let mut feitos: Vec<(PathBuf, PathBuf)> = Vec::new();
         for r in &repos {
             let (clone, dest) = (PathBuf::from(&r.path), PathBuf::from(&r.worktree));
@@ -1061,14 +947,13 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
         "",
         first_message(&draft.prompt, &draft.inject),
         &draft.launch,
-        // A primeira conversa é a do lançador, e é dela que o workspace copiou
-        // o modelo: nada a gravar na aba.
+        // The first conversation uses the launch settings already saved on the workspace, so it
+        // needs no tab override.
         None,
     )?;
 
-    // Tirado do quadro no meio da montagem: o agente que acabou de subir não
-    // tem mais card nenhum a que pertencer, e deixá-lo vivo seria um `claude`
-    // rodando num worktree que ninguém vê.
+    // If the workspace was removed during preparation, stop the newly started agent instead of
+    // leaving a hidden process.
     let ws = {
         let mut board = lock(&state.board);
         let Some(ws) = board.workspace_mut(id) else {
@@ -1083,16 +968,11 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
     };
     publish(app);
 
-    // Worktree recém-nascido não tem nada que o `.gitignore` esconde:
-    // dependências, `.env`, banco, build. O que dá para reconstruir é o setup
-    // que reconstrói; o que não dá — segredo, chave — vem copiado do clone,
-    // antes dele. Os dois são a aba Setup. O processo do agente sobe junto,
-    // mas a primeira fala só vai quando o setup termina (ver
-    // `release_prompts`): agente que roda teste antes de haver `node_modules`
-    // conclui coisa errada. Falhar aqui não desfaz o worktree; o erro fica
-    // escrito na aba Setup, que é onde se conserta.
+    // Copy secrets and other requested ignored files before running setup. Start the agent but hold
+    // its first message until setup completes, so tools cannot run against missing dependencies.
+    // Setup failures preserve the worktree and remain visible on the Setup tab.
     let _ = dock::start_setup(app, &state, &ws, cols, rows);
-    // Com o setup de pé a fala espera por ele; sem setup, vai agora.
+    // Hold the prompt while setup runs; otherwise send it immediately.
     if let Some(tab) = ws.tabs.last() {
         chat::ready_now(app, &tab.id);
     }
@@ -1100,13 +980,10 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
     Ok(())
 }
 
-/* ---------- abas ---------- */
+/* ---------- tabs ---------- */
 
-/// Conversa nova nos mesmos arquivos. É o ⌘T: quando o contexto encheu, ou
-/// quando o assunto virou outro, mas o worktree é o mesmo.
-///
-/// `choice` é o modelo escolhido na setinha ao lado do "+". Sem ele — que é o
-/// ⌘T e o clique no "+" —, a conversa nasce com o do workspace, como as irmãs.
+/// Open another conversation in the same worktree. An explicit choice comes from the new-tab model
+/// menu; the shortcut and plain button inherit workspace defaults.
 #[tauri::command]
 pub fn new_tab(
     app: AppHandle,
@@ -1115,7 +992,7 @@ pub fn new_tab(
     prompt: String,
     choice: Option<Choice>,
 ) -> Result<Tab, String> {
-    // Plan mode não vem de nenhum dos dois caminhos: é escolha de uma fala.
+    // Neither path restores plan mode; it belongs to the initial request.
     let (launch, choice) = {
         let board = lock(&state.board);
         let ws = board
@@ -1126,16 +1003,14 @@ pub fn new_tab(
         if ws.cleaned {
             return Err(i18n::t("err.session.cleaned"));
         }
-        // Escolher o mesmo do workspace não é escolher: a aba fica sem o campo,
-        // e o quadro não guarda uma cópia do que está uma linha acima.
+        // Clear choices that match workspace defaults instead of storing duplicate settings.
         let choice =
             choice.filter(|c| c.agent != ws.agent || c.model != ws.model || c.effort != ws.effort);
-        let launch = choice.clone().map_or_else(|| ws.launch(), Launch::from);
+        let launch = ws.launch_with(choice.clone());
         (launch, choice)
     };
 
-    // Sem prompt, sem nome: a tela mostra o modelo da aba, e é mais útil que
-    // um "conversa 2" que ninguém escolheu.
+    // Without a prompt, keep the title empty so the UI displays the model.
     let title = if prompt.trim().is_empty() {
         String::new()
     } else {
@@ -1182,10 +1057,8 @@ pub fn focus_tab(app: AppHandle, state: State<AppState>, workspace: String, tab:
     publish(&app);
 }
 
-/// O nome da conversa nasce da primeira frase do prompt, ou fica vazio quando
-/// não houve prompt (a tela mostra o modelo) — e nenhum dos dois é o assunto
-/// que ela acaba tendo. Nome vazio é desistência, não apagar o que já existe,
-/// como no workspace.
+/// Initial tab titles come from the prompt, or remain empty so the UI shows the model. An empty
+/// rename cancels rather than erasing an existing title.
 #[tauri::command]
 pub fn rename_tab(
     app: AppHandle,
@@ -1210,17 +1083,14 @@ pub fn rename_tab(
     publish(&app);
 }
 
-/// Retoma uma aba desligada. O transcript vive em
-/// `~/.claude/projects/<slug>/<id>.jsonl` e sobrevive ao app, ao worktree e ao
-/// reboot — então `--resume` devolve a conversa inteira de onde parou. `true`
-/// é retomou; `false` é conversa que nunca falou, reaberta nova no mesmo lugar.
+/// Resume a stopped tab from its persisted transcript. Return true for a resumed conversation or
+/// false when an empty conversation must start again with the same identity.
 #[tauri::command]
 pub fn resume_tab(app: AppHandle, state: State<AppState>, tab: String) -> Result<bool, String> {
     revive(&app, &state, &tab)
 }
 
-/// Sobe de novo o processo de uma aba. É o `resume_tab`, e é o que a primeira
-/// fala numa aba desligada faz por conta própria (`chat::chat_send`).
+/// Restart the process for resume_tab or the first message sent to a stopped tab through chat_send.
 pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<bool, String> {
     let (workspace, worktree, launch, cleaned, agent_session) = lock(&state.board)
         .workspace_of(tab)
@@ -1249,15 +1119,11 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
         ));
     }
 
-    // O que sobrou da sessão anterior sai antes: o processo já morreu, mas o
-    // `Chat` continua no mapa até alguém tirar.
+    // Remove the previous Chat handle even when its process has already exited.
     chat::kill(state, tab);
 
-    // Conversa que nunca falou não tem transcript, e retomar morre nela. Aí a
-    // aba renasce com o mesmo id: não há nada perdido, e travar a tela num erro
-    // por causa de uma conversa vazia seria pior. No Codex a pergunta é outra —
-    // se ele já contou qual thread abriu —, porque o transcript dele não mora
-    // num caminho que dê para adivinhar.
+    // Claude conversations without a transcript must restart with their existing ID. Codex instead
+    // resumes only when its previously returned thread identity is known.
     let (resume, handle) = match launch.agent {
         ProviderId::Codex => (
             agent_session.is_some(),
@@ -1267,7 +1133,7 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
             let resume = paths::transcript(tab, &worktree).exists();
             (
                 resume,
-                crate::claude::spawn(app, tab, &worktree, claude_args(tab, resume, &launch)?)?,
+                crate::claude::spawn(app, tab, &worktree, resume, &launch)?,
             )
         }
     };
@@ -1300,16 +1166,13 @@ fn spawn_tab(
         .map(|workspace| PathBuf::from(&workspace.worktree))
         .ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
     let id = uuid::Uuid::new_v4().to_string();
-    // O modelo escolhido diz qual CLI sobe (ver `agents.rs`); a aba é a mesma.
+    // The selected provider determines which CLI runs; the tab identity stays the same.
     let handle = match launch.agent {
         ProviderId::Codex => crate::codex::spawn(app, &id, workspace, &worktree, None, launch)?,
-        ProviderId::Claude => {
-            crate::claude::spawn(app, &id, &worktree, claude_args(&id, false, launch)?)?
-        }
+        ProviderId::Claude => crate::claude::spawn(app, &id, &worktree, false, launch)?,
     };
     lock(&state.chats).insert(id.clone(), handle);
-    // Quem chama põe a aba no quadro e só então libera a fala
-    // (`chat::ready_now`): a fala guardada mora na aba, e a aba nasce aqui.
+    // The caller publishes the tab before chat::ready_now releases its pending prompt.
     Ok(Tab {
         task: None,
         id,
@@ -1326,82 +1189,7 @@ fn spawn_tab(
 
 /* ---------- plumbing ---------- */
 
-/// Os argumentos do `claude`. `resume` decide se a sessão nasce nova ou
-/// continua a que já existe — o id é o mesmo nos dois casos.
-///
-/// O modo é o headless com JSON dos dois lados: cada coisa que o agente faz
-/// sai como uma linha, cada fala entra como uma linha, e o processo fica de pé
-/// entre um turno e outro (`chat.rs`). `--permission-prompt-tool stdio` é o
-/// que faz pergunta, plano e pedido de permissão chegarem pelo mesmo cano, em
-/// vez de a sessão morrer sem ninguém para responder.
-///
-/// O agente roda solto: cada sessão vive no seu worktree e não para a cada
-/// ferramenta — que é o motivo de existir o quadro. Em plan mode nasce
-/// perguntando, e é a aprovação do plano que o solta: a tela manda um
-/// `set_permission_mode` para bypass junto com o "sim" (ver `chat.ts`). Aqui
-/// vai o `--allow-…`, sem o qual o `claude` recusa a troca — e sem o
-/// `--dangerously-…`, que junto do `--permission-mode plan` ganha do plan.
-fn claude_args(id: &str, resume: bool, launch: &Launch) -> Result<Vec<String>, String> {
-    let mut args: Vec<String> = [
-        "-p",
-        "--input-format",
-        "stream-json",
-        "--output-format",
-        "stream-json",
-        "--include-partial-messages",
-        "--verbose",
-        "--permission-prompt-tool",
-        "stdio",
-        if resume { "--resume" } else { "--session-id" },
-        id,
-    ]
-    .map(String::from)
-    .to_vec();
-    if launch.plan {
-        args.extend(
-            [
-                "--permission-mode",
-                "plan",
-                "--allow-dangerously-skip-permissions",
-            ]
-            .map(String::from),
-        );
-    } else if launch.permission != Some(crate::actions::Permission::Ask) {
-        args.push("--dangerously-skip-permissions".into());
-    }
-    if !launch.instructions.is_empty() {
-        args.extend(["--append-system-prompt".into(), launch.instructions.clone()]);
-    }
-    if !launch.model.trim().is_empty() {
-        args.extend(["--model".into(), launch.model.trim().into()]);
-    }
-    if !launch.effort.trim().is_empty() {
-        args.extend(["--effort".into(), launch.effort.trim().into()]);
-    }
-    // Os servidores escolhidos, e nada além deles: o `--strict-mcp-config` é o
-    // que faz o `~/.claude.json` do usuário parar de entrar por baixo. Sem
-    // escolha (workspace de antes disto existir) nem um nem outro vão, e o CLI
-    // decide como sempre decidiu. Falha de materialização impede o spawn:
-    // uma seleção explícita não pode desaparecer silenciosamente.
-    if let Some(path) = crate::mcp::config_for(id, launch.mcp.as_ref())? {
-        args.extend([
-            "--mcp-config".into(),
-            path.display().to_string(),
-            "--strict-mcp-config".into(),
-        ]);
-    }
-    // Os plugins escolhidos, um `--plugin-dir`/`--plugin-url` cada. São flags
-    // de sessão: não mexem no cadastro do CLI, e um plugin que ele já carrega
-    // sozinho não entra duas vezes — a deduplicação é por nome, e é dele. Sem
-    // escolha nenhuma nada vai, e vale o que o CLI já carregava. O adapter do
-    // Codex materializa a mesma seleção no home derivado do workspace, em
-    // `plugins.rs`; estas flags continuam sendo só do Claude.
-    args.extend(crate::plugins::args_for(launch.plugins.as_ref()));
-    Ok(args)
-}
-
-/// Contexto injetado vira menção `@caminho` na primeira fala — que é como o
-/// próprio Claude Code já lê arquivo. Nada de mecanismo novo.
+/// Attach initial context through @path mentions supported by the agent.
 fn first_message(prompt: &str, inject: &[String]) -> Option<String> {
     let mentions = inject
         .iter()
@@ -1417,9 +1205,8 @@ fn first_message(prompt: &str, inject: &[String]) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join("\n\n"))
 }
 
-/// Rótulo de aba a partir da primeira frase do prompt. Corta mais curto que o
-/// nome do workspace (que o lançador monta): a barra de abas é estreita e
-/// várias delas dividem a linha.
+/// Derive a short tab title from the prompt's first line; multiple tabs share limited horizontal
+/// space.
 fn tab_title(prompt: &str) -> String {
     let line = prompt.trim().lines().next().unwrap_or("").trim();
     match line.chars().count() > 34 {
@@ -1428,17 +1215,10 @@ fn tab_title(prompt: &str) -> String {
     }
 }
 
-/// `base` é de onde a branch nova sai — `origin/main`, por padrão. Branch que
-/// já existe ignora a base: aí o worktree só a traz de volta para o disco, e
-/// mudar o ponto de partida de trabalho que já começou não é criar workspace.
-///
-/// Devolve se a pasta nasceu aqui: pasta adotada não é desfeita quando um
-/// repositório irmão recusa.
+/// Use base only for new branches; existing branches retain their history. Return whether this call
+/// created the worktree, because adopted directories must survive rollback of sibling repositories.
 fn add_worktree(repo: &Path, branch: &str, base: &str, dest: &Path) -> Result<bool, String> {
-    // Pasta que já está lá é reaproveitada — mas só se for a branch pedida.
-    // Antes qualquer pasta com o nome certo servia, então um worktree na branch
-    // errada era adotado calado e o quadro passava a mentir em que branch a
-    // sessão estava mexendo.
+    // Reuse existing directories only when they contain the requested branch.
     if dest.exists() {
         return match head_branch(dest) {
             Some(head) if head == branch => Ok(false),
@@ -1461,9 +1241,8 @@ fn add_worktree(repo: &Path, branch: &str, base: &str, dest: &Path) -> Result<bo
     let parent = dest
         .parent()
         .ok_or_else(|| i18n::t("err.session.noParent"))?;
-    // Quem cria a pasta do worktree é o git; daqui sai só o caminho até ela — e
-    // ele volta atrás se o git recusar, senão sobra no disco uma pasta vazia que
-    // não é worktree de ninguém e não aparece em `git worktree list`.
+    // Let Git create the worktree directory and roll back newly created parent directories on
+    // failure, avoiding empty orphan paths.
     let abertas = open_dirs(parent)?;
 
     let mut cmd = Command::new("git");
@@ -1501,8 +1280,7 @@ fn add_worktree(repo: &Path, branch: &str, base: &str, dest: &Path) -> Result<bo
     Ok(true)
 }
 
-/// Onde esta branch já está em check-out neste repositório — o próprio clone ou
-/// um worktree dele. É o que o `git worktree add` confere antes de recusar.
+/// Find where this branch is checked out, including the original clone and its worktrees.
 fn worktree_of_branch(repo: &Path, branch: &str) -> Option<PathBuf> {
     let want = format!("branch refs/heads/{branch}");
     let listed = git(repo, &["worktree", "list", "--porcelain"]);
@@ -1517,12 +1295,8 @@ fn worktree_of_branch(repo: &Path, branch: &str) -> Option<PathBuf> {
     None
 }
 
-/// Uma branch só abre numa pasta — regra do git, não escolha daqui. Duas
-/// sessões que saem da mesma issue do Linear pedem a mesma branch, e o destino
-/// não é o mesmo: a pasta leva os nomes dos repositórios do workspace, e
-/// `capim-code-rules` sozinho não mora onde `capim-code-rules+capim-autonomous`
-/// mora. Quem recusava era o git, com o texto dele; aqui o erro diz de quem é a
-/// pasta que está segurando a branch, que é o que decide o que fazer.
+/// Git permits a branch in only one checkout. Workspaces from the same issue can request the same
+/// branch at different paths; report the occupying path so the person can resolve the conflict.
 fn branch_free(repo: &Path, branch: &str, dest: &Path) -> Result<(), String> {
     match worktree_of_branch(repo, branch) {
         Some(at) if !same_path(&at, dest) => Err(i18n::ta(
@@ -1537,9 +1311,8 @@ fn branch_free(repo: &Path, branch: &str, dest: &Path) -> Result<(), String> {
     }
 }
 
-/// O git lista worktree por caminho resolvido; o destino daqui é montado a
-/// partir do `HOME`. Comparar texto puro faria `/var` e `/private/var` — o
-/// mesmo lugar — passarem por pastas diferentes.
+/// Canonicalize paths because Git resolves worktree paths, while HOME may contain aliases such as
+/// /var and /private/var.
 fn same_path(a: &Path, b: &Path) -> bool {
     a == b
         || match (a.canonicalize(), b.canonicalize()) {
@@ -1548,8 +1321,8 @@ fn same_path(a: &Path, b: &Path) -> bool {
         }
 }
 
-/// Abre o caminho até `dir` e devolve, de fora para dentro, as pastas que
-/// passaram a existir agora — as que o `close_dirs` sabe desfazer.
+/// Create missing parent directories and return them from outermost to innermost for close_dirs
+/// rollback.
 fn open_dirs(dir: &Path) -> Result<Vec<PathBuf>, String> {
     let mut novas = Vec::new();
     let mut at = Some(dir);
@@ -1562,15 +1335,14 @@ fn open_dirs(dir: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(novas)
 }
 
-/// `remove_dir` e não `remove_dir_all`: só some a pasta que continua vazia. Se
-/// alguma coisa chegou nela nesse meio-tempo, ela fica.
+/// Remove only empty directories. Preserve any content created there after preparation began.
 fn close_dirs(dirs: &[PathBuf]) {
     for dir in dirs.iter().rev() {
         let _ = std::fs::remove_dir(dir);
     }
 }
 
-/// O nome de um repositório para uma frase de erro: a pasta do clone.
+/// Use the clone directory name in repository errors.
 fn repo_label(repo: &Path) -> String {
     repo.file_name()
         .and_then(|s| s.to_str())
@@ -1578,9 +1350,8 @@ fn repo_label(repo: &Path) -> String {
         .to_string()
 }
 
-/// Devolve ao disco o que esta montagem criou. A branch fica: ela não atrapalha
-/// a próxima tentativa, que a reaproveita como faria com qualquer branch que já
-/// existe — e apagá-la seria apagar também a que já estava lá antes.
+/// Remove only worktrees created by this preparation. Retain branches for retry, including branches
+/// that existed before the attempt.
 fn undo_worktrees(feitos: &[(PathBuf, PathBuf)]) {
     for (repo, dest) in feitos.iter().rev() {
         let _ = Command::new("git")
@@ -1593,10 +1364,8 @@ fn undo_worktrees(feitos: &[(PathBuf, PathBuf)]) {
     }
 }
 
-/// Worktree desligado: a branch nasce no próprio repositório e é o diretório de
-/// trabalho dele que troca de branch. Serve para quem quer o agente mexendo no
-/// clone de sempre — o preço é que o repo sai de onde estava, e mudança não
-/// commitada vai junto (ou o git recusa, e o erro sobe para a tela).
+/// Without worktree isolation, create or select the branch in the original clone. Uncommitted
+/// changes move with the checkout when Git permits it; otherwise report Git's error.
 fn switch_branch(repo: &Path, branch: &str, base: &str) -> Result<(), String> {
     if head_branch(repo).as_deref() == Some(branch) {
         return Ok(());
@@ -1639,9 +1408,8 @@ fn head_branch(repo: &Path) -> Option<String> {
     (!name.is_empty() && name != "HEAD").then_some(name)
 }
 
-/// Deixa a base pronta para virar ponto de partida: um `origin/main` velho é o
-/// lugar errado, então atualiza só aquela ref — e segue mesmo se a rede não
-/// deixar, porque base local desatualizada ainda é melhor que não criar nada.
+/// Refresh only the requested remote base. If the network fails, the existing local ref remains
+/// usable.
 fn prepare_base(repo: &Path, base: &str) -> Result<(), String> {
     if let Some((remote, rest)) = base.split_once('/') {
         if has_commit(repo, &format!("refs/remotes/{base}")) {
@@ -1660,8 +1428,7 @@ fn prepare_base(repo: &Path, base: &str) -> Result<(), String> {
     }
 }
 
-/// `git fetch` com coleira: rede pendurada não pode virar app pendurado, e a
-/// base local velha ainda dá um worktree utilizável.
+/// Bound git fetch duration so a stalled network cannot stall workspace preparation.
 fn fetch(repo: &Path, remote: &str, branch: &str) -> Result<(), String> {
     let mut child = Command::new("git")
         .arg("-C")
@@ -1685,8 +1452,8 @@ fn fetch(repo: &Path, remote: &str, branch: &str) -> Result<(), String> {
     }
 }
 
-/// Se a ref existe e aponta para um commit — `--verify` sozinho aceita coisas
-/// que o `worktree add` depois recusa.
+/// Require a ref that resolves to a commit; verify alone accepts objects that worktree add cannot
+/// use.
 fn has_commit(repo: &Path, reference: &str) -> bool {
     Command::new("git")
         .arg("-C")
@@ -1698,7 +1465,7 @@ fn has_commit(repo: &Path, reference: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// O nome de uma pasta registrada, que é o nome dela no disco.
+/// Use the registered folder's name on disk.
 fn repo_named(path: &Path) -> Result<String, String> {
     path.file_name()
         .and_then(|s| s.to_str())
@@ -1706,10 +1473,8 @@ fn repo_named(path: &Path) -> Result<String, String> {
         .ok_or_else(|| i18n::t("err.session.badPath"))
 }
 
-/// O que um agente encontra ao abrir a pasta de um workspace com mais de um
-/// repositório: qual é qual, e que todos estão na mesma branch. O Claude Code
-/// lê `CLAUDE.md` de onde roda e o Codex lê `AGENTS.md`; os dois recebem o
-/// mesmo texto. Nunca sobrescreve — a pessoa pode ter escrito o dela.
+/// Write the same repository map to CLAUDE.md and AGENTS.md for multi-repository workspaces. Never
+/// overwrite files the person may have written.
 fn describe_root(root: &Path, repos: &[Repo], branch: &str) {
     let list: String = repos
         .iter()
@@ -1740,22 +1505,19 @@ fn describe_root(root: &Path, repos: &[Repo], branch: &str) {
     }
 }
 
-/// De onde uma branch nova sai neste repositório quando ninguém escolheu:
-/// `origin/HEAD` como o clone gravou, senão os nomes de sempre, senão a branch
-/// em que ele está. É a mesma conta que encabeça a lista do lançador.
+/// Choose the clone's origin/HEAD, then conventional default names, then its current branch. The
+/// launcher uses the same default.
 fn default_base(repo: &Path) -> String {
     list_branches(repo.display().to_string()).default
 }
 
-/// As branches do repositório, para o lançador escolher de onde a nova sai.
-/// Mais recente primeiro: a que você mexeu ontem é a que você quer hoje.
+/// List repository branches for the launcher, with recently updated branches first.
 #[derive(serde::Serialize)]
 pub struct Branches {
     pub all: Vec<String>,
     pub default: String,
-    /// Se a pasta é um repositório git. Lista vazia não responde isso: repo
-    /// recém-`init` também não tem ref nenhuma, e é o que o lançador precisa
-    /// saber para desligar worktree e branch nova.
+    /// Distinguish a non-Git folder from a newly initialized repository with no refs, so the
+    /// launcher can enable valid controls.
     pub git: bool,
 }
 
@@ -1782,8 +1544,7 @@ pub fn list_branches(project: String) -> Branches {
     let locals = refs("refs/heads");
     let remotes = refs("refs/remotes");
 
-    // `origin/HEAD` é o que o clone gravou como principal do remoto. Sem ele,
-    // os nomes de sempre; sem eles, a branch em que o repo está agora.
+    // Prefer the saved origin/HEAD, then conventional names, then the current branch.
     let head = git(
         &repo,
         &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
@@ -1802,8 +1563,7 @@ pub fn list_branches(project: String) -> Branches {
         .or_else(|| locals.first().cloned())
         .unwrap_or_default();
 
-    // A base escolhida encabeça a lista; o resto vem local antes de remoto,
-    // que é a ordem em que se pensa em branch.
+    // Put the selected base first, followed by local and remote branches.
     let mut all: Vec<String> = Vec::new();
     for name in [default.clone()].into_iter().chain(locals).chain(remotes) {
         if !name.is_empty() && !all.contains(&name) {
@@ -1820,8 +1580,7 @@ pub fn list_branches(project: String) -> Branches {
 #[cfg(test)]
 mod tests {
     use super::{
-        claude_args, multi_pr_text, patch_map, pr_text, Choice, Launch, Pr, ProviderId, Repo,
-        RepoPr, Tab, Workspace,
+        multi_pr_text, patch_map, pr_text, Choice, Pr, ProviderId, Repo, RepoPr, Tab, Workspace,
     };
     use crate::dock::{is_terminal, multi_setup, quoted};
     use std::path::Path;
@@ -1836,10 +1595,8 @@ mod tests {
         }
     }
 
-    /// As guardas de devolver o disco, contra um git de verdade: nada sai antes
-    /// de o trabalho ter entrado no alvo, nada sai com mudança fora de commit, e
-    /// nada sai antes de o workspace estar arquivado — que é quando o `archive`
-    /// do repositório rodou.
+    /// Verify cleanup against real Git repositories: require archiving, committed changes, and work
+    /// already merged into the target unless force explicitly permits loss.
     #[test]
     fn check_so_deixa_sair_o_que_ja_entrou_e_esta_limpo() {
         let root = std::env::temp_dir().join(format!("prometeu-clean-{}", std::process::id()));
@@ -1851,8 +1608,7 @@ mod tests {
             let out = Command::new("git")
                 .arg("-C")
                 .arg(dir)
-                // O commit do teste não depende da assinatura da máquina: com
-                // `commit.gpgsign` global, o gpg do runner falhava em paralelo.
+                // Disable commit signing so tests do not depend on the runner's GPG configuration.
                 .args(["-c", "commit.gpgsign=false"])
                 .args(args)
                 .output()
@@ -1922,10 +1678,10 @@ mod tests {
             active: None,
         };
 
-        // Branch nova sem commit próprio já é o alvo: pode sair.
+        // A branch with no new commits is already contained in its target.
         super::check(&ws).unwrap();
 
-        // Um commit que não está no alvo segura o worktree.
+        // An unmerged commit prevents cleanup.
         std::fs::write(dest.join("b.txt"), "b").unwrap();
         run(&dest, &["config", "user.email", "t@t"]);
         run(&dest, &["config", "user.name", "t"]);
@@ -1933,33 +1689,30 @@ mod tests {
         run(&dest, &["commit", "-qm", "b"]);
         assert!(super::check(&ws).unwrap_err().contains("unmerged"));
 
-        // Mas o `gh` dizendo que o PR entrou é a outra resposta que serve — o
-        // merge por squash não deixa a branch ancestral de nada.
+        // GitHub's merged PR status also permits cleanup after a squash merge, which does not
+        // preserve branch ancestry.
         ws.repos[0].pr = Some(pr(3, "trabalho", "MERGED"));
         super::check(&ws).unwrap();
 
-        // Mudança fora de commit segura de qualquer jeito.
+        // Uncommitted changes prevent cleanup.
         std::fs::write(dest.join("c.txt"), "c").unwrap();
         assert!(super::check(&ws).unwrap_err().contains("dirty"));
-        // Mas é justamente o que `force` atravessa: quem marcou o vermelho na
-        // tela sabe que essa mudança vai junto.
+        // Force permits the explicitly approved loss of uncommitted changes.
         super::hard(&ws).unwrap();
         std::fs::remove_file(dest.join("c.txt")).unwrap();
         super::check(&ws).unwrap();
 
-        // Ainda na frente de todo mundo: arquivar é o passo de antes, e nem
-        // `force` pula ele.
+        // Force never bypasses the requirement to archive first.
         ws.archived = false;
         assert!(super::check(&ws).unwrap_err().contains("notArchived"));
         assert!(super::hard(&ws).unwrap_err().contains("notArchived"));
         ws.archived = true;
 
-        // O próprio clone também não sai por `force` nenhum.
+        // Force never permits deleting the original clone.
         ws.worktree = ws.repo.clone();
         assert!(super::hard(&ws).unwrap_err().contains("isRepo"));
 
-        // Com um segundo repositório, ele responde pelas mesmas guardas: um
-        // commit fora do alvo *nele* segura o workspace inteiro.
+        // An unmerged commit in any additional repository blocks cleanup of the entire workspace.
         ws.worktree = dest.display().to_string();
         let dest2 = root.join("wt2");
         super::add_worktree(&local, "trabalho-2", "origin/main", &dest2).unwrap();
@@ -1974,8 +1727,8 @@ mod tests {
         std::fs::write(dest2.join("d.txt"), "d").unwrap();
         assert!(super::check(&ws).unwrap_err().contains("dirty"));
 
-        // A pasta agregadora, que o app apaga com `remove_dir_all`, só vale no
-        // formato exato criado pelo Prometeu e com os worktrees como filhos.
+        // Recursive removal requires the exact application-owned grouping path with its worktrees
+        // as immediate children.
         let names: Vec<String> = ws.repos.iter().map(|repo| repo.name.clone()).collect();
         let multi = super::paths::multi_dir(&names, &ws.branch);
         ws.worktree = multi.display().to_string();
@@ -1984,8 +1737,8 @@ mod tests {
         }
         super::validate_multi_root(&ws).unwrap();
 
-        // O importador não move os worktrees. A raiz antiga calculada pela
-        // mesma branch também é segura; um caminho apenas parecido, não.
+        // Legacy imports retain worktree locations. Only the exact calculated legacy root is
+        // accepted.
         let legacy = super::paths::prometheus_multi_dir(&names, &ws.branch);
         ws.worktree = legacy.display().to_string();
         for repo in &mut ws.repos {
@@ -2025,8 +1778,8 @@ mod tests {
         }
     }
 
-    /// O prompt de PR diz o estado e os passos com os nomes certos: a branch
-    /// no push, o alvo sem o remoto no `--base`, e a sujeira contada.
+    /// The PR prompt must name the branch, strip the remote from --base, and describe uncommitted
+    /// changes.
     #[test]
     fn pr_text_diz_o_estado_e_os_passos() {
         let t = pr_text(&repo_pr(
@@ -2050,7 +1803,7 @@ mod tests {
         assert!(limpo.contains("A branch já tem upstream."));
     }
 
-    /// Com PR aberto o pedido é outro: atualizar o #42, e não criar um segundo.
+    /// An existing PR requests an update to its number instead of another PR.
     #[test]
     fn pr_text_com_pr_aberto_pede_atualizacao() {
         let t = pr_text(&repo_pr(
@@ -2066,13 +1819,12 @@ mod tests {
         assert!(t.contains("gh pr view 42"));
         assert!(t.contains("gh pr edit 42"));
         assert!(!t.contains("gh pr create"));
-        // O caminho até lá é o mesmo: commitar e empurrar continua sendo o miolo.
+        // Both creation and updates require committing and pushing the work.
         assert!(t.contains("git push -u origin HEAD:meu/ajuste"));
     }
 
-    /// Com mais de um repositório o pedido lista cada um com o que ele tem: o
-    /// que já tem PR pede atualização, o que não mudou fica sem PR, e o resto
-    /// ganha o seu — todos linkando os outros.
+    /// For multiple repositories, update existing PRs, skip unchanged repositories, and create the
+    /// remaining PRs with cross-links.
     #[test]
     fn multi_pr_text_lista_cada_repositorio() {
         let t = multi_pr_text(&[
@@ -2096,111 +1848,7 @@ mod tests {
     }
     use std::process::Command;
 
-    fn launch(model: &str, effort: &str, plan: bool) -> Launch {
-        Launch {
-            mcp: None,
-            plugins: None,
-            agent: ProviderId::Claude,
-            model: model.into(),
-            effort: effort.into(),
-            plan,
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn task_permissions_and_instructions_reach_claude() {
-        let launch = Launch {
-            permission: Some(crate::actions::Permission::Ask),
-            instructions: "Review independently".into(),
-            ..Default::default()
-        };
-        let args = claude_args("id", true, &launch).unwrap();
-        assert!(!args.contains(&"--dangerously-skip-permissions".to_string()));
-        assert!(args
-            .windows(2)
-            .any(|pair| pair == ["--append-system-prompt", "Review independently"]));
-        let automatic = Launch {
-            permission: Some(crate::actions::Permission::Auto),
-            ..launch
-        };
-        assert!(claude_args("id", true, &automatic)
-            .unwrap()
-            .contains(&"--dangerously-skip-permissions".to_string()));
-    }
-
-    /// Quem nunca escolheu MCP não recebe `--strict-mcp-config`: o CLI segue
-    /// decidindo sozinho, como fazia antes do hub existir. Quem escolheu recebe
-    /// o arquivo e o `--strict-…`, que é o que fecha a sessão no que foi
-    /// marcado.
-    #[test]
-    fn mcp_so_entra_quando_alguem_escolheu() {
-        let sem = claude_args("id", false, &launch("", "", false)).unwrap();
-        assert!(!sem.contains(&"--mcp-config".to_string()));
-        assert!(!sem.contains(&"--strict-mcp-config".to_string()));
-
-        let root = std::env::temp_dir().join(format!("prometeu-mcp-{}", uuid::Uuid::new_v4()));
-        std::env::set_var("PROMETEU_ROOT", &root);
-        let escolheu = Launch {
-            mcp: Some(vec!["notion".into()]),
-            ..launch("", "", false)
-        };
-        let args = claude_args("id", false, &escolheu).unwrap();
-        std::env::remove_var("PROMETEU_ROOT");
-        let at = args
-            .iter()
-            .position(|a| a == "--mcp-config")
-            .expect("o arquivo");
-        assert!(std::path::Path::new(&args[at + 1]).exists());
-        assert!(args.contains(&"--strict-mcp-config".to_string()));
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    /// Quem nunca escolheu plugin não recebe flag nenhuma: o CLI carrega o que
-    /// sempre carregou. A tradução de escolha em flag é do `plugins.rs`, e o
-    /// teste dela mora lá — aqui só o caso de não haver escolha, que é o de
-    /// todo quadro gravado antes disto existir.
-    #[test]
-    fn sem_escolha_nao_ha_flag_de_plugin() {
-        let args = claude_args("id", false, &launch("", "", false)).unwrap();
-        assert!(!args.contains(&"--plugin-dir".to_string()));
-        assert!(!args.contains(&"--plugin-url".to_string()));
-    }
-
-    /// Bypass e plan não convivem na mesma linha: `--dangerously-skip-permissions`
-    /// engole o plan. Plan mode é `--allow-…` mais `--permission-mode plan`.
-    #[test]
-    fn plan_mode_nao_leva_o_bypass_junto() {
-        let solto = claude_args("id", false, &launch("", "", false)).unwrap();
-        assert!(solto.contains(&"--dangerously-skip-permissions".to_string()));
-        assert!(!solto.contains(&"--permission-mode".to_string()));
-
-        let plano = claude_args("id", false, &launch("", "", true)).unwrap();
-        assert!(!plano.contains(&"--dangerously-skip-permissions".to_string()));
-        assert!(plano.contains(&"--allow-dangerously-skip-permissions".to_string()));
-        let at = plano.iter().position(|a| a == "--permission-mode").unwrap();
-        assert_eq!(plano[at + 1], "plan");
-    }
-
-    /// Vazio é não passar a flag — o Claude Code escolhe. Cheio vai como veio.
-    #[test]
-    fn modelo_e_esforco_so_quando_escolhidos() {
-        let padrao = claude_args("id", true, &launch("", " ", false)).unwrap();
-        assert!(!padrao.contains(&"--model".to_string()));
-        assert!(!padrao.contains(&"--effort".to_string()));
-        let at = padrao.iter().position(|a| a == "--resume").unwrap();
-        assert_eq!(padrao[at + 1], "id");
-
-        let escolhido = claude_args("id", false, &launch("opus[1m]", "max", false)).unwrap();
-        assert_eq!(
-            escolhido[escolhido.len() - 4..],
-            ["--model", "opus[1m]", "--effort", "max"]
-        );
-        let at = escolhido.iter().position(|a| a == "--session-id").unwrap();
-        assert_eq!(escolhido[at + 1], "id");
-    }
-
-    /// Um workspace vazio, para o que não depende de disco.
+    /// A minimal workspace for tests that do not need disk access.
     fn bare() -> Workspace {
         Workspace {
             id: "w".into(),
@@ -2234,7 +1882,7 @@ mod tests {
         }
     }
 
-    /// Uma aba com o que basta para dizer com quem ela fala.
+    /// A minimal tab with an optional provider and model choice.
     fn tab(id: &str, choice: Option<Choice>) -> Tab {
         Tab {
             task: None,
@@ -2247,6 +1895,39 @@ mod tests {
             tokens: None,
             context_tokens: None,
             choice,
+        }
+    }
+
+    #[test]
+    fn new_and_resumed_tabs_preserve_workspace_tools_with_model_overrides() {
+        for selected in [None, Some(vec![]), Some(vec!["selected".to_string()])] {
+            for provider in [ProviderId::Claude, ProviderId::Codex] {
+                let mut ws = bare();
+                ws.model = "workspace-model".into();
+                ws.effort = "high".into();
+                ws.mcp = selected.clone();
+                ws.plugins = selected.clone();
+                let choice = Choice {
+                    agent: provider,
+                    model: "tab-model".into(),
+                    effort: "medium".into(),
+                };
+                ws.tabs = vec![tab("custom", Some(choice.clone())), tab("inherited", None)];
+                for launch in [ws.launch_with(Some(choice)), ws.launch_of("custom")] {
+                    assert_eq!(launch.agent, provider);
+                    assert_eq!(launch.model, "tab-model");
+                    assert_eq!(launch.effort, "medium");
+                    assert_eq!(launch.mcp, selected);
+                    assert_eq!(launch.plugins, selected);
+                    assert!(!launch.plan);
+                }
+                for launch in [ws.launch_with(None), ws.launch_of("inherited")] {
+                    assert_eq!(launch.model, "workspace-model");
+                    assert_eq!(launch.effort, "high");
+                    assert_eq!(launch.mcp, selected);
+                    assert_eq!(launch.plugins, selected);
+                }
+            }
         }
     }
 
@@ -2302,9 +1983,8 @@ mod tests {
         assert!(ws.retune("task", Choice::default()).is_err());
     }
 
-    /// A aba que nasceu com outro modelo volta com ele, e não com o das irmãs
-    /// — é o que separa retomar de recomeçar. Aba sem escolha segue o
-    /// workspace, que é o quadro gravado antes disto existir e o ⌘T de sempre.
+    /// Resume tabs with their own model choices. Tabs without overrides follow workspace defaults,
+    /// including older persisted tabs.
     #[test]
     fn retomar_uma_aba_respeita_o_modelo_com_que_ela_nasceu() {
         let mut ws = bare();
@@ -2336,17 +2016,15 @@ mod tests {
             (propria.model.as_str(), propria.effort.as_str()),
             ("gpt-5.6-sol", "ultracode")
         );
-        // Plan mode é de uma fala, não da conversa: retomar nunca volta nele.
+        // Resuming never restores initial plan mode.
         assert!(!propria.plan);
 
-        // Aba que não está no quadro — fechada entre o pedido e a resposta —
-        // cai no do workspace, e não num modelo inventado.
+        // A tab removed while the request was in flight falls back to workspace defaults.
         assert_eq!(ws.launch_of("sumiu").model, "opus[1m]");
     }
 
-    /// Trocar o modelo de uma conversa de pé grava a escolha na aba, e voltar
-    /// ao do workspace apaga a escolha em vez de congelar o de hoje. Trocar de
-    /// CLI é recusado: o transcript de um o outro não retoma.
+    /// Retuning persists a tab override; choosing workspace defaults clears it. Reject switching
+    /// providers within a transcript.
     #[test]
     fn trocar_o_modelo_de_uma_conversa_grava_na_aba() {
         let mut ws = bare();
@@ -2366,15 +2044,14 @@ mod tests {
             (launch.model.as_str(), launch.effort.as_str()),
             ("sonnet", "medium")
         );
-        // As irmãs que seguem o workspace não foram junto.
+        // Sibling tabs following workspace defaults remain unchanged.
         assert_eq!(ws.model, "opus[1m]");
 
-        // De volta ao do workspace: a aba volta a segui-lo, e não guarda uma
-        // cópia do que ele é hoje.
+        // Return to inherited settings instead of freezing a copy of today's defaults.
         ws.retune("aberta", choice("opus[1m]", "high")).unwrap();
         assert!(ws.tabs[0].choice.is_none());
 
-        // O CLI não troca no meio da conversa.
+        // The provider cannot change during a conversation.
         let gpt = Choice {
             agent: ProviderId::Codex,
             model: "gpt-5.6-sol".into(),
@@ -2384,21 +2061,7 @@ mod tests {
         assert!(ws.retune("sumiu", choice("sonnet", "high")).is_err());
     }
 
-    /// O que faz a conversa ser JSON dos dois lados, e o pedido de permissão
-    /// chegar pelo mesmo cano em vez de matar a sessão.
-    #[test]
-    fn a_conversa_e_stream_json_com_permissao_por_stdio() {
-        let args = claude_args("id", false, &launch("", "", false)).unwrap();
-        let has = |pair: [&str; 2]| args.windows(2).any(|w| w[0] == pair[0] && w[1] == pair[1]);
-        assert_eq!(args[0], "-p");
-        assert!(has(["--input-format", "stream-json"]));
-        assert!(has(["--output-format", "stream-json"]));
-        assert!(has(["--permission-prompt-tool", "stdio"]));
-        assert!(args.contains(&"--include-partial-messages".to_string()));
-    }
-
-    /// Saída de `git diff HEAD` com três arquivos: um mexido, um apagado e um
-    /// com espaço no nome. O caminho tem de sair certo nos três.
+    /// Parse modified and deleted files, including paths containing spaces, from git diff HEAD.
     const DIFF: &str = "\
 diff --git a/src/main.ts b/src/main.ts
 index 1c1c1c1..2d2d2d2 100644
@@ -2425,9 +2088,8 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
 +depois
 ";
 
-    /// Contra o git de verdade, no worktree onde este teste está rodando: todo
-    /// arquivo que a lista mostra com linhas contadas tem de vir com trecho para
-    /// desenhar. Binário conta 0/0 e não tem patch — esse é o caso de fora.
+    /// Every text file with counted changes must have a renderable patch. Binary files have zero
+    /// line counts and no text patch.
     #[test]
     fn a_lista_e_o_patch_falam_do_mesmo_arquivo() {
         let wt = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -2447,10 +2109,8 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         }
     }
 
-    /// O diff contra a base, num repositório de verdade: o que está no commit
-    /// desta branch e o que está fora de commit vêm juntos, cada um marcado, por
-    /// caminho — e o número de commits além da base é o que se contou. Sem base
-    /// que exista, sobra o que está fora de commit.
+    /// Compare committed and uncommitted changes against a real base, preserving path
+    /// classifications and commit counts. Without a valid base, report only uncommitted changes.
     #[test]
     fn o_diff_contra_a_base_junta_commit_e_fora_de_commit() {
         let root = std::env::temp_dir().join(format!("prometeu-diff-{}", std::process::id()));
@@ -2460,8 +2120,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
             let out = Command::new("git")
                 .arg("-C")
                 .arg(&root)
-                // O commit do teste não depende da assinatura da máquina: com
-                // `commit.gpgsign` global, o gpg do runner falhava em paralelo.
+                // Disable commit signing so tests do not depend on the runner's GPG configuration.
                 .args(["-c", "commit.gpgsign=false"])
                 .args(args)
                 .output()
@@ -2485,14 +2144,13 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         std::fs::write(root.join("z.txt"), "z\n").unwrap();
         run(&["add", "-A"]);
         run(&["commit", "-qm", "feat"]);
-        // Fora de commit: um mexido depois do commit, e um que nem foi adicionado.
+        // Include both a modified tracked file and an untracked file.
         std::fs::write(root.join("a.txt"), "a\nb\nc\n").unwrap();
         std::fs::write(root.join("novo.txt"), "n\n").unwrap();
 
         let d = super::repo_diff("r", &root, "main");
         assert_eq!(d.ahead, 1);
-        // Sem upstream, nada desta branch está publicado: todo commit dela conta
-        // como não empurrado.
+        // Without an upstream, every branch commit counts as unpushed.
         assert_eq!(d.unpushed, 1);
         assert_eq!(d.dirty, 2);
         let paths: Vec<&str> = d.files.iter().map(|f| f.path.as_str()).collect();
@@ -2506,8 +2164,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         let sem_base = super::repo_diff("r", &root, "nao-existe");
         assert_eq!((sem_base.ahead, sem_base.files.len()), (0, 2));
 
-        // Com a branch empurrada, o mesmo commit deixa de contar: é o que a tela
-        // usa para dizer "tudo empurrado" em vez de oferecer atualizar o PR.
+        // After pushing, the same commit no longer counts as unpushed.
         let remoto =
             std::env::temp_dir().join(format!("prometeu-diff-remoto-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&remoto);
@@ -2525,9 +2182,8 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         let _ = std::fs::remove_dir_all(&remoto);
     }
 
-    /// Um repo de mentira com remoto de verdade (o "origin" é uma pasta ao
-    /// lado): é o único jeito de provar que a base escolhida no lançador é de
-    /// onde a branch nasce, e que `origin/main` é o padrão que o clone gravou.
+    /// Use a local bare remote to prove new branches start from the selected base and respect the
+    /// clone's origin/HEAD default.
     #[test]
     fn a_branch_nova_sai_da_base_escolhida() {
         let root = std::env::temp_dir().join(format!("prometeu-base-{}", std::process::id()));
@@ -2539,8 +2195,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
             let out = Command::new("git")
                 .arg("-C")
                 .arg(dir)
-                // O commit do teste não depende da assinatura da máquina: com
-                // `commit.gpgsign` global, o gpg do runner falhava em paralelo.
+                // Disable commit signing so tests do not depend on the runner's GPG configuration.
                 .args(["-c", "commit.gpgsign=false"])
                 .args(args)
                 .output()
@@ -2592,35 +2247,31 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         assert_eq!(run(&dest, &["rev-parse", "HEAD"]), velha);
         assert_eq!(run(&dest, &["rev-parse", "--abbrev-ref", "HEAD"]), "nova");
 
-        // Base que não existe não vira worktree de lugar nenhum: dá erro.
+        // Reject a base that does not exist.
         let erro = super::add_worktree(&local, "outra", "origin/fantasma", &root.join("wt2"));
         assert!(erro.unwrap_err().contains("fantasma"));
 
-        // Pasta que já existe na branch pedida é reaproveitada — é o que faz
-        // criar duas vezes o mesmo workspace não estourar.
+        // Reuse a worktree already on the requested branch so repeated creation is safe.
         super::add_worktree(&local, "nova", "origin/velha", &dest).unwrap();
-        // Mas na branch errada, não: adotar calado era o quadro passar a mentir
-        // em que branch a sessão estava mexendo.
+        // Reject an existing worktree on the wrong branch.
         let erro = super::add_worktree(&local, "outra-branch", "origin/main", &dest).unwrap_err();
         assert!(erro.contains("nova"), "{erro}");
 
-        // Worktree desligado: a branch nasce no próprio clone, e é o HEAD dele
-        // que anda. Nenhuma pasta nova, mesmo commit da base.
+        // Without worktree isolation, move the original clone's HEAD to a branch at the selected
+        // base without creating a directory.
         super::switch_branch(&local, "aqui", "origin/velha").unwrap();
         assert_eq!(run(&local, &["rev-parse", "--abbrev-ref", "HEAD"]), "aqui");
         assert_eq!(run(&local, &["rev-parse", "HEAD"]), velha);
-        // Já estar na branch pedida é um no-op, não um erro.
+        // Selecting the current branch is a no-op.
         super::switch_branch(&local, "aqui", "origin/main").unwrap();
         assert_eq!(run(&local, &["rev-parse", "HEAD"]), velha);
 
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// A mesma branch em duas pastas é o que o git recusa — e é o que dois
-    /// workspaces saídos da mesma issue do Linear pedem, um com um repositório
-    /// e outro com dois: a branch é a mesma, a pasta não, porque ela leva os
-    /// nomes dos repositórios do workspace. O erro tem de dizer onde a branch
-    /// está, e a tentativa não pode deixar pasta vazia para trás.
+    /// When the same branch is requested in another directory, report its existing checkout and
+    /// leave no empty directories behind. Multi-repository workspace names can produce different
+    /// paths for the same issue branch.
     #[test]
     fn branch_aberta_em_outra_pasta_recusa_sem_deixar_pasta() {
         let root = std::env::temp_dir().join(format!("prometeu-busy-{}", std::process::id()));
@@ -2649,11 +2300,11 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         run(&repo, &["add", "-A"]);
         run(&repo, &["commit", "-qm", "a"]);
 
-        // O workspace de um repositório só.
+        // Create the single-repository workspace first.
         let um = root.join("code-rules").join("aut-49");
         assert!(super::add_worktree(&repo, "aut-49", "", &um).unwrap());
 
-        // O de dois: mesma branch, outra pasta.
+        // Request the same branch at the multi-repository path.
         let dois = root.join("code-rules+autonomous").join("aut-49");
         let erro = super::add_worktree(&repo, "aut-49", "", &dois.join("code-rules")).unwrap_err();
         let onde = um.canonicalize().unwrap().display().to_string();
@@ -2665,24 +2316,22 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         );
         assert!(!root.join("code-rules+autonomous").exists());
 
-        // Pasta que já está na branch pedida continua sendo adotada — e adotar
-        // não é criar: quem adota não é desfeito quando um irmão recusa.
+        // Adopt an existing worktree on the requested branch, and preserve it during rollback of a
+        // sibling failure.
         assert!(!super::add_worktree(&repo, "aut-49", "", &um).unwrap());
 
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// O `setup` de cada repo entra num subshell com o caminho entre aspas:
-    /// pasta com espaço ou apóstrofo não pode virar dois argumentos.
+    /// Quote each setup subshell's path so spaces and apostrophes cannot split arguments.
     #[test]
     fn quoted_aguenta_espaco_e_apostrofo() {
         assert_eq!(quoted("/a b"), "'/a b'");
         assert_eq!(quoted("/d'x"), "'/d'\\''x'");
     }
 
-    /// Dois repos, cada um com o seu `setup`: o comando composto roda um depois
-    /// do outro, cada um no seu worktree e vendo as suas variáveis — provado
-    /// rodando o comando de verdade num `sh` e lendo o que cada um escreveu.
+    /// Run the combined setup script in a real shell to verify sequential execution in each
+    /// repository with its own environment.
     #[test]
     fn setup_de_varios_repos_roda_cada_um_na_sua_pasta() {
         let root = std::env::temp_dir().join(format!("prometeu-multi-{}", std::process::id()));
@@ -2692,7 +2341,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
             let wt = root.join("ws").join(name);
             std::fs::create_dir_all(repo.join(".prometeu")).unwrap();
             std::fs::create_dir_all(&wt).unwrap();
-            // String literal do TOML: o comando tem aspas duplas dentro.
+            // Use a TOML literal string because the command contains double quotes.
             std::fs::write(
                 repo.join(".prometeu/settings.toml"),
                 format!("[scripts]\nsetup = '{setup}'\n"),
@@ -2742,7 +2391,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         };
 
         let (header, command) = multi_setup(&ws).unwrap();
-        // Nenhum dos dois declara cópia: não há cabeçalho.
+        // Without copy declarations, omit the copy header.
         assert!(header.is_none());
         let out = Command::new("/bin/sh")
             .args(["-c", &command])
@@ -2758,7 +2407,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         assert_eq!(read(&repos[0]).trim(), repos[0].worktree);
         assert_eq!(read(&repos[1]).trim(), format!("{}:3100", repos[1].path));
 
-        // Só um com setup ainda é uma aba; nenhum, não.
+        // One setup declaration still creates a tab; no declarations create none.
         std::fs::remove_file(Path::new(&repos[1].path).join(".prometeu/settings.toml")).unwrap();
         assert!(multi_setup(&ws).unwrap().1.contains("back end"));
         std::fs::remove_file(Path::new(&repos[0].path).join(".prometeu/settings.toml")).unwrap();
@@ -2775,21 +2424,20 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         let main = &map["src/main.ts"].body;
         assert!(main.starts_with("@@ -12,3 +12,4 @@ const $"), "{main}");
         assert!(main.contains("+let openWs: string | null = null;"));
-        // Cabeçalho `index`/`---`/`+++` não entra: a tela não mostra.
+        // Exclude index and path headers from the rendered patch.
         assert!(!main.contains("index 1c1c1c1"));
         assert!(!main.contains("--- a/src/main.ts"));
         assert!(!map["src/main.ts"].new && !map["src/main.ts"].deleted);
 
-        // Apagado: o destino é /dev/null, então o caminho vem do `--- a/`, e o
-        // `deleted file mode` do cabeçalho é a marca.
+        // Deleted files use /dev/null as the destination, so recover their path from the source
+        // header and mark deleted file mode.
         assert!(map["src/old.ts"].body.contains("-export default gone;"));
         assert!(map["src/old.ts"].deleted);
         assert_eq!(map["docs/com espaco.md"].body.lines().count(), 3);
     }
 
-    /// O front numera as abas de terminal, mas quem abre pty é o back: chave
-    /// que não seja `terminal` ou `terminal-<número>` não pode virar shell,
-    /// senão qualquer string entra no mapa de ptys com nome próprio.
+    /// Only terminal and terminal-<number> may open a PTY. Reject arbitrary keys before they create
+    /// shell processes.
     #[test]
     fn so_terminal_numerado_vira_shell() {
         assert!(is_terminal("terminal"));
@@ -2803,8 +2451,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
     }
 }
 
-/// O git só pelo sim ou não da saída — `merge-base --is-ancestor` e afins, que
-/// não escrevem nada e respondem no código de saída.
+/// Run read-only Git predicates and use their exit status as the result.
 fn git_ok(dir: &Path, args: &[&str]) -> bool {
     Command::new("git")
         .arg("-C")
@@ -2833,11 +2480,8 @@ fn expand(p: &str) -> String {
     }
 }
 
-/// O texto que o botão "Open PR" injeta na conversa ativa: o estado do git e
-/// os passos até o PR. Sai daqui e não do front porque quem sabe a branch, o
-/// alvo e o que falta commitar é quem tem o worktree. Quem commita, empurra e
-/// cria o PR é o agente — e uma skill de PR do repositório, quando existe,
-/// manda mais que este texto.
+/// Build the Open PR prompt from Git state at the backend. The agent commits, pushes, and opens the
+/// PR; a repository PR skill takes precedence over these instructions.
 #[tauri::command(async)]
 pub fn pr_prompt(state: State<AppState>, id: String) -> Result<String, String> {
     let repos = repos_of(&state, &id);
@@ -2851,9 +2495,8 @@ pub fn pr_prompt(state: State<AppState>, id: String) -> Result<String, String> {
     })
 }
 
-/// O que o pedido de PR precisa saber de um repositório: onde a branch está,
-/// o que falta commitar, quantos commits ela tem além da base, e se já há um
-/// PR aberto para ela.
+/// Repository state needed for a PR: branch, uncommitted changes, commits beyond the base, and an
+/// existing PR.
 struct RepoPr {
     name: String,
     branch: Option<String>,
@@ -2868,7 +2511,8 @@ fn pr_state(r: &Repo) -> RepoPr {
     let wt = Path::new(&r.worktree);
     let branch = head_branch(wt);
     let dirty = changes_in(wt).len();
-    // O alvo é o principal do remoto; sem `origin/HEAD` gravado, o de sempre.
+    // Use the remote default branch, falling back to conventional names when origin/HEAD is
+    // unavailable.
     let head = git(wt, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
         .trim()
         .to_string();
@@ -2880,8 +2524,7 @@ fn pr_state(r: &Repo) -> RepoPr {
     let upstream = !git(wt, &["rev-parse", "--abbrev-ref", "@{upstream}"])
         .trim()
         .is_empty();
-    // Com PR já aberto o pedido é outro: não criar de novo, e sim empurrar o
-    // que falta e conferir se o que está escrito lá ainda cobre a branch.
+    // For an existing PR, request a push and a description review instead of creating a duplicate.
     let open = branch
         .as_deref()
         .and_then(|b| crate::github::pr_for_branch(wt, b))
@@ -2956,9 +2599,8 @@ Se algum passo falhar, pare e me pergunte."#
     )
 }
 
-/// Workspace com mais de um repositório: um PR por repo que tem o que
-/// entregar, na mesma branch, e cada descrição linkando os outros — é assim
-/// que uma funcionalidade que atravessa repositórios se revisa no GitHub.
+/// Create a PR for each repository with changes, on the shared branch, and cross-link their
+/// descriptions for review.
 fn multi_pr_text(states: &[RepoPr]) -> String {
     let lista: String = states
         .iter()
@@ -3008,9 +2650,8 @@ Se algum passo falhar, pare e me pergunte."#,
     )
 }
 
-/// O worktree do repositório principal, se ainda houver um — é dele que saem
-/// diff, branch e PR. Devolvido ao disco é o mesmo que não existir: quem lê
-/// daqui recebe o vazio, e não um caminho que já não é de ninguém.
+/// Return the primary worktree used for diff, branch, and PR operations. Cleaned workspaces return
+/// no path.
 fn workspace_copy(state: &State<AppState>, id: &str) -> Option<Workspace> {
     lock(&state.board)
         .workspaces
@@ -3027,9 +2668,8 @@ fn worktree_of(state: &State<AppState>, id: &str) -> Option<PathBuf> {
         .map(|w| PathBuf::from(w.primary().worktree))
 }
 
-/// Os repositórios de um workspace que ainda tem worktree, na ordem dele — o
-/// principal primeiro. Devolvido ao disco é lista vazia, pela mesma razão de
-/// `worktree_of`.
+/// Return remaining workspace repositories in their saved order, primary first. Cleaned workspaces
+/// return an empty list.
 fn repos_of(state: &State<AppState>, id: &str) -> Vec<Repo> {
     lock(&state.board)
         .workspaces
@@ -3039,14 +2679,9 @@ fn repos_of(state: &State<AppState>, id: &str) -> Vec<Repo> {
         .unwrap_or_default()
 }
 
-/// Onde o agente trabalha: o worktree, ou a pasta que reúne os worktrees
-/// quando há mais de um repositório. É daqui que a árvore de arquivos e o
-/// Finder partem — a pessoa quer ver todos, não só o principal.
-///
-/// O id também pode ser o de um projeto: aí a raiz é o clone registrado. É o
-/// que deixa ler e editar os arquivos de um repositório sem criar workspace
-/// nenhum nele. Projeto e workspace nunca dividem id, então uma busca só
-/// atende os dois.
+/// Resolve the agent's working directory or the common parent of multiple worktrees. Project IDs
+/// resolve to their registered clone, allowing file access without a workspace. Project and
+/// workspace IDs never overlap.
 pub(crate) fn cwd_of(state: &State<AppState>, id: &str) -> Option<PathBuf> {
     let board = lock(&state.board);
     board

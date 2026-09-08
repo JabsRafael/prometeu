@@ -11,7 +11,7 @@ module Prometeu
     end
 
     class FormBuilder < ActionView::Helpers::FormBuilder
-      # A validação e o escaping continuam nos helpers nativos do Rails.
+      # Native Rails helpers retain validation and escaping.
       def field(method, label:, type: :text, hint: nil, error: nil, **options)
         helpers = { text: :text_field, email: :email_field, password: :password_field,
           textarea: :text_area, number: :number_field, date: :date_field }
@@ -90,8 +90,8 @@ module Prometeu
           **options, class: class_names("ui-disclosure", options[:class]))
       end
 
-      # Foto ou logotipo; sem imagem, o glifo de pessoa ou de organização.
-      # Decorativo: o nome fica no texto ao lado. Glifos iguais aos de icons.ts.
+      # Decorative photo or logo with the same person/organization glyphs as icons.ts. Adjacent text
+      # supplies the accessible name.
       GLYPHS = {
         person: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
         organization: '<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>'
@@ -107,9 +107,8 @@ module Prometeu
         tag.span(content, class: class_names("ui-avatar", size, "org" => kind.to_sym == :organization), aria: { hidden: true })
       end
 
-      # Sem JavaScript, o menu continua sendo um disclosure com links nativos.
-      # `:sep` separa grupos; `method:` envia um formulário nativo com CSRF.
-      # `avatar:` entra no gatilho ao lado do rótulo.
+      # Without JavaScript, the disclosure retains native links. `:sep` divides groups, `method:` submits
+      # a CSRF-protected form, and `avatar:` decorates the trigger.
       def ds_menu(label, items:, avatar: nil)
         links = items.map do |item|
           next tag.hr if item == :sep
@@ -124,7 +123,7 @@ module Prometeu
           class: "ui-menu-fallback", data: { ui_menu: true })
       end
 
-      # Abas sublinhadas; a atual recebe aria-current="page".
+      # Underlined tabs mark the current page with aria-current="page".
       def ds_tabs(items, label: nil)
         links = items.map do |item|
           link_to(item.fetch(:label), item.fetch(:url), aria: { current: item[:current] ? "page" : nil })

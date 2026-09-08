@@ -1,62 +1,47 @@
 import { modelLabelOf } from "./agents";
 import { current as locale, t } from "./i18n";
 
-/// Quem está no time, como o relay conta. O formato é do protocolo do relay,
-/// que é a única fonte dos tipos que atravessam a rede.
+/// Import team-member shapes from the relay protocol, the single source of network types.
 export type { Member } from "../relay/src/protocol";
 
 export type Status = "rodando" | "querendo" | "pronta" | "desligada";
 
-/// Identidade estável do runtime. Modelo e provider são conceitos diferentes:
-/// o catálogo associa os dois, e o restante da aplicação carrega esta escolha
-/// explicitamente em vez de inferi-la de um nome solto.
+/// Carry stable provider identity explicitly alongside the model; only the catalog resolves their association.
 export type ProviderId = "claude" | "codex";
 
-/// Como cada estado se chama na tela. Um lugar só: estava escrito igual no
-/// quadro e no cabeçalho, e duas cópias de um rótulo é uma cópia que um dia
-/// deixa de bater com a outra. O valor em si é do protocolo — é o que o back
-/// manda e o que o CSS pinta —, e por isso não muda de idioma junto.
+/// Share localized status labels across views while preserving protocol/CSS status values.
 export const label = (status: Status) => t(`status.${status}`);
 
-/// O mesmo rótulo, para um workspace inteiro — e pela mesma regra de um lugar
-/// só. Montando não é status de aba (não há aba), mas é o que está acontecendo
-/// ali, e é isso que o card e a barra têm para dizer.
+/// Share workspace labels too; preparation is workspace activity before any tab exists.
 export const stateLabel = (ws: Workspace) =>
   pending(ws) ? t(ws.failed ? "card.failed" : "card.building") : label(statusOf(ws));
 
 export type Tab = {
   task?: import("./actions").TaskRun | null;
   id: string;
-  /// Vazio é aba sem nome: a tela mostra o modelo (`tabLabel`).
+  /// An unnamed tab displays its model through tabLabel.
   title: string;
   status: Status;
   note: string | null;
-  /// Estimativa incremental dos tokens usados nesta conversa.
+  /// Incremental token estimate for this conversation.
   tokens: number | null;
-  /// Último contexto observado; cursor persistido do contador no backend.
+  /// Last observed context and the backend's persisted counting cursor.
   context_tokens?: number | null;
-  /// A fala que ainda não foi: espera o setup do worktree terminar.
+  /// A prompt queued until worktree setup finishes.
   pending_prompt?: string | null;
-  /// O modelo desta conversa, quando quem a abriu escolheu um diferente do que
-  /// o workspace usa. Vazio é seguir o do workspace — o que faz o ⌘T.
+  /// An optional tab-specific model choice; absent choices inherit workspace defaults.
   choice?: Choice | null;
 };
 
-/// Com quem uma conversa fala: qual CLI sobe, com que modelo e com quanto
-/// esforço. Os três andam juntos porque escolher um GPT é escolher o Codex, e
-/// cada modelo tem a sua escada de esforço.
+/// Provider, model, and effort form one choice because each model belongs to a provider and has supported effort levels.
 export type Choice = { agent: ProviderId; model: string; effort: string };
 
 export type Project = { id: string; name: string; path: string };
 
-/// Um repositório dentro do workspace: o clone de onde veio, o nome da pasta e
-/// onde está a cópia dele nesta branch.
-/// Um repositório do workspace: de onde veio, onde está nesta branch, de onde
-/// a branch saiu nele, e o PR dela nele — um por repo, porque cada um tem o
-/// seu histórico.
+/// A repository's source clone, workspace path, base branch, and PR. Each repository retains independent Git history.
 export type Repo = { path: string; name: string; worktree: string; base: string; pr: Pr | null };
 
-/// Contrato de Git local; nomes e caminhos permanecem dados do repositório.
+/// Local Git contract; repository names and paths remain user data.
 export type GitFile = { path: string; status: string };
 export type GitStatus = {
   repo: number;
@@ -82,41 +67,31 @@ export type GitBranch = { name: string; current: boolean; remote: boolean; workt
 export type GitConflict = { current: string; ours: string | null; theirs: string | null };
 export type GitAction = "stage" | "unstage" | "commit" | "fetch" | "pull" | "push" | "publish";
 
-/// O nome que a tela dá aos repositórios do workspace: o do principal, ou os
-/// de todos quando há mais de um — é assim que se sabe de longe que o card
-/// atravessa dois repos.
+/// Name the primary repository or every repository when a workspace spans several.
 export const repoLabel = (ws: Workspace) =>
   ws.repos.length > 1 ? ws.repos.map((r) => r.name).join(" + ") : ws.repo_name;
 
-/// Um servidor de MCP como o hub o guarda. `config` é o objeto que o Claude
-/// Code entende (`{"type":"http","url":…}`, `{"command":…,"args":[…]}`),
-/// guardado inteiro: a forma é do CLI, não nossa.
+/// An MCP registry entry retains its complete provider configuration object.
 export type McpServer = {
   id: string;
   config: Record<string, unknown>;
-  /// De onde veio, ou para que serve. Vazio, num importado, é o cadastro do
-  /// próprio usuário — a tela é que escreve isso.
+  /// Source or purpose. Empty imported descriptions identify the user's existing registration in the UI.
   note: string;
 };
 
-/// O que o exame de um servidor descobriu. É o Prometeu falando JSON-RPC com
-/// ele — sem `claude` no meio, para o que se lê aqui ser sobre o cadastro e
-/// mais nada.
+/// Probe MCP directly through JSON-RPC without starting an agent, so results describe server configuration alone.
 export type McpProbe = {
   ok: boolean;
-  /// Respondeu 401: o cadastro está certo, falta login.
+  /// HTTP 401 means configuration is reachable but authentication is required.
   auth: boolean;
   tools: number;
-  /// Como o servidor se chama.
+  /// Server-reported name.
   name: string;
-  /// A causa crua, quando não deu. Vem do servidor ou do sistema.
+  /// Untranslated server or system failure detail.
   detail: string;
 };
 
-/// Um passo do exame, na ordem em que foi tentado. `key` é código — a tela
-/// traduz —, `note` é o dado que o passo trouxe (o status HTTP, o nome do
-/// servidor, a conta de ferramentas) e `detail` é a causa crua de quando não
-/// deu.
+/// An ordered probe step: key is translated, note carries result data, and detail preserves the original failure.
 export type McpStep = {
   key: string;
   ok: boolean;
@@ -124,18 +99,13 @@ export type McpStep = {
   detail: string;
 };
 
-/// O exame inteiro: onde parou, e o resumo.
+/// Full probe progress and summary.
 export type McpCheck = {
   steps: McpStep[];
   probe: McpProbe;
 };
 
-/// Um plugin portátil como o hub o guarda: o nome que ele declara, onde ele
-/// está (pasta, `.zip`, ou a URL de um `.zip`) e a linha embaixo do nome. O
-/// backend traduz a mesma entrada para Claude ou Codex. `made` é o que está
-/// numa pasta do Prometeu — clonado ou escrito por ele —, e é o único que
-/// remover apaga do disco; `from` é o endereço de onde ele veio, que é o que
-/// dá sentido a atualizar.
+/// A portable plugin entry names its source and description. Backend adapters materialize it for each provider. App-owned made entries may be deleted from disk; from identifies the repository used for updates.
 export type Plugin = {
   id: string;
   source: string;
@@ -148,60 +118,45 @@ export type Workspace = {
   id: string;
   title: string;
   project: string;
-  /// O repositório principal — o primeiro de `repos`.
+  /// The primary repository, first in repos.
   repo: string;
   repo_name: string;
   branch: string;
-  /// Onde o agente trabalha: o worktree, ou a pasta que reúne o worktree de
-  /// cada repositório quando há mais de um.
+  /// Agent working directory: one worktree or a directory containing multiple repository worktrees.
   worktree: string;
-  /// Os repositórios deste workspace, o principal primeiro. Um só é o comum.
+  /// Workspace repositories, primary first.
   repos: Repo[];
-  /// A etapa em que você pôs o trabalho. `Status` é o que o agente está
-  /// fazendo; esta é a sua leitura do trabalho, e as duas não se misturam.
+  /// User-selected work stage, independent of observed agent Status.
   stage: string;
   archived: boolean;
   pinned: boolean;
   unread: boolean;
-  /// Qual CLI roda nas abas daqui. Boards antigos com vazio são normalizados
-  /// pelo Rust para `claude` quando carregados.
+  /// Workspace provider. Rust normalizes empty legacy values to claude when loading.
   agent: ProviderId;
-  /// Modelo e esforço das conversas daqui, escolhidos no lançador e válidos
-  /// para as abas que vierem (⌘T, retomar). Vazio é o padrão do CLI.
+  /// Workspace model/effort defaults for new or resumed tabs; empty values use CLI defaults.
   model: string;
   effort: string;
-  /// Quais servidores de MCP as conversas daqui enxergam, pelo nome que têm no
-  /// hub. `null` é workspace que nunca escolheu — e aí o CLI decide, como fazia
-  /// antes do hub existir. Lista vazia é escolha: sessão sem MCP nenhum.
+  /// MCP names selected from the hub. Null inherits CLI behavior; an empty list explicitly selects no MCP servers.
   mcp: string[] | null;
-  /// Quais plugins as conversas daqui carregam, pelo nome que têm no hub.
-  /// `null` é workspace que nunca escolheu — e aí o CLI carrega o que sempre
-  /// carregou. Lista vazia é escolha: nenhum plugin além disso.
+  /// Plugin names selected from the hub. Null inherits CLI behavior; an empty list selects no additional plugins.
   plugins: string[] | null;
-  /// Base das dez portas reservadas a este worktree.
+  /// Base of the ten ports reserved for this worktree.
   port: number | null;
-  /// A issue do Linear de onde este trabalho saiu, se saiu de uma.
+  /// The originating Linear issue, when present.
   issue: IssueRef | null;
-  /// O worktree foi devolvido ao disco. O card fica como histórico: sem
-  /// terminal, sem docks, sem arquivos — só o que ficou escrito.
+  /// A cleaned worktree retains transcript history but has no terminal, dock, or files.
   cleaned: boolean;
-  /// Compartilhado com o time: o `team.ts` anuncia e repassa a saída.
+  /// team.ts announces shared workspaces and forwards their output.
   shared: boolean;
   /** Sharing consent belongs to this organization and member; absent on legacy boards. */
   share_team?: string | null;
-  /// Com quem: ids de membros, ou `null` para o time inteiro. Só vale com
-  /// `shared`; é o relay que faz valer.
+  /// Audience member IDs, or null for the whole team; enforced by the relay only while shared.
   audience: string[] | null;
-  /// O worktree ainda está sendo montado. O card nasce assim que o lançador
-  /// fecha, e a pasta — que num repositório grande leva segundos — chega
-  /// depois. Enquanto isto for verdade não há aba nenhuma.
+  /// Publish the workspace card before its worktree finishes preparing. No tabs exist during preparation.
   preparing: boolean;
-  /// A montagem não deu, e por quê. Vem do back no formato do `i18n`: quem
-  /// monta a frase é o `fromBack`, como em qualquer outro erro.
+  /// Structured backend preparation error, translated by fromBack.
   failed: string | null;
-  /// De um colega, e não seu: o que o relay contou do workspace dele. Só
-  /// existe na tela — o Rust nunca vê um destes. `online` é o dono estar aí:
-  /// sem ele o terminal congela, e nada aqui aceita tecla.
+  /// Frontend-only remote workspace state; Rust never receives these entries. An offline owner freezes the view and disables input.
   remote: Remote | null;
   tabs: Tab[];
   active: string | null;
@@ -209,38 +164,25 @@ export type Workspace = {
 
 export type Remote = { owner: string; online: boolean };
 
-/// O PR de uma branch, como o `gh` conta. `state` é `OPEN`, `MERGED` ou
-/// `CLOSED`.
+/// GitHub CLI PR data; state is OPEN, MERGED, or CLOSED.
 export type Pr = { number: number; title: string; isDraft: boolean; state: string };
 
-/// Os PRs desta branch: um por repositório que tem o seu, na ordem do
-/// workspace.
+/// PRs in workspace repository order.
 export const prs = (ws: Workspace) => ws.repos.flatMap((r) => (r.pr ? [{ repo: r.name, pr: r.pr }] : []));
 
-/// O trabalho entrou: todo repositório com PR tem o PR mergeado, e há pelo
-/// menos um. É o que faz a barra oferecer "Concluir" e o card ganhar o selo.
+/// A workspace is merged when at least one repository has a PR and all such PRs are merged.
 export const merged = (ws: Workspace) => {
   const all = prs(ws);
   return all.length > 0 && all.every(({ pr }) => pr.state === "MERGED");
 };
 
-/// Arquivado que ainda tem um worktree só dele para devolver ao disco. O que
-/// roda no próprio clone (worktree desligado no lançador) nunca teve: a pasta
-/// é o repositório, e não há o que limpar.
+/// Only archived, uncleaned workspaces with dedicated worktrees are eligible for cleanup; direct-clone workspaces are not.
 export const hasWorktree = (ws: Workspace) => ws.archived && !ws.cleaned && ws.worktree !== ws.repo;
 
-/// Ainda não dá para trabalhar aqui: a pasta está sendo montada, ou a montagem
-/// não deu. Nos dois casos não há aba, terminal, arquivo, diff nem dock — o
-/// card existe, e é ele que conta o que está acontecendo.
+/// Preparing or failed workspaces have no usable tabs, terminals, files, diffs, or docks; their cards explain the state.
 export const pending = (ws: Workspace) => ws.preparing || !!ws.failed;
 
-/// Quem já está com esta branch aberta numa pasta que não seria a deste
-/// workspace — o git só abre uma branch numa pasta de cada vez.
-///
-/// Sair duas vezes da mesma issue do Linear pede a mesma branch duas vezes, e
-/// a pasta muda com os repositórios escolhidos: o worktree de um repositório só
-/// não mora onde mora o de dois. Repetir os mesmos repositórios, esse, cai na
-/// mesma pasta — e aí não há disputa, o workspace novo reaproveita o worktree.
+/// Detect a branch already checked out at another path. Reusing the same repository set can reuse its worktree; changing that set may produce a conflicting destination.
 export const branchTaken = (board: Board, repos: string[], branch: string) =>
   board.workspaces.find(
     (w) =>
@@ -253,9 +195,7 @@ export const branchTaken = (board: Board, repos: string[], branch: string) =>
 const sameRepos = (w: Workspace, repos: string[]) =>
   w.repos.length === repos.length && w.repos.every((r) => repos.includes(r.path));
 
-/// Um worktree que pode voltar para o disco, e o que ele ocupa. `blocked` é o
-/// erro do back dizendo por que não pode — passa por `fromBack` como qualquer
-/// outro.
+/// Cleanup candidates include disk usage and a backend reason requiring explicit force confirmation.
 export type Cleanable = {
   id: string;
   title: string;
@@ -267,50 +207,36 @@ export type Cleanable = {
   blocked: string | null;
 };
 
-/// Os terminais do dock. Não são sessão de agente: sem hook, sem card, sem
-/// quadro. `setup` e `run` saem do settings.toml do repositório e são abas
-/// fixas; os shells são `terminal`, `terminal-2`, `terminal-3`… — um por aba
-/// que o + abriu, e nenhum existe antes de você pedir.
+/// Dock PTYs are separate from agent sessions. Setup/run are fixed repository scripts; terminal, terminal-2, and later shells exist only after explicit creation.
 export type DockKind = "setup" | "run" | `terminal${string}`;
 
-/// Aba de shell, e não script do repositório. É o que decide se o ✕ encerra um
-/// processo (setup) ou fecha a aba inteira (terminal).
+/// Distinguish shell-tab closure from stopping a fixed repository script.
 export const isTerm = (kind: DockKind) => kind.startsWith("terminal");
 
-/// `terminal` é o número 1; do segundo em diante o sufixo é o número. É o que
-/// ordena a barra e o que vira o rótulo — sem uma tabela para manter.
+/// The unsuffixed terminal is number one; later suffixes determine tab order and labels.
 export const termNumber = (kind: DockKind) => Number(kind.slice("terminal-".length)) || 1;
 export const termKind = (n: number): DockKind => (n === 1 ? "terminal" : `terminal-${n}`);
 
-/// Um dock que existe: está de pé, ou morreu e deixou a rolagem — com o
-/// `✗ saiu com código` no fim, que é o que a aba mostra.
+/// A dock may be running or retain output after exit.
 export type DockState = { kind: DockKind; alive: boolean };
 
-/// O que o repositório declara em `.prometeu/settings.toml` (ou no
-/// `.conductor/settings.toml` que ele já tinha), mais a porta deste worktree.
+/// Repository script settings from .prometeu/settings.toml or legacy .conductor/settings.toml, plus the workspace port.
 export type Scripts = {
-  /// Qual arquivo respondeu. `null` é "este repo não declara nada" — e é o que
-  /// faz a aba desenhar o convite em vez de um terminal mudo.
+  /// Null settings source means no declared scripts; show the setup invitation instead of an empty terminal.
   file: string | null;
-  /// O arquivo é o do clone de origem, porque este worktree não tem o seu. É
-  /// comum `.prometeu/` estar no `.gitignore`: sem herdar, todo worktree
-  /// nascia sem Run. "Abrir o settings.toml" nesse caso copia o herdado para cá.
+  /// Inherit source-clone settings when the worktree lacks them, including ignored .prometeu directories. Editing first copies the inherited file locally.
   inherited: boolean;
   setup: string | null;
   runs: { name: string; command: string }[];
   archive: string | null;
-  /// O que este worktree recebe do clone de origem antes do setup: `.env` e o
-  /// resto que o `.gitignore` esconde e nenhum comando reconstrói. É a lista do
-  /// clone, não o que falta aqui — por isso não encolhe depois da cópia, e a
-  /// aba Setup continua existindo num repositório que não declara `setup`.
+  /// Copy source-clone ignored files such as .env before setup. Keep the declared list after copying so Setup remains available even without a setup command.
   copy: string[];
   port: number | null;
 };
 
 export type Board = { actions?: import("./actions").Catalog; stages: string[]; projects: Project[]; workspaces: Workspace[] };
 
-/// A prévia do importador temporário do Prometheus. O backend calcula tudo a
-/// partir do disco; a tela apenas explica e pede a confirmação.
+/// Backend-computed preview for temporary Prometheus import; the UI explains it and requests confirmation.
 export type LegacyImportPlan = {
   state: "ready" | "missing" | "imported" | "targetNotEmpty" | "invalid";
   source: string;
@@ -333,16 +259,12 @@ export type LegacyImportPlan = {
   backup: string | null;
 };
 
-/// Quem está do outro lado da conexão com o Linear: a pessoa e o workspace
-/// (a organização) que ela autorizou.
+/// The authenticated Linear user and organization.
 export type LinearWho = { name: string; email: string; org: string; org_key: string };
-/// O que da issue o workspace guarda: chip no card, link, e "esta já tem
-/// workspace" na aba.
+/// Persist enough issue metadata for workspace labels, links, and existing-workspace detection.
 export type IssueRef = { id: string; identifier: string; title: string; url: string };
 
-/// Uma issue do Linear como a aba mostra. `state.kind` é o tipo do Linear
-/// (`started`, `unstarted`, `backlog`, `triage`) e é o que agrupa; `priority`
-/// vai de 0 (sem) a 4 (baixa), com 1 sendo urgente — a escala deles.
+/// Linear issues group by state kind. Priority zero is unset; one is urgent and four is low.
 export type Issue = IssueRef & {
   description: string | null;
   branch_name: string;
@@ -356,45 +278,37 @@ export type Issue = IssueRef & {
 };
 export type Issues = { issues: Issue[]; fetched_at: number };
 
-/// `busy` é um fluxo esperando o navegador — a tela mostra isso mesmo que
-/// você saia e volte no meio.
+/// Busy identifies browser-based authentication, which remains visible across navigation.
 export type LinearStatus = { connected: boolean; who: LinearWho | null; busy: boolean };
 
-/// Um arquivo mexido no worktree. `patch` são os trechos `@@` do diff — vazio
-/// quando não há o que desenhar (binário, ou grande demais).
+/// A changed worktree file. Patch contains unified hunks and is empty for binary or oversized content.
 export type Change = {
   path: string;
   added: number;
   removed: number;
   new_file: boolean;
   deleted: boolean;
-  /// Tem pedaço fora de commit — é o ponto ao lado do nome.
+  /// Indicate uncommitted changes beside the filename.
   dirty: boolean;
   patch: string;
 };
 
-/// O que mudou num repositório do workspace: o que está nos commits desta
-/// branch e o que ainda está fora de commit, contra a base de onde a branch
-/// saiu. Com mais de um repo, cada um é uma seção da tela de mudanças; com um
-/// só, é a tela inteira. Vem na ordem do workspace — o principal primeiro —, e
-/// repo sem mudança vem com a lista vazia.
+/// Repository changes include branch commits and uncommitted edits relative to the base, in workspace repository order. Unchanged repositories return empty file lists.
 export type RepoDiff = {
   name: string;
-  /// De onde a branch saiu neste repo; é contra ela que `ahead` e o diff contam.
+  /// Branch base used for ahead counts and comparisons.
   base: string;
   ahead: number;
-  /// Destes commits, quantos ainda não foram para o remoto. É o que separa
-  /// "commitei" de "está no PR": sem ele a tela só sabe dizer que mudou.
+  /// Commits not yet pushed, distinguishing local commits from remote PR contents.
   unpushed: number;
-  /// Quantos arquivos têm pedaço fora de commit.
+  /// Number of files with uncommitted changes.
   dirty: number;
   files: Change[];
 };
 
 const RANK: Record<Status, number> = { querendo: 3, rodando: 2, pronta: 1, desligada: 0 };
 
-/// O estado do workspace é o da aba mais urgente: uma aba travada numa pergunta
-/// manda no card inteiro. Mesma regra do `rank` no Rust.
+/// The most urgent tab determines workspace status, matching Rust rank ordering.
 export function worst(ws: Workspace): Tab | undefined {
   return [...ws.tabs].sort((a, b) => RANK[b.status] - RANK[a.status])[0];
 }
@@ -403,17 +317,14 @@ export function statusOf(ws: Workspace): Status {
   return worst(ws)?.status ?? "desligada";
 }
 
-/// `57k`, `1,2M`: o tamanho que cabe numa pastilha. Abaixo de mil é o número.
+/// Compact localized token counts; values below one thousand remain unscaled.
 export function fmtTokens(n: number): string {
   if (n < 1000) return String(n);
   if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
   return `${(n / 1_000_000).toLocaleString(locale(), { maximumFractionDigits: 1 })}M`;
 }
 
-/// O nome de uma aba na tela. Aba sem nome (nasceu sem prompt, ninguém
-/// renomeou) é dita pelo modelo com quem fala — "Opus", "Codex" —, que é o
-/// que a distingue das irmãs debaixo do mesmo workspace. Duas irmãs sem nome
-/// no mesmo modelo ganham número, só aí.
+/// Unnamed tabs use their model label. Add a number only when siblings share that same unnamed model.
 export function tabLabel(ws: Pick<Workspace, "tabs" | "agent" | "model">, tab: Tab): string {
   if (tab.title) return tab.title;
   const model = (t: Tab) => t.choice?.model ?? ws.model;

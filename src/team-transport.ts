@@ -6,8 +6,7 @@ import {
 } from "../relay/src/protocol";
 import { t } from "./i18n";
 
-/// Fronteira de I/O do cliente de time. `team.ts` cuida do estado e da
-/// sincronização; este módulo cuida apenas de HTTP, WebSocket e URLs do relay.
+/// Team-client I/O boundary: HTTP, WebSocket, and relay URLs. team.ts owns state and synchronization.
 
 export type SocketLike = {
   binaryType: string;
@@ -23,7 +22,7 @@ export type Transport = {
   socket: (url: string) => SocketLike;
   create: (relay: string) => Promise<CreatedTeam>;
   enroll: (relay: string, team: string, secret: string) => Promise<EnrollResponse>;
-  /// O mock não tem relay nenhum e não precisa de URL.
+  /// The mock has no relay and needs no URL.
   needsRelay: boolean;
 };
 

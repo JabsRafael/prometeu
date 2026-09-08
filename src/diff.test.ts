@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { rows } from "./diff";
 
-/// O `patch_map` do Rust já tem teste; o consumidor dele aqui não tinha nenhum.
-/// É a única conta desta tela, e o que ela erra sai como número de linha errado
-/// — que ninguém confere de olho.
+/// Verify the TypeScript consumer's line-number calculations independently of Rust patch_map tests.
 
 describe("rows", () => {
   it("numera pelo arquivo de agora, e a apagada pelo de antes", () => {
@@ -11,8 +9,7 @@ describe("rows", () => {
     expect(rows(patch)).toEqual([
       { kind: "hunk", no: 0, text: "fn main() {" },
       { kind: "ctx", no: 10, text: "a" },
-      // A linha apagada existe só no arquivo de antes, e é esse número que ela
-      // mostra — 11, e não a posição dela na tela.
+      // Deleted rows use their original-file line number, not their visual row position.
       { kind: "del", no: 11, text: "b" },
       { kind: "add", no: 11, text: "c" },
       { kind: "add", no: 12, text: "d" },
@@ -33,8 +30,7 @@ describe("rows", () => {
   });
 
   it("ignora o aviso de arquivo sem newline no fim", () => {
-    // O `\ No newline at end of file` do git não é linha do arquivo: contar
-    // com ele empurraria todo número depois dele.
+    // Git's no-newline marker is metadata and must not increment file line numbers.
     const patch = ["@@ -1,1 +1,1 @@", "-antes", "\\ No newline at end of file", "+depois"].join("\n");
     expect(rows(patch).map((r) => r.text)).toEqual(["", "antes", "depois"]);
   });

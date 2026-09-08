@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { freshBranch, pair } from "./branch";
 
-/// Um sorteio previsível: devolve os números na ordem dada e depois repete o
-/// último, para o teste dizer exatamente que par sai de cada tentativa.
+/// Return predictable random values in sequence, then repeat the last one to make collision retries deterministic.
 const dado = (...ns: number[]) => {
   let i = 0;
   return () => ns[Math.min(i++, ns.length - 1)];

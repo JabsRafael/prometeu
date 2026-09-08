@@ -7,22 +7,21 @@ import * as rename from "./rename";
 import { hasWorktree, label, repoLabel, stateLabel, statusOf, tabLabel, type Board, type Status, type Workspace } from "./types";
 import { h, template } from "./util";
 
-/// Ações disponíveis na lista lateral e no menu de um workspace.
+/// Actions shared by sidebar rows and workspace menus.
 export type Hooks = {
-  /// A caixa "Para mim": os comentários abertos que marcaram você.
+  /// Open comments that mention the current user.
   inbox: () => void;
   open: (ws: Workspace, tab?: string) => void;
   activeTab: () => string | null;
   setStage: (id: string, stage: string) => void;
-  /// Remove o workspace de vez — o worktree e a branch ficam, a referência não.
+  /// Remove the workspace reference while keeping its worktree and branch.
   drop: (id: string) => void;
-  /// `title` nulo é desistência: só devolve a linha ao normal.
+  /// Null title cancels editing and restores the row.
   rename: (id: string, title: string | null) => void;
   archive: (id: string, archived: boolean) => void;
-  /// Concluir: a última etapa e o arquivo, num gesto só. É o que se faz quando
-  /// o PR entrou.
+  /// Finish moves work to the final stage and archives it in one action.
   finish: (id: string) => void;
-  /// Abre a folha que devolve worktrees ao disco.
+  /// Open worktree disk cleanup.
   cleanup: () => void;
   pin: (id: string, pinned: boolean) => void;
   unread: (id: string, unread: boolean) => void;
@@ -31,22 +30,20 @@ export type Hooks = {
   toDesk: () => void;
   toIssues: () => void;
   toArchived: () => void;
-  /// Quantas issues a aba tem para mostrar — `null` é "sem Linear", e o
-  /// número some.
+  /// Null issue count means Linear is unavailable and hides the badge.
   issues: () => number | null;
   addProject: () => void;
   removeProject: (id: string) => void;
-  /// Abre os arquivos do projeto: a árvore do clone e o viewer, sem workspace.
+  /// Open clone files without creating a workspace.
   openProject: (id: string) => void;
   newWorkspace: (projectId?: string) => void;
 };
 
-/// O que fica "aberto" quando a tela é a mesa: nenhum workspace. Não colide
-/// com id de workspace nenhum.
+/// The desk page uses a sentinel that cannot collide with a workspace ID.
 export const DESK = "@mesa";
-/// A tela de issues, pela mesma regra.
+/// The issues page follows the same sentinel rule.
 export const ISSUES = "@issues";
-/// A tela dos arquivados, pela mesma regra.
+/// The archive page follows the same sentinel rule.
 export const ARCHIVED = "@arquivados";
 
 let openId: string | null = null;
@@ -60,10 +57,9 @@ export function render(board: Board, hooks: Hooks) {
 
 const el = (id: string) => document.getElementById(id)!;
 
-/* ---------- renomear e menu ---------- */
+/* Rename and context menu. */
 
-/// Tudo que se faz com um workspace, num lugar só. A etapa entra aqui como
-/// propriedade e pode ser escolhida sem abrir a conversa.
+/// Keep workspace actions together, including stage changes without opening the conversation.
 function wsMenu(ws: Workspace, board: Board, hooks: Hooks, label: HTMLElement, kind: string): menu.Item[] {
   const total = board.stages.length;
   const at = board.stages.indexOf(ws.stage);
@@ -92,8 +88,7 @@ function wsMenu(ws: Workspace, board: Board, hooks: Hooks, label: HTMLElement, k
     { label: t("ws.menu.copyPath"), glyph: icon("copy"), run: () => hooks.copyPath(ws) },
     { label: t("ws.menu.reveal"), glyph: icon("external-link"), run: () => hooks.reveal(ws.id) },
     "sep",
-    // Concluir só existe enquanto há o que concluir: no arquivado o gesto já
-    // aconteceu.
+    // Archived workspaces have already completed the finish action.
     ...(ws.archived
       ? []
       : [{ label: t("ws.menu.finish"), glyph: icon("check"), run: () => hooks.finish(ws.id) } as menu.Item]),
@@ -104,8 +99,7 @@ function wsMenu(ws: Workspace, board: Board, hooks: Hooks, label: HTMLElement, k
       ? {
           label: t("ws.menu.unarchive"),
           glyph: icon("archive-restore"),
-          // Worktree devolvido: não há para onde desarquivar. O card fica como
-          // histórico, e dizer isso é melhor que um item que não faz nada.
+          // Removed worktrees cannot be restored; keep the history card and explain why restoration is unavailable.
           disabled: ws.cleaned,
           hint: ws.cleaned ? t("ws.menu.gone") : undefined,
           run: () => hooks.archive(ws.id, false),
@@ -113,7 +107,7 @@ function wsMenu(ws: Workspace, board: Board, hooks: Hooks, label: HTMLElement, k
       : {
           label: t("ws.menu.archive"),
           glyph: icon("archive"),
-          // O atalho só vale para o workspace aberto; escrever nos outros mentiria.
+          // Show the shortcut only for the active workspace it would affect.
           hint: ws.id === openId ? "⌘⇧A" : undefined,
           run: () => hooks.archive(ws.id, true),
         },
@@ -133,9 +127,9 @@ export function attachMenu(node: HTMLElement, ws: Workspace, board: Board, hooks
   });
 }
 
-/* ---------- sidebar: Criar · Issues · workspaces por projeto ---------- */
+/* Sidebar: creation, issues, and project workspaces. */
 
-/// Grupo recolhido gruda: quem não olha "Feito" hoje não olha amanhã.
+/// Persist collapsed groups across visits.
 const FOLD = "prometeu:grupo:";
 const folded = (name: string) => localStorage.getItem(FOLD + name) === "1";
 
@@ -152,14 +146,14 @@ function renderRail(board: Board, hooks: Hooks) {
   create.addEventListener("click", () => hooks.newWorkspace());
   rail.append(create);
 
-  // A mesa: todas as conversas de uma vez. É a tela inicial.
+  // The desk shows all conversations and is the start page.
   const desk = template("button", "navitem" + (openId === DESK ? " on" : ""), `${icon("terminal")}<span></span>`);
   desk.children[1].textContent = t("rail.desk");
   desk.title = t("rail.desk.title");
   desk.addEventListener("click", hooks.toDesk);
   rail.append(desk);
 
-  // As issues no seu nome, do Linear: de onde o trabalho sai.
+  // Assigned Linear issues are another entry point for work.
   const issues = template(
     "button",
     "navitem" + (openId === ISSUES ? " on" : ""),
@@ -172,8 +166,7 @@ function renderRail(board: Board, hooks: Hooks) {
   issues.addEventListener("click", hooks.toIssues);
   rail.append(issues);
 
-  // Alguém do time te marcou num comentário: é o único lugar da tela que espera
-  // resposta sua e não está dentro de uma sessão.
+  // Comment mentions expose pending collaboration outside individual sessions.
   const waiting = team.inboxCount();
   if (waiting) {
     const mine = template("button", "navitem mentions", `${icon("at-sign")}<span></span><span class="n"></span>`);
@@ -184,15 +177,13 @@ function renderRail(board: Board, hooks: Hooks) {
   }
   rail.append(document.createElement("hr"));
 
-  // Fixado sobe para o topo e sai do grupo do projeto: aparecer duas vezes na
-  // mesma lista não ajuda ninguém.
+  // Pinned workspaces move to the top instead of appearing twice.
   const pinned = live.filter((w) => w.pinned);
   if (pinned.length) {
     renderGroup(rail, board, hooks, t("rail.pinned"), icon("pin", 14), pinned, "@fixados", { avatars: true });
   }
 
-  // O que os colegas compartilharam. Antes dos projetos: não é de projeto
-  // nenhum daqui, e é o que muda sem você fazer nada.
+  // Remote shares precede local projects because they belong to other owners.
   const shared = board.workspaces.filter((w) => w.remote);
   if (shared.length) {
     renderGroup(rail, board, hooks, t("rail.team"), icon("users", 14), shared, "@time", { avatars: true });
@@ -210,18 +201,16 @@ function renderRail(board: Board, hooks: Hooks) {
     rail.append(h("div", "railhint", t("rail.noProjects")));
   }
 
-  // Um grupo por projeto: com vários repos começando com a mesma letra, o
-  // avatar sozinho não dizia de qual workspace era — o cabeçalho diz.
+  // Project headings disambiguate repositories with matching initials.
   const stageAt = (ws: Workspace) => board.stages.indexOf(ws.stage);
-  // Quem atravessa repositórios não é de um projeto só: mora nos conjuntos,
-  // logo abaixo.
+  // Workspaces spanning repositories belong to collection groups.
   const single = live.filter((w) => !w.pinned && w.repos.length < 2);
   for (const project of board.projects) {
     const mine = single.filter((w) => w.project === project.id);
-    // Dentro do projeto quem ordena é a etapa: o que está andando fica em cima.
+    // Order project workspaces by stage, with ongoing work first.
     mine.sort((a, b) => stageAt(a) - stageAt(b));
     const plus = template("button", "ico sm", icon("plus"));
-    // Criar workspace já dentro do projeto é o que torna começar algo rápido.
+    // Create directly inside the selected project.
     plus.title = t("rail.newIn", { project: project.name });
     plus.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -248,9 +237,7 @@ function renderRail(board: Board, hooks: Hooks) {
     });
   }
 
-  // Conjuntos: um grupo por combinação de repositórios com workspace de pé.
-  // Não é projeto — nasce do launcher e some com o último workspace —, então
-  // o cabeçalho não tem o + nem o menu. O avatar é o dos projetos, fatiado.
+  // Group multi-repository workspaces by repository set. These transient collections have split avatars but no project creation/menu controls.
   const sets = new Map<string, Workspace[]>();
   for (const w of live) {
     if (w.pinned || w.repos.length < 2) continue;
@@ -267,16 +254,14 @@ function renderRail(board: Board, hooks: Hooks) {
     }
   }
 
-  // Workspace de um projeto que saiu da lista não pode sumir da barra junto.
+  // Keep workspaces visible if their project registration disappears.
   const known = new Set(board.projects.map((p) => p.id));
   const loose = single.filter((w) => !known.has(w.project));
   if (loose.length) {
     renderGroup(rail, board, hooks, t("rail.loose"), icon("folder", 14), loose, "@soltos", { avatars: true });
   }
 
-  // Arquivado não é lista na barra: é uma linha com o número, e a tela é
-  // outra. Trabalho que saiu da frente se consulta de vez em quando, e trinta
-  // deles abertos aqui empurravam os projetos para fora da tela.
+  // Represent archived work with a count and separate page so it does not crowd active projects out of the sidebar.
   const gone = board.workspaces.filter((w) => w.archived).length;
   if (gone) {
     rail.append(document.createElement("hr"));
@@ -300,26 +285,21 @@ function renderGroup(
   name: string,
   glyph: string,
   list: Workspace[],
-  /// O que grava o recolhido. Fica separado do rótulo porque o rótulo muda de
-  /// idioma, e um grupo recolhido não pode se abrir sozinho por causa disso.
+  /// Persist collapse state using stable keys independent of translated labels.
   key = name,
   opts: {
-    /// Grupo que mistura repositórios (fixados, soltos): ali o
-    /// avatar ainda é o que diz de qual projeto a linha é.
+    /// Mixed-repository groups retain avatars to identify each workspace's project.
     avatars?: boolean;
-    /// Botões do cabeçalho — ações de baixa frequência e criação.
+    /// Header controls for project actions and creation.
     extra?: HTMLElement[];
-    /// O que o clique no cabeçalho faz. Com isto, recolher passa a ser o
-    /// chevron da ponta: o projeto tem uma tela sua (os arquivos do clone), e
-    /// ela vale mais o clique do que dobrar a lista.
+    /// Project headings open clone files; the chevron separately controls collapse.
     open?: () => void;
-    /// O cabeçalho é a tela aberta.
+    /// Mark the heading when its project page is open.
     on?: boolean;
   } = {},
 ) {
   const shut = folded(key);
-  // Div, e não botão: o + do projeto mora no cabeçalho, e `button` dentro de
-  // `button` é HTML inválido. O `tabindex` devolve o que o botão dava de graça.
+  // Use a focusable div because project controls cannot be nested inside another button.
   const head = template(
     "div",
     "group",
@@ -331,7 +311,7 @@ function renderGroup(
   head.setAttribute("aria-expanded", String(!shut));
   head.children[1].textContent = name;
   head.children[2].textContent = list.length ? String(list.length) : "";
-  // Grupo vazio não recolhe: o cabeçalho está ali só pelo + de criar dentro.
+  // Empty groups do not collapse; their heading only offers creation.
   head.children[3].innerHTML = list.length ? icon(shut ? "chevron-right" : "chevron-down", 14) : "";
   const fold = () => {
     if (!list.length) return;
@@ -346,7 +326,7 @@ function renderGroup(
       act();
     }
   });
-  // Com uma tela no clique, o chevron é quem dobra a lista.
+  // The chevron collapses groups whose heading opens a page.
   if (opts.open) {
     head.children[3].addEventListener("click", (e) => {
       e.stopPropagation();
@@ -381,8 +361,7 @@ function renderGroup(
 
     if (ws.tabs.length) {
       const key = `@ws:${ws.id}`;
-      // Um agente só não tem o que recolher: a linha "1 agente" seria só
-      // altura. Ele entra direto embaixo do card.
+      // Display a single agent directly without a redundant collapsible group row.
       const shut = ws.tabs.length > 1 && folded(key);
       const toggle = template("button", "railagents-toggle", `<span></span>${icon(shut ? "chevron-right" : "chevron-down", 12)}`);
       toggle.children[0].textContent = tn(ws.tabs.length, "rail.agents");
@@ -400,9 +379,7 @@ function renderGroup(
       for (const tab of ws.tabs) {
         const provider = tab.choice?.agent ?? ws.agent;
         const status = ws.remote && !ws.remote.online ? "desligada" : tab.status;
-        // O relay não anuncia o provider; a identidade remota é o dono.
-        // Uma linha só: o nome (ou o modelo). O que o agente faz agora já
-        // aparece na conversa aberta.
+        // Remote identity belongs to the share owner because the relay does not announce the provider. Keep one owner/model line; activity appears in the conversation.
         const agent = template(
           "button",
           "railagent",

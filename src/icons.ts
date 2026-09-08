@@ -2,12 +2,9 @@ import { icon } from "../packages/design-system/src/icons";
 export { icon, wave, type IconName } from "../packages/design-system/src/icons";
 const CLAUDE_MARK = new URL("./claude.svg", import.meta.url).href;
 
-/* ---------- ícone de etapa ---------- */
+/* Stage icons. */
 
-/// O anel que enche conforme o trabalho anda: a primeira etapa é o anel
-/// tracejado (nada começou), as do meio enchem por fração, e a última é o
-/// check. O desenho sai da posição na lista — trocar as etapas troca os
-/// ícones, e não existe tabela de nome para ícone para manter.
+/// Derive the progress ring from stage position: dashed initially, partially filled between stages, and a check at the end. No stage-name mapping is required.
 export function stageIcon(at: number, total: number, size = 16): string {
   const svg = (inner: string, color = "currentColor") =>
     `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" ` +
@@ -19,10 +16,7 @@ export function stageIcon(at: number, total: number, size = 16): string {
   if (at <= 0) return svg('<circle cx="12" cy="12" r="9" stroke-dasharray="2.6 2.6"/>');
   if (at >= total - 1) return svg(`${ring}<path d="m8.5 12 2.5 2.5 4.5-5"/>`, "var(--done)");
 
-  // O miolo é um círculo de raio 4 com traço grosso: o `dasharray` come a volta
-  // dele, então a fatia cheia é a fração do perímetro (2π·4 ≈ 25,1). A ponta
-  // tem de ser reta: arredondada, o traço de 8 de largura põe meia largura de
-  // arco a mais em cada ponta e um quarto vira quase o círculo inteiro.
+  // Use a radius-4 circle with circumference about 25.1 for the filled arc. Butt line caps prevent the thick stroke from exaggerating partial progress.
   const fill = (25.1 * at) / (total - 1);
   return svg(
     `${ring}<circle cx="12" cy="12" r="4" stroke-width="8" stroke-linecap="butt" ` +
@@ -30,7 +24,7 @@ export function stageIcon(at: number, total: number, size = 16): string {
   );
 }
 
-/// Quadradinho com a inicial, cor estável por nome — o "N" roxo do Conductor.
+/// An initial in a square with a stable name-derived color.
 const HUES = ["#6525c9", "#c9552a", "#2a7fc9", "#2a9d6e", "#c9a02a", "#c92a6a"];
 export function avatar(name: string): string {
   const el = document.createElement("span");
@@ -47,11 +41,7 @@ const hue = (name: string) => {
 };
 const initial = (name: string) => (name.trim()[0] ?? "?").toUpperCase();
 
-/// O avatar de um workspace que atravessa repositórios: o quadradinho
-/// fatiado, uma fatia por repo com a cor e a inicial que o repo tem sozinho —
-/// o "P" roxo do conjunto é o mesmo "P" roxo do projeto. Dois são metades,
-/// três é metade e dois quartos, quatro são quadrantes; a partir do quinto
-/// a última fatia vira a conta do que não coube. Com um só, é o avatar comum.
+/// Split workspace avatars by repository, retaining each project's color and initial. Show up to four slices; additional repositories become a count.
 export function avatars(names: string[]): string {
   if (names.length < 2) return avatar(names[0] ?? "?");
   const slices = names.length > 4 ? [...names.slice(0, 3), `+${names.length - 3}`] : names;
@@ -66,11 +56,9 @@ export function avatars(names: string[]): string {
   return el.outerHTML;
 }
 
-/* ---------- ícones por tipo de arquivo ---------- */
+/* File-type icons. */
 
-/// Os ícones coloridos da árvore do Conductor (tema Material): gem vermelha
-/// para Ruby, baleia para Docker, losango laranja para git… Cada um é um
-/// desenho mínimo que lê bem em 16px; o que não tem dono cai no `file` cinza.
+/// Compact file-type glyphs remain legible at 16px; unknown types use the neutral file icon.
 const S = 'stroke-linecap="round" stroke-linejoin="round" fill="none"';
 const badge = (bg: string, fg: string, text: string) =>
   `<rect x="2" y="2" width="20" height="20" rx="4" fill="${bg}"/>` +
@@ -152,11 +140,9 @@ export function fileIcon(name: string, size = 16): string {
   return `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${FILE_ICONS[kind]}</svg>`;
 }
 
-/* ---------- marcas ---------- */
+/* Provider branding. */
 
-/// O selo de quem responde: o Claude Spark oficial e a flor da OpenAI, nas
-/// cores delas. Não são ícones de traço como o resto: a marca precisa continuar
-/// reconhecível tanto na lista de workspaces quanto no consumo do rodapé.
+/// Use official Claude and OpenAI marks so providers remain recognizable in workspace lists and usage indicators.
 const BRANDS: Record<string, string> = {
   claude: `<image href="${CLAUDE_MARK}" width="24" height="24"/>`,
   codex:

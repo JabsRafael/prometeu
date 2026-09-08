@@ -1,5 +1,4 @@
-/// Contrato próprio da conversa. Providers traduzem para estes eventos na
-/// borda; timeline, transcript e relay não precisam conhecer seus protocolos.
+/// Application-owned conversation contract. Providers translate at the boundary so timeline, transcript, and relay do not depend on provider protocols.
 
 export type InputContent =
   | { kind: "text"; text: string }
@@ -137,8 +136,7 @@ const EVENT_TYPES = new Set([
   "usage.updated",
 ]);
 
-/// Parser tolerante na borda da UI. Tipos e versões desconhecidos são no-op;
-/// campos obrigatórios inválidos descartam só aquela linha, nunca a sessão.
+/// Tolerant UI parser: ignore unknown versions or event types and drop individual malformed lines without ending the session.
 export function parseConversationEvent(value: unknown): AnyConversationEventV1 | null {
   if (!isObject(value)) return null;
   const event = value;

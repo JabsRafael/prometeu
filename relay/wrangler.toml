@@ -1,6 +1,5 @@
-# O relay do time: um Worker que cria times e encaminha cada conexão ao
-# Durable Object do time. Sobe uma vez com `npm run relay:deploy`; para testar
-# sem deploy, `npm run relay:dev` escuta em ws://127.0.0.1:8787.
+# The team relay routes connections to a Durable Object per team. Deploy with npm run relay:deploy or run
+# locally at ws://127.0.0.1:8787 with npm run relay:dev.
 name = "prometeu-relay"
 main = "src/worker.ts"
 compatibility_date = "2026-08-01"
@@ -9,7 +8,7 @@ compatibility_date = "2026-08-01"
 name = "TEAM"
 class_name = "TeamRoom"
 
-# SQLite é o que o plano gratuito aceita — e é o único storage que o objeto usa.
+# SQLite is supported on the free plan and is the Durable Object's only storage backend.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["TeamRoom"]

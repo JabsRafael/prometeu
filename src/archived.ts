@@ -4,14 +4,7 @@ import { paint, stage as stageName, t, tn } from "./i18n";
 import { hasWorktree, merged, prs, repoLabel, type Board, type Workspace } from "./types";
 import { $, empty, template } from "./util";
 
-/// Os arquivados, numa tela só — e não numa lista aberta na barra lateral.
-/// Trabalho que você tirou da frente é o que se consulta de vez em quando:
-/// reabrir para ler o que ficou escrito, desarquivar um que voltou, e devolver
-/// ao disco os worktrees que ainda ocupam gigabyte. Na barra ele vira uma
-/// linha com o número, e o resto mora aqui, com busca.
-///
-/// O mais recente fica em cima: o quadro guarda na ordem em que os workspaces
-/// nasceram, e o que acabou de sair da frente é o que mais se procura.
+/// Browse, reopen, restore, and clean archived workspaces in a searchable page rather than an expanded sidebar list. Reverse board order to show newer workspaces first.
 
 type Ctx = {
   board: () => Board;
@@ -38,7 +31,7 @@ export function hide() {
   visible = false;
 }
 
-/* ---------- a barra ---------- */
+/* Toolbar. */
 
 function buildBar() {
   const bar = $("abar");
@@ -64,7 +57,7 @@ function buildBar() {
   bar.querySelector("#aclean")!.addEventListener("click", () => ctx.hooks().cleanup());
 }
 
-/* ---------- a lista ---------- */
+/* Workspace list. */
 
 export function draw() {
   if (!visible) return;
@@ -79,7 +72,7 @@ function drawList() {
     .workspaces.filter((w) => w.archived)
     .reverse();
 
-  // Devolver o disco só existe enquanto há o que devolver.
+  // Offer disk cleanup only while archived worktrees remain.
   const disk = gone.filter(hasWorktree).length;
   $("ameta").textContent = gone.length
     ? disk
@@ -131,8 +124,7 @@ function row(ws: Workspace): HTMLElement {
   const stage = el.querySelector(".astage")!;
   stage.innerHTML = `${stageIcon(at, total, 13)}<span></span>`;
   stage.children[1].textContent = stageName(ws.stage);
-  // Um número por PR — um por repositório que teve o seu; o selo só quando
-  // todos entraram.
+  // Show each repository's PR number; mark merged only when every PR has merged.
   const all = prs(ws);
   if (all.length) {
     const pr = el.querySelector(".apr")!;
@@ -140,8 +132,7 @@ function row(ws: Workspace): HTMLElement {
     pr.classList.toggle("merged", merged(ws));
     (pr as HTMLElement).title = all.map(({ repo, pr }) => (ws.repos.length > 1 ? `${repo}: ${pr.title}` : pr.title)).join("\n");
   }
-  // Worktree devolvido: o card ficou como histórico, e a linha diz isso em vez
-  // de deixar você descobrir ao abrir.
+  // Label removed worktrees explicitly while retaining their workspace history.
   if (ws.cleaned) {
     el.querySelector(".atag")!.textContent = t("ws.menu.gone");
     (el.querySelector(".atag") as HTMLElement).title = t("card.cleaned.title", { path: ws.worktree });

@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:http";
 import { readFile } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 
-// Um consumidor estático separado: nenhum asset ou módulo do desktop disponível.
+// Test an independent static consumer without desktop assets or modules.
 let server: Server;
 let baseURL: string;
 test.beforeAll(async () => {
@@ -31,7 +31,7 @@ test("design system da empresa funciona sem CSS ou JavaScript do desktop", async
   const save = page.getByRole("button", { name: "Salvar", exact: true });
   await expect(save).toHaveCSS("background-color", "rgb(234, 232, 230)");
   await expect(save).toHaveCSS("min-height", "44px");
-  // No macOS, Option+Tab inclui botões e links na navegação nativa do WebKit.
+  // On macOS, Option+Tab includes buttons and links in native WebKit keyboard navigation.
   await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
   await expect(save).toBeFocused();
   await expect(save).toHaveCSS("outline-style", "solid");
@@ -85,7 +85,9 @@ test("design system entrega menu, submenu, senha e formulário com recuperação
   const project = dialog.getByLabel("Projeto", { exact: true });
   await project.click();
   await page.keyboard.press("ArrowDown");
+  await expect(dialog.getByRole("menuitemcheckbox", { name: "Prometeu Cloud" })).toBeFocused();
   await page.keyboard.press("ArrowDown");
+  await expect(dialog.getByRole("menuitemcheckbox", { name: "Prometeu Desktop" })).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(project).toHaveText("Prometeu Desktop");
   await dialog.getByLabel("Simular erro ao salvar").check();

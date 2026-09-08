@@ -116,6 +116,8 @@ sem pedido explícito. Veja `docs/operations/release.md`.
 
 ## Manutenção da documentação
 
+- Write all code comments and doc comments in English, including comments in
+  tests, scripts, stylesheets, and configuration files.
 - Documente o porquê e os contratos; não narre código evidente.
 - Comentários explicam detalhes locais. Documentos explicam fluxos e decisões.
 - Links são relativos ao repositório e precisam continuar válidos.

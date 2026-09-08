@@ -1,8 +1,6 @@
 import type * as pt from "./i18n.pt";
 
-/// Inglês. `Record` sobre as chaves do português: chave nova sem tradução aqui
-/// não compila, e chave que morreu lá vira erro aqui — que é o único jeito de
-/// os dois catálogos não desandarem em silêncio.
+/// Implement every Portuguese catalog key in English. Record rejects missing translations and obsolete keys.
 export const EN: Record<keyof typeof pt.PT, string> = {
   "organization.legacy": "This legacy team still works. Manage new organizations and email invitations in Cloud; selecting an organization preserves a backup of this team.",
   "organization.scopeHint": "Choose an organization, then explicitly share each workspace. Switching organizations never shares existing workspaces with new people.",
@@ -157,7 +155,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.actions.timeout": "The GitHub query exceeded 30 seconds.",
   "err.actions.response": "GitHub returned an invalid or oversized response.",
   "err.actions.used": "This name is already in use or the agent is still associated with a command.",
-  /* ---------- Contas dos agentes ---------- */
+  /* Agent accounts. */
   "account.terminal": "Terminal account",
   "account.new": "New account",
   "account.empty": "No accounts added.",
@@ -186,7 +184,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.account.status": "Could not read the account from the CLI.",
   "err.account.working": "Wait for the current turn to finish before reconnecting this account.",
 
-  /* ---------- Git local ---------- */
+  /* Local Git. */
   "git.repository": "Repository",
   "git.changes": "Changes",
   "git.staged": "Staged Changes",

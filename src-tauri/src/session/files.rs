@@ -1,4 +1,4 @@
-//! Navegação segura dos arquivos do workspace para árvore e viewer.
+//! Safely expose workspace files to the tree and viewer.
 
 use super::cwd_of;
 use crate::{i18n, AppState};
@@ -52,8 +52,8 @@ pub fn list_dir(state: State<AppState>, id: String, rel: String) -> Vec<Entry> {
     out
 }
 
-/// Resolve o arquivo dentro do worktree e recusa o que passa do limite: o
-/// conteúdo inteiro atravessa o IPC, e um arquivo enorme travaria a janela.
+/// Resolve files inside the worktree and enforce a size limit because the complete contents cross
+/// IPC.
 fn open(state: &State<AppState>, id: &str, rel: &str, limit: u64) -> Result<PathBuf, String> {
     let root = cwd_of(state, id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
     let file = inside(&root, rel)?;
@@ -74,8 +74,8 @@ pub fn read_file(state: State<AppState>, id: String, rel: String) -> Result<Stri
     String::from_utf8(bytes).map_err(|_| i18n::t("err.session.binary"))
 }
 
-/// Os bytes crus, para o que o viewer desenha sem ser texto: PDF e CSV. O
-/// limite é mais folgado que o do código porque ninguém edita esses — só lê.
+/// Return raw bytes for non-text viewers such as PDF and CSV, with a larger limit than editable
+/// code files.
 #[tauri::command]
 pub fn read_bytes(
     state: State<AppState>,
@@ -87,8 +87,7 @@ pub fn read_bytes(
     Ok(tauri::ipc::Response::new(bytes))
 }
 
-/// Carimbo barato (mtime + tamanho) para o viewer saber se vale reler um
-/// arquivo grande a cada evento do quadro.
+/// Use modification time and size to avoid rereading large files on every board event.
 #[tauri::command]
 pub fn file_stamp(state: State<AppState>, id: String, rel: String) -> Result<String, String> {
     let file = open(&state, &id, &rel, u64::MAX)?;
@@ -106,10 +105,8 @@ pub fn file_stamp(state: State<AppState>, id: String, rel: String) -> Result<Str
     ))
 }
 
-/// Grava o que a pessoa escreveu no viewer. `was` é o texto que ela abriu: se
-/// o disco não estiver mais assim, o agente mexeu no arquivo no meio da edição
-/// e salvar apagaria o trabalho dele por cima. Melhor recusar — ela reabre o
-/// arquivo já com o que chegou e refaz a correção.
+/// Save only if disk contents still match the text originally opened. Reject conflicting agent
+/// edits instead of overwriting their work.
 pub fn save(file: &Path, text: &str, was: &str) -> Result<(), String> {
     let bytes = std::fs::read(file).map_err(i18n::io)?;
     let now = String::from_utf8(bytes).map_err(|_| i18n::t("err.session.binary"))?;
@@ -144,7 +141,7 @@ mod tests {
         dir
     }
 
-    /// O caso comum: o disco está como estava quando abriu, então grava.
+    /// Save when disk contents still match the opened version.
     #[test]
     fn salvar_grava_quando_o_disco_nao_mudou() {
         let dir = tmp("save");
@@ -157,8 +154,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// O agente escreveu enquanto a pessoa editava: salvar apagaria o que ele
-    /// fez, então não salva e o arquivo continua com o que ele deixou.
+    /// Preserve agent changes made while the person was editing by rejecting the stale save.
     #[test]
     fn salvar_recusa_quando_o_agente_escreveu_por_baixo() {
         let dir = tmp("race");
@@ -175,7 +171,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Link para fora do worktree não vira caminho para escrever.
+    /// A symlink outside the worktree must not authorize writing there.
     #[test]
     fn inside_barra_link_que_sai_do_worktree() {
         let dir = tmp("outside");

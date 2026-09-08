@@ -2,14 +2,9 @@ import { invoke } from "./ipc";
 import { fileIcon, icon } from "./icons";
 import { $, debounce } from "./util";
 
-/// Árvore de arquivos do worktree, no painel da direita. Preguiçosa: uma pasta
-/// por chamada, aberta sob demanda. Repo grande não paga por galho que ninguém
-/// abriu.
+/// Load worktree folders on demand in the side panel so large repositories do not require a full tree scan.
 
-type Entry = { name: string; path: string; dir: boolean };
-
-/// Quais pastas estão abertas. Sobrevive ao redesenho — é o que faz a árvore
-/// não se fechar sozinha a cada ferramenta que o agente usa.
+/// Preserve expanded folders across board redraws.
 const openDirs = new Set<string>();
 
 let openFile: (path: string) => void = () => {};
@@ -24,22 +19,18 @@ export function init(ctx: { openFile: (path: string) => void; workspace: () => s
   });
 }
 
-/// Redesenha agora. É o que responde a um clique — atraso aqui é lag.
+/// User clicks redraw immediately to avoid visible lag.
 export function redraw() {
   const id = workspace();
   if (id) void draw(id);
 }
 
-/// Trocar de workspace zera o que estava aberto: as pastas de um repo não
-/// dizem nada sobre as do outro.
+/// Reset expanded folders when switching workspaces.
 export function reset() {
   openDirs.clear();
 }
 
-/// Redesenha daqui a pouco. É o que responde ao evento do quadro, que chega a
-/// cada ferramenta que o agente usa: cada redesenho é uma chamada de `list_dir`
-/// por pasta aberta, então sem juntar as rajadas uma árvore com dez pastas
-/// abertas viram dez IPCs por tool call, todos para desenhar a mesma coisa.
+/// Debounce board-driven refreshes because each open folder requires list_dir; agent bursts would otherwise repeat identical IPC work.
 export const redrawSoon = debounce(200, redraw);
 
 async function draw(id: string) {
@@ -49,13 +40,13 @@ async function draw(id: string) {
 }
 
 async function fill(id: string, rel: string, into: HTMLElement, depth: number) {
-  const entries = await invoke<Entry[]>("list_dir", { id, rel });
+  const entries = await invoke("list_dir", { id, rel });
   for (const entry of entries) {
     const row = document.createElement("button");
     row.className = "treerow";
     row.style.paddingLeft = `${14 + depth * 20}px`;
     row.innerHTML = `<span class="tw"></span><span class="tn"></span><span class="tc"></span>`;
-    // Pasta aberta troca o ícone e o chevron da ponta, que só aparece no hover.
+    // Expanded folders change their icon and hover chevron.
     const glyph = (open: boolean) => {
       row.children[0].innerHTML = entry.dir ? icon(open ? "folder-open" : "folder") : fileIcon(entry.name);
       row.children[2].innerHTML = entry.dir ? icon(open ? "chevron-down" : "chevron-right", 14) : "";

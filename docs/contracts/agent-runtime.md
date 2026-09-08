@@ -106,6 +106,19 @@ da thread. Iniciar sem o comportamento solicitado não é fallback válido. O
 contrato detalhado de plugins está em
 [`plugin-marketplace.md`](plugin-marketplace.md).
 
+## Workspace launch resolution
+
+Ordinary tab creation and resume both use `Workspace::launch_with`. A tab's
+provider/model/effort override changes its choice while preserving the workspace's
+MCP and plugin selections, including the distinction between absent, empty,
+and populated lists. Task tabs continue to use their frozen resolved profile.
+The regression in `session.rs` covers these selections for Claude and Codex.
+
+`claude.rs::launch_args` owns Claude flags and MCP/plugin materialization;
+`session.rs` resolves application choices and passes `Launch` to the adapter.
+The relocated argument tests preserve existing flags, resume behavior, and
+configuration handling. No runtime or persisted format changes.
+
 ## Port conceitual
 
 O desenho pode ser implementado com trait, enum dispatch ou funções agrupadas.

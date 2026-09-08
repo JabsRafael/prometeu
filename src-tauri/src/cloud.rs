@@ -1,5 +1,5 @@
-//! Conta opcional do Prometeu. Senhas ficam no navegador; o token de dispositivo
-//! fica em arquivo privado e nunca atravessa o IPC. Não sincroniza conversas.
+//! Optional Prometeu account. Passwords stay in the browser; the device token stays in a private
+//! file and never crosses IPC. Conversations are not synchronized.
 
 use crate::{i18n, oauth, paths};
 use reqwest::{blocking::Client, Method, Url};
@@ -244,8 +244,8 @@ fn request(
     )
 }
 
-/// Uma chamada autenticada à API com a credencial guardada. `None` sem conta.
-/// O token continua só aqui: quem chama recebe status e JSON.
+/// Call the API with the stored credential, or return None without an account. Callers receive only
+/// status and JSON, never the token.
 pub(crate) fn api(
     method: Method,
     path: &str,
@@ -367,7 +367,7 @@ async fn blocking<T: Send + 'static>(
 pub async fn cloud_status(app: AppHandle, refresh: bool) -> Result<Status, String> {
     blocking(move || {
         let status = status(refresh)?;
-        // A conta viva traz o catálogo junto; falha aqui não derruba a conta.
+        // Load the catalog with the account; catalog failures must not invalidate the account.
         if refresh && status.user.is_some() && !status.offline {
             crate::catalog::pull(&app)?;
         }
@@ -468,7 +468,7 @@ pub async fn cloud_login_poll(app: AppHandle, id: String) -> Result<Option<Statu
             let mut pending = PENDING.lock().unwrap_or_else(|e| e.into_inner());
             if pending.as_ref().is_none_or(|p| p.id != id) { return Err(i18n::t("err.cloud.expired")); }
             let _storage = STORAGE.lock().unwrap_or_else(|e| e.into_inner());
-            // Trocar de identidade não reutiliza vínculos do catálogo anterior.
+            // Changing identity must not reuse links from the previous account's catalog.
             if load()?.is_none_or(|old| old.user.id != saved.user.id || old.origin != saved.origin) {
                 crate::catalog::forget();
             }
@@ -482,7 +482,8 @@ pub async fn cloud_login_poll(app: AppHandle, id: String) -> Result<Option<Statu
             Ok(Some(Status { user: Some(saved.user), origin: saved.origin, offline: false }))
         })();
         if result.is_err() {
-            // Código consumido não pode ser repetido. Revoga a sessão que não conseguimos guardar.
+            // A consumed code cannot be retried. Revoke any session whose credential could not be
+            // saved.
             let mut pending = PENDING.lock().unwrap_or_else(|e| e.into_inner());
             if pending.as_ref().is_some_and(|p| p.id == id) { *pending = None; }
             drop(pending);

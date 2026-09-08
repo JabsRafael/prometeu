@@ -1,5 +1,5 @@
-//! Docks e scripts de workspace: shell, setup, run e a porta reservada.
-//! Este módulo é a borda de execução configurada pelo próprio repositório.
+//! Run workspace shells, setup, and development scripts with their reserved port. Repository
+//! configuration owns these commands.
 
 use crate::lock::lock;
 use crate::session::cwd_of;
@@ -10,11 +10,8 @@ use std::path::Path;
 use std::process::Command;
 use tauri::{AppHandle, Manager, State};
 
-/// Um shell do dock. `terminal` é o primeiro; do segundo em diante o front
-/// numera — `terminal-2`, `terminal-3` —, porque cada aba aberta pelo + precisa
-/// de uma chave própria no mapa de ptys. O número é conferido aqui e não
-/// confiado: chave torta viraria pty com nome arbitrário, e `dock_state`
-/// devolveria aba que o front não sabe desenhar.
+/// Validate terminal and terminal-<number> keys before creating PTYs. Numbered UI tabs need
+/// distinct keys, but arbitrary names must not create states the frontend cannot render.
 pub(crate) fn is_terminal(kind: &str) -> bool {
     kind == "terminal"
         || kind
@@ -22,19 +19,15 @@ pub(crate) fn is_terminal(kind: &str) -> bool {
             .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
 }
 
-/// Os terminais do workspace que não são conversa: o `setup` que preparou o
-/// worktree, o `run` que sobe o projeto, e os shells que você abriu. Nenhum tem
-/// hook, nenhum aparece como aba do agente, nenhum entra no quadro.
-///
-/// Um pty por chave `<workspace>:<tipo>`: reabrir a aba não reinicia nada, e
-/// trocar de workspace não derruba servidor de dev.
+/// Keep setup, run, and auxiliary shells outside agent tabs and board state. One PTY per
+/// workspace:type key preserves output and running servers across tab or workspace navigation.
 #[tauri::command]
 pub fn open_dock(
     app: AppHandle,
     state: State<AppState>,
     id: String,
     kind: String,
-    // `name` escolhe qual `[scripts.run.<nome>]` subir; vazio é o padrão do repo.
+    // A name selects scripts.run.<name>; an empty name uses the repository default.
     name: Option<String>,
     cols: u16,
     rows: u16,
@@ -44,13 +37,12 @@ pub fn open_dock(
     let key = format!("{id}:{kind}");
 
     if lock(&state.ptys).get(&key).is_some_and(|p| p.alive()) {
-        return Ok(key); // já está de pé; o buffer redesenha
+        return Ok(key); // Already running; reuse its buffered output.
     }
 
-    // O shell também recebe as variáveis do contrato: conferir o que o script
-    // vai ver é `echo $PROMETEU_PORT`, e não ler o código do Prometeu. Só a
-    // pasta é obrigatória, e por isso o terminal também sobe num projeto sem
-    // workspace: lá não há script, logo não há variável de script.
+    // Workspace shells receive the same script environment. A registered project without a
+    // workspace can still open a shell using only its directory, without workspace script
+    // variables.
     if is_terminal(&kind) {
         let root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
@@ -65,11 +57,10 @@ pub fn open_dock(
         return Ok(key);
     }
 
-    // Setup e Run são do repositório do workspace; sem ele não há o que rodar.
+    // Setup and Run require a workspace repository.
     let ws = found.ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
 
-    // Setup tem caminho próprio porque não é só um comando: é a cópia do que vem
-    // do clone, e ela vale mesmo num repositório que não declara `setup` nenhum.
+    // Setup includes copying files from the clone even when no setup command is configured.
     if kind == "setup" {
         start_setup(&app, &state, &ws, cols, rows)?;
         return Ok(key);
@@ -99,13 +90,8 @@ pub fn open_dock(
     Ok(key)
 }
 
-/// A aba Setup inteira: primeiro o que este worktree recebe do clone, depois o
-/// `setup` que o repositório declara.
-///
-/// Os dois valem sozinhos. Worktree que só precisa do `.env` também ganha a aba
-/// — é ela que diz o que veio, e cópia calada é mágica. Sem script, o processo é
-/// um `true`: o que importa ali é o cabeçalho, e uma aba que funciona pela
-/// metade seria pior que a mágica.
+/// Show copied files before the repository setup command. Either operation can create a Setup tab;
+/// copy-only setup runs true so its header and lifecycle remain visible.
 pub(crate) fn start_setup(
     app: &AppHandle,
     state: &State<AppState>,
@@ -134,12 +120,9 @@ pub(crate) fn start_setup(
     start_script(app, state, ws, script, cols, rows)
 }
 
-/// A aba Setup de um workspace com mais de um repositório: a cópia e o `setup`
-/// de cada um, em sequência, no mesmo terminal. Uma aba só porque é uma espera
-/// só — a primeira fala do agente sai quando o último terminar —, e porque o
-/// que se quer ler ali é "o ambiente está de pé", não um log por repo. O
-/// primeiro que falhar para a fila: o código de saída é o dele, e o cabeçalho
-/// diz em qual repo parou.
+/// Run copy and setup steps sequentially for all repositories in one tab. Release the agent's first
+/// message only after the last step; stop at the first failure and report its repository and exit
+/// code.
 fn start_multi_setup(
     app: &AppHandle,
     state: &State<AppState>,
@@ -162,10 +145,8 @@ fn start_multi_setup(
     start_script(app, state, ws, script, cols, rows)
 }
 
-/// O que a aba Setup de vários repositórios mostra e roda: o cabeçalho com o
-/// que cada um recebeu do clone, e um comando só com o `setup` de cada um em
-/// sequência. `None` é nenhum repo ter setup nem cópia — não há aba a abrir.
-/// Fora do `start_multi_setup` para o teste conferir o comando sem pty.
+/// Build the combined copy header and setup command independently of PTY startup for testing.
+/// Return None when no repository needs copying or setup.
 pub(crate) fn multi_setup(ws: &Workspace) -> Option<(Option<String>, String)> {
     let mut header = String::new();
     let mut steps: Vec<String> = Vec::new();
@@ -176,9 +157,8 @@ pub(crate) fn multi_setup(ws: &Workspace) -> Option<(Option<String>, String)> {
             header.push_str(&format!("\x1b[1m{}\x1b[0m\r\n{report}", r.name));
         }
         let Some(setup) = found.setup else { continue };
-        // Cada `setup` roda num subshell, no seu worktree e com as variáveis
-        // apontando para ele — o comando entra como está, do mesmo jeito que
-        // entraria sozinho num `sh -lc`.
+        // Run each setup command unchanged in its own subshell, worktree, and repository-specific
+        // environment.
         let env: String = scripts::env(
             Path::new(&r.worktree),
             Path::new(&r.path),
@@ -204,22 +184,20 @@ pub(crate) fn multi_setup(ws: &Workspace) -> Option<(Option<String>, String)> {
     Some(((!header.is_empty()).then_some(header), command))
 }
 
-/// Um caminho ou valor entre aspas simples, do jeito que o `sh` lê: o único
-/// caractere que precisa de cuidado é a própria aspa.
+/// Quote shell values with single quotes, escaping embedded apostrophes.
 pub(crate) fn quoted(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
-/// O que subir num pty do dock: qual aba, o que rodar nela, e o que o Prometeu
-/// escreve antes de o processo abrir a boca.
+/// Dock startup input: tab key, command, and the header written before process output.
 struct Script<'a> {
     kind: &'a str,
     command: &'a str,
     header: Option<String>,
 }
 
-/// Sobe um script do repositório num pty do dock. Se já houver um de pé com a
-/// mesma chave, não faz nada: o buffer que redesenha é o dele.
+/// Start a repository script unless a process already runs under the same dock key; reuse its
+/// output buffer.
 fn start_script(
     app: &AppHandle,
     state: &State<AppState>,
@@ -237,24 +215,22 @@ fn start_script(
         header,
     } = script;
     let key = format!("{}:{kind}", ws.id);
-    // Entrada morta não conta: é só a rolagem do que rodou antes, e subir de
-    // novo a substitui.
+    // Replace stopped entries and their old output when starting again.
     if lock(&state.ptys).get(&key).is_some_and(|p| p.alive()) {
         return Ok(());
     }
-    // `-l` porque um `setup` que chama `nvm`, `rbenv` ou `mise` precisa do que o
-    // perfil de login exporta, e o app pode ter nascido do Finder.
+    // Use a login shell so nvm, rbenv, mise, and similar setup tools see profile exports even when
+    // the app starts from Finder.
     let mut cmd = CommandBuilder::new("/bin/sh");
     cmd.args(["-lc", command]);
-    // O script é do repositório principal e roda nele — com mais de um repo, a
-    // raiz do workspace é só a pasta que os reúne.
+    // Run the primary repository's script in its worktree, not the multi-repository grouping
+    // directory.
     cmd.cwd(&ws.primary().worktree);
     cmd.env("TERM", "xterm-256color");
     for (key, value) in script_env(ws) {
         cmd.env(key, value);
     }
-    // O fim do setup é o que solta a primeira fala do agente. Os outros scripts
-    // não têm ninguém esperando por eles.
+    // Only setup completion releases pending initial agent messages.
     let on_exit: Option<pty::OnExit> = (kind == "setup").then(|| {
         let app = app.clone();
         let id = ws.id.clone();
@@ -265,11 +241,9 @@ fn start_script(
     Ok(())
 }
 
-/// O setup acabou: a primeira fala de cada aba que esperava por ele vai agora.
-/// Só para aba cujo Claude Code já avisou que está de pé — as outras mandam a
-/// sua no próprio `start`, e aí já vão achar o setup terminado. Setup que falhou
-/// não segura a fala: solta com um aviso na frente, porque agente parado sem
-/// saber por quê é pior do que agente avisado de que pode faltar dependência.
+/// After setup completes, release pending messages for agents that are already ready. Later agent
+/// startup releases the rest. Failed setup adds a warning to the message instead of leaving the
+/// agent waiting indefinitely.
 fn release_prompts(app: &AppHandle, workspace: &str, code: Option<u32>) {
     let state = app.state::<AppState>();
     let pending: Vec<String> = {
@@ -307,16 +281,14 @@ fn release_prompts(app: &AppHandle, workspace: &str, code: Option<u32>) {
     }
 }
 
-/// Os scripts que valem para este workspace: os do worktree, e sem eles os do
-/// clone de origem (ver `scripts::read_for`).
+/// Use worktree scripts, falling back to the original clone; see scripts::read_for.
 pub(crate) fn scripts_of(ws: &Workspace) -> scripts::Scripts {
     let main = ws.primary();
     scripts::read_for(Path::new(&main.worktree), Path::new(&main.path))
 }
 
-/// O nome que o script vê: o da pasta do workspace, e não o título do card. O
-/// título muda quando você renomeia, e script que batiza container ou banco
-/// com ele veria o nome trocar debaixo dos pés.
+/// Use the workspace directory name as the stable script identity. Renaming a card must not rename
+/// containers or databases.
 fn script_name(ws: &Workspace) -> String {
     Path::new(&ws.worktree)
         .file_name()
@@ -324,7 +296,7 @@ fn script_name(ws: &Workspace) -> String {
         .unwrap_or_else(|| ws.branch.replace('/', "-"))
 }
 
-/// As variáveis do repositório principal — é nele que `run` e `archive` rodam.
+/// Run and archive use the primary repository's environment.
 pub(crate) fn script_env(ws: &Workspace) -> Vec<(String, String)> {
     let main = ws.primary();
     scripts::env(
@@ -335,15 +307,12 @@ pub(crate) fn script_env(ws: &Workspace) -> Vec<(String, String)> {
     )
 }
 
-/// Workspace criado antes de as portas existirem não tem uma. Em vez de pedir
-/// para recriar, ganha a sua na primeira vez que é aberto — o painel pede os
-/// scripts, e a porta vai junto, porque é ela que ele mostra.
+/// Assign a port lazily to older workspaces when their scripts are first requested.
 pub(crate) fn ensure_port(state: &State<AppState>, id: &str) -> Option<u16> {
     let mut board = lock(&state.board);
     let ws = board.workspaces.iter().find(|w| w.id == id)?;
-    // Porta guardada por uma versão que ainda entregava as proibidas (5060,
-    // 6000…) é trocada aqui: o run que já está de pé fica na velha até ser
-    // reiniciado, mas o próximo nasce numa que o navegador abre.
+    // Replace previously assigned browser-blocked ports. Existing servers retain their old port
+    // until restarted; new runs use the replacement.
     if let Some(port) = ws.port.filter(|p| scripts::usable(*p)) {
         return Some(port);
     }
@@ -357,7 +326,7 @@ pub(crate) fn ensure_port(state: &State<AppState>, id: &str) -> Option<u16> {
     Some(port)
 }
 
-/// Abre o worktree no Finder.
+/// Reveal the worktree in Finder.
 #[tauri::command]
 pub fn reveal(state: State<AppState>, id: String) -> Result<(), String> {
     let root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
@@ -374,10 +343,8 @@ pub fn reveal(state: State<AppState>, id: String) -> Result<(), String> {
     })
 }
 
-/// Abre o navegador de fora na porta do run: é lá que o agente enxerga a
-/// página (a extensão do Chrome) e que se confere o que só o Chrome faz. A aba
-/// de dentro é o `browser`. A porta sai do estado, e não do front: URL
-/// arbitrária não viaja pelo IPC.
+/// Open Run in the system browser for external inspection. Resolve its port from backend state
+/// rather than accepting an arbitrary URL over IPC.
 #[tauri::command]
 pub fn open_run(state: State<AppState>, id: String) -> Result<(), String> {
     let port = ensure_port(&state, &id).ok_or_else(|| i18n::t("err.session.noPort"))?;
@@ -396,17 +363,15 @@ pub fn close_dock(state: State<AppState>, id: String, kind: String) {
     pty::kill(&state, &format!("{id}:{kind}"));
 }
 
-/// Derruba todo dock do workspace — setup, run e terminal. Sem isto, arquivar
-/// ou remover deixava o servidor de dev rodando num worktree que o quadro não
-/// conhece mais.
+/// Stop every workspace dock when archiving or removing the workspace so hidden servers cannot
+/// remain active.
 pub(crate) fn kill_docks(state: &State<AppState>, id: &str) {
     let prefix = format!("{id}:");
     lock(&state.ptys).retain(|key, _| !key.starts_with(&prefix));
 }
 
-/// O que este repositório declara, mais a porta reservada a este worktree. O
-/// front lê isto para escolher entre abrir o terminal e desenhar o estado vazio
-/// que pede um script.
+/// Expose repository script declarations and the workspace port so the frontend can render
+/// available controls or request configuration.
 #[derive(serde::Serialize)]
 pub struct ScriptsView {
     #[serde(flatten)]
@@ -414,20 +379,16 @@ pub struct ScriptsView {
     pub port: Option<u16>,
 }
 
-/// Um dock deste workspace: o tipo, e se o processo ainda está vivo. Morto
-/// continua na lista enquanto ninguém sobe outro no lugar — é a rolagem dele,
-/// com o `✗ saiu com código` no fim, que a aba mostra. É desta lista que o
-/// front tira quais abas de terminal existem: elas não são fixas como Setup e
-/// Run, e trocar de workspace não pode inventar nem perder nenhuma.
+/// Keep stopped docks visible with their output and exit status until replaced. This list also
+/// preserves dynamically numbered terminal tabs across workspace navigation.
 #[derive(serde::Serialize)]
 pub struct DockView {
     pub kind: String,
     pub alive: bool,
 }
 
-/// Quais docks deste workspace existem, e quais estão de pé. O front precisa
-/// disto porque abrir a aba não pode ser o que dispara o `run`: olhar o log
-/// viraria subir servidor, e o botão de começar deixaria de existir.
+/// Report dock existence and process status without starting scripts merely because the person
+/// opens a log tab.
 #[tauri::command]
 pub fn dock_state(state: State<AppState>, id: String) -> Vec<DockView> {
     let prefix = format!("{id}:");
@@ -451,15 +412,9 @@ pub fn workspace_scripts(state: State<AppState>, id: String) -> ScriptsView {
     ScriptsView { scripts, port }
 }
 
-/// Escreve o exemplo comentado em `.prometeu/settings.toml` e devolve o
-/// caminho relativo, para o front abrir no visualizador. Nunca sobrescreve:
-/// arquivo que já existe só é apontado — inclusive o do Conductor, que é onde a
-/// pessoa vai querer mexer se é lá que a configuração dela mora.
-///
-/// Worktree que está herdando o do clone ganha uma cópia dele, e não o exemplo:
-/// o que a pessoa quer abrir é o que está valendo, e o visualizador só enxerga
-/// o worktree. A cópia passa a mandar dali em diante — é assim que um worktree
-/// muda o `run` sem mexer no dos outros.
+/// Create the commented settings example only when no configuration exists. For worktrees
+/// inheriting clone settings, copy those settings into the worktree instead, allowing isolated
+/// edits. Existing Prometeu or Conductor files are returned without overwriting them.
 #[tauri::command]
 pub fn create_scripts_file(state: State<AppState>, id: String) -> Result<String, String> {
     let ws = workspace_copy(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
@@ -484,9 +439,8 @@ pub fn create_scripts_file(state: State<AppState>, id: String) -> Result<String,
     Ok(rel)
 }
 
-/// O texto que o botão "Perguntar ao agente" manda numa conversa nova. Sai daqui
-/// e não do front porque quem sabe o nome do arquivo que já existe é quem leu o
-/// disco.
+/// Build the configuration-help prompt at the backend, which knows the existing settings file's
+/// path.
 #[tauri::command]
 pub fn scripts_prompt(state: State<AppState>, id: String) -> String {
     let file = workspace_copy(&state, &id)

@@ -111,9 +111,11 @@ Há três contratos que exigem compatibilidade explícita:
 3. App ↔ relay: protocolo `PROTO = 3`, texto JSON e frames binários.
 
 O terceiro já possui uma fonte única tipada e validada em
-`relay/src/protocol.ts`. O primeiro tipa nomes de comandos, mas ainda não gera
-tipos de argumentos e respostas. O segundo usa os contratos V1 tipados no
-frontend. `claude.rs` adapta o stream-json do Claude e `codex.rs` adapta
+`relay/src/protocol.ts`. The first uses the command map in `src/ipc.ts` to
+check names, arguments, and results in both callers and the browser mock.
+Rust handler names have a parity test; argument/result bindings are still
+maintained manually. See [ADR 0022](docs/decisions/0022-typed-ipc.md).
+O segundo usa os contratos V1 tipados no frontend. `claude.rs` adapta o stream-json do Claude e `codex.rs` adapta
 diretamente o JSON-RPC do Codex; ambos dependem das primitivas canônicas de
 `conversation.rs`.
 

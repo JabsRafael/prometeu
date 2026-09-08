@@ -35,46 +35,29 @@ import { pieces, summary, Timeline, touched, type Ask, type Block, type Command,
 import type { Choice, ProviderId, Status } from "./types";
 import { h, template } from "./util";
 
-/// A conversa na tela: a timeline desenhada, e a caixa de escrever embaixo.
-///
-/// Não é um terminal. O que chega é uma linha de JSON por vez (`chat.rs`), o
-/// `Timeline` diz o que ela mudou, e só isso é redesenhado. O que sai é uma
-/// fala, uma resposta a um card (permissão, pergunta, plano) ou uma
-/// interrupção — por `ConversationCommandV1` no mesmo cano.
-///
-/// A conversa de um colega é a mesma tela: as linhas vêm do relay em vez do
-/// back, e o que se escreve vai para o Mac dele em vez do processo daqui.
-///
-/// Comentários do time ficam no painel lateral e apontam para os `Piece.key`
-/// estáveis que esta tela grava em cada trecho do transcript.
+/// Render Timeline updates and composer interaction from canonical conversation events. Send prompts, responses, and interrupts through ConversationCommandV1. Remote conversations reuse this view with relay transport. Side-panel comments anchor to stable Piece.key values without entering the transcript.
 
-/// O que a tela precisa saber da aba aberta, e que não está nas linhas.
+/// Tab metadata needed by presentation but absent from conversation events.
 export type Info = {
   task?: actions.TaskRun | null;
-  /// O id do workspace na tela (o de um colega vem prefixado).
+  /// Frontend workspace ID; remote IDs are prefixed.
   workspace: string | null;
   status: Status | null;
-  /// A fala que ainda não foi — espera o setup do worktree terminar.
+  /// A prompt waiting for worktree setup.
   pending: string | null;
-  /// A conversa é de um colega: o nome dele, e se ele está aí.
+  /// Remote owner name and online state.
   remote: { name: string; online: boolean } | null;
-  /// Onde o agente trabalha: a pasta do worktree. O "+" abre o Finder ali, e
-  /// o arquivo escolhido dentro dela entra na fala como caminho relativo.
+  /// Agent working directory and default file-picker location; internal attachments use relative paths.
   worktree: string | null;
-  /// Este workspace participa do time — e, portanto, aceita comentários. Ter um time
-  /// configurado não basta: um workspace local que nunca foi compartilhado
-  /// não existe no relay.
+  /// Comments require an active local or remote share, not merely configured team membership.
   team: boolean;
-  /// Com quem se está falando: o modelo e o esforço desta conversa — o que a
-  /// aba escolheu (ao nascer, ou depois, no rodapé da caixa), ou o do
-  /// workspace. Vazio é o padrão do CLI, e aí a caixa não diz nada.
+  /// Resolved tab or workspace model/effort; empty values mean CLI defaults.
   agent: ProviderId;
   model: string;
   effort: string;
-  /// As ferramentas de MCP deste workspace. `null` é nunca ter escolhido — o
-  /// CLI decide, como antes do hub existir.
+  /// Workspace MCP selection; null preserves CLI inheritance.
   mcp: string[] | null;
-  /// Os plugins deste workspace, pela mesma regra do MCP.
+  /// Workspace plugin selection follows MCP inheritance rules.
   plugins: string[] | null;
 };
 
@@ -85,30 +68,22 @@ export type Ctx = {
   thread?: (id: string) => void;
 };
 
-/* ---------- marcar MCP e plugin sem derrubar a conversa a cada clique ------ */
+/* Batch MCP and plugin changes. */
 
-/// Gravar a escolha de MCP ou de plugin derruba o processo da conversa e faz o
-/// back republicar o quadro — que redesenha o app inteiro. A cada clique isso é
-/// caro, e marcar três coisas seguidas fazia três vezes. A marca na tela é na
-/// hora (o menu se redesenha com o que a pessoa acabou de marcar); o back ouve
-/// quando a mão para.
+/// Update selection immediately but persist after input settles because each write restarts the process and republishes the board.
 const SETTLE = 300;
-/// Uma escolha pendente por assunto: mexer no MCP e nos plugins na mesma
-/// respiração são duas gravações, e uma não pode engolir a outra.
+/// Track pending changes separately for MCP and plugins so neither overwrites the other.
 const settling = new Map<string, () => void>();
 let settleAt: number | undefined;
 
 function settleWrite(what: string, workspace: string, fn: () => void) {
-  // A escolha é do workspace. Com várias caixas na mesa, usar só o assunto
-  // fazia um clique em outro workspace substituir silenciosamente o primeiro.
+  // Key pending selection by workspace as well as category so desk panels cannot overwrite one another.
   settling.set(`${what}\u0000${workspace}`, fn);
   clearTimeout(settleAt);
   settleAt = window.setTimeout(settleNow, SETTLE);
 }
 
-/// Grava agora o que estava esperando. Falar é o momento em que esperar deixa
-/// de ser economia e passa a ser corrida: a fala sobe o processo, e a gravação
-/// atrasada o derrubaria em seguida.
+/// Flush before sending a prompt; a delayed configuration write would otherwise kill the newly resumed process.
 function settleNow() {
   clearTimeout(settleAt);
   settleAt = undefined;
@@ -117,11 +92,9 @@ function settleNow() {
   for (const run of runs) run();
 }
 
-/* ---------- estado efêmero que pertence à conversa, não à tela ----------- */
+/* Conversation-owned transient state. */
 
-/// A mesa e o workspace desenham a mesma conversa em `ChatView`s diferentes.
-/// Rascunho e anexos precisam, portanto, morar acima da
-/// instância: entrar no workspace não pode fazer a fala parecer que sumiu.
+/// Share drafts and attachments across ChatView instances so desk-to-workspace navigation preserves input.
 const drafts = {
   says: new Map<string, string>(),
   files: new Map<string, string[]>(),
@@ -137,33 +110,27 @@ export class ChatView {
   private ctx!: Ctx;
   private key: string | null = null;
   private remote = false;
-  /// Invalida também uma segunda ligação para a mesma chave. Comparar apenas
-  /// `key` não distingue o snapshot velho do novo depois de sair e voltar.
+  /// Use attachment versions to distinguish stale snapshots even after leaving and returning to the same key.
   private attachVersion = 0;
   private disposed = false;
   private cleanup: (() => void)[] = [];
   private tl = new Timeline();
-  /// Os pedaços que estão na tela, e o nó de cada um — na mesma ordem.
+  /// Rendered pieces and their DOM nodes in display order.
   private shown: Piece[] = [];
   private drawn: HTMLElement[] = [];
-  /// Os cartões de trabalho que alguém abriu: continuam abertos quando o
-  /// pedaço é redesenhado, e depois de trocar de aba e voltar.
+  /// Persist expanded work cards across redraws and tab navigation.
   private opened = new Set<string>();
-  /// O que ainda não fechou uma linha, na conversa de um colega: os bytes
-  /// chegam em pedaços, e um pedaço pode cortar um JSON no meio.
+  /// Buffer partial JSON lines from chunked remote bytes.
   private partial = "";
   private decoder = new TextDecoder("utf-8");
   private feedback: string | null = null;
-  /// Itens que mudaram desde o último quadro. O stream manda uma linha por
-  /// token; redesenhar a cada uma trava a tela — um quadro por vez basta.
+  /// Coalesce per-token updates into one animation frame to avoid excessive rendering.
   private dirty = new Set<number>();
   private raf = 0;
   private working = template("div", "working", "<i></i><i></i><i></i><span class=\"wlabel\"></span>");
-  /// Linhas ao vivo que chegaram enquanto o snapshot vinha. Absorvê-las na
-  /// hora as duplicaria: o snapshot que chega depois traz as mesmas linhas.
+  /// Hold live events during snapshot loading to remove overlap by sequence number.
   private held: { seq: number; line: string }[] | null = null;
-  /// A fala guardada, esperando o setup: fica na tela como se tivesse ido,
-  /// com o aviso de que ainda não foi.
+  /// Display queued setup prompts with their waiting state.
   private waiting = template("div", "turn user wait", `<div class="bubble"></div><div class="working"><i></i><i></i><i></i><span class="wlabel"></span></div>`);
 
   open(host: HTMLElement, ctx: Ctx) {
@@ -182,11 +149,11 @@ export class ChatView {
       if (this.held) this.held.push({ seq, line });
       else this.absorb(line);
     }).then((unlisten) => {
-      // A aba pode ter sumido enquanto o registro atravessava o IPC.
+      // The tab may disappear before IPC listener registration completes.
       if (this.disposed) unlisten();
       else this.cleanup.push(unlisten);
     });
-    // Comentário novo ou resolvido atualiza somente os marcadores do transcript.
+    // Comment changes update only transcript markers.
     const teamChanged = () => {
       if (this.key) this.paintCommentPins();
       this.paintComposer();
@@ -197,10 +164,9 @@ export class ChatView {
     this.cleanup.push(() => document.removeEventListener("selectionchange", selectionChanged));
   }
 
-  /* ---------- ligar e desligar ---------- */
+  /* Attachment lifecycle. */
 
-  /// Uma conversa daqui: a rolagem que o back guardou, e daí em diante as
-  /// linhas ao vivo.
+  /// Attach a local transcript snapshot, followed by live events.
   async attach(key: string) {
     if (this.disposed) return;
     const version = ++this.attachVersion;
@@ -210,20 +176,17 @@ export class ChatView {
     this.reset();
     this.restore();
     this.held = [];
-    const snapshot = await invoke<{ text: string; seq: number }>("chat_snapshot", { session: key });
+    const snapshot = await invoke("chat_snapshot", { session: key });
     if (this.disposed || version !== this.attachVersion || this.key !== key) return;
     const held = this.held ?? [];
     this.held = null;
     this.tl.load(snapshot.text);
-    // A linha que chegou ao vivo durante a espera pode já estar dentro do
-    // snapshot — é o caso da primeira fala, que o back manda no mesmo instante
-    // em que a tela abre. O número diz quais já estavam lá.
+    // Discard held events already included in the snapshot sequence, including initial prompts emitted while the view opens.
     for (const { seq, line } of held) if (seq > snapshot.seq) this.tl.push(line);
     this.renderAll();
   }
 
-  /// A conversa de um colega: as linhas que vieram dele. Daqui em diante os
-  /// bytes chegam por `remoteWrite`.
+  /// Attach a remote snapshot; subsequent bytes arrive through remoteWrite.
   attachRemote(key: string, bytes: Uint8Array) {
     if (this.disposed) return;
     this.attachVersion++;
@@ -236,9 +199,7 @@ export class ChatView {
     this.renderAll();
   }
 
-  /// Saída ao vivo de uma conversa remota. O que não é da chave na tela é
-  /// descartado — o link guarda o espelho de cada aba, e é dele que a tela
-  /// renasce ao trocar.
+  /// Ignore live bytes for other tabs; their cached mirrors restore them when selected.
   remoteWrite(key: string, bytes: Uint8Array) {
     if (key !== this.key || !this.remote) return;
     this.partial += this.decoder.decode(bytes, { stream: true });
@@ -257,15 +218,12 @@ export class ChatView {
     this.paintComposer();
   }
 
-  /// Uma tela escondida pode voltar e por isso só `detach`; um quadro cuja aba
-  /// deixou de existir termina aqui, junto com ouvintes que o reteriam para
-  /// sempre mesmo depois de o DOM sair.
+  /// Detach temporarily hidden views; dispose permanently removed views and release their listeners.
   dispose(forget = false) {
     if (this.disposed) return;
     const key = this.key;
     this.detach();
-    // Arquivar ou limpar só tira o quadro da mesa; fechar a aba tira também o
-    // rascunho dela. Quem conhece essa diferença é o dono da coleção.
+    // Archiving or cleaning hides desk panels, while closing tabs also discards their drafts. The collection owner chooses that behavior.
     if (forget && key) {
       drafts.says.delete(key);
       drafts.files.delete(key);
@@ -296,8 +254,7 @@ export class ChatView {
     this.area.focus();
   }
 
-  /// O estado da aba mudou fora daqui (o quadro redesenhou): a caixa e a fala
-  /// que espera acompanham.
+  /// Refresh composer metadata and queued prompts after external board changes.
   refresh() {
     const stick = this.stuck();
     this.paintWorking();
@@ -305,15 +262,14 @@ export class ChatView {
     if (stick) this.feed.scrollTop = this.feed.scrollHeight;
   }
 
-  /// O texto selecionado dentro da conversa — é o que um comentário cita.
+  /// Read selected transcript text for a comment quotation.
   selection(): string {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.anchorNode || !this.feed.contains(sel.anchorNode)) return "";
     return sel.toString();
   }
 
-  /// Só a conversa local consegue entregar um arquivo deste
-  /// Mac. É a mesma regra do botão "+" da caixa.
+  /// Only local conversations can attach files from this Mac.
   canAttachFiles(): boolean {
     const info = this.ctx.info();
     return (
@@ -324,8 +280,7 @@ export class ChatView {
     );
   }
 
-  /// Arquivos escolhidos no Finder ou soltos em cima da conversa entram no
-  /// mesmo rascunho, sem mexer no texto que já estava sendo escrito.
+  /// File-picker and drop attachments update the shared draft without changing typed text.
   attachFiles(paths: string[]): boolean {
     const target = this.fileDropTarget();
     if (!target) return false;
@@ -333,8 +288,7 @@ export class ChatView {
     return true;
   }
 
-  /// A captura pode chegar depois de trocar de aba. O destino é o rascunho
-  /// escolhido ao soltar, mesmo se esta apresentação já tiver sido desmontada.
+  /// Delayed captures retain the draft chosen at drop time, even if this view has since unmounted.
   fileDropTarget(): { put: (paths: string[]) => void; wait: () => () => void } | null {
     if (!this.canAttachFiles() || !this.key) return null;
     const key = this.key;
@@ -359,15 +313,14 @@ export class ChatView {
     };
   }
 
-  /* ---------- as linhas ---------- */
+  /* Incoming lines. */
 
   private absorb(line: string) {
     for (const i of this.tl.push(line)) this.dirty.add(i);
     if (!this.raf) this.raf = requestAnimationFrame(() => this.flush());
   }
 
-  /// Um quadro: o que mudou desde o último, de uma vez. A rolagem só segue se
-  /// já estava no fim — quem subiu para ler não é puxado de volta.
+  /// Apply accumulated changes once per frame. Follow output only when the user was already at the bottom.
   private flush() {
     this.raf = 0;
     const stick = this.stuck();
@@ -380,10 +333,7 @@ export class ChatView {
     if (stick) this.feed.scrollTop = this.feed.scrollHeight;
   }
 
-  /// Os três pontos no fim: o agente está trabalhando e nada está chegando
-  /// letra a letra agora (entre uma ferramenta e a próxima fala, por exemplo).
-  /// Com uma legenda quando há o que dizer: compactando, ou o que continua
-  /// rodando em segundo plano — que roda mesmo com o turno terminado.
+  /// Show activity dots between streamed content, with labels for compaction or background work that may outlive the turn.
   private paintWorking() {
     this.paintWaiting();
     const last = this.tl.items[this.tl.items.length - 1];
@@ -403,9 +353,7 @@ export class ChatView {
     this.feed.append(this.working);
   }
 
-  /// A primeira fala, quando ainda não foi: o setup do worktree está rodando
-  /// e ela vai quando ele acabar. Sem isto a tela fica vazia esperando, e
-  /// parece que a fala se perdeu.
+  /// Display the initial prompt while setup runs so waiting does not look like lost input.
   private paintWaiting() {
     const info = this.ctx.info();
     const text = !this.remote && this.key ? info.pending : null;
@@ -435,14 +383,10 @@ export class ChatView {
     this.feed.scrollTop = this.feed.scrollHeight;
   }
 
-  /// A tela alcança a timeline: os pedaços que tocam um item que mudou são
-  /// redesenhados, os que nasceram entram no fim, e o resto fica exatamente o
-  /// nó que já estava lá — com a seleção de quem lê e o que estava aberto.
-  /// `dirty` nulo é "mudou tudo".
+  /// Update pieces touching changed items, append new pieces, and preserve other nodes, selection, and expansion. Null dirty state requests a full update.
   private sync(dirty: Set<number> | null) {
     const next = pieces(this.tl.items);
-    // Até onde continua sendo a mesma conversa. Como os itens só crescem no
-    // fim, isto quase sempre é tudo o que já está na tela.
+    // Find the unchanged prefix; append-only timelines usually retain all existing pieces.
     let same = 0;
     while (same < next.length && same < this.shown.length && next[same].key === this.shown[same].key) same++;
     for (const gone of this.drawn.splice(same)) gone.remove();
@@ -458,14 +402,12 @@ export class ChatView {
 
   private draw(i: number, piece: Piece) {
     const old = this.drawn[i];
-    // Chegando letra a letra: mexe no nó que está lá, em vez de trocá-lo.
-    // Trocar o nó a cada quadro é o que dava o tremor — e apagava a seleção
-    // de quem estava lendo.
+    // Update streaming nodes in place to preserve selection and avoid visual jitter.
     if (old && this.repaint(old, piece)) return;
     const node = this.node(piece);
     node.dataset.key = piece.key;
     if (old) {
-      // Card de ferramenta aberto continua aberto depois do redesenho.
+      // Keep expanded tool cards open after redraw.
       for (const open of old.querySelectorAll<HTMLElement>(".tool.open")) {
         const id = open.dataset.tool;
         node.querySelector<HTMLElement>(`.tool[data-tool="${CSS.escape(id ?? "")}"]`)?.classList.add("open");
@@ -481,7 +423,7 @@ export class ChatView {
   private node(piece: Piece): HTMLElement {
     if (piece.kind === "item") {
       const item = this.tl.items[piece.at];
-      // Mensagem do agente vira `say` e `work`, nunca um pedaço `item`.
+      // Assistant messages produce say/work pieces rather than item pieces.
       return item.kind === "assistant" ? h("div", "turn bot") : this.render(item, piece.at);
     }
     if (piece.kind === "say") {
@@ -494,15 +436,12 @@ export class ChatView {
     return this.workCard(piece);
   }
 
-  /// O rodapé de uma resposta: quanto o turno levou, e o botão que copia o que
-  /// o agente escreveu. Só na última fala de um turno que acabou — no meio da
-  /// rajada não há tempo para dizer, e a linha viraria ruído a cada ferramenta.
+  /// Show duration and copy controls only beneath the final speech of a completed turn.
   private paintMeta(el: HTMLElement, piece: Extract<Piece, { kind: "say" }>) {
     const ms = this.turnMs(piece);
     const old = el.querySelector(".meta");
     if (ms === null) return void old?.remove();
-    // Menos de um décimo não é duração — é a linha do transcript, que não
-    // guarda quando o turno começou. Aí fica só o copiar.
+    // Durations below a tenth of a second lack meaningful historical timing; show only copy.
     const label = ms < 100 ? "" : took(ms);
     if (old) {
       old.querySelector(".took")!.textContent = label;
@@ -540,9 +479,7 @@ export class ChatView {
     };
   }
 
-  /// Quanto durou o turno que esta fala fecha, ou `null` se ela não o fecha.
-  /// Fecha quem é o último bloco de uma mensagem que parou de chegar e não tem
-  /// outra mensagem do agente depois — isto é, o agente devolveu a vez.
+  /// Find duration only for the final completed assistant block before control returns to the user.
   private turnMs(piece: Extract<Piece, { kind: "say" }>): number | null {
     const item = this.tl.items[piece.at];
     if (item?.kind !== "assistant" || item.streaming) return null;
@@ -559,8 +496,7 @@ export class ChatView {
     return null;
   }
 
-  /// O bloco de um pedaço, e se ele ainda está chegando: o último de uma
-  /// mensagem em streaming é o que está sendo escrito agora.
+  /// Only the final block of a streaming message is still receiving content.
   private blockAt(ref: { at: number; block: number }): { block: Block; live: boolean } | null {
     const item = this.tl.items[ref.at];
     if (item?.kind !== "assistant") return null;
@@ -569,9 +505,7 @@ export class ChatView {
     return { block, live: item.streaming && ref.block === item.blocks.length - 1 };
   }
 
-  /// O que não é mensagem do agente: a fala da pessoa, o card que espera
-  /// resposta, o fim do turno, um aviso do sistema. Mensagem do agente vira
-  /// pedaço (`say`, `work`) e não passa por aqui.
+  /// Render non-assistant items such as prompts, requests, turn endings, and system notices.
   private render(item: Exclude<Item, { kind: "assistant" }>, i: number): HTMLElement {
     switch (item.kind) {
       case "user": {
@@ -588,8 +522,7 @@ export class ChatView {
         return contextPanel(item.report);
       case "system": {
         if (item.what === "summary") {
-          // O resumo com que o agente continua depois de compactar: é dele,
-          // não da pessoa — e é longo. Fica dobrado, como o pensamento.
+          // Compaction summaries belong to the agent and collapse like reasoning content.
           const el = template("details", "think summary", `<summary></summary><div class="md"></div>`);
           el.querySelector("summary")!.textContent = t("chat.summary");
           (el.lastElementChild as HTMLElement).innerHTML = md(item.text);
@@ -608,8 +541,7 @@ export class ChatView {
     }
   }
 
-  /// Erro técnico não vira um paredão vermelho no meio da conversa. A linha
-  /// explica o que houve; a saída completa continua disponível para diagnóstico.
+  /// Present technical failures concisely while retaining full diagnostic output.
   private errorCard(text: string): HTMLElement {
     const value = text.trim() || t("chat.result.error");
     if (!value.includes("\n") && value.length <= 180) {
@@ -628,13 +560,10 @@ export class ChatView {
     return el;
   }
 
-  /// Um pedaço que já está na tela mudou. Bloco por bloco: o que é do mesmo
-  /// tipo é atualizado no lugar, o que é novo entra no fim. `false` é "não
-  /// deu, troca o nó inteiro".
+  /// Update compatible blocks in place and append new ones; return false when the whole piece must be replaced.
   private repaint(el: HTMLElement, piece: Piece): boolean {
     if (el.dataset.key !== piece.key) return false;
-    // Fala da pessoa, card, aviso: refazer é barato, e o card guarda o que
-    // já foi escolhido nele.
+    // Rebuilding user items and notices is cheap; request cards retain their selected answers.
     if (piece.kind === "item") return false;
     if (piece.kind === "say") {
       const at = this.blockAt(piece);
@@ -642,25 +571,22 @@ export class ChatView {
       if (!at || at.block.kind !== "text" || node?.dataset.kind !== "text") return false;
       node.innerHTML = md(at.block.text);
       node.classList.toggle("typing", at.live);
-      // O turno acabou enquanto esta fala estava na tela: é agora que a
-      // duração e o copiar aparecem embaixo dela.
+      // Add duration/copy controls when an already-rendered turn completes.
       this.paintMeta(el, piece);
       return true;
     }
-    // Trabalho que era só pensamento e ganhou a primeira ferramenta deixa de
-    // ser um pensamento solto e passa a ser cartão: aí o nó é outro.
+    // A reasoning-only piece becomes a work card when its first tool arrives, requiring another node type.
     const parts = piece.refs.map((r) => this.blockAt(r)).filter((p) => !!p);
     const card = el.classList.contains("work");
     if (wantsCard(parts) !== card) return false;
     const body = card ? el.querySelector<HTMLElement>(".wbody") : el;
     if (!body) return false;
-    // O cartão fechado é o resumo do que está dentro: mudou um bloco, mudou
-    // o cabeçalho.
+    // Refresh the collapsed header when its underlying blocks change.
     if (card) this.paintWorkHead(el, piece);
     return this.patch(body, parts);
   }
 
-  /// Os blocos de um pedaço, dentro do nó que já está na tela.
+  /// Update blocks within the existing piece node.
   private patch(el: HTMLElement, blocks: ({ block: Block; live: boolean } | null)[]): boolean {
     for (let k = 0; k < blocks.length; k++) {
       const at = blocks[k];
@@ -670,8 +596,7 @@ export class ChatView {
         el.append(this.block(at.block, at.live));
         continue;
       }
-      // Um bloco mudou de tipo: não acontece no stream, mas se acontecer o
-      // nó inteiro é refeito, em vez de a tela mentir.
+      // If a block unexpectedly changes type, rebuild instead of displaying stale structure.
       if (node.dataset.kind !== at.block.kind) return false;
       if (at.block.kind === "text") {
         node.innerHTML = md(at.block.text);
@@ -683,8 +608,7 @@ export class ChatView {
         node.classList.toggle("live", at.live);
         node.classList.toggle("bare", !at.block.text);
       } else {
-        // Ferramenta: o card muda de estado (rodou, deu erro) — refeito, mas
-        // aberto continua aberto.
+        // Rebuild changed tool states while preserving expansion.
         const fresh = this.block(at.block, at.live);
         if (node.classList.contains("open")) fresh.classList.add("open");
         node.replaceWith(fresh);
@@ -693,10 +617,7 @@ export class ChatView {
     return true;
   }
 
-  /// O trabalho do agente num cartão só. Fechado, é a linha do que ele está
-  /// fazendo agora — ou quanto fez, quando acabou. Aberto, é o passo a passo
-  /// de sempre. Sem isto, uma tarefa banal é quarenta cartões empilhados e a
-  /// fala que interessa se perde no meio deles.
+  /// Group consecutive agent work into one expandable card so intermediate steps do not bury readable speech.
   private workCard(piece: Extract<Piece, { kind: "work" }>): HTMLElement {
     const parts = piece.refs.map((r) => this.blockAt(r)).filter((p) => !!p);
     if (!wantsCard(parts)) {
@@ -718,9 +639,7 @@ export class ChatView {
     return el;
   }
 
-  /// O cabeçalho do cartão. Enquanto anda, é o passo de agora — senão a
-  /// conversa vira uma caixa fechada e ninguém vê o agente trabalhando.
-  /// Parado, é quantos passos foram, e em quê.
+  /// While running, the card header shows current activity; after completion, summarize step counts and affected work.
   private paintWorkHead(el: HTMLElement, piece: Extract<Piece, { kind: "work" }>) {
     const parts = piece.refs.map((r) => this.blockAt(r)).filter((p) => !!p);
     const tools = parts.map((p) => p.block).filter((b): b is ToolBlock => b.kind === "tool");
@@ -741,8 +660,7 @@ export class ChatView {
     q(".st").innerHTML = running ? `<span class="spin"></span>` : icon(bad ? "x" : "check", 12);
   }
 
-  /// `live` é o bloco que ainda está chegando: o último de uma mensagem em
-  /// streaming. É o que separa "Pensando…" de "Pensou".
+  /// The final streaming block distinguishes ongoing reasoning from completed reasoning.
   private block(block: Block, live: boolean): HTMLElement {
     if (block.kind === "text") {
       const el = h("div", "md" + (live ? " typing" : ""));
@@ -751,8 +669,7 @@ export class ChatView {
       return el;
     }
     if (block.kind === "thinking") {
-      // Sem texto (histórico do transcript, que não guarda o pensamento) não
-      // há o que abrir: fica o rótulo, sem seta.
+      // Without retained reasoning text, show only its label and no expansion control.
       const el = template(
         "details",
         "think" + (live ? " live" : "") + (block.text ? "" : " bare"),
@@ -764,7 +681,7 @@ export class ChatView {
       (el.lastElementChild as HTMLElement).textContent = block.text;
       return el;
     }
-    // Ferramenta: uma linha fechada, e o que entrou e saiu quando aberta.
+    // Collapsed tool rows reveal input and output when opened.
     const running = !block.done || block.background;
     const el = h("div", "tool" + (running ? " run" : block.error ? " bad" : " ok"));
     el.dataset.kind = "tool";
@@ -778,7 +695,7 @@ export class ChatView {
     el.append(head);
     const body = h("div", "tbody");
     if (block.name === "ExitPlanMode") {
-      // O plano é para ler, não para abrir: fica na tela, em markdown.
+      // Render plans directly as readable markdown.
       el.classList.add("open", "plan");
       const plan = h("div", "md");
       plan.innerHTML = md(String((block.input as { plan?: string })?.plan ?? ""));
@@ -803,8 +720,7 @@ export class ChatView {
         body.append(details);
       }
     } else if (block.name === "Skill" && block.result) {
-      // A skill é uma instrução escrita para o agente: dentro do card, fechada,
-      // e em markdown para quem abrir conseguir ler.
+      // Collapse skill instructions while preserving readable markdown on expansion.
       const what = h("div", "md");
       what.innerHTML = md(capLines(block.result));
       body.append(what);
@@ -812,8 +728,7 @@ export class ChatView {
       body.append(inputView(block.name, block.input));
       if (block.result !== null) {
         const out = h("pre", "tout");
-        // Um diff que a ferramenta devolveu (o `git diff` no Bash) se lê
-        // colorido, como o do Edit.
+        // Highlight unified diffs returned by tools like other edit diffs.
         if (isDiff(block.result)) {
           out.classList.add("tdiff");
           out.innerHTML = diffHtml(capLines(block.result));
@@ -825,7 +740,7 @@ export class ChatView {
     return el;
   }
 
-  /* ---------- cards que esperam resposta ---------- */
+  /* Response requests. */
 
   private askCard(ask: Ask, i: number): HTMLElement {
     if (ask.answered) {
@@ -846,8 +761,7 @@ export class ChatView {
     const go = h("button", "pri md", t("chat.plan.go"));
     go.title = t("chat.plan.go.title");
     go.addEventListener("click", () => {
-      // O "sim" solta o agente: vira bypass antes de responder, senão a
-      // primeira ferramenta do plano já pergunta de novo.
+      // Approving a plan also enables bypass before resuming so its first tool does not immediately ask again.
       this.control({
         v: 1,
         type: "permission.mode.set",
@@ -861,8 +775,7 @@ export class ChatView {
     const no = h("button", "ghost md", t("chat.plan.no"));
     row.append(go, asking, no);
     el.append(row);
-    // Pedir mudanças abre o campo: o que você escrever volta ao agente como a
-    // recusa — é assim que o plano muda.
+    // Send requested plan changes as denial feedback to the agent.
     const fb = template("div", "fb", `<textarea rows="3"></textarea><div class="row"><span class="spacer"></span><button class="pri md"></button></div>`);
     const area = fb.querySelector("textarea")!;
     area.placeholder = t("chat.plan.feedback");
@@ -890,8 +803,7 @@ export class ChatView {
     return el;
   }
 
-  /// Uma aba por pergunta, como na TUI: escolher já leva à próxima que falta,
-  /// e responder só quando todas estiverem — o agente recebe tudo de uma vez.
+  /// Show one question per tab, advance to unanswered questions, and submit all answers together.
   private questionCard(el: HTMLElement, ask: Ask): HTMLElement {
     el.classList.add("question");
     type Q = { question: string; header?: string; multiSelect?: boolean; options: { label: string; description?: string }[] };
@@ -900,8 +812,7 @@ export class ChatView {
     const other: Record<string, string> = {};
     let active = 0;
     const has = (q: Q) => (answers[q.question]?.length ?? 0) > 0 || !!other[q.question]?.trim();
-    // A próxima que falta, depois desta; senão a primeira que falta; senão
-    // fica — está tudo respondido, e o botão é o que sobra.
+    // Advance to the next unanswered question, wrap if needed, or remain when all are answered.
     const next = () => {
       const after = questions.findIndex((q, i) => i > active && !has(q));
       const any = questions.findIndex((q) => !has(q));
@@ -1017,8 +928,7 @@ export class ChatView {
     this.paintComposer();
   }
 
-  /// Uma linha de controle para o processo — daqui, ou pelo relay até o Mac
-  /// do dono, que a repassa (ver `team.ts`).
+  /// Send canonical control locally or through the relay to the owner's Mac.
   private control(frame: ConversationCommandV1) {
     if (!this.key) return;
     if (this.remote) team.write(JSON.stringify(frame));
@@ -1029,28 +939,22 @@ export class ChatView {
     this.control({ v: 1, type: "turn.interrupt" });
   }
 
-  /* ---------- a caixa ---------- */
+  /* Composer. */
 
   private buildComposer() {
     this.box.innerHTML = `
-      <!-- Os anexos ficam à vista, em cima do que se escreve: o que vai junto
-           da fala é parte da fala. É a mesma tira do lançador. -->
+      <!-- Keep attachments visible above the prompt, matching the launcher. -->
       <div class="cfiles" hidden></div>
       <textarea rows="1" spellcheck="true"></textarea>
       <div class="crow">
-        <!-- O "+" abre o Finder: qualquer arquivo do Mac vira menção na fala. -->
+        <!-- The file picker adds local files as prompt references. -->
         <button class="ico sm addfile" hidden></button>
-        <!-- Com quem se fala, como no rodapé do lançador: o modelo e o degrau
-             de esforço desta conversa, e onde se troca os dois no meio dela.
-             Trocar derruba o processo, e a próxima fala o retoma — o mesmo
-             que o seletor de MCP ao lado faz. -->
+        <!-- Model and effort changes restart the process on the next prompt while preserving the conversation. -->
         <span class="with" hidden>
           <button class="ghost mdl"></button>
           <button class="ghost effort"><span class="bars"><i></i><i></i><i></i><i></i><i></i></span><span class="el"></span></button>
         </span>
-        <!-- As ferramentas: aqui se troca, diferente do modelo. Trocar derruba
-             o processo, e a próxima fala o levanta retomando a sessão — a
-             conversa continua de onde estava, com o que foi marcado agora. -->
+        <!-- Tool selection resumes the same transcript with updated MCP and plugin settings. -->
         <button class="ghost sm actionsbtn"></button>
         <button class="ghost sm taskwatch" hidden></button>
         <button class="ghost sm mcpbtn" hidden><span></span></button>
@@ -1082,10 +986,7 @@ export class ChatView {
     this.area.addEventListener("input", () => {
       this.keep();
       this.grow();
-      // O "/" no começo da fala é a mesma coisa: a lista dos comandos que o
-      // agente aceita abre em cima da caixa e acompanha as letras. Onde não há
-      // comando, o "@" vale como caminho: na fala é assim que se aponta um
-      // arquivo do workspace (ver `paths.ts`).
+      // Slash commands own completion at prompt start; otherwise @ completes workspace file paths.
       if (!commands.typed(this.area, this.commands(), () => this.grow(), name => this.selectAction(name))) this.typedPath();
     });
     this.area.addEventListener("keydown", (e) => {
@@ -1102,11 +1003,7 @@ export class ChatView {
     });
   }
 
-  /// O "+" ao lado da caixa: o Finder, aberto no worktree mas livre para ir a
-  /// qualquer canto do Mac — a captura de tela na Área de Trabalho, o arquivo
-  /// de outro projeto. O escolhido vira anexo desta fala, como no lançador: um
-  /// chip em cima da caixa, que sai da fala com o "×" e vira menção quando ela
-  /// vai. O texto que se está escrevendo não é mexido.
+  /// The file picker starts in the worktree but allows other local files. Show attachments as removable chips and convert them to mentions on send without altering typed text.
   private async addFile() {
     const root = this.ctx.info().worktree;
     const picked = await open({ multiple: true, title: t("chat.addFile.dialog"), defaultPath: root ?? undefined });
@@ -1114,25 +1011,24 @@ export class ChatView {
     this.attachFiles(list);
   }
 
-  /// Os anexos desta conversa. Sem aba não há onde guardá-los.
+  /// Attachments require a tab-owned draft.
   private attached(): string[] {
     return (this.key && drafts.files.get(this.key)) || [];
   }
 
-  /// A lista de caminhos do "@". Só na conversa daqui: a de um colega roda no
-  /// Mac dele, e os arquivos que ela aponta não são os deste workspace.
+  /// Offer path completion only locally because remote agents use another Mac's files.
   private typedPath() {
     const ws = this.ctx.info().workspace;
     if (this.remote || !ws) return paths.dismiss();
     void paths.typed(this.area, ws, touched(this.tl.items), () => this.grow());
   }
 
-  /// O rascunho da fala fica na aba e acompanha cada tecla.
+  /// Persist the tab draft on every keystroke.
   private keep() {
     if (this.key) drafts.says.set(this.key, this.area.value);
   }
 
-  /// Guarda a fala antes de a tela ligar noutra conversa.
+  /// Stash input before attaching another conversation.
   private stash() {
     this.keep();
   }
@@ -1141,8 +1037,7 @@ export class ChatView {
     return (this.key && drafts.says.get(this.key)) || "";
   }
 
-  /// Aba fechada leva junto a fala que ficou pela metade nela, e os anexos
-  /// que esperavam por ela.
+  /// Closing a tab removes its unfinished prompt and attachments.
   forget(alive: Set<string>) {
     for (const key of drafts.says.keys()) if (!alive.has(key)) drafts.says.delete(key);
     for (const key of drafts.files.keys()) if (!alive.has(key)) drafts.files.delete(key);
@@ -1154,13 +1049,13 @@ export class ChatView {
     a.style.height = `${Math.min(a.scrollHeight, window.innerHeight * 0.4)}px`;
   }
 
-  /// Ligar noutra conversa restaura o rascunho daquela aba.
+  /// Restore the selected tab's draft on attachment.
   private restore() {
     this.area.value = this.stashed();
     this.grow();
   }
 
-  /// ⌘⇧M, ou o botão: abre o painel sem trocar a caixa do agente.
+  /// Open comment composition beside the transcript without replacing the agent composer.
   quoteSelection(): boolean {
     const sel = this.selection().trim();
     if (!this.key || !sel || !this.ctx.info().team || !this.ctx.comment) return false;
@@ -1174,8 +1069,7 @@ export class ChatView {
 
   private send() {
     if (this.key && drafts.pending.has(this.key)) return;
-    // O que foi marcado no seletor e ainda não foi gravado vai agora: a fala
-    // sobe o processo, e a gravação atrasada o derrubaria em seguida.
+    // Persist pending configuration before resuming the process with a new prompt.
     settleNow();
     const text = this.area.value.trim();
     if (this.selectAction()) return;
@@ -1183,8 +1077,7 @@ export class ChatView {
     if ((!text && !files.length) || !this.key) return;
     const info = this.ctx.info();
     if (info.remote && !info.remote.online) return this.ctx.say(t("err.team.offline"), true);
-    // Os anexos vão na frente da fala, como menção — a mesma forma que o
-    // lançador dá ao que se anexa à primeira fala.
+    // Prepend attachments as mentions, matching the launcher's initial prompt format.
     const said = [paths.mentions(files, info.worktree), text].filter(Boolean).join("\n\n");
     if (this.remote) team.write(said);
     else invoke("chat_send", { session: this.key, text: said }).catch((e) => this.ctx.say(fromBack(e), true));
@@ -1197,11 +1090,7 @@ export class ChatView {
     this.paintComposer();
   }
 
-  /// Os comandos de barra desta conversa: o que o processo respondeu ao subir
-  /// (ver `Timeline.commands`). Com a conversa desligada não há processo, e
-  /// o transcript não guarda a resposta: vale a última lista vista com este
-  /// modelo — os comandos são quase todos os mesmos de uma conversa para
-  /// outra — e, antes de qualquer uma, os dois que o app conhece por si.
+  /// Use commands discovered at process startup. Detached transcripts lack this metadata, so reuse the latest model-specific list or application-known defaults.
   private commands(): commands.Suggestion[] {
     const provider = this.providerCommands();
     if (this.remote) return provider;
@@ -1243,7 +1132,7 @@ export class ChatView {
     const key = this.key;
     const draft = this.area.value;
     const context = actions.expand(paths.mentions(this.attached(), this.ctx.info().worktree), rest);
-    // O rascunho permanece se o backend recusar a execução.
+    // Preserve the draft if the backend rejects execution.
     void actions.start(workspace, action, context).then(() => {
       if (key && drafts.says.get(key) === draft) drafts.says.delete(key);
       if (key) drafts.files.delete(key);
@@ -1271,7 +1160,7 @@ export class ChatView {
           .filter(supported);
       }
     } catch {
-      /* lista velha ilegível: é como se não houvesse */
+      /* Ignore unreadable cached command lists. */
     }
     return [
       ...(capabilities.compact ? [{ name: "compact", description: t("chat.cmd.compact"), hint: "" }] : []),
@@ -1290,15 +1179,16 @@ export class ChatView {
       watch.textContent = t(run.error ? "actions.attention" : run.done ? "actions.done" : run.paused ? "actions.paused" : info.status === "rodando" ? "actions.running" : run.profile.watch ? "actions.watching" : "actions.running");
       watch.title = run.error ? fromBack(run.error) : t(run.paused ? "actions.resume" : "actions.pause");
       watch.disabled = !!info.remote || run.done || !run.profile.watch;
-      watch.onclick = () => { void invoke("action_pause", { session: this.key, paused: !run.paused }).catch(e => this.ctx.say(fromBack(e), true)); };
+      watch.onclick = () => {
+        if (this.key) void invoke("action_pause", { session: this.key, paused: !run.paused }).catch(e => this.ctx.say(fromBack(e), true));
+      };
     }
 
     const q = (sel: string) => this.box.querySelector<HTMLElement>(sel)!;
     const hasKey = !!this.key;
     this.box.hidden = !hasKey;
     if (!hasKey) return;
-    // O "+" aponta arquivo para o agente daqui. Na conversa de um colega, o
-    // agente roda noutro disco.
+    // Local file attachment is unavailable for agents running on another Mac.
     q(".addfile").hidden =
       this.remote || !info.workspace || !capabilitiesOf(info.agent).attachments;
     q(".stop").hidden = !this.tl.busy;
@@ -1327,9 +1217,7 @@ export class ChatView {
     this.paintFiles();
   }
 
-  /// Os anexos em cima da caixa: um chip por arquivo, com o nome à vista e o
-  /// caminho no title — o mesmo que o agente vai ler. O "×" tira o arquivo da
-  /// fala.
+  /// Show one removable chip per attachment with its full path in the tooltip.
   private paintFiles() {
     const row = this.box.querySelector<HTMLElement>(".cfiles")!;
     const list = this.attached();
@@ -1350,30 +1238,14 @@ export class ChatView {
     );
   }
 
-  /// Com quem se está falando, embaixo da caixa: o modelo e o degrau de
-  /// esforço desta conversa — o dela, quando a aba escolheu um, ou o do
-  /// workspace.
-  ///
-  /// Aqui também se troca, como no rodapé do lançador: o modelo abre a lista,
-  /// o esforço sobe um degrau por clique. A troca fica gravada na aba, derruba
-  /// o processo e a próxima fala o retoma com as flags novas — a conversa
-  /// continua de onde estava, falando com outro. É por isso que os botões
-  /// fecham enquanto o agente trabalha: derrubar no meio de um turno jogaria o
-  /// turno fora.
-  ///
-  /// Só os modelos do CLI que já está de pé entram na lista: o `--resume` do
-  /// Claude Code não abre a thread do Codex, nem o contrário. Sair para um GPT
-  /// é abrir aba nova, na setinha do "+".
-  ///
-  /// Na conversa de um colega os dois viram texto: o processo é do Mac dele.
+  /// Present resolved model and effort beneath the composer. Local idle tabs can change within their provider, persisting the choice and restarting on the next prompt. Remote views show labels only; changing providers requires another tab because resume identities differ.
   private paintWith(info: Info) {
     const el = this.box.querySelector<HTMLElement>(".with")!;
     const label = info.model ? modelLabel(info.model, info.agent) : "";
     el.hidden = !label;
     if (el.hidden) return;
     const working = info.status === "rodando" || info.status === "querendo";
-    // Sem workspace (a conversa ainda está subindo) não há a quem pedir a
-    // troca; com colega, o processo é dele.
+    // No workspace or remote ownership means this view cannot change the process configuration.
     const fixed = !!info.remote || !info.workspace || !!info.task;
     el.classList.toggle("ro", fixed);
     el.title = fixed ? "" : working ? t("chat.with.busy") : t("chat.with.pick");
@@ -1400,10 +1272,7 @@ export class ChatView {
       });
   }
 
-  /// A lista de modelos desta conversa: a mesma do lançador, restrita ao CLI
-  /// que está de pé, com o de agora marcado. O esforço vai junto porque cada
-  /// modelo tem a sua escada — sair do Sol para um que para no xhigh cai no
-  /// xhigh, como no "+".
+  /// Restrict model choices to the conversation's provider and clamp effort to the new model's ladder.
   private pickModel(at: HTMLElement, info: Info) {
     const box = at.getBoundingClientRect();
     const blocks = modelGroups(info.agent);
@@ -1427,9 +1296,7 @@ export class ChatView {
     menu.openAt({ x: box.left, y: box.bottom + 4 }, items);
   }
 
-  /// Grava a escolha na aba e derruba o processo dela. Escolher o que já está
-  /// não mexe em nada: não há por que desligar uma conversa para deixá-la
-  /// igual.
+  /// Persist changed tab choices and stop their process; identical choices require no restart.
   private retune(info: Info, choice: Choice) {
     if (choice.model === info.model && choice.effort === info.effort) return;
     if (!info.workspace || !this.key) return;
@@ -1438,16 +1305,7 @@ export class ChatView {
     );
   }
 
-  /// As ferramentas de MCP desta conversa, e o botão que as troca.
-  ///
-  /// Diferente do modelo, aqui se escolhe com a conversa andando: o MCP entra
-  /// quando o processo sobe, e derrubá-lo não perde nada — a sessão é o
-  /// transcript, e a próxima fala a retoma. Por isso o botão fecha enquanto o
-  /// agente trabalha: derrubar no meio de um turno jogaria o turno fora.
-  ///
-  /// Some na conversa de um colega (não é o meu processo) e onde não
-  /// há hub nem escolha — um botão que abre uma lista vazia é um botão que não
-  /// faz nada.
+  /// Change MCP selection only for local idle conversations. Restarting preserves the transcript, while interrupting an active turn would lose its work. Hide controls without registry entries or existing selection.
   private paintMcp(info: Info) {
     const btn = this.box.querySelector<HTMLButtonElement>(".mcpbtn")!;
     if (info.task) { btn.hidden = true; return; }
@@ -1481,9 +1339,7 @@ export class ChatView {
     };
   }
 
-  /// Os plugins desta conversa, e o botão que os troca. Tudo o que vale para
-  /// o de MCP vale aqui — inclusive derrubar o processo para a próxima fala
-  /// subir com a lista nova.
+  /// Plugin selection shares MCP's ownership, idle-state, and next-prompt restart rules.
   private paintPlugins(info: Info) {
     const btn = this.box.querySelector<HTMLButtonElement>(".plugbtn")!;
     if (info.task) { btn.hidden = true; return; }
@@ -1517,14 +1373,14 @@ export class ChatView {
     };
   }
 
-  /// O botão "Comentar a seleção", que só existe com time e seleção.
+  /// Offer selection comments only when collaboration and selected text are available.
   private paintQuoteButton() {
     if (!this.key) return;
     const b = this.box.querySelector<HTMLElement>(".quotesel");
     if (b) b.hidden = !this.ctx.comment || !this.ctx.info().team || !this.selection().trim();
   }
 
-  /* ---------- comentários do time ancorados no transcript ---------- */
+  /* Team comments anchored to transcript pieces. */
 
   private paintCommentPins() {
     const ws = this.ctx.info().workspace;

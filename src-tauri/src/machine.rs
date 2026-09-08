@@ -1,20 +1,7 @@
-//! O que o app está custando à máquina.
-//!
-//! Um agente é um processo, um terminal do dock é outro, e cada um deles sobe
-//! os seus por baixo — o `npm run dev` da aba Run é um `npm` com um `node`
-//! dentro. Quem quer saber por que o ventilador ligou não quer a lista de
-//! todos eles: quer uma linha por conversa e por terminal, com a soma do que
-//! cada um arrastou consigo.
-//!
-//! Daí a árvore. Um `ps` por tique traz o mundo inteiro; daqui sai o mapa de
-//! pai para filhos, e cada raiz que o app conhece (ele mesmo, cada conversa,
-//! cada terminal) leva a soma da própria subárvore. A raiz do app desconta as
-//! outras, senão o Prometeu apareceria carregando os agentes que já estão
-//! logo abaixo dele na lista.
-//!
-//! CPU é a diferença entre dois tiques, e não o `%CPU` do `ps` — aquele é a
-//! média desde que o processo nasceu, e um agente que trabalhou muito faz uma
-//! hora aparece parado agora.
+//! Resource usage grouped by the app, conversations and dock terminals, including each process
+//! subtree. One `ps` snapshot per tick supplies parent-child relationships. The app total excludes
+//! separately listed agent and terminal roots. CPU comes from elapsed CPU time between ticks, not
+//! lifetime `%CPU` averages.
 
 use crate::lock::lock;
 use crate::AppState;
@@ -23,36 +10,31 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
-/// De quanto em quanto tempo se olha. Menos que isto é um `ps` por segundo
-/// para mexer um pixel de gráfico.
+/// Sampling interval; faster polling spends extra process launches on tiny chart changes.
 const TICK: Duration = Duration::from_secs(3);
-/// Quantos tiques a linha do gráfico guarda — uns dois minutos de história, que
-/// é o quanto se quer ver para saber se aquilo ali está subindo ou já passou.
+/// Keep roughly two minutes of CPU history.
 const HISTORY: usize = 40;
 
-/// Uma linha do painel: o app, uma conversa ou um terminal, com o que a
-/// subárvore dele soma.
+/// One resource row for the app, a conversation or a terminal and its process subtree.
 #[derive(Serialize, Clone, PartialEq)]
 pub struct Proc {
-    /// `app`, `chat` ou `term` — é o que escolhe o ícone.
+    /// `app`, `chat` or `term` selects the icon.
     pub kind: String,
-    /// O que a pessoa deu de nome: o título do workspace. Não passa pelo
-    /// catálogo porque não é tela — é o que ela escreveu.
+    /// The user-authored workspace title stays outside the translation catalog.
     pub name: String,
-    /// A segunda linha: o título da aba, numa conversa; a chave do dock
-    /// (`setup`, `run`, `term2`), num terminal — essa o front traduz, porque
-    /// aí sim é palavra de tela.
+    /// The tab title for chats, or the dock key for terminals. The frontend translates built-in
+    /// dock names.
     pub detail: String,
     pub rss: u64,
     pub cpu: f32,
-    /// O gráfico: as últimas leituras de CPU, a mais velha primeiro.
+    /// Recent CPU samples, oldest first.
     pub hist: Vec<f32>,
 }
 
-/// Uma porta de workspace servindo agora.
+/// A workspace port currently serving traffic.
 #[derive(Serialize, Clone, PartialEq)]
 pub struct Port {
-    /// O workspace, para o clique abrir o navegador nele.
+    /// The workspace whose browser opens when the port is selected.
     pub id: String,
     pub title: String,
     pub port: u16,
@@ -63,12 +45,12 @@ pub struct Machine {
     pub rss: u64,
     pub cpu: f32,
     pub procs: Vec<Proc>,
-    /// Terminais de pé, que é o número na faixa.
+    /// Live terminal count shown in the status bar.
     pub terms: usize,
     pub ports: Vec<Port>,
 }
 
-/// Uma raiz e o que o app sabe dizer dela.
+/// A process root and its display metadata.
 struct Root {
     pid: u32,
     kind: &'static str,
@@ -76,20 +58,17 @@ struct Root {
     detail: String,
 }
 
-/// O tempo de CPU e a história de cada raiz entre um tique e outro. Some
-/// quando o processo some — a lista das raízes é que manda.
+/// CPU totals and history for live roots. Removed processes leave the cache.
 #[derive(Default)]
 struct Memo {
-    /// Tempo de CPU acumulado da subárvore, em segundos, no último tique.
+    /// Cumulative subtree CPU time in seconds at the previous sample.
     time: HashMap<u32, f64>,
     hist: HashMap<u32, Vec<f32>>,
     last: Option<Instant>,
     sent: Machine,
 }
 
-/// A thread que olha. Uma só, do começo do app ao fim: parar e voltar a olhar
-/// conforme o painel abre e fecha custaria mais linhas do que o `ps` que ela
-/// roda.
+/// One sampler thread runs throughout the app lifetime, independent of panel visibility.
 pub fn watch(app: AppHandle) {
     std::thread::spawn(move || {
         let mut memo = Memo::default();
@@ -102,7 +81,7 @@ pub fn watch(app: AppHandle) {
     });
 }
 
-/// O que a tela pede ao abrir, antes do primeiro tique.
+/// The cached snapshot returned when the panel opens before the next sample.
 #[tauri::command]
 pub fn machine(state: tauri::State<AppState>) -> Machine {
     Machine {
@@ -112,8 +91,7 @@ pub fn machine(state: tauri::State<AppState>) -> Machine {
     }
 }
 
-/// Um tique. Devolve nada quando não há novidade — o `ps` falhou, ou tudo
-/// continua igual, e redesenhar a faixa para dizer o mesmo é trabalho à toa.
+/// Return a changed snapshot, or nothing if `ps` fails or the displayed state is unchanged.
 fn read(app: &AppHandle, memo: &mut Memo) -> Option<Machine> {
     let state = app.state::<AppState>();
     let table = snapshot()?;
@@ -124,8 +102,7 @@ fn read(app: &AppHandle, memo: &mut Memo) -> Option<Machine> {
     let mut procs = Vec::new();
     let mut time = HashMap::new();
     let mut hist = HashMap::new();
-    // O que as outras raízes carregam sai da conta do app: elas já aparecem
-    // como linha própria, logo abaixo.
+    // Exclude separately listed process roots from the app's resource total.
     let mine: Vec<(u64, f64)> = roots
         .iter()
         .filter(|r| r.kind != "app")
@@ -143,8 +120,7 @@ fn read(app: &AppHandle, memo: &mut Memo) -> Option<Machine> {
         if rss == 0 && secs == 0.0 {
             continue;
         }
-        // Sem tique anterior não há de onde tirar velocidade: a primeira
-        // leitura entra com zero e a segunda já é a de verdade.
+        // The first sample has no elapsed-time baseline, so CPU starts at zero.
         let cpu = match (memo.time.get(&root.pid), elapsed) {
             (Some(before), Some(gap)) if gap.as_secs_f64() > 0.0 => {
                 (((secs - before) / gap.as_secs_f64()) * 100.0).max(0.0) as f32
@@ -183,11 +159,11 @@ fn read(app: &AppHandle, memo: &mut Memo) -> Option<Machine> {
     })
 }
 
-/// O app, cada conversa de pé e cada terminal de pé. Conversa e terminal
-/// mortos ficam no mapa (é a rolagem deles que a aba mostra amanhã) mas não
-/// gastam nada: não entram.
+/// Include the app and live chats and terminals. Stopped entries retain scrollback but use no
+/// process resources. Clone the board before locking process maps to avoid reversing the chat
+/// lifecycle lock order.
 fn roots(state: &tauri::State<AppState>) -> Vec<Root> {
-    let board = lock(&state.board);
+    let board = lock(&state.board).clone();
     let title_of = |id: &str| {
         board
             .workspaces
@@ -206,8 +182,7 @@ fn roots(state: &tauri::State<AppState>) -> Vec<Root> {
         if !chat.alive() {
             continue;
         }
-        // Workspace e aba: "conversa 1a2b3c" não diz a ninguém de onde veio
-        // aquela memória.
+        // Use workspace and tab titles so resource rows identify the conversation.
         let named = board.workspaces.iter().find_map(|w| {
             let tab = w.tabs.iter().find(|t| &t.id == id)?;
             Some((w.title.clone(), tab.title.clone()))
@@ -239,9 +214,8 @@ fn alive_terms(state: &tauri::State<AppState>) -> usize {
     lock(&state.ptys).values().filter(|p| p.alive()).count()
 }
 
-/// As portas que estão servindo agora: a do Run de cada workspace com o script
-/// de pé. Não é uma varredura da máquina — é o que o app subiu, que é o que se
-/// quer abrir no navegador.
+/// Expose ports belonging to live Run scripts. This lists app-managed workspaces rather than
+/// scanning the machine.
 fn ports(state: &tauri::State<AppState>) -> Vec<Port> {
     let ptys = lock(&state.ptys);
     let board = lock(&state.board);
@@ -264,18 +238,18 @@ fn ports(state: &tauri::State<AppState>) -> Vec<Port> {
     ports
 }
 
-/* ---------- o `ps` ---------- */
+/* ---------- process snapshot ---------- */
 
-/// A árvore de processos da máquina, com o que cada um pesa.
+/// The process tree and each process's resource usage.
 struct Table {
     rss: HashMap<u32, u64>,
-    /// Tempo de CPU acumulado do processo, em segundos.
+    /// Cumulative process CPU time in seconds.
     time: HashMap<u32, f64>,
     kids: HashMap<u32, Vec<u32>>,
 }
 
 impl Table {
-    /// O que esta subárvore soma: o processo e tudo que ele subiu.
+    /// Sum this process and every descendant.
     fn sum(&self, pid: u32) -> (u64, f64) {
         let mut rss = *self.rss.get(&pid).unwrap_or(&0);
         let mut time = *self.time.get(&pid).unwrap_or(&0.0);
@@ -288,8 +262,7 @@ impl Table {
     }
 }
 
-/// Um `ps` de tudo, uma vez por tique. Perguntar processo por processo custaria
-/// um fork por conversa aberta.
+/// Read all processes in one `ps` invocation per tick instead of forking once per conversation.
 fn snapshot() -> Option<Table> {
     let out = std::process::Command::new("/bin/ps")
         .args(["-Ao", "pid=,ppid=,rss=,time="])
@@ -312,7 +285,7 @@ fn snapshot() -> Option<Table> {
         else {
             continue;
         };
-        // O `ps` do macOS dá RSS em KiB.
+        // macOS `ps` reports RSS in KiB.
         table.rss.insert(pid, rss * 1024);
         table.time.insert(pid, cpu_time(time));
         table.kids.entry(ppid).or_default().push(pid);
@@ -320,8 +293,8 @@ fn snapshot() -> Option<Table> {
     (!table.rss.is_empty()).then_some(table)
 }
 
-/// O `TIME` do `ps`: `MM:SS.cc`, ou `HH:MM:SS.cc` quando passa da hora. Vira
-/// segundos; o que não se entende vale zero, e o tique seguinte corrige.
+/// Parse `ps` TIME (`MM:SS.cc` or `HH:MM:SS.cc`) into seconds. Unknown formats yield zero until the
+/// next sample.
 fn cpu_time(text: &str) -> f64 {
     let parts: Vec<&str> = text.split(':').collect();
     let mut seconds = 0.0;
@@ -358,7 +331,7 @@ mod tests {
         assert_eq!(table.sum(9), (0, 0.0));
     }
 
-    /// Um `ps` de verdade tem que dar pelo menos o processo do próprio teste.
+    /// A real `ps` snapshot includes at least the current test process.
     #[test]
     fn o_ps_desta_maquina_traz_a_arvore() {
         let table = snapshot().expect("ps não respondeu");

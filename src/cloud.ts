@@ -1,4 +1,4 @@
-import { invoke } from "./ipc";
+import { invoke, type IpcResult } from "./ipc";
 import * as catalog from "./catalog";
 import { fromBack, t } from "./i18n";
 import { icon } from "./icons";
@@ -11,7 +11,7 @@ export type CloudStatus = {
   origin: string;
   offline: boolean;
 };
-type Login = { id: string; user_code: string; url: string; interval: number };
+type Login = IpcResult<"cloud_login_start">;
 let status: CloudStatus = { user: null, origin: "", offline: false };
 let changed = () => {};
 let fail = (_message: string) => {};
@@ -21,8 +21,8 @@ export const current = () => status;
 
 export function init(redraw: () => void, onError: (message: string) => void) {
   changed = redraw; fail = onError;
-  // O uso local não espera pela rede. Sem conta, nenhum pedido sai para o SaaS.
-  void invoke<CloudStatus>("cloud_status", { refresh: false }).then(value => {
+  // Local usage does not wait for the network. Without an account, no SaaS requests are sent.
+  void invoke("cloud_status", { refresh: false }).then(value => {
     status = value; changed(); void refresh();
   }).catch(error => fail(fromBack(error)));
   window.addEventListener("focus", () => void refresh());
@@ -32,7 +32,7 @@ export function init(redraw: () => void, onError: (message: string) => void) {
 async function refresh() {
   if (!status.user || refreshing) return;
   refreshing = true;
-  try { status = await invoke<CloudStatus>("cloud_status", { refresh: true }); changed(); await catalog.load(); }
+  try { status = await invoke("cloud_status", { refresh: true }); changed(); await catalog.load(); }
   catch (error) { fail(fromBack(error)); }
   finally { refreshing = false; }
 }
@@ -58,7 +58,7 @@ export function accountButton() {
       { label: t("cloud.refresh"), glyph: icon("rotate"), run: () => void refresh() },
       "sep",
       { label: t("cloud.logout"), run: () => {
-        void invoke<CloudStatus>("cloud_logout").then(value => { status = value; changed(); void catalog.load().catch(error => fail(fromBack(error))); }).catch(error => fail(fromBack(error)));
+        void invoke("cloud_logout").then(value => { status = value; changed(); void catalog.load().catch(error => fail(fromBack(error))); }).catch(error => fail(fromBack(error)));
       } },
     ], undefined, () => control.setAttribute("aria-expanded", "false"));
   }, "ghost");
@@ -100,7 +100,7 @@ function connect() {
     if (busy || closed || !attempt) return;
     busy = true;
     try {
-      const value = await invoke<CloudStatus | null>("cloud_login_poll", { id: attempt.id });
+      const value = await invoke("cloud_login_poll", { id: attempt.id });
       if (closed) return;
       if (value) { status = value; close(); void catalog.load().catch(cause => fail(fromBack(cause))); void refresh(); } else schedule();
     } catch (cause) {
@@ -111,7 +111,7 @@ function connect() {
     if (busy || closed) return;
     busy = true;
     try {
-      attempt = await invoke<Login>("cloud_login_start", { signup: true });
+      attempt = await invoke("cloud_login_start", { signup: true });
       if (closed) { void invoke("cloud_login_cancel", { id: attempt.id }).catch(() => {}); return; }
       progress.code = attempt.user_code; changed(); schedule();
     } catch (cause) { if (!closed) { close(); fail(fromBack(cause)); } }

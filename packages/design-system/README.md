@@ -78,6 +78,12 @@ Use `root` com `{ name, required, disabled }` para participar de um formulário
 nativo: o seletor preserva validação e dados de `FormData`. `control` permanece
 compatível com as telas antigas que leem `value` e enviam comandos próprios.
 
+`formDialog` returns `root` (the native dialog), `body`, `save` (the submit
+button), `open`, and `close`. Consumers can compose content and adjust labels or
+availability through these elements while the shared form owns validation,
+focus, busy state, and cancellation. A pending submit blocks Escape and cancel;
+a rejected submit keeps the dialog open and displays its error.
+
 As primitivas recebem texto, não templates HTML. Rótulos, ajuda e erros usam
 `textContent`. O slot `glyph` dos menus aceita somente SVG produzido pelo
 próprio código; nunca passe HTML de usuários. Componentes retornam elementos

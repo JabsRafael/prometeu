@@ -35,7 +35,7 @@ const {
   useTransport,
 } = await import("./team");
 
-/// O relay de mentira: guarda o que o app mandou e deixa o teste responder.
+/// A fake relay records outgoing frames and lets tests supply responses.
 class Relay {
   sent: Up[] = [];
   binaryType = "";
@@ -52,7 +52,7 @@ class Relay {
   says(frame: Down) {
     this.onmessage?.({ data: JSON.stringify(frame) });
   }
-  /// Só os frames de um tipo, na ordem em que saíram.
+  /// Return frames of one type in send order.
   only<T extends Up["t"]>(t: T) {
     return this.sent.filter((f): f is Extract<Up, { t: T }> => f.t === t);
   }
@@ -94,13 +94,13 @@ function workspace(id: string, shared: boolean): Workspace {
 
 const board = (...workspaces: Workspace[]): Board => ({ stages: [], projects: [], workspaces });
 
-/// Conecta e entrega o `welcome`, como o relay faz a cada conexão.
+/// Connect and deliver welcome as the relay does on every connection.
 function welcome() {
   relay.onopen?.();
   relay.says({ t: "welcome", comments: 1, you: config.member, members: [], shares: [], inbox: [], watching: {} });
 }
 
-/// A conexão cai e o app volta sozinho, com a espera crescente que ele usa.
+/// Reconnect after failure using the client's increasing backoff.
 function reconnect() {
   relay.onclose?.();
   vi.advanceTimersByTime(60_000);
@@ -145,8 +145,7 @@ describe("notas do time", () => {
     welcome();
     boardChanged(board(workspace("ws1", true)));
     notesOf("ws1");
-    // Parou de compartilhar: sai do quadro do relay, mas o cache de notas
-    // continua sabendo que já se perguntou por ele.
+    // Stopping a share removes its relay board entry while preserving the notes-cache lookup history.
     boardChanged(board(workspace("ws1", false)));
     relay.sent = [];
 

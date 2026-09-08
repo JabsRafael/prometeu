@@ -2,35 +2,23 @@ import { icon, fileIcon } from "./icons";
 import { invoke } from "./ipc";
 import * as menu from "./menu";
 
-/// O "@" da caixa de escrever: a lista dos arquivos e pastas do workspace, que
-/// encolhe a cada letra. É como se aponta um arquivo para o agente — tanto o
-/// Claude Code quanto o Codex leem "@app/models/user.rb" como o arquivo, e não
-/// como texto. Quem sabe o que existe é o back (`find_paths`), que pergunta ao
-/// git; aqui só se desenha a lista e se escreve o caminho escolhido.
-///
-/// No comentário o "@" é outro: ali ele marca um colega (ver `notes.ts`). O
-/// comentário usa uma caixa própria no painel lateral.
+/// Complete @file references in the composer using backend Git discovery. Both providers understand these paths; @mentions in the separate comments panel refer to people.
 
 export type PathEntry = { name: string; path: string; dir: boolean };
 
-/// O caminho que está sendo escrito: do "@" que começa palavra até o cursor,
-/// sem espaço no meio. "@app/mo" é um; "user@x" e "@app já" não são.
+/// Match a word-starting @ prefix up to the cursor; exclude email addresses and references already followed by a space.
 export function typing(text: string, cut: number): { from: number; query: string } | null {
   const m = /(?:^|\s)@(\S*)$/.exec(text.slice(0, cut));
   if (!m) return null;
   return { from: cut - m[1].length - 1, query: m[1] };
 }
 
-/// A lista aberta por aqui, se é daqui: o primeiro da lista é o que Enter e
-/// Tab escolhem.
+/// Enter and Tab select the first result from this module's menu.
 let picking: { first: () => void } | null = null;
-/// A última busca pedida. O back demora o que demorar, e a resposta de uma
-/// letra velha não pode passar por cima da lista da letra nova.
+/// Track the latest lookup so a slower old response cannot replace newer completion results.
 let asked = 0;
 
-/// A cada letra na caixa: a lista acompanha o "@…" — e some quando ele some.
-/// `recent` são os arquivos que o agente acabou de mexer, do último para o
-/// primeiro: entre dois que combinam igual, eles vêm na frente.
+/// Refresh @ completion as input changes, ranking recently accessed conversation files first among equal matches.
 export async function typed(area: HTMLTextAreaElement, id: string, recent: string[], onChange: () => void) {
   const at = typing(area.value, area.selectionStart);
   if (!at) return dismiss();
@@ -38,23 +26,19 @@ export async function typed(area: HTMLTextAreaElement, id: string, recent: strin
   const mine = ++asked;
   let list: PathEntry[] = [];
   try {
-    list = await invoke<PathEntry[]>("find_paths", { id, query: at.query, recent });
+    list = await invoke("find_paths", { id, query: at.query, recent });
   } catch {
     list = [];
   }
   if (mine !== asked) return;
-  // Enquanto o back respondia a caixa mudou: quem manda é o que está escrito
-  // agora, e a lista de antes não fala dele.
+  // Discard results when the composer changed while the backend was responding.
   const now = typing(area.value, area.selectionStart);
   if (!now || now.query !== at.query) return;
   if (!list.length) return dismiss();
 
   const put = (entry: PathEntry) => {
     picking = null;
-    // O "@app/mo" que a pessoa digitou é o começo deste caminho, não texto a
-    // mais: o caminho inteiro entra no lugar dele. Pasta termina em barra e
-    // sem espaço, e a lista reabre com o que tem dentro; arquivo ganha o
-    // espaço do que vem depois.
+    // Replace the typed prefix. Directories retain a trailing slash and reopen completion; files append a space.
     const cut = area.selectionStart;
     const from = typing(area.value, cut)?.from ?? cut;
     const tail = entry.dir ? "/" : " ";
@@ -78,8 +62,7 @@ export async function typed(area: HTMLTextAreaElement, id: string, recent: strin
   picking = { first: () => put(list[0]) };
 }
 
-/// Enter ou Tab com a lista aberta escrevem o primeiro caminho em vez de
-/// mandar a fala. Diz se foi isso que aconteceu.
+/// Enter or Tab inserts the first path instead of submitting the prompt; return whether completion handled the key.
 export function accept(): boolean {
   if (!picking || !menu.isOpen()) return false;
   menu.close();
@@ -87,19 +70,13 @@ export function accept(): boolean {
   return true;
 }
 
-/// Fecha a lista, se é a daqui que está aberta.
+/// Close only this module's completion menu.
 export function dismiss() {
   if (picking && menu.isOpen()) menu.close();
   picking = null;
 }
 
-/// Os arquivos anexados à fala viram menção `@caminho` na frente dela — é
-/// como o lançador já manda o que se anexa à primeira fala (`first_message`,
-/// no `session.rs`), e é o que o Claude Code e o Codex leem como arquivo.
-/// O que está dentro do workspace vira caminho relativo, que é como o agente
-/// chama os arquivos dele; o de fora entra inteiro. Caminho com espaço vai
-/// entre aspas: a menção crua acabaria no meio do nome, e a barra invertida
-/// não é desfeita.
+/// Prepend attachments as @path references, matching the launcher's first-message behavior. Use workspace-relative paths for internal files, absolute paths otherwise, and quote paths containing spaces.
 export function mentions(picked: string[], root: string | null): string {
   return picked
     .filter(Boolean)
@@ -107,8 +84,7 @@ export function mentions(picked: string[], root: string | null): string {
     .join(" ");
 }
 
-/// O caminho como o agente o chama: relativo ao worktree quando está dentro
-/// dele, inteiro quando é de outro canto do Mac.
+/// Use the path relative to the worktree when possible; retain absolute paths outside it.
 export function short(path: string, root: string | null): string {
   const base = root?.replace(/\/+$/, "");
   return base && path.startsWith(`${base}/`) ? path.slice(base.length + 1) : path;

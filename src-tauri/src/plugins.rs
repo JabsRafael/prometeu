@@ -1,49 +1,10 @@
-//! O hub de plugins: quais plugins esta máquina conhece, e quais entram nas
-//! conversas de cada workspace, no Claude Code e no Codex.
-//!
-//! Um plugin é um pacote de skill, comando, agente e — o que só ele faz —
-//! *hook*: o pedaço de código que o CLI roda antes de cada fala, ao abrir a
-//! sessão, depois de cada ferramenta. É o que segura um jeito de trabalhar
-//! turno após turno, em vez de depender de a instrução antiga continuar
-//! ganhando a atenção do modelo (o caveman é o exemplo: sem o hook de
-//! `UserPromptSubmit` reinjetando a regra, ela se dissolve na conversa).
-//!
-//! Até aqui quem decidia isso era o CLI, e só ele: plugin de escopo `user`
-//! entra em toda sessão, em todo workspace, sempre; plugin de escopo de
-//! projeto nunca entra, porque o worktree que o Prometeu cria é um caminho
-//! que o cadastro do CLI não conhece. Nenhum dos dois é o que se quer — o
-//! plugin de revisão de front não tem o que fazer num workspace de Rails, e o
-//! que o time combinou para um repositório tem que valer no worktree dele.
-//!
-//! O hub é a lista de plugins que o Prometeu guarda, e a escolha é do
-//! workspace — como o modelo, o esforço e o MCP já são. O Claude recebe cada
-//! escolhido diretamente por `--plugin-dir` ou `--plugin-url`; são flags de
-//! sessão, sem alterar o cadastro do CLI. O Codex exige instalação no cache
-//! próprio: o adapter monta um marketplace local a partir deste mesmo hub e
-//! usa um `CODEX_HOME` derivado por workspace. Só o `config.toml` é isolado;
-//! autenticação, sessões, skills e cache continuam apontando para o home real.
-//! É o que mantém a escolha dentro do workspace sem reescrever a configuração
-//! global da pessoa.
-//!
-//! `None` é workspace que nunca escolheu — todo quadro gravado antes disto
-//! existir —, e aí nada é passado: vale o que cada CLI sempre fez.
-//!
-//! Instalar é daqui, e não de fora. `plugin_install` recebe o endereço de um
-//! repositório — `github.com/JuliusBrussee/caveman`, ou só o
-//! `JuliusBrussee/caveman` —, clona em `~/.prometeu/plugins/` e cadastra o
-//! que veio dentro: o próprio repositório, quando ele é o plugin, ou os
-//! plugins que o `marketplace.json` dele lista. Depois é `plugin_update`, que
-//! é o `git pull` da mesma pasta. Ninguém precisa instalar nada no CLI antes —
-//! era isso que fazia o plugin ser um assunto de fora do app.
-//!
-//! `plugin_make` é o outro caminho, para o plugin que ainda não existe: um
-//! agente de uma pergunta só escreve o manifesto, as skills e os hooks numa
-//! pasta do mesmo lugar.
-//!
-//! Cadastrar à mão continua existindo, para o plugin que alguém escreve num
-//! repositório seu: aí a origem é a pasta dele, e quem a atualiza é quem a
-//! escreve.
-//!
+//! The plugin hub stores packages and workspace selections for Claude and Codex. Plugins can
+//! provide skills, commands, agents, and hooks that maintain behavior across turns. Claude receives
+//! session flags; Codex receives a derived workspace home and local marketplace while preserving
+//! shared account data. None leaves CLI defaults intact. Installation clones repositories and
+//! imports root plugins or marketplace entries; updates use the same clone. Creation generates a
+//! package in application-owned storage. Manually registered directories remain owned by the person
+//! who created them.
 use crate::i18n;
 use crate::lock::lock;
 use crate::paths;
@@ -58,31 +19,27 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
-/// Um plugin como o hub o guarda.
+/// A persisted hub plugin.
 #[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 pub struct Plugin {
-    /// O nome do plugin — o mesmo que está no `plugin.json` dele, que é o que
-    /// o CLI usa para deduplicar e o que a pessoa lê na lista.
+    /// The manifest name is the CLI's deduplication identity and the displayed plugin name.
     pub id: String,
-    /// De onde ele sai: o caminho de uma pasta (ou de um `.zip`) nesta
-    /// máquina, ou a URL de um `.zip`. É o que vira flag na linha de comando.
+    /// A local directory or ZIP path, or a remote ZIP URL, translated into provider configuration.
     pub source: String,
-    /// De onde veio, ou para que serve. Livre — é a linha embaixo do nome.
+    /// Free-form source or purpose displayed below the name.
     #[serde(default)]
     pub note: String,
-    /// Se a pasta dele é do Prometeu — quer dizer, se o app a clonou ou a
-    /// escreveu. É o que decide se remover apaga arquivo ou só tira da lista:
-    /// pasta que alguém escreveu não é do app para apagar.
+    /// Only application-created or cloned directories may be deleted on removal. Manually
+    /// registered directories remain user-owned.
     #[serde(default)]
     pub made: bool,
-    /// O endereço de onde ele veio, quando veio de um. É o que a lista mostra
-    /// embaixo do nome e o que dá sentido ao botão de atualizar.
+    /// The original repository address supplies the displayed source and update target.
     #[serde(default)]
     pub from: String,
 }
 
-/// Onde o cadastro mora. Sem segredo dentro (é caminho e URL), mas fica
-/// privado como o resto do `~/.prometeu`.
+/// Keep the path-and-URL registry private alongside other application state, even though it
+/// contains no credentials.
 fn hub_path() -> PathBuf {
     paths::root().join("plugins.json")
 }
@@ -100,16 +57,14 @@ pub(crate) fn write_hub(plugins: &[Plugin]) -> Result<(), String> {
         .map_err(|cause| i18n::ta("err.plugin.save", &[("cause", cause)]))
 }
 
-/// O cadastro inteiro, para a tela de Configurações e para os seletores.
+/// Expose the complete registry to settings and selectors.
 #[tauri::command(async)]
 pub fn plugin_hub() -> Vec<Plugin> {
     let _sync = crate::catalog::guard();
     load()
 }
 
-/// Grava um plugin — novo, ou por cima do que tinha o mesmo nome. O nome é a
-/// identidade: é por ele que o CLI deduplica, e dois plugins com o mesmo nome
-/// numa sessão seriam um só de qualquer jeito.
+/// Save or replace a plugin by name, matching the CLI's own deduplication identity.
 #[tauri::command(async)]
 pub fn plugin_save(
     app: AppHandle,
@@ -122,7 +77,7 @@ pub fn plugin_save(
         return Err(i18n::t("err.plugin.noName"));
     }
     check_source(&plugin.source)?;
-    // Apenas itens explicitamente compartilhados publicam as alterações.
+    // Publish changes only for explicitly shared items.
     crate::catalog::save_plugin(&app, &plugin, revision)?;
     save_local(plugin)
 }
@@ -137,7 +92,7 @@ fn trim(plugin: Plugin) -> Plugin {
     }
 }
 
-/// Grava só neste Mac: o que o back mesmo instala ou atualiza, e os testes.
+/// Save local installation, update, and test changes without publishing them.
 pub(crate) fn save_local(plugin: Plugin) -> Result<Vec<Plugin>, String> {
     let plugin = Plugin {
         id: plugin.id.trim().to_string(),
@@ -160,10 +115,8 @@ pub(crate) fn save_local(plugin: Plugin) -> Result<Vec<Plugin>, String> {
     Ok(plugins)
 }
 
-/// Tira do cadastro — e apaga a pasta, se ela for a que o Prometeu criou:
-/// ela só existe por causa deste cadastro, e deixá-la seria guardar no escuro
-/// o que a tela já não mostra. Plugin cadastrado à mão só sai da lista; a
-/// pasta é de quem a escreveu.
+/// Remove the registry entry and delete its directory only when the app owns it. Manually
+/// registered directories remain untouched.
 #[tauri::command(async)]
 pub fn plugin_remove(app: AppHandle, id: String) -> Result<Vec<Plugin>, String> {
     let _sync = crate::catalog::guard();
@@ -177,8 +130,7 @@ pub(crate) fn remove_hub(id: &str) -> Result<Vec<Plugin>, String> {
     Ok(plugins)
 }
 
-/// Tira da lista deste Mac e apaga a pasta que o Prometeu criou. Quem grava o
-/// hub é quem chama.
+/// Remove this Mac's registration and any application-owned directory; the caller persists the hub.
 pub(crate) fn remove_local(mut plugins: Vec<Plugin>, id: &str) -> Vec<Plugin> {
     let mut removed = false;
     if let Some(gone) = plugins.iter().find(|p| p.id == id) {
@@ -195,10 +147,8 @@ pub(crate) fn remove_local(mut plugins: Vec<Plugin>, id: &str) -> Vec<Plugin> {
     plugins
 }
 
-/// O que uma origem tem que ser para o CLI aceitá-la. Recusar aqui é o que
-/// evita a conversa subir sem o plugin e ninguém saber por quê: o
-/// `--plugin-dir` de uma pasta que não é plugin some num aviso do CLI que a
-/// tela não mostra.
+/// Reject sources the CLI cannot load before starting a session that would silently omit the
+/// selected plugin.
 fn check_source(source: &str) -> Result<(), String> {
     if source.is_empty() {
         return Err(i18n::t("err.plugin.noSource"));
@@ -213,8 +163,7 @@ fn check_source(source: &str) -> Result<(), String> {
             &[("path", path.display().to_string())],
         ));
     }
-    // Um `.zip` o CLI abre sozinho; uma pasta tem que ser um plugin, e o que
-    // diz isso é o manifesto.
+    // The CLI opens ZIP sources directly; directories require a plugin manifest.
     if path.is_dir() && !manifest_path(&path).exists() {
         return Err(i18n::ta(
             "err.plugin.notPlugin",
@@ -224,15 +173,8 @@ fn check_source(source: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// O que o Prometeu consegue ler de uma origem antes de gravá-la: o nome e a
-/// descrição que o próprio plugin declara. É o que preenche o formulário
-/// sozinho — ninguém tem que copiar à mão um nome que já está escrito no
-/// disco.
-///
-/// Origem que não é pasta (um `.zip` daqui, uma URL) não tem manifesto para
-/// ler sem baixar: o nome sai do nome do arquivo, e a pessoa corrige se
-/// quiser. Origem inválida devolve erro — é o mesmo exame do `plugin_save`,
-/// só que antes.
+/// Read a directory's manifest to prefill its name and description. For ZIP paths or URLs, suggest
+/// the filename without downloading it. Apply the same source validation used during saving.
 #[tauri::command]
 pub fn plugin_look(source: String) -> Result<Plugin, String> {
     let source = source.trim().to_string();
@@ -262,8 +204,7 @@ pub fn plugin_look(source: String) -> Result<Plugin, String> {
     })
 }
 
-/// O nome de um `.zip` (daqui ou da rede) sem a extensão. Palpite, e só: quem
-/// manda é o `plugin.json` de dentro, que só o CLI vai ler.
+/// Suggest a ZIP filename without its extension; the enclosed manifest remains authoritative.
 fn guessed_name(source: &str) -> String {
     source
         .rsplit(['/', '\\'])
@@ -273,11 +214,8 @@ fn guessed_name(source: &str) -> String {
         .to_string()
 }
 
-/// As flags desta sessão: um par por plugin escolhido que o hub ainda tem.
-/// Plugin apagado do hub depois de escolhido some da sessão em vez de
-/// derrubá-la — a mesma regra do MCP, e pelo mesmo motivo.
-///
-/// `None` é workspace que nunca escolheu, e aí nada é passado.
+/// Generate flags for selected IDs still present in the hub, skipping deleted entries for
+/// compatibility. None leaves CLI defaults intact.
 pub fn args_for(chosen: Option<&Vec<String>>) -> Vec<String> {
     match chosen {
         Some(chosen) => args_from(&load(), chosen),
@@ -285,8 +223,7 @@ pub fn args_for(chosen: Option<&Vec<String>>) -> Vec<String> {
     }
 }
 
-/// A tradução em si, com o hub na mão — parâmetro, e não chamada direta, para
-/// o teste dela não depender de arquivo nenhum.
+/// Inject the hub contents so flag translation tests do not require filesystem state.
 fn args_from(hub: &[Plugin], chosen: &[String]) -> Vec<String> {
     chosen
         .iter()
@@ -295,9 +232,8 @@ fn args_from(hub: &[Plugin], chosen: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// A flag de um plugin. `--plugin-url` para o que está na rede,
-/// `--plugin-dir` para o que está no disco — e o `~` vira caminho aqui, e não
-/// no cadastro: quem digitou `~/plugins/x` quis dizer a casa desta máquina.
+/// Use plugin-url for remote sources and plugin-dir for local ones. Expand tilde at launch time
+/// using this machine's home without rewriting the stored source.
 fn flags(plugin: &Plugin) -> [String; 2] {
     let source = plugin.source.trim();
     if remote(source) {
@@ -326,12 +262,11 @@ fn expand(source: &str) -> String {
     }
 }
 
-/* ---------- adaptar o mesmo hub para o Codex ---------- */
+/* Codex adaptation */
 
-/// O que o adapter entrega ao processo do Codex. `home` isola a camada de
-/// configuração do workspace; `ids` deixa o handshake confiar apenas nos
-/// hooks que a pessoa acabou de escolher. `hook_ids` distingue os pacotes que
-/// declararam hooks: a thread não pode nascer se o Codex não os descobrir.
+/// Return the derived home, selected canonical plugin IDs, and the subset declaring hooks. The
+/// handshake may trust only selected IDs and must discover every required hook before opening the
+/// thread.
 pub struct CodexPlugins {
     pub home: Option<PathBuf>,
     pub ids: Vec<String>,
@@ -351,8 +286,8 @@ struct InstalledPlugin {
     version: String,
 }
 
-/// Namespace próprio: o cache do Codex é global, portanto uma instalação do
-/// Prometeu nunca pode colidir com um marketplace que a pessoa cadastrou.
+/// Use a reserved marketplace namespace because Codex's shared cache must not collide with
+/// user-registered marketplaces.
 fn codex_marketplace_name() -> &'static str {
     if cfg!(debug_assertions) {
         "prometeu-dev"
@@ -361,8 +296,8 @@ fn codex_marketplace_name() -> &'static str {
     }
 }
 
-/// Também entra no cachebuster. Mudança na adaptação do pacote precisa
-/// reinstalar plugins já preparados mesmo quando a origem não mudou.
+/// Include the adapter revision in cache versions so corrected materialization reinstalls unchanged
+/// upstream packages.
 const CODEX_PACKAGE_REVISION: &str = "2";
 
 fn codex_workspaces_root() -> PathBuf {
@@ -373,18 +308,15 @@ fn codex_marketplace_root(home: &Path) -> PathBuf {
     home.join("marketplace")
 }
 
-/// O ID persistido, e não o cwd, é a identidade correta: dois workspaces sem
-/// worktree podem usar o mesmo clone com seleções diferentes. O hash não
-/// depende do UUID efêmero de uma conversa e não usa dado externo como nome de
-/// pasta.
+/// Derive the home from the persisted workspace ID, not cwd or an ephemeral tab ID. Workspaces
+/// sharing a clone can still have different selections.
 fn codex_workspace_home(workspace: &str) -> PathBuf {
     let fingerprint = format!("{:x}", Sha256::digest(workspace.as_bytes()));
     codex_workspaces_root().join(&fingerprint[..24])
 }
 
-/// A camada não é transcript nem trabalho do usuário. Quando o workspace sai
-/// de vez, ela pode sair junto; os payloads instalados continuam no cache
-/// compartilhado e qualquer workspace restante mantém sua própria config.
+/// Remove this disposable configuration with its workspace. Shared installed payloads and other
+/// workspaces' configurations remain available.
 pub fn forget_codex_workspace(workspace: &str) {
     let root = codex_workspaces_root();
     let home = codex_workspace_home(workspace);
@@ -397,9 +329,8 @@ fn remove_codex_home(root: &Path, home: &Path) {
     }
 }
 
-/// Traduz a seleção para um marketplace e um `CODEX_HOME` próprios do
-/// workspace. O lock cobre materialização, config e cache compartilhado: duas
-/// abas podem abrir juntas sem instalar a mesma versão pela metade.
+/// Serialize marketplace materialization, configuration, and shared-cache installation so
+/// simultaneous tabs cannot observe a partial plugin version.
 pub fn codex_for(
     workspace: &str,
     chosen: Option<&Vec<String>>,
@@ -422,8 +353,8 @@ pub fn codex_for(
 
     static PREPARE: OnceLock<Mutex<()>> = OnceLock::new();
     let _guard = lock(PREPARE.get_or_init(|| Mutex::new(())));
-    // O turno antigo pode continuar enquanto outra aba já usa a conta nova.
-    // Nunca repontar os links de autenticação de um processo ainda vivo.
+    // Keep separate account homes so new account selections cannot redirect authentication links
+    // used by running processes.
     let home = if profile.managed {
         codex_workspace_home(workspace).join(&profile.id)
     } else {
@@ -462,9 +393,8 @@ pub fn codex_for(
             }
         }
     }
-    // `codex plugin add` escreve `enabled = true`. Refazer a camada derivada
-    // depois das instalações restaura a seleção exata e preserva a confiança
-    // de hooks que uma sessão anterior gravou neste mesmo workspace.
+    // Rebuild derived configuration after codex plugin add enables entries, restoring the exact
+    // selection and preserving previously trusted workspace hook hashes.
     write_codex_config(base, &home, &marketplace, &ids)?;
     Ok(CodexPlugins {
         home: Some(home),
@@ -473,10 +403,8 @@ pub fn codex_for(
     })
 }
 
-/// Monta um home que se comporta como o home real em tudo salvo a camada de
-/// configuração. Links mantêm login, rollouts, skills e bancos no lugar que o
-/// Codex já usa; `config.toml` e o marketplace são descartáveis e pertencem ao
-/// Prometeu.
+/// Share native login, rollouts, skills, and databases through links. Only configuration and
+/// marketplace contents are disposable application-owned data.
 fn prepare_codex_home(
     base: &Path,
     home: &Path,
@@ -501,10 +429,8 @@ fn prepare_codex_home(
     write_codex_config(base, home, marketplace, selected)
 }
 
-/// Espelha todas as entradas conhecidas e futuras do Codex, exceto os
-/// arquivos que podem ser escritos pelo editor de configuração. Uma entrada
-/// material que o próprio Codex já tenha criado nesse home é preservada; só um
-/// link antigo para outro home pode ser trocado.
+/// Mirror existing and future Codex entries except writable configuration files. Preserve real
+/// entries already created in the derived home; replace only obsolete links to another home.
 fn mirror_codex_home(base: &Path, home: &Path) -> Result<(), String> {
     let entries = std::fs::read_dir(base)
         .map_err(|error| i18n::ta("err.plugin.codex.config", &[("cause", error.to_string())]))?;
@@ -589,18 +515,16 @@ fn prometeu_plugin(id: &str) -> bool {
         .is_some_and(|(_, marketplace)| matches!(marketplace, "prometeu" | "prometeu-dev"))
 }
 
-/// Reconstrói a config derivada a partir da config real mais o pequeno estado
-/// próprio do workspace. O estado de hooks e opções do plugin sobrevive; toda
-/// entrada Prometeu começa desligada e só a seleção atual é ligada.
+/// Rebuild derived configuration from the real home plus retained workspace hook and plugin
+/// settings. Disable all reserved marketplace entries before enabling only the current selection.
 fn write_codex_config(
     base: &Path,
     home: &Path,
     marketplace: &Path,
     selected: &[String],
 ) -> Result<(), String> {
-    // Esta camada é cache. Uma versão do app-server que tenha deixado TOML
-    // incompleto não pode tornar o workspace impossível de abrir: nesse caso
-    // ela renasce da config real e os hooks pedem confiança outra vez.
+    // Treat malformed derived TOML as disposable cache. Rebuild from real configuration and request
+    // hook trust again instead of permanently blocking the workspace.
     let previous = read_toml(&home.join("config.toml"))
         .unwrap_or_else(|_| toml::Value::Table(toml::map::Map::new()));
     let previous_hook_state = previous
@@ -623,10 +547,8 @@ fn write_codex_config(
     }
     let root = config.as_table_mut().expect("checked above");
 
-    // O modo padrão já é `file`. Fixá-lo no home derivado também cobre `auto`:
-    // um refresh precisa atravessar o symlink de auth.json, em vez de criar
-    // uma credencial de keychain separada para cada workspace. Uma escolha
-    // explícita por keyring/ephemeral continua sendo respeitada.
+    // Pin default and auto credential storage to file so refresh uses the shared auth.json link.
+    // Respect explicit keyring or ephemeral settings.
     let auth_store = root
         .get("cli_auth_credentials_store")
         .and_then(toml::Value::as_str);
@@ -680,9 +602,8 @@ fn write_codex_config(
         .map_err(|cause| i18n::ta("err.plugin.codex.config", &[("cause", cause)]))
 }
 
-/// Faz uma cópia que o Codex pode versionar sem tocar no plugin do Claude. A
-/// versão ganha o hash da origem: atualizar um repositório que esqueceu de
-/// subir a própria versão ainda produz outra entrada de cache.
+/// Copy packages without modifying their Claude sources. Add a content hash to the derived version
+/// so upstream changes invalidate cache even without a version bump.
 fn prepare_marketplace(
     root: &Path,
     marketplace: &str,
@@ -765,10 +686,9 @@ fn codex_package_fingerprint(root: &Path) -> Result<String, String> {
     Ok(format!("{:x}", hash.finalize()))
 }
 
-/// Manifesto que nomeia hooks assume que eles fazem parte do comportamento do
-/// pacote, mesmo se o caminho estiver quebrado: nesse caso o handshake precisa
-/// recusar a sessão, não reinterpretar o plugin como uma coleção de skills.
-/// Sem campo explícito, vale a convenção nativa `hooks/hooks.json`.
+/// A declared hook remains required even when its path is broken; fail startup rather than treating
+/// the package as skills only. Without an explicit field, check the native hooks/hooks.json
+/// convention.
 fn plugin_has_hooks(root: &Path) -> bool {
     let declared = read_json(&root.join(".codex-plugin").join("plugin.json"))
         .and_then(|manifest| manifest.get("hooks").cloned());
@@ -902,9 +822,8 @@ fn copy_tree(source: &Path, target: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// O manifesto do Codex é um overlay do manifesto compatível com Claude. Se o
-/// pacote já traz os dois, campos nativos ganham; se traz só o de Claude, a
-/// cópia recebe o mínimo nativo sem alterar a origem.
+/// Overlay native Codex manifest fields onto the compatible Claude manifest. Generate missing
+/// native fields only in the derived copy.
 fn write_portable_manifest(root: &Path, id: &str, version: &str) -> Result<(), String> {
     let claude = read_json(&manifest_path(root));
     let native_path = root.join(".codex-plugin").join("plugin.json");
@@ -912,9 +831,8 @@ fn write_portable_manifest(root: &Path, id: &str, version: &str) -> Result<(), S
     let mut merged = serde_json::Map::new();
     if let Some(fields) = claude.as_ref().and_then(Value::as_object) {
         for (key, value) in fields {
-            // No manifesto Claude, o objeto inline já é o mapa de eventos. O
-            // manifesto Codex recebe um `HooksFile` completo, cujo mapa fica
-            // dentro de `hooks`. Caminho em string é idêntico nos dois.
+            // Wrap Claude's inline event map in Codex's HooksFile envelope. String paths use the
+            // same representation in both formats.
             let value = if key == "hooks" {
                 codex_hooks(value)
             } else {
@@ -925,7 +843,7 @@ fn write_portable_manifest(root: &Path, id: &str, version: &str) -> Result<(), S
     }
     if let Some(fields) = native.as_ref().and_then(Value::as_object) {
         for (key, value) in fields {
-            // Um overlay nativo já está na forma que o Codex espera.
+            // An explicit native overlay already has the required Codex shape.
             merged.insert(key.clone(), value.clone());
         }
     }
@@ -1069,9 +987,8 @@ fn remove_marketplace_entry(home: &Path, id: &str) {
     }
 }
 
-/// Remove a instalação compartilhada e apaga a referência em cada camada
-/// derivada. Falhas são best effort: o item já saiu do hub, e o próximo spawn
-/// reconstrói a configuração sem ele.
+/// Best-effort removal clears the shared installation and references in derived homes. Later
+/// startup rebuilds configuration from the updated hub if cleanup fails.
 fn codex_remove_everywhere(canonical: &str) {
     let id = canonical.split_once('@').map_or(canonical, |(id, _)| id);
     for home in codex_homes_at(&codex_workspaces_root()) {
@@ -1103,12 +1020,10 @@ fn codex_homes_at(root: &Path) -> Vec<PathBuf> {
     homes
 }
 
-/* ---------- instalar o que já existe ---------- */
+/* Installation */
 
-/// O que um endereço trouxe: a pasta que o clone ocupa, e os plugins que
-/// vieram dentro dela. Um só é o caso comum — o repositório *é* o plugin, e ele
-/// já entra no hub aqui mesmo (`saved`). Mais de um é um marketplace, e aí
-/// quem escolhe é quem instalou; até escolher, nada foi cadastrado.
+/// Report the clone path and discovered plugins. Automatically register a single plugin; a
+/// marketplace requires explicit selection before registration.
 #[derive(serde::Serialize)]
 pub struct Found {
     pub dir: String,
@@ -1116,9 +1031,7 @@ pub struct Found {
     pub saved: bool,
 }
 
-/// Instala: clona o repositório numa pasta do Prometeu e olha o que veio.
-/// É `async` porque clonar leva segundos, e a janela não pode parar enquanto
-/// isso acontece.
+/// Clone and inspect asynchronously so repository downloads do not block the window.
 #[tauri::command(async)]
 pub fn plugin_install(source: String) -> Result<Found, String> {
     let _sync = crate::catalog::guard();
@@ -1136,9 +1049,8 @@ fn install_into(source: String, register: bool) -> Result<Found, String> {
     }
     let dir = store().join(repo_name(&url));
     if dir.exists() {
-        // Pasta ocupada: se algum plugin do hub mora nela, o que se quer é
-        // atualizar, e não instalar de novo. Se não mora ninguém, é sobra de
-        // uma escolha que ninguém terminou, e pode sair da frente.
+        // An occupied clone used by hub entries requires updating. An unused clone left by an
+        // abandoned selection may be replaced.
         if lives_in(&dir) {
             return Err(i18n::ta("err.plugin.exists", &[("name", repo_name(&url))]));
         }
@@ -1152,7 +1064,7 @@ fn install_into(source: String, register: bool) -> Result<Found, String> {
         std::fs::remove_dir_all(&dir).ok();
         return Err(i18n::ta("err.plugin.noPluginIn", &[("url", url)]));
     }
-    // Um plugin só não é escolha: instalar já é dizer que se quer aquele.
+    // Installing a repository containing one plugin already selects that plugin.
     let saved = plugins.len() == 1;
     if saved && register {
         if load().iter().any(|p| p.id == plugins[0].id) {
@@ -1167,7 +1079,7 @@ fn install_into(source: String, register: bool) -> Result<Found, String> {
     })
 }
 
-/// Instala somente o item escolhido do catálogo, preservando nomes locais.
+/// Install only the selected catalog item while preserving local names.
 pub(crate) fn install_catalog(
     source: &str,
     expected_id: &str,
@@ -1184,7 +1096,7 @@ pub(crate) fn install_catalog(
         })
         .map(|_| ());
     }
-    // Um clone já usado por outro item do mesmo catálogo pode ser reutilizado.
+    // Reuse an existing clone belonging to another item in the same catalog.
     let dir = store().join(repo_name(&git_url(source)));
     let candidates = if dir.exists() && lives_in(&dir) {
         let root = git_root(&dir).ok_or_else(|| i18n::t("err.catalog.conflict"))?;
@@ -1212,13 +1124,13 @@ pub(crate) fn install_catalog(
         .ok_or_else(|| i18n::t("err.catalog.invalid"))?;
     plugin.id = local_id.into();
     plugin.note = note.into();
-    // A pasta pode conter outros plugins. Remover o cadastro não apaga o clone.
+    // The clone may contain other plugins, so removing this entry must not delete it.
     plugin.made = false;
     save_local(plugin).map(|_| ())
 }
 
-/// Desfaz o clone que ninguém escolheu — a folha fechada sem marcar nada. Só
-/// apaga dentro da pasta do Prometeu, e só o que não está no hub.
+/// Discard abandoned selection clones only inside application-owned storage and only when no hub
+/// entry uses them.
 #[tauri::command]
 pub fn plugin_scrap(dir: String) {
     let dir = PathBuf::from(expand(&dir));
@@ -1227,10 +1139,8 @@ pub fn plugin_scrap(dir: String) {
     }
 }
 
-/// Atualizar é o `git pull` da pasta que o Prometeu clonou, e só
-/// `--ff-only`: se alguém mexeu no plugin à mão, o certo é dizer que não deu,
-/// e não desmanchar o que a pessoa escreveu. A descrição é relida depois — é
-/// dela que sai a linha embaixo do nome, e ela envelhece junto com o plugin.
+/// Update application-owned clones with git pull --ff-only, preserving manual edits on divergence.
+/// Reread manifest descriptions after updates.
 #[tauri::command(async)]
 pub fn plugin_update(id: String) -> Result<Vec<Plugin>, String> {
     let _sync = crate::catalog::guard();
@@ -1254,18 +1164,15 @@ pub fn plugin_update(id: String) -> Result<Vec<Plugin>, String> {
     Ok(load())
 }
 
-/// Algum plugin do hub mora nesta pasta?
+/// Check whether any hub plugin uses this clone directory.
 fn lives_in(dir: &Path) -> bool {
     load()
         .iter()
         .any(|p| PathBuf::from(expand(&p.source)).starts_with(dir))
 }
 
-/// O que a pessoa cola virando endereço de clone. `owner/repo` é GitHub,
-/// porque é de lá que vem quase todo plugin; o resto vai como veio, e é assim
-/// que GitLab, Bitbucket e `git@…` funcionam sem o app saber deles. O
-/// `/tree/branch` que o navegador põe na barra some: o que se clona é o
-/// repositório.
+/// Expand owner/repo as GitHub shorthand and remove browser tree/branch suffixes. Preserve other
+/// Git URLs for GitLab, Bitbucket, and SSH transports.
 fn git_url(source: &str) -> String {
     let mut text = source.trim().trim_end_matches('/');
     if let Some(cut) = text.find("/tree/") {
@@ -1279,7 +1186,7 @@ fn git_url(source: &str) -> String {
         return text.to_string();
     }
     let path = bare.strip_prefix("github.com/").unwrap_or(bare);
-    // `owner/repo`, e nada mais: qualquer outra coisa não é endereço nenhum.
+    // Accept only the exact owner/repo shorthand shape.
     let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
     match parts.as_slice() {
         [owner, repo] => format!("https://github.com/{owner}/{repo}"),
@@ -1287,7 +1194,7 @@ fn git_url(source: &str) -> String {
     }
 }
 
-/// O nome da pasta que o clone vai ocupar: o do repositório.
+/// Use the repository name for its clone directory.
 fn repo_name(url: &str) -> String {
     let name = url
         .trim_end_matches('/')
@@ -1298,9 +1205,8 @@ fn repo_name(url: &str) -> String {
     slug(name)
 }
 
-/// O clone. `--depth 1` porque ninguém quer o histórico de um plugin, e sem
-/// terminal nenhum: git que pede senha numa janela sem terminal ficaria
-/// pendurado para sempre — melhor falhar e dizer que o repositório é privado.
+/// Use a shallow noninteractive clone so plugins do not download unnecessary history or wait
+/// indefinitely for terminal credentials.
 fn clone(url: &str, dir: &Path) -> Result<(), String> {
     let out = Command::new("git")
         .args(["clone", "--depth", "1", "-q", url])
@@ -1329,8 +1235,8 @@ fn git(root: &Path, args: &[&str]) -> Result<std::process::Output, String> {
         .map_err(|e| i18n::ta("err.plugin.pull", &[("cause", e.to_string())]))
 }
 
-/// De qual clone esta pasta faz parte. Um plugin de marketplace mora numa
-/// subpasta, e quem tem `.git` é a raiz do clone — é ela que o `pull` puxa.
+/// Find the clone root for marketplace plugins stored below it; updates must run where .git
+/// belongs.
 fn git_root(dir: &Path) -> Option<PathBuf> {
     let mut at = dir;
     loop {
@@ -1344,8 +1250,7 @@ fn git_root(dir: &Path) -> Option<PathBuf> {
     }
 }
 
-/// O erro do git tem parágrafos; o que interessa é a última linha, que é a que
-/// diz o que houve.
+/// Use the final Git error line as a compact diagnostic.
 fn last_line(text: &str) -> String {
     text.trim()
         .lines()
@@ -1356,12 +1261,8 @@ fn last_line(text: &str) -> String {
         .to_string()
 }
 
-/// O que veio no clone. Um `plugin.json` na raiz é o caso comum: o repositório
-/// é o plugin. Um `marketplace.json` é uma lista, e dela vale o que mora neste
-/// mesmo clone (`"./plugins/x"`) — entrada que aponta para outro repositório é
-/// outra instalação, pelo endereço dela. Sem nenhum dos dois, ainda se olha uma
-/// pasta abaixo: repositório que guarda plugins em `plugins/` e não declara
-/// nada é comum o bastante para não obrigar ninguém a saber disso.
+/// Discover a root plugin, local marketplace entries, or one level of child/plugin directories.
+/// Remote marketplace entries require their own installation and must not escape this clone.
 fn plugins_in(dir: &Path, from: &str) -> Vec<Plugin> {
     if manifest_path(dir).exists() {
         return vec![read_plugin(dir, from)];
@@ -1398,9 +1299,8 @@ fn plugins_in(dir: &Path, from: &str) -> Vec<Plugin> {
     found
 }
 
-/// Claude usa `"source": "./plugins/x"`; o formato nativo do Codex usa
-/// `"source": {"source":"local","path":"./plugins/x"}`. O hub lê os
-/// dois, mas só segue caminhos internos ao clone.
+/// Accept Claude string sources and Codex local-source objects, following only paths inside the
+/// clone.
 fn marketplace_local_source(entry: &Value) -> Option<&str> {
     match entry.get("source")? {
         Value::String(path) => Some(path),
@@ -1411,8 +1311,7 @@ fn marketplace_local_source(entry: &Value) -> Option<&str> {
     }
 }
 
-/// Uma pasta abaixo, e a de `plugins/` também: o suficiente para achar o que um
-/// repositório sem manifesto na raiz guarda, sem sair varrendo o clone inteiro.
+/// Inspect immediate children and plugins/ without recursively scanning the entire repository.
 fn scan(dir: &Path, from: &str) -> Vec<Plugin> {
     let mut found = Vec::new();
     for root in [dir.to_path_buf(), dir.join("plugins")] {
@@ -1429,9 +1328,7 @@ fn scan(dir: &Path, from: &str) -> Vec<Plugin> {
     found
 }
 
-/// Um caminho do `marketplace.json` resolvido dentro do clone. `..` não passa:
-/// o que um repositório de fora escreve não pode apontar para outro lugar do
-/// disco.
+/// Confine marketplace paths to the clone; reject traversal to unrelated disk locations.
 fn within(dir: &Path, rel: &str) -> Option<PathBuf> {
     let rel = rel.trim().trim_start_matches("./");
     if rel.is_empty() {
@@ -1441,8 +1338,7 @@ fn within(dir: &Path, rel: &str) -> Option<PathBuf> {
     (!rel.starts_with('/') && !at.components().any(|c| c.as_os_str() == "..")).then_some(at)
 }
 
-/// O plugin como o hub o guarda, lido do manifesto dele. Sem `name` no
-/// manifesto vale o nome da pasta — que é o que o CLI também faria.
+/// Read hub metadata from the manifest, falling back to the folder name when no name is declared.
 fn read_plugin(dir: &Path, from: &str) -> Plugin {
     let manifest = read_json(&manifest_path(dir));
     let text = |key: &str| {
@@ -1471,36 +1367,29 @@ fn read_plugin(dir: &Path, from: &str) -> Plugin {
     }
 }
 
-/* ---------- criar um plugin aqui dentro ---------- */
+/* Plugin creation */
 
-/// A pasta de que o Prometeu é dono: um plugin por subpasta, com o nome
-/// dele. Fora dela ficam os que alguém escreve num repositório seu e cadastra
-/// à mão — e é por isso que remover só apaga arquivo quando o plugin nasceu
-/// aqui.
+/// Only plugins under application-owned creation storage may be deleted with their registration.
+/// Manually maintained repository directories stay outside that ownership.
 pub fn store() -> PathBuf {
     paths::root().join("plugins")
 }
 
-/// Quem escreve o plugin não é o nomeador: aqui saem frontmatter e JSON que o
-/// CLI vai ler, e manifesto torto é plugin que não carrega em lugar nenhum.
-/// `sonnet` é alias, e alias não envelhece.
+/// Use the stable sonnet alias for package creation because valid frontmatter and manifests require
+/// more than a cheap title-generation model.
 const MAKER_MODEL: &str = "sonnet";
 
-/// Teto de uma criação. Passou disto algo travou — e um `claude` esquecido
-/// continuaria escrevendo numa pasta que ninguém está mais olhando.
+/// Bound creation time so an abandoned process cannot keep writing indefinitely.
 const MAKER_TIMEOUT: Duration = Duration::from_secs(600);
 
-/// Pedido maior que isto não é o que um plugin faz — é um projeto.
+/// Limit creation requests to a plugin-sized scope.
 const MAX_ASK: usize = 4000;
 
-/// Linha de progresso não é parágrafo.
+/// Keep progress messages short enough for a single line.
 const MAX_STEP: usize = 140;
 
-/// O que o agente que escreve o plugin precisa saber e não adivinha: o nome de
-/// cada arquivo, o que vai no frontmatter de cada um, e como um hook aponta
-/// para o script dele em qualquer máquina. O pedido da pessoa vai depois
-/// disto, como prompt — este texto é o que impede que ele vire um projeto de
-/// software em vez de um plugin.
+/// Specify required manifests, frontmatter, and portable hook paths in the system instructions.
+/// Append the person's request separately so creation stays scoped to a plugin package.
 const MAKER: &str = r#"Você escreve um plugin portátil para Claude Code e Codex, do zero, dentro da pasta em que está — e nada além disso.
 
 O formato compartilhado, que os dois CLIs vão ler:
@@ -1519,25 +1408,23 @@ Selecionar o plugin já é ativá-lo. Se o pedido descreve um modo contínuo —
 
 Escreva só o que o pedido pede: um plugin de uma skill é uma skill, e não um pacote de exemplos. Nada de README, LICENSE, .gitignore, teste ou CHANGELOG. Não rode comando, não instale nada, não use a rede. Ao terminar, responda em uma linha só o que o plugin faz."#;
 
-/// Uma linha de progresso. `file` é um arquivo que ele acabou de escrever;
-/// `say` é o que ele mesmo disse. O back não escreve frase: a de fora de um é
-/// a tela que põe, e o outro é palavra do agente, que fica como veio.
+/// Progress is either a written file or agent text. The frontend localizes file-event framing;
+/// agent output remains unchanged.
 #[derive(Clone, serde::Serialize)]
 pub struct Step {
     pub kind: String,
     pub text: String,
 }
 
-/// O que a tela precisa para acompanhar uma criação: por onde os eventos vêm,
-/// e o nome que a pasta levou.
+/// Return the creation event identity and generated directory name to the UI.
 #[derive(serde::Serialize)]
 pub struct Make {
     pub run: u64,
     pub slug: String,
 }
 
-/// Os agentes que estão escrevendo agora, por corrida. É o que deixa cancelar
-/// — e o teto de tempo matar — sem que uma corrida velha derrube a nova.
+/// Track active creation processes by run ID so cancellation or an old timeout cannot stop a newer
+/// run.
 fn running() -> &'static Mutex<HashMap<u64, Child>> {
     static RUNS: OnceLock<Mutex<HashMap<u64, Child>>> = OnceLock::new();
     RUNS.get_or_init(Default::default)
@@ -1548,9 +1435,8 @@ fn next_run() -> u64 {
     SEQ.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Cria um plugin e volta na hora: escrever leva minutos, e quem clicou
-/// precisa ver a folha andar. O que acontece depois chega por `plugin-make`
-/// (cada passo) e `plugin-made` (o fim, com o erro dentro se houve).
+/// Return immediately and report creation progress through plugin-make and completion or failure
+/// through plugin-made.
 #[tauri::command]
 pub fn plugin_make(app: AppHandle, name: String, ask: String) -> Result<Make, String> {
     let slug = slug(&name);
@@ -1572,8 +1458,7 @@ pub fn plugin_make(app: AppHandle, name: String, ask: String) -> Result<Make, St
     let mine = slug.clone();
     std::thread::spawn(move || {
         let end = make(&app, run, &place, &mine, &ask);
-        // Pasta que não virou plugin não fica: o hub não a mostraria, e uma
-        // pasta que ninguém acha é lixo que só cresce.
+        // Remove incomplete package directories that cannot appear as valid hub entries.
         if end.is_err() {
             std::fs::remove_dir_all(&place).ok();
         }
@@ -1582,9 +1467,8 @@ pub fn plugin_make(app: AppHandle, name: String, ask: String) -> Result<Make, St
     Ok(Make { run, slug })
 }
 
-/// Cancelar. O processo morre, o `for` das linhas acaba com o stdout fechado,
-/// e o fim de `make` trata isso como qualquer outra saída ruim — inclusive
-/// apagando a pasta pela metade.
+/// Cancellation stops the process, closes its output, and uses normal failure cleanup to remove the
+/// partial package.
 #[tauri::command]
 pub fn plugin_make_stop(run: u64) {
     stop(run);
@@ -1597,11 +1481,9 @@ fn stop(run: u64) {
     }
 }
 
-/// A criação em si: um `claude -p` dentro da pasta nova, com as ferramentas de
-/// arquivo e nada mais — sem os hooks e os plugins de quem está usando o app
-/// (que aqui só atrapalhariam), sem MCP, e sem poder rodar comando. O que ele
-/// escreve fora da pasta o CLI não aceita sozinho, e em `-p` não há ninguém
-/// para aceitar.
+/// Create with claude -p inside the new directory, allowing only file tools and disabling user
+/// hooks, plugins, MCP, and shell execution. Outside-directory writes remain subject to CLI
+/// approval, unavailable in this headless flow.
 fn make(app: &AppHandle, run: u64, dir: &Path, slug: &str, ask: &str) -> Result<(), String> {
     let mut cmd = Command::new("claude");
     cmd.args([
@@ -1625,8 +1507,7 @@ fn make(app: &AppHandle, run: u64, dir: &Path, slug: &str, ask: &str) -> Result<
     cmd.arg(MAKER.replace("<NOME>", slug));
     cmd.arg(ask);
     cmd.current_dir(dir);
-    // Mesma razão do nomeador: um `claude` rodando dentro de outro herda
-    // CLAUDE_CODE_CHILD_SESSION e companhia, e o que ele herda não é dele.
+    // Remove inherited Claude child-session settings belonging to the parent process.
     for (k, _) in std::env::vars() {
         if k.starts_with("CLAUDE") {
             cmd.env_remove(k);
@@ -1663,8 +1544,8 @@ fn make(app: &AppHandle, run: u64, dir: &Path, slug: &str, ask: &str) -> Result<
     born(dir, slug)
 }
 
-/// O teto de tempo de uma corrida, numa thread que só dorme. Corrida que
-/// acabou já saiu do mapa, e aí isto não faz nada.
+/// Apply the timeout only while this run ID remains active; completed runs have already left the
+/// map.
 fn watch(run: u64) {
     std::thread::spawn(move || {
         std::thread::sleep(MAKER_TIMEOUT);
@@ -1672,9 +1553,8 @@ fn watch(run: u64) {
     });
 }
 
-/// O que nasceu na pasta só é plugin se o manifesto estiver lá e for legível —
-/// e é o próprio manifesto que diz o nome e a descrição que vão para o hub,
-/// como em qualquer plugin cadastrado à mão.
+/// Register only packages with a readable manifest, taking their name and description from that
+/// manifest.
 fn born(dir: &Path, slug: &str) -> Result<(), String> {
     let manifest =
         read_json(&manifest_path(dir)).ok_or_else(|| i18n::t("err.plugin.made.empty"))?;
@@ -1705,9 +1585,8 @@ fn born(dir: &Path, slug: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Uma linha do `stream-json` virando o que a tela mostra: o arquivo que ele
-/// acabou de escrever, ou a frase que ele disse. O resto do stream — o que ele
-/// leu, o que gastou, o resultado — não é progresso para ninguém.
+/// Translate stream-json progress into written-file or agent-message events. Reads, usage, and
+/// result frames are not creation progress.
 fn step(dir: &Path, line: &str) -> Option<Step> {
     let value: Value = serde_json::from_str(line).ok()?;
     if value.get("type").and_then(Value::as_str)? != "assistant" {
@@ -1746,8 +1625,7 @@ fn step(dir: &Path, line: &str) -> Option<Step> {
     None
 }
 
-/// O caminho como ele vale dentro do plugin. O agente escreve caminho inteiro,
-/// e o que interessa na tela é `skills/x/SKILL.md`.
+/// Display written paths relative to the plugin, such as skills/x/SKILL.md.
 fn inside(dir: &Path, path: &str) -> String {
     Path::new(path)
         .strip_prefix(dir)
@@ -1756,10 +1634,8 @@ fn inside(dir: &Path, path: &str) -> String {
         .to_string()
 }
 
-/// O nome vira pasta e vira plugin: minúsculas, sem acento e sem espaço,
-/// porque é ele que vai para o disco e para a linha de comando do CLI. O
-/// acento cai em cima da letra que ele acentua — "revisão" é "revisao", e não
-/// "revis-o".
+/// Normalize names for directories and CLI identities: lowercase, no spaces or accents.
+/// Transliterate supported accented letters rather than replacing them with separators.
 fn slug(name: &str) -> String {
     let mut out = String::new();
     for ch in name.trim().to_lowercase().chars().map(fold) {
@@ -1772,8 +1648,7 @@ fn slug(name: &str) -> String {
     out.trim_matches('-').to_string()
 }
 
-/// O acento cai em cima da letra que ele acentua. Não é normalização de
-/// Unicode inteira — é o que um nome de plugin em português e espanhol traz.
+/// Transliterate common Portuguese and Spanish accents; this is not full Unicode normalization.
 fn fold(ch: char) -> char {
     match ch {
         'á' | 'à' | 'â' | 'ã' | 'ä' => 'a',
@@ -1793,7 +1668,7 @@ mod tests {
 
     #[test]
     fn catalog_install_keeps_private_names_and_reuses_clone() {
-        // Um processo isolado evita alterar PROMETEU_ROOT dos testes paralelos.
+        // Use an isolated process so PROMETEU_ROOT changes cannot race parallel tests.
         if std::env::var("PROMETEU_CATALOG_TEST_CHILD").as_deref() != Ok("1") {
             let root = std::env::temp_dir()
                 .join(format!("prometeu-catalog-install-{}", uuid::Uuid::new_v4()));
@@ -1859,7 +1734,7 @@ mod tests {
         assert_eq!(installed.from, url);
         assert!(!installed.made);
         let installed_path = PathBuf::from(&installed.source);
-        // Reinstalar reutiliza o clone e não registra o nome original por cima do privado.
+        // Reinstallation reuses the clone and preserves a private entry's local name.
         install_catalog(&url, "review", "cloud-review-1", "updated note").unwrap();
         assert_eq!(load().len(), 2);
         assert_eq!(
@@ -1903,8 +1778,7 @@ mod tests {
         }
     }
 
-    /// Pasta vira `--plugin-dir`, endereço vira `--plugin-url`. É a única
-    /// diferença entre os dois, e é ela que decide se o CLI baixa alguma coisa.
+    /// Directories use plugin-dir; remote sources use plugin-url.
     #[test]
     fn a_origem_decide_a_flag() {
         assert_eq!(
@@ -1920,8 +1794,7 @@ mod tests {
         );
     }
 
-    /// O `~` é da casa desta máquina, e quem o resolve é o app — o `claude`
-    /// recebe caminho inteiro, que é o que ele entende.
+    /// Expand tilde into this machine's absolute home path before invoking Claude.
     #[test]
     fn o_til_vira_caminho() {
         let [_, path] = flags(&plugin("x", "~/plugins/x"));
@@ -1929,10 +1802,8 @@ mod tests {
         assert!(!path.starts_with('~'));
     }
 
-    /// A linha de comando de uma escolha: um par por plugin marcado, na ordem
-    /// em que foram marcados. Nome que já não está no hub (apagado depois de
-    /// escolhido) some da linha em vez de derrubar a conversa — o que o agente
-    /// perde é um plugin, e dizer isso é trabalho da tela.
+    /// Preserve selection order and emit one argument pair per existing selected plugin. Skip IDs
+    /// removed from the hub rather than preventing conversation startup.
     #[test]
     fn a_escolha_vira_linha_de_comando() {
         let hub = vec![
@@ -1949,18 +1820,18 @@ mod tests {
                 "/opt/caveman",
             ]
         );
-        // Marcar nenhum é escolha, e não vira flag nenhuma.
+        // An explicit empty selection emits no plugin flags.
         assert!(args_from(&hub, &[]).is_empty());
     }
 
-    /// Nome vazio não grava: é a identidade do plugin, e o CLI dedupe por ele.
+    /// Reject empty names because the CLI deduplicates plugins by identity.
     #[test]
     fn sem_nome_nao_grava() {
         assert!(save_local(plugin("  ", "/opt/x")).is_err());
     }
 
-    /// Pasta que não é plugin é recusada no cadastro, e não descoberta no
-    /// silêncio de uma sessão que subiu sem ele.
+    /// Reject directories without a valid plugin before registration instead of silently losing
+    /// behavior during startup.
     #[test]
     fn pasta_sem_manifesto_e_recusada() {
         let dir = std::env::temp_dir().join(format!("prometeu-plug-{}", uuid::Uuid::new_v4()));
@@ -1975,30 +1846,28 @@ mod tests {
         .unwrap();
         assert!(check_source(&dir.display().to_string()).is_ok());
 
-        // E o manifesto é quem preenche o formulário.
+        // Use manifest metadata to prefill the form.
         let looked = plugin_look(dir.display().to_string()).unwrap();
         assert_eq!(looked.id, "exemplo");
         assert_eq!(looked.note, "o que ele faz");
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Caminho que não existe também é recusado — cadastrar aponta para algo.
+    /// Reject paths that do not exist.
     #[test]
     fn caminho_que_nao_existe_e_recusado() {
         assert!(check_source("/nao/existe/plugin").is_err());
         assert!(check_source("https://exemplo.com/x.zip").is_ok());
     }
 
-    /// `.zip` sem manifesto para ler ganha o nome do arquivo como palpite.
+    /// Suggest a ZIP filename when its manifest is not directly readable.
     #[test]
     fn zip_ganha_o_nome_do_arquivo() {
         assert_eq!(guessed_name("https://exemplo.com/caveman.zip"), "caveman");
         assert_eq!(guessed_name("/tmp/meu-plugin.zip"), "meu-plugin");
     }
 
-    /// O que a pessoa cola na caixa vira endereço de clone: o que o navegador
-    /// dá, o `owner/repo` que se diz em voz alta, e o endereço de git de
-    /// qualquer outro servidor.
+    /// Normalize browser URLs, owner/repo shorthand, and Git addresses into clone targets.
     #[test]
     fn o_endereco_colado_vira_clone() {
         let git = "https://github.com/JuliusBrussee/caveman";
@@ -2009,7 +1878,7 @@ mod tests {
             git_url("https://github.com/JuliusBrussee/caveman/tree/main"),
             git
         );
-        // O que já é endereço de git vai como veio.
+        // Preserve already valid Git addresses.
         assert_eq!(
             git_url("git@github.com:dietrichgebert/ponytail.git"),
             "git@github.com:dietrichgebert/ponytail.git"
@@ -2018,12 +1887,12 @@ mod tests {
             git_url("https://gitlab.com/time/x.git"),
             "https://gitlab.com/time/x.git"
         );
-        // E o que não é endereço nenhum não vira um.
+        // Reject inputs that cannot identify a repository.
         assert!(git_url("  ").is_empty());
         assert!(git_url("caveman").is_empty());
     }
 
-    /// A pasta do clone tem o nome do repositório, com ou sem `.git`.
+    /// Derive the clone directory from the repository name, with or without .git.
     #[test]
     fn a_pasta_tem_o_nome_do_repositorio() {
         assert_eq!(
@@ -2036,10 +1905,8 @@ mod tests {
         );
     }
 
-    /// O que o clone traz: o repositório que é o plugin, o marketplace que
-    /// lista os do mesmo clone, e o repositório que só tem uma pasta `plugins`.
-    /// Entrada que aponta para outro repositório não é deste clone, e fica de
-    /// fora — instalá-la é instalar o endereço dela.
+    /// Discover root plugins, local marketplace entries, and plugins/ children. Ignore entries
+    /// pointing to other repositories, which require separate installation.
     #[test]
     fn o_clone_diz_quais_plugins_vieram() {
         let root = std::env::temp_dir().join(format!("prometeu-inst-{}", uuid::Uuid::new_v4()));
@@ -2052,7 +1919,7 @@ mod tests {
             .unwrap();
         };
 
-        // O repositório é o plugin.
+        // The repository itself is a plugin.
         let one = root.join("um");
         manifest(&one, "caveman");
         let found = plugins_in(&one, "https://exemplo/caveman");
@@ -2062,7 +1929,7 @@ mod tests {
         assert!(found[0].made);
         assert_eq!(found[0].from, "https://exemplo/caveman");
 
-        // Um marketplace, com um plugin daqui e um de outro repositório.
+        // The marketplace contains one local plugin and one external entry.
         let many = root.join("muitos");
         manifest(&many.join("plugins").join("a"), "a");
         manifest(&many.join("plugins").join("b"), "b");
@@ -2084,7 +1951,7 @@ mod tests {
             ["a", "b"]
         );
 
-        // Sem manifesto e sem marketplace, uma pasta abaixo ainda é achada.
+        // Without a root manifest or marketplace, inspect one directory level.
         let loose = root.join("solto");
         manifest(&loose.join("plugins").join("c"), "c");
         assert_eq!(
@@ -2095,15 +1962,14 @@ mod tests {
             ["c"]
         );
 
-        // E o que não tem plugin nenhum não devolve nada.
+        // Return no entries when no plugins exist.
         std::fs::create_dir_all(root.join("vazio")).unwrap();
         assert!(plugins_in(&root.join("vazio"), "").is_empty());
         std::fs::remove_dir_all(&root).ok();
     }
 
-    /// O mesmo pacote vira entrada de marketplace nativa e recebe um
-    /// manifesto Codex sem perder os hooks do manifesto compatível com Claude.
-    /// O hash na versão é o cachebuster de atualizações sem versão upstream.
+    /// Generate a native marketplace entry and Codex manifest while retaining compatible hooks.
+    /// Content-hashed versions invalidate unchanged upstream version numbers.
     #[test]
     fn o_marketplace_do_codex_nasce_do_mesmo_plugin() {
         let root =
@@ -2158,9 +2024,8 @@ mod tests {
         assert_eq!(catalogue["plugins"][0]["source"]["source"], "local");
         assert_eq!(catalogue["plugins"][0]["source"]["path"], "./plugins/curta");
 
-        // Um snapshot feito pela revisão anterior guardava o hash puro da
-        // origem e o objeto inline sem o envelope do Codex. Mesmo sem mudar o
-        // plugin, a revisão do adapter precisa refazer essa cópia.
+        // An adapter revision must regenerate older snapshots whose source hash and inline hook
+        // envelope used the previous format.
         let staged = market.join("plugins/curta");
         std::fs::write(
             staged.join(".codex-plugin/plugin.json"),
@@ -2362,9 +2227,8 @@ opcao = "preservada"
         std::fs::remove_dir_all(root).ok();
     }
 
-    /// Prova o contrato contra o CLI instalado: marketplace local, cópia no
-    /// cache, skill visível e `SessionStart` ativo no runtime isolado. É opt-in
-    /// porque escreve e remove uma entrada temporária no cache real do Codex.
+    /// Opt-in CLI integration verifies the marketplace, installed copy, visible skill, and active
+    /// SessionStart hook. It temporarily writes to and cleans up the real Codex cache.
     #[test]
     #[ignore]
     fn codex_instala_plugin_portatil_de_verdade() {
@@ -2462,9 +2326,8 @@ opcao = "preservada"
                 return Err("a sessão Codex não recebeu a skill instalada".into());
             }
 
-            // `debug prompt-input` prova a descoberta da skill, mas não abre
-            // uma sessão. A prova do hook usa o app-server real e observa o
-            // efeito do `SessionStart` antes de qualquer turno ou modelo.
+            // debug prompt-input proves skill discovery without opening a session. Use the real
+            // app-server to observe SessionStart before any model turn.
             use std::io::Write as _;
             let mut server = Command::new("codex")
                 .env("CODEX_HOME", &home)
@@ -2679,15 +2542,13 @@ opcao = "preservada"
         result.unwrap();
     }
 
-    /// A instalação de verdade, contra o GitHub: clona, acha o plugin na raiz
-    /// e cadastra. Fica `ignore` porque depende de rede e do endereço continuar
-    /// existindo — `cargo test -- --ignored instala_de_verdade` quando se mexe
-    /// no clone ou na leitura do manifesto.
+    /// Ignored GitHub integration clones, discovers, and registers a real plugin: cargo test --
+    /// --ignored instala_de_verdade.
     #[test]
     #[ignore]
     fn instala_de_verdade() {
         let root = std::env::temp_dir().join(format!("prometeu-net-{}", uuid::Uuid::new_v4()));
-        // Só este teste roda quando se pede `--ignored`; o env é do processo.
+        // The ignored test owns its process environment.
         std::env::set_var("PROMETEU_ROOT", &root);
 
         let found = install("JuliusBrussee/caveman".into()).unwrap();
@@ -2701,26 +2562,25 @@ opcao = "preservada"
         );
         assert!(manifest_path(Path::new(&found.plugins[0].source)).exists());
 
-        // E ele entrou no hub, com a linha de comando que a sessão vai receber.
+        // Verify the hub entry and the session arguments it produces.
         assert_eq!(
             args_from(&load(), &["caveman".to_string()]),
             ["--plugin-dir", &found.plugins[0].source]
         );
 
-        // Instalar de novo é atualizar, e o hub diz isso em vez de clonar por
-        // cima do que já está lá.
+        // Reinstallation reports that an update is needed instead of overwriting the existing
+        // clone.
         assert!(install("https://github.com/JuliusBrussee/caveman".into()).is_err());
         plugin_update("caveman".into()).unwrap();
 
-        // Remover leva a pasta junto, porque ela é do Prometeu.
+        // Removal also deletes the application-owned directory.
         remove_hub("caveman").unwrap();
         assert!(!store().join("caveman").exists());
         std::env::remove_var("PROMETEU_ROOT");
         std::fs::remove_dir_all(&root).ok();
     }
 
-    /// Caminho de marketplace não sai do clone: o que um repositório de fora
-    /// escreve não aponta para outro lugar do disco.
+    /// Marketplace paths must remain inside the clone regardless of external manifest contents.
     #[test]
     fn caminho_de_marketplace_nao_sai_do_clone() {
         let dir = Path::new("/tmp/clone");
@@ -2730,8 +2590,7 @@ opcao = "preservada"
         assert!(within(dir, "/etc").is_none());
     }
 
-    /// O nome que a pessoa escreve vira pasta: sem acento, sem espaço e sem
-    /// dois traços seguidos, porque é ele que o CLI vai ler.
+    /// Normalize names without accents, spaces, or repeated hyphens for CLI use.
     #[test]
     fn o_nome_vira_pasta() {
         assert_eq!(slug("Revisão de front"), "revisao-de-front");
@@ -2740,9 +2599,8 @@ opcao = "preservada"
         assert_eq!(slug("!!!"), "");
     }
 
-    /// O que a tela mostra enquanto ele escreve: o arquivo que saiu, ou a
-    /// primeira frase dele. Ler não é progresso, e o caminho aparece como ele
-    /// vale dentro do plugin.
+    /// Display written files and the first agent sentence as progress, with paths relative to the
+    /// plugin. Reads do not count as progress.
     #[test]
     fn o_stream_vira_progresso() {
         let dir = Path::new("/tmp/plug");
@@ -2763,14 +2621,12 @@ opcao = "preservada"
             ("say", "Vou começar pelo manifesto.")
         );
 
-        // O resto do stream não é progresso de ninguém, e linha que não é JSON
-        // não pode derrubar a leitura.
+        // Ignore unrelated stream frames and malformed JSON without aborting progress parsing.
         assert!(step(dir, r#"{"type":"result","subtype":"success"}"#).is_none());
         assert!(step(dir, "não é json").is_none());
     }
 
-    /// Sem manifesto não nasceu plugin nenhum, e o que não nasceu não entra no
-    /// hub — é o que separa "o agente escreveu" de "o agente respondeu".
+    /// A response without a manifest is not a created plugin and must not enter the hub.
     #[test]
     fn pasta_sem_manifesto_nao_vira_plugin() {
         let dir = std::env::temp_dir().join(format!("prometeu-made-{}", uuid::Uuid::new_v4()));

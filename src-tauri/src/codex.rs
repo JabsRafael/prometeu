@@ -1,37 +1,10 @@
-//! O Codex do outro lado da conversa.
-//!
-//! O `codex app-server` fala JSON-RPC pelo stdio: o app pede (`thread/start`,
-//! `turn/start`, `turn/interrupt`, `thread/compact/start`), ele avisa
-//! (`item/started`, `item/agentMessage/delta`, `item/completed`,
-//! `turn/completed`…) e às vezes pergunta (`item/tool/requestUserInput`,
-//! `item/commandExecution/requestApproval`). Nada disso chega à tela como é:
-//! o `Link` traduz cada coisa diretamente para `ConversationEventV1`, que a
-//! mesma timeline reduz para todos os providers.
-//! No sentido contrário, uma fala vira
-//! `turn/start`, uma resposta a pedido vira a resposta JSON-RPC, uma
-//! interrupção vira `turn/interrupt`.
-//!
-//! O que não tem tradução é decidido aqui:
-//!
-//! - **O id da sessão é dele.** O `thread/start` devolve o id, o quadro guarda
-//!   no `Tab` (`agent_session`), e é ele que volta como `thread/resume`.
-//! - **A conversa no disco é a que o app gravou.** O rollout do Codex tem
-//!   outra forma; o que a aba reabre amanhã é o que a tela viu hoje, linha por
-//!   linha, em `paths::chat_log` (ver `chat::Pump`).
-//! - **Os comandos de barra são do app.** O app-server não tem `/compact` nem
-//!   `/context`: `/compact` vira `thread/compact/start`, `/context` vira um
-//!   relatório montado do `thread/tokenUsage/updated`, e o resto é recusado com
-//!   uma linha na tela.
-//! - **Solto, como o Claude Code das abas.** `approvalPolicy: never` e sandbox
-//!   aberta — o agente não para a cada comando. A pergunta ao usuário
-//!   (`request_user_input`) o Codex só oferece ao modelo no modo de plano; a
-//!   feature `default_mode_request_user_input` a libera no modo comum, e é
-//!   ligada no spawn — sem ela o agente diz que "a ferramenta não está
-//!   disponível" e segue sem perguntar.
-//!
-//! O `Link` não tem thread nem AppHandle: recebe uma linha e devolve linhas.
-//! É o que deixa testá-lo com strings — e o que deixa o `chat.rs` não saber
-//! que existe um Codex.
+//! Adapt Codex app-server JSON-RPC over stdio into canonical ConversationEventV1 events and
+//! translate commands in the opposite direction. Persist the returned thread ID in
+//! Tab.agent_session for resume. The app stores its rendered transcript separately from native
+//! Codex rollouts. Implement /compact through thread/compact/start and /context from tokenUsage;
+//! reject unsupported slash commands. Default sessions use approvalPolicy never and an unrestricted
+//! sandbox. Enable default_mode_request_user_input so ordinary turns can ask questions. Link
+//! remains independent of threads and AppHandle for protocol tests.
 
 use crate::lock::lock;
 use crate::session::Launch;
@@ -47,8 +20,8 @@ use tauri::AppHandle;
 mod account;
 pub use account::{account_env, account_probe, login, prepare_profile, user_home};
 
-/// Sobe o `codex app-server` numa aba. `resume` é a thread que o Codex escolheu
-/// da outra vez; sem ela a conversa nasce nova.
+/// Start codex app-server for a tab. Resume uses the previously returned thread ID; absence starts
+/// a new conversation.
 pub fn spawn(
     app: &AppHandle,
     id: &str,
@@ -71,17 +44,15 @@ pub fn spawn(
     if let Some(home) = &selected_plugins.home {
         cmd.env("CODEX_HOME", home);
     }
-    // Não exigir as features novas de quem abriu uma sessão sem plugin: uma
-    // instalação antiga do Codex continua capaz de conversar e usar MCP.
+    // Sessions without plugins must not require newer plugin features, preserving conversation and
+    // MCP support on older installations.
     if !selected_plugins.ids.is_empty() {
         cmd.args(["--enable", "plugins", "--enable", "hooks"]);
     }
     cmd.current_dir(worktree);
-    // As ferramentas escolhidas para este workspace. O Codex não tem
-    // `--mcp-config`: a tabela inteira vai por `-c`, e os segredos vão pelo
-    // ambiente deste processo — ver `mcp::codex_config`. Uma escolha que não
-    // possa ser materializada precisa falhar visivelmente: subir sem as
-    // ferramentas marcadas faria a sessão parecer correta até o primeiro uso.
+    // Inject selected MCP configuration through -c and process environment secrets; see
+    // mcp::codex_config. Materialization failure must stop startup rather than silently omit
+    // selected tools.
     if let Some((servers, env)) = crate::mcp::codex_config(id, launch.mcp.as_ref())? {
         cmd.args(["-c", &format!("mcp_servers={servers}")]);
         for (key, value) in env {
@@ -121,48 +92,47 @@ pub fn spawn(
     chat::launch(app, id, cmd, &log, Some(log.clone()), "err.codex.spawn", io)
 }
 
-/// Com o que a thread abre.
+/// Thread startup settings.
 pub struct Start {
     pub permission: Option<crate::actions::Permission>,
     pub instructions: String,
     pub cwd: String,
     pub resume: Option<String>,
-    /// Vazio é deixar o Codex escolher.
+    /// An empty model lets Codex choose its default.
     pub model: String,
-    /// Já no nome do Codex (`ultra`, não `ultracode`). Vazio é não passar.
+    /// Use Codex's native effort name, ultra rather than ultracode. Omit empty values.
     pub effort: String,
-    /// IDs canônicos (`plugin@marketplace`) escolhidos explicitamente neste
-    /// workspace. Só hooks destes IDs podem ganhar confiança no handshake.
+    /// Explicitly selected plugin@marketplace IDs. Only their hooks may gain trust during the
+    /// handshake.
     pub plugin_ids: Vec<String>,
-    /// Subconjunto selecionado que declarou hooks. Todos precisam aparecer
-    /// ativos antes de a thread nascer; ausência não pode virar skill-only.
+    /// Selected plugins declaring hooks must have those hooks active before the thread opens.
+    /// Missing hooks must not silently degrade to skills only.
     pub plugin_hook_ids: Vec<String>,
 }
 
-/// O que cada pedido nosso em voo era, para saber o que fazer com a resposta.
+/// Track the purpose of each outstanding request to interpret its response.
 enum Sent {
     Init,
-    /// `resumed` é `thread/resume`: se falhar, a conversa abre nova em vez de a
-    /// aba morrer — o rollout pode ter sido apagado, e a aba vale mais.
+    /// If thread/resume fails, start a new conversation and notify the person instead of leaving
+    /// the tab unusable.
     Thread {
         resumed: bool,
     },
     Turn,
     Compact,
     Interrupt,
-    /// `account/rateLimits/read`, mandado uma vez no início: a notificação de
-    /// cota só chega quando ela muda, e a barra de baixo não pode ficar
-    /// esperando o primeiro turno para ter um número.
+    /// Read account/rateLimits/read at startup because change notifications alone cannot populate
+    /// usage before the first turn.
     Usage,
-    /// Hooks dos plugins escolhidos, antes de abrir a thread.
+    /// Discover selected plugins' hooks before opening the thread.
     Hooks,
-    /// A gravação dos hashes que a seleção explícita acabou de aprovar.
+    /// Persist the current hashes authorized by explicit plugin selection.
     HookTrust,
 }
 
-/// Um pedido do servidor esperando a tela responder.
+/// A server request awaiting a UI response.
 struct Ask {
-    /// O id JSON-RPC dele, que volta na resposta.
+    /// Preserve the server's JSON-RPC request ID for the reply.
     rpc: Value,
     kind: AskKind,
 }
@@ -170,11 +140,11 @@ struct Ask {
 enum AskKind {
     Command,
     Patch,
-    /// As perguntas: o texto que a tela mostra e o id que o Codex espera.
+    /// Question text for the UI and IDs expected by Codex.
     Input(Vec<(String, String)>),
 }
 
-/// Um bloco de texto (ou pensamento) chegando letra a letra.
+/// A streaming text or reasoning block.
 struct Open {
     item: String,
     index: usize,
@@ -188,28 +158,23 @@ pub struct Link {
     next: u64,
     sent: HashMap<u64, Sent>,
     thread: Option<String>,
-    /// A thread não abriu, e o motivo. Toda fala daqui em diante é recusada
-    /// com ele — é o que a barra mostra.
+    /// Retain a thread startup failure and reject subsequent messages with its reason.
     failed: Option<String>,
-    /// Falas que chegaram antes de a thread existir. Vão na ordem, assim que
-    /// ela abrir.
+    /// Queue messages received before the thread exists and deliver them in order after startup.
     queue: Vec<Value>,
     model: String,
     window: Option<u64>,
-    /// Quanto a conversa pesa agora, pelo último `tokenUsage`.
+    /// Current conversation size from the latest tokenUsage update.
     ctx: Option<u64>,
     turn: Option<String>,
     asks: HashMap<String, Ask>,
-    /// Os arquivos de cada `fileChange` aberto: é o que o pedido de aprovação
-    /// dele não repete.
+    /// Retain files from open fileChange items because approval requests do not repeat them.
     patches: HashMap<String, Vec<String>>,
-    /// O índice do próximo bloco na mensagem deste turno — `assistant.block`
-    /// numera os blocos na ordem em que fecham, e o rascunho em
-    /// streaming precisa nascer com o mesmo número.
+    /// Assign streaming drafts the same block indexes used by final assistant.block events.
     block: usize,
     message_open: bool,
     open: Option<Open>,
-    /// O tamanho da conversa quando a compactação começou.
+    /// Conversation size when compaction started.
     compact_pre: Option<u64>,
 }
 
@@ -245,15 +210,14 @@ impl Link {
         link
     }
 
-    /// Fecha o stdin do processo: é o sinal para ele sair.
+    /// Close stdin to signal process shutdown.
     pub fn close(&mut self) {
         self.out = Box::new(std::io::sink());
     }
 
-    /* ---------- da tela para o Codex ---------- */
+    /* UI commands to Codex */
 
-    /// Um comando V1 da tela. Devolve eventos V1 que ele rendeu sem ir ao
-    /// processo.
+    /// Handle a canonical UI command and return any local events that do not require process input.
     pub fn write(&mut self, frame: &Value) -> Result<Vec<Value>, String> {
         if frame["v"] != 1 {
             return Err(i18n::t("err.team.bad"));
@@ -312,8 +276,8 @@ impl Link {
                 self.reply(&rpc, result)?;
                 Ok(vec![])
             }
-            // A lista dos comandos que `slash` entende. É uma resposta local:
-            // o app-server não oferece esses comandos.
+            // Advertise locally supported slash commands; the app-server does not provide this
+            // catalog.
             Some("commands.list") => {
                 let commands: Vec<Value> = SLASH
                     .iter()
@@ -334,15 +298,14 @@ impl Link {
                 }
                 Ok(vec![])
             }
-            // O Codex já nasce com approvalPolicy `never`; esta capability não
-            // é oferecida para ele.
+            // Codex already starts with approvalPolicy never, so this capability is not offered.
             Some("permission.mode.set") if frame["mode"] == "bypass" => Ok(vec![]),
             _ => Err(i18n::t("err.team.bad")),
         }
     }
 
-    /// Uma fala. As que começam com um nome depois da barra são comandos do
-    /// app; caminhos absolutos continuam sendo texto para o agente.
+    /// Recognize leading slash command names while preserving absolute paths as ordinary message
+    /// text.
     fn speak(&mut self, text: &str) -> Result<Vec<Value>, String> {
         let text = text.trim();
         if let Some(cmd) = text.strip_prefix('/') {
@@ -398,8 +361,7 @@ impl Link {
         }
     }
 
-    /// O `/context` do Codex: o que o `tokenUsage` conta, no mesmo markdown que
-    /// o Claude Code devolve — é o que a tela sabe desenhar como painel.
+    /// Render /context from tokenUsage using the markdown panel format shared with Claude.
     fn context_report(&self) -> String {
         let used = self.ctx.unwrap_or(0);
         let total = self.window.unwrap_or(0);
@@ -450,9 +412,9 @@ impl Link {
         self.out.flush().map_err(i18n::io)
     }
 
-    /* ---------- do Codex para a tela ---------- */
+    /* Codex events to UI */
 
-    /// Uma linha do processo. Devolve as linhas da tela que ela vale.
+    /// Translate one process line into canonical display events.
     pub fn on_line(&mut self, line: &str) -> Vec<Value> {
         let Ok(msg) = serde_json::from_str::<Value>(line) else {
             return vec![];
@@ -482,13 +444,11 @@ impl Link {
                 }
                 vec![]
             }
-            // Codex sem conta logada responde erro aqui, e a barra fica sem a
-            // faixa dele — que é exatamente o que se quer dizer.
+            // An unauthenticated Codex account returns an error and leaves its usage section empty.
             Some(Sent::Usage) => match error {
                 Some(_) => vec![],
-                // O resultado completo contém `rateLimitsByLimitId` nas
-                // versões novas. Entregar só o bucket legado apagaria as
-                // cotas separadas por modelo antes de chegarem ao `usage`.
+                // Preserve rateLimitsByLimitId from newer responses so model-specific quotas reach
+                // usage without collapsing into the legacy bucket.
                 None => vec![rate_limits(&msg["result"])],
             },
             Some(Sent::Hooks) => {
@@ -598,8 +558,7 @@ impl Link {
             }
             Some(Sent::Thread { resumed }) => {
                 if let Some(cause) = error {
-                    // Retomar falhou: a conversa de antes ficou para trás, mas a
-                    // aba continua servindo — abre nova e avisa.
+                    // If resume fails, open a new conversation and notify the person.
                     if resumed {
                         self.start.resume = None;
                         self.open_thread();
@@ -678,9 +637,8 @@ impl Link {
         }
     }
 
-    /// Um plugin marcado é uma expectativa de comportamento, não só de
-    /// descoberta. Se seus hooks não puderem nascer ativos, a conversa não
-    /// abre silenciosamente em outro modo.
+    /// A selected plugin promises active behavior. Refuse thread startup when its hooks cannot be
+    /// enabled.
     fn fail_plugin_hooks(&mut self, cause: String) -> Vec<Value> {
         let message = i18n::ta("err.plugin.codex.hooks", &[("cause", cause)]);
         self.failed = Some(message.clone());
@@ -688,8 +646,7 @@ impl Link {
         vec![notice("error", "plugin.hooks", &message)]
     }
 
-    /// Um pedido do servidor vira um card que espera resposta, conservando o
-    /// id que voltará ao app-server.
+    /// Present server requests as pending UI cards while retaining their JSON-RPC IDs.
     fn request(&mut self, rpc: Value, method: &str, params: &Value) -> Vec<Value> {
         let id = match &rpc {
             Value::String(s) => s.clone(),
@@ -765,11 +722,9 @@ impl Link {
     }
 
     fn notification(&mut self, method: &str, p: &Value) -> Vec<Value> {
-        // O app-server avisa sobre toda thread do processo, e cada subagente
-        // que o Codex abre é uma thread. O `turn/completed` de um subagente
-        // chegava aqui como fim do turno da conversa: o card virava "pronta" e
-        // o sino tocava com o agente ainda trabalhando. Só a nossa thread
-        // conta — como o Claude, cujas sidechains ficam fora da tela.
+        // Only the primary thread can update this conversation. Subagent turn/completed events must
+        // not mark its card ready or trigger completion sounds while the primary agent is still
+        // working.
         if let (Some(mine), Some(thread)) = (self.thread.as_deref(), p["threadId"].as_str()) {
             if thread != mine {
                 return vec![];
@@ -795,9 +750,8 @@ impl Link {
                 Some(n) if n > 0 => self.delta(p["itemId"].as_str(), Some("\n\n")),
                 _ => vec![],
             },
-            // Quanto da cota já foi. Não é da conversa: sai daqui pelo mesmo
-            // cano das outras linhas só porque é o cano que chega ao app
-            // (ver `chat::react`), e o `usage` é quem guarda.
+            // Usage belongs to the account, not the conversation. Route it through chat::react to
+            // the usage store.
             "account/rateLimits/updated" => vec![rate_limits(&p["rateLimits"])],
             "thread/tokenUsage/updated" => {
                 let usage = &p["tokenUsage"];
@@ -980,10 +934,8 @@ impl Link {
         }
     }
 
-    /// Abre um bloco de texto em streaming. Um bloco que ainda estava aberto
-    /// fecha antes com o que tinha — a tela numera os blocos na ordem, e dois
-    /// abertos ao mesmo tempo é o que o Codex não faz, mas o número não pode
-    /// depender disso.
+    /// Close an existing streaming block before opening another so block numbering remains stable
+    /// even if event ordering changes.
     fn open_text(&mut self, id: &str, thinking: bool) -> Vec<Value> {
         let mut out = self.seal(None);
         if !self.message_open {
@@ -1032,8 +984,8 @@ impl Link {
         )]
     }
 
-    /// Fecha o bloco deste item com o texto final, ou entrega o bloco inteiro
-    /// de uma vez quando nunca houve rascunho (a linha chegou sem `started`).
+    /// Finish the item's block with final text, or emit the full block when no streaming draft
+    /// arrived.
     fn close_text(&mut self, id: &str, text: String, thinking: bool) -> Vec<Value> {
         if self.open.as_ref().is_some_and(|o| o.item == id) {
             return self.seal(Some(text));
@@ -1043,8 +995,8 @@ impl Link {
         vec![self.assistant(index, block_of(&text, thinking))]
     }
 
-    /// Fecha o bloco aberto com o evento autoritativo que a tela guarda.
-    /// `text` é o texto final; sem ele vai o que chegou.
+    /// Emit the authoritative completed block, using final text when supplied or the accumulated
+    /// draft otherwise.
     fn seal(&mut self, text: Option<String>) -> Vec<Value> {
         let Some(open) = self.open.take() else {
             return vec![];
@@ -1053,8 +1005,7 @@ impl Link {
         vec![self.assistant(open.index, block_of(&text, open.thinking))]
     }
 
-    /// Uma ferramenta começando: o card já nasce inteiro, porque o Codex conta
-    /// o comando de uma vez.
+    /// Tool starts already contain the complete command, so their cards can render immediately.
     fn tool_use(&mut self, id: &str, name: &str, input: Value) -> Vec<Value> {
         let mut out = self.seal(None);
         self.message_open = true;
@@ -1074,12 +1025,12 @@ impl Link {
         )
     }
 
-    /// Todos os blocos de um turno são uma mensagem só na tela.
+    /// All blocks in a turn share one displayed message.
     fn msg(&self) -> String {
         self.turn.clone().unwrap_or_default()
     }
 
-    /// O caminho como a pessoa o lê: dentro do worktree, sem o worktree.
+    /// Display paths relative to the worktree when possible.
     fn relative(&self, path: &str) -> String {
         relative(path, &self.start.cwd)
     }
@@ -1094,11 +1045,10 @@ fn relative(path: &str, cwd: &str) -> String {
         .to_string()
 }
 
-/* ---------- linhas prontas ---------- */
+/* Canonical output helpers */
 
-/// A cota do Codex embrulhada como linha do app: quem a lê é `chat::react`,
-/// que a entrega ao `usage`. Não vai para o transcript (ver `chat::keep`) —
-/// não é conversa.
+/// Route account usage through chat::react without persisting it as conversation text; see
+/// chat::keep.
 fn rate_limits(limits: &Value) -> Value {
     canonical(
         "usage.updated",
@@ -1106,9 +1056,7 @@ fn rate_limits(limits: &Value) -> Value {
     )
 }
 
-/// Os comandos de barra que o tradutor entende (ver `slash`), com a descrição
-/// nas duas línguas. É a resposta a `commands.list` — a lista que a caixa
-/// oferece ao escrever "/".
+/// Return localized supported slash commands for commands.list and composer suggestions.
 const SLASH: [(&str, &str, &str); 2] = [
     (
         "compact",
@@ -1159,11 +1107,8 @@ fn block_of(text: &str, thinking: bool) -> Value {
     }
 }
 
-/// O app-server escreve no stderr os mesmos erros de ferramenta que já manda
-/// pelo JSON-RPC. São linhas de tracing com timestamp e nível, frequentemente
-/// coloridas; repassá-las duplica o card com uma faixa vermelha ilegível. O que
-/// não tem essa forma continua aparecendo, porque pode explicar um processo que
-/// morreu antes de conseguir responder pelo protocolo.
+/// Suppress timestamped tracing lines that duplicate tool errors already sent over JSON-RPC.
+/// Preserve other stderr lines because they may explain failures before the protocol starts.
 fn process_stderr(line: &str) -> Option<String> {
     let plain = strip_ansi(line);
     let mut fields = plain.split_whitespace();
@@ -1193,8 +1138,7 @@ fn strip_ansi(line: &str) -> String {
     out
 }
 
-/// O comando como a pessoa o leria. O Codex embrulha tudo em
-/// `/bin/zsh -lc "…"`; o `commandActions` traz o de dentro.
+/// Prefer commandActions' inner command over Codex's /bin/zsh -lc wrapper.
 fn pretty(command: &str, actions: &Value) -> String {
     actions
         .as_array()
@@ -1205,10 +1149,8 @@ fn pretty(command: &str, actions: &Value) -> String {
         .unwrap_or_else(|| command.to_string())
 }
 
-/// Um arquivo mudado, como diff que a tela colore. O Codex manda só o hunk de
-/// uma alteração, e o conteúdo cru de um arquivo novo (ou apagado): o
-/// cabeçalho é o que diz de qual arquivo é, e o sinal é o que diz o que
-/// aconteceu com cada linha.
+/// Add file headers and line markers to raw change hunks or added/deleted file contents so the UI
+/// can render a complete diff.
 fn patch(change: &Value, cwd: &str) -> String {
     let path = relative(change["path"].as_str().unwrap_or(""), cwd);
     let diff = change["diff"].as_str().unwrap_or("").trim_end_matches('\n');
@@ -1247,7 +1189,7 @@ fn patch(change: &Value, cwd: &str) -> String {
     format!("diff --git a/{path} b/{path}\n--- {from}\n+++ {to}\n{hunk}")
 }
 
-/// Os textos de uma lista de blocos de conteúdo (MCP e ferramentas dinâmicas).
+/// Extract text from content blocks returned by MCP and dynamic tools.
 fn texts(content: &Value) -> String {
     content
         .as_array()
@@ -1261,7 +1203,7 @@ fn texts(content: &Value) -> String {
         .unwrap_or_default()
 }
 
-/// `24k`, `3.1k`, `1.2m` — o mesmo desenho do `kilo` da tela.
+/// Format token counts like the frontend's kilo helper: 24k, 3.1k, and 1.2m.
 fn kilo(n: u64) -> String {
     match n {
         0..=999 => n.to_string(),
@@ -1276,7 +1218,7 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
 
-    /// Um stdin de mentira: o que o `Link` escreveu, para conferir.
+    /// Capture Link writes through a fake stdin for assertions.
     #[derive(Clone, Default)]
     struct Out(Arc<Mutex<Vec<Value>>>);
 
@@ -1337,8 +1279,7 @@ mod tests {
         assert_eq!(message["params"]["threadId"], "previous");
     }
 
-    /// Abre a thread: responde o `initialize` e o `thread/start`. Nada vai ao
-    /// processo antes disso além do próprio `initialize`.
+    /// Complete initialize and thread/start before sending other conversation input.
     fn opened(link: &mut Link, out: &Out) -> Vec<Value> {
         let before = out.take();
         assert!(
@@ -1358,9 +1299,8 @@ mod tests {
         ))
     }
 
-    /// O id JSON-RPC de um pedido, e onde ele saiu. Procurar pelo método em vez
-    /// de contar linhas é o que deixa somar pedido novo no início da conversa
-    /// (a cota, por exemplo) sem reescrever teste nenhum.
+    /// Find JSON-RPC requests by method rather than line position so adding startup requests does
+    /// not invalidate unrelated tests.
     fn call_id(sent: &[Value], method: &str) -> (u64, usize) {
         let at = sent
             .iter()
@@ -1389,9 +1329,8 @@ mod tests {
         assert_eq!(sent[0]["params"]["effort"], "high");
     }
 
-    /// Marcar o plugin é a autorização que o Claude já recebe pela flag. No
-    /// Codex ela também aprova o hash atual dos hooks daquele plugin — nunca
-    /// hooks de usuário, projeto ou de outro pacote que apareceram na lista.
+    /// Explicit plugin selection approves current hashes for that plugin's hooks only, never
+    /// unrelated user, project, or plugin hooks.
     #[test]
     fn plugins_escolhidos_aprovam_so_os_proprios_hooks_antes_da_thread() {
         let (mut link, out) = link(None);
@@ -1591,7 +1530,8 @@ mod tests {
         link.on_line(
             r#"{"method":"turn/started","params":{"threadId":"t-1","turn":{"id":"turn-1"}}}"#,
         );
-        // Subagente: outra thread no mesmo processo. Nada dele vira tela.
+        // Subagents use different threads in the same process and must not alter the displayed
+        // conversation.
         assert!(link
             .on_line(
                 r#"{"method":"turn/started","params":{"threadId":"sub-1","turn":{"id":"turn-s"}}}"#
@@ -1599,7 +1539,7 @@ mod tests {
             .is_empty());
         assert!(link.on_line(r#"{"method":"item/completed","params":{"threadId":"sub-1","turnId":"turn-s","item":{"type":"agentMessage","id":"s1","text":"achei"}}}"#).is_empty());
         assert!(link.on_line(r#"{"method":"turn/completed","params":{"threadId":"sub-1","turn":{"id":"turn-s","status":"completed"}}}"#).is_empty());
-        // A conversa segue no turno dela.
+        // The primary conversation remains in its own active turn.
         let f = link.on_line(r#"{"method":"item/completed","params":{"threadId":"t-1","turnId":"turn-1","item":{"type":"agentMessage","id":"m1","text":"pronto"}}}"#);
         assert_eq!(f[0]["type"], "assistant.block");
         assert_eq!(f[0]["messageId"], "turn-1");
@@ -1657,8 +1597,7 @@ mod tests {
         assert_eq!(f[0]["error"], false);
     }
 
-    /// O texto que estava chegando fecha antes de a ferramenta entrar: os
-    /// índices dos blocos são os que a tela vai contar.
+    /// Close streamed text before adding a tool so block indexes match the UI's ordering.
     #[test]
     fn ferramenta_no_meio_do_texto_fecha_o_texto_antes() {
         let (mut link, out) = link(None);
@@ -1673,7 +1612,7 @@ mod tests {
         assert_eq!(f[0]["block"]["kind"], "thinking");
         assert_eq!(f[0]["block"]["text"], "pensando");
         assert_eq!(f[1]["block"]["kind"], "tool");
-        // O próximo texto nasce no índice 2: pensamento (0), ferramenta (1).
+        // The next text uses index 2, after reasoning at 0 and the tool at 1.
         let f = link.on_line(
             r#"{"method":"item/started","params":{"item":{"type":"agentMessage","id":"m1"}}}"#,
         );
@@ -1814,8 +1753,7 @@ mod tests {
         assert_eq!(f[0]["message"], "");
     }
 
-    /// Como o Codex manda: caminho absoluto, hunk cru na alteração, e o
-    /// conteúdo do arquivo (sem sinal) no arquivo novo.
+    /// Match Codex's absolute paths, raw modification hunks, and unmarked added-file contents.
     #[test]
     fn o_patch_vira_diff_com_cabecalho_e_sinal() {
         let change = json!({ "path": "/wt/src/a.rs", "kind": { "type": "update", "move_path": null }, "diff": "@@ -1 +1 @@\n-a\n+b\n" });

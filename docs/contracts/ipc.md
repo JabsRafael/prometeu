@@ -1,17 +1,32 @@
 # Contrato IPC TypeScript ↔ Rust
 
-Status: contrato atual documentado; tipagem completa é trabalho futuro.
+Status: current contract; TypeScript commands and browser handlers share typed
+arguments and results. Rust bindings remain manually synchronized.
 
-## Fontes atuais
+## Sources and guarantees
 
-- `src/ipc.ts` mantém a lista de nomes aceitos pelo frontend.
-- `src-tauri/src/main.rs` registra os handlers Rust em `generate_handler!`.
-- `src/mock.ts` implementa respostas para desenvolvimento no navegador.
-- testes verificam paridade entre usos do frontend, handlers e mock.
+- `src/ipc.ts` owns `Commands`, with one argument/result pair for each command.
+  `invoke` infers the result from the command and checks its arguments. Callers
+  cannot supply an arbitrary result generic. `IpcArgs`, `IpcArguments`,
+  `IpcResult`, `IpcCall`, and `IpcHandlers` support typed consumers and wrappers.
+  Command unions must travel with their corresponding arguments as an `IpcCall`
+  tuple; widening the command generic cannot bypass required arguments.
+- `src/mock.ts` implements `IpcHandlers`. TypeScript checks every command's
+  arguments and result. The browser's dynamic Tauri bridge performs one dispatch
+  cast after checking that the command belongs to the handler map; plugin
+  commands stay outside the application contract.
+- `src-tauri/src/main.rs` registers Rust handlers in `generate_handler!`.
+  `src-tauri/tests/mock.rs` checks exact name parity across this registration,
+  the TypeScript map, and browser handlers.
+- `src/ipc.test.ts` checks invocation forwarding and compile-time rejection of
+  missing/invalid arguments, unknown commands, arbitrary result types, and
+  incorrect mock results. `npm run typecheck` checks the entire frontend.
 
-Essa proteção detecta comando ausente ou escrito errado. Argumentos, retornos e
-erros ainda não têm uma fonte tipada compartilhada: `invoke<T>` aceita o tipo
-escolhido pelo chamador e os argumentos são `InvokeArgs`.
+These checks do not generate Rust DTOs or validate runtime payloads. Rust
+argument names, serde behavior, and serialized results must still match the
+map and the existing boundary tests. Untrusted relay/control input remains
+subject to backend validation. Errors keep their existing rejection format.
+See [ADR 0022](../decisions/0022-typed-ipc.md).
 
 ## Regras de comando
 
@@ -133,7 +148,7 @@ Ao criar ou mudar comando:
 
 1. alterar a função Rust e seu tipo de erro;
 2. registrar o handler em `main.rs`;
-3. atualizar o nome em `src/ipc.ts`;
+3. update the command name, argument shape, and result in `src/ipc.ts`;
 4. implementar ou recusar conscientemente no `src/mock.ts`;
 5. atualizar todos os consumidores TypeScript;
 6. adicionar teste da forma dos argumentos e retorno;
@@ -149,8 +164,7 @@ Ao criar ou mudar evento:
 
 ## Direção de evolução
 
-Primeiro passo sem dependência nova: substituir `invoke<T>` por um mapa de
-comandos no TypeScript:
+The implemented map requires no new dependency:
 
 ```ts
 type Commands = {
@@ -159,7 +173,7 @@ type Commands = {
 };
 ```
 
-O passo seguinte pode gerar bindings a partir dos DTOs Rust. A ferramenta deve
+A future step may generate bindings from Rust DTOs. A ferramenta deve
 ser escolhida em ADR depois de uma prova pequena com:
 
 - enums com `serde(rename_all)`;

@@ -3,27 +3,17 @@ import { t, tn } from "./i18n";
 import type { Change, RepoDiff } from "./types";
 import { highlight } from "./highlight";
 
-/// Tela de mudanças: o diff de todos os arquivos do workspace empilhado num
-/// scroll só, como a review de um PR. Cabeçalho de arquivo gruda no topo,
-/// clique nele recolhe. Com mais de um repositório, cada um é uma seção com
-/// cabeçalho próprio, grudado acima do de arquivo — histórico separado é fato
-/// do git, e a tela só o agrupa. Quem lê é você; quem edita é o agente — então
-/// isto redesenha a cada evento do quadro, sem perder a rolagem nem o que você
-/// recolheu.
+/// Stack workspace file diffs in one scroll area, grouped by repository with sticky headers. Preserve scroll and collapsed state across board updates.
 
 const MAX_ROWS = 2500;
-/// A altura de uma linha do diff, igual à do CSS (`.dbody`, `line-height`). O
-/// lugar de um arquivo que ninguém abriu ainda é guardado por esta conta: sem
-/// ela a barra de rolagem cresceria a cada arquivo montado, e a tela pularia
-/// debaixo de quem está lendo.
+/// Match .dbody line height when reserving unmounted file space so lazy rendering does not shift the scroll position.
 const ROW_H = 20;
 
 let signature = "";
 const shut = new Set<string>();
 const shutRepos = new Set<string>();
 
-/// A chave de um arquivo na tela: o repositório na frente, porque dois repos
-/// podem ter um `README.md` cada.
+/// Include repository identity because multiple repositories can contain the same path.
 export const key = (repo: string, path: string) => `${repo}/${path}`;
 
 export const keys = (repos: RepoDiff[]) => repos.flatMap((r) => r.files.map((f) => key(r.name, f.path)));
@@ -33,38 +23,28 @@ export const sum = (files: Change[], of: "added" | "removed") => files.reduce((n
 type View = {
   id: string;
   repos: RepoDiff[];
-  /// Rola até o arquivo — é o clique na lista da direita. Nada muda no diff,
-  /// nada é redesenhado: só a rolagem anda.
+  /// Sidebar navigation scrolls to the file without changing or redrawing the diff.
   focus?: string;
-  /// O que dizer quando não há arquivo nenhum.
+  /// Choose the empty-state message.
   empty: string;
-  /// Você marcou um arquivo como visto: a lista da direita e a aba precisam
-  /// saber, e quem as desenha é quem chamou.
+  /// Notify the caller when seen state changes so it can update the sidebar and tab.
   onSeen: () => void;
-  /// Duplo clique no cabeçalho de um arquivo: sai do diff e abre o arquivo
-  /// inteiro no viewer, onde dá para mexer nele. Quem sabe transformar o
-  /// caminho do repositório em caminho do workspace é quem chamou.
+  /// Double-click opens the editable file; the caller translates repository paths into workspace paths.
   onOpen: (repo: string, path: string) => void;
 };
 
-/// O que já está desenhado, por arquivo e pela marca do patch de quando foi.
-/// Redesenhar a tela é reaproveitar o que não mudou: sem isto, uma linha nova
-/// num arquivo refazia as dezenas de milhares de linhas de todos os outros — e
-/// o quadro pede esta tela a cada ferramenta que o agente usa.
+/// Cache each file by patch signature. One changed file must not rebuild every unchanged diff on board updates.
 const drawn = new Map<string, Drawn>();
 let drawnId = "";
 
 type Drawn = {
   el: HTMLElement;
   stamp: string;
-  /// Repinta o que é estado da tela e não do patch: "visto" e recolhido. O
-  /// elemento sobrevive ao redesenho, então precisa ser dito de novo.
+  /// Reapply seen and collapsed state to reused elements.
   sync: () => void;
 };
 
-/// Reconstrói a tela — só quando algum patch mudou de verdade. A marca de cada
-/// arquivo entra na assinatura no lugar do patch inteiro: comparar a soma de
-/// 260 KB de texto a cada evento do quadro já era metade da conta.
+/// Rebuild only when patch signatures change; avoid repeatedly comparing large concatenated patches.
 export function render(host: HTMLElement, view: View) {
   const { id, repos } = view;
   if (drawnId !== id) {
@@ -78,8 +58,7 @@ export function render(host: HTMLElement, view: View) {
     const some = repos.filter((r) => r.files.length);
     const multi = repos.length > 1;
     host.replaceChildren(...(some.length ? some.flatMap((r) => (multi ? [group(view, r)] : files(view, r))) : [none(view.empty)]));
-    // Arquivo que saiu da lista sai do cache junto: um workspace que trabalha o
-    // dia inteiro não pode ir guardando o diff de tudo que já passou por ele.
+    // Remove vanished files from the cache instead of retaining every historical patch.
     const live = new Set(keys(repos));
     for (const [k, d] of drawn) {
       if (!live.has(k)) {
@@ -91,12 +70,9 @@ export function render(host: HTMLElement, view: View) {
   if (view.focus) scrollTo(host, view.focus);
 }
 
-/* ---------- montar só o que se vê ---------- */
+/* Viewport rendering. */
 
-/// Quem monta o corpo de um arquivo, pelo elemento dele. O corpo só existe
-/// quando o arquivo chega perto da tela: um workspace de cem arquivos tem
-/// dezenas de milhares de linhas, e montá-las todas de uma vez é a tela
-/// travada por segundos e a rolagem arrastando depois.
+/// Mount file bodies near the viewport to avoid creating thousands of offscreen diff rows.
 const filler = new WeakMap<Element, () => void>();
 let watcher: IntersectionObserver | null = null;
 let watched: HTMLElement | null = null;
@@ -105,8 +81,7 @@ function watch(host: HTMLElement) {
   if (watched === host && watcher) return;
   watcher?.disconnect();
   watched = host;
-  // A margem é o que faz a rolagem parecer instantânea: o arquivo é montado
-  // uma tela antes de aparecer.
+  // Mount one viewport early so scrolling reaches rendered content.
   watcher = new IntersectionObserver(
     (entries) => {
       for (const e of entries) if (e.isIntersecting) filler.get(e.target)?.();
@@ -115,14 +90,12 @@ function watch(host: HTMLElement) {
   );
 }
 
-/// Apaga a assinatura: o próximo `render` desenha de novo mesmo sem patch
-/// novo. É o que "visto em tudo" precisa — o que muda é o estado, não o diff.
+/// Invalidate the render signature for state-only updates such as marking all files seen.
 export function invalidate() {
   signature = "";
 }
 
-/// Recolher todos / abrir todos, no botão da barra. Mexe no conjunto e apaga a
-/// assinatura para o próximo `render` desenhar de novo.
+/// Expand or collapse every file and invalidate the render signature.
 export function foldAll(all: string[]) {
   const allShut = all.length > 0 && all.every((k) => shut.has(k));
   shut.clear();
@@ -133,12 +106,9 @@ export function foldAll(all: string[]) {
 function scrollTo(host: HTMLElement, k: string) {
   const target = host.querySelector(`[data-key="${CSS.escape(k)}"]`);
   if (!target) return;
-  // Montar antes de rolar: chegar num arquivo é chegar no conteúdo dele, e não
-  // no lugar onde ele vai estar quando o observador o alcançar.
+  // Mount before scrolling so navigation immediately reveals content.
   filler.get(target)?.();
-  // `scrollIntoView` anda em todo ancestral rolável — inclusive a raiz do app,
-  // que é `overflow: hidden` e não tem barra para voltar: o cabeçalho subia
-  // para fora da janela e ficava lá. Aqui só o scroll desta lista se mexe.
+  // Scroll only the diff container. scrollIntoView can also move the overflow-hidden application root and hide its header.
   host.scrollTop += target.getBoundingClientRect().top - host.getBoundingClientRect().top;
 }
 
@@ -149,12 +119,9 @@ function none(text: string): HTMLElement {
   return el;
 }
 
-/* ---------- visto ---------- */
+/* Seen state. */
 
-/// O que você já leu, por workspace: a chave do arquivo e a marca do patch de
-/// quando você leu. Patch que muda depois disso desmarca sozinho — é o que faz
-/// "visto" servir para acompanhar o agente, e não só para arrumar a lista.
-/// Fica no localStorage: fechar o app não pode apagar o que você já leu.
+/// Persist seen patch signatures per workspace. A later patch change automatically marks the file unread again.
 const seenOf = new Map<string, Record<string, string>>();
 const seenKey = (id: string) => `prometeu:visto:${id}`;
 
@@ -177,10 +144,7 @@ function saveSeen(id: string) {
   else localStorage.removeItem(seenKey(id));
 }
 
-/// A marca de um patch: curta, para não guardar o diff inteiro de novo. Um
-/// patch pode ter centenas de KB e a pergunta chega a cada redesenho, então a
-/// conta fica guardada por objeto — o back manda objetos novos quando o diff
-/// muda, e aí a conta é refeita.
+/// Cache compact signatures by patch object to avoid repeatedly hashing large diffs.
 const stamps = new WeakMap<Change, string>();
 function stamp(c: Change): string {
   let s = stamps.get(c);
@@ -211,7 +175,7 @@ export function seeAll(id: string, repos: RepoDiff[]) {
 export const unseen = (id: string, repos: RepoDiff[]) =>
   repos.reduce((n, r) => n + r.files.filter((c) => !isSeen(id, r.name, c)).length, 0);
 
-/// Workspace que saiu do quadro leva junto o que você tinha lido nele.
+/// Remove seen state when its workspace leaves the board.
 export function pruneSeen(alive: Set<string>) {
   const gone: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
@@ -224,11 +188,9 @@ export function pruneSeen(alive: Set<string>) {
   }
 }
 
-/* ---------- um repositório ---------- */
+/* Repository section. */
 
-/// A seção de um repositório: cabeçalho grudado no topo com o nome, de onde a
-/// branch saiu e a soma, e os arquivos dele embaixo. Clique no cabeçalho
-/// recolhe o repo inteiro.
+/// A collapsible repository section shows its base branch, totals, and files under a sticky heading.
 function group(view: View, r: RepoDiff): HTMLElement {
   const box = document.createElement("div");
   box.className = "drepo";
@@ -264,8 +226,7 @@ function group(view: View, r: RepoDiff): HTMLElement {
   return box;
 }
 
-/// Os arquivos de um repositório: o que já estava desenhado com o mesmo patch
-/// volta como está, e só o que mudou é montado de novo.
+/// Reuse unchanged file elements and rebuild only changed patches.
 function files(view: View, r: RepoDiff): HTMLElement[] {
   return r.files.map((c) => {
     const k = key(r.name, c.path);
@@ -282,7 +243,7 @@ function files(view: View, r: RepoDiff): HTMLElement[] {
   });
 }
 
-/* ---------- um arquivo ---------- */
+/* File section. */
 
 function file(view: View, repo: string, change: Change): Omit<Drawn, "stamp"> {
   const k = key(repo, change.path);
@@ -312,7 +273,7 @@ function file(view: View, repo: string, change: Change): Omit<Drawn, "stamp"> {
   head.children[5].textContent = change.added ? `+${change.added}` : "";
   head.children[6].textContent = change.removed ? `−${change.removed}` : "";
 
-  // Visto: o check da ponta. Clique nele não recolhe o arquivo.
+  // The seen checkbox must not toggle file collapse.
   const seen = head.children[7] as HTMLElement;
   seen.innerHTML = icon("check", 13);
   const paintSeen = () => {
@@ -328,9 +289,7 @@ function file(view: View, repo: string, change: Change): Omit<Drawn, "stamp"> {
   });
   paintSeen();
 
-  // O corpo é montado quando o arquivo chega perto da tela — ou quando alguém
-  // o abre, ou vai até ele. Até lá o lugar dele fica guardado pela altura que
-  // as linhas vão ter, para a rolagem não andar sozinha depois.
+  // Reserve the file body's height until viewport proximity or explicit navigation mounts its rows.
   let full = false;
   const fill = () => {
     if (full || shut.has(k)) return;
@@ -352,23 +311,18 @@ function file(view: View, repo: string, change: Change): Omit<Drawn, "stamp"> {
     glyph();
     fill();
   });
-  // Ler o diff é meio caminho: o outro meio é ir mexer no arquivo. Os dois
-  // cliques do gesto recolhem e abrem de novo, e o que sobra é o arquivo no
-  // centro. Apagado não abre — não há o que ler.
+  // Double-click opens the full file after the click handlers toggle collapse. Deleted files cannot be opened.
   if (!change.deleted) {
     head.addEventListener("dblclick", () => view.onOpen(repo, change.path));
   }
 
   box.append(head, body);
   glyph();
-  // Reaproveitado, o elemento só precisa ouvir de novo o que não está no
-  // patch: se você marcou como visto, e se ele está recolhido. Montar o corpo
-  // continua sendo do observador — é o que faz redesenhar custar quase nada.
+  // Reused elements only need seen and collapsed state refreshed; the observer owns body mounting.
   return { el: box, sync: () => (paintSeen(), glyph()) };
 }
 
-/// Quantas linhas o corpo deste arquivo vai ter, sem montá-las: conta pela
-/// mesma regra do `rows`, para o lugar guardado ser do tamanho do que chega.
+/// Count rows with the rendering rules so reserved height matches the eventual body.
 function rowCount(patch: string): number {
   if (!patch) return 1;
   let n = 0;
@@ -376,8 +330,7 @@ function rowCount(patch: string): number {
   return Math.min(n, MAX_ROWS + 1);
 }
 
-/// Sem trechos: binário, ou patch cortado no back por ser grande demais. O
-/// contador de linhas já está no cabeçalho, então aqui vai só o porquê.
+/// For binary or truncated patches, explain missing hunks; line totals already appear in the header.
 function lines(change: Change): HTMLElement[] {
   if (!change.patch) {
     const el = document.createElement("div");
@@ -413,15 +366,11 @@ function row(r: Row, path: string): HTMLElement {
   return el;
 }
 
-/* ---------- patch unificado → linhas ---------- */
+/* Unified patch rows. */
 
 export type Row = { kind: "hunk" | "ctx" | "add" | "del"; no: number; text: string };
 
-/// O número mostrado é o da linha no arquivo de agora; em linha apagada, o do
-/// arquivo de antes — é o único que existe para ela.
-///
-/// Exportada para o teste: é a única parte desta tela que é conta, e o que ela
-/// erra sai como número de linha errado — que ninguém confere de olho.
+/// Use current-file line numbers except for deletions, which use original-file positions. Export this pure calculation for tests.
 export function rows(patch: string): Row[] {
   const out: Row[] = [];
   let before = 0;

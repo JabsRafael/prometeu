@@ -6,9 +6,9 @@
     <title>Prometeu</title>
   </head>
   <body>
-    <!-- Tudo que é o app, e embaixo a faixa que atravessa a janela inteira. -->
+    <!-- The app body sits above a full-width global status bar. -->
     <div class="shell">
-    <!-- Navegação nunca some: trocar de workspace não é trocar de modo. -->
+    <!-- Navigation stays available across workspace changes. -->
     <nav class="rail" id="rail">
       <div class="railtop" data-tauri-drag-region="deep">
         <button id="railtoggle" class="ico" data-t-title="rail.hide"></button>
@@ -17,8 +17,7 @@
         <button id="fwd" class="ico" data-t-title="nav.fwd" disabled></button>
       </div>
       <div class="railbody" id="railbody"></div>
-      <!-- Rodapé da barra: por ora só a versão. É o canto onde ajuda e
-           configurações vão morar, e a faixa já reserva o lugar deles. -->
+      <!-- The sidebar footer reserves space for version and app-level controls. -->
       <div class="railfoot">
         <button id="settings" class="ico sm" data-t-title="top.settings"></button>
         <span class="ver" id="ver"></span>
@@ -34,14 +33,12 @@
         <span class="spacer"></span>
         <span id="msg" class="msg"></span>
         <div id="wsctl" class="wsctl" hidden>
-          <!-- Colaboração só ocupa a barra quando está ativa. Compartilhar pela
-               primeira vez e mudar a etapa ficam nas ações do workspace. -->
+          <!-- Collaboration occupies the toolbar only when active. Initial sharing and stage changes
+               remain workspace menu actions. -->
           <button id="share" class="ico" hidden></button>
           <span id="watchers" class="watchers"></span>
-          <!-- Não cria nada sozinho: injeta na conversa ativa o pedido de PR,
-               com o estado do git e os passos. Quem faz é o agente. O ⌄ ao lado
-               abre os PRs desta branch — um por repositório, num menu, para a
-               barra não crescer um botão a cada repositório. -->
+          <!-- Inject PR instructions and Git state into the active conversation. The agent performs the
+               work; the adjacent menu opens existing PRs per repository. -->
           <div class="split" id="prsplit">
             <button id="pr" data-t-title="top.pr"></button>
             <button id="prpick" class="ico sm" data-t-title="top.pr.links" hidden></button>
@@ -52,18 +49,16 @@
       </header>
 
       <main>
-        <!-- A mesa: todas as conversas de uma vez, uma por quadro. É a tela
-             inicial. Desenhada por `desk.ts`. -->
+        <!-- The desk is the initial view, with one panel per active conversation, rendered by desk.ts. -->
         <section id="deskView" class="view desk" hidden>
           <div class="listmain">
-            <!-- Todas as conversas, na ordem da mesa: clicar recolhe ou traz de volta. -->
+            <!-- Conversation controls follow desk order and toggle collapsed panels. -->
             <div class="subbar tabbar" id="deskbar"></div>
             <div class="tiles" id="tiles"></div>
           </div>
         </section>
 
-        <!-- Issues do Linear no seu nome, e o atalho para virar workspace.
-             Desenhada por `issues.ts`. -->
+        <!-- Linear issues assigned to the user and actions to create workspaces, rendered by issues.ts. -->
         <section id="issuesView" class="view issues" hidden>
           <div class="listmain">
             <div class="subbar ibar" id="ibar"></div>
@@ -72,8 +67,7 @@
           </div>
         </section>
 
-        <!-- Os arquivados: o que saiu da frente, com busca e o botão que
-             devolve worktrees ao disco. Desenhada por `archived.ts`. -->
+        <!-- Archived workspaces, search and worktree cleanup, rendered by archived.ts. -->
         <section id="archivedView" class="view issues" hidden>
           <div class="listmain">
             <div class="subbar ibar" id="abar"></div>
@@ -81,19 +75,15 @@
           </div>
         </section>
 
-        <!-- Configurações: a conexão com o Linear, e o que mais vier a ser
-             ajuste do app e não do repositório. Desenhada por `settings.ts`. -->
+        <!-- App-level integration and preference settings, rendered by settings.ts. -->
         <section id="settingsView" class="view settings" hidden></section>
 
         <section id="wsView" class="view wsview" hidden>
           <div class="center">
             <div class="subbar tabbar" id="tabbar"></div>
-            <!-- A conversa: a timeline e a caixa de escrever, montadas por
-                 chat.ts. Não é um terminal — é o que o agente escreveu,
-                 desenhado. -->
+            <!-- The conversation timeline and composer are created by chat.ts. -->
             <div class="chatwrap" id="chatwrap">
-              <!-- Worktree devolvido ao disco, ou ainda sendo montado: o painel
-                   conta o que ficou, ou o que está acontecendo. -->
+              <!-- Show preparation progress or retained history after worktree cleanup. -->
               <div class="offline" id="offline" hidden>
                 <span class="offwave" id="offwave" hidden></span>
                 <h3 id="offtitle" data-t="gone.title"></h3>
@@ -101,20 +91,19 @@
                 <span class="path" id="offpath"></span>
               </div>
             </div>
-            <!-- Mudanças: o diff de todos os arquivos empilhado num scroll só. -->
+            <!-- All file diffs share one stacked scrolling view. -->
             <div class="diffview" id="diffview" hidden>
               <div class="vbar">
                 <span class="vcrumb" id="dcrumb"></span>
                 <span class="spacer"></span>
-                <!-- Visto em tudo: leu, marcou, e o que o agente mudar depois
-                     é o que volta a contar na aba. -->
+                <!-- Mark the current diff reviewed; only subsequent agent changes increase the badge
+                     again. -->
                 <button id="dseen" class="ico" data-t-title="diff.seenAll"></button>
                 <button id="dfold" class="ico" data-t-title="diff.foldAll"></button>
               </div>
               <div class="dlist" id="dlist"></div>
             </div>
-            <!-- Navegador: o Run do workspace numa webview do sistema por cima
-                 deste lugar. O DOM só reserva o buraco; quem desenha é o sistema. -->
+            <!-- Reserve a DOM region for the workspace Run preview rendered by the system webview. -->
             <div class="webview" id="webview" hidden>
               <div class="vbar">
                 <button id="wback" class="ico" data-t-title="web.back"></button>
@@ -126,11 +115,9 @@
               </div>
               <div class="webbody" id="webbody"></div>
             </div>
-            <!-- Terminal livre: o shell que você abriu ocupa o centro, como o
-                 navegador. Setup e Run continuam no painel da direita — são
-                 saída para acompanhar de canto, e não onde se trabalha. -->
+            <!-- Free terminals occupy center tabs. Setup and Run remain in the side panel. -->
             <div class="termview" id="termview" hidden><div id="shellterm"></div></div>
-            <!-- Arquivo aberto pela árvore: toma o lugar da conversa, como no Conductor. -->
+            <!-- Opening a file from the tree replaces the central conversation view. -->
             <div class="viewer" id="viewer" hidden>
               <div class="vbar" id="vbar">
                 <span class="vcrumb" id="vcrumb"></span>
@@ -141,28 +128,26 @@
               </div>
               <div class="vcode" id="vcode">
                 <div class="gutter" id="vgutter"></div>
-                <!-- O código colorido e a caixa que recebe o que você digita, um
-                     em cima do outro: as cores são do <pre>, o cursor e a seleção
-                     são da caixa, e o texto dela é transparente. -->
+                <!-- Overlay syntax-highlighted pre content with a transparent-text editor that owns the
+                     caret and selection. -->
                 <div class="vstack">
                   <textarea id="vtext" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
                   <pre id="vpre"></pre>
                 </div>
               </div>
-              <!-- PDF (iframe do WebKit) ou CSV (tabela): o que não é código. -->
+              <!-- Render non-code files as a WebKit PDF iframe or CSV table. -->
               <div class="vfile" id="vfile" hidden></div>
             </div>
           </div>
           <aside class="side" id="side">
-            <!-- A alça na borda esquerda: arrastar muda a largura do painel. -->
+            <!-- Drag the left-edge handle to resize the panel. -->
             <div class="sideresize" id="sideresize"></div>
             <div class="sidetabs">
               <button id="tab-files" class="sidetab on" data-t="side.files"></button>
               <button id="tab-diff" class="sidetab"><span data-t="side.changes"></span> <span id="diffcount"></span></button>
               <button id="tab-comments" class="sidetab" hidden><span data-t="side.comments"></span> <span id="commentcount"></span></button>
               <span class="spacer"></span>
-              <!-- Revisar: o diff inteiro empilhado no centro, que é o que se
-                   lê antes de abrir PR. Só existe quando há o que revisar. -->
+              <!-- Show the complete stacked review diff only when changes exist. -->
               <button id="review" class="ghost sm" data-t-title="side.review.title" hidden></button>
               <button id="collapse" class="ico" data-t-title="side.collapse"></button>
               <button id="reveal" class="ico" data-t-title="side.reveal"></button>
@@ -172,9 +157,8 @@
               <div class="difflist" id="difflist" hidden></div>
               <div class="comments" id="comments" hidden></div>
             </div>
-            <!-- Setup prepara o worktree e Run sobe o projeto, os dois no mesmo
-                 worktree e nenhum deles sessão de agente. Terminal livre não
-                 mora aqui: é aba do centro. -->
+            <!-- Setup prepares the worktree and Run starts its project. Free terminals live in center
+                 tabs; neither script is an agent session. -->
             <div class="dock" id="dock">
               <div class="docktabs">
                 <button id="dock-toggle" class="ico" data-t-title="dock.collapse"></button>
@@ -189,8 +173,8 @@
               </div>
               <div class="dockbody">
                 <div class="dockwrap" id="dockwrap" hidden><div id="dockterm"></div></div>
-                <!-- Um estado vazio só, montado pelo main: o que falta em cada
-                     aba é diferente, e duas caixas fixas envelheceriam juntas. -->
+                <!-- main builds the current empty state rather than retaining duplicate fixed
+                     placeholders. -->
                 <div class="dockempty" id="dockempty">
                   <div class="glyph" id="empty-glyph" hidden></div>
                   <h4 id="empty-title"></h4>
@@ -205,9 +189,8 @@
     </div>
     </div>
 
-    <!-- A faixa de baixo: quanto da cota de cada agente já foi, e o estado da
-         máquina. Não é do workspace aberto — é do app inteiro, e por isso
-         atravessa a janela toda. Desenhada por `statusbar.ts`. -->
+    <!-- The full-width global status bar shows account quotas and machine resources, independently of
+         the selected workspace. -->
     <footer class="status" id="status"></footer>
 
     <div class="veil" id="veil" hidden></div>

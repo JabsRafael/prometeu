@@ -3,20 +3,11 @@ import type { AgentDescriptor } from "./agents";
 import { brand, icon } from "./icons";
 import { fromBack, t } from "./i18n";
 import * as menu from "./menu";
-import { invoke } from "./ipc";
+import { invoke, type IpcCall } from "./ipc";
 import type { Board, ProviderId } from "./types";
 import { $ } from "./util";
 
-/// A faixa de baixo: o que os agentes já gastaram da cota, e o que o app está
-/// custando à máquina.
-///
-/// Nada aqui é do workspace aberto. A cota é da conta, a memória é do app
-/// inteiro, os terminais e as portas são de todos os workspaces — é o único
-/// lugar da tela que não muda quando você troca de card, e é por isso que ela
-/// atravessa a janela por baixo de tudo.
-///
-/// Na faixa cabe o número; o resto abre no clique. Um painel por assunto, e
-/// nenhum deles com submenu: são poucas linhas, e todas cabem à vista.
+/// App-wide provider usage and machine resources. Values cover all workspaces; clicking a chip opens its detail panel.
 
 export type Window = { kind: string; pct: number; resets: number; scope?: string; label?: string };
 export type Agent = { windows: Window[]; at: number };
@@ -39,9 +30,7 @@ export type Proc = { kind: string; name: string; detail: string; rss: number; cp
 export type Port = { id: string; title: string; port: number };
 export type Machine = { rss: number; cpu: number; procs: Proc[]; terms: number; ports: Port[] };
 
-/// Quanto da janela já foi antes de a barra sair do cinza. Abaixo disso o
-/// número é informação; daqui para cima é aviso, e no fim é o que interrompe
-/// o trabalho.
+/// Usage thresholds distinguish ordinary readings, warnings, and exhausted quota.
 const WARN = 75;
 const HOT = 90;
 
@@ -49,26 +38,22 @@ let usage: Usage = {};
 let accounts: Accounts | null = null;
 let accountAction = false;
 let usageProvider: ProviderId | null = null;
-/// Quais agentes desenhar, tenham leitura ou não. Até o back responder, o de
-/// antes: o app era só o Claude Code.
+/// Start with the historical Claude fallback until installed providers are discovered.
 let agents: Pick<AgentDescriptor, "id" | "label">[] = [{ id: "claude", label: "Claude" }];
 let machine: Machine = { rss: 0, cpu: 0, procs: [], terms: 0, ports: [] };
 let say: (text: string, isError?: boolean) => void = () => {};
 
-/// Quando não deixar o Mac dormir. A escolha é deste Mac e fica nele, como a
-/// do idioma — não é coisa que se sincronize entre máquinas.
+/// Sleep preference belongs to this Mac and is not synchronized.
 type Awake = "on" | "agent" | "off";
 const AWAKE_STORE = "prometeu:acordado";
 const AWAKE: Awake[] = ["on", "agent", "off"];
 let awake: Awake = read();
-/// Há agente trabalhando agora. Sai do quadro, e é o que decide o modo
-/// "enquanto trabalha".
+/// Board activity controls the keep-awake-while-working mode.
 let working = false;
-/// O que o back já sabe. Sem isto, cada mudança de quadro mandaria um pedido.
+/// Remember the backend state to avoid redundant commands.
 let held: boolean | null = null;
 
-/// Fora do navegador (vitest roda em node) não há `localStorage`: o módulo
-/// continua de pé, desligado.
+/// Without localStorage, including in Node tests, default to allowing sleep.
 function read(): Awake {
   try {
     const saved = localStorage.getItem(AWAKE_STORE);
@@ -83,7 +68,7 @@ export function init(hooks: { say: (text: string, isError?: boolean) => void }) 
   hold();
 }
 
-/// O quadro mudou: pode ter começado ou parado de trabalhar alguém.
+/// Recompute agent activity after board changes.
 export function boardChanged(board: Board) {
   const next = board.workspaces.some((w) => w.tabs.some((tab) => tab.status === "rodando"));
   if (next === working) return;
@@ -92,8 +77,7 @@ export function boardChanged(board: Board) {
   draw();
 }
 
-/// Segurar ou soltar. Só fala com o back quando a resposta muda: o quadro se
-/// republica a cada ferramenta que um agente roda.
+/// Send a sleep command only when its desired state changes; agent tools publish frequent board updates.
 function hold() {
   const want = awake === "on" || (awake === "agent" && working);
   if (want === held) return;
@@ -125,7 +109,7 @@ function accountName(account: Account): string {
   return account.email || t(account.id === account.provider ? "account.terminal" : "account.new");
 }
 
-/// Quais CLIs estão instalados nesta máquina.
+/// Installed provider CLIs on this machine.
 export function showAgents(have: readonly AgentDescriptor[]) {
   agents = have.map(({ id, label }) => ({ id, label }));
   draw();
@@ -134,14 +118,11 @@ export function showAgents(have: readonly AgentDescriptor[]) {
 export function showMachine(next: Machine) {
   machine = next;
   draw();
-  // O painel aberto envelheceria em cima da tela: quem está olhando a lista de
-  // processos está olhando justamente o que muda a cada três segundos.
+  // Refresh an open resource panel as process readings change.
   if (open === "res") fill();
 }
 
-/// O nome da janela na faixa. Curto de propósito: é o rótulo que cabe ao lado
-/// do número sem virar frase.
-// `overage` é como versões anteriores guardaram a janela do Fable no disco.
+/// Compact quota labels fit beside usage values. Older caches used overage for the Fable quota window.
 const SHORT: Record<string, string> = {
   session: "5h",
   weekly: "7d",
@@ -157,9 +138,7 @@ function shortKind(what: string): string {
 function draw() {
   const bar = $("status");
   bar.innerHTML = "";
-  // Agente instalado e sem leitura continua na faixa, com um traço no lugar do
-  // número. Sumir pareceria defeito justamente na estreia: até o primeiro poll
-  // do back responder (ou a primeira conversa), não há número nenhum.
+  // Keep installed providers visible before their first quota reading; a dash indicates pending data.
   for (const agent of agents) {
     const account = accounts?.accounts.find((account) => account.id === accounts?.active[agent.id]);
     const windows = (account ? usage[account.id] : accounts ? undefined : usage[agent.id])?.windows ?? [];
@@ -211,7 +190,7 @@ function chip(which: Which, html: string, title: string, provider?: ProviderId):
   return button;
 }
 
-/// A barrinha. `pct` já vem de 0 a 100.
+/// Quota percentages already range from 0 to 100.
 function meter(pct: number, wide = false): string {
   const level = pct >= HOT ? " hot" : pct >= WARN ? " warn" : "";
   return (
@@ -220,8 +199,7 @@ function meter(pct: number, wide = false): string {
   );
 }
 
-/// Bytes como a gente fala: "822.8 MB", "1.2 GB". Base 1024, que é a que o
-/// Activity Monitor mostra ao lado.
+/// Format bytes in powers of 1024, matching Activity Monitor.
 export function bytes(n: number): string {
   if (n < 1024) return `${n} B`;
   const units = ["KB", "MB", "GB", "TB"];
@@ -234,7 +212,7 @@ export function bytes(n: number): string {
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[at]}`;
 }
 
-/* ---------- os painéis ---------- */
+/* ---------- panels ---------- */
 
 type Which = "usage" | "res" | "term" | "port" | "awake";
 
@@ -262,9 +240,7 @@ function onKey(e: KeyboardEvent) {
   close();
 }
 
-/// Abre em cima do chip que foi clicado, crescendo para cima — a faixa está no
-/// fundo da janela, e para baixo não há para onde. Clicar de novo fecha; o
-/// terminal não tem painel nenhum, o número já é a resposta inteira.
+/// Open panels above the bottom status bar; a second click closes them. The terminal count needs no panel.
 function toggle(which: Which, at: HTMLElement, e: MouseEvent, provider?: ProviderId) {
   const was = open;
   const previousProvider = usageProvider;
@@ -272,7 +248,7 @@ function toggle(which: Which, at: HTMLElement, e: MouseEvent, provider?: Provide
   if ((was === which && previousProvider === (provider ?? null)) || which === "term") return;
   usageProvider = provider ?? null;
   e.stopPropagation();
-  // São três linhas com uma explicação cada: é menu, e menu o app já tem.
+  // Reuse the existing menu for three sleep choices and their explanations.
   if (which === "awake") {
     const box = at.getBoundingClientRect();
     return menu.openAt(
@@ -310,15 +286,13 @@ function pick(mode: Awake) {
   try {
     localStorage.setItem(AWAKE_STORE, mode);
   } catch {
-    // Sem onde guardar, a escolha vale só até fechar. Não é motivo para não
-    // atender ao clique.
+    // If persistence fails, keep the selected preference for this session.
   }
   hold();
   draw();
 }
 
-/// O conteúdo do painel aberto. Separado do `toggle` porque a lista de
-/// processos se refaz a cada tique enquanto ela está na frente.
+/// Render separately from toggling so an open process panel can refresh on each sample.
 function fill() {
   if (!panel) return;
   const focused = panel.contains(document.activeElement) ? document.activeElement as HTMLElement : null;
@@ -388,7 +362,7 @@ function accountCard(account: Account): string {
 function bindAccounts() {
   if (!panel) return;
   for (const button of panel.querySelectorAll<HTMLButtonElement>("[data-select]")) {
-    button.addEventListener("click", () => void accountCall("account_select", { id: button.dataset.select }));
+    button.addEventListener("click", () => void accountCall("account_select", { id: button.dataset.select! }));
   }
   for (const button of panel.querySelectorAll<HTMLButtonElement>("[data-login]")) {
     button.addEventListener("click", () => {
@@ -397,28 +371,31 @@ function bindAccounts() {
     });
   }
   for (const button of panel.querySelectorAll<HTMLButtonElement>("[data-remove]")) {
-    button.addEventListener("click", () => void accountCall("account_remove", { id: button.dataset.remove }));
+    button.addEventListener("click", () => void accountCall("account_remove", { id: button.dataset.remove! }));
   }
   for (const button of panel.querySelectorAll<HTMLButtonElement>("[data-cancel]")) {
     button.addEventListener("click", () => {
       button.disabled = true;
-      void invoke("account_login_cancel", { id: button.dataset.cancel }).catch((error) => say(fromBack(error), true));
+      void invoke("account_login_cancel", { id: button.dataset.cancel! }).catch((error) => say(fromBack(error), true));
     });
   }
   for (const button of panel.querySelectorAll<HTMLButtonElement>("[data-add]")) {
-    button.addEventListener("click", () => void accountCall("account_login", { provider: button.dataset.add, id: null }));
+    button.addEventListener("click", () => {
+      const provider = agents.find(agent => agent.id === button.dataset.add)?.id;
+      if (provider) void accountCall("account_login", { provider, id: null });
+    });
   }
 }
 
-async function accountCall(command: "account_select" | "account_login" | "account_remove", args: Record<string, unknown>) {
+async function accountCall(...call: IpcCall<"account_select" | "account_login" | "account_remove">) {
   if (accountAction) return;
   accountAction = true;
   fill();
   try {
-    const next = await invoke<Accounts>(command, args);
+    const next = await invoke(...call);
     showAccounts(next);
-    if (command === "account_remove") panel?.focus({ preventScroll: true });
-    if (command === "account_login") {
+    if (call[0] === "account_remove") panel?.focus({ preventScroll: true });
+    if (call[0] === "account_login") {
       say(t("account.connected"));
     }
   } catch (error) {
@@ -429,8 +406,7 @@ async function accountCall(command: "account_select" | "account_login" | "accoun
   }
 }
 
-/// Um agente no painel: o nome, de quando é a leitura, e uma linha por janela.
-/// Sem leitura, a frase que explica por que ainda não há número.
+/// Show each provider's quota windows and reading time, or explain missing data.
 function card(agent: Pick<AgentDescriptor, "id" | "label">, data?: Agent): string {
   const head =
     `<div class="uagent">${brand(agent.id)}<span class="uname">${agent.label}</span>` +
@@ -462,8 +438,7 @@ function rows(windows: Window[]): string {
     .join("");
 }
 
-/// Mantém a ordem entregue pelo backend e reúne as janelas do mesmo bucket.
-/// Exportada para testar a compatibilidade com snapshots antigos sem `scope`.
+/// Preserve backend ordering while grouping windows by scope. Exported to test legacy snapshots without scope.
 export function groups(windows: Window[]): [string, Window[]][] {
   const grouped = new Map<string, Window[]>();
   for (const window of windows) {
@@ -505,7 +480,7 @@ function resPanel(): string {
   );
 }
 
-/// O nome da aba do dock, como o dock a chama.
+/// Use the dock's own tab labels.
 function dock(what: string): string {
   if (what === "setup") return t("dock.setup");
   if (what === "run") return t("dock.run");
@@ -526,9 +501,7 @@ function portPanel(): string {
   );
 }
 
-/// A linha do gráfico: as leituras de CPU do processo, a mais velha à esquerda.
-/// A escala é a maior leitura da própria linha — o que se quer ver é se aquilo
-/// ali subiu agora, e não como se compara com o vizinho.
+/// Plot CPU samples oldest first and scale each line to its own maximum to show recent changes.
 function spark(hist: number[]): string {
   if (hist.length < 2) return '<span class="spark"></span>';
   const top = Math.max(...hist, 1);
@@ -543,18 +516,16 @@ function spark(hist: number[]): string {
   );
 }
 
-/// Nome de workspace e de aba são texto de quem escreveu: entram como texto, e
-/// não como HTML.
+/// Workspace and tab names are user text; escape them before inserting markup.
 function esc(text: string): string {
   const box = document.createElement("span");
   box.textContent = text;
   return box.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-/* ---------- relógio ---------- */
+/* ---------- time ---------- */
 
-/// "3h 15m", "3d 4h", "12m". Duas casas bastam: quem lê quer saber se dá tempo
-/// de tomar um café ou se é para ir dormir.
+/// Show at most two duration units, such as 3h 15m or 3d 4h.
 export function span(seconds: number): string {
   const s = Math.max(0, Math.round(seconds));
   const d = Math.floor(s / 86400);
@@ -565,14 +536,12 @@ export function span(seconds: number): string {
   return `${m}m`;
 }
 
-/// Quanto falta para a janela zerar. Já zerou é "agora": o número na tela é de
-/// antes, e o próximo turno o corrige.
+/// Expired reset times display now until the next provider reading arrives.
 export function until(unix: number, from = Date.now() / 1000): string {
   return unix <= from ? t("status.now") : span(unix - from);
 }
 
-/// Quando esta leitura chegou. Menos de um minuto é "agora mesmo" — o app
-/// acabou de falar com o agente.
+/// Treat readings younger than one minute as just received.
 export function ago(unix: number, from = Date.now() / 1000): string {
   const seconds = from - unix;
   return seconds < 60 ? t("status.justNow") : t("status.ago", { when: span(seconds) });

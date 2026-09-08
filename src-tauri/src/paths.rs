@@ -4,11 +4,8 @@ pub fn home() -> PathBuf {
     dirs::home_dir().expect("sem HOME")
 }
 
-/// O que separa o app de dev do app instalado, em todo caminho que o Prometeu
-/// escreve. Sem isto os dois mexem no mesmo quadro e nos mesmos worktrees.
-///
-/// `cfg!` resolve em tempo de compilação: `tauri dev` compila em debug, `tauri
-/// build` em release. Nada para configurar.
+/// Separate development and installed-app storage and worktree paths. Compile-time debug/release
+/// selection prevents both apps from modifying the same board or transcripts.
 fn suffix() -> &'static str {
     if cfg!(debug_assertions) {
         "-dev"
@@ -17,7 +14,7 @@ fn suffix() -> &'static str {
     }
 }
 
-/// Raiz de tudo que o Prometeu escreve fora do repositório do usuário.
+/// Root for application-owned data outside user repositories.
 pub fn root() -> PathBuf {
     if let Ok(p) = std::env::var("PROMETEU_ROOT") {
         return PathBuf::from(p);
@@ -25,15 +22,14 @@ pub fn root() -> PathBuf {
     home().join(format!(".prometeu{}", suffix()))
 }
 
-/// O time de que este app faz parte, com o segredo — só o dono lê. Quem fala
-/// com o relay é o front; o back só guarda isto fora do `localStorage`.
+/// Store team configuration and credentials privately, outside frontend localStorage. The frontend
+/// owns relay transport.
 pub fn team_path() -> PathBuf {
     root().join("team.json")
 }
 
-/// Diretórios que guardam estado, transcript e credenciais não são parte do
-/// workspace compartilhável. `create_dir_all` respeita umask e pode deixá-los
-/// `0755`; reafirmar `0700` torna a regra independente da máquina.
+/// Reaffirm 0700 on state, transcript, and credential directories independently of umask; these
+/// directories are not shareable workspace content.
 pub fn ensure_private_dir(dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     #[cfg(unix)]
@@ -45,16 +41,14 @@ pub fn ensure_private_dir(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Grava um arquivo que só o dono lê: nasce `0600`, e é reescrito inteiro —
-/// nunca truncado e preenchido, para não haver um instante com ele vazio. O
-/// erro é a causa crua; quem chama embrulha no código da sua tela.
+/// Atomically replace private 0600 files without exposing a truncated intermediate file. Callers
+/// translate raw I/O errors.
 pub fn write_private(target: &Path, body: &str) -> Result<(), String> {
     write_private_bytes(target, body.as_bytes())
 }
 
-/// A mesma gravação privada e atômica para dados que não queremos
-/// transformar em `String` no caminho. A importação usa isto para preservar
-/// snapshots e transcripts byte a byte.
+/// Apply the same private atomic write to bytes, preserving imported snapshots and transcripts
+/// exactly.
 pub fn write_private_bytes(target: &Path, body: &[u8]) -> Result<(), String> {
     use std::io::Write;
     if let Some(dir) = target.parent() {
@@ -66,8 +60,8 @@ pub fn write_private_bytes(target: &Path, body: &[u8]) -> Result<(), String> {
         .unwrap_or("private");
     let tmp = target.with_file_name(format!(".{filename}.{}.tmp", uuid::Uuid::new_v4()));
     let mut opts = std::fs::OpenOptions::new();
-    // `create_new` também recusa um symlink que apareça no nome temporário:
-    // não há arquivo anterior que precisemos truncar, e colisão deve falhar.
+    // Use create_new to reject temporary-name collisions, including symlinks, rather than
+    // truncating existing entries.
     opts.write(true).create_new(true);
     #[cfg(unix)]
     {
@@ -98,11 +92,8 @@ pub fn write_private_bytes(target: &Path, body: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// Worktrees ficam fora de `.prometeu` porque o usuário abre esses diretórios no editor.
-///
-/// O sufixo também vale aqui: dois apps criando worktree para a mesma branch do
-/// mesmo repo colidiriam no mesmo diretório — e o transcript, que o Claude Code
-/// nomeia pelo caminho do cwd, seria o mesmo arquivo para as duas sessões.
+/// Keep editor-visible worktrees outside the private state directory, with distinct
+/// development/release roots to prevent path and transcript collisions.
 pub fn worktree_dir(repo_name: &str, branch: &str) -> PathBuf {
     home()
         .join("prometeu")
@@ -111,11 +102,8 @@ pub fn worktree_dir(repo_name: &str, branch: &str) -> PathBuf {
         .join(dir_name(branch))
 }
 
-/// A pasta de um workspace com mais de um repositório: os nomes deles juntos
-/// no lugar do nome de um só, e dentro dela um worktree por repo, cada um com
-/// o nome do clone. `capim-backend+capim-portal/feat-x/capim-backend` não
-/// colide com o `capim-backend/feat-x` de um workspace de um repo só, e lê-se
-/// no Finder o que é.
+/// Group multi-repository worktrees under a directory named for all repositories, with each clone
+/// name as a child, keeping it distinct from single-repository paths.
 pub fn multi_dir(names: &[String], branch: &str) -> PathBuf {
     home()
         .join("prometeu")
@@ -124,8 +112,8 @@ pub fn multi_dir(names: &[String], branch: &str) -> PathBuf {
         .join(dir_name(branch))
 }
 
-/// A raiz exata que a versão instalada do Prometheus usava. Só entra na
-/// validação de workspaces importados: o Prometeu nunca cria nada aqui.
+/// Calculate the exact legacy Prometheus root only for imported-workspace validation. Prometeu
+/// never creates directories there.
 pub(crate) fn prometheus_multi_dir(names: &[String], branch: &str) -> PathBuf {
     home()
         .join("prometheus")
@@ -134,13 +122,9 @@ pub(crate) fn prometheus_multi_dir(names: &[String], branch: &str) -> PathBuf {
         .join(dir_name(branch))
 }
 
-/// O nome da pasta de uma branch. Trocar `/` por `-` é o que dá nome legível,
-/// mas sozinho ele colide: `feat/x` e `feat-x` viravam a mesma pasta, e a
-/// segunda sessão pegava silenciosamente o worktree da primeira — na branch
-/// errada, com o quadro mentindo qual era.
-///
-/// Quando a troca acontece, o nome ganha um sufixo tirado da branch inteira.
-/// Nome sem `/` continua exatamente como era, que é o caso comum.
+/// Flatten branch slashes for readable directory names, adding a stable suffix when flattening
+/// would collide with an already flattened branch. Names without slashes remain unchanged for
+/// compatibility.
 fn dir_name(branch: &str) -> String {
     let flat = branch.replace('/', "-");
     match flat == branch {
@@ -149,9 +133,8 @@ fn dir_name(branch: &str) -> String {
     }
 }
 
-/// FNV-1a. Não precisa ser criptográfico — precisa ser estável entre execuções
-/// (o caminho fica gravado no quadro) e não valer uma dependência nova. A
-/// porta do worktree sai da mesma conta (ver `scripts::alloc_port`).
+/// Use stable non-cryptographic FNV-1a for persisted path suffixes and deterministic port selection
+/// without another dependency.
 pub(crate) fn fnv1a(s: &str) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in s.bytes() {
@@ -161,30 +144,22 @@ pub(crate) fn fnv1a(s: &str) -> u64 {
     h
 }
 
-/// Onde o Claude Code guarda o transcript de uma sessão: ele troca no caminho do
-/// cwd tudo que não é letra ou número por `-` e usa isso como nome da pasta.
-///
-/// O arquivo só nasce na primeira mensagem. Conversa criada e nunca usada não
-/// tem transcript nenhum — e é exatamente isso que o `--resume` responde com
-/// "No conversation found with session ID".
-/// A conversa de uma aba do Codex, nas mesmas linhas que a tela desenha. O
-/// Codex guarda o rollout dele em `~/.codex/sessions`, num formato que é dele;
-/// o que o app precisa amanhã é o que mostrou hoje — então grava o que
-/// traduziu (`codex.rs`), e é daqui que a aba reabre. Fica na raiz do app, e
-/// não no worktree, pelo mesmo motivo do transcript do Claude Code: apagar o
-/// worktree não apaga a conversa.
+/// Claude derives transcript directories from the sanitized working path and creates files only
+/// after the first message. Empty sessions therefore cannot resume. Codex's canonical app
+/// transcript lives under paths::chat_log, separate from its native rollout. Both survive worktree
+/// deletion.
 pub fn chat_log(id: &str) -> PathBuf {
     root().join("chats").join(format!("{id}.jsonl"))
 }
 
 pub fn transcript(id: &str, cwd: &Path) -> PathBuf {
-    // Os perfis de conta compartilham projects: trocar conta não muda a
-    // identidade nem o caminho de uma conversa existente.
+    // Account profiles share projects, so account changes preserve existing conversation identities
+    // and paths.
     transcript_in(&crate::claude::user_home().join("projects"), id, cwd)
 }
 
-/// Variante injetável para a prévia da importação e seus testes. O Claude
-/// continua sendo dono do arquivo; apenas calculamos onde ele o guardou.
+/// Inject the base directory for migration previews and tests; Claude continues to own its
+/// transcript files.
 pub(crate) fn transcript_at(home: &Path, id: &str, cwd: &Path) -> PathBuf {
     transcript_in(&home.join(".claude/projects"), id, cwd)
 }
@@ -212,8 +187,8 @@ mod tests {
         );
     }
 
-    /// A pasta do workspace de dois repos fica ao lado das de um só, com os
-    /// dois nomes — e cada repo dentro dela com o seu.
+    /// Multi-repository grouping directories remain beside single-repository paths, with named
+    /// child worktrees.
     #[test]
     fn pasta_de_varios_repos_junta_os_nomes() {
         let dir = multi_dir(&["back".into(), "front".into()], "feat/x");
@@ -226,8 +201,8 @@ mod tests {
         );
     }
 
-    /// Branch sem `/` mantém o nome; com `/`, o nome achatado nunca é o mesmo
-    /// de uma branch que já se chamava assim.
+    /// Preserve branch names without slashes and distinguish flattened slash-containing names from
+    /// existing flat names.
     #[test]
     fn branch_com_barra_nao_colide_com_a_achatada() {
         assert_eq!(dir_name("feat-x"), "feat-x");
@@ -237,7 +212,7 @@ mod tests {
             "{}",
             dir_name("feat/x")
         );
-        // Estável: o caminho fica gravado no quadro e tem de continuar valendo.
+        // Path derivation must remain stable because the board persists its result.
         assert_eq!(dir_name("feat/x"), dir_name("feat/x"));
         assert_ne!(dir_name("a/b"), dir_name("a/c"));
     }

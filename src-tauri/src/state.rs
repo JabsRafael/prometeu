@@ -1,26 +1,18 @@
-//! Três camadas, como no Conductor:
-//!
-//!   Projeto    um repositório registrado uma vez
-//!     └ Workspace   uma branch, num worktree por repositório — é o card do quadro
-//!         └ Aba     uma sessão de agente (Claude Code ou Codex); várias dividem
-//!                   os mesmos arquivos
-//!
-//! A separação existe porque perder uma conversa não pode custar o worktree, e
-//! começar conversa nova sobre os arquivos que você já mexeu tem que ser ⌘T.
+//! Projects register repositories. Workspaces group branches and worktrees. Tabs hold agent
+//! sessions that share those files. A conversation can close without deleting its worktree; another
+//! tab can continue using the same files.
 
 use crate::lock::lock;
 use crate::{paths, AppState};
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc::{channel, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
-/// Identidade persistida do runtime de agente. Antes deste tipo, Claude era
-/// gravado como string vazia; o `Deserialize` abaixo aceita esse legado e
-/// normaliza a próxima gravação para `"claude"`. Valor desconhecido também cai
-/// no default durante a migração, para uma versão nova não inutilizar o board
-/// inteiro ao ser aberto por uma versão antiga do app.
+/// Persisted agent runtime identity. Legacy empty strings deserialize as Claude and save as
+/// `"claude"`. Unknown values use the default so newer boards remain readable by older app
+/// versions.
 #[derive(Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ProviderId {
@@ -46,25 +38,21 @@ impl<'de> Deserialize<'de> for ProviderId {
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
-    /// Agente trabalhando.
+    /// The agent is working.
     Rodando,
-    /// Processo vivo, esperando o que você mandar.
+    /// The process is alive and waiting for input.
     Pronta,
-    /// Agente travado numa pergunta: não anda sem você.
+    /// The agent needs an answer before continuing.
     Querendo,
-    /// Processo não está rodando. Não é morte: o transcript continua no disco e
-    /// `claude --resume` traz a conversa de volta. Toda aba vira isso quando o
-    /// app abre, porque nenhum processo sobrevive ao app.
-    /// `other` cobre valores gravados por versões anteriores — e obriga esta a
-    /// ser a última variante, por isso a urgência vive no `rank` e não na ordem.
+    /// The process is stopped; its transcript remains available for resume. Tabs start here when
+    /// the app reopens. `serde(other)` accepts legacy values and must remain last, so urgency
+    /// belongs in `rank`.
     #[serde(other)]
     Desligada,
 }
 
 impl Status {
-    /// Urgência. Um workspace mostra o maior entre suas abas: uma aba travada
-    /// numa pergunta manda no card inteiro, senão o quadro esconderia o único
-    /// número que muda o que você faz de manhã.
+    /// A workspace displays its most urgent tab so a pending question remains visible.
     pub fn rank(self) -> u8 {
         match self {
             Status::Querendo => 3,
@@ -75,26 +63,18 @@ impl Status {
     }
 }
 
-/// O que a linha de atividade da aba passa a dizer.
-///
-/// É um `Option<String>` com nome, e o nome é o ponto: antes o `None` que
-/// chegava em `set` queria dizer "não mexe", então a aba que terminava
-/// continuava mostrando a última ferramenta que rodou — o card dizia "pronta"
-/// embaixo de uma linha que parecia trabalho acontecendo agora. Agora todo
-/// evento diz explicitamente qual das duas coisas quer.
+/// An explicit activity update. Clearing a finished tool differs from preserving the current
+/// activity.
 pub enum Note {
-    /// Não há mais o que dizer: o trabalho parou.
+    /// Clear the activity when work stops.
     Clear,
     Set(String),
-    /// O que estava escrito continua valendo: o agente falou no meio de uma
-    /// ferramenta e outra, e a ferramenta é o que a linha conta.
+    /// Preserve the current tool activity across unrelated events.
     Keep,
 }
 
-/// Com quem uma conversa fala: qual CLI sobe, com que modelo e com quanto
-/// esforço. No workspace isto são três campos soltos, porque nasceram nele; na
-/// aba é um só, para que "escolheu o seu" e "segue o do workspace" sejam duas
-/// coisas — modelo vazio é uma escolha (o padrão do CLI), e não a falta de uma.
+/// Provider, model and effort for a conversation. A missing tab override inherits workspace
+/// defaults; an empty model explicitly selects the CLI default.
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct Choice {
     #[serde(default)]
@@ -109,32 +89,26 @@ pub struct Choice {
 pub struct Tab {
     #[serde(default)]
     pub task: Option<crate::actions::Run>,
-    /// É o `--session-id` do Claude Code. O transcript pendura nele.
+    /// The local session ID, also used by Claude for its transcript.
     pub id: String,
-    /// A sessão do lado do agente, quando ela não é este id. O Codex não aceita
-    /// `--session-id`: escolhe o dele, conta qual foi no hook `SessionStart`, e é
-    /// este número que volta como `codex resume <id>`. Vazio é aba do Claude
-    /// Code (onde os dois ids são o mesmo) ou aba do Codex que ainda não subiu.
+    /// The provider's session ID when it differs from the local ID. Codex supplies the thread ID
+    /// used by `thread/resume`. Absent for Claude or a Codex tab whose thread has not opened yet.
     #[serde(default)]
     pub agent_session: Option<String>,
     pub title: String,
     pub status: Status,
     pub note: Option<String>,
     pub pending_prompt: Option<String>,
-    /// Estimativa incremental dos tokens usados nesta conversa. Nunca diminui:
-    /// depois de compactar, o novo contexto continua somando ao anterior.
+    /// Cumulative token estimate. Context after compaction adds to the previous total.
     #[serde(default)]
     pub tokens: Option<u64>,
-    /// Último tamanho de contexto observado. É o cursor usado para somar apenas
-    /// o crescimento; uma queda indica compactação e começa outro trecho.
+    /// Last observed context size. Only growth is added; a decrease starts a new segment after
+    /// compaction.
     #[serde(default)]
     pub context_tokens: Option<u64>,
-    /// O modelo desta conversa, quando ela fala com um diferente do que o
-    /// workspace usa — escolhido ao abrir a aba, ou depois, no rodapé da caixa
-    /// (`Workspace::retune`). `None` é seguir o do workspace: é o que faz ⌘T, o
-    /// que toda aba gravada antes disto existir traz, e o que volta a valer
-    /// quando alguém escolhe de novo o modelo do workspace. Retomar a aba
-    /// respeita o que está aqui.
+    /// An optional model override selected when opening or retuning a tab. `None` inherits the
+    /// workspace; selecting its model again removes the override. Resume preserves the tab's
+    /// choice.
     #[serde(default)]
     pub choice: Option<Choice>,
 }
@@ -144,9 +118,8 @@ impl Tab {
         if current == 0 {
             return;
         }
-        // `tokens` sem cursor vem de uma versão antiga, onde ele guardava o
-        // contexto atual. Tratar o valor como ambos preserva o número e evita
-        // contá-lo duas vezes na primeira observação depois da atualização.
+        // Legacy `tokens` stored the context size. Treat it as both total and cursor to avoid
+        // counting it twice.
         let previous = self.context_tokens.or(self.tokens).unwrap_or(0);
         let added = match current >= previous {
             true => current - previous,
@@ -164,31 +137,23 @@ pub struct Project {
     pub path: String,
 }
 
-/// Um repositório dentro de um workspace: de onde ele veio e onde está a cópia
-/// dele nesta branch. Workspace de um repositório só tem um destes; com mais
-/// de um, cada repo ganha um worktree seu, lado a lado, na mesma branch.
+/// A repository's source clone and working copy. Multi-repository workspaces keep one adjacent
+/// worktree per repository on the same branch.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 pub struct Repo {
-    /// O clone registrado como projeto.
+    /// The clone registered as a project.
     pub path: String,
-    /// O nome da pasta do clone — é o que a tela mostra e o nome da pasta do
-    /// worktree.
+    /// The clone directory name, used in the UI and for its worktree directory.
     pub name: String,
-    /// Onde este repositório está nesta branch: o worktree, ou o próprio clone
-    /// quando o workspace roda nele.
+    /// The worktree path, or the clone itself when the workspace uses it directly.
     pub worktree: String,
-    /// De onde a branch saiu neste repositório — é contra ela que a tela de
-    /// mudanças conta commits e diff. Cada repo tem a sua: o principal a que
-    /// o lançador escolheu, os outros o padrão de cada clone. Vazio é quadro
-    /// gravado antes disto existir; o diff aprende o padrão e grava.
+    /// The base used for commits and diffs. The launcher chooses the primary repository's base;
+    /// other repositories use their own defaults. Legacy empty values are resolved and saved by the
+    /// diff path.
     #[serde(default)]
     pub base: String,
-    /// O PR desta branch neste repositório, como o `gh` respondeu da última
-    /// vez. É o quadro que guarda porque é o quadro que desenha: o selo de
-    /// mergeado no card e os botões da barra saem daqui, e uma resposta de
-    /// minutos atrás vale mais que uma consulta à rede a cada redesenho.
-    /// Vazio é "não perguntei ainda" e "esta branch não tem PR aqui" — para a
-    /// tela dá no mesmo. Um por repo: histórico separado, PR separado.
+    /// The last PR result from `gh` for this repository and branch. The board caches it for badges
+    /// and controls. `None` covers both an unchecked branch and one without a PR.
     #[serde(default)]
     pub pr: Option<crate::domain::Pr>,
 }
@@ -199,117 +164,83 @@ pub struct Workspace {
     pub title: String,
     #[serde(default)]
     pub project: String,
-    /// O repositório principal — o primeiro de `repos`. Continua aqui, e não
-    /// só na lista, porque é o que todo quadro gravado até hoje tem: é dele que
-    /// o diff, o PR e os scripts saem enquanto não olham para os outros.
+    /// Legacy primary repository fields remain for board compatibility. The first `repos` entry is
+    /// authoritative.
     pub repo: String,
     pub repo_name: String,
     pub branch: String,
-    /// Onde o agente trabalha. Com um repositório só, é o worktree dele (ou o
-    /// clone); com mais de um, é a pasta que reúne o worktree de cada repo —
-    /// e é dela que a árvore de arquivos e o shell do dock partem.
+    /// The agent's working directory: a worktree or clone for one repository, or the parent
+    /// containing all worktrees for multiple repositories. File navigation and dock shells start
+    /// here.
     pub worktree: String,
-    /// Os repositórios deste workspace, o principal primeiro. Quadro gravado
-    /// antes disto existir vem sem a lista, e o `revive` monta a de um item a
-    /// partir de `repo` e `worktree` — nada muda para quem tinha um só.
+    /// Repositories in primary-first order. `revive` reconstructs a single entry from legacy `repo`
+    /// and `worktree` fields when the list is absent.
     #[serde(default)]
     pub repos: Vec<Repo>,
-    /// Onde o trabalho está — o que o quadro desenhava como coluna. É seu, não
-    /// do processo: `Status` é o que o agente está fazendo agora, `stage` é o
-    /// que você decidiu sobre o trabalho. `column` é o nome antigo.
+    /// The user-selected work stage, independent of runtime `Status`. `column` is its legacy name.
     #[serde(alias = "column")]
     pub stage: String,
-    /// Fora da lista, mas nada foi perdido: worktree, branch e transcript
-    /// continuam onde estavam.
+    /// Hidden from the active list; the worktree, branch and transcript remain intact.
     #[serde(default)]
     pub archived: bool,
-    /// No topo da lista. Não é etapa nem atividade: é "é neste que eu volto".
+    /// Pinned to the top without changing work stage or runtime status.
     #[serde(default)]
     pub pinned: bool,
-    /// Aconteceu algo aqui enquanto você olhava outra coisa.
+    /// Activity occurred while another workspace was visible.
     #[serde(default)]
     pub unread: bool,
-    /// O `--model` das conversas deste workspace — um alias (`opus`,
-    /// `sonnet[1m]`) ou o nome inteiro. Vazio é "o que o Claude Code escolheria
-    /// sozinho". É do workspace e não da aba porque ⌘T e retomar nascem com o
-    /// mesmo modelo que as irmãs: trocar de modelo no meio é trocar de worktree.
-    /// Quadro gravado antes disto existir vem sem o campo, e vazio é o que ele
-    /// fazia então.
+    /// The workspace's default model, inherited unless a tab overrides it. Empty values preserve
+    /// legacy CLI-default behavior; explicit values may be aliases or full model names.
     #[serde(default)]
     pub model: String,
-    /// O `--effort` (`low`…`max`, `ultracode`), pela mesma regra. Vazio é o
-    /// padrão — só de quadro antigo: o lançador sempre escolhe um.
+    /// The default effort level. An empty legacy value leaves the CLI default unchanged.
     #[serde(default)]
     pub effort: String,
-    /// Qual CLI roda nas abas daqui. Boards antigos em que vazio significava
-    /// Claude são normalizados por `ProviderId`. Sai do modelo escolhido no lançador — quem
-    /// escolhe um GPT escolheu o Codex —, e é do workspace pelo mesmo motivo do
-    /// modelo: ⌘T e retomar nascem com o agente das irmãs.
+    /// The default provider, resolved from the launcher's model selection. `ProviderId` normalizes
+    /// legacy empty Claude values; tabs inherit it unless they have an override.
     #[serde(default)]
     pub agent: ProviderId,
-    /// Base das dez portas reservadas a este worktree — `$PROMETEU_PORT` até
-    /// `+9`. Guardada e não calculada: o script tem que achar a mesma porta na
-    /// segunda vez que roda, e dois worktrees do mesmo projeto não podem
-    /// disputar a mesma. Nasce vazia em quadro gravado antes disto existir, e é
-    /// preenchida na primeira vez que o workspace é aberto — o painel pede os
-    /// scripts, e a porta vai junto, porque é ela que ele mostra.
+    /// The first of ten reserved ports, exposed as `$PROMETEU_PORT` through `+9`. Persisted so
+    /// repeated script runs use the same ports. Legacy workspaces receive a reservation when
+    /// scripts are first opened.
     #[serde(default)]
     pub port: Option<u16>,
-    /// A issue do Linear de onde este trabalho saiu, se saiu de uma. O card
-    /// mostra o identificador, e a aba de issues sabe que esta já tem dono.
+    /// The Linear issue that originated this workspace, used by board badges and issue ownership.
     #[serde(default)]
     pub issue: Option<crate::linear::IssueRef>,
-    /// Onde o PR morava quando o workspace só tinha um repositório. Quadro
-    /// gravado por versão anterior ainda o traz aqui, e o `revive` o leva para
-    /// o principal — que é de quem ele sempre foi. Nunca mais é gravado.
+    /// Legacy workspace-level PR, moved to the primary repository by `revive` and never saved here
+    /// again.
     #[serde(default, skip_serializing)]
     pub pr: Option<crate::domain::Pr>,
-    /// O worktree foi devolvido ao disco: a pasta não existe mais e a branch
-    /// local foi apagada. O card fica como histórico — transcript, o número do
-    /// PR, o caminho que era —, mas nada aqui abre terminal de novo.
+    /// The worktree and local branch have been removed. History remains, but terminals cannot
+    /// reopen here.
     #[serde(default)]
     pub cleaned: bool,
-    /// Compartilhado com o time: o front anuncia este workspace ao relay e
-    /// repassa a saída das conversas a quem estiver olhando. Persistido para o
-    /// dono que fecha o app voltar compartilhando, sem ninguém pedir de novo.
+    /// Sharing consent persists across app restarts. The frontend advertises this workspace and
+    /// forwards conversation output to authorized viewers through the relay.
     #[serde(default)]
     pub shared: bool,
     /// Identity and organization that received explicit sharing consent. Legacy boards omit this.
     #[serde(default)]
     pub share_team: Option<String>,
-    /// Com quem: ids de membros do time, ou `None` para o time inteiro. Só
-    /// vale com `shared`. O back não sabe quem são — é o front que anuncia e
-    /// o relay que faz valer.
+    /// Member IDs allowed to view a shared workspace, or `None` for the entire team. The relay
+    /// enforces access.
     #[serde(default)]
     pub audience: Option<Vec<String>>,
-    /// O worktree ainda está sendo montado. O card entra no quadro assim que o
-    /// lançador fecha e o `git worktree add` — segundos, num repositório
-    /// grande — acontece atrás. Enquanto isto for verdade não há aba nenhuma:
-    /// o agente só nasce depois de existir pasta onde rodar.
+    /// Worktree preparation is running after the launcher closes. The board can show progress
+    /// before any agent tab exists; processes start only after their working directories are ready.
     #[serde(default)]
     pub preparing: bool,
-    /// Por que a montagem não deu, no formato do `i18n` — quem monta a frase é
-    /// o `fromBack`. O card fica, com o erro escrito, em vez de sumir: a branch
-    /// pedida pode estar viva em outro worktree, e é olhando o card que se
-    /// decide o que fazer com ela.
+    /// Preparation failure encoded for `fromBack`. Keeping the card lets the user inspect and
+    /// resolve an existing branch or partially prepared workspace.
     #[serde(default)]
     pub failed: Option<String>,
-    /// Quais servidores de MCP as conversas daqui enxergam, pelo nome que eles
-    /// têm no hub (`mcp.rs`). É do workspace pelo mesmo motivo do modelo: a
-    /// ferramenta que o agente tem na mão é do trabalho, não da aba.
-    ///
-    /// `None` é workspace que nunca escolheu — todo quadro gravado antes disto
-    /// existir —, e aí nada é imposto ao CLI: vale o que ele já fazia. Lista
-    /// vazia é escolha de verdade, e quer dizer sessão sem MCP nenhum.
+    /// MCP server IDs selected from the hub for this workspace. `None` preserves the CLI's existing
+    /// configuration; an explicit empty list selects no MCP servers.
     #[serde(default)]
     pub mcp: Option<Vec<String>>,
-    /// Quais plugins do Claude Code as conversas daqui carregam, pelo nome que
-    /// eles têm no hub (`plugins.rs`). É do workspace pelo mesmo motivo do
-    /// MCP: o hook que segura o jeito de trabalhar é do trabalho, não da aba.
-    ///
-    /// `None` é workspace que nunca escolheu, e aí nada é passado ao CLI —
-    /// vale o que ele já carregava sozinho. Lista vazia é escolha, e quer
-    /// dizer nenhum plugin a mais do que isso.
+    /// Plugin IDs selected from the hub for this workspace. `None` preserves the CLI's existing
+    /// plugins; an explicit empty list adds no managed plugins.
     #[serde(default)]
     pub plugins: Option<Vec<String>>,
     #[serde(default)]
@@ -319,9 +250,7 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    /// O repositório principal: o primeiro da lista. Workspace construído sem
-    /// a lista (quadro velho antes do `revive`, ou um teste) responde com os
-    /// campos soltos, que dizem a mesma coisa.
+    /// The primary repository, with legacy fields as fallback before normalization or in tests.
     pub fn primary(&self) -> Repo {
         self.repos.first().cloned().unwrap_or_else(|| Repo {
             path: self.repo.clone(),
@@ -332,17 +261,15 @@ impl Workspace {
         })
     }
 
-    /// Os PRs desta branch: um por repositório que tem o seu, na ordem do
-    /// workspace.
+    /// Existing PRs in repository order.
     pub fn prs(&self) -> impl Iterator<Item = (&Repo, &crate::domain::Pr)> {
         self.repos
             .iter()
             .filter_map(|r| r.pr.as_ref().map(|pr| (r, pr)))
     }
 
-    /// O trabalho entrou: todo repositório que tem PR tem o PR mergeado, e há
-    /// pelo menos um. É o que faz a barra oferecer "Concluir" e o card ganhar
-    /// o selo.
+    /// True when at least one PR exists and every existing PR is merged, enabling completion
+    /// controls.
     pub fn merged(&self) -> bool {
         let mut any = false;
         for (_, pr) in self.prs() {
@@ -354,13 +281,12 @@ impl Workspace {
         any
     }
 
-    /// Mais de um repositório: `worktree` é a pasta que os reúne, e não um
-    /// worktree de git.
+    /// Multiple repositories use a parent directory containing their worktrees.
     pub fn multi(&self) -> bool {
         self.repos.len() > 1
     }
 
-    /// O card mostra o estado mais urgente entre as abas.
+    /// The most urgent tab determines the workspace status.
     pub fn status(&self) -> Status {
         self.tabs
             .iter()
@@ -369,7 +295,7 @@ impl Workspace {
             .unwrap_or(Status::Desligada)
     }
 
-    /// A linha de atividade vem da aba mais urgente, pelo mesmo motivo.
+    /// The most urgent tab also supplies the workspace activity.
     pub fn note(&self) -> Option<String> {
         self.tabs
             .iter()
@@ -382,19 +308,17 @@ impl Workspace {
 pub struct Board {
     #[serde(default)]
     pub actions: crate::actions::Catalog,
-    /// A sequência de etapas, na ordem. O ícone de cada uma sai da posição
-    /// nela, então trocar a lista troca os ícones — sem tabela para manter.
+    /// Ordered work stages. Position determines each stage's icon.
     #[serde(alias = "columns")]
     pub stages: Vec<String>,
     #[serde(default)]
     pub projects: Vec<Project>,
-    /// `cards` era o nome antigo, quando workspace e sessão eram a mesma coisa.
+    /// `cards` is the legacy name from when a workspace contained one session.
     #[serde(alias = "cards")]
     pub workspaces: Vec<Workspace>,
 }
 
-/// "conversa", "conversa 2": o nome que versões anteriores davam à aba que
-/// nasceu sem prompt. Não é nome de ninguém, então some na migração.
+/// Legacy generated titles (`conversa`, `conversa 2`) are removed during migration.
 fn is_placeholder_title(title: &str) -> bool {
     match title.strip_prefix("conversa") {
         Some(rest) => rest.trim().chars().all(|c| c.is_ascii_digit()),
@@ -451,17 +375,12 @@ impl Board {
         }
     }
 
-    /// O que um quadro gravado precisa antes de virar o quadro de hoje: nada
-    /// que estava vivo continua vivo, quadro velho ganha o que passou a
-    /// existir, e o que ficou pela metade é dito em voz alta.
-    ///
-    /// Separado do `load` para poder ser testado: `load` lê de `paths::root()`,
-    /// que sai de uma variável de ambiente — e ambiente é global, enquanto o
-    /// cargo roda cada teste numa thread.
+    /// Reconcile runtime state, migrate older fields and expose interrupted preparation. Separated
+    /// from filesystem loading because parallel tests must not share environment overrides.
     pub(crate) fn revive(&mut self) {
         self.actions.initialize_defaults();
-        // Só projeto ausente em workspace legado deve voltar ao catálogo.
-        // Projeto removido deixa o id explícito no workspace e continua fora.
+        // Only legacy workspaces with no project ID reconstruct the catalog. Explicit IDs preserve
+        // project removal.
         let legacy_projects: Vec<Project> = self
             .workspaces
             .iter()
@@ -473,17 +392,14 @@ impl Board {
             })
             .collect();
         for ws in &mut self.workspaces {
-            // O app fechou no meio da montagem. A thread que montava morreu com
-            // o processo, então continuar dizendo "montando" seria esperar por
-            // quem não vai voltar — e o worktree pode ter ficado pela metade.
+            // Preparation cannot survive an app restart; expose the interrupted worktree as a
+            // failure.
             if ws.preparing {
                 ws.preparing = false;
                 ws.failed = Some(crate::i18n::t("err.session.interrupted"));
             }
-            // Quadro gravado antes das abas existirem: o id do card era o id da
-            // sessão, então ele vira a primeira aba e nada se perde. Workspace
-            // que nunca chegou a montar não é disso: ele não tem aba porque
-            // nenhuma nasceu, e inventar uma daria um "Retomar" que não retoma.
+            // Before tabs existed, the card ID was the session ID. Preserve that session unless
+            // preparation never completed.
             if ws.tabs.is_empty() && ws.failed.is_none() {
                 ws.tabs.push(Tab {
                     task: None,
@@ -498,10 +414,8 @@ impl Board {
                     choice: None,
                 });
             }
-            // Nenhum PTY sobrevive ao fechamento do app, então qualquer status
-            // gravado como vivo é mentira. E o "conversa 2" que o app antigo
-            // inventava para aba sem prompt vira nome vazio: a tela mostra o
-            // modelo no lugar, que é o que diferencia uma aba da irmã.
+            // Processes do not survive app restarts. Remove generated placeholder titles so the UI
+            // can display the model.
             for tab in &mut ws.tabs {
                 tab.status = Status::Desligada;
                 if is_placeholder_title(&tab.title) {
@@ -514,10 +428,8 @@ impl Board {
             if ws.project.is_empty() {
                 ws.project = ws.repo.clone();
             }
-            // Quadro gravado antes de um workspace poder ter mais de um
-            // repositório: o único que ele tem é o principal, e o worktree é o
-            // dele. É o que o app instalado encontra na primeira abertura
-            // depois de atualizar — e nada além da lista muda.
+            // Legacy single-repository workspaces gain one entry without changing their existing
+            // paths.
             if ws.repos.is_empty() {
                 ws.repos.push(Repo {
                     path: ws.repo.clone(),
@@ -527,8 +439,7 @@ impl Board {
                     pr: None,
                 });
             }
-            // O PR morava no workspace enquanto ele só tinha um repositório:
-            // passa para o principal, que é de quem ele sempre foi.
+            // Move the legacy workspace PR to its primary repository.
             if let Some(pr) = ws.pr.take() {
                 if let Some(main) = ws.repos.first_mut() {
                     main.pr.get_or_insert(pr);
@@ -536,8 +447,7 @@ impl Board {
             }
         }
 
-        // Etapa gravada que não está mais na lista deixaria o workspace fora de
-        // todo grupo — invisível. Volta para a primeira.
+        // An unknown stage would hide the workspace from every group. Fall back to the first stage.
         let first = self.stages.first().cloned().unwrap_or_default();
         let stages = self.stages.clone();
         for ws in &mut self.workspaces {
@@ -546,7 +456,7 @@ impl Board {
             }
         }
 
-        // Quadro anterior ao catálogo ganha projetos a partir dos workspaces.
+        // Boards predating the project catalog reconstruct it from legacy workspaces.
         for project in legacy_projects {
             if !self.projects.iter().any(|p| p.path == project.path) {
                 self.projects.push(project);
@@ -554,15 +464,13 @@ impl Board {
         }
     }
 
-    /// Grava num arquivo ao lado e renomeia por cima. `rename` é atômico no
-    /// mesmo sistema de arquivos, então nunca existe um `board.json` cortado no
-    /// meio — e um quadro cortado no meio não volta a carregar.
+    /// Write beside the current file and rename atomically so a failed save cannot leave truncated
+    /// JSON.
     pub fn save(&self) -> Result<(), String> {
         let path = path();
         let json = serde_json::to_string_pretty(self).map_err(|error| error.to_string())?;
-        // O backup só recebe um quadro que ainda desserializa. Se o arquivo
-        // atual foi corrompido fora do app, preservá-lo por cima do último bom
-        // tiraria justamente a rota de recuperação.
+        // Only back up a board that still deserializes. Replacing the last valid backup with
+        // external corruption would remove the recovery path.
         if let Ok(previous) = std::fs::read_to_string(&path) {
             if serde_json::from_str::<Board>(&previous).is_ok() {
                 paths::write_private(&path.with_extension("json.bak"), &previous)?;
@@ -579,8 +487,7 @@ impl Board {
         self.workspaces.iter().find(|workspace| workspace.id == id)
     }
 
-    /// Procura a aba pelo id da sessão — é assim que um hook, que só conhece o
-    /// `session_id`, encontra onde escrever.
+    /// Find a tab by session ID, including callers that know only the provider's local session key.
     pub fn tab_mut(&mut self, session: &str) -> Option<&mut Tab> {
         self.workspaces
             .iter_mut()
@@ -588,8 +495,7 @@ impl Board {
             .find(|t| t.id == session)
     }
 
-    /// O workspace dono da sessão, para escrever nele — é assim que um hook,
-    /// que só conhece o `session_id`, marca novidade no card certo.
+    /// Find the owning workspace so session events update the correct card.
     pub fn workspace_of_mut(&mut self, session: &str) -> Option<&mut Workspace> {
         self.workspaces
             .iter_mut()
@@ -607,35 +513,24 @@ fn path() -> std::path::PathBuf {
     paths::root().join("board.json")
 }
 
-/* ---------- publicar ---------- */
+/* ---------- publication ---------- */
 
-/// Manda o quadro para a tela e para o disco. Único caminho: quem mexe no
-/// quadro mexe sob o lock e chama isto depois.
-///
-/// O lock sai antes de qualquer I/O. Antes ele ficava tomado durante o
-/// `serde_json` e o `write`, e como isto roda **a cada ferramenta que o agente
-/// usa**, cada tool call de cada sessão parava as outras para esperar o disco.
+/// Publish after releasing the board mutation lock. Snapshot, persistence queue and UI emission
+/// share one order; disk I/O never holds the board lock.
 pub fn publish(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let board = Arc::new(lock(&state.board).clone());
-    if state.save.later(board.clone()).is_err() {
-        // A thread de persistência morreu: não transformar isso em perda
-        // silenciosa. O caminho raro paga a gravação síncrona.
-        if let Err(error) = board.save() {
-            eprintln!("não gravei board.json depois de perder o saver: {error}");
+    state.save.publish(&state.board, |board| {
+        if let Err(error) = app.emit("board", board) {
+            eprintln!("não publiquei o quadro para a webview: {error}");
         }
-    }
-    if let Err(error) = app.emit("board", &*board) {
-        eprintln!("não publiquei o quadro para a webview: {error}");
-    }
+    });
 }
 
-/// Pede uma gravação imediata à thread de persistência e espera a confirmação.
-/// É o que fecha a janela de perda que a gravação adiada abre: o app morrendo
-/// dentro do `COALESCE` levaria junto a última mudança. Chamado na saída,
-/// quando não há mais depois.
+/// Flush the current board before shutdown or before dispatching a persisted task. The publication
+/// lock keeps concurrent snapshots from overtaking this synchronous save.
 pub fn save_now(app: &AppHandle) {
     let state = app.state::<AppState>();
+    let _publication = lock(&state.save.publication);
     let board = Arc::new(lock(&state.board).clone());
     if let Err(error) = state.save.now(board.clone()) {
         eprintln!("o saver não confirmou board.json ao sair: {error}");
@@ -645,28 +540,36 @@ pub fn save_now(app: &AppHandle) {
     }
 }
 
-/// Junta as gravações numa só. Uma sessão ativa dispara dezenas de eventos por
-/// minuto, e o quadro inteiro cabe num write — então o que importa é gravar o
-/// **último**, não todos.
+/// Coalesce frequent agent updates and save the latest board once.
 const COALESCE: Duration = Duration::from_millis(250);
 
-/// A thread que grava. Recebe o quadro por canal, espera a poeira assentar e
-/// escreve uma vez só o estado mais recente que chegou.
+/// Queued snapshots and synchronous flush requests share one persistence thread.
 enum Save {
     Later(Arc<Board>),
     Now(Arc<Board>, Sender<Result<(), String>>),
 }
 
-/// A fila de persistência sabe distinguir o caminho quente de um flush. O
-/// flush passa pela mesma thread e espera a confirmação; assim uma gravação
-/// antiga que já estava dormindo no coalesce nunca acorda depois da saída para
-/// sobrescrever o estado mais novo.
+/// A flush uses the same queue as delayed saves so an older pending snapshot cannot overwrite it.
+/// The worker remains available for later runtime updates.
 #[derive(Clone)]
 pub struct Saver {
     tx: Sender<Save>,
+    publication: Arc<Mutex<()>>,
 }
 
 impl Saver {
+    /// Serialize snapshots, queueing and emission without holding the board during I/O.
+    fn publish(&self, current: &Mutex<Board>, emit: impl FnOnce(&Board)) {
+        let _publication = lock(&self.publication);
+        let board = Arc::new(lock(current).clone());
+        if self.later(board.clone()).is_err() {
+            if let Err(error) = board.save() {
+                eprintln!("não gravei board.json depois de perder o saver: {error}");
+            }
+        }
+        emit(&board);
+    }
+
     fn later(&self, board: Arc<Board>) -> Result<(), ()> {
         self.tx.send(Save::Later(board)).map_err(|_| ())
     }
@@ -676,10 +579,8 @@ impl Saver {
         self.tx
             .send(Save::Now(board, tx))
             .map_err(|_| "thread de persistência encerrada".to_string())?;
-        // Não há timeout de propósito. Fazer uma segunda gravação enquanto a
-        // primeira ainda está no disco reabriria exatamente a corrida que o
-        // flush resolve: a antiga poderia terminar por último. A thread não
-        // usa unwrap e sempre responde, inclusive quando o write falha.
+        // No timeout: a concurrent fallback write could finish before the original and restore
+        // stale state. The worker always acknowledges the result, including disk failures.
         rx.recv().map_err(|error| error.to_string())?
     }
 }
@@ -702,8 +603,7 @@ where
                 }
                 Save::Now(board, done) => (board, vec![done]),
             };
-            // Tudo que chegou durante a espera: só o último quadro interessa.
-            // Todos os flushes recebem o resultado dessa mesma gravação.
+            // Drain queued snapshots and acknowledge every flush with the same final write result.
             while let Ok(newer) = rx.try_recv() {
                 match newer {
                     Save::Later(next) => board = next,
@@ -721,19 +621,82 @@ where
                 for done in flushes {
                     let _ = done.send(result.clone());
                 }
-                break;
             }
         }
     });
-    Saver { tx }
+    Saver {
+        tx,
+        publication: Arc::new(Mutex::new(())),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// O mínimo que um workspace precisa no `board.json`: todo o resto tem
-    /// `serde(default)`, e é justamente isso que um quadro velho aproveita.
+    #[test]
+    fn concurrent_publications_keep_snapshot_and_emission_order() {
+        let current = Mutex::new(Board {
+            stages: vec!["old".into()],
+            ..Board::default()
+        });
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let observed = written.clone();
+        let saver = spawn_saver_with(move |board| {
+            lock(&observed).push(board.stages[0].clone());
+            Ok(())
+        });
+        let emitted = Mutex::new(Vec::new());
+        let (captured, captured_rx) = channel();
+        let (release, release_rx) = channel();
+        let (competing, competing_rx) = channel();
+        std::thread::scope(|scope| {
+            let (saver, current, emitted) = (&saver, &current, &emitted);
+            scope.spawn(move || {
+                saver.publish(current, |board| {
+                    captured.send(()).unwrap();
+                    release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+                    lock(emitted).push(board.stages[0].clone());
+                });
+            });
+            captured_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            lock(current).stages[0] = "new".into();
+            scope.spawn(move || {
+                assert!(saver.publication.try_lock().is_err());
+                competing.send(()).unwrap();
+                saver.publish(current, |board| {
+                    lock(emitted).push(board.stages[0].clone());
+                });
+            });
+            competing_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            release.send(()).unwrap();
+        });
+        saver.now(Arc::new(lock(&current).clone())).unwrap();
+        assert_eq!(*lock(&emitted), ["old", "new"]);
+        assert_eq!(lock(&written).last().map(String::as_str), Some("new"));
+    }
+
+    #[test]
+    fn flush_keeps_saver_available_for_runtime_publications() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let observed = written.clone();
+        let saver = spawn_saver_with(move |board| {
+            lock(&observed).push(board.stages[0].clone());
+            Ok(())
+        });
+        for stage in ["first", "second"] {
+            saver
+                .now(Arc::new(Board {
+                    stages: vec![stage.into()],
+                    ..Board::default()
+                }))
+                .unwrap();
+        }
+        assert_eq!(*lock(&written), ["first", "second"]);
+    }
+
+    /// The smallest legacy workspace JSON; newly added fields must keep `serde(default)`
+    /// compatibility.
     fn board_json(extra: &str) -> Board {
         let json = format!(
             r#"{{"stages":["Fazendo"],"projects":[],"workspaces":[
@@ -821,8 +784,7 @@ mod tests {
         assert_eq!(normalized["workspaces"][0]["agent"], "claude");
     }
 
-    /// O app fechou no meio de montar um worktree. Voltar dizendo "montando"
-    /// seria esperar por uma thread que morreu junto com o processo.
+    /// Interrupted preparation becomes an explicit failure after restart.
     #[test]
     fn montagem_interrompida_vira_erro_escrito_no_card() {
         let mut board = board_json(r#","preparing":true"#);
@@ -835,9 +797,7 @@ mod tests {
         );
     }
 
-    /// E não inventa aba para ele: a migração que dá uma aba a quadro antigo é
-    /// para quem teve sessão, não para quem nunca chegou a ter pasta. Uma aba
-    /// aqui daria um "Retomar conversa" que não retoma nada.
+    /// Do not invent a resumable tab for a workspace whose preparation never completed.
     #[test]
     fn montagem_interrompida_nao_ganha_aba() {
         let mut board = board_json(r#","preparing":true"#);
@@ -846,8 +806,7 @@ mod tests {
         assert!(board.workspaces[0].active.is_none());
     }
 
-    /// O quadro que já existia continua ganhando a aba de migração — o campo
-    /// novo não pode mudar o que acontece com quem foi gravado sem ele.
+    /// Existing legacy sessions still receive their migrated tab.
     #[test]
     fn quadro_antigo_sem_aba_continua_ganhando_a_sua() {
         let mut board = board_json("");
@@ -859,9 +818,8 @@ mod tests {
         assert!(ws.failed.is_none());
     }
 
-    /// "conversa" e "conversa 2" eram o nome que o app inventava para aba sem
-    /// prompt. Não são nome de ninguém: viram vazio, e a tela mostra o modelo.
-    /// Nome dado pela pessoa, mesmo começando igual, fica.
+    /// Remove generated placeholder titles while preserving user-authored titles, even with the
+    /// same prefix.
     #[test]
     fn nome_inventado_de_aba_some_na_migracao() {
         let mut board = board_json(
@@ -895,9 +853,7 @@ mod tests {
         assert_eq!(removed.workspaces[0].project, "/r");
     }
 
-    /// Quadro gravado por uma versão em que workspace tinha um repositório só:
-    /// a lista nasce com ele, e `repo`/`worktree` ficam exatamente como
-    /// estavam — é isso que faz atualizar o app não quebrar workspace nenhum.
+    /// Legacy single-repository boards keep their original paths while gaining the repository list.
     #[test]
     fn quadro_antigo_ganha_a_lista_de_um_repositorio() {
         let mut board = board_json("");
@@ -919,8 +875,7 @@ mod tests {
         assert!(!ws.multi());
     }
 
-    /// Quadro gravado por uma versão em que o PR era do workspace: ele passa
-    /// para o repositório principal, e o campo antigo não é gravado de novo.
+    /// Move the legacy PR into the primary repository and stop serializing its old location.
     #[test]
     fn quadro_antigo_leva_o_pr_para_o_principal() {
         let mut board = board_json(r#","pr":{"number":3,"title":"t","state":"MERGED"}"#);
@@ -934,8 +889,7 @@ mod tests {
         assert!(!json.contains(r#""stage":"Fazendo","pr""#));
     }
 
-    /// E quadro que já tem a lista não ganha item de novo — nem perde os que
-    /// tem.
+    /// Existing repository lists retain their entries without duplication.
     #[test]
     fn quadro_com_lista_fica_como_esta() {
         let mut board = board_json(
@@ -949,7 +903,7 @@ mod tests {
         assert_eq!(ws.repos[1].worktree, "/wt/s");
     }
 
-    /// Nenhum PTY sobrevive ao app: aba gravada rodando volta desligada.
+    /// Tabs saved as running reopen stopped because their processes did not survive.
     #[test]
     fn aba_gravada_viva_volta_desligada() {
         let mut board = board_json(

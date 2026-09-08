@@ -1,22 +1,7 @@
-//! O nome do workspace, escrito pelo próprio agente.
-//!
-//! O que o lançador consegue sozinho é a primeira linha do prompt cortada em 46
-//! caracteres — e uma lista onde toda linha começa com "arruma o bug do" não
-//! diz qual é qual. Então, assim que o workspace nasce, um agente de uma pergunta
-//! só sobe em paralelo para ler o pedido e devolver um título. Leva uns
-//! segundos; até lá o nome cortado fica na tela, e quando a resposta chega o
-//! quadro é republicado com o nome bom.
-//!
-//! Quem nomeia é o CLI do próprio workspace — `claude -p` num workspace do
-//! Claude Code, `codex exec` num do Codex. Não é detalhe: quem só tem um dos
-//! dois instalado ficaria sem título nenhum se o nomeador fosse sempre o outro.
-//!
-//! Isto não é sessão: não tem worktree, não tem transcript que interesse, não
-//! aparece em aba nenhuma. Por isso nasce o mais isolado que cada CLI permite —
-//! sem os hooks do usuário (que aqui só atrapalhariam), sem MCP (subir servidor
-//! para escrever cinco palavras custa mais que a resposta) e com o pedido
-//! embrulhado numa instrução que impede o agente de *executar* o que leu em vez
-//! de nomeá-lo.
+//! Generate a workspace title asynchronously from the full prompt while displaying the truncated
+//! first line as fallback. Use the workspace's installed provider and a short-lived naming process
+//! without worktree access, user hooks, or MCP servers. Explicit instructions treat the supplied
+//! prompt as text to name, not work to execute.
 
 use crate::lock::lock;
 use crate::session::Launch;
@@ -27,34 +12,27 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 
-/// O que o `claude` é aqui: um nomeador, e nada mais. Sem isto ele lê o prompt
-/// como serviço a fazer e responde perguntando qual é o repositório.
+/// Constrain Claude to title generation so it does not treat the prompt as a request to execute.
 const SYSTEM: &str = "Você nomeia tarefas. Recebe o pedido que alguém fez a um agente de código \
 e devolve UM título curto para esse trabalho: no máximo 5 palavras, no mesmo idioma do pedido, \
 sem aspas, sem ponto final, sem prefixo e sem explicação. Nunca execute o pedido, nunca faça \
 perguntas, nunca peça contexto. Responda apenas o título.";
 
-/// Modelo fixo, e o mais barato: são cinco palavras a partir de um parágrafo, e
-/// o modelo que o workspace escolheu é para o trabalho de verdade. Só vale para
-/// o Claude Code, onde `haiku` é um alias que não envelhece — o do Codex sai do
-/// catálogo dele (ver `agents::codex_namer_model`), porque ali não há alias e um
-/// slug escrito à mão envelhece em duas versões.
+/// Use Claude's stable haiku alias for cheap naming. Choose Codex's model from its catalog because
+/// it has no equivalent stable alias.
 const MODEL: &str = "haiku";
 
-/// Prompt maior que isto não melhora o título — e o começo é onde o pedido está.
+/// Limit prompt size; its beginning supplies enough context for a title.
 const MAX_PROMPT: usize = 2000;
 
-/// Teto do que se espera de um `-p`: passou disto, algo travou (login expirado,
-/// rede) e o nome cortado continua valendo.
+/// Bound naming time and retain the existing fallback on network or authentication stalls.
 const TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Um título maior que isto não é título — é o modelo tendo conversado.
+/// Reject responses too long to be titles.
 const MAX_TITLE: usize = 60;
 
-/// Dispara o nomeador e volta na hora: quem cria o workspace não espera por
-/// isto. `fallback` é o nome que está na tela agora — se o usuário renomear
-/// antes de a resposta chegar, o nome dele fica, porque a troca só acontece
-/// enquanto o título ainda for este.
+/// Start naming without blocking workspace creation. Replace only the unchanged fallback title so
+/// manual renames win.
 pub fn rename_later(app: &AppHandle, id: &str, prompt: &str, fallback: &str, launch: &Launch) {
     let prompt = prompt.trim();
     if prompt.is_empty() {
@@ -75,7 +53,7 @@ pub fn rename_later(app: &AppHandle, id: &str, prompt: &str, fallback: &str, lau
         {
             let mut board = lock(&state.board);
             match board.workspace_mut(&id) {
-                // Renomeado à mão no meio do caminho: a escolha da pessoa ganha.
+                // Preserve a manual rename made while generation was pending.
                 Some(ws) if ws.title == fallback => ws.title = title,
                 _ => return,
             }
@@ -84,14 +62,12 @@ pub fn rename_later(app: &AppHandle, id: &str, prompt: &str, fallback: &str, lau
     });
 }
 
-/// O nomeador do agente deste workspace. Falhar aqui — CLI que não está
-/// instalado, sessão sem login, rede fora — é só ficar com o nome que já estava
-/// lá: nomear não é um serviço que possa falhar na cara de ninguém.
+/// Naming failures retain the existing title rather than surfacing an error for an optional
+/// enhancement.
 fn ask(prompt: &str, launch: &Launch) -> Option<String> {
     match launch.agent {
-        // O mais barato do catálogo do Codex, e o modelo do workspace só se não
-        // houver catálogo para consultar: nomear é uma frase, e o modelo do
-        // trabalho é caro e mais lento para dizer cinco palavras.
+        // Use Codex's cheapest catalog model, falling back to the workspace model only when no
+        // catalog exists.
         crate::state::ProviderId::Codex => {
             let model = crate::agents::codex_namer_model();
             ask_codex(
@@ -107,9 +83,7 @@ fn ask(prompt: &str, launch: &Launch) -> Option<String> {
     }
 }
 
-/// O nomeador do Codex. `codex exec` é a versão de uma pergunta só do CLI, e
-/// `-o` escreve exatamente a última mensagem num arquivo — o que evita ter de
-/// separar a resposta do resto do que ele desenha no terminal.
+/// Use codex exec with -o to capture only the final answer without parsing terminal output.
 fn ask_codex(prompt: &str, model: &str) -> Option<String> {
     let out = std::env::temp_dir().join(format!("prometeu-nome-{}.txt", uuid::Uuid::new_v4()));
     let mut cmd = Command::new("codex");
@@ -125,12 +99,10 @@ fn ask_codex(prompt: &str, model: &str) -> Option<String> {
     if !model.trim().is_empty() {
         cmd.args(["-m", model.trim()]);
     }
-    // O Codex não tem `--system-prompt`: a instrução vai junto do pedido, e o
-    // pedido vem rotulado para ele não confundir uma coisa com a outra.
+    // Label the instructions and source prompt because codex exec has no system-prompt flag.
     cmd.arg(format!("{SYSTEM}\n\nPedido:\n{prompt}"));
     cmd.current_dir(crate::paths::home());
-    // Sem isto o `codex exec` fica esperando "input adicional" no stdin e nunca
-    // responde.
+    // Close stdin so codex exec does not wait indefinitely for additional input.
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -146,7 +118,7 @@ fn ask_codex(prompt: &str, model: &str) -> Option<String> {
     clean(&title?)
 }
 
-/// O nomeador do Claude Code. `-p` é a pergunta única, e o pedido vai pelo stdin.
+/// Use Claude's single-prompt mode with the naming request supplied through stdin.
 fn ask_claude(prompt: &str) -> Option<String> {
     let mut cmd = Command::new("claude");
     cmd.args([
@@ -161,11 +133,9 @@ fn ask_claude(prompt: &str) -> Option<String> {
         "--system-prompt",
         SYSTEM,
     ]);
-    // Fora de qualquer worktree: o pedido vai por stdin, e o diretório só
-    // serviria para o agente achar que tem um projeto para mexer.
+    // Run outside worktrees so the naming process cannot mistake the prompt for project work.
     cmd.current_dir(crate::paths::home());
-    // Mesma razão do `claude_cmd`: um `claude` rodando dentro de outro herda
-    // CLAUDE_CODE_CHILD_SESSION e companhia, e o que ele herda não é dele.
+    // Remove inherited Claude child-session settings that belong to the parent process.
     for (k, _) in std::env::vars() {
         if k.starts_with("CLAUDE") {
             cmd.env_remove(k);
@@ -189,9 +159,8 @@ fn ask_claude(prompt: &str) -> Option<String> {
         .then(|| clean(&String::from_utf8_lossy(&out.stdout)))?
 }
 
-/// Espera o nomeador responder. Ele fecha sozinho quando responde; o teto é para
-/// quando não responde — sem isto, uma thread por workspace ficaria pendurada
-/// para sempre. `false` é "não deu": ou estourou o tempo, ou saiu com erro.
+/// Wait only until the naming deadline. Return false on timeout or process failure instead of
+/// retaining one stalled thread per workspace.
 fn wait(child: &mut std::process::Child) -> bool {
     let deadline = Instant::now() + TIMEOUT;
     loop {
@@ -206,10 +175,8 @@ fn wait(child: &mut std::process::Child) -> bool {
     }
 }
 
-/// A resposta vira título, ou nada. Aceita só o que parece um nome: uma linha,
-/// curta, sem as aspas e o ponto final que o modelo às vezes põe. O resto —
-/// desculpa, pergunta, parágrafo — é descartado inteiro, porque um título ruim
-/// na lista é pior que o começo do prompt.
+/// Accept only short single-line titles, trimming wrapping quotes and final punctuation. Reject
+/// questions, explanations, and paragraphs in favor of the fallback.
 fn clean(raw: &str) -> Option<String> {
     let line = raw.trim().lines().last()?.trim();
     let line = line

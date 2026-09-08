@@ -6,48 +6,34 @@ import * as team from "./team";
 import type { Board } from "./types";
 import { template } from "./util";
 
-/// Avisar quem não está olhando: o agente parou e espera você (terminou, ou
-/// travou numa pergunta), ou um colega escreveu um comentário te marcando.
-///
-/// Dois avisos, e nenhum deles é uma notificação do sistema: um "pling" curto,
-/// e a bolinha no ícone do Dock com quantas coisas esperam resposta. O som
-/// tem chavinha em Configurações (guardada neste Mac, `prometeu:som`); a
-/// bolinha não — ela é o que o Dock já faz por qualquer app, e só some quando
-/// não há nada esperando.
-///
-/// O som nasce dos eventos ao vivo da conversa, nunca de diferenças entre
-/// snapshots do quadro. Uma pendência avisa uma vez até ser vista ou respondida;
-/// atividade automática não rearma o sino.
+/// Notify unseen agent stops and comment mentions with a short sound and a Dock count. Sound is a local preference; the badge remains until nothing is pending. Only live conversation events ring once per unresolved stop; snapshots and automatic activity never rearm it.
 
 const SOUND_KEY = "prometeu:som";
 
-/// Ligado por padrão: quem não quer, desliga.
+/// Enabled by default; the user can turn it off.
 export const soundOn = () => localStorage.getItem(SOUND_KEY) !== "0";
 export function setSound(on: boolean) {
   on ? localStorage.removeItem(SOUND_KEY) : localStorage.setItem(SOUND_KEY, "0");
 }
 
-/* ---------- estado ---------- */
+/* State. */
 
 type Ctx = {
-  /// Abas visíveis no workspace ou na mesa; o foco da janela é conferido aqui.
+  /// Visible tabs in the workspace or desk; window focus is checked here.
   visible: (tab: string) => boolean;
 };
 
 let ctx: Ctx = { visible: () => false };
 let owners = new Map<string, string>();
-/// Aba que parou sem ser vista, ligada ao workspace para contar o Dock.
+/// Associate unseen stops with workspaces for the Dock count.
 const pending = new Map<string, string>();
 let unread = new Set<string>();
-/// Os comentários da caixa que já passaram por aqui: o mesmo comentário chega
-/// de novo a cada reconexão, e comentário velho não apita duas vezes.
+/// Remember comments across reconnects so older mentions do not ring twice.
 const known = new Set<string>();
 
 export function init(context: Ctx) {
   ctx = context;
-  // WebKit deixa o áudio mudo até a primeira interação. O contexto nasce no
-  // primeiro clique ou tecla, que sempre acontece muito antes de um agente
-  // terminar alguma coisa.
+  // WebKit requires user interaction before audio can play; create the context on the first click or key.
   const wake = () => {
     audio();
     window.removeEventListener("pointerdown", wake);
@@ -55,19 +41,18 @@ export function init(context: Ctx) {
   };
   window.addEventListener("pointerdown", wake);
   window.addEventListener("keydown", wake);
-  // A janela voltou para a frente: o que está na tela foi visto.
+  // Returning to the window acknowledges visible activity.
   window.addEventListener("focus", looked);
 }
 
-/// Abrir uma conversa ou voltar à janela reconhece as pendências visíveis.
+/// Opening a conversation or focusing the window acknowledges visible pending stops.
 export function looked() {
   if (!pending.size || !document.hasFocus()) return;
   for (const tab of pending.keys()) if (ctx.visible(tab)) pending.delete(tab);
   badge();
 }
 
-/// O quadro só informa ownership e unread. Status pode oscilar ou chegar em
-/// snapshots defasados de processos concorrentes; isso não é um novo aviso.
+/// Board snapshots supply ownership and unread state. Concurrent or stale status changes do not create notifications.
 export function boardChanged(board: Board) {
   const local = board.workspaces.filter((w) => !w.archived && !w.cleaned && !w.remote);
   owners = new Map(local.flatMap((w) => w.tabs.map((tab) => [tab.id, w.id] as const)));
@@ -79,7 +64,7 @@ export function boardChanged(board: Board) {
   badge();
 }
 
-/// Somente o stream local ao vivo entra aqui. Snapshot e replay não notificam.
+/// Only local live events notify; snapshots and replay do not.
 export function chatChanged(tab: string, line: string) {
   const workspace = owners.get(tab);
   if (!workspace) return;
@@ -101,7 +86,7 @@ export function chatChanged(tab: string, line: string) {
   badge();
 }
 
-/// O time mudou — talvez a caixa "para mim".
+/// Team updates may change the mention inbox.
 export function teamChanged() {
   let news = false;
   for (const item of team.inboxItems()) {
@@ -113,22 +98,21 @@ export function teamChanged() {
   badge();
 }
 
-/* ---------- a bolinha ---------- */
+/* Dock badge. */
 
-/// Quantas coisas esperam você: workspaces não lidos (pelo back ou por aqui)
-/// mais comentários na caixa. Zero apaga a bolinha.
+/// Count unread workspaces plus inbox comments; zero clears the badge.
 export const waiting = () => new Set([...unread, ...pending.values()]).size + team.inboxCount();
 
 function badge() {
   getCurrentWindow()
     .setBadgeCount(waiting() || undefined)
     .catch((e) => {
-      // Sem Dock (navegador puro) não há bolinha; a tela segue igual.
+      // The web mock has no Dock badge.
       console.warn("badge", e);
     });
 }
 
-/* ---------- o som ---------- */
+/* Sound. */
 
 let actx: AudioContext | null = null;
 function audio(): AudioContext | null {
@@ -138,8 +122,7 @@ function audio(): AudioContext | null {
   return actx;
 }
 
-/// Um "pling" de sino de balcão: uma nota e um parcial agudo por cima, os dois
-/// morrendo rápido. Sintetizado aqui — não há arquivo de som para carregar.
+/// Synthesize a short bell with a fundamental and a higher partial; no audio asset is needed.
 export function pling() {
   if (!soundOn()) return;
   const ac = audio();
@@ -165,7 +148,7 @@ export function pling() {
   }
 }
 
-/* ---------- a linha de Configurações ---------- */
+/* Settings row. */
 
 export function settingsRow(): HTMLElement {
   const row = template(
@@ -186,7 +169,7 @@ export function settingsRow(): HTMLElement {
   sw.addEventListener("click", () => {
     setSound(!soundOn());
     paint();
-    // Ligar toca uma vez: é a chance de ouvir como é antes de precisar.
+    // Enabling sound plays a preview.
     pling();
   });
   paint();

@@ -1,30 +1,19 @@
-# Dispara na tag `v*` que o scripts/release.sh empurra. Constrói o app no
-# runner self-hosted (o Mac de quem desenvolve — ver CLAUDE.md), assina com a
-# chave que vive em Secrets e cria uma release **draft** em
-# gbrancaglione/prometeu-releases, com as notas tiradas da seção da versão
-# no CHANGELOG.md.
+# Build tags matching v* on the self-hosted Mac, sign with repository Secrets and create a draft in
+# gbrancaglione/prometeu-releases. Notes come from the version's CHANGELOG.md section.
+# Drafts do not reach the updater's releases/latest/download/latest.json endpoint. Install and review the
+# draft DMG before running sh scripts/release.sh publish.
+# The updater accepts only newer versions; recovery from a published defect requires a newer release.
+# workflow_dispatch verifies a release build from main without publishing or consuming a version.
 #
-# Draft é o portão: o updater lê `releases/latest/download/latest.json`, e o
-# GitHub só considera "latest" o que foi publicado. Até alguém instalar o .dmg
-# da draft, abrir e aprovar, ninguém recebe nada. Publicar é
-# `sh scripts/release.sh publish`.
-#
-# Não existe rollback no updater (ele só instala versão maior que a atual):
-# versão ruim publicada se conserta com a seguinte. Por isso o portão.
-#
-# `workflow_dispatch` constrói sem publicar — serve para conferir que o build
-# de release está de pé num commit que já pertence à main, sem gastar versão.
-#
-# Secrets que este workflow espera (ver CLAUDE.md):
-#   RELEASES_TOKEN                       PAT com Contents: read/write no
-#                                        prometeu-releases — o GITHUB_TOKEN
-#                                        do job não alcança outro repositório
-#   TAURI_SIGNING_PRIVATE_KEY            conteúdo de ~/.tauri/prometeu.key
-#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD   a senha dela
-#   APPLE_ID                              e-mail da conta Apple
-#   APPLE_PASSWORD                        senha específica de app para notarização
-#   APPLE_CERTIFICATE                     Developer ID Application em .p12/base64
-#   APPLE_CERTIFICATE_PASSWORD            senha do .p12
+# Required Secrets:
+# RELEASES_TOKEN: PAT with Contents read/write access to prometeu-releases; the job's GITHUB_TOKEN cannot
+# access another repository.
+# TAURI_SIGNING_PRIVATE_KEY: contents of ~/.tauri/prometeu.key.
+# TAURI_SIGNING_PRIVATE_KEY_PASSWORD: signing key password.
+# APPLE_ID: Apple account email.
+# APPLE_PASSWORD: app-specific notarization password.
+# APPLE_CERTIFICATE: Developer ID Application certificate as base64-encoded .p12.
+# APPLE_CERTIFICATE_PASSWORD: .p12 password.
 name: Release
 
 on:
@@ -67,7 +56,7 @@ jobs:
       - name: navegador dos testes de fluxo
         run: npx playwright install chromium webkit
 
-      # Não assina nem publica uma versão que diverge dos mesmos gates da CI.
+      # Run the same CI gates before signing or publishing.
       - run: npm run check
 
       - name: versão e notas
@@ -81,7 +70,7 @@ jobs:
             echo "::error::a tag $GITHUB_REF_NAME não bate com a versão $VERSION do package.json"
             exit 1
           fi
-          # A seção "## [X.Y.Z]" do CHANGELOG.md, sem o título.
+          # Extract the version's CHANGELOG.md section without its heading.
           NOTES=$(awk -v v="$VERSION" '
             /^## \[/ { dentro = index($0, "## [" v "]") == 1; next }
             dentro { print }' CHANGELOG.md)
@@ -140,17 +129,11 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: "6MQT6A482B"
-          # Com CI=true o bundler passa --skip-jenkins ao bundle_dmg.sh e o DMG
-          # sai sem o AppleScript que arruma ícones no Finder. O self-hosted
-          # não recebe CI=true sozinho, e o AppleScript depende de uma
-          # permissão de Automation que o macOS dá ao binário do runner — que
-          # não é assinado e troca a cada auto-update. O preço: a janela do
-          # DMG vem sem os ícones posicionados.
+          # CI=true enables --skip-jenkins in bundle_dmg.sh, avoiding Finder AppleScript and its
+          # Automation permission for the changing runner binary. The DMG uses default icon placement.
           CI: "true"
-          # A tauri-action, no macOS, injeta TAURI_BUNDLER_DMG_IGNORE_CI=true
-          # quando a variável não vem de fora — e isso anula o CI=true acima,
-          # trazendo o AppleScript de volta. Dizer "false" aqui é o que faz o
-          # --skip-jenkins voltar (o bundler olha o valor, não a presença).
+          # Explicitly set TAURI_BUNDLER_DMG_IGNORE_CI=false so tauri-action does not override CI=true
+          # and restore Finder AppleScript.
           TAURI_BUNDLER_DMG_IGNORE_CI: "false"
         with:
           owner: gbrancaglione
@@ -195,8 +178,8 @@ jobs:
           xcrun stapler staple "$DMG"
           xcrun stapler validate "$DMG"
           spctl -a -t open --context context:primary-signature -v "$DMG"
-          # Mesmo nome do assetNamePattern: o --clobber troca o .dmg que a
-          # tauri-action subiu antes da notarização, em vez de criar um segundo.
+          # Use assetNamePattern's filename so --clobber replaces the pre-notarization DMG instead of
+          # adding another asset.
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             cp "$DMG" "$RUNNER_TEMP/Prometeu_aarch64.dmg"
             gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/Prometeu_aarch64.dmg" -R "$REPO" --clobber
@@ -254,9 +237,8 @@ jobs:
           xcrun stapler validate "$DMG"
           spctl -a -t open --context context:primary-signature -v "$DMG"
 
-      # O mesmo caminho que o app instalado percorre: lê o latest.json, acha o
-      # pacote que ele aponta, confere a assinatura contra a chave pública que
-      # vai dentro do binário. Se isto passa, o updater aceita.
+      # Exercise the installed updater path: read latest.json, download its package and verify against
+      # the public key embedded in the app.
       - name: latest.json aponta para esta versão e a assinatura bate
         run: |
           python3 - <<'PY'

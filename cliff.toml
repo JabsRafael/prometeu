@@ -1,13 +1,7 @@
-# git-cliff — gera o CHANGELOG.md e as notas de release a partir dos commits.
-#
-# Os commits seguem Conventional Commits (`feat(escopo): descrição`). Só o que
-# a pessoa que usa o app percebe entra no changelog: feat, fix, perf e revert.
-# O resto (chore, ci, docs, test, refactor, style, build) fica fora de
-# propósito — changelog é para quem usa, não para quem mexe no código.
-#
-# A descrição do commit é a linha que aparece para o usuário. Escreva-a como
-# tal: o que a pessoa vê ou passa a conseguir fazer, em português, sem nome de
-# arquivo ou de função. Ver CLAUDE.md.
+# git-cliff derives CHANGELOG.md and release notes from Conventional Commits. Include user-visible feat,
+# fix, perf and revert entries; omit internal maintenance changes.
+# Public commit descriptions explain observable behavior in Portuguese without implementation filenames
+# or function names. See AGENTS.md.
 
 [changelog]
 header = """
@@ -50,8 +44,7 @@ trim = false
 
 [git]
 conventional_commits = true
-# Commits fora do padrão (os de antes da convenção) caem em "Outros" em vez de
-# sumir — sumir calado é pior que aparecer feio.
+# Keep legacy unconventional commits in the fallback group instead of silently dropping them.
 filter_unconventional = false
 split_commits = false
 protect_breaking_commits = true
@@ -60,17 +53,15 @@ tag_pattern = "v[0-9].*"
 sort_commits = "oldest"
 topo_order = false
 commit_parsers = [
-  # Entraram na main como `fix`, mas são refactor: nada que alguém veja mudou
-  # (uma struct para os parâmetros do processo; o `setup` do worktree de dev).
-  # Corrigir a mensagem exigiria reescrever a main — mais barato dizer aqui.
+  # These commits were labeled fix but only refactored process parameters and development setup. Exclude
+  # them without rewriting main.
   { sha = "09b19f1538a3d717e89482c37d5039d86b8fa2f6", skip = true },
   { sha = "cf6ada07ddfacb2d970d2fc15e4684b3344e417a", skip = true },
-  # O primeiro PR do Prometeu preservou o commit da mudança de marca e ganhou
-  # um merge commit com a mesma mensagem pública. Conte apenas o commit original.
+  # The first branding PR retained its original commit and a duplicate public merge message. Count only
+  # the original.
   { sha = "d35d5c3132adf64caa63006dadfb0aa73bfec7a2", skip = true },
-  # Entrou como `feat(ui)`, mas é reorganização interna: os componentes passaram
-  # a ser compartilhados entre os produtos da Prometeu sem que nada mude na
-  # tela. Reescrever a main sairia mais caro que dizer aqui.
+  # This feat(ui) commit only reorganized shared components without changing visible behavior. Exclude it
+  # without rewriting main.
   { sha = "15bbd4235cbbb7a04227494adcc8171a1a46b0aa", skip = true },
   { message = "^chore\\(release\\)", skip = true },
   { message = "^Marcar a versão", skip = true },
@@ -84,7 +75,7 @@ commit_parsers = [
 ]
 
 [bump]
-# Enquanto a versão é 0.x: feat e fix sobem o patch, mudança que quebra sobe o
-# minor. Passar de 1.0 é decisão de gente, não de script.
+# During 0.x, feat and fix bump patch while breaking changes bump minor. Moving to 1.0 requires an
+# explicit decision.
 features_always_bump_minor = false
 breaking_always_bump_major = false

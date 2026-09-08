@@ -2,12 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { use } from "./i18n";
 import { updater, view, type Found, type Io, type View } from "./update";
 
-// Fora do navegador o app cai no inglês; estes testes conferem o texto, então
-// fixam o idioma em que ele foi escrito.
+// Pin the tested language because Node defaults to English.
 use("pt-BR");
 
-/// Uma atualização de mentira: o download dispara os eventos de progresso e
-/// termina quando o teste mandar.
+/// A controlled update emits download progress and finishes when the test allows it.
 function found(version = "0.2.0"): Found & { finish: () => void; fail: (why: string) => void; downloads: number } {
   let done!: (v: void) => void;
   let broke!: (e: Error) => void;
@@ -44,7 +42,7 @@ function world(update: Found | null) {
   return { io, faces, said, last: () => faces[faces.length - 1] };
 }
 
-/// Deixa as promessas do download andarem; com os timers falsos, `setTimeout` não serve.
+/// Flush download promises with fake timers instead of using setTimeout.
 const tick = () => vi.advanceTimersByTimeAsync(0);
 
 describe("view", () => {
@@ -72,10 +70,10 @@ describe("view", () => {
   it("as notas da versão encontrada viajam até a linha, e só nela", () => {
     const update = found("0.2.0");
     expect(view({ at: "found", update }).notes).toEqual({ version: "0.2.0", body: "notas" });
-    // Já baixando ou já pronta, a decisão de ler o que vem já passou.
+    // Release-note review ends once downloading starts or the update is ready.
     expect(view({ at: "downloading", update, got: 0, total: 0 }).notes).toBeUndefined();
     expect(view({ at: "ready", version: "0.2.0" }).notes).toBeUndefined();
-    // Release sem corpo não vira um botão que abre uma folha vazia.
+    // A release without notes must not open an empty dialog.
     expect(view({ at: "found", update: { ...update, body: "  " } }).notes).toBeUndefined();
   });
 
@@ -112,7 +110,7 @@ describe("updater", () => {
     await first;
     expect(w.last()).toMatchObject({ text: "Reiniciar para atualizar", ready: true });
 
-    // O bug: o clique de reiniciar não fazia nada.
+    // Regression: the restart button previously did nothing.
     void up.click();
     await tick();
     expect(w.io.relaunch).toHaveBeenCalledTimes(1);
@@ -202,7 +200,7 @@ describe("updater", () => {
     expect(w.io.check).toHaveBeenCalledTimes(2);
     expect(up.phase().at).toBe("fresh");
 
-    // E o clique acha o que o relógio ainda não tinha achado.
+    // Manual checks can discover updates before the scheduled check.
     w.io.check = vi.fn(async () => found("0.3.0"));
     await up.click();
     expect(w.last()?.text).toBe("Atualizar para 0.3.0");
@@ -218,15 +216,15 @@ describe("updater", () => {
       throw new Error("offline");
     });
     await up.look();
-    // A linha continua dizendo o que dizia antes de perguntar.
+    // Retain the previous status during a background check.
     expect(up.phase()).toEqual({ at: "fresh", when: "13:48" });
     expect(w.said).toEqual([]);
-    expect(w.faces.length).toBeGreaterThan(quiet); // passou por "Buscando…" e voltou
+    expect(w.faces.length).toBeGreaterThan(quiet); // Entered the checking state, then returned.
 
     await up.click();
     expect(up.phase()).toEqual({ at: "failed", why: "Error: offline" });
     expect(w.last()?.note).toMatch(/Não deu para buscar.*offline/);
-    // Mesmo com erro, o rodapé não abre a boca: quem pediu está olhando a linha.
+    // Manual errors belong in Settings, not the sidebar footer.
     expect(w.last()?.footer).toBe(false);
     expect(w.said).toEqual([]);
   });

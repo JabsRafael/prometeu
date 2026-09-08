@@ -226,7 +226,7 @@ function commandEditor(old: actions.Action | null, redraw: () => void) {
       }
       const result: actions.Action = { name: name.value.trim(), description: description.value.trim(), kind: kind.value as actions.Action["kind"], prompt: prompt.value, profile: kind.value === "agent" ? profile.value : null };
       if (next.commands.some(c => c.name === result.name && c.name !== old?.name)) {
-        // Mantém a duplicata para a validação autoritativa recusar sem substituir outro comando.
+        // Preserve the duplicate so authoritative validation rejects it without replacing another command.
         next.commands.push(result);
       } else { next.commands = [...next.commands.filter(c => c.name !== old?.name), result]; }
       if (old && next.pr_action === old.name) next.pr_action = result.kind === "agent" ? result.name : null;

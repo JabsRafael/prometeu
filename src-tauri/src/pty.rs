@@ -8,39 +8,31 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, State};
 
-/// Quanto da saída fica guardado para redesenhar o terminal quando o usuário
-/// volta do quadro para a sessão. 512 KB cobre bastante rolagem e não pesa.
+/// Retain 512 KB of terminal output for restoring a session's scrollback.
 const SCROLLBACK: usize = 512 * 1024;
 
-/// Do desligamento educado até insistir. Folga de sobra para quem sai sozinho:
-/// o `claude` fecha o transcript no Ctrl-D, um servidor de dev cai no SIGHUP.
+/// Allow graceful shutdown before escalating signals so agents can close transcripts and servers
+/// can handle SIGHUP.
 const GRACE: Duration = Duration::from_secs(1);
 
-/// E daí até o SIGKILL. Quem ignora SIGTERM não vai mudar de ideia esperando
-/// mais.
+/// Escalate from SIGTERM to SIGKILL after the final grace period.
 const REAP: Duration = Duration::from_millis(500);
 
-/// O que roda quando o processo sai, com o código dele. É por aqui que o fim
-/// do `setup` solta a primeira fala do agente.
+/// Process-exit callback with its status; setup completion releases the initial agent message here.
 pub type OnExit = Box<dyn FnOnce(Option<u32>) + Send>;
 
-/// O que acompanha o pty de um dock — script ou shell. Conversa não passa por
-/// aqui: ela é `chat.rs`, e não tem terminal nenhum.
+/// Dock script and shell PTY metadata. Agent conversations use chat.rs rather than this terminal
+/// transport.
 #[derive(Default)]
 pub struct Dock {
     pub on_exit: Option<OnExit>,
-    /// Texto que o Prometeu escreveu, e não o processo: o que a aba Setup diz
-    /// ter copiado do clone. Entra antes de a thread de leitura começar, e não
-    /// depois de `spawn` voltar, para não se intercalar com os primeiros bytes
-    /// do comando.
+    /// Write the app's setup-copy header before starting the reader thread so it cannot interleave
+    /// with initial process output.
     pub header: Option<String>,
 }
 
-/// A rolagem guardada e o número do último pedaço que entrou nela. Os dois
-/// vivem sob o mesmo lock de propósito: um snapshot é "estes bytes, até o
-/// pedaço N", e quem recebe os pedaços numerados sabe exatamente quais já
-/// estavam dentro — é o que deixa o front compartilhar a tela sem duplicar
-/// nem perder um chunk que cruzou com o snapshot no caminho.
+/// Keep buffered output and sequence under one lock. Snapshots must describe exactly which numbered
+/// chunks they include so live forwarding can avoid gaps or duplicates.
 #[derive(Default)]
 pub struct Scroll {
     pub bytes: Vec<u8>,
@@ -48,7 +40,7 @@ pub struct Scroll {
 }
 
 impl Scroll {
-    /// Guarda um pedaço, corta o que passou do teto, e devolve o número dele.
+    /// Append a chunk, enforce the scrollback limit, and return its sequence.
     pub fn absorb(&mut self, chunk: &[u8]) -> u64 {
         self.bytes.extend_from_slice(chunk);
         if self.bytes.len() > SCROLLBACK {
@@ -63,17 +55,14 @@ impl Scroll {
 pub struct Pty {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
-    /// Últimos bytes da sessão, para reidratar a tela ao reabrir.
+    /// Retain recent session bytes for restoring the terminal.
     pub buffer: Arc<Mutex<Scroll>>,
-    /// O processo ainda está rodando. A entrada continua no mapa depois de ele
-    /// morrer — é a rolagem dela, com o `✗ saiu com código` no fim, que a aba
-    /// mostra amanhã — e é este bit que separa "de pé" de "só a rolagem".
+    /// Distinguish running processes from retained scrollback entries after exit.
     alive: Arc<AtomicBool>,
-    /// Este `Pty` foi derrubado: kill, ou outro subiu no lugar com a mesma
-    /// chave. A thread que lê o processo velho vê isto e para de emitir, senão
-    /// os últimos suspiros dele sujariam o terminal do novo.
+    /// Suppress output from a killed or replaced PTY so the old reader cannot contaminate the
+    /// replacement terminal.
     gone: Arc<AtomicBool>,
-    /// Grupo de processos do filho, para o `Drop` derrubar. Zero é "não sei".
+    /// The child's process group used during Drop; zero means unknown.
     pid: u32,
 }
 
@@ -98,35 +87,26 @@ impl Pty {
         self.alive.load(Ordering::Relaxed)
     }
 
-    /// O líder do grupo — é dele que a árvore de processos parte, e é por isso
-    /// que o `npm run dev` aparece com o `node` que ele subiu junto.
+    /// The group leader anchors process-tree inspection, including descendants such as node started
+    /// by npm.
     pub fn pid(&self) -> u32 {
         self.pid
     }
 }
 
-/// Manda um sinal para o **grupo** do processo, e não só para ele.
-///
-/// O portable-pty dá `setsid()` no filho antes do exec — e aborta se falhar —,
-/// então o filho é sempre líder da própria sessão e do próprio grupo, e os
-/// netos nascem dentro dele. O grupo é a única forma de alcançá-los: em
-/// `npm run dev`, o `npm` é o filho, mas quem segura a porta é o `node` que ele
-/// subiu. Como o pgid é o pid do filho, e o filho é líder de sessão, o sinal
-/// nunca escapa para o grupo do próprio app.
-///
-/// Só enquanto o filho não foi colhido: pid de morto é reaproveitado, e o sinal
-/// iria parar num estranho. `alive` cai antes do `wait`, então verdadeiro aqui
-/// é filho vivo, e o pid é dele.
+/// Signal the child's process group to reach descendants. portable-pty creates a separate session
+/// before exec, making the child's PID its group ID rather than the app's group. Signal only before
+/// the child is reaped to avoid PID reuse; alive is cleared before wait.
 pub(crate) fn signal_group(pid: u32, alive: &AtomicBool, sig: i32) {
     if pid == 0 || !alive.load(Ordering::Relaxed) {
         return;
     }
-    // SAFETY: `killpg` é uma chamada de sistema sem contrato de memória, e o
-    // pgid é o pid de um filho ainda não colhido — logo, ainda reservado.
+    // SAFETY: killpg has no memory-safety contract, and the unreaped child's PID remains reserved
+    // for its process group.
     unsafe { libc::killpg(pid as libc::pid_t, sig) };
 }
 
-/// Espera o processo sair, até o teto. `true` se saiu.
+/// Wait until exit or the deadline; return true on exit.
 pub(crate) fn wait_exit(alive: &AtomicBool, until: Duration) -> bool {
     let deadline = Instant::now() + until;
     while Instant::now() < deadline {
@@ -138,20 +118,9 @@ pub(crate) fn wait_exit(alive: &AtomicBool, until: Duration) -> bool {
     !alive.load(Ordering::Relaxed)
 }
 
-/// Sair do mapa é morrer, e morrer é em degraus.
-///
-/// Dropar sozinho não bastava: `Child` do Rust não mata no drop, então fechar o
-/// dock deixava vivo o `npm run dev` que o botão dizia encerrar, segurando a
-/// porta até o app fechar. Só o SIGHUP também não basta — quem o ignora fica, e
-/// é justamente o caso de um servidor de dev sob `nohup`.
-///
-/// Então: SIGHUP no grupo — `sh -c` não lê o terminal, então o Ctrl-D que o
-/// writer manda ao ser largado não chega a ninguém — e, para quem não sair
-/// sozinho, SIGTERM e depois SIGKILL. Sempre no grupo, que é a única forma de
-/// alcançar os netos.
-///
-/// A insistência mora numa thread à parte porque é feita de espera, e ninguém
-/// que fecha uma aba tem o que fazer nessa espera.
+/// Removing a PTY must stop its entire process group. Rust Child does not kill on Drop, and
+/// descendants can ignore SIGHUP. Send SIGHUP, then escalate to SIGTERM and SIGKILL on a separate
+/// thread so closing the tab never waits for shutdown.
 impl Drop for Pty {
     fn drop(&mut self) {
         self.gone.store(true, Ordering::Relaxed);
@@ -170,19 +139,16 @@ impl Drop for Pty {
     }
 }
 
-/// Tira o PTY do mapa — e, com isso, encerra o processo.
+/// Remove the PTY from the map, triggering process shutdown.
 pub fn kill(state: &AppState, key: &str) {
     lock(&state.ptys).remove(key);
 }
 
-/// O que sai de `open`: o `Pty` para o mapa, e o par que a bomba consome.
+/// Return the PTY handle plus the reader and child consumed by the output pump.
 type Opened = (Pty, Box<dyn Read + Send>, Box<dyn Child + Send + Sync>);
 
-/// Abre o pseudo-terminal e sobe o processo. Devolve o `Pty`, o leitor da saída
-/// e o filho: quem bombeia é que decide o que fazer com os dois últimos.
-///
-/// Separado do `spawn` porque é aqui que mora o ciclo de vida do processo — e
-/// esta metade não sabe o que é Tauri, então o teste consegue rodá-la.
+/// Open the PTY and subprocess separately from Tauri output pumping so lifecycle behavior can be
+/// tested without the app runtime.
 fn open(cmd: CommandBuilder, cols: u16, rows: u16) -> Result<Opened, String> {
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -198,7 +164,7 @@ fn open(cmd: CommandBuilder, cols: u16, rows: u16) -> Result<Opened, String> {
         .spawn_command(cmd)
         .map_err(|e| i18n::ta("err.pty.spawn", &[("cause", e.to_string())]))?;
     let pid = child.process_id().unwrap_or(0);
-    drop(pair.slave); // sem isso o EOF nunca chega quando o filho morre
+    drop(pair.slave); // Close the extra handle so child exit can deliver EOF.
 
     let reader = pair
         .master
@@ -220,13 +186,9 @@ fn open(cmd: CommandBuilder, cols: u16, rows: u16) -> Result<Opened, String> {
     Ok((pty, reader, child))
 }
 
-/// Sobe um processo num pseudo-terminal e bombeia a saída para o front.
-/// Cada pedaço vai carimbado com a chave do dock — o front só desenha o que
-/// está na frente, mas todos continuam correndo por trás.
-///
-/// O fim vai escrito no próprio buffer: um `setup` que falhou tem que
-/// continuar dizendo isso amanhã, quando você reabrir a aba, e o buffer é a
-/// única coisa que sobrevive a fechar o painel.
+/// Forward numbered output under the dock key while all sessions continue in the background.
+/// Persist the exit status in scrollback so setup failures remain visible after reopening the
+/// panel.
 pub fn spawn(
     app: &AppHandle,
     session_id: &str,
@@ -255,19 +217,17 @@ pub fn spawn(
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
                     let seq = lock(&sink).absorb(&chunk[..n]);
-                    // ponytail: bytes crus viram array JSON. Gordo, mas deixa o
-                    // TextDecoder do front juntar UTF-8 partido no meio de graça.
-                    // Se pesar, trocar por base64. O número vai junto: é o que o
-                    // compartilhamento usa para casar pedaço com snapshot.
+                    // ponytail: raw bytes use a larger JSON array so the frontend TextDecoder can
+                    // join split UTF-8; switch to base64 if transport cost matters. Include the
+                    // sequence for snapshot reconciliation.
                     if !gone_t.load(Ordering::Relaxed) {
                         let _ = app.emit("pty", (id.clone(), chunk[..n].to_vec(), seq));
                     }
                 }
             }
         }
-        // Já houve EOF, então o filho ou morreu ou está a um suspiro disso —
-        // `wait` aqui é a colheita do código de saída, não uma espera de verdade.
-        // `alive` cai antes dela, para ninguém sinalizar um pid já colhido.
+        // After EOF, reap the exit status. Clear alive before wait so no later signal can target a
+        // reused PID.
         alive_t.store(false, Ordering::Relaxed);
         let code = child.wait().ok().map(|s| s.exit_code());
         if !gone_t.load(Ordering::Relaxed) {
@@ -321,7 +281,7 @@ pub fn pty_resize(
         .resize(cols, rows)
 }
 
-/// Devolve a rolagem guardada, para o terminal voltar como estava.
+/// Return retained scrollback for terminal restoration.
 #[tauri::command]
 pub fn pty_buffer(state: State<AppState>, session: String) -> Vec<u8> {
     lock(&state.ptys)
@@ -334,9 +294,7 @@ pub fn pty_buffer(state: State<AppState>, session: String) -> Vec<u8> {
 mod tests {
     use super::*;
 
-    /// Cada pedaço ganha o número seguinte, e o snapshot diz até qual foi:
-    /// quem tirou o snapshot depois do segundo sabe que o terceiro não está
-    /// nele — sem olhar byte nenhum.
+    /// Sequences identify exactly which chunks a snapshot includes without inspecting byte content.
     #[test]
     fn pedacos_numerados_e_o_snapshot_diz_ate_qual() {
         let mut s = Scroll::default();
@@ -347,8 +305,7 @@ mod tests {
         assert_eq!(s.bytes, b"abc");
     }
 
-    /// O teto corta o começo, e o número continua subindo: cortar não é
-    /// esquecer que houve pedaço.
+    /// Truncating old bytes must not reset the sequence.
     #[test]
     fn o_teto_corta_o_comeco_sem_mexer_no_numero() {
         let mut s = Scroll::default();
@@ -358,12 +315,8 @@ mod tests {
         assert!(s.bytes.ends_with(b"fim"));
     }
 
-    /// O processo ainda está rodando?
-    ///
-    /// Não dá para perguntar isso com `kill(pid, 0)`: um zumbi responde que
-    /// sim, e zumbi é o estado normal de quem acabou de morrer. Para o que
-    /// importa aqui — segurar uma porta, gastar CPU — zumbi é morto, então quem
-    /// responde é o estado e não a existência do pid.
+    /// Treat zombies as exited even though kill(pid, 0) reports their PID exists. Process state
+    /// determines whether they can still use CPU or hold ports.
     fn running(pid: i32) -> bool {
         let out = std::process::Command::new("ps")
             .args(["-o", "stat=", "-p", &pid.to_string()])
@@ -384,13 +337,8 @@ mod tests {
         !running(pid)
     }
 
-    /// A numeração contra um processo de verdade: o que o snapshot leva, e o
-    /// que sobra para ir ao vivo, é decidido por número — e é isto que faz a
-    /// tela de um colega não repetir nem perder um trecho.
-    ///
-    /// O `Scroll` é o mesmo que a thread de leitura usa; aqui ele é alimentado
-    /// pelos chunks de um pty real, com uma pausa no meio para garantir que a
-    /// leitura acontece em dois pedaços.
+    /// Use a real PTY with separated output chunks to verify snapshot/live reconciliation through
+    /// the same Scroll implementation used in production.
     #[test]
     fn snapshot_tirado_no_meio_da_saida_sabe_o_que_ja_levou() {
         let mut cmd = CommandBuilder::new("/bin/sh");
@@ -404,7 +352,7 @@ mod tests {
             lock(&scroll).absorb(&chunk[..n])
         };
 
-        // Primeiro pedaço, e o snapshot que um colega receberia agora.
+        // Capture the first chunk and the snapshot a remote viewer would receive.
         assert_eq!(read_chunk(&mut reader), 1);
         let (bytes, seq) = {
             let s = lock(&scroll);
@@ -413,7 +361,7 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&bytes), "primeiro");
         assert_eq!(seq, 1, "o snapshot leva o primeiro pedaço, e diz isso");
 
-        // O que vem depois é justamente o que tem de ir ao vivo.
+        // Only subsequent chunks belong to the live continuation.
         assert_eq!(read_chunk(&mut reader), 2);
         assert!(lock(&scroll).bytes.ends_with(b"segundo"));
         assert!(
@@ -422,19 +370,8 @@ mod tests {
         );
     }
 
-    /// O bug que este arquivo existe para não ter de novo: fechar o dock
-    /// deixava vivo o `npm run dev` que o botão dizia encerrar, segurando a
-    /// porta até o app fechar.
-    ///
-    /// A montagem tem os dois que escapavam:
-    ///
-    ///   - um **filho** que fica de pé (o `exec sleep`), como o servidor de dev;
-    ///   - um **neto** que ignora SIGHUP (o `nohup`), como o `node` que o `npm`
-    ///     sobe e que não cai quando o terminal fecha.
-    ///
-    /// Os dois têm de sumir. O neto só é alcançável pelo grupo de processos —
-    /// sinalizar o pid do filho nunca chegaria nele —, e só o SIGHUP não o
-    /// tira: é a escalação para SIGTERM que resolve.
+    /// Regression for dock shutdown leaving servers alive: stop both the direct child and a
+    /// descendant that ignores SIGHUP. Group signalling and escalation to SIGTERM must reach both.
     #[test]
     fn encerrar_uma_sessao_leva_filho_e_neto() {
         let mut cmd = CommandBuilder::new("/bin/sh");
@@ -445,7 +382,7 @@ mod tests {
         let (pty, mut reader, _child) = open(cmd, 80, 24).expect("pty não abriu");
         let filho = pty.pid as i32;
 
-        // Lê até o neto dizer o pid.
+        // Read until the descendant reports its PID.
         let mut saida = String::new();
         let mut chunk = [0u8; 512];
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -468,9 +405,8 @@ mod tests {
             }
         };
 
-        // Como em produção: quem drena a saída é quem solta o último fd do
-        // master. Sem isso o filho trava no meio da saída, esperando o terminal
-        // que ninguém fechou — e o teste mediria o cano, não o código.
+        // Drain output and release the final master descriptor as production does, so the test
+        // measures shutdown rather than a blocked terminal pipe.
         std::thread::spawn(move || {
             let mut buf = [0u8; 1024];
             while matches!(reader.read(&mut buf), Ok(n) if n > 0) {}
@@ -487,7 +423,7 @@ mod tests {
 
         drop(pty);
 
-        // A escalação é feita de espera, e roda fora desta thread.
+        // Shutdown escalation waits on another thread.
         let teto = GRACE + REAP + Duration::from_secs(2);
         assert!(
             parou(filho, teto),

@@ -1,28 +1,16 @@
-/// A conversa de uma aba que roda em outro Mac.
-///
-/// Duas coisas chegam pelo relay, e podem cruzar no caminho: a **conversa
-/// inteira** ("estes bytes, até a linha N", em partes) e as **linhas ao vivo**,
-/// cada uma com o número que o back deu. Quem recebe precisa juntar as duas
-/// sem repetir nem perder nada — e é só isso que este módulo faz, para poder
-/// ser testado sem rede e sem tela.
-///
-/// A regra é uma: linha com número até o da conversa já está dentro dela.
-/// Nada de comparar bytes, nada de adivinhar.
+/// Merge chunked remote snapshots with live numbered lines without network or DOM dependencies. Lines at or below the snapshot sequence are already included; sequence numbers decide overlap.
 
-/// Quanto se guarda de cada conversa. O mesmo teto do back (`KEEP`, em
-/// `chat.rs`): é a conversa que ele teria mandado.
+/// Match the backend KEEP limit so retained remote history matches the local snapshot.
 export const MIRROR_MAX = 4 * 1024 * 1024;
 
 export class Mirror {
-  /// Guardado em pedaços e só juntado quando alguém pede: concatenar a cada
-  /// chunk é copiar meio megabyte por tecla.
+  /// Join chunks only on demand instead of copying the entire transcript for each update.
   private parts: Uint8Array[] = [];
   private total = 0;
   private last = 0;
-  /// A conversa ainda não chegou. Até chegar, linha ao vivo não tem como ser
-  /// posicionada — e vai estar dentro dela de qualquer jeito.
+  /// Live lines cannot be positioned before the first snapshot, which will include them.
   private seeded = false;
-  /// As partes da conversa que está chegando: só vale quando a última fechar.
+  /// A snapshot becomes usable only after its final chunk arrives.
   private pending: Uint8Array[] | null = null;
 
   constructor(private max = MIRROR_MAX) {}
@@ -31,9 +19,7 @@ export class Mirror {
     return this.seeded;
   }
 
-  /// Uma parte da conversa inteira, até a linha `seq`. `more` é "vem outra
-  /// atrás"; a última substitui o que havia: é a verdade mais nova, e o que
-  /// veio antes dela já está contado. Devolve se a conversa fechou.
+  /// Collect snapshot chunks through seq; the final chunk replaces prior history. Return whether the snapshot is complete.
   seed(bytes: Uint8Array, seq: number, more = false): boolean {
     (this.pending ??= []).push(bytes.slice());
     if (more) return false;
@@ -46,8 +32,7 @@ export class Mirror {
     return true;
   }
 
-  /// Um pedaço ao vivo. Devolve o que a tela tem que escrever — `null` quando
-  /// o pedaço já estava na rolagem, ou quando ela ainda não chegou.
+  /// Return live bytes to render, or null when the snapshot already includes them or has not arrived.
   absorb(seq: number, bytes: Uint8Array): Uint8Array | null {
     if (!this.seeded || seq <= this.last) return null;
     this.last = seq;
@@ -58,7 +43,7 @@ export class Mirror {
     return copy;
   }
 
-  /// Tudo que se sabe da conversa, para redesenhar a tela ao voltar para ela.
+  /// Return retained conversation bytes when reattaching the view.
   bytes(): Uint8Array {
     if (this.parts.length > 1) {
       this.parts = [concat(this.parts)];

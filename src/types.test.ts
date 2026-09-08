@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { use } from "./i18n";
 import { branchTaken, fmtTokens, tabLabel, type Board, type Tab, type Workspace } from "./types";
 
-// `1,2M` é a vírgula decimal do português: o formato do número segue o idioma.
+// Portuguese formatting uses a decimal comma, as in 1,2M.
 use("pt-BR");
 
 describe("fmtTokens", () => {

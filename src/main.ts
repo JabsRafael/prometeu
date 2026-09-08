@@ -35,22 +35,18 @@ import { $ } from "./util";
 import * as viewer from "./viewer";
 import * as ws from "./workspace";
 
-// Navegador puro (sem Tauri): back falso, só para mexer na UI.
+// Use the backend mock when running outside Tauri.
 if (!("__TAURI_INTERNALS__" in window)) await import("./mock");
 
 let state: Board = { stages: [], projects: [], workspaces: [] };
 
-/// O estado como a tela o vê: o do Rust mais os workspaces que os colegas
-/// compartilharam, que só existem aqui. Quem desenha e quem procura um
-/// workspace por id olha para este; o que fala com o back olha para `state`.
+/// Render local board state plus frontend-only remote shares. Backend commands use the local state alone.
 const view = (): Board => {
   const remotes = team.remotes();
   return remotes.length ? { ...state, workspaces: [...state.workspaces, ...remotes] } : state;
 };
 
-/// Recado na barra de cima. Some sozinho: recado que fica vira parte do
-/// cabeçalho, e daqui a uma hora você está lendo o aviso de outra coisa. Quem
-/// termina em "…" é progresso e fica até quem começou apagar.
+/// Clear transient header notices automatically. Messages ending in an ellipsis remain until their operation clears them.
 let fade = 0;
 function say(text: string, isError = false) {
   $("msg").textContent = text;
@@ -59,7 +55,7 @@ function say(text: string, isError = false) {
   if (text && !text.endsWith("…")) fade = setTimeout(() => say(""), 6000);
 }
 
-/* ---------- navegação ---------- */
+/* Navigation. */
 
 const hooks: sidebar.Hooks = {
   open: (w, tab) => openWorkspace(w, true, tab),
@@ -70,8 +66,7 @@ const hooks: sidebar.Hooks = {
     invoke("remove_workspace", { id });
   },
   rename: ws.renameWorkspace,
-  // Arquivar o que está aberto na tela deixaria você dentro do que acabou de
-  // sair da lista; a mesa é a tela inicial para onde se volta.
+  // Return to the desk when archiving the active workspace.
   archive: (id, archived) => {
     if (archived && ws.id() === id) showDesk();
     invoke("archive_workspace", { id, archived }).catch((e) => say(fromBack(e), true));
@@ -109,16 +104,11 @@ const hooks: sidebar.Hooks = {
   newWorkspace: (projectId) => launch(projectId),
 };
 
-/// Quadro que chegou enquanto o menu estava aberto e não foi desenhado. Sem
-/// isto, marcar um plugin no seletor da conversa não mudava nada na tela — o
-/// rodapé continuava dizendo o de antes até o próximo evento do back, que numa
-/// conversa parada podia não vir nunca.
+/// Remember board redraws deferred by an open menu so its latest selection appears even if no later backend event arrives.
 let missed = false;
 
 function draw() {
-  // A barra é redesenhada a cada ferramenta que o agente usa. Refazer a linha
-  // com um campo de renomear ou menu aberto apaga o texto ou tira o menu do
-  // lugar no meio do clique.
+  // Avoid replacing rows containing rename inputs or open menu anchors during agent-driven updates.
   if (rename.editing() || menu.isOpen()) {
     missed = true;
     return;
@@ -133,8 +123,7 @@ function draw() {
 
 menu.onClose(() => missed && draw());
 
-/* Histórico ← →: telas e workspaces visitados, como as setas do Conductor. Os
-   ids das telas não colidem com id de workspace nenhum. */
+/* Navigation history contains pages and workspaces with noncolliding IDs. */
 const SETTINGS = "@configurações";
 const ISSUES = sidebar.ISSUES;
 const ARCHIVED = sidebar.ARCHIVED;
@@ -177,7 +166,7 @@ function travel(dir: -1 | 1) {
 $("back").addEventListener("click", () => travel(-1));
 $("fwd").addEventListener("click", () => travel(1));
 
-/// As telas que não são workspace: uma de cada vez.
+/// Show one non-workspace page at a time.
 function showOnly(view: "settingsView" | "issuesView" | "archivedView" | "deskView" | null) {
   $("deskView").hidden = view !== "deskView";
   $("settingsView").hidden = view !== "settingsView";
@@ -188,8 +177,7 @@ function showOnly(view: "settingsView" | "issuesView" | "archivedView" | "deskVi
   if (view !== "deskView") desk.hide();
 }
 
-/// A migalha das telas que não são um workspace: uma palavra só, e é o nome da
-/// tela — a do workspace é montada pelo `ws.draw`.
+/// Non-workspace breadcrumbs use the page name; ws.draw owns workspace breadcrumbs.
 const crumbLabel = (text: string) =>
   Object.assign(document.createElement("span"), { textContent: text });
 
@@ -200,8 +188,7 @@ async function openWorkspace(target: Workspace, push = true, tab?: string) {
   alert.looked();
 }
 
-/// A mesa: todas as conversas de uma vez, cada uma no seu quadro. É a tela
-/// inicial — o que está rodando é o que se quer ver ao abrir o app.
+/// The desk is the start page, showing every active conversation.
 function showDesk(push = true) {
   if (push) visit(DESK);
   ws.leave();
@@ -212,9 +199,7 @@ function showDesk(push = true) {
   draw();
 }
 
-/// Os arquivos de um projeto, sem workspace nenhum: a árvore do clone e o
-/// viewer. É o caminho curto para ler ou corrigir algo no repositório sem criar
-/// branch, worktree nem conversa para isso.
+/// Open clone files directly without creating a branch, worktree, or conversation.
 function showProject(project: Project, push = true) {
   if (push) visit(project.id);
   showOnly(null);
@@ -223,7 +208,7 @@ function showProject(project: Project, push = true) {
   draw();
 }
 
-/// As issues do Linear no seu nome — de onde o trabalho sai.
+/// Assigned Linear issues are an entry point for work.
 function showIssues(push = true) {
   if (push) visit(ISSUES);
   ws.leave();
@@ -234,8 +219,7 @@ function showIssues(push = true) {
   draw();
 }
 
-/// Os arquivados: o que saiu da frente, com busca, e de onde se devolve o
-/// disco.
+/// Browse archived workspaces and reclaim their disk space.
 function showArchived(push = true) {
   if (push) visit(ARCHIVED);
   ws.leave();
@@ -246,7 +230,7 @@ function showArchived(push = true) {
   draw();
 }
 
-/// Configurações não acende nenhum item da barra lateral.
+/// Settings does not select a sidebar entry.
 function showSettings(push = true) {
   if (push) visit(SETTINGS);
   ws.leave();
@@ -258,7 +242,7 @@ function showSettings(push = true) {
 }
 $("settings").addEventListener("click", () => showSettings());
 
-/* ---------- eventos do back ---------- */
+/* Backend events. */
 
 listen<Board>("board", ({ payload }) => {
   state = payload;
@@ -268,12 +252,9 @@ listen<Board>("board", ({ payload }) => {
   refresh();
 });
 
-/// Os workspaces mudaram — os do Rust ou os que os colegas compartilham. O histórico
-/// perde o que sumiu, e a tela é refeita.
+/// Reconcile local or remote workspace changes, remove vanished history entries, and redraw.
 function refresh() {
-  // Workspace removido sai do histórico; duas paradas iguais seguidas viram uma.
-  // Projeto entra junto: ele também é parada do histórico e dono de estado de
-  // tela (o arquivo aberto), e some da barra pelo mesmo caminho.
+  // Remove vanished workspaces/projects from history and merge adjacent duplicates. Projects also own file-view state.
   const alive = new Set([...view().workspaces.map((w) => w.id), ...state.projects.map((p) => p.id)]);
   for (let i = hist.length - 1; i >= 0; i--) {
     const id = hist[i];
@@ -284,8 +265,7 @@ function refresh() {
   }
   ws.forget(alive);
   session.forget(new Set(view().workspaces.flatMap((w) => w.tabs.map((t) => t.id))));
-  // Só o quadro local decide se este Mac fica acordado. Um agente trabalhando
-  // num workspace compartilhado está rodando no Mac de outra pessoa.
+  // Only local agents keep this Mac awake; shared remote agents run on their owners' Macs.
   statusbar.boardChanged(state);
   drawNav();
   draw();
@@ -297,34 +277,28 @@ alert.init({ visible: (tab) =>
 });
 listen<[string, string, number]>("chat", ({ payload: [tab, line] }) => alert.chatChanged(tab, line));
 
-/// Script que morreu sozinho — terminou, ou quebrou. A aba volta para o botão
-/// de começar sem ninguém perguntar de tempos em tempos.
+/// React to script exits instead of polling to restore the start action.
 listen<[string, number | null]>("pty-closed", ({ payload: [key] }) => dockbar.closed(key));
 
-/// A cota mudou: alguma aba, de qualquer workspace, acabou de falar com um
-/// agente. É a conta inteira, então a faixa de baixo se refaz sozinha.
+/// Usage updates affect the whole account, so any tab's activity refreshes the status bar.
 listen<statusbar.Usage>("usage", ({ payload }) => statusbar.showUsage(payload));
-invoke<statusbar.Usage>("usage").then(statusbar.showUsage).catch(() => {});
+invoke("usage").then(statusbar.showUsage).catch(() => {});
 listen<statusbar.Accounts>("accounts", ({ payload }) => {
   if (statusbar.showAccounts(payload)) {
     void loadAgents().then(() => statusbar.showAgents(installed()));
   }
 });
-invoke<statusbar.Accounts>("accounts").then(statusbar.showAccounts).catch((error) => say(fromBack(error), true));
+invoke("accounts").then(statusbar.showAccounts).catch((error) => say(fromBack(error), true));
 listen<string>("account-error", ({ payload }) => say(fromBack(payload), true));
 
-/// O que o app está custando à máquina, de três em três segundos. Só chega
-/// quando muda: o quieto não redesenha nada.
+/// Machine resource updates arrive every three seconds only when values change.
 listen<statusbar.Machine>("machine", ({ payload }) => statusbar.showMachine(payload));
 statusbar.init({ say });
-invoke<statusbar.Machine>("machine").then(statusbar.showMachine).catch(() => {});
+invoke("machine").then(statusbar.showMachine).catch(() => {});
 
-/* ---------- arrastar arquivo para dentro da conversa ou do terminal ------ */
+/* File drops into conversations and terminals. */
 
-/// O Tauri come os eventos de drag do HTML para entregar caminho de arquivo de
-/// verdade, então quem escuta é a webview, não o documento. Na conversa o
-/// arquivo vira anexo da fala; no dock, o caminho ainda entra no pty como no
-/// Terminal do macOS.
+/// Tauri intercepts HTML drag events to expose real file paths. Native drop events create conversation attachments or insert paths into dock PTYs.
 type Drag = {
   type: "enter" | "over" | "leave" | "drop" | "pending" | "received";
   position?: { x: number; y: number };
@@ -332,16 +306,14 @@ type Drag = {
   id?: string;
   error?: string;
 };
-/// Caminho vai escapado como o Terminal escapa ao soltar um arquivo: barra
-/// invertida em tudo que o shell leria como outra coisa.
+/// Escape dropped paths as the macOS Terminal does, protecting shell-special characters with backslashes.
 const escapePath = (p: string) => p.replace(/([\s!"#$&'()*,:;<>?[\\\]^`{|}~])/g, "\\$1");
 
-/// Onde o arquivo caiu: a conversa, o terminal do dock, ou lugar nenhum.
+/// A file drop targets a conversation, dock terminal, or no valid destination.
 type Drop = { host: HTMLElement; put: (paths: string[]) => void; wait?: () => () => void } | null;
 function targetFrom(el: Element | null): Drop {
   if (!el) return null;
-  // O painel da direita e a aba de terminal são dois xterms: cada um escreve
-  // no pty que está na frente dele.
+  // Side-panel and center xterms route input to their own active PTYs.
   const where = el.closest("#dock") ? "scripts" : el.closest("#termview") ? "shell" : null;
   if (where) {
     const pty = dock.currentKey(where);
@@ -349,7 +321,7 @@ function targetFrom(el: Element | null): Drop {
     return {
       host: $(where === "scripts" ? "dock" : "termview"),
       put: (paths) => {
-        // Espaço no fim: o próximo arquivo, ou o que você for escrever, não cola.
+        // Append a space so subsequent paths or typed text do not concatenate.
         const text = paths.map(escapePath).join(" ") + " ";
         void invoke("pty_write", { session: pty, data: text })
           .then(() => dock.focus(where))
@@ -361,17 +333,13 @@ function targetFrom(el: Element | null): Drop {
     const target = session.fileDropTarget();
     if (target) return { host: $("chatwrap"), ...target };
   }
-  // Na mesa, o arquivo cai no quadro debaixo do cursor.
+  // Desk drops target the panel under the pointer.
   return desk.dropTarget(el);
 }
 
 function dropTarget(at?: { x: number; y: number }): Drop {
   if (!at) return null;
-  // A coordenada chega como ponto lógico da janela, apesar do tipo
-  // `PhysicalPosition`: no macOS o wry (0.55, `wkwebview/drag_drop.rs`) passa
-  // o `draggingLocation` adiante sem escala. Dividir pelo DPR jogava o ponto
-  // para o canto de cima da tela — e, na mesa, o arquivo caía no quadro errado.
-  // Não use :hover: o arraste nativo não atualiza o mouse da webview.
+  // macOS wry 0.55 forwards draggingLocation in logical window coordinates despite the PhysicalPosition type. Do not divide by DPR or use :hover; native drags do not update webview mouse state.
   return targetFrom(document.elementFromPoint(at.x, at.y));
 }
 
@@ -415,7 +383,7 @@ listen<Drag>("file-drag", ({ payload: drag }) => {
   if (drag.type === "enter") markDrop(null);
   if (document.querySelector("dialog:modal")) return markDrop(null);
 
-  // Lançador aberto: o arquivo vira anexo da primeira fala, e nada vai ao pty.
+  // While the launcher is open, dropped files attach to its first prompt.
   if (!$("veil").hidden) {
     markDrop(null);
     if ((drag.type === "drop" || drag.type === "pending") && $("veil").querySelector("#d-prompt")) {
@@ -428,9 +396,7 @@ listen<Drag>("file-drag", ({ payload: drag }) => {
   const target = dropTarget(drag.position);
   if (drag.type !== "drop" && drag.type !== "pending") return markDrop(target);
 
-  // O ponto final manda, inclusive quando não aceita anexos. Só recuperamos
-  // a moldura anterior se o Tauri entregar um ponto fora da viewport. Revalidar
-  // o host impede anexar numa conversa escondida ou removida durante o gesto.
+  // Use the final drop location, falling back to the prior target only outside the viewport. Revalidate the host so hidden or removed conversations cannot receive attachments.
   const at = drag.position;
   const outside = !at || at.x < 0 || at.y < 0 || at.x >= innerWidth || at.y >= innerHeight;
   const host = activeDrop?.host;
@@ -441,7 +407,7 @@ listen<Drag>("file-drag", ({ payload: drag }) => {
   receiveDrop(drag, accepted);
 });
 
-/* ---------- ações ---------- */
+/* Actions. */
 
 function launch(projectId?: string, seed?: Issue, git?: Open["git"]) {
   if (!state.projects.length) return hooks.addProject();
@@ -450,18 +416,11 @@ function launch(projectId?: string, seed?: Issue, git?: Open["git"]) {
     seed,
     git,
     toSettings: () => showSettings(),
-    // Criar volta em milissegundos: o workspace entra na lista na hora e o worktree
-    // monta atrás (ver `create_workspace`). Sem recado na barra, então — quem
-    // conta que está montando é a tela que abriu, e estado que a tela já mostra
-    // não vira narração aqui em cima.
+    // Create publishes a workspace immediately while preparing its worktree in the background. The workspace view already shows preparation progress.
     go: async (draft: Draft) => {
       try {
-        const created = await invoke<Workspace>("create_workspace", { draft, ...dock.dims() });
-        // O back já publicou o estado com ele dentro, mas a resposta do comando
-        // e o evento são duas mensagens, e nada garante qual chega primeiro.
-        // Quem desenha procura o workspace aberto no estado que a tela tem: sem
-        // isto, entrar nele podia cair no retorno a Issues do `draw` e voltar sozinho.
-        // O próximo evento troca o estado inteiro e leva esta cópia junto.
+        const created = await invoke("create_workspace", { draft, ...dock.dims() });
+        // The command response and board event can arrive in either order. Insert the returned workspace locally until the next full board replaces state, avoiding premature navigation away.
         if (!state.workspaces.some((w) => w.id === created.id)) state.workspaces.push(created);
         openWorkspace(created);
       } catch (err) {
@@ -471,22 +430,19 @@ function launch(projectId?: string, seed?: Issue, git?: Open["git"]) {
   });
 }
 
-/* ---------- painéis laterais ---------- */
+/* Side panels. */
 
 function toggleRail() {
   const hidden = document.body.classList.toggle("norail");
   $("railshow").hidden = !hidden;
-  // As setas acompanham: sidebar recolhida, elas vão para o header.
+  // Move navigation arrows into the header when the sidebar is collapsed.
   (hidden ? $("railshow") : $("railtoggle")).after($("back"), $("fwd"));
 }
 $("railtoggle").addEventListener("click", toggleRail);
 $("railshow").addEventListener("click", toggleRail);
 $("sidetoggle").addEventListener("click", () => document.body.classList.toggle("noside"));
 
-/* A borda esquerda do painel da direita é uma alça: arrastar muda a largura, e
-   ela fica para as próximas aberturas; duplo clique volta ao padrão do CSS. O
-   clamp segura o painel entre o mínimo útil e não engolir o centro. Os
-   terminais se remedem sozinhos — cada um tem um ResizeObserver no host. */
+/* Persist side-panel width after dragging its left edge; double-click restores CSS defaults. Clamp width to preserve useful center space. Terminal ResizeObservers refit their hosts. */
 const SIDE_W = "side-w";
 let sideW = Number(localStorage.getItem(SIDE_W)) || 0;
 const clampSide = (w: number) => Math.round(Math.max(280, Math.min(w, window.innerWidth * 0.6)));
@@ -505,8 +461,7 @@ grip.addEventListener("pointermove", (e) => {
   sideW = clampSide(window.innerWidth - e.clientX);
   paintSide();
 });
-// O fim do gesto é a perda da captura — soltar o botão, ou o sistema cancelar
-// o ponteiro no meio. Um caminho só para os dois finais.
+// Pointer-capture loss handles both normal release and cancellation.
 grip.addEventListener("lostpointercapture", () => {
   grip.classList.remove("dragging");
   if (sideW) localStorage.setItem(SIDE_W, String(sideW));
@@ -517,15 +472,11 @@ grip.addEventListener("dblclick", () => {
   localStorage.removeItem(SIDE_W);
 });
 
-/// O que um atalho faz. Chamam daqui de baixo (o teclado) e do menu do Mac
-/// (`appmenu.ts`), que é o caminho que sobra quando o foco está dentro da aba
-/// de navegador — webview do sistema, que não manda tecla para este documento.
-/// Devolve se fez alguma coisa: é o que decide se a tecla é engolida.
+/// Dispatch actions from document shortcuts and native Mac menu accelerators. Return whether the shortcut was handled so its key event can be consumed.
 function act(a: appmenu.Action): boolean {
   if (document.querySelector("dialog[open]")) return true;
   const open = ws.id();
-  // Num workspace de colega nada disto existe: nem aba nova, nem etapa, nem
-  // dock. O atalho não faz nada, em vez de mandar ao back um id que ele não tem.
+  // Local workspace shortcuts do nothing for remote shares instead of sending unknown IDs to the backend.
   const own = open && !team.isRemote(open) ? open : null;
   switch (a) {
     case "novoWorkspace":
@@ -539,8 +490,7 @@ function act(a: appmenu.Action): boolean {
       if (!own) return false;
       hooks.archive(own, true);
       return true;
-    // ⌘⇧D é concluir: a última etapa e o arquivo, que é o que se faz quando o PR
-    // entrou — e o que se fazia em três passos antes de haver um gesto só.
+    // Shift-Command-D finishes and archives work in one action.
     case "concluir":
       if (!own) return false;
       hooks.finish(own);
@@ -552,19 +502,14 @@ function act(a: appmenu.Action): boolean {
     case "lateral":
       toggleRail();
       return true;
-    // ⌘⇧M comenta o que está selecionado na conversa: a mão já está no
-    // mouse, tendo acabado de selecionar.
+    // Shift-Command-M comments on the current conversation selection.
     case "nota":
       return !!open && ws.quoteSelection();
-    // ⌘, é onde todo app do Mac guarda as preferências.
+    // Command-comma opens preferences following macOS conventions.
     case "ajustes":
       showSettings();
       return true;
-    // O dock tem a primeira palavra: ⌘W com o cursor dentro dele fecha o
-    // terminal que está ali, e não a aba do centro, que é o que ele fecharia
-    // por baixo. Com o foco na aba de navegador, porém, o cursor do dock é o de
-    // antes: `hasFocus` falso com a janela ativa é a página que está com ele, e
-    // aí ⌘W é a aba — que é o que se quer fechar quando se está olhando para ela.
+    // Command-W closes the focused dock terminal first. When a native browser view owns focus, ignore stale dock focus and close the active center tab.
     case "fechar":
       return (document.hasFocus() && dockbar.closeFocused()) || ws.closeActive();
     case "voltar":
@@ -576,8 +521,7 @@ function act(a: appmenu.Action): boolean {
   }
 }
 
-/// A tecla apertada, se for atalho. Minúscula porque com Shift o `key` vem
-/// maiúsculo.
+/// Normalize shortcut keys to lowercase because Shift changes event.key casing.
 function shortcut(e: KeyboardEvent): appmenu.Action | null {
   const k = e.key.toLowerCase();
   if (e.shiftKey) {
@@ -598,8 +542,7 @@ function shortcut(e: KeyboardEvent): appmenu.Action | null {
 }
 
 document.addEventListener("keydown", (e) => {
-  // Atalho atendido é atalho engolido: sem o `preventDefault`, o acelerador do
-  // menu dispara a mesma ação em seguida.
+  // preventDefault avoids triggering the same action again through the native menu accelerator.
   const a = e.metaKey || e.ctrlKey ? shortcut(e) : null;
   if (a && act(a)) e.preventDefault();
   if (e.key === "Escape" && !$("veil").hidden) {
@@ -610,15 +553,11 @@ document.addEventListener("keydown", (e) => {
 
 void appmenu.install(act);
 
-/* ---------- início ---------- */
+/* Startup. */
 
-// Os rótulos que estão escritos no `index.html`, no idioma da vez. Antes de
-// qualquer desenho: o resto da tela nasce já traduzido, e o que está no HTML
-// não pode ser a única coisa em português.
+// Translate static index.html labels before building the remaining interface.
 paint();
-// O back escreve pouca coisa por inteiro — a linha de saída do dock, o aviso
-// que entra na fala do agente, a página do fim do OAuth —, mas essa pouca
-// coisa precisa saber em que idioma a tela está.
+// Send the active language to backend-generated text such as dock output and OAuth completion pages.
 invoke("set_lang", { lang: current() });
 
 for (const [id, name] of [
@@ -644,25 +583,19 @@ for (const [id, name] of [
 
 links.init(say);
 void update.init(say);
-// Quais agentes existem nesta máquina: é o que o lançador oferece no rodapé.
-// Ninguém espera por isso para a tela aparecer — até a resposta chegar, o
-// lançador mostra só o Claude Code, que é o que o app era.
+// Discover installed agents without delaying the UI; the launcher retains Claude compatibility during bootstrap.
 void loadAgents().then(() => statusbar.showAgents(installed()));
-// O time vem antes das configurações, que é onde ele aparece, e antes da barra
-// lateral, que vai mostrar o que os colegas compartilham.
+// Initialize team state before Settings and sidebar render its data.
 team.onError((m) => say(m, true));
 await team.init();
 cloud.init(() => { draw(); void team.refreshOrganizations(cloud.current()); }, message => say(message, true));
-// O hub de MCP: quem desenha a lista é Configurações, e quem a lê são os dois
-// seletores (lançador e conversa). Carrega junto com a tela — é um arquivo
-// pequeno, e um seletor vazio no primeiro clique seria pior que esperar.
+// Load the MCP hub during startup so Settings and both pickers have their registry at first use.
 mcp.init({ say });
 void mcp.load();
-// O hub de plugins, pela mesma razão e do mesmo jeito.
+// Load plugins during startup for the same shared picker behavior.
 plugins.init({ say });
 void plugins.load();
-// A tela de issues pergunta às configurações se há Linear; elas respondem
-// depois de saber, e por isso vêm antes.
+// Initialize Settings before Issues because it discovers the Linear connection.
 await settings.init({ say });
 issues.init({
   say,
@@ -691,9 +624,7 @@ ws.init({
     }
   },
 });
-// O que a caixa de escrever precisa saber de uma aba: de quem é, se está
-// desligada, se há time para comentar. A mesma resposta para a conversa do
-// workspace aberto e para cada quadro da mesa.
+// Provide the same tab ownership, connection, and collaboration context to workspace and desk composers.
 actions.init(async (workspace, tab) => {
   const target = state.workspaces.find(w => w.id === workspace);
   if (!target) return;
@@ -711,9 +642,7 @@ const infoOf = (w: Workspace | undefined, tab: Tab | undefined): Info => ({
   worktree: w?.worktree ?? null,
   remote: w?.remote ? { name: team.nameOf(w.remote.owner), online: w.remote.online } : null,
   team: !!team.status().config && !!w && (team.sharedHere(w) || !!w.remote),
-  // O modelo da aba, quando ela escolheu um; senão o do workspace. Quem
-  // responde é ter ou não `choice`, e não o modelo estar preenchido:
-  // modelo vazio é uma escolha (o padrão do CLI), não a falta de uma.
+  // Tab choice presence controls inheritance. An explicitly empty model still selects the CLI default rather than workspace defaults.
   agent: tab?.choice ? tab.choice.agent : (w?.agent ?? "claude"),
   model: tab?.choice ? tab.choice.model : (w?.model ?? ""),
   effort: tab?.choice ? tab.choice.effort : (w?.effort ?? ""),
@@ -734,8 +663,7 @@ desk.init({
     const w = state.workspaces.find((x) => x.tabs.some((t) => t.id === tab));
     return infoOf(w, w?.tabs.find((t) => t.id === tab));
   },
-  // Entrar pelo quadro é entrar naquela aba: o back marca a ativa, e a tela
-  // abre já nela sem esperar o quadro voltar.
+  // Opening a desk panel selects its tab locally while the backend publishes the active-tab update.
   open: (w, tab) => {
     invoke("focus_tab", { workspace: w.id, tab });
     openWorkspace({ ...w, active: tab });
@@ -745,19 +673,15 @@ desk.init({
 });
 viewer.init((m) => say(m, true), ws.fileSaved);
 dock.init($("dockterm"), $("shellterm"));
-state = await invoke<Board>("load_board");
+state = await invoke("load_board");
 actions.update(state);
 alert.boardChanged(state);
 showDesk();
 
-// O que mudou desde a última vez que você abriu o app. Depois da primeira tela
-// desenhada: a folha aparece sobre o app, e não no lugar dele.
+// Show release notes after the initial page renders so the dialog overlays the application.
 void news.init();
 
-// De onde vem o selo de mergeado: uma pergunta ao `gh` por repositório, e a
-// resposta entra no estado. De minuto em minuto porque é rede, e porque o que
-// muda ali é o PR de alguém — não algo que este app faça. A primeira vai agora:
-// o app que sobe depois de um merge tem que já nascer sabendo.
+// Refresh PR states through gh once per repository every minute, including immediately at startup so merged badges are current.
 const PR_SCAN = 60_000;
 const scanPrs = () => void invoke("refresh_prs").catch(() => {});
 scanPrs();

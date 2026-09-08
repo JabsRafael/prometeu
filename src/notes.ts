@@ -6,8 +6,7 @@ import * as menu from "./menu";
 import * as team from "./team";
 import { h, template } from "./util";
 
-/// Comentários são trabalho persistente entre pessoas. O transcript continua
-/// no centro; raízes e respostas ficam neste painel até alguém resolver.
+/// Comments are persistent collaboration threads beside the transcript; they remain until someone resolves them.
 
 export type Target = { tab: string; anchor: string | null; quote: string | null };
 
@@ -38,8 +37,7 @@ export function repliesOf(items: Note[], root: string): Note[] {
   return items.filter((note) => note.parent === root).sort((a, b) => a.ts - b.ts);
 }
 
-/// Notas antigas não tinham aba. Continuam acessíveis em qualquer conversa;
-/// comentários novos pertencem à conversa em que nasceram.
+/// Legacy notes without a tab remain available across conversations. New comments belong to their originating tab.
 export function rootsOf(items: Note[], tab: string | null): Note[] {
   const activity = (root: Note) => Math.max(root.ts, ...repliesOf(items, root.id).map((note) => note.ts));
   return items
@@ -79,8 +77,7 @@ export function openThread(id: string) {
   render();
 }
 
-/// Chamado por redraws externos. Não troca o nó sob o cursor enquanto alguém
-/// escreve; o rascunho continua sendo atualizado a cada tecla.
+/// External redraws must preserve the input node while the user types; each keystroke updates the draft.
 export function draw() {
   const root = document.getElementById("comments");
   if (!root || (document.activeElement instanceof HTMLTextAreaElement && root.contains(document.activeElement))) {
@@ -136,7 +133,7 @@ function render() {
     revealSelected = false;
     return host.append(threadDetail(ws, current, items));
   }
-  // `notesOf` é assíncrono. Preserve o destino até o relay devolver a lista.
+  // Preserve the destination while notesOf waits for the relay.
   if (selected) {
     host.append(h("div", "commentempty", t("notes.loading")));
     return;

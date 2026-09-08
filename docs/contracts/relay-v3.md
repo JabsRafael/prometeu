@@ -28,6 +28,19 @@ ticket de uso único, identidade e roster verificados pelo Cloud e lease de
 acesso institucional. Os frames v3 e regras de audiência permanecem iguais.
 Veja [organizações](cloud-organizations.md) para revogação e migração.
 
+## Bounded HTTP bodies
+
+`/init` and `/enroll` use `relay/src/http.ts::smallJson` with a 1,024-byte body
+limit. The helper counts bytes as the body arrives and cancels the reader as
+soon as the limit is exceeded, even without `Content-Length` or when that header
+understates the body. An oversized declared length is rejected before reading.
+Incremental UTF-8 decoding preserves characters split across chunks. Invalid
+JSON returns 400; oversized input returns 413. Endpoint schemas, authentication,
+and WebSocket protocol version remain unchanged.
+
+`http.test.ts` covers cancellation, inaccurate headers, malformed JSON, and
+UTF-8 chunk boundaries; the Worker integration test covers streamed enrollment.
+
 ## Formatos
 
 - controle usa frames de texto JSON com discriminante `t`;

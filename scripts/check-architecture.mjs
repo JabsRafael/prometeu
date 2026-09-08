@@ -1,8 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 
-/// Fitness function do ADR 0003: componentes de apresentação recebem
-/// capabilities e ProviderId prontos. Dispatch por nome pertence ao catálogo
-/// (`src/agents.ts`) ou aos adapters Rust, nunca a estas telas.
+/// ADR 0003 fitness check: presentation consumes capabilities and ProviderId. Provider dispatch belongs
+/// in the catalog or Rust adapters.
 const presentation = [
   "src/chat.ts",
   "src/launcher.ts",
@@ -18,7 +17,7 @@ const forbidden = [
 ];
 
 const failures = [];
-// As primitivas visuais não conhecem regras de agentes nem transporte.
+// Visual primitives must not depend on agent rules or transport.
 const componentRoot = "packages/design-system/src";
 for (const name of await readdir(componentRoot)) {
   if (!name.endsWith(".ts")) continue;
@@ -50,9 +49,8 @@ for (const token of ["stream_event", "control_request", "control_response", "too
   }
 }
 
-/// Fitness function do ADR 0002: o adapter Codex cruza a fronteira interna em
-/// V1 diretamente. Formas de stream-json pertencem ao adapter do Claude e à
-/// compatibilidade de transcript, nunca à saída intermediária do Codex.
+/// ADR 0002 fitness check: the Codex adapter emits canonical V1 directly. Legacy stream-json belongs
+/// only in the Claude adapter and transcript compatibility path.
 const codex = await readFile("src-tauri/src/codex.rs", "utf8");
 const legacyCodex = [
   /"(?:stream_event|control_request|control_response|tool_use|tool_result|content_block_(?:start|delta|stop))"/g,
@@ -66,8 +64,8 @@ for (const pattern of legacyCodex) {
   }
 }
 
-/// O contrato canônico não volta a conhecer o protocolo de um provider. A
-/// projeção de rollback possui módulo próprio e não é uma dependência do core.
+/// The canonical contract must not depend on provider protocols. Rollback projection stays in its own
+/// module outside core dependencies.
 const conversation = await readFile("src-tauri/src/conversation.rs", "utf8");
 for (const pattern of [
   /"(?:stream_event|control_request|control_response|tool_use|tool_result|rate_limit_event)"/g,

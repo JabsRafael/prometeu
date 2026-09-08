@@ -1,17 +1,8 @@
-//! Quanto da cota já foi.
-//!
-//! O número chega por dois caminhos. Enquanto alguém conversa, os CLIs contam
-//! sozinhos e o app escuta: o Claude Code manda um `rate_limit_event` a cada
-//! resposta, com a janela de 5 horas, a da semana e, quando existe, a semanal
-//! do Fable (`utilization` de 0 a 1); o `codex app-server` manda
-//! `account/rateLimits/updated` quando muda, e responde
-//! `account/rateLimits/read` assim que a thread abre.
-//!
-//! Sem conversa, o poll consulta cada perfil: app-server no Codex e endpoint
-//! interno no Claude, com as credenciais do próprio CLI. Uma falha mantém a
-//! última leitura. Cada evento atualiza a conta capturada pelo processo, mesmo
-//! depois de a pessoa selecionar outra no rodapé. O cache guarda todas as
-//! contas; a apresentação escolhe qual entrada mostrar na faixa.
+//! Track account quota usage from live CLI events and background polling. Claude emits rate-limit
+//! events; Codex emits updates and answers an initial rate-limit read. Poll inactive profiles with
+//! their own credentials, retaining the previous reading on failure. Attribute each event to the
+//! process's captured account even after selection changes. Cache all accounts and let presentation
+//! choose which to display.
 
 use crate::lock::lock;
 use crate::{accounts, paths};
@@ -21,39 +12,34 @@ use std::collections::BTreeMap;
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter};
 
-/// Uma janela de cota: quanto já foi (0 a 100) e quando ela zera.
+/// Quota window utilization from 0 to 100 and its reset time.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Window {
-    /// `session` são as 5 horas, `weekly` são os 7 dias, `fable` é a janela
-    /// semanal própria do Fable. Quem traduz para a tela é o front.
+    /// Session, weekly, and model-specific window identities are translated by the frontend.
     pub kind: String,
     pub pct: f64,
-    /// Unix, em segundos. É o que vira "zera em 3h 14m".
+    /// Unix reset timestamp in seconds for relative-time display.
     pub resets: u64,
-    /// Bucket estável da cota. Ausente é o formato antigo, em que cada agente
-    /// tinha uma única cota. `general` é a cota comum; outros ids separam
-    /// limites próprios de modelo ou feature sem levar o payload do provider
-    /// até o frontend.
+    /// A stable bucket identity separates general and model/feature quotas without exposing
+    /// provider payloads. Missing scope represents the legacy single-bucket format.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
-    /// Nome que o provider dá ao bucket, quando há um. É dado externo e a UI
-    /// escapa antes de mostrar; `scope` continua sendo a identidade usada para
-    /// mesclar updates esparsos.
+    /// Optional provider-supplied bucket label is escaped for display. Scope remains the identity
+    /// used for merging sparse updates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 }
 
-/// O que se sabe de um agente, e de quando.
+/// An account's latest known usage and update time.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Agent {
     pub windows: Vec<Window>,
-    /// Quando este número mudou pela última vez (unix, em segundos). É o
-    /// "atualizado há 4 min" do painel: leitura repetida não conta como
-    /// novidade, e é por isso que ela também não regrava o arquivo.
+    /// Record when usage actually changes, in Unix seconds. Identical readings do not refresh the
+    /// display timestamp or rewrite disk state.
     pub at: u64,
 }
 
-/// Por conta. `claude` e `codex` preservam as entradas dos CLIs originais.
+/// Key by account; claude and codex retain the original CLI-account entries.
 pub type Usage = BTreeMap<String, Agent>;
 
 fn state() -> &'static Mutex<Usage> {
@@ -61,7 +47,7 @@ fn state() -> &'static Mutex<Usage> {
     STATE.get_or_init(|| Mutex::new(read()))
 }
 
-/// O que a tela pede ao abrir, antes de qualquer agente responder.
+/// Return cached usage at startup before any live agent response.
 #[tauri::command]
 pub fn usage() -> Usage {
     lock(state()).clone()
@@ -74,12 +60,12 @@ pub fn forget(app: &AppHandle, account: &str) {
     let _ = app.emit("usage", all.clone());
 }
 
-/// O `rate_limit_info` de uma linha `rate_limit_event`.
+/// Read rate_limit_info from a Claude rate-limit event.
 pub fn claude(app: &AppHandle, account: &str, info: &Value) {
     note(app, account, claude_windows(info));
 }
 
-/// O `rateLimits` do `account/rateLimits/{read,updated}`.
+/// Read rateLimits from Codex account rate-limit responses and notifications.
 pub fn codex(app: &AppHandle, account: &str, limits: &Value) {
     let (windows, complete) = codex_windows(limits);
     if complete {
@@ -89,14 +75,14 @@ pub fn codex(app: &AppHandle, account: &str, limits: &Value) {
     }
 }
 
-/// `utilization` do Claude Code vai de 0 a 1 — os 0,5 da semana são 50%.
+/// Convert Claude utilization fractions into percentages.
 fn claude_windows(info: &Value) -> Vec<Window> {
     let windows = &info["unifiedWindows"];
     [
         ("five_hour", "session"),
         ("seven_day", "weekly"),
-        // O nome do protocolo diz "overage included", mas esta é a cota
-        // semanal própria do Fable nos planos em que ele vem incluído.
+        // The overage-included protocol field represents the model-specific weekly allowance on
+        // plans that include it.
         ("seven_day_overage_included", "fable"),
     ]
     .iter()
@@ -113,9 +99,8 @@ fn claude_windows(info: &Value) -> Vec<Window> {
     .collect()
 }
 
-/// O snapshot completo novo traz um mapa por `limitId`; versões anteriores
-/// traziam só `rateLimits`. Uma notificação continua sendo um único snapshot
-/// esparso, por isso o booleano diz se pode substituir o estado inteiro.
+/// New complete snapshots include a map by limitId; older versions expose rateLimits only. Track
+/// whether a response may replace all state or contains a sparse update.
 fn codex_windows(value: &Value) -> (Vec<Window>, bool) {
     if value.get("rateLimits").is_none() {
         return (codex_snapshot_windows(value, None), false);
@@ -127,8 +112,8 @@ fn codex_windows(value: &Value) -> (Vec<Window>, bool) {
             windows.extend(codex_snapshot_windows(snapshot, Some(id)));
         }
     }
-    // O mapa é a visão autoritativa. Se o CLI antigo não o mandar, cai para o
-    // bucket histórico em vez de duplicar a mesma cota.
+    // Treat the map as authoritative, falling back to the legacy bucket only when the map is
+    // absent.
     if windows.is_empty() {
         windows.extend(codex_snapshot_windows(&value["rateLimits"], None));
     }
@@ -169,16 +154,13 @@ fn codex_kind(seconds: Option<u64>, fallback: &str) -> String {
     }
 }
 
-/* ---------- o poll ---------- */
+/* Polling */
 
-/// De quanto em quanto tempo perguntar. Um minuto acompanha o reset das
-/// janelas sem pesar em ninguém: são dois GETs pequenos.
+/// Poll once per minute to follow quota resets without excessive requests.
 const POLL: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// A thread que pergunta. Uma só, do começo do app ao fim, e fora do tokio de
-/// propósito: o `reqwest::blocking` não pode rodar numa worker do runtime
-/// (ver `linear::watch`). A primeira leitura sai já no boot — é ela que troca
-/// o número de ontem pelo de agora sem esperar ninguém conversar.
+/// Use one background thread for synchronous polling outside Tokio workers. Read immediately at
+/// startup to refresh persisted values before the first conversation.
 pub fn watch(app: AppHandle) {
     std::thread::spawn(move || loop {
         for profile in accounts::profiles().unwrap_or_default() {
@@ -219,9 +201,8 @@ pub fn watch(app: AppHandle) {
     });
 }
 
-/// O endpoint que o próprio Claude Code consulta para o `/usage` dele. Sem
-/// credencial ou com token vencido não há o que perguntar: fica a última
-/// leitura, e o próximo turno de conversa corrige.
+/// Query Claude's native usage endpoint with its credential. Missing or expired authentication
+/// preserves the last reading until a later refresh or turn.
 fn fetch_claude(profile: &accounts::Profile) -> Option<Value> {
     reqwest::blocking::Client::new()
         .get("https://api.anthropic.com/api/oauth/usage")
@@ -236,10 +217,8 @@ fn fetch_claude(profile: &accounts::Profile) -> Option<Value> {
         .ok()
 }
 
-/// O token OAuth do Claude Code: no macOS ele mora no Keychain, em outros
-/// sistemas num arquivo. O arquivo vem primeiro por ser mais barato; o
-/// Keychain responde ao `security` sem perguntar nada porque foi o próprio
-/// `security` que gravou o item.
+/// Read Claude's OAuth credential from a file first, then the macOS Keychain through security when
+/// needed.
 fn claude_token(profile: &accounts::Profile) -> Option<String> {
     let body = std::fs::read_to_string(profile.home.join(".credentials.json"))
         .ok()
@@ -268,8 +247,8 @@ fn keychain(profile: &accounts::Profile) -> Option<String> {
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-/// O endpoint que informa o `/status` do Codex. O User-Agent é o do CLI:
-/// sem ele o Cloudflare devolve a página de desafio em vez do JSON.
+/// Use Codex's CLI User-Agent for its status endpoint to receive JSON rather than a Cloudflare
+/// challenge page.
 fn fetch_codex(profile: &accounts::Profile) -> Option<Value> {
     let (token, account) = codex_auth(&profile.home)?;
     reqwest::blocking::Client::new()
@@ -296,9 +275,7 @@ fn codex_auth(home: &std::path::Path) -> Option<(String, String)> {
     ))
 }
 
-/// O `limits` da resposta do endpoint do Claude. É outro formato: `percent`
-/// já de 0 a 100, reset em RFC 3339, e a janela do Fable aparece como a
-/// semanal com escopo de modelo.
+/// Parse Claude endpoint percentages, RFC 3339 resets, and model-scoped weekly windows.
 fn claude_api_windows(info: &Value) -> Vec<Window> {
     info["limits"]
         .as_array()
@@ -322,9 +299,8 @@ fn claude_api_windows(info: &Value) -> Vec<Window> {
         .collect()
 }
 
-/// O endpoint do Codex separa a cota comum, limites extras por modelo/feature
-/// e revisão de código. Cada janela declara a duração; `primary` deixou de
-/// significar necessariamente 5 horas em planos novos.
+/// Codex reports general, model/feature, and code-review quotas with explicit durations. Primary is
+/// not necessarily a five-hour window.
 fn codex_api_windows(reply: &Value) -> Vec<Window> {
     let mut windows = codex_api_bucket(&reply["rate_limit"], "general", None);
     if let Some(additional) = reply["additional_rate_limits"].as_array() {
@@ -364,9 +340,8 @@ fn codex_api_bucket(rate: &Value, scope: &str, label: Option<&str>) -> Vec<Windo
     .collect()
 }
 
-/// "2026-09-02T05:10:00.504892+00:00" → unix, em segundos. Só o que o
-/// endpoint manda — data, hora, fração ignorada e um offset (ou `Z`) — para
-/// não trazer um crate de datas por causa de um campo.
+/// Parse the endpoint's timestamp into Unix seconds, accepting fractional seconds and an offset or
+/// Z without adding a date dependency.
 fn rfc3339(text: &str) -> Option<u64> {
     let (date, rest) = text.split_once('T')?;
     let mut ymd = date.splitn(3, '-').map(|part| part.parse::<i64>().ok());
@@ -393,8 +368,7 @@ fn rfc3339(text: &str) -> Option<u64> {
     u64::try_from(unix).ok()
 }
 
-/// Dias entre 1970-01-01 e a data, pelo calendário civil (algoritmo de
-/// Howard Hinnant, `days_from_civil`).
+/// Compute civil days since 1970-01-01 using Howard Hinnant's days_from_civil algorithm.
 fn days(y: i64, m: i64, d: i64) -> i64 {
     let y = y - i64::from(m <= 2);
     let era = if y >= 0 { y } else { y - 399 } / 400;
@@ -404,9 +378,8 @@ fn days(y: i64, m: i64, d: i64) -> i64 {
     era * 146097 + doe - 719468
 }
 
-/// Guarda o que mudou e avisa a tela. Leitura idêntica à anterior não é
-/// novidade: não regrava o disco (o `rate_limit_event` chega a cada pedido ao
-/// modelo, várias vezes por turno) e não mexe no relógio do painel.
+/// Persist and publish changed readings only. Repeated rate-limit events must not rewrite disk
+/// state or reset the displayed update time.
 fn note(app: &AppHandle, agent: &str, windows: Vec<Window>) {
     record(app, agent, windows, true);
 }
@@ -441,15 +414,14 @@ fn remember(all: &mut Usage, account: &str, windows: Vec<Window>, complete: bool
     true
 }
 
-/// A notificação do app-server atualiza um bucket por vez. Preserva os outros
-/// buckets e, dentro do mesmo bucket, a janela que não veio neste update.
-/// Campos de apresentação ausentes também herdam o snapshot completo.
+/// Merge sparse app-server notifications by bucket and window, preserving omitted windows and
+/// presentation fields from the complete snapshot.
 fn merge_codex(old: &[Window], mut updates: Vec<Window>) -> Vec<Window> {
     if updates.is_empty() {
         return old.to_vec();
     }
-    // Um Codex antigo não dá identidade ao bucket. Nesse formato não há como
-    // distinguir update esparso de snapshot; mantém a semântica antiga.
+    // Without a bucket identity, older Codex responses retain legacy snapshot semantics because
+    // sparse updates cannot be distinguished.
     if updates.iter().any(|window| window.scope.is_none()) {
         return updates;
     }
@@ -498,8 +470,8 @@ fn read() -> Usage {
         .unwrap_or_default()
 }
 
-/// Falhar aqui custa a barra vazia no próximo boot, e nada mais: a cota do
-/// disco não é a cota de verdade.
+/// A persistence failure only loses the next startup's cached display; disk state is not the
+/// authoritative quota.
 fn write(usage: &Usage) {
     let Ok(json) = serde_json::to_string(usage) else {
         return;
@@ -561,7 +533,7 @@ mod tests {
         let windows = claude_windows(&info);
         assert_eq!(windows.len(), 3);
         assert_eq!(windows[0].kind, "session");
-        // 0,22 é 22% — não 0,22%.
+        // A utilization fraction of 0.22 represents 22 percent.
         assert!((windows[0].pct - 22.0).abs() < 0.001);
         assert_eq!(windows[1].kind, "weekly");
         assert_eq!(windows[1].resets, 1788501600);
@@ -613,8 +585,7 @@ mod tests {
         });
         let windows = codex_api_windows(&reply);
         assert_eq!(windows.len(), 3);
-        // `primary` não é sinônimo de 5 horas: no plano novo a cota geral é
-        // uma única janela semanal.
+        // Primary may represent a weekly general quota rather than five hours.
         assert_eq!(windows[0].kind, "weekly");
         assert_eq!(windows[0].scope.as_deref(), Some("general"));
         assert!((windows[0].pct - 6.0).abs() < 0.001);
@@ -632,7 +603,7 @@ mod tests {
             Some(1788325800)
         );
         assert_eq!(rfc3339("2026-09-02T05:10:00Z"), Some(1788325800));
-        // Meia-noite UTC do epoch, e um offset que atravessa o dia.
+        // Cover the Unix epoch and offsets crossing a day boundary.
         assert_eq!(rfc3339("1970-01-01T00:00:00Z"), Some(0));
         assert_eq!(rfc3339("2026-09-02T02:10:00-03:00"), Some(1788325800));
         assert_eq!(rfc3339("2026-09-02T07:10:00+02:00"), Some(1788325800));

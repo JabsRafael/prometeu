@@ -35,8 +35,7 @@ export function init(onOpened: typeof opened) { opened = onOpened; }
 export const onChange = (watch: () => void) => { watchers.add(watch); return () => watchers.delete(watch); };
 export async function save(value: Catalog) { await invoke("actions_save", { catalog: value }); }
 
-/// Em colisão, o comando do provider mantém o nome original. O namespace do
-/// app também é aceito quando não há colisão.
+/// Provider commands retain their original names on collisions. The application namespace is also accepted without a collision.
 export function commandNames(commands: Action[], provider: { name: string }[]) {
   const reserved = new Set(provider.map(c => c.name.toLowerCase()));
   return commands.map(action => ({ ...action, name: reserved.has(action.name) ? `prometeu:${action.name}` : action.name, action }));
@@ -49,6 +48,6 @@ export function findCommand(text: string, commands: Action[], provider: { name: 
 }
 export const expand = (prompt: string, draft: string) => [prompt.trim(), draft.trim()].filter(Boolean).join("\n\n");
 export async function start(workspace: string, action: Action, context = "") {
-  const tab = await invoke<Tab>("action_start", { workspace, name: action.name, context });
+  const tab = await invoke("action_start", { workspace, name: action.name, context });
   await opened(workspace, tab);
 }

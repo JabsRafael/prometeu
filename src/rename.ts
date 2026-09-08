@@ -1,13 +1,10 @@
-/// Renomear no lugar: o rótulo sai, o campo entra, e ao fim o rótulo volta.
-/// Não tem diálogo porque um nome é uma linha, e o lugar dela é onde ela já está.
+/// Rename inline by replacing the label with an input and restoring it afterward.
 let open: HTMLInputElement | null = null;
 
-/// A lista é redesenhada a cada ferramenta que o agente usa. Quem desenha
-/// pergunta aqui antes de refazer a linha debaixo de um campo aberto.
+/// Callers consult editing state before board updates replace a row containing an active input.
 export const editing = () => open !== null;
 
-/// `node` sai da tela e o campo entra no lugar dele. `done` recebe o nome novo,
-/// ou `null` quando nada mudou — quem chamou é que sabe redesenhar.
+/// Replace node with an input. Return the new name or null when unchanged; the caller owns redraws.
 export function start(
   node: HTMLElement,
   value: string,
@@ -31,15 +28,14 @@ export function start(
     done(save && title && title !== value ? title : null);
   };
 
-  // Enquanto está aberto, o teclado é do campo: ⌘W e Esc são dele, não do app.
-  // Enter grava, Esc desiste, sair do campo grava — o rename do Finder.
+  // The input owns keyboard shortcuts. Enter or blur saves; Escape cancels, matching Finder behavior.
   input.addEventListener("keydown", (e) => {
     e.stopPropagation();
     if (e.key === "Enter") end(true);
     if (e.key === "Escape") end(false);
   });
   input.addEventListener("blur", () => end(true));
-  // Clicar dentro do campo é clicar no campo, não no card que o contém.
+  // Input clicks must not activate the containing card.
   for (const ev of ["mousedown", "click", "dblclick"]) {
     input.addEventListener(ev, (e) => e.stopPropagation());
   }

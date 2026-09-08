@@ -6,31 +6,22 @@ import * as settings from "./settings";
 import type { Board, Issue, Issues, LinearStatus, Workspace } from "./types";
 import { $, empty, h, template } from "./util";
 
-/// As issues do Linear no seu nome — a porta de entrada que não é um
-/// repositório. Cada linha é uma issue; "Criar workspace" abre o lançador já
-/// com ela dentro, e você só escolhe projeto, modelo e esforço. Uma issue que
-/// já virou workspace mostra o caminho para ele em vez do botão de criar.
-///
-/// A lista vem do back, que guarda um cache de dois minutos: abrir a aba
-/// várias vezes é uma chamada só, e o botão de atualizar ignora o cache. A
-/// última lista boa fica na tela mesmo se a próxima busca falhar.
+/// List assigned Linear issues and launch workspaces from them. Existing workspaces replace the create action with navigation. Reuse the backend's two-minute cache, allow forced refresh, and preserve the last successful list after failure.
 
 type Ctx = {
   say: (text: string, isError?: boolean) => void;
   board: () => Board;
-  /// A rail mostra a contagem; ela precisa saber quando muda.
+  /// Notify the sidebar when the issue count changes.
   redraw: () => void;
   open: (ws: Workspace) => void;
   create: (issue: Issue) => void;
   toSettings: () => void;
 };
 
-/// Quanto tempo a lista na tela vale antes de a aba pedir outra ao abrir.
-/// É o mesmo prazo do cache do back: pedir antes disso volta o mesmo.
+/// Match the backend cache lifetime before requesting another list on opening.
 const STALE = 120_000;
 
-/// A ordem dos grupos, e o nome de cada um em português — o `name` do estado
-/// é o que o time escolheu e vai na linha.
+/// Order state groups with localized labels while preserving team-defined state names in rows.
 const KINDS: [string, string][] = [
   ["started", t("issues.kind.started")],
   ["unstarted", t("issues.kind.unstarted")],
@@ -38,14 +29,11 @@ const KINDS: [string, string][] = [
   ["backlog", t("issues.kind.backlog")],
 ];
 
-/// Grupo recolhido gruda: quem tem 40 issues em "A fazer" fecha o grupo uma
-/// vez e ele continua fechado amanhã. Buscar ignora isso — quem procura quer
-/// ver o que achou.
+/// Persist collapsed groups; searching expands matching results regardless of saved collapse state.
 const FOLD = "prometeu:issues:grupo:";
 const folded = (kind: string) => localStorage.getItem(FOLD + kind) === "1";
 
-/// O time escolhido também gruda: quem atende dois times olha um de cada
-/// vez, e a escolha de hoje é a de amanhã. `""` é "todos".
+/// Persist the selected team; an empty string means all teams.
 const TEAM = "prometeu:issues:time";
 
 let ctx: Ctx;
@@ -74,16 +62,14 @@ export function init(context: Ctx) {
   if (settings.linear().connected) void refresh(false);
 }
 
-/// O número da rail. `null` é "sem Linear", e a rail esconde o número.
+/// Null means Linear is unavailable, so the sidebar hides its count.
 export const count = () => (settings.linear().connected && got ? got.issues.length : null);
 
-/// A lista para o lançador. `null` é "sem Linear"; vazia com `busy()` é
-/// "ainda não chegou".
+/// Launcher data: null means no Linear connection; an empty list while busy means loading.
 export const list = () => (settings.linear().connected ? (got?.issues ?? []) : null);
 export const busy = () => loading;
 
-/// Busca se nunca buscou ou se a lista está velha; senão não faz nada. É o
-/// que o lançador chama ao abrir o seletor.
+/// Load only when missing or stale; used when opening the launcher picker.
 export function load(): Promise<void> {
   if (!settings.linear().connected || loading) return Promise.resolve();
   const old = !got || Date.now() / 1000 - got.fetched_at > STALE / 1000;
@@ -105,7 +91,7 @@ async function refresh(force: boolean) {
   loading = true;
   drawMeta();
   try {
-    got = await invoke<Issues>("linear_issues", { force });
+    got = await invoke("linear_issues", { force });
     error = "";
   } catch (e) {
     error = fromBack(e);
@@ -115,7 +101,7 @@ async function refresh(force: boolean) {
   draw();
 }
 
-/* ---------- a barra ---------- */
+/* Toolbar. */
 
 function buildBar() {
   const bar = $("ibar");
@@ -156,7 +142,7 @@ function drawMeta() {
   ($("irefresh") as HTMLButtonElement).disabled = loading || !settings.linear().connected;
 }
 
-/* ---------- a lista ---------- */
+/* Issue list. */
 
 export function draw() {
   if (!visible) return;
@@ -167,8 +153,7 @@ export function draw() {
 function drawList() {
   const list = $("ilist");
   list.replaceChildren();
-  // Sem lista na tela não há time para filtrar; `drawTeams` traz a linha de
-  // volta quando houver.
+  // Hide team filters until a list exists; drawTeams restores them afterward.
   const teams = $("iteams");
   teams.replaceChildren();
   teams.hidden = true;
@@ -222,19 +207,12 @@ function drawList() {
   }
 }
 
-/// A linha de times: uma pílula por time, com quantas issues ela mostra. Só
-/// aparece para quem tem issue em mais de um time — com um só, filtrar por
-/// ele não muda nada na tela.
-///
-/// As pílulas saem da lista inteira e as contagens do que a busca achou:
-/// assim a linha não muda de tamanho a cada letra digitada, e o número já diz
-/// quantas issues sobram se você clicar.
+/// Show team filters only for multiple teams. Derive pills from the full list and counts from search matches so typing does not reshape the toolbar.
 function drawTeams(found: Issue[]) {
   const box = $("iteams");
   box.replaceChildren();
   const keys = [...new Set(got!.issues.map((i) => i.team).filter(Boolean))].sort();
-  // O time pode ter sumido da lista desde a última vez; sem isso a tela
-  // ficaria vazia por causa de um filtro que não aparece mais.
+  // Clear a selected team that disappeared from the list instead of hiding all results.
   if (team && !keys.includes(team)) pickTeam("");
   box.hidden = keys.length < 2;
   if (box.hidden) return;
@@ -264,14 +242,14 @@ function pickTeam(key: string) {
   else localStorage.removeItem(TEAM);
 }
 
-/// Um tipo de estado que o Linear inventar depois não pode sumir da lista.
+/// Keep issues with future, unknown Linear state types visible.
 function unknownKinds(list: Issue[]): [string, string][] {
   const known = new Set(KINDS.map(([k]) => k));
   const extra = new Set(list.map((i) => i.state.kind).filter((k) => !known.has(k)));
   return [...extra].map((k) => [k, k]);
 }
 
-/// Urgente primeiro, sem prioridade por último; empate é o mais recente.
+/// Sort urgent issues first and unprioritized issues last, breaking ties by recency.
 function byUrgency(a: Issue, b: Issue) {
   const rank = (p: number) => (p === 0 ? 5 : p);
   return rank(a.priority) - rank(b.priority) || b.updated_at.localeCompare(a.updated_at);
@@ -306,7 +284,7 @@ function row(issue: Issue): HTMLElement {
   el.querySelector(".istate span")!.textContent = issue.state.name;
   el.querySelector(".iago")!.textContent = ago(Date.parse(issue.updated_at));
 
-  // Clicar na linha é abrir no Linear; os botões são o resto.
+  // Row clicks open Linear; buttons own other actions.
   const openLinear = () => invoke("linear_open", { url: issue.url }).catch((e) => ctx.say(fromBack(e), true));
   el.addEventListener("click", openLinear);
   el.addEventListener("keydown", (e) => e.key === "Enter" && openLinear());
@@ -325,8 +303,7 @@ function row(issue: Issue): HTMLElement {
   return el;
 }
 
-/// "agora", "há 5 min", "há 3 h", "há 2 d": o bastante para saber se a issue
-/// está quente.
+/// Compact relative time indicates recent issue activity.
 function ago(ms: number): string {
   const s = Math.max(0, (Date.now() - ms) / 1000);
   if (s < 60) return t("ago.now");

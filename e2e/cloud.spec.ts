@@ -26,7 +26,7 @@ test("conta opcional na barra lateral conecta, persiste e sai sem alterar conver
   expect(await page.locator("#chatwrap").innerText()).toBe(before);
   await page.reload();
   await expect(account).toHaveAttribute("title", "gustavo@example.com");
-  // Com conta, cada linha diz onde mora, e o que só está na nuvem espera instalação.
+  // Account catalogs show each item's source; cloud-only items require installation.
   await page.locator("#settings").click();
   await page.locator(".setnavitem", { hasText: "Plugins" }).click();
   await expect(page.locator(".setrow", { hasText: "caveman" })).toContainText("na nuvem");

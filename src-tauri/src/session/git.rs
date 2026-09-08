@@ -1,5 +1,5 @@
-//! Git local, com índice separado do worktree. Nenhuma operação troca a branch
-//! do workspace; branches continuam usando o lifecycle de worktrees existente.
+//! Local Git operations distinguish the index from working-tree changes. They never switch
+//! workspace branches; branch lifecycle remains with worktrees.
 
 use super::{default_base, worktree_of_branch};
 use crate::i18n;
@@ -14,8 +14,8 @@ use std::process::{Command, Output};
 use std::sync::Mutex;
 use tauri::State;
 
-// ponytail: uma mutação de Git por vez no app; usar locks por repositório se
-// operações simultâneas em vários repositórios passarem a ser necessárias.
+// ponytail: serialize Git mutations across the app; use per-repository locks when concurrent
+// operations on separate repositories are needed.
 static MUTATION: Mutex<()> = Mutex::new(());
 const TEXT_LIMIT: usize = 400_000;
 
@@ -223,8 +223,8 @@ fn valid_path(root: &Path, path: &str) -> Result<PathBuf, String> {
     }
     let root = root.canonicalize().map_err(i18n::io)?;
     let file = root.join(path);
-    // O último componente pode ser um symlink versionado. Os pais não podem
-    // atravessar um link para fora, inclusive ao operar em arquivo apagado.
+    // The final component may be a tracked symlink. Parent directories must remain inside the
+    // repository, including for deleted-file operations.
     let mut parent = file.parent();
     while let Some(dir) = parent {
         if dir.exists() {

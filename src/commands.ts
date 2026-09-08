@@ -3,23 +3,15 @@ import type { Command } from "./timeline";
 
 export type Suggestion = Command & { badge?: string };
 
-/// Os comandos de barra da caixa: a lista que abre ao escrever "/" no começo
-/// da fala, e encolhe a cada letra. Quem sabe quais existem é o agente — o
-/// back pergunta ao subir o processo (`initialize`, ver `chat.rs`), e a
-/// `Timeline` guarda a resposta. Aqui só se desenha a lista e se completa o
-/// nome.
+/// Render slash-command completion from commands discovered by the backend and retained by Timeline.
 
-/// O comando que está sendo escrito: a barra no começo da caixa até o cursor,
-/// sem espaço no meio. "/com" é um; "/compact já" não é mais (já está
-/// escrito), e "/Users/x" é um caminho.
+/// Match the slash prefix up to the cursor, excluding arguments and paths such as /Users/x.
 export function typing(text: string, cut: number): { query: string } | null {
   const m = /^\/([^\s/]*)$/.exec(text.slice(0, cut));
   return m ? { query: m[1] } : null;
 }
 
-/// O que o que foi digitado pode ser: primeiro os que começam assim, depois os
-/// que têm uma parte começando assim — "commit" acha `caveman:caveman-commit`.
-/// Cada grupo em ordem alfabética, para a lista ser a mesma toda vez.
+/// Rank prefix matches before matching command segments; sort each group alphabetically for stable results.
 export function matches<T extends { name: string }>(query: string, list: T[]): T[] {
   const q = query.toLowerCase();
   const sorted = [...list].sort((a, b) => a.name.localeCompare(b.name));
@@ -28,21 +20,17 @@ export function matches<T extends { name: string }>(query: string, list: T[]): T
   return [...starts, ...inside];
 }
 
-/// A descrição, curta o bastante para a ponta da linha: a primeira frase, e
-/// não mais que isso. A de uma skill costuma ser um parágrafo.
+/// Use the first description sentence to keep command rows compact.
 export function brief(description: string, max = 72): string {
   const first = description.trim().split(/(?<=[.!?])\s/)[0] ?? "";
   const one = first.replace(/\s+/g, " ");
   return one.length > max ? `${one.slice(0, max - 1).trimEnd()}…` : one;
 }
 
-/// A lista aberta por aqui, se é daqui: o primeiro da lista é o que Enter e
-/// Tab escolhem — a não ser que o nome já esteja inteiro, e aí Enter manda.
+/// Enter and Tab choose the first result unless the full command is already entered.
 let picking: { first: () => void; exact: boolean } | null = null;
 
-/// A cada letra na caixa: a lista acompanha o "/…" — e some quando ele some.
-/// Diz se a lista é desta vez — quem chama passa a vez a outra lista quando
-/// não é (ver `paths.ts`).
+/// Refresh completion while the slash prefix is present; return ownership so paths.ts can handle other input.
 export function typed(area: HTMLTextAreaElement, all: Suggestion[], onChange: () => void, onSelect?: (name: string) => boolean): boolean {
   const at = typing(area.value, area.selectionStart);
   const list = at ? matches(at.query, all) : [];
@@ -53,8 +41,7 @@ export function typed(area: HTMLTextAreaElement, all: Suggestion[], onChange: ()
   const put = (name: string) => {
     picking = null;
     if (onSelect?.(name)) return;
-    // O "/com" que a pessoa digitou é o começo deste comando, não texto a
-    // mais: o nome entra no lugar dele, com o espaço para o que vem depois.
+    // Replace the typed command prefix and append a space for arguments.
     const cut = area.selectionStart;
     area.value = `/${name} ${area.value.slice(cut)}`;
     onChange();
@@ -71,10 +58,7 @@ export function typed(area: HTMLTextAreaElement, all: Suggestion[], onChange: ()
   return true;
 }
 
-/// Enter ou Tab com a lista aberta completam o primeiro nome em vez de mandar
-/// a fala. Diz se foi isso que aconteceu. Com o nome já inteiro na caixa,
-/// Enter fecha a lista e deixa a fala ir — Tab ainda completa, para ganhar o
-/// espaço.
+/// Enter or Tab completes the first match. An already complete command submits on Enter; Tab still adds its trailing space.
 export function accept(tab: boolean): boolean {
   if (!picking || !menu.isOpen()) return false;
   menu.close();
@@ -86,7 +70,7 @@ export function accept(tab: boolean): boolean {
   return true;
 }
 
-/// Fecha a lista, se é a daqui que está aberta.
+/// Close only this module's completion menu.
 export function dismiss() {
   if (picking && menu.isOpen()) menu.close();
   picking = null;

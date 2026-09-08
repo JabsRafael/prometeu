@@ -19,8 +19,7 @@ test("stage parcial mostra dois diffs e commit deixa alterações posteriores fo
   await changes.locator('.git-file[data-path="src/style.css"] .git-file-name').click();
   await expect(page.locator(".git-review-scope")).toContainText("Alterações locais");
   expect(await page.locator('#dlist .dfile[data-key$="src/style.css"] .dbody').innerText()).not.toBe(stagedPatch);
-  // Um clique traz o grupo inteiro empilhado: ler o resto é rolar, não voltar
-  // à lista para escolher o próximo arquivo.
+  // One click opens the entire group as a stacked diff; remaining files are reached by scrolling.
   await expect(page.locator("#dlist .dfile")).toHaveCount(2);
   await expect(page.locator('#dlist .dfile[data-key$="public/logo.png"]')).toBeVisible();
   await page.locator("#git-message").fill("   ");

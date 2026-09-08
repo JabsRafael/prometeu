@@ -1,39 +1,30 @@
 #!/bin/sh
-# Solta uma versão nova do Prometeu.
+# Release Prometeu.
 #
-#   sh scripts/release.sh              versão calculada dos commits
-#   sh scripts/release.sh 0.2.0        versão escolhida à mão
-#   sh scripts/release.sh publish      publica a draft que o CI deixou pronta
+# sh scripts/release.sh          Calculate the version from commits.
+# sh scripts/release.sh 0.2.0    Select a version explicitly.
+# sh scripts/release.sh publish Publish the CI-created draft.
 #
-# Daqui sai só o que é decisão de gente: o número, o changelog e a tag. O build
-# assinado é do CI (.github/workflows/release.yml), que deixa uma release
-# **draft** em gbrancaglione/prometeu-releases. Entre a draft e quem usa o
-# app existe uma pessoa: instala o .dmg, abre, confere — e só então `publish`.
-# O updater não tem rollback (só instala versão maior que a atual), então
-# versão ruim publicada se conserta com a seguinte. Por isso o portão.
-#
-# As notas saem dos commits: Conventional Commits → git-cliff → CHANGELOG.md →
-# corpo da release. Não existe etapa de "escrever as notas"; existe escrever o
-# commit direito (ver CLAUDE.md). O número também: feat e fix sobem o patch
-# enquanto a versão é 0.x, mudança que quebra sobe o minor (cliff.toml).
-#
-# A chave de assinatura não passa por aqui. Ela mora em ~/.tauri/prometeu.key
-# (senha no Keychain) e, para o CI, nos Secrets do repositório. Perder as duas
-# cópias significa nunca mais atualizar quem já instalou — guarde num cofre.
+# This script controls version, changelog and tag. CI builds and signs a draft in
+# gbrancaglione/prometeu-releases. Install and review its DMG before publishing.
+# The updater accepts only newer versions; publishing a bad release requires another release to recover.
+# Conventional Commits supply git-cliff, CHANGELOG.md and release notes. While versions remain 0.x,
+# feat/fix bump patch and breaking changes bump minor; see cliff.toml.
+# Signing keys stay in ~/.tauri/prometeu.key, with the password in Keychain and CI copies in repository
+# Secrets. Losing both copies prevents updating existing installations; retain a secure backup.
 set -eu
 cd "$(dirname "$0")/.."
 
 REPO=gbrancaglione/prometeu-releases
 
 die() { echo "$*" >&2; exit 1; }
-# O bin direto: `npx --no git-cliff --flag` deixa o npm engolir o --flag como
-# config dele.
+# Call git-cliff directly so npm does not consume its flags as npm configuration.
 cliff() {
   [ -x node_modules/.bin/git-cliff ] || die "git-cliff não está instalado — rode npm install"
   node_modules/.bin/git-cliff "$@"
 }
 
-# ---------- cortar ----------
+# Cut a release.
 
 cut() {
   VERSION=${1:-}
@@ -44,8 +35,7 @@ cut() {
   [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] \
     || die "a main local não é a origin/main — dê pull (ou push) antes"
 
-  # Quem constrói é o runner deste Mac; tag empurrada com ele parado fica na
-  # fila sem ninguém avisar.
+  # Ensure the local runner is online before pushing a tag that would otherwise remain queued.
   sh scripts/runner.sh
 
   PREV=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "")
@@ -60,9 +50,8 @@ cut() {
   esac
   ! git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null || die "a tag v$VERSION já existe"
 
-  # Só chore, ci, docs… desde a última tag: não há nada para contar a quem usa,
-  # e release sem nota é release que não devia existir. Se a mudança importa,
-  # ela merece um fix ou feat no commit.
+  # Commits without user-visible changes do not justify a release. Observable changes need an appropriate
+  # feat/fix/perf entry.
   NOTES=$(cliff --unreleased --tag "v$VERSION" --strip all)
   printf '%s\n' "$NOTES" | grep -q '^- ' \
     || die "nenhum feat, fix ou perf desde ${PREV:-o começo} — nada para contar na $VERSION"
@@ -71,9 +60,8 @@ cut() {
   echo
   printf '%s\n' "$NOTES"
 
-  # O npm marca o package.json e o package-lock.json de uma vez; os do Tauri
-  # vão à mão, o Cargo.lock inclusive — senão o próximo cargo build o corrige
-  # sozinho e suja a árvore de quem só queria rodar o app.
+  # npm updates package.json and package-lock.json together. Update Tauri metadata and Cargo.lock
+  # explicitly to avoid dirtying the next build.
   npm version "$VERSION" --no-git-tag-version --allow-same-version >/dev/null
   python3 - "$VERSION" <<'PY'
 import json, pathlib, re, sys
@@ -99,8 +87,7 @@ PY
 
   git add -A
   git commit -qm "chore(release): v$VERSION"
-  # `--cleanup=whitespace`: o padrão apaga linha que começa com #, e os
-  # títulos do markdown começam com #.
+  # Preserve Markdown headings with --cleanup=whitespace; default cleanup removes lines beginning with #.
   git tag -a "v$VERSION" --cleanup=whitespace -m "Prometeu $VERSION" -m "$NOTES"
   git push -q origin main "v$VERSION"
 
@@ -109,8 +96,8 @@ PY
   watch_run "v$VERSION"
 }
 
-# Acompanha o run do release.yml para a tag. Sem `gh run watch`, que redesenha
-# a tela: isto roda dentro de sessão do Claude, sem terminal.
+# Poll the tag's release workflow without gh run watch because agent sessions may not have an interactive
+# terminal.
 watch_run() {
   TAG=$1
   RUN=""
@@ -139,7 +126,7 @@ watch_run() {
   done
 }
 
-# ---------- publicar ----------
+# Publish the reviewed draft.
 
 publish() {
   VERSION=${1:-$(node -p "require('./package.json').version")}
@@ -150,8 +137,7 @@ publish() {
   [ "$DRAFT" = true ] || die "$TAG já está publicada"
 
   ASSETS=$(gh release view "$TAG" -R "$REPO" --json assets -q '.assets[].name')
-  # Os nomes não levam versão: é o que faz o link do site apontar para
-  # releases/latest/download/Prometeu_aarch64.dmg e nunca mais mudar.
+  # Stable asset names keep website links under releases/latest/download/Prometeu_aarch64.dmg unchanged.
   for want in Prometeu_aarch64.dmg \
               Prometeu_aarch64.app.tar.gz \
               Prometeu_aarch64.app.tar.gz.sig \

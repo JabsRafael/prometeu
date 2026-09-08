@@ -47,7 +47,7 @@ test("a mesa e o workspace só avisam conclusão fora da conversa visível, uma 
   await done(page);
   expect(await sounds(page)).toBe(1);
 
-  // Snapshot repetido ou defasado não é evento de conclusão.
+  // A repeated or stale snapshot is not a completion event.
   await page.evaluate(async () => {
     const { invoke } = (window as AlertWindow).__TAURI_INTERNALS__;
     const board = await invoke("load_board") as Board;
@@ -59,7 +59,7 @@ test("a mesa e o workspace só avisam conclusão fora da conversa visível, uma 
   });
   expect(await sounds(page)).toBe(1);
 
-  // Reabrir reconhece a pendência; o replay da mesma conclusão fica mudo.
+  // Reopening acknowledges the alert; replaying the same completion stays silent.
   await page.locator('#deskbar [data-tab="t1"]').click();
   await expect(tile).toBeVisible();
   expect(await sounds(page)).toBe(1);
