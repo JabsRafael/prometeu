@@ -153,6 +153,16 @@ Deltas antecipam a apresentação; `assistant.block` substitui o rascunho do
 mesmo índice. Eventos efêmeros ainda recebem sequência de transporte para que
 snapshot e live stream mantenham a mesma ordem.
 
+No stream local ao vivo, `chat.rs` emite `session.state` com `starting` ao
+iniciar um processo e com `busy` depois que a escrita de `message.send` é
+aceita. Esse `busy` precede `user.message`, ecos locais e respostas concorrentes,
+sob o mesmo lock de publicação; uma escrita que falha não o emite. Respostas
+a pedidos e ecos do provider não representam outra aceitação de mensagem.
+O snapshot pode sintetizar `busy` ou `ready` para apresentar o estado atual,
+mas não inicia uma nova execução para efeitos sonoros. Esses eventos continuam
+efêmeros, sem mudança de envelope, formato persistido ou versão do contrato.
+Veja [ADR 0025](../decisions/0025-completion-sound-per-execution.md).
+
 `usage.updated` identifica o provider porque cota é uma informação da conta e
 os payloads externos não possuem semântica comum suficiente. Esse payload vai
 direto ao adapter de uso, não à timeline nem ao transcript.

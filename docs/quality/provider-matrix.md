@@ -51,8 +51,8 @@ para virar capacidade contratual.
 | hooks de plugin escolhido | ativos desde `SessionStart` | `enabled = true` + confiança limitada a `pluginId` e hash antes da thread | testes de `codex.rs`; falha impede a thread |
 | anexos na fala e miniaturas de captura | adaptado por caminho local; promessa materializada pelo macOS | adaptado por caminho local; promessa materializada pelo macOS | `file_drop.rs`, `chat.ts`; `e2e/file-drop.spec.ts` e cenários de arquivo solto em `e2e/critical-flows.spec.ts` cobrem UI sobre mock |
 | evento externo desconhecido | ignorado pelo adapter | ignorado pelo adapter | `conversation.test.ts`, testes de `claude.rs`/`codex.rs` |
-| subagentes do CLI | sidechain fora da tela | threads de outro `threadId` ignoradas; o turno da conversa segue | `claude.rs`, teste `turno_de_subagente_nao_encerra_a_conversa` em `codex.rs` |
-| som de conclusão ou pergunta | eventos V1 locais ao vivo | eventos V1 locais ao vivo | `src/alert.test.ts`, `e2e/alerts.spec.ts`; status e replay não avisam, pendência não repete sem interação |
+| subagentes do CLI | sidechain fora da tela; tarefas em `background.changed` | `collabAgentToolCall.agentsStates`, `subAgentActivity` e eventos de filhos conhecidos atualizam tarefas; conteúdo dos filhos fica isolado | `claude.rs`; testes de isolamento, spawn, atividade e estados parciais em `codex.rs` |
+| som de conclusão por execução | envio aceito, atividade e terminal principal sem background | mesma regra sobre eventos V1 locais ao vivo | `src/alert.test.ts`, `e2e/alerts.spec.ts` em Chromium/WebKit; 1 segundo absorve retomadas imediatas; olhar, responder e replay não rearmam; perguntas só atualizam o Dock |
 | compartilhamento ao vivo | V1 após normalização | V1 após normalização | `team*.test.ts`, E2E sobre mock |
 | comentários em sessão compartilhada | adaptado após V1 | adaptado após V1 | `notes.test.ts`, `team.test.ts`, `relay/src/logic.test.ts`, E2E sobre mock |
 | mesa com várias conversas ao mesmo tempo | adaptado (mesma tela da conversa) | adaptado (mesma tela da conversa) | `desk.test.ts`, E2E sobre mock |

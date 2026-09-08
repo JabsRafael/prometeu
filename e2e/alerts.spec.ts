@@ -11,11 +11,14 @@ const emit = (page: Page, tab: string, event: Record<string, unknown>) => page.e
   (window as AlertWindow).mock.line(tab, event);
 }, { tab, event });
 const done = (page: Page, tab = "t1") => emit(page, tab, {
-  type: "result", subtype: "success", is_error: false, duration_ms: 100,
+  v: 1, at: 1, type: "turn.completed", outcome: "ok", message: "", durationMs: 100, costUsd: null,
 });
+const send = (page: Page, text: string, tab = "t1") => page.evaluate(async ({ text, tab }) => {
+  await (window as AlertWindow).__TAURI_INTERNALS__.invoke("chat_send", { session: tab, text });
+}, { text, tab });
 const sounds = (page: Page) => page.evaluate(() => (window as AlertWindow).sounds / 2);
 
-test("a mesa e o workspace só avisam conclusão fora da conversa visível, uma vez", async ({ page }) => {
+test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     const w = window as AlertWindow;
     w.sounds = 0;
@@ -35,19 +38,26 @@ test("a mesa e o workspace só avisam conclusão fora da conversa visível, uma 
     } });
   });
   await page.goto("/");
+  await expect(page.locator('#tiles .tile[data-tab="t1"]')).toBeVisible();
+  await page.clock.install();
+});
+
+test("a mesa e o workspace avisam uma vez por execução, sem rearmar por navegação", async ({ page }) => {
   const tile = page.locator('#tiles .tile[data-tab="t1"]');
-  await expect(tile).toBeVisible();
-  await done(page);
-  await done(page, "t2");
+  await send(page, "olá");
+  await page.clock.runFor(5_000);
   expect(await sounds(page)).toBe(0);
 
   await page.locator('#deskbar [data-tab="t1"]').click();
   await expect(tile).toBeHidden();
   await done(page);
-  await done(page);
+  await page.clock.runFor(1_000);
+  expect(await sounds(page)).toBe(0);
+  await send(page, "continue");
+  await page.clock.runFor(5_000);
   expect(await sounds(page)).toBe(1);
 
-  // A repeated or stale snapshot is not a completion event.
+  // Board status and transcript replay never create another execution.
   await page.evaluate(async () => {
     const { invoke } = (window as AlertWindow).__TAURI_INTERNALS__;
     const board = await invoke("load_board") as Board;
@@ -57,15 +67,15 @@ test("a mesa e o workspace só avisam conclusão fora da conversa visível, uma 
       await invoke("set_stage", { id: workspace.id, stage: workspace.stage });
     }
   });
-  expect(await sounds(page)).toBe(1);
-
-  // Reopening acknowledges the alert; replaying the same completion stays silent.
   await page.locator('#deskbar [data-tab="t1"]').click();
   await expect(tile).toBeVisible();
-  expect(await sounds(page)).toBe(1);
   await page.evaluate(() => { (window as AlertWindow).focused = false; });
   await done(page);
   await done(page);
+  await page.clock.runFor(1_000);
+  expect(await sounds(page)).toBe(1);
+  await send(page, "outra tarefa");
+  await page.clock.runFor(5_000);
   expect(await sounds(page)).toBe(2);
   await page.evaluate(() => {
     (window as AlertWindow).focused = true;
@@ -75,16 +85,35 @@ test("a mesa e o workspace só avisam conclusão fora da conversa visível, uma 
   await page.locator("#railbody .navitem.sub .lbl").getByText("Ola", { exact: true }).click();
   await expect(page.locator("#wsView")).toBeVisible();
   await page.locator('#tabbar [data-tab="t1"]').click();
-  await done(page);
+  await send(page, "pergunta", "t2");
+  await page.clock.runFor(5_000);
   expect(await sounds(page)).toBe(2);
-  await emit(page, "t2", {
-    type: "control_request", request_id: "q-alert",
-    request: { subtype: "can_use_tool", tool_name: "AskUserQuestion",
-      input: { questions: [{ question: "Continuar?", options: [] }] } },
+  await page.evaluate(async () => {
+    const { invoke } = (window as AlertWindow).__TAURI_INTERNALS__;
+    const snapshot = await invoke("chat_snapshot", { session: "t2" }) as { text: string };
+    const request = snapshot.text.trim().split("\n").map((line) => JSON.parse(line))
+      .findLast((event) => event.type === "request.opened");
+    await invoke("chat_control", { session: "t2", frame: {
+      v: 1, type: "request.respond", requestId: request.requestId,
+      response: { outcome: "answer", answers: {} },
+    } });
   });
+  await page.clock.runFor(1_000);
   expect(await sounds(page)).toBe(3);
-  await page.locator('#tabbar [data-tab="t2"]').click();
-  await page.locator('#tabbar [data-tab="t1"]').click();
-  await done(page, "t2");
-  expect(await sounds(page)).toBe(4);
+});
+
+test("a mesa fica silenciosa entre resultados enquanto subagentes continuam", async ({ page }) => {
+  await page.locator('#deskbar [data-tab="t1"]').click();
+  await send(page, "background");
+  await page.clock.runFor(4_000);
+  expect(await sounds(page)).toBe(0);
+  await page.locator('#deskbar [data-tab="t1"]').click();
+  await page.evaluate(() => { (window as AlertWindow).focused = false; });
+  await page.clock.runFor(4_000);
+  expect(await sounds(page)).toBe(0);
+  await page.clock.runFor(5_000);
+  expect(await sounds(page)).toBe(1);
+  await done(page);
+  await page.clock.runFor(1_000);
+  expect(await sounds(page)).toBe(1);
 });
