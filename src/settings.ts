@@ -2,7 +2,6 @@ import * as actions from "./actions";
 import * as actionSettings from "./action-settings";
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
-import * as alert from "./alert";
 import { avatar, icon } from "./icons";
 import { LANGS, choose, chosen, current as locale, fromBack, fromSystem, t, tn, type Key, type Lang } from "./i18n";
 import {
@@ -92,7 +91,7 @@ const PAGES: Page[] = [
     id: "geral",
     title: "settings.page.general",
     glyph: "settings",
-    rows: () => [langRow(), alert.settingsRow()],
+    rows: () => [langRow()],
   },
   {
     id: "padroes",

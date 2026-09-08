@@ -161,14 +161,10 @@ ficam de fora — cada um tem a sua tela.
 Cobertura: `src/desk.test.ts` (a ordem guardada) e o fluxo Playwright da mesa
 em `e2e/critical-flows.spec.ts`.
 
-O som de conclusão toca uma vez por execução iniciada por uma fala aceita,
-quando o agente informa que terminou, sem tarefas em background, fora das abas
-visíveis ou com a janela sem foco. O aviso aguarda 1 segundo para absorver
-continuações imediatas. Conversas abertas na mesa também contam como visíveis;
-olhar ou responder não rearma o aviso. Perguntas e permissões atualizam a
-bolinha do Dock sem tocar o som de conclusão. Interrupções, ferramentas e
-replay do histórico não tocam. O som pode ser desligado em Configurações sem
-desativar a bolinha do Dock. Cobertura: `src/alert.test.ts` e `e2e/alerts.spec.ts`.
+Conclusões, perguntas, permissões e comentários usam indicadores visuais,
+sem avisos sonoros. A bolinha do Dock conta workspaces com pendências e
+comentários na caixa de entrada. Não há opção de som nas Configurações.
+Cobertura: `src/alert.test.ts` e `e2e/alerts.spec.ts`.
 
 ### O ida-e-volta
 

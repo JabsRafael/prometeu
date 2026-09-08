@@ -96,27 +96,31 @@ legadas passam por `conversation-legacy.ts` antes do reducer.
 `alert.ts` acompanha execuções por aba a partir dos eventos `chat` locais ao
 vivo, separado da pendência de leitura. `chat.rs` publica `session.state`
 `starting` no spawn e `busy` após aceitar `message.send`, antes da fala local
-e dos ecos, sob o mesmo lock de publicação. Só esse `busy` arma o som;
-atividade do assistente confirma que a execução começou. Snapshots, histórico,
+e dos ecos, sob o mesmo lock de publicação. Só esse `busy` inicia o
+acompanhamento da execução; atividade do assistente confirma que a execução
+começou. Snapshots, histórico,
 ecos e respostas a pedidos não armam uma execução.
 
 `turn.completed` com sucesso ou erro, sem tarefas em background, é candidato
 ao aviso após 1 segundo. Nova atividade cancela o candidato; silêncio sozinho
-nunca significa conclusão. Interrupção consome a execução sem som. Um terminal
-sem atividade, como `/context`, também não toca, salvo erro. Esvaziar
+nunca significa conclusão. Interrupção consome a execução sem criar pendência.
+Um terminal sem atividade, como `/context`, também não cria pendência, salvo
+erro. Esvaziar
 `background.changed` não conclui a execução: ainda é necessário um terminal
 do agente principal. Claude já normaliza tarefas; Codex converte
 `collabAgentToolCall.agentsStates`, `subAgentActivity` e eventos de filhos
 conhecidos para o mesmo evento, preservando o isolamento do conteúdo dos filhos.
 
-A conclusão consome o aviso mesmo com a conversa visível ou o som desligado;
+A conclusão consome o aviso mesmo com a conversa visível;
 olhar ou responder não rearma a execução. A visibilidade inclui a aba aberta
 no workspace e os quadros não recolhidos da mesa, sempre com a janela em foco.
 `request.opened` atualiza apenas a pendência do Dock. O Dock conta workspaces,
 unindo essas pendências ao `unread` do backend. Os formatos V1, IPC, transcript
 e relay permanecem iguais; não há migração. A janela de 1 segundo depende dos
 sinais do CLI e não garante detectar uma continuação posterior não anunciada.
-Veja [ADR 0025](../decisions/0025-completion-sound-per-execution.md).
+O acompanhamento alimenta apenas indicadores visuais. Conclusões e comentários
+não reproduzem áudio; não há inicialização de Web Audio nem preferência de som.
+Veja [ADR 0029](../decisions/0029-remove-alert-sound.md).
 
 ## Entrada e controle
 
