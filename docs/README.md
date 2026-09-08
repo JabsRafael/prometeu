@@ -65,6 +65,9 @@ como índice curto para agentes e `README.md` apresenta o produto.
 - [ADR 0023](decisions/0023-ordered-publication.md): ordered board publication and conversation delivery — Accepted.
 - [ADR 0024](decisions/0024-typed-ipc.md): command-owned IPC arguments and results — Accepted.
 - [ADR 0025](decisions/0025-completion-sound-per-execution.md): som de conclusão por execução aceita, independente da leitura — Aceito.
+- [ADR 0026](decisions/0026-portable-collaboration-core.md): núcleo de colaboração portável e acesso pelo celular via relay — Aceito; etapas decididas nos ADRs 0027 e 0028.
+- [ADR 0027](decisions/0027-companion-devices.md): dispositivos companheiros no relay com campo aditivo `person` — Aceito.
+- [ADR 0028](decisions/0028-mobile-web-app.md): Prometeu no celular como app web servido pelo Cloud — Aceito.
 
 ## Qualidade e operação
 

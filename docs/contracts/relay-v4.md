@@ -77,6 +77,23 @@ Comentários de colegas usam a última audiência autenticada que receberam.
 Omissão de uma atualização pelo relay pode atrasar revogação nesses remetentes.
 Conteúdo já recebido e snapshots previamente autorizados não são revogáveis.
 
+## Dispositivos companheiros
+
+`Member.person` é opcional e liga um dispositivo companheiro à matrícula da
+pessoa; membros primários e times legados não o têm. O Cloud entrega o campo
+no roster e o relay o valida (ID existente no mesmo roster, sem cadeias),
+persiste em `member:` e reemite em `welcome` e `presence`. Parsers antigos
+ignoram o campo.
+
+Audiências, `share.audience` local e menções nomeiam pessoas. Antes de cifrar,
+o cliente expande cada pessoa nos seus dispositivos com chave: as caixas, a
+audiência publicada no relay e as `mentions` do frame passam a listar
+dispositivos, de modo que o relay aplica `watch`, `attach`, `write` e inbox
+por dispositivo sem conhecer a regra. O dono admite `watch` e `write` de um
+dispositivo pela pessoa a que ele pertence. TOFU, recibos e códigos de
+segurança continuam por dispositivo. Decisão e limites no
+[ADR 0027](../decisions/0027-companion-devices.md).
+
 ## Persistência, limites e compatibilidade
 
 Credenciais e metadados de matrícula preservam suas chaves de storage. Estado

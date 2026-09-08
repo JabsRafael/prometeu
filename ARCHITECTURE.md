@@ -153,7 +153,7 @@ As regras detalhadas e o estado atual de cada uma estão em
 | workspaces | `src-tauri/src/session.rs`, `src-tauri/src/state.rs` |
 | Git e arquivos | `src/workspace-changes.ts`, `src/diff.ts`, `src/viewer.ts`, `src/csv.ts`, `src-tauri/src/session/git.rs`, `src-tauri/src/session/diff.rs`, `src-tauri/src/session/files.rs` |
 | MCP e plugins | `src/mcp.ts`, `src/plugins.ts`, `src-tauri/src/mcp.rs`, `src-tauri/src/plugins.rs`, `docs/contracts/plugin-marketplace.md` |
-| colaboração | `src/team.ts`, `src/team-transport.ts`, `src/team-control.ts`, `relay/src/` |
+| colaboração | shells `src/team.ts` (desktop) e `src/mobile/` (navegador, bundle para o Cloud); núcleo `src/team-member.ts`, `src/team-ports.ts`, features `src/team-owner.ts`, `src/team-viewer.ts`, `src/team-comments.ts`; `src/team-transport.ts`, `src/team-control.ts`, `relay/src/` |
 | terminal e preview | `src/dock*.ts`, `src/term.ts`, `src/browser.ts`, `src-tauri/src/dock.rs`, `src-tauri/src/pty.rs` |
 
 ## Pressões conhecidas

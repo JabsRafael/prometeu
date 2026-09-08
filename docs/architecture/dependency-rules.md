@@ -69,6 +69,13 @@ Rust payload shapes remain manually synchronized. See the
 `team-transport.ts` abstrai o socket; `team-control.ts` transforma frames em
 ações locais. O protocolo e sua validação permanecem compartilhados.
 
+O núcleo (`team-member.ts` e as features `team-owner.ts`, `team-viewer.ts`,
+`team-comments.ts`) recebe do shell os ports de `team-ports.ts`: `Membership`,
+`SecurityStore` e `OwnerHost`. Features são hooks registrados no membro, na
+ordem escolhida pela raiz de composição. `src/team.ts` é o shell do desktop;
+nenhum `team-*.ts` importa `@tauri-apps`, `./ipc`, `./mock` ou `./team`.
+Ver [ADR 0026](../decisions/0026-portable-collaboration-core.md).
+
 ### Sistema local
 
 Git, arquivos, PTY, processos e browser embutido são efeitos externos. Regras
@@ -97,7 +104,7 @@ As regras são protegidas por revisão, testes focados e fitness functions
 pequenas:
 
 - `npm run architecture:check` impede condicionais de UI por provider fora do
-  catálogo/capability;
+  catálogo/capability e acoplamento do núcleo de colaboração ao desktop;
 - tipos exaustivos para `ProviderId` e eventos canônicos;
 - teste de paridade entre comandos IPC, handlers Rust e mock;
 - fixtures de conformidade por adapter.

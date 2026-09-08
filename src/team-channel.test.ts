@@ -93,6 +93,24 @@ describe("canal ponta a ponta integrado ao relay", () => {
     expect(JSON.stringify([...t.relay.shares])).not.toContain("private-marker");
   });
 
+  it("um dispositivo companheiro recebe os shares e menções da pessoa e fala com o dono", async () => {
+    const t = await team();
+    await t.deliver(reduce(t.relay, { k: "roster", now: Date.now(), members: [
+      { id: "alice", name: "alice" }, { id: "bob", name: "bob" }, { id: "carol", name: "carol" }, { id: "phone", name: "bob (iPhone)", person: "bob" },
+    ] }));
+    const phone = await t.connect("phone");
+    await t.send("alice", { t: "share", share: shared });
+    expect(phone.shares.get(shared.id)).toMatchObject({ id: shared.id, title: shared.title });
+    expect(t.carol.shares.size).toBe(0);
+    const note = await t.send("alice", { t: "note", ws: shared.id, tab: null, anchor: null, text: "olha isso", mentions: ["bob"], quote: null });
+    expect((note.encrypted as Extract<Up, { t: "note" }>).mentions.sort()).toEqual(["bob", "phone"]);
+    expect(received(t.deliveries, "phone", "inbox").slice(-1)[0]?.items.map(item => item.text)).toEqual(["olha isso"]);
+    expect(received(t.deliveries, "bob", "inbox").slice(-1)[0]?.items.map(item => item.text)).toEqual(["olha isso"]);
+    await t.send("phone", { t: "attach", ws: shared.id, tab: "tab" });
+    await t.send("phone", { t: "write", ws: shared.id, tab: "tab", data: "do celular" });
+    expect(received(t.deliveries, "alice", "write").slice(-1)[0]).toMatchObject({ from: "phone", data: "do celular" });
+  });
+
   it("autentica fala remota e persiste rejeição de replay após reinício", async () => {
     const t = await team();
     await t.send("alice", { t: "share", share: shared });

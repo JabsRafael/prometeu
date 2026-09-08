@@ -114,7 +114,8 @@ export type Share = {
 /// A share plus relay-owned owner identity and presence.
 export type Shared = Share & { owner: string; online: boolean };
 
-export type Member = { id: string; name: string; online: boolean; key?: string };
+/// A member is one device. `person` links a companion device to the membership it belongs to; absent on primary members and legacy teams.
+export type Member = { id: string; name: string; online: boolean; key?: string; person?: string };
 
 export type Note = {
   encrypted?: Encrypted;
@@ -325,7 +326,9 @@ function parseMembers(value: unknown): Member[] | null {
     if (!record(raw) || !id(raw.id) || seen.has(raw.id) || !text(raw.name, NAME_MAX, false) || typeof raw.online !== "boolean") return null;
     seen.add(raw.id);
     if (raw.key !== undefined && !isPublicKey(raw.key)) return null;
-    out.push({ id: raw.id, name: raw.name, online: raw.online, ...(typeof raw.key === "string" ? { key: raw.key } : {}) });
+    if (raw.person !== undefined && (!id(raw.person) || raw.person === raw.id)) return null;
+    out.push({ id: raw.id, name: raw.name, online: raw.online, ...(typeof raw.key === "string" ? { key: raw.key } : {}),
+      ...(typeof raw.person === "string" ? { person: raw.person } : {}) });
   }
   return out;
 }

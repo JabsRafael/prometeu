@@ -487,6 +487,16 @@ leva de volta à thread. Também é possível criar um comentário geral da aba.
 que estivesse offline. Abrir o comentário não o tira dali: ele permanece até a
 thread ser resolvida para todos. ⌘↵ envia; Enter quebra linha.
 
+### No celular
+
+O Cloud serve o Prometeu em `/app`: uma página que entra na organização como
+um dispositivo seu, com chave própria, e mostra o que colegas ou o seu Mac
+compartilharam. Dá para abrir a conversa, mandar uma mensagem para o agente no
+Mac do dono, comentar e ver o "Para mim". A conversa continua rodando só no
+Mac, que precisa estar acordado e com o Prometeu aberto. Adicione a página à
+tela inicial para usar como app. Remover o dispositivo fica em Configurações →
+Dispositivos no Cloud.
+
 ### O relay
 
 Mora em `relay/`: um Worker que cria times e encaminha cada conexão ao Durable

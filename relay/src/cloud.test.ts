@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseOrganizationAccess } from "./cloud";
-import { empty, reduce } from "./logic";
+import { empty, members, reduce } from "./logic";
 
 describe("organization relay authorization", () => {
   const now = 100_000;
@@ -15,6 +15,22 @@ describe("organization relay authorization", () => {
     }
     expect(parseOrganizationAccess(profile, "organization2", now)).toBeNull();
     expect(parseOrganizationAccess({ ...profile, expires_at: now + 120_000 }, "organization1", now)?.expires_at).toBe(now + 60_000);
+  });
+  it("accepts companion devices linked to a listed person and rejects dangling or chained links", () => {
+    const phone = { id: "phone1", name: "Alice (iPhone)", person: "member1" };
+    const withPhone = { ...profile, members: [...profile.members, phone] };
+    expect(parseOrganizationAccess(withPhone, "organization1", now)?.members).toContainEqual(phone);
+    for (const members of [
+      [...profile.members, { ...phone, person: "ghost" }],
+      [...profile.members, { ...phone, person: "phone1" }],
+      [...profile.members, phone, { id: "watch1", name: "Alice (Watch)", person: "phone1" }],
+      [...profile.members, { ...phone, person: 42 }],
+    ]) expect(parseOrganizationAccess({ ...profile, members }, "organization1", now)).toBeNull();
+    const state = empty();
+    reduce(state, { k: "roster", members: withPhone.members, now });
+    expect(members(state).find(m => m.id === "phone1")).toEqual({ id: "phone1", name: "Alice (iPhone)", online: false, person: "member1" });
+    reduce(state, { k: "roster", members: [...profile.members, { id: "phone1", name: "Alice (iPhone)" }], now: now + 1 });
+    expect(members(state).find(m => m.id === "phone1")?.person).toBeUndefined();
   });
   it("reconciles offline members and removes revoked sockets and their shared workspaces", () => {
     const state = empty();

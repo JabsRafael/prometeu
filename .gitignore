@@ -8,3 +8,4 @@ test-results/
 worktrees*/
 .wrangler/
 prototypes/
+dist-mobile/

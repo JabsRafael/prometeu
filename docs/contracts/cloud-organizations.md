@@ -42,7 +42,11 @@ As rotas antigas de conta e catálogo pessoal permanecem inalteradas.
 | --- | --- |
 | `GET /api/organizations` | Bearer desktop; `{ organizations: [{ id, slug, name, member, role }] }`, somente matrículas aceitas |
 | `POST /api/organizations/:id/relay-ticket` | Bearer desktop; JSON; `{ ticket, relay }`; exige matrícula atual |
-| `POST /api/relay/authorize` | JSON `{ ticket, organization }`; capacidade de uso único; devolve `{ organization, member, name, expires_at, members: [{ id, name }] }` ou 401 |
+| `POST /api/relay/authorize` | JSON `{ ticket, organization }`; capacidade de uso único; devolve `{ organization, member, name, expires_at, members: [{ id, name, person? }] }` ou 401 |
+| `POST /orgs/:slug/companion-ticket` | Cookie e CSRF; JSON `{ companion, label? }`; `{ ticket, relay }`; exige matrícula atual; 422 para ID inválido ou de outra pessoa |
+| `DELETE /companions/:id` | Cookie e CSRF; remove o dispositivo da pessoa e revoga seus tickets |
+| `GET /app` | Cookie; página do celular com origem canônica, usuário e matrículas em `data-*`; `connect-src` inclui o relay |
+| `GET /app/manifest` | Público; manifesto de instalação com `start_url` `/app` |
 
 `id` e `member` são identificadores opacos e estáveis, distintos do slug e do
 nome. Tickets têm 256 bits aleatórios, hash SHA-256 no banco, validade de
@@ -56,6 +60,17 @@ Cloud configurada, sem seguir redirects, e ignora identidade/nome fornecidos
 pelo cliente. Usa namespace de Durable Object `organization:<id>`, separado dos
 times legados. Matrícula por segredo compartilhado não concede acesso aqui.
 O roster do Cloud inclui membros offline, usados nas seleções de audiência.
+
+Um navegador entra como dispositivo companheiro: `companion` é um ID
+`[A-Za-z0-9_-]{16,64}` gerado pelo navegador ao lado da sua identidade privada,
+único no Cloud e ligado à pessoa que o registrou. O ticket de companheiro exige
+sessão de navegador e faz `member` ser o ID do companheiro; o roster lista cada
+companheiro com `person` igual à matrícula da pessoa naquela organização e
+`name` igual ao nome da pessoa com o rótulo entre parênteses. Tickets desktop
+continuam identificando a matrícula. Pessoas sempre cabem no roster; os
+companheiros ocupam as vagas até 64 por uso recente, no máximo cinco por pessoa.
+A remoção fica em Configurações → Dispositivos. Ver
+[ADR 0027](../decisions/0027-companion-devices.md).
 
 A conexão tem lease de no máximo 60 segundos, limitada também pela expiração
 do login. Alarme encerra sockets vencidos; entrada e saída verificam o prazo

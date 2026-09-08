@@ -1,5 +1,5 @@
 import { decodeBinary, encodeSnapshot, encryptedBinary, isEncryptedUp, parseDown, parseEncrypted, parseShare, parseUp,
-  SNAPSHOT, TEXT_FRAME_MAX, DOWN_FRAME_MAX, NOTE_TEXT_MAX, NOTE_QUOTE_MAX,
+  SNAPSHOT, TEXT_FRAME_MAX, DOWN_FRAME_MAX, NOTE_TEXT_MAX, NOTE_QUOTE_MAX, MENTIONS_MAX,
   type Down, type Encrypted, type Inbox, type Member, type Note, type Share, type Shared, type Up } from "../relay/src/protocol";
 import { decodeBase64Url, encodeBase64Url, open, seal, signIdentity } from "./team-crypto";
 import { TeamSecurity } from "./team-security";
@@ -53,9 +53,19 @@ export class TeamChannel {
     return value;
   }
 
+  /// Audiences and mentions name people; every companion device of a person receives its own box.
+  private devices(ids: Iterable<string>): string[] {
+    const out = new Set<string>();
+    for (const id of ids) {
+      out.add(id);
+      for (const m of this.members) if (m.person === id) out.add(m.id);
+    }
+    return [...out];
+  }
+
   private recipients(share: Share & { owner?: string }): string[] {
     const audience = share.audience ?? this.members.map(m => m.id);
-    return [...new Set([share.owner ?? this.self, ...audience])];
+    return this.devices([share.owner ?? this.self, ...audience]);
   }
 
   private allowed(ws: string, member: string): Shared {
@@ -96,9 +106,11 @@ export class TeamChannel {
         const share = this.allowed(frame.ws, this.self);
         if (frame.t !== "note_resolve" && (!frame.text.trim() || frame.text.length > NOTE_TEXT_MAX)) throw new Error("Invalid comment");
         if (frame.t === "note" && (frame.quote?.length ?? 0) > NOTE_QUOTE_MAX) throw new Error("Invalid quote");
-        const encrypted = await this.pack({ frame }, this.recipients(share));
-        out = frame.t === "note" ? { ...frame, text: "", quote: null, anchor: null, encrypted }
-          : frame.t === "note_reply" ? { ...frame, text: "", encrypted } : { ...frame, encrypted };
+        const plain: Up = frame.t === "note_resolve" ? frame : { ...frame, mentions: this.devices(frame.mentions) };
+        if (plain.t !== "note_resolve" && plain.mentions.length > MENTIONS_MAX) throw new Error("Too many mentions");
+        const encrypted = await this.pack({ frame: plain }, this.recipients(share));
+        out = plain.t === "note" ? { ...plain, text: "", quote: null, anchor: null, encrypted }
+          : plain.t === "note_reply" ? { ...plain, text: "", encrypted } : { ...plain, encrypted };
         break;
       }
     }

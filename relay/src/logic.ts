@@ -38,7 +38,7 @@ export type Sock = { id: string; member: string; attached: Attached };
 export type Entry = { share: Share; owner: string; online: boolean };
 
 export type State = {
-  members: Map<string, { name: string; last_seen: number; key?: string }>;
+  members: Map<string, { name: string; last_seen: number; key?: string; person?: string }>;
   socks: Map<string, Sock>;
   shares: Map<string, Entry>;
   /// Comments by workspace, in creation order.
@@ -56,7 +56,7 @@ export const empty = (): State => ({
 });
 
 export type Event =
-  | { k: "roster"; members: { id: string; name: string }[]; now: number }
+  | { k: "roster"; members: { id: string; name: string; person?: string }[]; now: number }
   | { k: "open"; sock: string; member: string; name: string; now: number }
   | { k: "close"; sock: string; now: number }
   | { k: "text"; sock: string; frame: unknown; now: number; rand: string }
@@ -75,7 +75,7 @@ export type Effect =
 const online = (s: State, member: string) => [...s.socks.values()].some((k) => k.member === member);
 
 export function members(s: State): Member[] {
-  return [...s.members].map(([id, m]) => ({ id, name: m.name, online: online(s, id), ...(m.key ? { key: m.key } : {}) }));
+  return [...s.members].map(([id, m]) => ({ id, name: m.name, online: online(s, id), ...(m.key ? { key: m.key } : {}), ...(m.person ? { person: m.person } : {}) }));
 }
 
 const socksOf = (s: State, member: string) =>
@@ -308,7 +308,8 @@ export function reduce(s: State, ev: Event): Effect[] {
         s.inbox.delete(id);
       }
       for (const member of ev.members) {
-        const value = { ...s.members.get(member.id), name: member.name, last_seen: s.members.get(member.id)?.last_seen ?? ev.now };
+        const { person: _previous, ...known } = s.members.get(member.id) ?? {};
+        const value = { ...known, name: member.name, last_seen: s.members.get(member.id)?.last_seen ?? ev.now, ...(member.person ? { person: member.person } : {}) };
         s.members.set(member.id, value);
         out.push({ e: "put", key: `member:${member.id}`, value: { id: member.id, ...value } });
       }
@@ -670,7 +671,7 @@ export function hydrate(rows: Iterable<[string, unknown]>, socks: Sock[]): State
       const member = key.slice("member:".length);
       const name = normalizeName(v.name);
       if (isId(member) && name && typeof v.last_seen === "number" && Number.isFinite(v.last_seen) && (v.key === undefined || isPublicKey(v.key))) {
-        s.members.set(member, { name, last_seen: v.last_seen, ...(isPublicKey(v.key) ? { key: v.key } : {}) });
+        s.members.set(member, { name, last_seen: v.last_seen, ...(isPublicKey(v.key) ? { key: v.key } : {}), ...(isId(v.person) && v.person !== member ? { person: v.person } : {}) });
       }
     } else if (key.startsWith("share:")) {
       const ws = key.slice("share:".length);
