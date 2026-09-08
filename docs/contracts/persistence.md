@@ -25,6 +25,7 @@ isoladas.
 | quadro | `<root>/board.json` | `state.rs` |
 | backup do quadro | ao lado de `board.json` | `state.rs` |
 | time e credencial | `<root>/team.json` | `team.rs` |
+| identidades E2EE, vínculos TOFU e replay | `<root>/team-security.json` | `team.rs` (arquivo), `team-security.ts` (schema interno) |
 | conta opcional do Prometeu | `<root>/cloud.json` | `cloud.rs`; ver [contrato](cloud-account.md) |
 | cache e vínculos do catálogo na nuvem | `<root>/catalog.json` (`catalog.local.json` é backup legado) | `catalog.rs`; ver [contrato](cloud-catalog.md) |
 | skills instaladas e pacotes | `<root>/skills.json`, `<root>/skills-packages/<id>/` | `skills.rs`; ver [catálogo](cloud-catalog.md) |
@@ -54,6 +55,33 @@ Os dois aplicativos podem permanecer instalados e abertos sem compartilhar
 estado antes da migração. A importação abaixo é explícita, cria backup e não
 apaga a origem; depois dela, os worktrees adotados não devem ser operados pelos
 dois aplicativos ao mesmo tempo.
+
+## Segurança da colaboração
+
+`team-security.json` é aditivo, privado (`0600` em diretório `0700`), com escrita
+atômica e limite de 8 MiB. O envelope é `{ version: 1, scopes: { ... } }`.
+Cada escopo combina origem, organização/time, conta Cloud local e matrícula.
+Contém identidade P-256 (JWK privada e chave pública), vínculos de membros,
+sequência de anúncios, último dono/chave/revisão/ID por share, recibos de falas
+remotas e relógio do último consumo. Limites: 64 vínculos, 4096 shares e 4096
+recibos não expirados por escopo. Recibos expiram em até dois minutos.
+
+Criação da identidade, primeiro vínculo, aceitação de chave, revisão e recibo
+são gravados antes do uso correspondente. Corrupção, versão desconhecida e
+falha de leitura/gravação bloqueiam colaboração; não regeneram chaves em
+silêncio. Saída do time, troca de organização, logout e renovação de ticket
+não removem o arquivo. As operações da webview são serializadas; a escrita
+Rust usa o mesmo lock durante leitura/validação/gravação.
+
+O arquivo contém segredos e não é backup cifrado nem chave de conteúdo no
+servidor. Perdê-lo perde continuidade de TOFU e acesso aos comentários cifrados
+para a identidade antiga. Um novo dispositivo exige aceitação da nova chave
+pelos colegas. Rollback ignora e preserva o arquivo; nunca o converte em
+credenciais v3. O mock de navegador guarda somente identidades fictícias em
+localStorage e exercita o mesmo canal criptográfico.
+
+Testes: `src/team-security.test.ts` e testes de `src-tauri/src/team.rs`.
+Contrato de rede e limites: [relay v4](relay-v4.md).
 
 ## Importação do Prometheus
 

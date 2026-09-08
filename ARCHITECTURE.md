@@ -26,8 +26,9 @@ flowchart LR
 ```
 
 O processo do agente e os arquivos do workspace têm as permissões do usuário
-local. O worktree separa alterações Git, mas não é sandbox. O relay recebe
-conteúdo compartilhado em texto legível pelo operador.
+local. O worktree separa alterações Git, mas não é sandbox. Conteúdo compartilhado
+usa E2EE v4; o relay recebe ciphertext e metadados de roteamento. A identidade
+inicial é aceita pelo diretório do servidor (TOFU). Ver [limites](docs/decisions/0022-end-to-end-encryption.md).
 
 ## Containers e responsabilidades
 
@@ -97,6 +98,8 @@ quando há novidades. Veja [contrato](docs/contracts/actions.md) e
 - Contas dos agentes e seleção global ficam em `<root>/accounts.json`;
   `accounts.rs` coordena os perfis locais e os adapters executam o login oficial.
 - O estado do time fica em `~/.prometeu/team.json`, com permissão privada.
+- Identidades privadas, TOFU e recibos ficam em `team-security.json`;
+  `team-channel.ts` é a fronteira de conteúdo cifrado da webview.
 - O relay persiste apenas dados necessários para colaboração e membros offline.
 
 Formatos e compatibilidade estão em
@@ -108,7 +111,7 @@ Há três contratos que exigem compatibilidade explícita:
 
 1. Frontend ↔ Rust: comandos IPC e eventos Tauri.
 2. Backend ↔ processo do agente: adapters de stream-json e JSON-RPC para o V1.
-3. App ↔ relay: protocolo `PROTO = 3`, texto JSON e frames binários.
+3. App ↔ relay: protocolo `PROTO = 4`, texto JSON e frames binários.
 
 O terceiro já possui uma fonte única tipada e validada em
 `relay/src/protocol.ts`. O primeiro tipa nomes de comandos, mas ainda não gera
@@ -124,7 +127,8 @@ diretamente o JSON-RPC do Codex; ambos dependem das primitivas canônicas de
 - Estado persistido muda no backend e é publicado para o frontend.
 - Regras puras devem permanecer testáveis sem DOM, Tauri ou rede.
 - O frontend não acessa filesystem ou processo diretamente; usa IPC.
-- O relay valida toda entrada e aplica audiência no servidor.
+- O relay valida toda entrada e aplica audiência no servidor; o cliente também
+  autentica conteúdo e aplica a audiência, sem confiar em `watch` como autorização.
 - Compatibilidade de transcript e board tem precedência sobre limpeza estética.
 - Diferenças de suporte visíveis na UI usam `AgentCapabilities`; dispatch por
   `ProviderId` fica no catálogo ou nos adapters. `npm run architecture:check`

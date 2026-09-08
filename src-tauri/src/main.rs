@@ -222,6 +222,8 @@ fn main() {
             migration::legacy_import_run,
             team::team_config,
             team::team_config_set,
+            team::team_security,
+            team::team_security_set,
             cloud::cloud_status,
             cloud::cloud_organizations,
             cloud::cloud_relay_ticket,

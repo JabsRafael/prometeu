@@ -29,6 +29,7 @@ let revealSelected = false;
 let redrawPending = false;
 const drafts = new Map<string, Draft>();
 const replies = new Map<string, string>();
+const sending = new Set<string>();
 
 const draftKey = (ws: string, tab: string) => `${ws}\0${tab}`;
 const isRoot = (note: Note) => !note.parent;
@@ -214,13 +215,17 @@ function draftCard(ws: string, draft: Draft): HTMLElement {
     typedMention(area, () => (draft.text = area.value));
   };
   area.onblur = drawAfterBlur;
-  const submit = () => {
+  const submit = async () => {
     const text = area.value.trim();
-    if (!text) return;
-    const sent = team.addNote(ws, draft.tab, draft.anchor, text, mentionsIn(text), draft.quote);
-    if (!sent) return ctx.say(t("err.team.down"), true);
-    drafts.delete(draftKey(ws, draft.tab));
-    render();
+    const key = draftKey(ws, draft.tab);
+    if (!text || sending.has(key)) return;
+    sending.add(key);
+    try {
+      const sent = await team.addNote(ws, draft.tab, draft.anchor, text, mentionsIn(text), draft.quote);
+      if (!sent) return ctx.say(t("err.team.down"), true);
+      if (drafts.get(key) === draft && draft.text.trim() === text) drafts.delete(key);
+      render();
+    } finally { sending.delete(key); }
   };
   area.onkeydown = (event) => commentKey(event, submit);
   const mention = card.querySelector<HTMLButtonElement>(".mention")!;
@@ -302,12 +307,15 @@ function threadDetail(ws: string, root: Note, items: Note[]): HTMLElement {
     typedMention(area, () => replies.set(root.id, area.value));
   };
   area.onblur = drawAfterBlur;
-  const submit = () => {
+  const submit = async () => {
     const text = area.value.trim();
-    if (!text) return;
-    if (!team.replyNote(ws, root.id, text, mentionsIn(text))) return ctx.say(t("err.team.down"), true);
-    replies.delete(root.id);
-    render();
+    if (!text || sending.has(root.id)) return;
+    sending.add(root.id);
+    try {
+      if (!(await team.replyNote(ws, root.id, text, mentionsIn(text)))) return ctx.say(t("err.team.down"), true);
+      if (replies.get(root.id)?.trim() === text) replies.delete(root.id);
+      render();
+    } finally { sending.delete(root.id); }
   };
   area.onkeydown = (event) => commentKey(event, submit);
   const mention = answer.querySelector<HTMLButtonElement>(".mention")!;
@@ -317,8 +325,8 @@ function threadDetail(ws: string, root: Note, items: Note[]): HTMLElement {
   const resolve = answer.querySelector<HTMLButtonElement>(".resolve")!;
   resolve.innerHTML = `${icon("check", 12)}<span></span>`;
   resolve.querySelector("span")!.textContent = t("notes.resolve");
-  resolve.onclick = () => {
-    if (!team.resolveNote(ws, root.id)) ctx.say(t("err.team.down"), true);
+  resolve.onclick = async () => {
+    if (!(await team.resolveNote(ws, root.id))) ctx.say(t("err.team.down"), true);
   };
   const send = answer.querySelector<HTMLButtonElement>(".submit")!;
   send.textContent = t("notes.reply.send");

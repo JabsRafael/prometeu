@@ -13,7 +13,8 @@ para virar capacidade contratual.
 
 | Capacidade | Claude | Codex | Evidência principal |
 | --- | --- | --- | --- |
-| organizações, convites e compartilhamento institucional | mesmo relay V3; execução local | mesmo relay V3; execução local | `team-organizations.test.ts`, `worker.integration.test.ts`, `e2e/organizations.spec.ts`, integração/browser Rails |
+| organizações, convites e compartilhamento institucional | mesmo relay V4; execução local | mesmo relay V4; execução local | `team-organizations.test.ts`, `worker.integration.test.ts`, `e2e/organizations.spec.ts`, integração/browser Rails |
+| E2EE automática com TOFU na colaboração | mesmo canal HPKE Auth; sem forward secrecy | mesmo canal HPKE Auth; sem forward secrecy | `team-crypto.test.ts`, `team-security.test.ts`, `team-channel.test.ts`, `worker.integration.test.ts`, comentários E2E Chromium/WebKit |
 | conta opcional do Prometeu na barra lateral | independente do CLI | independente do CLI | `cloud.rs`, `e2e/cloud.spec.ts`; nenhum transcript é enviado |
 | catálogo de plugins, MCP e Ações na conta | independente do CLI | independente do CLI | `catalog.rs`, `catalog_test.rb`; segredos e instalação ficam por Mac |
 | formulário de Ações com componentes compartilhados | mesma UI | mesma UI; opções vêm do catálogo | `e2e/ui.spec.ts`, `e2e/actions.spec.ts`, Chromium e WebKit |

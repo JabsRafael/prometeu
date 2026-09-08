@@ -51,7 +51,7 @@ Remover matrícula, excluir organização ou revogar sessão impede uso do ticke
 O Bearer desktop permanece no Rust e no Cloud; nunca chega ao relay/webview.
 
 O Rust valida a origem `relay` e devolve somente uma URL WSS com ticket curto.
-O frontend conecta a `/organization/:id?ticket=…&p=3`. O relay consulta a origem
+O frontend conecta a `/organization/:id?ticket=…&p=4`. O relay consulta a origem
 Cloud configurada, sem seguir redirects, e ignora identidade/nome fornecidos
 pelo cliente. Usa namespace de Durable Object `organization:<id>`, separado dos
 times legados. Matrícula por segredo compartilhado não concede acesso aqui.
@@ -70,8 +70,10 @@ pode substituir essa estratégia se o custo justificar. Alarme utiliza a
 [API nativa de Durable Objects](https://developers.cloudflare.com/durable-objects/api/alarms/).
 
 Processos e transcripts continuam no Mac do dono. O relay encaminha conteúdo
-compartilhado e conserva comentários/metadados; o Rails recebe somente identidade,
-matrículas e definições portáteis. A fronteira não oferece criptografia ponta a ponta.
+cifrado e conserva comentários cifrados/metadados; o Rails recebe somente identidade,
+matrículas e definições portáteis. O [relay v4](relay-v4.md) acrescenta E2EE com
+TOFU e identidades locais independentes dos tickets. Os limites, incluindo
+ausência de forward secrecy, estão no [ADR 0022](../decisions/0022-end-to-end-encryption.md).
 
 ## IPC, consentimento e compatibilidade
 
@@ -91,7 +93,9 @@ novo escopo. Snapshot pendente captura a conexão de origem e é descartado apó
 troca de conexão ou revogação do compartilhamento. Frames antigos não alteram
 estado da nova conexão. Selecionar organização não publica workspaces sozinho.
 
-Times legados continuam com o protocolo v3 e suas credenciais existentes.
+Times legados preservam suas credenciais, mas o desktop atualizado exige v4.
+O relay lê/grava colaboração em `v4:`; dados v3 ficam intactos e não são
+mostrados pelo cliente novo. Não há conversão de comentários v3 nem downgrade.
 Criação, códigos de convite e edição de membros saem da UI desktop. A primeira
 troca de uma configuração legada por organização conserva cópia privada em
 `<root>/team-legacy-<uuid>.json`. Não é possível inferir emails das identidades
@@ -103,7 +107,8 @@ workspace novamente por escolha. Conversas locais e storage legado não mudam.
 1. Publique Cloud e sua migração aditiva, preservando snapshot SQLite.
 2. Publique relay com `CLOUD_URL` apontando para esse Cloud (padrão `https://app.prometeu.co`).
 3. Configure `RELAY_URL` no Cloud para o relay publicado (padrão atual do produto).
-4. Distribua desktop atualizado. Clientes antigos continuam nos times legados.
+4. Distribua desktop v4 após o relay v4. Clientes v3 exigem o relay antigo;
+   o relay atualizado recusa conexões v3.
 
 Local: Cloud usa `RELAY_URL=http://127.0.0.1:8787`; relay usa
 `CLOUD_URL=http://127.0.0.1:3100` em `relay/.dev.vars`; desktop usa
@@ -114,7 +119,8 @@ organizações reais, pois removeria dados novos. Preserve dados de organizaçõ
 convites e catálogos durante a janela de compatibilidade. Desktop antigo pode
 restaurar explicitamente a cópia de `team.json` legado; nunca converta consentimento
 institucional em compartilhamento legado. Nenhum deploy ou envio de email real
-faz parte da validação local.
+faz parte da validação local. Rollback para v3 não conserva E2EE: preserva
+o namespace v4, mas restaura a fronteira de conteúdo legível do protocolo antigo.
 
 ## Evidência
 
