@@ -942,8 +942,29 @@ mod tests {
     /// arguments.
     #[test]
     fn a_tabela_do_codex_nao_carrega_segredo() {
-        let root = std::env::temp_dir().join(format!("prometeu-codex-{}", uuid::Uuid::new_v4()));
-        std::env::set_var("PROMETEU_ROOT", &root);
+        // Keep the fixture root in a child process so parallel tests cannot redirect hub reads.
+        if std::env::var("PROMETEU_MCP_TEST_CHILD").as_deref() != Ok("1") {
+            let root =
+                std::env::temp_dir().join(format!("prometeu-codex-{}", uuid::Uuid::new_v4()));
+            let result = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "mcp::tests::a_tabela_do_codex_nao_carrega_segredo",
+                    "--nocapture",
+                ])
+                .env("PROMETEU_MCP_TEST_CHILD", "1")
+                .env("PROMETEU_ROOT", &root)
+                .output()
+                .unwrap();
+            std::fs::remove_dir_all(&root).ok();
+            assert!(
+                result.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            return;
+        }
         let hub = vec![
             Server {
                 id: "remoto".into(),
@@ -972,7 +993,6 @@ mod tests {
         let (table, env) = codex_config("aba", Some(&chosen))
             .expect("sem erro")
             .expect("há escolha");
-        std::env::remove_var("PROMETEU_ROOT");
 
         // No secret may appear anywhere in the command line.
         assert!(!table.contains("abracadabra"), "{table}");
@@ -982,7 +1002,6 @@ mod tests {
         // Only commands with environment overrides need a shell wrapper.
         assert!(table.contains("/bin/sh"), "{table}");
         assert!(table.contains("\"node\",args=[\"s.js\"]"), "{table}");
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// Without an explicit selection, do not generate a configuration file or change legacy startup

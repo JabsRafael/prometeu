@@ -1088,8 +1088,10 @@ mod account_tests {
 #[cfg(test)]
 mod launch_tests {
     use super::launch_args;
+    use crate::paths;
     use crate::session::Launch;
     use crate::state::ProviderId;
+    use std::process::Command;
 
     fn launch(model: &str, effort: &str, plan: bool) -> Launch {
         Launch {
@@ -1128,25 +1130,44 @@ mod launch_tests {
     /// generated file and strict configuration.
     #[test]
     fn mcp_so_entra_quando_alguem_escolheu() {
+        // Use the existing subprocess pattern instead of changing the shared test environment.
+        if std::env::var("PROMETEU_CLAUDE_MCP_TEST_CHILD").as_deref() != Ok("1") {
+            let root = std::env::temp_dir().join(format!("prometeu-mcp-{}", uuid::Uuid::new_v4()));
+            let result = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "claude::launch_tests::mcp_so_entra_quando_alguem_escolheu",
+                    "--nocapture",
+                ])
+                .env("PROMETEU_CLAUDE_MCP_TEST_CHILD", "1")
+                .env("PROMETEU_ROOT", &root)
+                .output()
+                .unwrap();
+            std::fs::remove_dir_all(&root).ok();
+            assert!(
+                result.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            return;
+        }
         let sem = launch_args("id", false, &launch("", "", false)).unwrap();
         assert!(!sem.contains(&"--mcp-config".to_string()));
         assert!(!sem.contains(&"--strict-mcp-config".to_string()));
 
-        let root = std::env::temp_dir().join(format!("prometeu-mcp-{}", uuid::Uuid::new_v4()));
-        std::env::set_var("PROMETEU_ROOT", &root);
         let escolheu = Launch {
             mcp: Some(vec!["notion".into()]),
             ..launch("", "", false)
         };
         let args = launch_args("id", false, &escolheu).unwrap();
-        std::env::remove_var("PROMETEU_ROOT");
         let at = args
             .iter()
             .position(|a| a == "--mcp-config")
             .expect("o arquivo");
         assert!(std::path::Path::new(&args[at + 1]).exists());
+        assert!(std::path::Path::new(&args[at + 1]).starts_with(paths::root()));
         assert!(args.contains(&"--strict-mcp-config".to_string()));
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// Without a plugin selection, preserve CLI defaults. Selected-plugin flag coverage belongs to
