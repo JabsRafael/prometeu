@@ -88,6 +88,9 @@ ausência de forward secrecy, estão no [ADR 0022](../decisions/0022-end-to-end-
   workspace. Organização usa `organization:<id>:<member>`. Time legado usa
   `team:<id>`. Ausência em boards antigos só autoriza o caminho legado.
 
+Com exatamente uma matrícula aceita, o desktop a ativa sozinho ao listar as
+organizações; sair guarda essa decisão em `localStorage` (`prometeu:organizacao-saida`),
+preferência local por máquina que desliga o atalho até a próxima escolha explícita.
 Escolher outra organização ou conta nunca anuncia os shares anteriores nesse
 novo escopo. Snapshot pendente captura a conexão de origem e é descartado após
 troca de conexão ou revogação do compartilhamento. Frames antigos não alteram

@@ -249,14 +249,22 @@ export async function refreshOrganizations(value: CloudStatus) {
       }
     }
     changed();
+    // A single organization needs no choice; an explicit leave still wins over the shortcut.
+    if (!cfg && organizations.length === 1 && organizations[0].id !== leftOrganization())
+      await selectOrganization(organizations[0].id);
   } catch (error) {
     if (request === organizationRequest) fail?.(fromBack(error));
   }
 }
 
+/// Local preference: the organization the person last left on this machine.
+const LEFT_KEY = "prometeu:organizacao-saida";
+const leftOrganization = () => globalThis.localStorage?.getItem(LEFT_KEY) ?? null;
+
 export async function selectOrganization(id: string) {
   const org = organizations.find(item => item.id === id);
   if (!org || !account.user) throw t("err.cloud.response");
+  globalThis.localStorage?.removeItem(LEFT_KEY);
   await adopt({ relay: null, team: org.id, secret: "", credential: "", member: org.member, name: account.user.name,
     cloud: { user: account.user.id, origin: account.origin, slug: org.slug, name: org.name } });
 }
@@ -630,6 +638,7 @@ export async function join(code: string, name: string) {
 }
 
 export async function leave() {
+  if (cfg?.cloud) globalThis.localStorage?.setItem(LEFT_KEY, cfg.team);
   disconnect();
   reset();
   cfg = null;

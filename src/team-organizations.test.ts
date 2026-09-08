@@ -122,3 +122,21 @@ it("discards a pending relay ticket after logout and drops revoked membership", 
   expect(team.status().config).toBeNull();
   expect(team.status().phase).toBe("off");
 });
+
+it("adopts the only accepted organization and stops after an explicit leave", async () => {
+  const storage = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => storage.set(key, value),
+    removeItem: (key: string) => storage.delete(key),
+  });
+  const previous = fake.invoke.getMockImplementation()!;
+  fake.invoke.mockImplementation((command, args) => command === "cloud_organizations"
+    ? Promise.resolve({ ...account, organizations: [fake.organizations[0]] }) : previous(command, args));
+  await team.refreshOrganizations(account); await vi.advanceTimersByTimeAsync(0);
+  expect(team.status().config).toMatchObject({ team: "organization1", member: "membership1" });
+  await team.leave();
+  await team.refreshOrganizations(account); await vi.advanceTimersByTimeAsync(0);
+  expect(team.status().config).toBeNull();
+  vi.unstubAllGlobals();
+});
