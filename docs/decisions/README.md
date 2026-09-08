@@ -58,3 +58,4 @@ Status: Proposto
 | [0020](0020-personal-catalog-and-local-items.md) | Parcialmente substituído pelo 0021 | autoria no SaaS e compartilhamento explícito de itens locais |
 
 | [0021](0021-cloud-organizations.md) | Aceito | organizações, convites por email e colaboração autorizada pelo Cloud |
+| [0022](0022-end-to-end-encryption.md) | Aceito | criptografia ponta a ponta na colaboração |

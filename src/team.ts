@@ -27,6 +27,9 @@ import { AttachLifecycle } from "./attach-lifecycle";
 import { invoke } from "./ipc";
 import { Mirror } from "./mirror";
 import { remoteControl } from "./team-control";
+import { TeamSecurity } from "./team-security";
+import { TeamChannel } from "./team-channel";
+import { fingerprint } from "./team-crypto";
 import {
   defaultTransport,
   wsUrl as transportWsUrl,
@@ -74,6 +77,45 @@ let organizations: Organization[] = [];
 let account: CloudStatus = { user: null, origin: "", offline: false };
 let organizationRequest = 0;
 let connection = 0;
+let channel: TeamChannel | null = null;
+let wireQueue: Promise<void> = Promise.resolve();
+let queuedWireBytes = 0;
+let identityLoading: Promise<unknown> = Promise.resolve();
+const accessVersions = new Map<string, number>();
+const pendingAudience = new Map<string, string[] | null | false>();
+
+const cryptoScope = (c: TeamConfig) => JSON.stringify(c.cloud
+  ? ["organization", c.cloud.origin, c.team]
+  : ["team", relayOf(c), c.team]);
+const privateScope = (c: TeamConfig) => JSON.stringify([cryptoScope(c), c.cloud?.user ?? "", c.member]);
+
+function encryptedWork(bytes: number, work: () => Promise<void>) {
+  if (queuedWireBytes + bytes > 16 * 1024 * 1024) {
+    fail?.(t("err.team.encryption")); return false;
+  }
+  const generation = connection;
+  queuedWireBytes += bytes;
+  wireQueue = wireQueue.then(async () => {
+    if (generation === connection) await work();
+  }).catch(() => {
+    if (generation === connection) fail?.(t("err.team.encryption"));
+  }).finally(() => { queuedWireBytes -= bytes; });
+  return true;
+}
+
+export const securityChanges = () => channel?.security.changedKeys() ?? [];
+export const securityCode = (member?: string) => channel?.security.code(member) ?? Promise.reject(t("err.team.encryption"));
+export async function securityChangeCodes(member: string) {
+  const change = channel?.security.changedKeys().find(c => c.member === member);
+  if (!change) throw t("err.team.encryption");
+  return { previous: await fingerprint(change.previous), next: await fingerprint(change.next) };
+}
+export async function acceptSecurityKey(member: string, expectedKey: string) {
+  await wireQueue;
+  if (!channel || channel.security.changedKeys().find(c => c.member === member)?.next !== expectedKey) throw t("err.team.encryption");
+  await channel.security.accept(member);
+  disconnect(); void connect(); changed();
+}
 
 export type Phase = "off" | "connecting" | "online";
 
@@ -85,7 +127,7 @@ const RELAY = "wss://prometeu-relay.prometheus-capim.workers.dev";
 /// aba. O relay limita a mensagem a 1 MB; a conversa inteira (até 4 MB, o que
 /// o back guarda) vai em quantas partes precisar, cortadas em linha inteira —
 /// meia linha de JSON não é nada.
-const SNAPSHOT_PART = 512 * 1024;
+const SNAPSHOT_PART = 128 * 1024;
 /// Quanto a saída espera antes de sair num frame só. O relay cobra por
 /// mensagem recebida; a tela do colega não distingue 40 ms.
 const COALESCE = 40;
@@ -211,7 +253,7 @@ export async function init() {
   // Toda linha de toda conversa passa aqui; o que é de aba que alguém está
   // olhando vai para o relay.
   listen<[string, string, number]>("chat", ({ payload: [key, line, seq] }) => output(key, line, seq));
-  if (cfg && !cfg.cloud) void connect();
+  if (cfg && !cfg.cloud) await connect();
 }
 
 export async function refreshOrganizations(value: CloudStatus) {
@@ -301,6 +343,15 @@ async function connect() {
   const c = cfg;
   let url: string;
   try {
+    await wireQueue;
+    const loading = identityLoading.catch(() => {}).then(() => TeamSecurity.load(privateScope(c), () => invoke("team_security"), state => invoke("team_security_set", { state })));
+    identityLoading = loading;
+    const security = await loading;
+    if (generation !== connection) return;
+    channel = new TeamChannel(security, cryptoScope(c), c.member);
+    for (const workspace of lastBoard?.workspaces ?? []) {
+      if (sharedHere(workspace) && !workspace.remote && !workspace.archived && !workspace.cleaned) channel.own(toShare(workspace));
+    }
     if (c.cloud) {
       if (account.user?.id !== c.cloud.user || account.origin !== c.cloud.origin) return;
       phase = "connecting"; changed();
@@ -359,9 +410,25 @@ async function connect() {
       }
       const frame = parseDown(raw);
       if (!frame) return;
-      handle(frame);
+      const activeChannel = channel;
+      if (!activeChannel) return;
+      encryptedWork(ev.data.length, async () => {
+        const plain = await activeChannel.incoming(frame);
+        if (sock !== s) return;
+        if (frame.t === "welcome") {
+          const identity = await activeChannel.identity(frame.challenge!);
+          if (sock === s) s.send(JSON.stringify(identity));
+        }
+        if (plain) handle(plain);
+        changed();
+      });
     } else if (ev.data instanceof ArrayBuffer) {
-      binary(ev.data);
+      const data = ev.data;
+      const activeChannel = channel;
+      if (activeChannel) encryptedWork(data.byteLength, async () => {
+        const plain = await activeChannel.incomingBinary(data);
+        if (sock === s) binary(plain.buffer.slice(plain.byteOffset, plain.byteOffset + plain.byteLength) as ArrayBuffer);
+      });
     }
   };
   s.onclose = () => {
@@ -373,6 +440,8 @@ async function connect() {
     for (const sh of shares.values()) sh.online = false;
     announced.clear();
     watchers.clear();
+    holding.clear(); queue.clear(); queued = 0;
+    clearTimeout(flushTimer); flushTimer = 0;
     phase = cfg ? "connecting" : "off";
     changed();
     if (cfg) retry = setTimeout(connect, backoff());
@@ -399,18 +468,52 @@ function disconnect() {
   sock = null;
   s?.close();
   phase = "off";
+  channel = null;
+  holding.clear(); queue.clear(); queued = 0;
+  clearTimeout(flushTimer); flushTimer = 0;
 }
 
-function send(frame: Up): boolean {
-  if (!sock || phase !== "online") return false;
-  sock.send(JSON.stringify(frame));
-  return true;
+function send(frame: Up, completion?: (sent: boolean) => void): boolean {
+  if (!sock || phase !== "online" || !channel) return false;
+  const current = sock, active = channel;
+  const ws = frame.t === "share" ? frame.share.id : "ws" in frame ? frame.ws : undefined;
+  const content = frame.t === "write" || frame.t === "note" || frame.t === "note_reply" || frame.t === "note_resolve";
+  if (ws && content && pendingAudience.has(ws)) return false;
+  if (ws && (frame.t === "share" || frame.t === "unshare")) accessVersions.set(ws, (accessVersions.get(ws) ?? 0) + 1);
+  const version = ws ? accessVersions.get(ws) : undefined;
+  return encryptedWork(JSON.stringify(frame).length, async () => {
+    try {
+      if (ws && (version !== accessVersions.get(ws) || (content && pendingAudience.has(ws)))) { completion?.(false); return; }
+      const encrypted = await active.outgoing(frame);
+      const valid = sock === current && (!ws || (version === accessVersions.get(ws) && (!content || !pendingAudience.has(ws))));
+      if (valid) current.send(JSON.stringify(encrypted));
+      completion?.(valid);
+    } catch (error) { completion?.(false); throw error; }
+  });
+}
+
+function sendConfirmed(frame: Up): Promise<boolean> {
+  return new Promise(resolve => {
+    const generation = connection;
+    if (!send(frame, resolve)) resolve(false);
+    // A canceled connection skips queued operations, including their callback.
+    wireQueue.finally(() => { if (generation !== connection) resolve(false); });
+  });
 }
 
 function sendBinary(data: Uint8Array): boolean {
-  if (!sock || phase !== "online") return false;
-  sock.send(data);
-  return true;
+  if (!sock || phase !== "online" || !channel) return false;
+  const current = sock, active = channel;
+  const inner = decodeBinary(data);
+  if (!inner) return false;
+  const ws = lastBoard?.workspaces.find(w => w.tabs.some(t => t.id === inner.tab))?.id;
+  const version = ws ? accessVersions.get(ws) : undefined;
+  return encryptedWork(data.length, async () => {
+    if (!mine(inner.tab) || (ws && version !== accessVersions.get(ws))) return;
+    if (inner.kind === SNAPSHOT && !canReceive(inner.tab, inner.to)) return;
+    const encrypted = await active.outgoingBinary(data, (watchers.get(inner.tab) ?? []).filter(member => canReceive(inner.tab, member)));
+    if (sock === current && mine(inner.tab) && (!ws || version === accessVersions.get(ws))) for (const frame of encrypted) current.send(frame);
+  });
 }
 
 /* ---------- o que chega ---------- */
@@ -458,6 +561,8 @@ function handle(frame: Down) {
       break;
     case "presence":
       members = frame.members;
+      announced.clear();
+      if (lastBoard) boardChanged(lastBoard);
       break;
     case "share":
       shares.set(frame.share.id, frame.share);
@@ -526,7 +631,7 @@ async function adopt(next: TeamConfig) {
   reset();
   cfg = next;
   attempt = 0;
-  connect();
+  await connect();
   changed();
 }
 
@@ -548,6 +653,7 @@ function reset() {
   mirror.clear();
   remoteIds.clear();
   notes.clear();
+  accessVersions.clear(); pendingAudience.clear();
 }
 
 const cleanName = (name: string) => {
@@ -673,13 +779,38 @@ const tabOwnedBy = (tab: string, ids: Set<string>) =>
 
 /// A aba pertence a um workspace meu, anunciado agora.
 const mine = (tab: string) => tabOwnedBy(tab, new Set(announced.keys()));
+function canReceive(tab: string, member: string): boolean {
+  const w = lastBoard?.workspaces.find(w => w.tabs.some(t => t.id === tab));
+  if (!w || !sharedHere(w) || w.archived || w.cleaned || !channel?.security.key(member)) return false;
+  const audience = pendingAudience.has(w.id) ? pendingAudience.get(w.id) : w.audience;
+  return audience !== false && (!audience || audience.includes(member));
+}
 
 /// Compartilha com o time inteiro (`null`), com alguns (ids de membros), ou
 /// para (`false`). Lista vazia é parar: não há "compartilhado com ninguém".
 export async function share(id: string, audience: string[] | null | false) {
   const on = audience !== false && (audience === null || audience.length > 0);
   if (on && !cfg) throw t("err.team.noRelay");
-  await invoke("set_shared", { id, shared: on, audience: on ? audience : null, team: on ? shareScope() : null });
+  if (pendingAudience.has(id)) throw t("err.team.encryption");
+  const generation = connection;
+  pendingAudience.set(id, on ? audience : false);
+  accessVersions.set(id, (accessVersions.get(id) ?? 0) + 1);
+  try {
+    await invoke("set_shared", { id, shared: on, audience: on ? audience : null, team: on ? shareScope() : null });
+    if (generation !== connection) return;
+    // IPC completion can precede the board event. Presence must not reannounce
+    // the old audience during that gap.
+    if (lastBoard) lastBoard = { ...lastBoard, workspaces: lastBoard.workspaces.map(w => w.id === id
+      ? { ...w, shared: on, audience: on ? audience as string[] | null : null, share_team: on ? shareScope() : null } : w) };
+    const w = lastBoard?.workspaces.find(w => w.id === id);
+    if (w && on) {
+      const updated = { ...toShare(w), audience: audience as string[] | null };
+      channel?.own(updated);
+      if (phase === "online" && !await sendConfirmed({ t: "share", share: updated })) throw t("err.team.encryption");
+    } else if (!on && phase === "online") {
+      if (!await sendConfirmed({ t: "unshare", ws: id })) throw t("err.team.encryption");
+    }
+  } finally { if (generation === connection) pendingAudience.delete(id); }
 }
 
 const shareScope = () => cfg?.cloud ? `organization:${cfg.team}:${cfg.member}` : cfg ? `team:${cfg.team}` : null;
@@ -691,6 +822,8 @@ export const watchersOf = (tab: string): string[] => (watchers.get(tab) ?? []).m
 
 function watched(tab: string, who: string[], added: string[]) {
   if (!mine(tab)) return;
+  who = who.filter(member => canReceive(tab, member));
+  added = added.filter(member => canReceive(tab, member));
   if (who.length) watchers.set(tab, who);
   else watchers.delete(tab);
   for (const member of added) void snapshot(tab, member);
@@ -700,7 +833,8 @@ function watched(tab: string, who: string[], added: string[]) {
 function rewatch(watching: Watching) {
   watchers.clear();
   for (const tabs of Object.values(watching)) {
-    for (const [tab, who] of Object.entries(tabs)) {
+    for (const [tab, raw] of Object.entries(tabs)) {
+      const who = raw.filter(member => canReceive(tab, member));
       if (!who.length || !mine(tab)) continue;
       watchers.set(tab, who);
       for (const member of who) void snapshot(tab, member);
@@ -712,7 +846,7 @@ function rewatch(watching: Watching) {
 /// ela não sai toda, as linhas ao vivo da aba ficam presas: uma que saísse na
 /// frente e não estivesse na conversa seria ignorada do outro lado — e perdida.
 async function snapshot(tab: string, member: string) {
-  if (!mine(tab)) return;
+  if (!mine(tab) || !canReceive(tab, member)) return;
   const generation = connection;
   holding.set(tab, (holding.get(tab) ?? 0) + 1);
   try {
@@ -779,6 +913,9 @@ function flush() {
 /// para um processo de verdade.
 function typed(ws: string, tab: string, data: string, from: string) {
   if (!announced.has(ws) || !mine(tab)) return;
+  const workspace = lastBoard?.workspaces.find(w => w.id === ws);
+  const audience = pendingAudience.has(ws) ? pendingAudience.get(ws) : workspace?.audience;
+  if (audience === false || (audience && !audience.includes(from)) || !channel?.security.key(from)) return;
   const parsed = remoteControl(data);
   if (parsed.recognized) {
     if (parsed.frame) void invoke("chat_control_remote", { session: tab, frame: parsed.frame }).catch(() => {});
@@ -970,19 +1107,19 @@ export function notesOf(id: string): Note[] {
 /// `mentions` são ids de membros — o relay descarta quem não existe. Devolve
 /// se o pedido saiu: sem conexão o comentário não vai a lugar nenhum, e quem
 /// escreveu precisa saber disso em vez de ver o campo esvaziar.
-export function addNote(
+export async function addNote(
   id: string,
   tab: string | null,
   anchor: string | null,
   text: string,
   mentions: string[],
   quote: string | null,
-): boolean {
-  includeMentioned(id, mentions);
-  return send({ t: "note", ws: relayId(id), tab, anchor, text, mentions, quote });
+): Promise<boolean> {
+  try { await includeMentioned(id, mentions); } catch { return false; }
+  return sendConfirmed({ t: "note", ws: relayId(id), tab, anchor, text, mentions, quote });
 }
 
-function includeMentioned(id: string, mentions: string[]) {
+async function includeMentioned(id: string, mentions: string[]) {
   // Marcar quem está fora da audiência de um workspace seu é chamar a pessoa:
   // ela entra na lista antes de o comentário sair, senão o relay descarta a menção.
   // O share vai pelo mesmo socket, na frente do comentário — esperar o Rust
@@ -992,19 +1129,18 @@ function includeMentioned(id: string, mentions: string[]) {
     const missing = mentions.filter((m) => !w.audience!.includes(m));
     if (missing.length) {
       const grown: Share = { ...toShare(w), audience: [...w.audience, ...missing] };
-      if (send({ t: "share", share: grown })) announced.set(w.id, JSON.stringify(grown));
-      void share(id, grown.audience);
+      await share(id, grown.audience);
     }
   }
 }
 
-export function replyNote(id: string, note: string, text: string, mentions: string[]): boolean {
-  includeMentioned(id, mentions);
-  return send({ t: "note_reply", ws: relayId(id), note, text, mentions });
+export async function replyNote(id: string, note: string, text: string, mentions: string[]): Promise<boolean> {
+  try { await includeMentioned(id, mentions); } catch { return false; }
+  return sendConfirmed({ t: "note_reply", ws: relayId(id), note, text, mentions });
 }
 
 export const resolveNote = (id: string, note: string) =>
-  send({ t: "note_resolve", ws: relayId(id), note });
+  sendConfirmed({ t: "note_resolve", ws: relayId(id), note });
 
 /// Quantos comentários abertos esperam você.
 export const inboxCount = () => inbox.length;

@@ -137,7 +137,7 @@ fn relay_socket_url(relay: &str, organization: &str, ticket: &str) -> Result<Str
     url.set_path(&format!("/organization/{organization}"));
     url.query_pairs_mut()
         .append_pair("ticket", ticket)
-        .append_pair("p", "3");
+        .append_pair("p", "4");
     Ok(url.to_string())
 }
 
@@ -542,6 +542,9 @@ mod tests {
         assert_eq!(url.scheme(), "wss");
         assert_eq!(url.path(), "/organization/organization1");
         assert_eq!(url.query_pairs().count(), 2);
+        assert!(url
+            .query_pairs()
+            .any(|(key, value)| key == "p" && value == "4"));
         assert!(url
             .query_pairs()
             .any(|(key, value)| key == "ticket" && value == ticket));

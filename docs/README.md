@@ -32,7 +32,8 @@ como índice curto para agentes e `README.md` apresenta o produto.
 - [`contracts/ipc.md`](contracts/ipc.md): fronteira TypeScript/Rust.
 - [`contracts/git.md`](contracts/git.md): índice, worktree, revisão e operações Git.
 - [`contracts/persistence.md`](contracts/persistence.md): board e transcripts.
-- [`contracts/relay-v3.md`](contracts/relay-v3.md): protocolo de colaboração.
+- [`contracts/relay-v4.md`](contracts/relay-v4.md): colaboração cifrada e TOFU.
+- [`contracts/relay-v3.md`](contracts/relay-v3.md): histórico do protocolo sem E2EE.
 
 ## Decisões
 
@@ -112,3 +113,4 @@ atual até que a implementação correspondente seja aceita.
 
 - [Organizações no Cloud](contracts/cloud-organizations.md): CRUD, convites, catálogos e acesso ao relay.
 - [ADR 0021](decisions/0021-cloud-organizations.md): organização como autoridade de colaboração.
+- [ADR 0022](decisions/0022-end-to-end-encryption.md): criptografia ponta a ponta, TOFU e limites de segurança.

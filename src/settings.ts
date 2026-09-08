@@ -28,7 +28,7 @@ import * as team from "./team";
 import type { LegacyImportPlan, LinearStatus } from "./types";
 import { settingsRow } from "./update";
 import { $, h, template } from "./util";
-import { button, field, select } from "./ui";
+import { button, field, select, formDialog } from "./ui";
 
 /// Configurações do app — o que não é do repositório (isso é o
 /// `settings.toml`) nem de um workspace: a conexão com o Linear, a linha de
@@ -604,10 +604,36 @@ function teamRows(): HTMLElement[] {
       chip.querySelector(".nm")!.textContent = member.id === st.you ? `${member.name} (${t("team.you")})` : member.name;
       chip.title = member.online ? "" : t("team.offline");
       list.append(chip);
+      if (member.key) list.append(button(t("team.security.code"), () => {
+        void team.securityCode(member.id).then(code => {
+          const dialog = formDialog({ title: t("team.security.code"), save: t("team.security.close"), cancel: t("team.cancel"),
+            submit: async () => {}, error: fromBack });
+          dialog.body.append(h("p", "ui-hint", t("team.security.verify", { name: member.name })), h("p", "", code));
+          dialog.open();
+        }).catch(e => ctx.say(fromBack(e), true));
+      }, "ghost"));
     }
     const membersRow = h("div", "setrow");
     membersRow.append(h("b", "", t("team.members")), list);
     rows.push(membersRow);
+  }
+  if (st.config) {
+    rows.push(h("p", "ui-hint", t("team.security.hint")));
+    for (const change of team.securityChanges()) {
+      const row = h("div", "setrow");
+      row.append(h("p", "ui-hint", t("team.security.changed", { name: team.nameOf(change.member) })),
+        button(t("team.security.review"), () => {
+          void team.securityChangeCodes(change.member).then(codes => {
+            const dialog = formDialog({ title: t("team.security.review"), save: t("team.security.accept"), cancel: t("team.cancel"),
+              submit: () => team.acceptSecurityKey(change.member, change.next), error: fromBack });
+            dialog.body.append(h("p", "ui-hint", t("team.security.changed", { name: team.nameOf(change.member) })),
+              h("p", "", t("team.security.previous", { code: codes.previous })),
+              h("p", "", t("team.security.next", { code: codes.next })));
+            dialog.open();
+          }).catch(e => ctx.say(fromBack(e), true));
+        }));
+      rows.push(row);
+    }
   }
   return rows;
 }

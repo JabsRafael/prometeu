@@ -120,6 +120,8 @@ export const IPC_COMMANDS = [
   "set_workspace_plugins",
   "team_config",
   "team_config_set",
+  "team_security",
+  "team_security_set",
   "usage",
   "workspace_branch",
   "workspace_diff",

@@ -1,8 +1,9 @@
 # Relay protocol v3
 
-Status: contrato atual.
+Status: histórico; substituído pelo [relay v4](relay-v4.md).
+Este documento descreve o comportamento anterior, sem E2EE.
 
-A fonte executável deste contrato é `relay/src/protocol.ts`. Este documento
+A fonte executável atual, já em v4, é `relay/src/protocol.ts`. Este documento
 explica ownership e compatibilidade; não duplica todas as unions ou limites.
 
 ## Topologia

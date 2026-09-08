@@ -1,7 +1,8 @@
 # ADR 0021 — Organizações e convites no Cloud
 
 Data: 2026-09-07
-Status: Aceito
+Status: Aceito; protocolo e fronteira de conteúdo ampliados pelo
+[ADR 0022](0022-end-to-end-encryption.md).
 Amplia [ADR 0015](0015-cloud-rails.md) e substitui a limitação de propriedade
 exclusivamente pessoal do [ADR 0020](0020-personal-catalog-and-local-items.md).
 

@@ -31,6 +31,18 @@ anterior e não passa a significar stage.
 Os comandos `actions_save`, `action_start` e `action_pause` estão descritos no
 [contrato de ações](actions.md). Usam o evento `board` existente.
 
+## Estado privado de E2EE
+
+- `team_security`: sem argumentos, retorna o envelope de segurança ou `null`
+  somente quando o arquivo não existe. Leitura inválida retorna erro.
+- `team_security_set`: recebe `{ state }`, valida versão e limite de 8 MiB e
+  grava atomicamente o arquivo privado; retorna vazio ou erro. Um arquivo
+  existente ilegível não é sobrescrito.
+
+Os comandos existem no Rust, no registro tipado e no mock. A webview precisa
+da identidade privada para WebCrypto; ela não atravessa o WebSocket. O schema
+interno dos escopos pertence a `team-security.ts`; veja [persistência](persistence.md).
+
 ## Eventos emitidos atualmente
 
 Os comandos `cloud_status`, `cloud_login_start`, `cloud_login_poll`,

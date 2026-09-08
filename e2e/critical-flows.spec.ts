@@ -28,6 +28,41 @@ async function bootTeam(page: Page) {
   await expect(page.locator("#railbody .navitem.mentions")).toBeVisible();
 }
 
+test("segurança do compartilhamento fixa primeira chave e exige revisão quando dispositivo muda", async ({ page }) => {
+  await bootTeam(page);
+  const settings = async () => {
+    await page.locator("#settings").click();
+    await page.locator(".setnavitem", { hasText: "Organizações" }).click();
+  };
+  await settings();
+  await expect(page.locator("#settingsView")).toContainText("criptografia ponta a ponta");
+  await page.getByRole("button", { name: "Código de segurança", exact: true }).first().click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Compare este código");
+  await expect(dialog).toContainText(/[0-9a-f]{4}( [0-9a-f]{4}){15}/);
+  await dialog.getByRole("button", { name: "Fechar", exact: true }).click();
+  await page.reload();
+  await settings();
+  await expect(page.getByRole("button", { name: "Código de segurança", exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Revisar nova chave", exact: true })).toHaveCount(0);
+
+  // Replacing only the simulated peer's private storage changes that device's
+  // identity; the real client must retain its previous TOFU pin.
+  await page.evaluate(() => {
+    for (const key of Object.keys(localStorage)) if (key.startsWith("mock:peer-security:")) localStorage.removeItem(key);
+  });
+  await page.reload();
+  await settings();
+  await expect(page.locator("#settingsView")).toContainText("O compartilhamento com esse dispositivo está bloqueado");
+  await page.getByRole("button", { name: "Revisar nova chave", exact: true }).click();
+  await expect(dialog).toContainText("Código anterior:");
+  await expect(dialog).toContainText("Novo código:");
+  await dialog.getByRole("button", { name: "Aceitar nova chave do dispositivo", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Revisar nova chave", exact: true })).toHaveCount(0);
+  await expect(page.locator("#railbody .navitem.mentions")).toBeVisible();
+});
+
 test("comentário fica ao lado da sessão até alguém resolver", async ({ page }) => {
   await bootTeam(page);
 
@@ -63,8 +98,16 @@ test("comentário fica ao lado da sessão até alguém resolver", async ({ page 
   await expect(page.locator(".commentdraft .draftquote-text")).not.toBeEmpty();
   await expect(page.locator("#chatwrap .composer textarea")).toHaveAttribute("placeholder", "Escreva na conversa de Marcus Hale");
   await page.locator(".commentdraft textarea").fill("Nova dúvida para o time.");
-  await page.locator(".commentdraft .submit").click();
+  await page.locator(".commentdraft").evaluate(card => {
+    const submit = card.querySelector<HTMLButtonElement>(".submit")!;
+    submit.click(); submit.click();
+    const area = card.querySelector<HTMLTextAreaElement>("textarea")!;
+    area.value = "Rascunho digitado enquanto cifra.";
+    area.dispatchEvent(new Event("input", { bubbles: true }));
+  });
   await expect(page.locator(".commentcard", { hasText: "Nova dúvida para o time." })).toBeVisible();
+  await expect(page.locator(".commentcard", { hasText: "Nova dúvida para o time." })).toHaveCount(1);
+  await expect(page.locator(".commentdraft textarea")).toHaveValue("Rascunho digitado enquanto cifra.");
   await expect(page.locator("#chatwrap .commentpin")).toHaveCount(1);
   await expect(page.locator("#chatwrap .note")).toHaveCount(0);
 });

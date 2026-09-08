@@ -23,7 +23,7 @@ export default defineConfig({
     // estica, o arraste — precisa rodar nele também. A navegação pelos agentes
     // na barra lateral cobre foco, seleção e recolhimento no mesmo motor.
     // Git cobre revisão, stage e commits no motor usado pelo desktop.
-    { name: "webkit", use: { ...devices["Desktop Safari"] }, grep: /organizações no desktop|catálogo pessoal|a mesa|a barra lateral|design system|comando reutilizável|perfil por projeto|Code review|arquivo solto|arraste de arquivo|Git|a tela de Mudanças/ },
+    { name: "webkit", use: { ...devices["Desktop Safari"] }, grep: /comentário fica|segurança do compartilhamento|organizações no desktop|catálogo pessoal|a mesa|a barra lateral|design system|comando reutilizável|perfil por projeto|Code review|arquivo solto|arraste de arquivo|Git|a tela de Mudanças/ },
   ],
   webServer: {
     // O preview é estático: além de exercitar o bundle de produção, evita um

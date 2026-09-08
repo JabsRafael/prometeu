@@ -407,10 +407,23 @@ só coordena — repassa frames e guarda o pouco que precisa sobreviver a algué
 estar offline (membros, o que está compartilhado, os comentários). Dono fora do ar =
 conversa congelada para os outros, e o card diz isso.
 
-**O relay é uma fronteira de confiança, não criptografia ponta a ponta.** Quem
-opera o Worker pode ver metadados, conversa e comentários que passam por ele. Fora da
-máquina local o app só aceita HTTPS/WSS; para conteúdo que o operador do relay
-não possa ler, ainda é preciso hospedar o seu próprio relay.
+**O conteúdo compartilhado usa criptografia ponta a ponta.** Conversas,
+falas remotas, comentários, citações e títulos são cifrados nos dispositivos.
+A configuração é automática: o app aceita a primeira chave de cada membro e a
+conserva localmente. Trocas de chave bloqueiam conteúdo com aquele membro até
+revisão em **Configurações / Organizações**. Códigos de segurança podem ser
+comparados por outro canal; isso é opcional.
+
+O relay ainda vê membros, destinatários, IDs, menções, presença, horários e
+tamanhos. Um servidor malicioso no primeiro contato pode substituir uma chave.
+Não há forward secrecy: roubar uma chave privada pode expor conteúdo antigo
+gravado para ela. Um segundo Mac usa o fluxo de troca de chave, sem sincronização
+automática do histórico. Não equivale às garantias do WhatsApp nem protege um
+Mac comprometido ou prompts enviados aos providers. Veja o [ADR 0022](docs/decisions/0022-end-to-end-encryption.md).
+
+App e relay precisam de v4; não há fallback em texto. Dados v3 permanecem no
+relay, mas comentários v3 não aparecem no cliente novo. Fora da máquina local,
+o app continua exigindo HTTPS/WSS.
 
 Quem fala com o relay é o **front**. O Rust guarda credenciais e obtém tickets
 curtos usando a conta conectada. Organizações e convites são administrados no
