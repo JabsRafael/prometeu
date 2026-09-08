@@ -94,6 +94,12 @@ dispositivo pela pessoa a que ele pertence. TOFU, recibos e códigos de
 segurança continuam por dispositivo. Decisão e limites no
 [ADR 0027](../decisions/0027-companion-devices.md).
 
+Dispositivos companheiros do dono entram nos destinatários somente quando o
+`Workspace.remote_control` local está ativo. Essa permissão não atravessa o
+protocolo: o frame externo já contém audiência explícita por dispositivo. Uma
+audiência local vazia permite um share destinado somente aos dispositivos do
+dono. Veja o [ADR 0030](../decisions/0030-remote-control.md).
+
 ## Persistência, limites e compatibilidade
 
 Credenciais e metadados de matrícula preservam suas chaves de storage. Estado

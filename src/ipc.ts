@@ -115,7 +115,7 @@ export type Commands = {
   scripts_prompt: { args: { id: string }; result: string };
   set_awake: { args: { on: boolean }; result: void };
   set_lang: { args: { lang: Lang }; result: void };
-  set_shared: { args: { id: string; shared: boolean; audience?: string[] | null; team?: string | null }; result: void };
+  set_shared: { args: { id: string; shared: boolean; audience?: string[] | null; remoteControl: boolean; team?: string | null }; result: void };
   set_stage: { args: { id: string; stage: string }; result: void };
   set_tab_choice: { args: { id: string; tab: string; choice: T.Choice }; result: void };
   set_unread: { args: { id: string; unread: boolean }; result: void };

@@ -33,3 +33,30 @@ test("organizações no desktop selecionam acesso aceito e mantêm compartilhame
   await expect(choice()).toHaveCount(0);
   await expect(page.locator("#settingsView")).toContainText("Crie organizações");
 });
+
+test("controle remoto no rodapé persiste sem compartilhar com a organização", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("mock:cloud", JSON.stringify({ user: { id: "user1", name: "Alice", email: "alice@example.com" }, origin: "https://app.prometeu.co", offline: false }));
+    localStorage.setItem("mock:organizations", JSON.stringify([
+      { id: "organization1", slug: "one", name: "One", member: "membership1", role: "owner" },
+    ]));
+  });
+  await page.goto("/");
+  await page.locator('.railworkspace[data-workspace="sessao-0929"] > .navitem').click();
+  const control = page.getByRole("button", { name: "Controle remoto", exact: true });
+  await expect(control).toBeVisible();
+  await expect(control).toHaveAttribute("aria-pressed", "false");
+
+  await control.click();
+  await expect(control).toHaveAttribute("aria-pressed", "true");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("mock:shared")!)[0])).toEqual([
+    "sessao-0929", [], "organization:organization1:membership1", true,
+  ]);
+
+  await page.reload();
+  await page.locator('.railworkspace[data-workspace="sessao-0929"] > .navitem').click();
+  await expect(control).toHaveAttribute("aria-pressed", "true");
+  await control.click();
+  await expect(control).toHaveAttribute("aria-pressed", "false");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("mock:shared")!))).toEqual([]);
+});

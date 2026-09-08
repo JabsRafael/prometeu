@@ -99,9 +99,10 @@ ausência de forward secrecy, estão no [ADR 0022](../decisions/0022-end-to-end-
 - `team_config_set`: continua guardando JSON privado. Configuração de organização
   mantém campos legados, com `secret` e `credential` vazios, e acrescenta
   `cloud: { user, origin, slug, name }`. Tickets nunca são persistidos.
-- `set_shared`: acrescenta argumento opcional `team`; persiste `share_team` no
-  workspace. Organização usa `organization:<id>:<member>`. Time legado usa
-  `team:<id>`. Ausência em boards antigos só autoriza o caminho legado.
+- `set_shared`: recebe `remoteControl` e o argumento opcional `team`; persiste
+  `remote_control` e `share_team` no workspace. Organização usa
+  `organization:<id>:<member>`. Time legado usa `team:<id>`. Ausência em boards
+  antigos só autoriza o caminho legado; `remote_control` ausente vale `false`.
 
 Com exatamente uma matrícula aceita, o desktop a ativa sozinho ao listar as
 organizações; sair guarda essa decisão em `localStorage` (`prometeu:organizacao-saida`),

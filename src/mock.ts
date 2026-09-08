@@ -94,6 +94,7 @@ const ws = (
   cleaned: false,
   shared: false,
   audience: null,
+  remote_control: false,
   preparing: false,
   failed: null,
   remote: null,
@@ -687,14 +688,15 @@ function controlInto(tab: string, frame: Record<string, any>) {
   pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 400 });
 }
 
-/// Persist shared workspaces and their audiences across browser reloads, mirroring board.json.
+/// Persist shared workspaces and their access choices across browser reloads, mirroring board.json.
 const SHARED = "mock:shared";
-for (const [id, audience, shareTeam] of JSON.parse(localStorage.getItem(SHARED) ?? "[]") as [string, string[] | null, string?][]) {
+for (const [id, audience, shareTeam, remoteControl] of JSON.parse(localStorage.getItem(SHARED) ?? "[]") as [string, string[] | null, string?, boolean?][]) {
   const ws = board.workspaces.find((x) => x.id === id);
   if (ws) {
     ws.shared = true;
     ws.audience = audience;
     ws.share_team = shareTeam;
+    ws.remote_control = remoteControl ?? false;
   }
 }
 
@@ -1168,9 +1170,10 @@ const mockCommands: IpcHandlers = {
       target.shared = args.shared;
       target.share_team = args.shared ? args.team : null;
       target.audience = args.shared ? args.audience ?? null : null;
+      target.remote_control = args.shared && args.remoteControl;
     }
     // Persist sharing choices across page reloads, matching board.json.
-    localStorage.setItem(SHARED, JSON.stringify(board.workspaces.filter((x) => x.shared).map((x) => [x.id, x.audience, x.share_team])));
+    localStorage.setItem(SHARED, JSON.stringify(board.workspaces.filter((x) => x.shared).map((x) => [x.id, x.audience, x.share_team, x.remote_control])));
     emit("board", board);
     return;
   },

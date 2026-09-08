@@ -642,6 +642,7 @@ const infoOf = (w: Workspace | undefined, tab: Tab | undefined): Info => ({
   worktree: w?.worktree ?? null,
   remote: w?.remote ? { name: team.nameOf(w.remote.owner), online: w.remote.online } : null,
   team: !!team.status().config && !!w && (team.sharedHere(w) || !!w.remote),
+  remoteControl: w?.remote_control ?? false,
   // Tab choice presence controls inheritance. An explicitly empty model still selects the CLI default rather than workspace defaults.
   agent: tab?.choice ? tab.choice.agent : (w?.agent ?? "claude"),
   model: tab?.choice ? tab.choice.model : (w?.model ?? ""),
@@ -675,6 +676,7 @@ viewer.init((m) => say(m, true), ws.fileSaved);
 dock.init($("dockterm"), $("shellterm"));
 state = await invoke("load_board");
 actions.update(state);
+team.boardChanged(state);
 alert.boardChanged(state);
 showDesk();
 

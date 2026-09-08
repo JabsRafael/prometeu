@@ -75,7 +75,7 @@ export type GuestSink = {
 
 /// Local agent actions the owner feature needs from the shell.
 export type OwnerHost = {
-  setShared(id: string, shared: boolean, audience: string[] | null, team: string | null): Promise<void>;
+  setShared(id: string, shared: boolean, audience: string[] | null, remoteControl: boolean, team: string | null): Promise<void>;
   snapshot(tab: string): Promise<{ text: string; seq: number }>;
   control(tab: string, frame: unknown): Promise<void>;
   prompt(tab: string, text: string): Promise<void>;

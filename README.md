@@ -493,6 +493,10 @@ Mac, que precisa estar acordado e com o Prometeu aberto. Adicione a página à
 tela inicial para usar como app. Remover o dispositivo fica em Configurações →
 Dispositivos no Cloud.
 
+No rodapé de uma conversa local, **Controle remoto** libera ou revoga somente
+seus dispositivos. Essa permissão não compartilha o workspace com outras
+pessoas e não muda a audiência escolhida em **Compartilhar**.
+
 ### O relay
 
 Mora em `relay/`: um Worker que cria times e encaminha cada conexão ao Durable

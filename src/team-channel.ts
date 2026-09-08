@@ -13,15 +13,18 @@ export class TeamChannel {
   members: Member[] = [];
   readonly shares = new Map<string, Shared>();
   private owned = new Map<string, Shared>();
+  private remoteControl = new Set<string>();
   private attached: { ws: string; tab: string } | null = null;
   private pendingWelcome: Extract<Down, { t: "welcome" }> | null = null;
   ready = false;
 
   constructor(readonly security: TeamSecurity, readonly scope: string, readonly self: string) {}
 
-  own(share: Share) {
+  own(share: Share, remoteControl = false) {
     const current = { ...share, owner: this.self, online: true };
     this.owned.set(share.id, current); this.shares.set(share.id, current);
+    if (remoteControl) this.remoteControl.add(share.id);
+    else this.remoteControl.delete(share.id);
   }
 
   async identity(challenge: string): Promise<Up> {
@@ -64,8 +67,13 @@ export class TeamChannel {
   }
 
   private recipients(share: Share & { owner?: string }): string[] {
-    const audience = share.audience ?? this.members.map(m => m.id);
-    return this.devices([share.owner ?? this.self, ...audience]);
+    const owner = share.owner ?? this.self;
+    const audience = (share.audience ?? this.members.filter(m => !m.person).map(m => m.id)).filter(id => id !== owner);
+    const recipients = new Set([owner, ...this.devices(audience)]);
+    if (this.remoteControl.has(share.id)) {
+      for (const member of this.members) if (member.person === owner) recipients.add(member.id);
+    }
+    return [...recipients];
   }
 
   private allowed(ws: string, member: string): Shared {
@@ -91,7 +99,7 @@ export class TeamChannel {
         out = { t: "share", share: wire };
         break;
       }
-      case "unshare": this.shares.delete(frame.ws); this.owned.delete(frame.ws); break;
+      case "unshare": this.shares.delete(frame.ws); this.owned.delete(frame.ws); this.remoteControl.delete(frame.ws); break;
       case "attach": this.allowed(frame.ws, this.self); this.attached = frame; break;
       case "detach": this.attached = null; break;
       case "write": {

@@ -227,6 +227,9 @@ pub struct Workspace {
     /// enforces access.
     #[serde(default)]
     pub audience: Option<Vec<String>>,
+    /// Allow companion devices belonging to the owner to view and control this workspace.
+    #[serde(default)]
+    pub remote_control: bool,
     /// Worktree preparation is running after the launcher closes. The board can show progress
     /// before any agent tab exists; processes start only after their working directories are ready.
     #[serde(default)]
@@ -816,6 +819,7 @@ mod tests {
         assert_eq!(ws.tabs[0].id, "w");
         assert_eq!(ws.active.as_deref(), Some("w"));
         assert!(ws.failed.is_none());
+        assert!(!ws.remote_control);
     }
 
     /// Remove generated placeholder titles while preserving user-authored titles, even with the

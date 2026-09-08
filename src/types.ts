@@ -152,6 +152,8 @@ export type Workspace = {
   share_team?: string | null;
   /// Audience member IDs, or null for the whole team; enforced by the relay only while shared.
   audience: string[] | null;
+  /// Allow companion devices belonging to the owner to view and control this workspace.
+  remote_control: boolean;
   /// Publish the workspace card before its worktree finishes preparing. No tabs exist during preparation.
   preparing: boolean;
   /// Structured backend preparation error, translated by fromBack.

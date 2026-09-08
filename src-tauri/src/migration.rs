@@ -358,6 +358,7 @@ fn prepare(roots: &Roots) -> Result<Option<Prepared>, String> {
     for workspace in &mut legacy.board.workspaces {
         workspace.shared = false;
         workspace.audience = None;
+        workspace.remote_control = false;
     }
 
     let chats = chat_copies(roots)?;

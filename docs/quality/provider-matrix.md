@@ -54,6 +54,7 @@ para virar capacidade contratual.
 | subagentes do CLI | sidechain fora da tela; tarefas em `background.changed` | `collabAgentToolCall.agentsStates`, `subAgentActivity` e eventos de filhos conhecidos atualizam tarefas; conteúdo dos filhos fica isolado | `claude.rs`; testes de isolamento, spawn, atividade e estados parciais em `codex.rs` |
 | indicadores de atenção sem áudio | pendências de conclusão, perguntas e comentários no Dock | mesma regra sobre eventos V1 locais ao vivo | `src/alert.test.ts` preserva contagem e leitura; `e2e/alerts.spec.ts` em Chromium/WebKit cobre ausência de áudio e da opção de som |
 | compartilhamento ao vivo | V1 após normalização | V1 após normalização | `team*.test.ts`, E2E sobre mock |
+| controle remoto pelos dispositivos do dono | mesmo relay v4; execução permanece local | mesmo relay v4; execução permanece local | `team-channel.test.ts`, `team-organizations.test.ts`, `e2e/organizations.spec.ts` |
 | comentários em sessão compartilhada | adaptado após V1 | adaptado após V1 | `notes.test.ts`, `team.test.ts`, `relay/src/logic.test.ts`, E2E sobre mock |
 | mesa com várias conversas ao mesmo tempo | adaptado (mesma tela da conversa) | adaptado (mesma tela da conversa) | `desk.test.ts`, E2E sobre mock |
 | Git: revisão unificada/lado a lado, stage, commit, remotos, branches e conflitos | adaptado pelo app; independente do CLI | adaptado pelo app; independente do CLI | `session/git_tests.rs`, `diff.test.ts`, `e2e/git.spec.ts` em Chromium/WebKit e revisão grande em `e2e/critical-flows.spec.ts`; contrato `git.md` |
