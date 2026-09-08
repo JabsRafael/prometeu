@@ -438,7 +438,8 @@ skills. Membros podem copiar definições para o catálogo pessoal recebido pelo
 As cópias são independentes e nunca substituem um item homônimo no destino.
 
 No desktop, **Configurações / Organizações** seleciona uma matrícula já aceita.
-Compartilhe cada workspace por escolha. Trocar de organização ou conta não
+Quando existe uma única organização aceita, o desktop já a deixa ativa; sair dela
+desliga esse atalho naquele Mac. Compartilhe cada workspace por escolha. Trocar de organização ou conta não
 publica compartilhamentos antigos para novas pessoas. Times legados continuam
 funcionando; a troca para organização conserva backup de `team.json`.
 Ver [contrato e migração](docs/contracts/cloud-organizations.md).
