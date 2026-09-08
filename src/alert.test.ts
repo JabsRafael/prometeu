@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Board, Status, Workspace } from "./types";
 
-const { badge, start, inbox } = vi.hoisted(() => ({
-  badge: vi.fn(), start: vi.fn(), inbox: [] as { id: string }[],
+const { badge, audio, inbox } = vi.hoisted(() => ({
+  badge: vi.fn(), audio: vi.fn(), inbox: [] as { id: string }[],
 }));
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({ setBadgeCount: async (n?: number) => badge(n) }),
 }));
-vi.mock("./team", () => ({ inboxItems: () => inbox, inboxCount: () => inbox.length }));
-import { boardChanged, chatChanged, init, looked, setSound, teamChanged, waiting } from "./alert";
+vi.mock("./team", () => ({ inboxCount: () => inbox.length }));
+import { boardChanged, chatChanged, init, looked, teamChanged, waiting } from "./alert";
 
 const tab = (id: string, status: Status = "rodando") => ({ id, title: id, status, note: null, tokens: null });
 const workspace = (id: string, tabs = [tab(`${id}-t`)], unread = false) =>
@@ -31,45 +31,30 @@ const question = (tab = "a-t") => emit(tab, {
   type: "request.opened", requestId: "q", kind: "question", toolId: null, tool: "AskUserQuestion", input: {},
 });
 const speak = (tab = "a-t") => emit(tab, { type: "user.message", content: [{ kind: "text", text: "continue" }] });
-// Each bell uses two oscillators; count actual playback, not only notification decisions.
-const sounds = () => start.mock.calls.length / 2;
 let focused = false;
 const visible = new Set<string>();
 
 beforeEach(() => {
+  vi.clearAllMocks();
   vi.useFakeTimers();
   focused = false;
   visible.clear();
   inbox.length = 0;
-  const storage = new Map<string, string>();
   vi.stubGlobal("document", { hasFocus: () => focused });
   vi.stubGlobal("window", { addEventListener() {}, removeEventListener() {} });
-  vi.stubGlobal("localStorage", {
-    getItem: (key: string) => storage.get(key) ?? null,
-    setItem: (key: string, value: string) => storage.set(key, value),
-    removeItem: (key: string) => storage.delete(key),
-  });
-  const node = () => ({
-    gain: { value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {} },
-    frequency: { value: 0 },
-    connect() { return this; }, start, stop() {},
-  });
-  vi.stubGlobal("AudioContext", class {
-    state = "running";
-    currentTime = 0;
-    destination = {};
-    createGain = node;
-    createOscillator = node;
-  });
+  vi.stubGlobal("AudioContext", audio);
   init({ visible: (tab) => visible.has(tab) });
   boardChanged(board());
-  vi.clearAllMocks();
 });
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  expect(audio).not.toHaveBeenCalled();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
-describe("som de conclusão", () => {
-  it("exige envio aceito e conclusão; status, mensagens sintéticas e perguntas não tocam", () => {
+describe("pendências no Dock", () => {
+  it("exige envio aceito e conclusão; status e mensagens sintéticas não criam pendência", () => {
     boardChanged(board(workspace("a")));
     for (let i = 0; i < 5; i++) {
       boardChanged(board(workspace("a", [tab("a-t", i % 2 ? "pronta" : "rodando")])));
@@ -80,19 +65,18 @@ describe("som de conclusão", () => {
       done();
       settle();
     }
-    expect(sounds()).toBe(0);
+    expect(waiting()).toBe(0);
     begin();
     question();
     settle();
-    expect(sounds()).toBe(0);
     expect(waiting()).toBe(1);
     emit("a-t", { type: "request.closed", requestId: "q", outcome: "answered" });
     done();
     settle();
-    expect(sounds()).toBe(1);
+    expect(waiting()).toBe(1);
   });
 
-  it("ferramentas e streaming longos ficam silenciosos; conclusão avisa uma vez", () => {
+  it("ferramentas e streaming não criam pendência; conclusão atualiza o Dock", () => {
     boardChanged(board(workspace("a")));
     begin();
     for (let i = 0; i < 10; i++) {
@@ -101,12 +85,11 @@ describe("som de conclusão", () => {
       emit("a-t", { type: "context.updated", used: i, window: 100 });
       settle();
     }
-    expect(sounds()).toBe(0);
+    expect(waiting()).toBe(0);
     done();
     emit("a-t", { type: "context.compaction", state: "stopped", detail: "" });
     done();
     settle();
-    expect(sounds()).toBe(1);
     expect(waiting()).toBe(1);
     expect(badge).toHaveBeenLastCalledWith(1);
   });
@@ -117,7 +100,7 @@ describe("som de conclusão", () => {
     background(["one", "two"]);
     done();
     settle();
-    expect(sounds()).toBe(0);
+    expect(waiting()).toBe(0);
     focused = true;
     visible.add("a-t");
     looked();
@@ -127,34 +110,35 @@ describe("som de conclusão", () => {
     emit("a-t", { type: "assistant.started", messageId: "automatic" });
     done();
     settle();
-    expect(sounds()).toBe(0);
+    expect(waiting()).toBe(0);
     background([]);
     settle();
-    expect(sounds()).toBe(0);
+    expect(waiting()).toBe(0);
     emit("a-t", { type: "assistant.started", messageId: "final" });
     done();
     settle();
-    expect(sounds()).toBe(1);
+    expect(waiting()).toBe(1);
   });
 
-  it("retomada antes do som cancela conclusão candidata, sem inferir fim por silêncio", () => {
+  it("retomada cancela conclusão candidata, sem inferir fim por silêncio", () => {
     boardChanged(board(workspace("a")));
     begin();
     done();
     vi.advanceTimersByTime(500);
     emit("a-t", { type: "assistant.started", messageId: "continued" });
     vi.advanceTimersByTime(30_000);
-    expect(sounds()).toBe(0);
+    expect(waiting()).toBe(0);
     done();
     settle();
-    expect(sounds()).toBe(1);
+    expect(waiting()).toBe(1);
   });
 
-  it("olhar, responder e receber mensagens sintéticas nunca rearmam execução já avisada", () => {
+  it("olhar, responder e receber mensagens sintéticas não rearmam execução já avisada", () => {
     boardChanged(board(workspace("a")));
     begin();
     done();
     settle();
+    expect(waiting()).toBe(1);
     focused = true;
     visible.add("a-t");
     looked();
@@ -166,14 +150,14 @@ describe("som de conclusão", () => {
     emit("a-t", { type: "assistant.started", messageId: "automatic" });
     done();
     settle();
-    expect(sounds()).toBe(1);
+    expect(waiting()).toBe(0);
     begin();
     done();
     settle();
-    expect(sounds()).toBe(2);
+    expect(waiting()).toBe(1);
   });
 
-  it("consome conclusão vista ou silenciada; sair da aba ou ligar som não toca depois", () => {
+  it("consome conclusão vista; sair da aba não cria pendência depois", () => {
     boardChanged(board(workspace("a")));
     focused = true;
     visible.add("a-t");
@@ -183,23 +167,14 @@ describe("som de conclusão", () => {
     focused = false;
     done();
     settle();
-    expect(sounds()).toBe(0);
-    setSound(false);
+    expect(waiting()).toBe(0);
     begin();
     done();
     settle();
     expect(waiting()).toBe(1);
-    setSound(true);
-    done();
-    settle();
-    expect(sounds()).toBe(0);
-    begin();
-    done();
-    settle();
-    expect(sounds()).toBe(1);
   });
 
-  it("ver conclusão durante espera cancela som mesmo saindo antes de tocar", () => {
+  it("ver conclusão durante espera cancela pendência mesmo saindo depois", () => {
     boardChanged(board(workspace("a")));
     begin();
     done();
@@ -208,10 +183,10 @@ describe("som de conclusão", () => {
     looked();
     focused = false;
     settle();
-    expect(sounds()).toBe(0);
+    expect(waiting()).toBe(0);
     done();
     settle();
-    expect(sounds()).toBe(0);
+    expect(waiting()).toBe(0);
   });
 
   it("cada aba conclui independentemente; Dock conta workspaces e preserva unread", () => {
@@ -221,13 +196,12 @@ describe("som de conclusão", () => {
     done();
     done("b-t");
     settle();
-    expect(sounds()).toBe(2);
     expect(waiting()).toBe(1);
     boardChanged(board());
     expect(waiting()).toBe(0);
   });
 
-  it("arquivar ou remover aba cancela som pendente; remotos nunca armam aviso", () => {
+  it("arquivar ou remover aba cancela pendência; remotos não entram no Dock", () => {
     boardChanged(board(workspace("a"), { ...workspace("b"), remote: {} } as Workspace));
     begin();
     done();
@@ -235,7 +209,6 @@ describe("som de conclusão", () => {
     done("b-t");
     boardChanged(board({ ...workspace("a"), archived: true }));
     settle();
-    expect(sounds()).toBe(0);
     expect(waiting()).toBe(0);
   });
 
@@ -246,12 +219,12 @@ describe("som de conclusão", () => {
     begin();
     done();
     settle();
-    expect(sounds()).toBe(0);
+    expect(waiting()).toBe(0);
     emit("a-t", { type: "session.state", state: "starting" });
     begin();
     done();
     settle();
-    expect(sounds()).toBe(1);
+    expect(waiting()).toBe(1);
   });
 
   it("ignora dados inválidos, comandos locais e interrupções; erro terminal avisa", () => {
@@ -264,27 +237,29 @@ describe("som de conclusão", () => {
     emit("a-t", { type: "assistant.started", messageId: "automatic" });
     done();
     settle();
-    expect(sounds()).toBe(0);
+    expect(waiting()).toBe(0);
     begin();
     emit("a-t", { type: "turn.completed", outcome: "interrupted", message: "", durationMs: null, costUsd: null });
     done();
     settle();
-    expect(sounds()).toBe(0);
+    expect(waiting()).toBe(0);
     emit("a-t", { type: "session.state", state: "busy" });
     emit("a-t", { type: "turn.completed", outcome: "error", message: "failed", durationMs: null, costUsd: null });
     settle();
-    expect(sounds()).toBe(1);
+    expect(waiting()).toBe(1);
   });
 });
 
-it("comentário avisa uma vez, inclusive depois de reconectar", () => {
+it("comentários atualizam o Dock sem áudio, inclusive depois de reconectar", () => {
   inbox.push({ id: "comment" });
   teamChanged();
   teamChanged();
+  expect(badge).toHaveBeenLastCalledWith(1);
   inbox.length = 0;
   teamChanged();
+  expect(badge).toHaveBeenLastCalledWith(undefined);
   inbox.push({ id: "comment" });
   teamChanged();
-  expect(sounds()).toBe(1);
   expect(waiting()).toBe(1);
+  expect(badge).toHaveBeenLastCalledWith(1);
 });

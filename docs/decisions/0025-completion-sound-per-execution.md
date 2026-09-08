@@ -1,7 +1,8 @@
 # ADR 0025 — Som de conclusão por execução aceita
 
 Data: 2026-09-08
-Status: Aceito
+Status: Parcialmente substituído pelo [ADR 0029](0029-remove-alert-sound.md) quanto ao som;
+o acompanhamento de pendências visuais e os eventos dos adapters permanecem.
 
 ## Contexto
 

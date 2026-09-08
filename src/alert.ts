@@ -1,20 +1,9 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { icon } from "./icons";
 import { parseConversationEvent } from "./conversation";
-import { t } from "./i18n";
 import * as team from "./team";
 import type { Board } from "./types";
-import { template } from "./util";
 
-/// Completion sounds belong to accepted input, independently of unread indicators and navigation.
-
-const SOUND_KEY = "prometeu:som";
-
-/// Enabled by default; the user can turn it off.
-export const soundOn = () => localStorage.getItem(SOUND_KEY) !== "0";
-export function setSound(on: boolean) {
-  on ? localStorage.removeItem(SOUND_KEY) : localStorage.setItem(SOUND_KEY, "0");
-}
+/// Track unread activity for the Dock badge.
 
 /* State. */
 
@@ -40,24 +29,14 @@ function cancel(conversation: Conversation) {
   conversation.timer = null;
 }
 let unread = new Set<string>();
-/// Remember comments across reconnects so older mentions do not ring twice.
-const known = new Set<string>();
 
 export function init(context: Ctx) {
   ctx = context;
-  // WebKit requires user interaction before audio can play; create the context on the first click or key.
-  const wake = () => {
-    audio();
-    window.removeEventListener("pointerdown", wake);
-    window.removeEventListener("keydown", wake);
-  };
-  window.addEventListener("pointerdown", wake);
-  window.addEventListener("keydown", wake);
   // Returning to the window acknowledges visible activity.
   window.addEventListener("focus", looked);
 }
 
-/// Acknowledging unread activity never arms another completion sound.
+/// Acknowledge visible activity without creating another pending completion.
 export function looked() {
   for (const [tab, conversation] of conversations) {
     if (!watching(tab)) continue;
@@ -89,7 +68,7 @@ export function boardChanged(board: Board) {
   looked();
 }
 
-/// Only live input acceptance can arm a sound; provider echoes and request responses cannot.
+/// Track accepted live input for the Dock; provider echoes and request responses cannot start another execution.
 export function chatChanged(tab: string, line: string) {
   const conversation = conversations.get(tab);
   if (!conversation) return;
@@ -158,7 +137,6 @@ export function chatChanged(tab: string, line: string) {
         conversation.timer = null;
         conversation.phase = "idle";
         conversation.pending = !watching(tab);
-        if (conversation.pending) pling();
         badge();
       }, SETTLE_MS);
   }
@@ -166,13 +144,6 @@ export function chatChanged(tab: string, line: string) {
 
 /// Team updates may change the mention inbox.
 export function teamChanged() {
-  let news = false;
-  for (const item of team.inboxItems()) {
-    if (known.has(item.id)) continue;
-    known.add(item.id);
-    news = true;
-  }
-  if (news) pling();
   badge();
 }
 
@@ -194,69 +165,4 @@ function badge() {
       // The web mock has no Dock badge.
       console.warn("badge", e);
     });
-}
-
-/* Sound. */
-
-let actx: AudioContext | null = null;
-function audio(): AudioContext | null {
-  if (typeof AudioContext === "undefined") return null;
-  actx ??= new AudioContext();
-  if (actx.state === "suspended") void actx.resume();
-  return actx;
-}
-
-/// Synthesize a short bell with a fundamental and a higher partial; no audio asset is needed.
-export function pling() {
-  if (!soundOn()) return;
-  const ac = audio();
-  if (!ac) return;
-  const at = ac.currentTime;
-  const out = ac.createGain();
-  out.gain.value = 0.5;
-  out.connect(ac.destination);
-  for (const [freq, gain, decay] of [
-    [1046.5, 0.5, 0.55],
-    [2637, 0.14, 0.25],
-  ]) {
-    const osc = ac.createOscillator();
-    osc.type = "sine";
-    osc.frequency.value = freq;
-    const env = ac.createGain();
-    env.gain.setValueAtTime(0.0001, at);
-    env.gain.exponentialRampToValueAtTime(gain, at + 0.006);
-    env.gain.exponentialRampToValueAtTime(0.0001, at + decay);
-    osc.connect(env).connect(out);
-    osc.start(at);
-    osc.stop(at + decay + 0.05);
-  }
-}
-
-/* Settings row. */
-
-export function settingsRow(): HTMLElement {
-  const row = template(
-    "div",
-    "setrow",
-    `<span class="glyph">${icon("bell", 18)}</span><div class="txt"><b></b><span></span></div><div class="act"></div>`,
-  );
-  row.querySelector(".txt b")!.textContent = t("settings.sound");
-  row.querySelector(".txt span")!.textContent = t("settings.sound.body");
-  const sw = template("button", "ghost sw", `<span></span><i class="knob"></i>`) as HTMLButtonElement;
-  sw.setAttribute("role", "switch");
-  const paint = () => {
-    const on = soundOn();
-    sw.classList.toggle("on", on);
-    sw.setAttribute("aria-checked", String(on));
-    sw.children[0].textContent = t(on ? "settings.sound.on" : "settings.sound.off");
-  };
-  sw.addEventListener("click", () => {
-    setSound(!soundOn());
-    paint();
-    // Enabling sound plays a preview.
-    pling();
-  });
-  paint();
-  row.querySelector(".act")!.append(sw);
-  return row;
 }

@@ -56,6 +56,12 @@ estado antes da migração. A importação abaixo é explícita, cria backup e n
 apaga a origem; depois dela, os worktrees adotados não devem ser operados pelos
 dois aplicativos ao mesmo tempo.
 
+## Preferência de som removida
+
+A chave legada `prometeu:som` do localStorage deixa de ser lida ou escrita.
+Se existir, permanece inerte; não há migração nem alteração de board ou
+transcripts. Veja [ADR 0029](../decisions/0029-remove-alert-sound.md).
+
 ## Segurança da colaboração
 
 `team-security.json` é aditivo, privado (`0600` em diretório `0700`), com escrita
