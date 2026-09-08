@@ -1,29 +1,14 @@
-//! O back não escreve frase.
-//!
-//! Toda mensagem que chega aos olhos de alguém — erro de comando, nota de
-//! atividade num card — sai daqui como um código estável e os pedaços que
-//! entram nos buracos. Quem monta a frase, no idioma que a pessoa escolheu, é
-//! o front: `src/i18n.ts`, `fromBack`.
-//!
-//! O que atravessa a ponte continua sendo `String`, que é o que os
-//! `Result<_, String>` de todo comando já carregavam. O formato é
-//! `i18n:{"code":"err.linear.off","args":{"path":"…"}}`; o que não começar com
-//! `i18n:` o front mostra como veio, e é assim que erro de plugin ou pânico
-//! continua legível em vez de virar chave crua na tela.
-//!
-//! O catálogo dos códigos mora no front, em `src/i18n.pt.ts` — um lugar só, e
-//! não um por linguagem de programação.
+//! Backend errors and activity notes use stable codes plus named arguments; the frontend formats
+//! them in the selected language. Preserve the String IPC contract with i18n:{code,args}.
+//! Non-prefixed external errors remain readable as supplied. The canonical message catalog lives in
+//! src/i18n.pt.ts.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
-/// O idioma da tela, que o front conta ao subir e sempre que muda.
-///
-/// Quase nada aqui precisa dele: código não tem idioma. Precisam as poucas
-/// frases que o back escreve por inteiro porque não passam pela tela — a linha
-/// de saída que vai para dentro da rolagem do terminal, o aviso que entra na
-/// fala do agente, a página que o navegador mostra no fim do OAuth. Uma janela,
-/// um idioma; por isso um estático, e não um campo em cada chamada.
+/// The frontend sets the global display language at startup and on changes. Only terminal notices,
+/// agent-injected warnings, and OAuth pages require complete backend-rendered messages; ordinary UI
+/// text uses codes.
 static LANG: Mutex<String> = Mutex::new(String::new());
 
 #[tauri::command]
@@ -35,20 +20,18 @@ pub fn lang() -> String {
     LANG.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
-/// Português, ou o inglês que é o outro lado de tudo. Enquanto o front não
-/// contou (o app acabou de subir), é português — que é o que o app era antes
-/// de falar dois idiomas.
+/// Default to Portuguese until the frontend supplies its language; English is the other supported
+/// locale.
 pub fn pt() -> bool {
     !lang().starts_with("en")
 }
 
-/// O idioma é um estático, e o cargo roda cada teste numa thread: dois testes
-/// trocando o idioma ao mesmo tempo leem o do outro. Quem mexer, segura isto.
+/// Tests modifying the global language must hold this lock to avoid racing concurrent tests.
 #[cfg(test)]
 pub static TEST_LANG: Mutex<()> = Mutex::new(());
 
-/// Uma das duas frases, na que a pessoa lê. Só para o punhado de textos que o
-/// back escreve inteiros; tudo mais é código, e o catálogo mora no front.
+/// Choose localized text only for the few messages rendered entirely by the backend. Other messages
+/// use frontend catalog codes.
 pub fn pick(pt_br: &str, en: &str) -> String {
     if pt() {
         pt_br.to_string()
@@ -57,21 +40,18 @@ pub fn pick(pt_br: &str, en: &str) -> String {
     }
 }
 
-/// Um código sem buraco nenhum.
+/// Encode a message code without arguments.
 pub fn t(code: &str) -> String {
     format!("i18n:{}", serde_json::json!({ "code": code }))
 }
 
-/// Um código e o que vai nos buracos. As chaves são as mesmas que aparecem
-/// entre chaves na frase do catálogo.
+/// Encode a message code with arguments named after the catalog placeholders.
 pub fn ta(code: &str, args: &[(&str, String)]) -> String {
     let map: BTreeMap<&str, &str> = args.iter().map(|(k, v)| (*k, v.as_str())).collect();
     format!("i18n:{}", serde_json::json!({ "code": code, "args": map }))
 }
 
-/// O que uma biblioteca disse, quando não há nada melhor a dizer. Continua em
-/// inglês (é o que a biblioteca fala), mas passa pelo catálogo do mesmo jeito —
-/// e é lá que se decide como emoldurá-lo.
+/// Wrap external library errors through the catalog without translating their diagnostic text.
 pub fn io(cause: impl ToString) -> String {
     ta("err.io", &[("cause", cause.to_string())])
 }

@@ -3,11 +3,7 @@ import { t } from "./i18n";
 import * as team from "./team";
 import { h, template } from "./util";
 
-/// "Para mim": comentários abertos que esperam você.
-///
-/// É uma folha, como a de devolver worktrees, e não uma tela: o que se faz
-/// aqui é escolher qual sessão abrir, e o lugar de ler o comentário é ao lado
-/// da conversa de que ele fala. No relay atual, só resolver tira da fila.
+/// The mention inbox selects a conversation to open; threads are read beside that conversation. Only resolving a thread removes it from the relay inbox.
 
 export function openInbox(go: (workspace: string, note: string, tab: string | null) => void) {
   const veil = document.getElementById("veil")!;

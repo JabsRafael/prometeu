@@ -19,15 +19,11 @@ export default defineConfig({
   },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
-    // O app de verdade roda no WebKit. O que é gesto do motor — o canto que
-    // estica, o arraste — precisa rodar nele também. A navegação pelos agentes
-    // na barra lateral cobre foco, seleção e recolhimento no mesmo motor.
-    // Git cobre revisão, stage e commits no motor usado pelo desktop.
-    { name: "webkit", use: { ...devices["Desktop Safari"] }, grep: /comentário fica|segurança do compartilhamento|organizações no desktop|catálogo pessoal|a mesa|a barra lateral|design system|comando reutilizável|perfil por projeto|Code review|arquivo solto|arraste de arquivo|Git|a tela de Mudanças/ },
+    // Cover desktop WebKit gestures, Git review, encrypted collaboration and asynchronous editing.
+    { name: "webkit", use: { ...devices["Desktop Safari"] }, grep: /comentário fica|segurança do compartilhamento|organizações no desktop|catálogo pessoal|a mesa|a barra lateral|design system|comando reutilizável|perfil por projeto|Code review|arquivo solto|arraste de arquivo|Git|a tela de Mudanças|file saving|finishing a save|cleanup keeps|legacy import/ },
   ],
   webServer: {
-    // O preview é estático: além de exercitar o bundle de produção, evita um
-    // reload de HMR no meio do teste quando outra tarefa toca o worktree.
+    // The static production preview avoids HMR reloads when concurrent work edits this checkout.
     command: `npm run design-system:build && npx vite build && npx vite preview --host 127.0.0.1 --port ${port}`,
     url: baseURL,
     reuseExistingServer: !process.env.CI,

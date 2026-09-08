@@ -4,9 +4,7 @@ import { t } from "./i18n";
 import type { Block, ToolBlock } from "./timeline";
 import { h, template } from "./util";
 
-/// Apresentação pura dos blocos da conversa. O estado do stream e as ações do
-/// composer continuam em `chat.ts`; aqui ficam apenas decisões de desenho e
-/// cortes de conteúdo.
+/// Pure conversation presentation: layout decisions and content truncation. Stream state and composer actions remain in chat.ts.
 
 const RESULT_LINES = 120;
 const ERROR_LINES = 36;

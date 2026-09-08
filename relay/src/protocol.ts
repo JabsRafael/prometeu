@@ -1,16 +1,9 @@
-/// O que atravessa o relay, num lugar só. Este arquivo é importado pelo Worker
-/// (`relay/src/room.ts`) e pelo app (`src/team.ts`), então não pode depender
-/// de nada de um lado que o outro não tenha: nem `@cloudflare/workers-types`,
-/// nem DOM além do que o Node e o Worker também têm (`TextEncoder`).
-///
-/// Controle e envelopes cifrados usam JSON; o envelope de conteúdo binário
-/// conserva o cabeçalho de roteamento unicast.
+/// Shared relay contract for the Worker and desktop; depend only on APIs available in both environments. Control and encrypted envelopes use JSON; binary envelopes retain a unicast routing header.
 
-// v4 exige E2EE e prova de posse da identidade por conexão. Matrículas e
-// credenciais v3 permanecem válidas; conteúdo v3 não é negociado como fallback.
+// Protocol v4 requires E2EE and identity proof on each connection. Existing v3 enrollment credentials remain valid; plaintext v3 content is never a fallback.
 export const PROTO = 4;
 
-/* ---------- limites e validação de controle ---------- */
+/* control limits and validation */
 
 export const ID_MAX = 64;
 export const NAME_MAX = 80;
@@ -27,8 +20,7 @@ export const INBOX_MAX = 500;
 export const NOTE_TTL_MS = 90 * 24 * 60 * 60 * 1_000;
 export const WRITE_MAX = 64 * 1024;
 export const TEXT_FRAME_MAX = 2 * 1024 * 1024;
-// `welcome` agrega tudo que foi aceito em vários frames individuais. Continua
-// limitado no cliente, mas precisa caber mais que um único `share`.
+// Welcome aggregates previously accepted frames, so its bounded client limit must exceed one share frame.
 export const DOWN_FRAME_MAX = 16 * 1024 * 1024;
 export const BINARY_FRAME_MAX = 1024 * 1024;
 export const BINARY_SEGMENTS_MAX = 256;
@@ -93,7 +85,7 @@ export function normalizeName(value: unknown, fallback = ""): string {
 
 export type Status = "rodando" | "querendo" | "pronta" | "desligada";
 
-/// Uma aba como o dono a anuncia: o que o card do colega precisa para desenhar.
+/// A tab advertisement containing the state required by a remote card.
 export type ShareTab = {
   id: string;
   title: string;
@@ -102,8 +94,7 @@ export type ShareTab = {
   tokens: number | null;
 };
 
-/// Um workspace compartilhado, como o dono o anuncia. Muda a cada evento do
-/// quadro do dono que mexa nele; o relay guarda o último.
+/// The owner's latest shared workspace snapshot, updated when its board state changes.
 export type Share = {
   encrypted?: Encrypted;
   id: string;
@@ -114,15 +105,13 @@ export type Share = {
   issue: { identifier: string; title: string; url: string } | null;
   active: string | null;
   tabs: ShareTab[];
-  /// Tamanho do terminal de cada aba, `[cols, rows]` — o colega desenha nesse.
+  /// Terminal dimensions per tab, as `[cols, rows]`.
   sizes: Record<string, [number, number]>;
-  /// Para quem: ids de membros, ou `null` para o time inteiro. É o relay que
-  /// aplica no roteamento; o cliente também confere audiência e só cifra para
-  /// destinatários autorizados. No wire v4, a lista é sempre explícita.
+  /// Authorized member IDs, or null for the entire team. The relay filters routing; clients verify the audience and encrypt only for authorized recipients. The v4 wire audience is always explicit.
   audience: string[] | null;
 };
 
-/// O mesmo, com o que só o relay sabe: de quem é, e se o dono está aí.
+/// A share plus relay-owned owner identity and presence.
 export type Shared = Share & { owner: string; online: boolean };
 
 export type Member = { id: string; name: string; online: boolean; key?: string };
@@ -135,27 +124,25 @@ export type Note = {
   author: string;
   text: string;
   mentions: string[];
-  /// Trecho do transcript que o comentário cita, se cita.
+  /// Optional transcript excerpt quoted by a comment.
   quote: string | null;
   ts: number;
-  /// Conversa e pedaço do transcript a que o comentário pertence. Ausentes
-  /// nas notas escritas antes de comentários contextuais.
+  /// Conversation and transcript location; absent on older standalone notes.
   tab?: string | null;
   anchor?: string | null;
-  /// Respostas ficam planas no storage e apontam para o comentário raiz.
+  /// Replies are stored flat and reference their root comment.
   parent?: string | null;
-  /// Só vale na raiz. Ausente significa aberto, para dados antigos.
+  /// Only roots have resolution state. Missing legacy values mean open.
   resolved?: boolean;
 };
 
-/// Um comentário aberto que espera você. `id` é sempre o da raiz. `text` e
-/// `tab` são opcionais para caixas gravadas por versões anteriores.
+/// An open comment awaiting this member. The ID identifies its root; older inbox entries may omit text and tab.
 export type Inbox = { id: string; ws: string; author: string; ts: number; tab?: string | null; text?: string; encrypted?: Encrypted };
 
-/// Quem está olhando cada aba dos seus workspaces: `ws → tab → membros`.
+/// Viewers of the owner's workspaces, indexed by workspace, then tab.
 export type Watching = Record<string, Record<string, string[]>>;
 
-/// App → relay.
+/// App-to-relay controls.
 export type Up =
   | { t: "identity"; key: string; proof: string }
   | { t: "me"; name: string }
@@ -171,7 +158,7 @@ export type Up =
   | { t: "notes"; ws: string }
   | { t: "inbox_read"; id: string };
 
-/// Relay → app.
+/// Relay-to-app controls.
 export type Down =
   | { t: "welcome"; you: string; members: Member[]; shares: Shared[]; inbox: Inbox[]; watching: Watching; comments?: 1; e2ee?: 1; challenge?: string }
   | { t: "presence"; members: Member[] }
@@ -185,15 +172,13 @@ export type Down =
   | { t: "inbox"; items: Inbox[] }
   | { t: "error"; code: string };
 
-/// Tetos do que um comentário carrega. Cortados no app antes de sair; o relay
-/// recusa o que passar, para um cliente estranho não encher o storage.
+/// Comment limits enforced before sending and again at the relay trust boundary.
 export const NOTE_TEXT_MAX = 8 * 1024;
 export const NOTE_QUOTE_MAX = 4 * 1024;
 export const NOTE_ANCHOR_MAX = 128;
 
-/// Respostas HTTP usadas ao criar um time e ao trocar um convite por uma
-/// identidade. `secret` continua no convite; `credential` nunca deve ser
-/// compartilhada e é a única prova aceita no WebSocket.
+/// HTTP responses for team creation and enrollment. Invite `secret` values are shareable; individual
+/// `credential` values stay private and authenticate WebSockets.
 export type Membership = { member: string; credential: string };
 export type CreatedTeam = Membership & { team: string; secret: string };
 export type EnrollRequest = { secret: string };
@@ -269,9 +254,8 @@ export function parseShare(value: unknown): Share | null {
   };
 }
 
-/// Decodifica e copia um frame de controle. Nunca devolve o objeto que veio
-/// do JSON: assim propriedades inesperadas, getters e valores sem limite não
-/// atravessam a fronteira do relay.
+/// Validate and copy control frames so unexpected properties, getters and unbounded values cannot cross
+/// the relay boundary.
 export function parseUp(value: unknown): Up | null {
   if (!record(value) || typeof value.t !== "string") return null;
   const sealed = encryption(value);
@@ -430,9 +414,8 @@ function parseWatching(value: unknown): Watching | null {
   return out;
 }
 
-/// Valida tudo que um relay configurável devolve antes de tocar no estado da
-/// webview. Além de evitar exceções, os limites impedem um endpoint estranho
-/// de transformar um único frame em estruturas sem teto na memória.
+/// Validate configurable relay responses before changing webview state. Size limits also bound
+/// allocations from untrusted endpoints.
 export function parseDown(value: unknown): Down | null {
   if (!record(value) || typeof value.t !== "string") return null;
   const sealed = encryption(value);
@@ -494,19 +477,16 @@ export function parseDown(value: unknown): Down | null {
   }
 }
 
-/* ---------- frames binários ---------- */
+/* binary frames */
 
-/// Saída ao vivo de uma aba: vai para quem está olhando aquela aba.
+/// Live tab output sent to its current viewers.
 export const LIVE = 0;
-/// A conversa inteira de uma aba, para um membro só — quem acabou de abrir.
-/// Vai em partes: o relay limita cada mensagem a 1 MB, e uma conversa longa
-/// passa disso. Cada parte diz se vem mais; a última fecha.
+/// A transcript snapshot for one newly connected viewer. Parts stay within the relay's 1 MB message
+/// limit; the final part clears `more`.
 export const SNAPSHOT = 1;
 
-/// Um pedaço de saída como o PTY entregou, com o número dele. O dono junta
-/// vários num frame só (menos mensagens, que é o que o relay cobra), e o
-/// número de cada um é o que deixa o colega pular o que o snapshot dele já
-/// trazia — sem ninguém coordenar nada.
+/// A numbered output segment. Owners batch segments to reduce relay messages; sequence numbers let
+/// viewers skip content already included in snapshots.
 export type Segment = { seq: number; bytes: Uint8Array };
 
 export type Binary =
@@ -525,7 +505,7 @@ function decodeId(bytes: Uint8Array): string | null {
   }
 }
 
-/// Escreve um inteiro de até 2^53 em oito bytes, big-endian, sem BigInt.
+/// Write an integer up to 2^53 as eight big-endian bytes without BigInt.
 function putU64(view: DataView, at: number, n: number) {
   view.setUint32(at, Math.floor(n / 4294967296));
   view.setUint32(at + 4, n >>> 0);
@@ -534,9 +514,8 @@ function getU64(view: DataView, at: number): number {
   return view.getUint32(at) * 4294967296 + view.getUint32(at + 4);
 }
 
-/// `[0][n][tab…][k][seq,len × k][bytes…]`. Os ids vão com tamanho na frente,
-/// e não em 36 bytes fixos, para nenhum lado depender do formato de uuid do
-/// outro.
+/// `[0][n][tab...][k][seq,len x k][bytes...]`. Length-prefixed IDs avoid depending on fixed UUID
+/// representations.
 export function encodeLive(tab: string, segments: Segment[]): Uint8Array {
   const id = enc.encode(tab);
   const total = segments.reduce((n, s) => n + s.bytes.length, 0);
@@ -560,8 +539,8 @@ export function encodeLive(tab: string, segments: Segment[]): Uint8Array {
   return out;
 }
 
-/// `[1][n][tab…][m][to…][seq][more][bytes…]`: uma parte da conversa até o
-/// pedaço `seq`. `more` é 1 quando outra parte vem atrás.
+/// `[1][n][tab...][m][to...][seq][more][bytes...]` carries a snapshot part through `seq`. `more` is 1
+/// when another part follows.
 export function encodeSnapshot(tab: string, to: string, seq: number, bytes: Uint8Array, more = false): Uint8Array {
   const id = enc.encode(tab);
   const who = enc.encode(to);
@@ -580,7 +559,7 @@ export function encodeSnapshot(tab: string, to: string, seq: number, bytes: Uint
   return out;
 }
 
-/// `null` é frame que não segue o formato — descartado, nunca repassado.
+/// Return `null` for malformed frames; never forward them.
 export function decodeBinary(data: ArrayBuffer | Uint8Array): Binary | null {
   const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
   if (buf.length > BINARY_FRAME_MAX) return null;
@@ -628,7 +607,7 @@ export function decodeBinary(data: ArrayBuffer | Uint8Array): Binary | null {
   return null;
 }
 
-/* ---------- convite ---------- */
+/* invites */
 
 /** V4 never accepts plaintext content, even from an authenticated client. */
 export function isEncryptedUp(frame: Up): boolean {
@@ -686,9 +665,7 @@ export function downForMember(frame: Down, member: string): Down {
   }
 }
 
-/// `pm2.<time>.<segredo>`: o `pm2` é a versão com matrícula individual, para
-/// um código velho ser
-/// recusado com um erro claro em vez de conectar em lugar nenhum.
+/// The pm2.<team>.<secret> invite format identifies individual enrollment so obsolete codes receive a clear compatibility error.
 export function formatInvite(team: string, secret: string): string {
   return `pm2.${team}.${secret}`;
 }

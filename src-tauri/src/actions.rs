@@ -1,5 +1,5 @@
-//! Comandos reutilizáveis e perfis pertencem ao app; cada execução guarda uma
-//! cópia resolvida. O monitor consulta GitHub sem manter um turno do modelo.
+//! The app owns reusable commands and profiles. Each execution stores a resolved copy; the monitor
+//! queries GitHub without keeping a model turn active.
 use crate::lock::lock;
 use crate::state::{publish, Choice, Status, Tab, Workspace};
 use crate::{chat, i18n, session, AppState};
@@ -13,7 +13,7 @@ pub struct Catalog {
     pub defaults_initialized: bool,
     pub profiles: Vec<Profile>,
     pub commands: Vec<Action>,
-    /// Substituição completa por projeto; ausência herda o perfil global.
+    /// Project overrides replace the whole profile; absence inherits the global profile.
     #[serde(default)]
     pub overrides: BTreeMap<String, BTreeMap<String, Profile>>,
     #[serde(default)]
@@ -21,7 +21,7 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    /// Executado uma vez: remover ou personalizar o perfil não o recria no boot.
+    /// Initialize once so removing or customizing the profile survives subsequent startup.
     pub fn initialize_defaults(&mut self) {
         if self.defaults_initialized {
             return;
@@ -99,7 +99,7 @@ pub struct Run {
     pub error: Option<String>,
     #[serde(default)]
     pub seen: BTreeMap<String, String>,
-    /// A identidade da PR fica presa à execução, mesmo se a branch mudar.
+    /// Keep the PR identity attached to the execution even if the branch changes.
     #[serde(default)]
     pub prs: BTreeMap<String, u64>,
 }
@@ -405,7 +405,7 @@ fn tick(app: &AppHandle) {
             .collect()
     };
     for (ws, id, run) in candidates {
-        // A fila pode ter sobrevivido ao encerramento do app entre salvar e enviar.
+        // The app may have exited after saving the queue but before sending it.
         let recover = {
             let board = lock(&state.board);
             let Some(current) = board.workspaces.iter().find(|w| w.id == ws.id) else {
@@ -434,7 +434,7 @@ fn tick(app: &AppHandle) {
             }
             continue;
         }
-        // Uma única thread consulta; não há consultas concorrentes da mesma execução.
+        // One monitor thread prevents concurrent queries for the same execution.
         let snapshot = crate::github::task_snapshot(&ws, &run);
         let mut queued = false;
         {
@@ -459,7 +459,7 @@ fn tick(app: &AppHandle) {
                 queued = true;
             }
         }
-        // Cursor e fala pendente são persistidos juntos antes de iniciar o turno.
+        // Persist the cursor and pending message together before starting the turn.
         publish(app);
         if queued {
             crate::state::save_now(app);

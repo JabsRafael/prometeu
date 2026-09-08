@@ -6,72 +6,57 @@ import * as menu from "./menu";
 import { isTerm, termKind, termNumber, type DockKind, type DockState, type Scripts } from "./types";
 import { $ } from "./util";
 
-/// O dock, que mora em dois lugares. Setup e Run continuam no painel da
-/// direita: é saída para acompanhar de canto enquanto se fala com o agente. O
-/// terminal livre, não — ele é aba do centro, ao lado das conversas, porque é
-/// onde se trabalha e trabalhar pede a tela.
-///
-/// Quem desenha os dois terminais é o `dock`; aqui mora só o que o repositório
-/// declara, o que está de pé, e o que os botões fazem. A faixa da direita é
-/// desenhada aqui; a do centro é do `workspace`, com o que `tabs()` conta.
+/// Coordinate repository scripts in the side panel and shell tabs in the center. dock.ts owns terminal rendering; this module owns declared scripts, observed process state, and actions. workspace.ts renders center tabs from tabs().
 
 const NO_SCRIPTS: Scripts = { file: null, inherited: false, setup: null, runs: [], archive: null, copy: [], port: null };
 
-/// O que o repositório declara e o que existe no dock agora. Vem do back quando
-/// o workspace abre e sempre que um script sobe ou morre — nada de polling.
+/// Refresh declared scripts and live dock state on workspace opening and process changes, without polling.
 let info: { scripts: Scripts; docks: DockState[] } = { scripts: NO_SCRIPTS, docks: [] };
-/// Qual `[scripts.run.<nome>]` o botão dispara. Vazio é o padrão do repositório.
+/// The selected scripts.run entry; absent selection uses the repository default.
 let runName: string | undefined;
-/// Qual script está na frente do painel da direita.
+/// The script selected in the side panel.
 let pane: DockKind | null = null;
-/// Qual terminal livre está na aba do centro. `null` é o centro com outra
-/// coisa — a conversa, um arquivo, o diff ou o navegador.
+/// The selected center shell, or null when another center view is active.
 let shell: DockKind | null = null;
 let open = true;
-/// Terminais pedidos e ainda não confirmados pelo back. Dois cliques no + em
-/// sequência disputariam o mesmo número sem isto: o segundo escolhe o próximo
-/// livre antes de o primeiro aparecer no `dock_state`, e um dos dois sumiria.
+/// Reserve pending shell numbers before backend confirmation so rapid creation cannot request the same slot twice.
 const asked = new Set<DockKind>();
 
 type Ctx = {
   workspace: () => string | null;
   say: (m: string, err?: boolean) => void;
-  /// Abre um arquivo do worktree no visualizador do centro.
+  /// Open a worktree file in the center viewer.
   openFile: (path: string) => Promise<void>;
-  /// Conversa nova já com uma primeira fala.
+  /// Start a conversation with an initial prompt.
   newTab: (prompt: string) => Promise<void>;
-  /// A aba de navegador no centro, na porta do Run.
+  /// Open the center browser at the Run port.
   openBrowser: () => Promise<void>;
-  /// Traz o terminal para o centro, tirando de lá o que estava.
+  /// Activate the center terminal view.
   enter: () => void;
-  /// Devolve o centro à conversa: o último terminal fechou.
+  /// Restore the conversation when the final shell closes.
   exit: () => void;
-  /// Redesenha a faixa de abas do centro, que é onde as de terminal moram.
+  /// Redraw the center tab strip containing shell tabs.
   drawTabs: () => void;
 };
 let ctx: Ctx;
 
 const isUp = (kind: DockKind) => info.docks.some((d) => d.kind === kind && d.alive);
-/// Rodou e morreu: a rolagem ainda está lá, com o `✗ saiu com código` no fim.
+/// Exited scripts retain their output and exit-code marker.
 const hasLog = (kind: DockKind) => info.docks.some((d) => d.kind === kind);
-/// Setup conta a cópia do clone junto com o script: worktree que só recebe o
-/// `.env` também tem o que mostrar na aba, e é ali que se vê o que veio.
+/// Setup includes inherited-file copying, so workspaces receiving only .env still have setup output.
 const declares = (kind: DockKind) =>
   kind === "setup"
     ? !!info.scripts.setup || info.scripts.copy.length > 0
     : info.scripts.runs.length > 0;
 
-/// As abas de shell abertas, em ordem. Não são fixas como Setup e Run: nascem
-/// no +, somem no ✕, e é o back que sabe quais existem — trocar de workspace
-/// tem que trazer de volta exatamente as do outro.
+/// Restore backend-reported shell tabs in order. Unlike fixed script tabs, shells are explicitly created and removed.
 function terminals(): DockKind[] {
   const live = info.docks.map((d) => d.kind).filter(isTerm);
-  // As recém-pedidas ainda não existem no back: sem elas a aba sumiria entre o
-  // clique no + e a resposta do `dock_state`.
+  // Keep pending shell tabs visible until dock_state confirms them.
   return [...new Set([...live, ...asked])].sort((a, b) => termNumber(a) - termNumber(b));
 }
 
-/// A faixa da direita: só os scripts. Terminal livre é aba do centro.
+/// Only repository scripts appear in the side-panel tab strip.
 const order = (): DockKind[] => ["setup", "run"];
 
 const label = (kind: DockKind) => {
@@ -81,9 +66,7 @@ const label = (kind: DockKind) => {
   return n === 1 ? t("dock.terminal") : t("dock.terminalN", { n });
 };
 
-/// O menor número livre, e não o próximo de um contador: fechar o Terminal 2 e
-/// pedir outro devolve o 2, em vez de deixar a barra virar uma fila com buracos
-/// e números que só crescem.
+/// Reuse the lowest available shell number instead of accumulating gaps.
 function nextTerm(): DockKind {
   const taken = new Set(terminals().map(termNumber));
   let n = 1;
@@ -112,17 +95,14 @@ export function init(context: Ctx) {
       })),
       "sep",
       {
-        // Herdado do clone: não há arquivo aqui para abrir. O que o clique faz
-        // é trazer uma cópia — e o rótulo diz isso, para ninguém achar que
-        // editou o do clone.
+        // Editing inherited settings first copies them into the worktree; label this action explicitly.
         label: t(info.scripts.inherited ? "dock.settings.copy" : "dock.settings.open"),
         glyph: icon("file", 14),
         run: writeScriptsFile,
       },
     ]);
   });
-  // Clique abre a aba de navegador; ⌥-clique vai para o navegador de fora,
-  // que é onde o agente enxerga a página e onde se confere o que só o Chrome faz.
+  // Click opens the embedded browser; Option-click opens the system browser.
   $("run-open").addEventListener("click", (e) => {
     const id = ctx.workspace();
     if (!id) return;
@@ -137,10 +117,7 @@ export function init(context: Ctx) {
   draw();
 }
 
-/// Trocar de workspace zera o painel — o processo do outro continua vivo, mas
-/// o que a barra diz é do worktree que você está olhando.
-/// `panel` desligado é o projeto sem workspace: ali não há Setup nem Run —
-/// nenhum script é do clone —, e o que sobra do dock é o terminal livre.
+/// Reset presentation on workspace changes without stopping old processes. Project-only mode disables Setup/Run and keeps free shells available.
 export function reset(panel = true) {
   pane = null;
   shell = null;
@@ -149,43 +126,37 @@ export function reset(panel = true) {
   info = { scripts: NO_SCRIPTS, docks: [] };
   dock.detach();
   draw();
-  // Entrar num workspace cai no Setup: é a saída do que rodou quando o worktree
-  // nasceu — inclusive o erro, quando ele falhou. Olhar não sobe processo
-  // nenhum, e abrir sempre numa aba evita a tela que só repetia as três.
+  // Select Setup on workspace entry to show preparation output or failure without starting a process.
   void refresh().then(() => {
     if (panel && pane === null) void setDock("setup");
   });
 }
 
-/// O que o repositório declara e o que está de pé, do back.
+/// Read declared scripts and live docks from the backend.
 export async function refresh() {
   const id = ctx.workspace();
   if (!id) return;
   const [scripts, docks] = await Promise.all([
-    invoke<Scripts>("workspace_scripts", { id }),
-    invoke<DockState[]>("dock_state", { id }),
+    invoke("workspace_scripts", { id }),
+    invoke("dock_state", { id }),
   ]);
-  // Trocar de workspace no meio da ida ao back deixaria o painel falando do
-  // repositório errado.
+  // Discard responses if the selected workspace changed while waiting.
   if (ctx.workspace() !== id) return;
   info = { scripts, docks };
   draw();
 }
 
-/// Um dock deste workspace morreu sozinho — terminou, ou quebrou.
+/// Handle script or shell exit for the active workspace.
 export function closed(key: string) {
   const id = ctx.workspace();
   if (!id || !key.startsWith(`${id}:`)) return;
   const kind = key.slice(id.length + 1) as DockKind;
-  // Shell que saiu no `exit` não deixa log que valha uma aba: ela some, como
-  // num terminal de verdade. Script que morreu fica — a rolagem com o
-  // `✗ saiu com código` no fim é justamente o que a aba dele tem para mostrar.
+  // Exited shells disappear; exited scripts retain their logs in fixed tabs.
   if (isTerm(kind)) void closeTerm(kind);
   else void refresh();
 }
 
-/// Escolhe a aba. `start` é o único jeito de um script começar: abrir a aba só
-/// anexa ao que já está de pé, senão olhar o log de ontem viraria subir servidor.
+/// Only start explicitly launches scripts. Selecting a tab attaches to a live process or displays retained output.
 async function setDock(next: DockKind | null, start = false) {
   const id = ctx.workspace();
   if (!id) return;
@@ -198,8 +169,7 @@ async function setDock(next: DockKind | null, start = false) {
       await dock.open(id, next, next === "run" ? runName : undefined);
       dock.focus("scripts");
     } else if (hasLog(next)) {
-      // Morreu: só a rolagem, sem reiniciar. É aqui que o setup de ontem
-      // continua dizendo que falhou.
+      // Show an exited script's output without restarting it.
       await dock.show(id, next);
     } else {
       dock.detach();
@@ -210,8 +180,7 @@ async function setDock(next: DockKind | null, start = false) {
   await refresh();
 }
 
-/// O terminal livre na aba do centro. Escolher um que já existe não reinicia
-/// nada: `open_dock` devolve o mesmo pty, e a rolagem guardada redesenha.
+/// Selecting an existing shell reuses its PTY and retained output.
 async function setShell(kind: DockKind) {
   const id = ctx.workspace();
   if (!id) return;
@@ -226,50 +195,43 @@ async function setShell(kind: DockKind) {
     ctx.say(fromBack(err), true);
   }
   await refresh();
-  // Agora o `dock_state` já conhece esta aba — ou a abertura falhou, e ela não
-  // pode ficar na barra pedindo um terminal que não existe.
+  // After backend confirmation or failure, release the temporary shell reservation.
   asked.delete(kind);
 }
 
-/// O que a faixa do centro precisa saber para desenhar as abas de terminal.
+/// Expose center shell-tab presentation data.
 export type DockTab = { kind: DockKind; label: string; on: boolean };
 
 export const tabs = (): DockTab[] =>
   terminals().map((kind) => ({ kind, label: label(kind), on: shell === kind }));
 
-/// Qual terminal está no centro, para a faixa saber que nenhuma conversa é a
-/// da frente.
+/// Identify the active shell so conversation tabs are not incorrectly highlighted.
 export const front = () => shell;
 
 export const select = (kind: DockKind) => void setShell(kind);
 export const closeTab = (kind: DockKind) => void closeTerm(kind);
 export const newTerm = () => void setShell(nextTerm());
 
-/// Outra coisa foi para o centro. Nada morre: o processo segue, a rolagem
-/// continua guardada, e a aba só deixa de estar na frente.
+/// Leaving the center shell view preserves its process, tab, and retained output.
 export function leave() {
   if (shell === null) return;
   shell = null;
   ctx.drawTabs();
 }
 
-/// Fecha uma aba de terminal: mata o shell e tira a aba da barra. Não é o mesmo
-/// que encerrar um script — o Setup continua existindo depois de morrer, porque
-/// a rolagem dele é o que a aba mostra; um shell que saiu não deixa nada.
+/// Closing a shell kills its process and removes the tab; fixed script tabs instead retain their logs.
 async function closeTerm(kind: DockKind) {
   const id = ctx.workspace();
   if (!id) return;
   const bar = terminals();
   const at = bar.indexOf(kind);
   const wasOn = shell === kind;
-  // Sai das duas listas antes de ir ao back: `terminals()` desenha a união
-  // delas, e a aba piscaria de volta no desenho do meio do caminho.
+  // Remove the shell from both confirmed and pending lists before IPC so intermediate redraws cannot restore it.
   info.docks = info.docks.filter((d) => d.kind !== kind);
   asked.delete(kind);
   if (wasOn) shell = null;
   await dock.kill(id, kind);
-  // Cai na vizinha da direita; sem vizinha, na da esquerda. Sem nenhuma das
-  // duas, o centro volta para a conversa — que é de onde ele veio.
+  // Select the right neighbor, then left neighbor, or return to the conversation when no shells remain.
   if (wasOn) {
     const next = bar[at + 1] ?? bar[at - 1];
     if (next) await setShell(next);
@@ -279,17 +241,14 @@ async function closeTerm(kind: DockKind) {
   await refresh();
 }
 
-/// ⌘W com o cursor dentro do terminal fecha o terminal, e não a conversa que
-/// está atrás dele. Fora dele a tecla não é nossa: quem responde é o
-/// `workspace`.
+/// Handle Command-W only while a terminal owns focus; otherwise workspace.ts closes the center tab.
 export function closeFocused(): boolean {
   if (!shell || !$("termview").contains(document.activeElement)) return false;
   void closeTerm(shell);
   return true;
 }
 
-/// Encerra o processo de uma aba fixa. Diferente de fechar terminal: a aba
-/// continua na barra, agora pedindo para rodar de novo.
+/// Stopping a fixed script preserves its tab and exposes the restart action.
 async function killPane(kind: DockKind) {
   const id = ctx.workspace();
   if (!id) return;
@@ -302,20 +261,17 @@ export function draw() {
   $("dock-toggle").innerHTML = icon(open ? "chevron-down" : "chevron-right");
   $("dock-toggle").title = t(open ? "dock.collapse" : "dock.expand");
   drawStrip();
-  // As abas de terminal são do centro, e mudam com o que o back conta aqui.
+  // Backend dock changes also update center shell tabs.
   ctx.drawTabs();
 
-  // O botão de Run mora na barra e não na aba: ⌘R é o mesmo esteja qual estiver
-  // na frente, e é a mesma pergunta com as duas respostas.
+  // Run and Command-R remain global to the workspace regardless of the selected script tab.
   const up = isUp("run");
   $("runsplit").hidden = !info.scripts.runs.length;
   $("run-pick").hidden = info.scripts.runs.length < 2;
   $("run-go").innerHTML = `${icon(up ? "square" : "play", 13)}<span></span><kbd>⌘R</kbd>`;
   $("run-go").querySelector("span")!.textContent = t(up ? "dock.stop" : "dock.run");
 
-  // Abrir no navegador só existe com o run de pé e porta reservada: é quase
-  // certeza de servidor em localhost — e sumir quando ele morre também é
-  // informação.
+  // Offer browser opening only with a running script and reserved local port.
   const goOpen = $("run-open");
   const port = info.scripts.port;
   goOpen.hidden = !up || !port;
@@ -328,14 +284,12 @@ export function draw() {
   const filled = pane !== null && (isUp(pane) || hasLog(pane));
   $("dockwrap").hidden = !filled;
   $("dockempty").hidden = filled;
-  // Setup que rodou e morreu: a rolagem fica na frente, e rodar de novo é este
-  // botão — o de Run já é o da barra.
+  // Exited Setup retains its output and uses a dedicated rerun button.
   $("dock-again").hidden = !(pane === "setup" && hasLog("setup") && !isUp("setup"));
   if (!filled) drawEmpty();
 }
 
-/// A faixa da direita: Setup e Run. Montada a cada desenho porque a onda e o
-/// ✕ dependem do que está de pé.
+/// Rebuild fixed script tabs when live-state indicators or close actions change.
 function drawStrip() {
   const strip = $("dockstrip");
   strip.replaceChildren();
@@ -343,18 +297,15 @@ function drawStrip() {
   for (const kind of order()) {
     const b = document.createElement("button");
     b.className = "docktab" + (pane === kind ? " on" : "");
-    // A onda anda enquanto o script está de pé: o run continua rodando com o
-    // painel em Setup, e sem isto não haveria como saber que ele está lá.
+    // Animate the live indicator even when a different script tab is selected.
     if (isUp(kind)) b.insertAdjacentHTML("beforeend", wave());
     const name = document.createElement("span");
     name.textContent = label(kind);
     b.append(name);
-    // Clicar na aba aberta recolhe: é assim que se some com a saída sem matar o
-    // processo que a produziu.
+    // Clicking the selected script tab hides output without stopping its process.
     b.addEventListener("click", () => setDock(open && pane === kind ? null : kind));
 
-    // Setup, enquanto vivo, encerra. A aba fica: a rolagem dele é o que ela
-    // tem para mostrar depois.
+    // Stopping Setup leaves its tab available for retained output.
     if (kind === "setup" && isUp(kind)) {
       const x = document.createElement("span");
       x.className = "tabx ico sm";
@@ -370,10 +321,7 @@ function drawStrip() {
   }
 }
 
-/// O que a aba diz quando não há processo na frente. Muda com o que falta: um
-/// repositório que não declara nada precisa de um script; um que declara
-/// precisa de um clique. Um botão só chama a ação — o outro, quando existe, é
-/// a saída alternativa, e por isso não disputa o olho com ele.
+/// Empty-state actions distinguish missing scripts from stopped processes, emphasizing one primary action.
 function drawEmpty() {
   const row = $("empty-row");
   row.replaceChildren();
@@ -395,9 +343,7 @@ function drawEmpty() {
     $("empty-title").hidden = !text;
   };
 
-  // Sem aba na frente — só se acontece depois de clicar na aba aberta para
-  // sumir com a saída. As abas estão logo acima; repetir os nomes aqui era
-  // desenhar o mesmo botão duas vezes na mesma tela.
+  // When output is hidden, avoid repeating the tab choices already visible above it.
   if (pane === null) {
     title("");
     $("empty-sub").textContent = t("dock.idle");
@@ -412,15 +358,14 @@ function drawEmpty() {
     return;
   }
 
-  // Há script e não há processo: falta o clique.
+  // A declared but stopped script needs only an explicit start.
   const setup = pane === "setup";
   const port = info.scripts.port;
   glyph.hidden = false;
   glyph.className = setup ? "glyph" : "glyph solid";
   glyph.innerHTML = icon(setup ? "rotate" : "play", 56);
   title(t(setup ? "dock.setup.idle.title" : "dock.run.idle.title"));
-  // O ⌘R é do Run e só dele: escrevê-lo no botão do setup seria prometer um
-  // atalho que dispara outra coisa.
+  // Command-R belongs only to Run, never to the Setup button.
   button(
     t(setup ? "dock.setup.start" : "dock.run.start"),
     "outline",
@@ -434,34 +379,30 @@ function drawEmpty() {
       : t("dock.run.idle.body");
 }
 
-/// Manda o próprio agente ler o repositório e escrever o settings.toml. Conversa
-/// nova, e não a que está aberta: o assunto é outro, e o contexto de agora não
-/// tem que pagar por isto.
+/// Use a new agent conversation to inspect the repository and write settings.toml without consuming the current task's context.
 async function askForScripts() {
   const id = ctx.workspace();
   if (!id) return;
   try {
-    await ctx.newTab(await invoke<string>("scripts_prompt", { id }));
+    await ctx.newTab(await invoke("scripts_prompt", { id }));
   } catch (err) {
     ctx.say(fromBack(err), true);
   }
 }
 
-/// Cria o arquivo com o exemplo comentado e abre no visualizador — que é onde
-/// se vê o que dá para escrever antes de ir para o editor.
+/// Create commented example settings and open them in the viewer.
 async function writeScriptsFile() {
   const id = ctx.workspace();
   if (!id) return;
   try {
-    await ctx.openFile(await invoke<string>("create_scripts_file", { id }));
+    await ctx.openFile(await invoke("create_scripts_file", { id }));
     await refresh();
   } catch (err) {
     ctx.say(fromBack(err), true);
   }
 }
 
-/// ⌘R. Sem script declarado, leva para a aba que pede um — que é a resposta
-/// certa para "eu quis rodar e não dá".
+/// Command-R opens the script-configuration invitation when no Run command exists.
 export async function toggleRun() {
   const id = ctx.workspace();
   if (!id) return;

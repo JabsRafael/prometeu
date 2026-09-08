@@ -1,6 +1,4 @@
-/// Ciclo de vida de uma espera por snapshot remoto. Uma navegação nova cancela
-/// a anterior e, sobretudo, resolve sua Promise na hora: deixar o timer de dez
-/// segundos vivo era o que permitia a continuação antiga atravessar de tela.
+/// A new remote snapshot attachment cancels and immediately resolves the previous wait so stale continuations cannot change another screen.
 export type AttachTicket = {
   token: number;
   ws: string;
@@ -31,8 +29,7 @@ export class AttachLifecycle {
     return ticket;
   }
 
-  /// A última parte do snapshot chegou. Snapshot atrasado de outra aba não
-  /// solta a espera atual.
+  /// Only the matching tab's final snapshot chunk completes the current wait.
   completeTab(tab: string): boolean {
     const pending = this.pending;
     if (!pending || pending.tab !== tab) return false;
@@ -40,8 +37,7 @@ export class AttachLifecycle {
     return true;
   }
 
-  /// A conexão caiu: o que já existe no espelho é melhor que manter a tela
-  /// esperando. O ticket continua válido; só uma navegação o invalida.
+  /// On disconnect, display the available mirror instead of waiting. Only navigation invalidates the ticket.
   completeCurrent() {
     if (this.pending) this.complete(this.pending.token);
   }

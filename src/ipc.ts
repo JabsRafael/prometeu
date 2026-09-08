@@ -1,147 +1,158 @@
-import {
-  invoke as tauriInvoke,
-  type InvokeArgs,
-  type InvokeOptions,
-} from "@tauri-apps/api/core";
+import { invoke as tauriInvoke, type InvokeOptions } from "@tauri-apps/api/core";
+import type * as T from "./types";
+import type { AgentDescriptor, AgentModel } from "./agents";
+import type { Catalog } from "./actions";
+import type { CatalogState, Kind } from "./catalog";
+import type { CloudStatus } from "./cloud";
+import type { ConversationCommandV1 } from "./conversation";
+import type { Lang } from "./i18n";
+import type { Draft } from "./launcher";
+import type { PathEntry } from "./paths";
+import type { Skill } from "./skills";
+import type { Accounts, Machine, Usage } from "./statusbar";
+import type { TeamConfig, Organization } from "./team";
 
-/**
- * Commands exposed by the Rust backend and currently consumed by the frontend.
- * Keeping the boundary here makes misspelled or stale command names a type error.
- */
-export const IPC_COMMANDS = [
-  "actions_save",
-  "catalog_refresh",
-  "catalog_state",
-  "catalog_share",
-  "catalog_copy",
-  "catalog_install_plugin",
-  "catalog_install_skill",
-  "skill_hub",
-  "skill_save",
-  "skill_remove",
-  "action_start",
-  "action_pause",
-  "accounts",
-  "cloud_status",
-  "cloud_organizations",
-  "cloud_relay_ticket",
-  "cloud_login_start",
-  "cloud_login_poll",
-  "cloud_login_cancel",
-  "cloud_logout",
-  "account_select",
-  "account_remove",
-  "account_login",
-  "account_login_cancel",
-  "add_project",
-  "agents",
-  "claude_models",
-  "archive_workspace",
-  "browser_back",
-  "browser_bounds",
-  "browser_close",
-  "browser_forward",
-  "browser_hide",
-  "browser_navigate",
-  "browser_open",
-  "browser_reload",
-  "browser_url",
-  "chat_control",
-  "chat_control_remote",
-  "chat_send",
-  "chat_snapshot",
-  "cleanup_list",
-  "file_stamp",
-  "cleanup_worktree",
-  "close_dock",
-  "close_tab",
-  "create_scripts_file",
-  "create_workspace",
-  "dock_state",
-  "find_paths",
-  "finish_workspace",
-  "focus_tab",
-  "linear_connect",
-  "linear_disconnect",
-  "linear_issues",
-  "linear_open",
-  "linear_status",
-  "legacy_import_plan",
-  "legacy_import_run",
-  "list_branches",
-  "list_dir",
-  "load_board",
-  "look_at",
-  "machine",
-  "mcp_check",
-  "mcp_found",
-  "mcp_hub",
-  "mcp_login",
-  "mcp_logins",
-  "mcp_logout",
-  "mcp_remove",
-  "mcp_save",
-  "new_tab",
-  "open_dock",
-  "open_external",
-  "open_pr",
-  "open_run",
-  "pin_workspace",
-  "plugin_hub",
-  "plugin_install",
-  "plugin_look",
-  "plugin_make",
-  "plugin_make_stop",
-  "plugin_remove",
-  "plugin_save",
-  "plugin_scrap",
-  "plugin_update",
-  "pr_open",
-  "pr_prompt",
-  "pty_buffer",
-  "pty_resize",
-  "pty_write",
-  "read_bytes",
-  "read_file",
-  "refresh_prs",
-  "remove_project",
-  "remove_workspace",
-  "rename_tab",
-  "rename_workspace",
-  "reveal",
-  "scripts_prompt",
-  "set_awake",
-  "set_lang",
-  "set_shared",
-  "set_stage",
-  "set_tab_choice",
-  "set_unread",
-  "set_workspace_mcp",
-  "set_workspace_plugins",
-  "team_config",
-  "team_config_set",
-  "team_security",
-  "team_security_set",
-  "usage",
-  "workspace_branch",
-  "workspace_diff",
-  "workspace_git_status",
-  "workspace_git_diff",
-  "workspace_git_action",
-  "workspace_git_history",
-  "workspace_git_branches",
-  "workspace_git_conflict",
-  "workspace_git_resolve",
-  "workspace_scripts",
-  "write_file",
-] as const;
+/** The frontend and browser mock share this contract. Rust remains the wire authority. */
+export type Commands = {
+  account_login: { args: { provider: T.ProviderId; id?: string | null }; result: Accounts };
+  account_login_cancel: { args: { id: string }; result: void };
+  account_remove: { args: { id: string }; result: Accounts };
+  account_select: { args: { id: string }; result: Accounts };
+  accounts: { args: undefined; result: Accounts };
+  action_pause: { args: { session: string; paused: boolean }; result: void };
+  action_start: { args: { workspace: string; name: string; context: string }; result: T.Tab };
+  actions_save: { args: { catalog: Catalog }; result: void };
+  add_project: { args: { path: string }; result: T.Project };
+  agents: { args: undefined; result: { providers: AgentDescriptor[] } };
+  archive_workspace: { args: { id: string; archived: boolean }; result: void };
+  browser_back: { args: { id: string }; result: void };
+  browser_bounds: { args: { id: string; x: number; y: number; w: number; h: number }; result: void };
+  browser_close: { args: { id: string }; result: void };
+  browser_forward: { args: { id: string }; result: void };
+  browser_hide: { args: { id: string }; result: void };
+  browser_navigate: { args: { id: string; url: string }; result: void };
+  browser_open: { args: { id: string }; result: number };
+  browser_reload: { args: { id: string }; result: void };
+  browser_url: { args: { id: string }; result: string | null };
+  catalog_copy: { args: { kind: Kind; id: string; newId: string }; result: void };
+  catalog_install_plugin: { args: { id: string }; result: void };
+  catalog_install_skill: { args: { id: string }; result: void };
+  catalog_refresh: { args: undefined; result: void };
+  catalog_share: { args: { kind: Kind; id: string }; result: void };
+  catalog_state: { args: undefined; result: CatalogState };
+  chat_control: { args: { session: string; frame: ConversationCommandV1 }; result: void };
+  chat_control_remote: { args: { session: string; frame: unknown }; result: void };
+  chat_send: { args: { session: string; text: string }; result: void };
+  chat_snapshot: { args: { session: string }; result: { text: string; seq: number } };
+  claude_models: { args: undefined; result: AgentModel[] };
+  cleanup_list: { args: undefined; result: T.Cleanable[] };
+  cleanup_worktree: { args: { id: string; force: boolean }; result: void };
+  close_dock: { args: { id: string; kind: T.DockKind }; result: void };
+  close_tab: { args: { workspace: string; tab: string }; result: void };
+  cloud_login_cancel: { args: { id: string }; result: void };
+  cloud_login_poll: { args: { id: string }; result: CloudStatus | null };
+  cloud_login_start: { args: { signup: boolean }; result: { id: string; user_code: string; url: string; interval: number } };
+  cloud_logout: { args: undefined; result: CloudStatus };
+  cloud_organizations: { args: undefined; result: { user: CloudStatus["user"]; origin: string; organizations: Organization[] } };
+  cloud_relay_ticket: { args: { organization: string; user: string; expectedOrigin: string }; result: string };
+  cloud_status: { args: { refresh: boolean }; result: CloudStatus };
+  create_scripts_file: { args: { id: string }; result: string };
+  create_workspace: { args: { draft: Draft; cols: number; rows: number }; result: T.Workspace };
+  dock_state: { args: { id: string }; result: T.DockState[] };
+  file_stamp: { args: { id: string; rel: string }; result: string };
+  find_paths: { args: { id: string; query: string; recent: string[] }; result: PathEntry[] };
+  finish_workspace: { args: { id: string }; result: void };
+  focus_tab: { args: { workspace: string; tab: string }; result: void };
+  legacy_import_plan: { args: undefined; result: T.LegacyImportPlan };
+  legacy_import_run: { args: undefined; result: T.LegacyImportPlan };
+  linear_connect: { args: undefined; result: T.LinearStatus };
+  linear_disconnect: { args: undefined; result: T.LinearStatus };
+  linear_issues: { args: { force: boolean }; result: T.Issues };
+  linear_open: { args: { url: string }; result: void };
+  linear_status: { args: undefined; result: T.LinearStatus };
+  list_branches: { args: { project: string }; result: { all: string[]; default: string; git: boolean } };
+  list_dir: { args: { id: string; rel: string }; result: PathEntry[] };
+  load_board: { args: undefined; result: T.Board };
+  look_at: { args: { id?: string | null }; result: void };
+  machine: { args: undefined; result: Machine };
+  mcp_check: { args: { server: T.McpServer }; result: T.McpCheck };
+  mcp_found: { args: undefined; result: T.McpServer[] };
+  mcp_hub: { args: undefined; result: T.McpServer[] };
+  mcp_login: { args: { server: T.McpServer }; result: void };
+  mcp_logins: { args: undefined; result: string[] };
+  mcp_logout: { args: { id: string }; result: void };
+  mcp_remove: { args: { id: string }; result: T.McpServer[] };
+  mcp_save: { args: { server: T.McpServer; revision?: number | null }; result: T.McpServer[] };
+  new_tab: { args: { workspace: string; prompt: string; choice?: T.Choice | null }; result: T.Tab };
+  open_dock: { args: { id: string; kind: T.DockKind; name?: string | null; cols: number; rows: number }; result: string };
+  open_external: { args: { url: string }; result: void };
+  open_pr: { args: { id: string; repo: string }; result: void };
+  open_run: { args: { id: string }; result: void };
+  pin_workspace: { args: { id: string; pinned: boolean }; result: void };
+  plugin_hub: { args: undefined; result: T.Plugin[] };
+  plugin_install: { args: { source: string }; result: { dir: string; plugins: T.Plugin[]; saved: boolean } };
+  plugin_look: { args: { source: string }; result: T.Plugin };
+  plugin_make: { args: { name: string; ask: string }; result: { run: number; slug: string } };
+  plugin_make_stop: { args: { run: number }; result: void };
+  plugin_remove: { args: { id: string }; result: T.Plugin[] };
+  plugin_save: { args: { plugin: T.Plugin; revision?: number | null }; result: T.Plugin[] };
+  plugin_scrap: { args: { dir: string }; result: void };
+  plugin_update: { args: { id: string }; result: T.Plugin[] };
+  pr_open: { args: { id: string }; result: void };
+  pr_prompt: { args: { id: string }; result: string };
+  pty_buffer: { args: { session: string }; result: number[] };
+  pty_resize: { args: { session: string; cols: number; rows: number }; result: void };
+  pty_write: { args: { session: string; data: string }; result: void };
+  read_bytes: { args: { id: string; rel: string }; result: ArrayBuffer };
+  read_file: { args: { id: string; rel: string }; result: string };
+  refresh_prs: { args: undefined; result: void };
+  remove_project: { args: { id: string }; result: void };
+  remove_workspace: { args: { id: string }; result: void };
+  rename_tab: { args: { workspace: string; tab: string; title: string }; result: void };
+  rename_workspace: { args: { id: string; title: string }; result: void };
+  resume_tab: { args: { tab: string }; result: boolean };
+  reveal: { args: { id: string }; result: void };
+  scripts_prompt: { args: { id: string }; result: string };
+  set_awake: { args: { on: boolean }; result: void };
+  set_lang: { args: { lang: Lang }; result: void };
+  set_shared: { args: { id: string; shared: boolean; audience?: string[] | null; team?: string | null }; result: void };
+  set_stage: { args: { id: string; stage: string }; result: void };
+  set_tab_choice: { args: { id: string; tab: string; choice: T.Choice }; result: void };
+  set_unread: { args: { id: string; unread: boolean }; result: void };
+  set_workspace_mcp: { args: { id: string; mcp?: string[] | null }; result: void };
+  set_workspace_plugins: { args: { id: string; plugins?: string[] | null }; result: void };
+  skill_hub: { args: undefined; result: Skill[] };
+  skill_remove: { args: { id: string }; result: Skill[] };
+  skill_save: { args: { skill: Skill; revision?: number | null }; result: Skill[] };
+  team_config: { args: undefined; result: { config: unknown; default_name: string } };
+  team_config_set: { args: { config?: TeamConfig | null }; result: void };
+  team_security: { args: undefined; result: unknown };
+  team_security_set: { args: { state: unknown }; result: void };
+  usage: { args: undefined; result: Usage };
+  workspace_branch: { args: { id: string }; result: string | null };
+  workspace_diff: { args: { id: string }; result: T.RepoDiff[] };
+  workspace_git_action: { args: { id: string; repo: number; operation: T.GitAction; paths: string[]; message?: string | null; expected?: string | null; remote?: string | null }; result: void };
+  workspace_git_branches: { args: { id: string; repo: number }; result: T.GitBranch[] };
+  workspace_git_conflict: { args: { id: string; repo: number; path: string }; result: T.GitConflict };
+  workspace_git_diff: { args: { id: string; repo: number; scope: T.GitScope; path?: string | null; reference?: string | null }; result: T.GitDiff };
+  workspace_git_history: { args: { id: string; repo: number }; result: T.GitCommit[] };
+  workspace_git_resolve: { args: { id: string; repo: number; path: string; was: string; text: string }; result: void };
+  workspace_git_status: { args: { id: string }; result: T.GitStatus[] };
+  workspace_scripts: { args: { id: string }; result: T.Scripts };
+  write_file: { args: { id: string; rel: string; text: string; was: string }; result: void };
+};
 
-export type IpcCommand = (typeof IPC_COMMANDS)[number];
+export type IpcCommand = keyof Commands;
+export type IpcArgs<C extends IpcCommand> = Commands[C]["args"];
+export type IpcResult<C extends IpcCommand> = Commands[C]["result"];
+export type IpcHandlers = { [C in IpcCommand]: (args: IpcArgs<C>) => IpcResult<C> | Promise<IpcResult<C>> };
+export type IpcArguments<C extends IpcCommand> = IpcArgs<C> extends undefined
+  ? [args?: undefined, options?: InvokeOptions]
+  : [args: IpcArgs<C>, options?: InvokeOptions];
+export type IpcCall<C extends IpcCommand = IpcCommand> = { [K in C]: [command: K, ...IpcArguments<K>] }[C];
 
-export function invoke<T>(
-  command: IpcCommand,
-  args?: InvokeArgs,
-  options?: InvokeOptions,
-): Promise<T> {
-  return tauriInvoke<T>(command, args, options);
+export function invoke<C extends IpcCommand>(
+  ...[command, args, options]: [command: C, ...IpcArguments<NoInfer<C>>] & IpcCall
+): Promise<IpcResult<C>> {
+  return tauriInvoke<IpcResult<C>>(command, args, options);
 }

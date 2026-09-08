@@ -1,13 +1,7 @@
-/// A aba de navegador: o Run do workspace numa webview do sistema — a mesma que
-/// desenha o app — posta por cima do centro da janela principal. Não é uma
-/// janela nem um `<iframe>`: janela solta perde o lugar na tela, e iframe
-/// esbarra em `X-Frame-Options` e cookie de terceiro. Uma view nativa filha
-/// não sabe o que o CSS fez, então o front mede o buraco que deixou para ela e
-/// manda a medida a cada redesenho (`browser_bounds`).
-///
-/// A porta sai do estado, e não do front: URL arbitrária não viaja pelo IPC.
-/// Uma webview por workspace, viva enquanto a aba existir; trocar de workspace
-/// só esconde, e voltar mostra a mesma página onde estava.
+/// Display workspace Run in a native child webview over the main window's content area. The
+/// frontend measures its logical bounds because native views do not follow CSS. Resolve the initial
+/// port from backend state, and retain one webview per workspace so hiding and showing it preserves
+/// navigation.
 use crate::dock::ensure_port;
 use crate::{i18n, AppState};
 use std::process::Command;
@@ -17,8 +11,8 @@ use tauri::{
     WebviewUrl,
 };
 
-/// Rótulo da webview. O Tauri só aceita letras, dígitos, `-`, `/`, `:` e `_` —
-/// o id do workspace já é assim, mas custa nada garantir.
+/// Sanitize the webview label to Tauri's supported characters even though workspace IDs already
+/// follow this format.
 fn label(id: &str) -> String {
     let safe: String = id
         .chars()
@@ -37,9 +31,8 @@ fn allowed(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https")
 }
 
-/// Abre no navegador do sistema. Só `http`/`https`: `open` com qualquer esquema
-/// é `open` com qualquer coisa — um `file:` abriria o Finder no seu disco, e um
-/// esquema de app abriria o app.
+/// Open only HTTP or HTTPS URLs in the system browser. Other schemes could open local files or
+/// arbitrary applications.
 pub(crate) fn browse(url: &Url) -> Result<(), String> {
     if !allowed(url) {
         return Err(i18n::ta("err.browser.badUrl", &[("url", url.to_string())]));
@@ -53,9 +46,8 @@ pub(crate) fn browse(url: &Url) -> Result<(), String> {
         .ok_or_else(|| i18n::t("err.browser.noBrowser"))
 }
 
-/// Link clicado dentro do app — no texto do agente, por exemplo. A janela do
-/// Prometeu é o Prometeu: página de fora é assunto do navegador do sistema.
-/// A aba de dentro nasce no Run; navegar para longe dele é escolha de quem usa.
+/// Links from app content open in the system browser. The embedded view belongs to Run; navigation
+/// within that view remains the person's choice.
 #[tauri::command]
 pub fn open_external(url: String) -> Result<(), String> {
     let parsed =
@@ -63,9 +55,8 @@ pub fn open_external(url: String) -> Result<(), String> {
     browse(&parsed)
 }
 
-/// Mostra a webview do workspace, criando na primeira vez. Nasce sem tamanho:
-/// quem sabe onde ela cabe é o front, que chama `browser_bounds` em seguida.
-/// Devolve a porta, que é o que a aba escreve.
+/// Create the workspace webview on first use. The frontend supplies its bounds separately; return
+/// the port for the address display.
 #[tauri::command]
 pub fn browser_open(app: AppHandle, state: State<AppState>, id: String) -> Result<u16, String> {
     let port = ensure_port(&state, &id).ok_or_else(|| i18n::t("err.session.noPort"))?;
@@ -77,15 +68,9 @@ pub fn browser_open(app: AppHandle, state: State<AppState>, id: String) -> Resul
     }
     let window = app.get_window("main").ok_or_else(fail)?;
     let parsed = Url::parse(&url).map_err(|_| fail())?;
-    // `on_navigation` dispara para cada frame da página — os iframes de anúncio
-    // e de login inclusive — e a plataforma não diz qual é o principal. Então a
-    // política é por esquema, e não por destino: `http`/`https` navega na aba,
-    // o resto não navega. Mandar "o que saiu do site" para fora daqui já abriu
-    // uma aba de navegador por anúncio da página.
-    //
-    // A barra de endereço acompanha pelo `on_page_load`, que é só do frame
-    // principal; rota de SPA (que troca a URL sem carregar página) o front pega
-    // perguntando `browser_url` de vez em quando.
+    // on_navigation includes subframes without identifying the main frame, so permit navigation by
+    // scheme rather than host. Redirecting off-site frames would open a browser tab for every ad or
+    // login iframe. Track main-frame page loads, and poll browser_url for SPA history changes.
     let of = id.clone();
     window
         .add_child(
@@ -96,8 +81,8 @@ pub fn browser_open(app: AppHandle, state: State<AppState>, id: String) -> Resul
                         let _ = view.emit("browser:url", (of.clone(), payload.url().to_string()));
                     }
                 })
-                // `window.open` e `target="_blank"` pedem outra janela — e outra
-                // janela é assunto do navegador do sistema; a aba fica onde está.
+                // Open window.open and target=_blank requests in the system browser while
+                // preserving the embedded page.
                 .on_new_window(move |url, _| {
                     let _ = browse(&url);
                     NewWindowResponse::Deny
@@ -109,18 +94,15 @@ pub fn browser_open(app: AppHandle, state: State<AppState>, id: String) -> Resul
     Ok(port)
 }
 
-/// Onde a página está agora. É daqui que a barra de endereço se corrige quando
-/// a navegação não passou por `on_navigation` — rota de SPA, `history.pushState`.
+/// Read the current webview URL to catch SPA navigation and history.pushState changes.
 #[tauri::command]
 pub fn browser_url(app: AppHandle, id: String) -> Option<String> {
     let view = app.get_webview(&label(&id))?;
     view.url().ok().map(|u| u.to_string())
 }
 
-/// Vai para o que você digitou na barra. Só `http` e `https`: o resto é que a
-/// barra é um campo de texto dentro do app, e `file://` leria o seu disco.
-/// Aqui a URL vem do front porque foi você que escreveu — o `browser_open`, que
-/// não vem, continua tirando a porta do estado.
+/// Accept typed HTTP or HTTPS addresses only. Unlike the initial Run URL, this address
+/// intentionally comes from the frontend; reject file and application schemes.
 #[tauri::command]
 pub fn browser_navigate(app: AppHandle, id: String, url: String) -> Result<(), String> {
     let bad = || i18n::ta("err.browser.badUrl", &[("url", url.clone())]);
@@ -132,9 +114,8 @@ pub fn browser_navigate(app: AppHandle, id: String, url: String) -> Result<(), S
     view.navigate(parsed).map_err(|_| bad())
 }
 
-/// Onde a webview fica, em pixels lógicos a partir do canto da janela — o
-/// mesmo sistema do `getBoundingClientRect` do front, porque a webview
-/// principal cobre a janela inteira.
+/// Use logical pixels relative to the window, matching getBoundingClientRect in the full-window
+/// main webview.
 #[tauri::command]
 pub fn browser_bounds(app: AppHandle, id: String, x: f64, y: f64, w: f64, h: f64) {
     if let Some(view) = app.get_webview(&label(&id)) {
@@ -145,7 +126,7 @@ pub fn browser_bounds(app: AppHandle, id: String, x: f64, y: f64, w: f64, h: f64
     }
 }
 
-/// Some sem fechar: o centro mostra outra coisa, ou você foi a outro workspace.
+/// Hide the webview without destroying its page when the center panel or workspace changes.
 #[tauri::command]
 pub fn browser_hide(app: AppHandle, id: String) {
     if let Some(view) = app.get_webview(&label(&id)) {
@@ -153,10 +134,8 @@ pub fn browser_hide(app: AppHandle, id: String) {
     }
 }
 
-/// Voltar e avançar, como em qualquer navegador — quem está testando o Run
-/// entra num fluxo, erra o passo e quer o anterior de volta, e a página nem
-/// sempre tem um botão para isso. É o histórico da própria webview: sem API
-/// para ele no Tauri, quem anda é o `history` de dentro da página.
+/// Use the page's native history for back and forward because Tauri does not expose dedicated
+/// navigation methods.
 #[tauri::command]
 pub fn browser_back(app: AppHandle, id: String) {
     hop(&app, &id, "history.back()");
@@ -180,8 +159,7 @@ pub fn browser_reload(app: AppHandle, id: String) {
     }
 }
 
-/// Fechar a aba é destruir a webview: página parada por baixo de uma aba que
-/// não existe é memória e CPU à toa.
+/// Destroy closed tabs' webviews to avoid retaining hidden pages and their resource usage.
 #[tauri::command]
 pub fn browser_close(app: AppHandle, id: String) {
     if let Some(view) = app.get_webview(&label(&id)) {

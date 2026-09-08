@@ -1,20 +1,8 @@
-/// O menu do Mac.
-///
-/// Ele existe por causa do foco. Os atalhos do app são um `keydown` no
-/// documento (`main.ts`), e a aba de navegador é uma webview do sistema por
-/// cima do centro (`browser.ts`): com o cursor dentro da página, tecla nenhuma
-/// chega ao documento do app — ⌘W, ⌘T, ⌘[ e ⌘] morriam ali, e sair da aba só
-/// dava no clique. Acelerador de menu chega sempre: o Mac trata a tecla antes
-/// de qualquer view. Pior ainda, o menu que o Tauri monta sozinho tem ⌘W ligado
-/// a "fechar a janela" — com o foco na página, ⌘W fechava o app inteiro.
-///
-/// Cada item chama a mesma função que o `keydown` chama. Quando o foco está no
-/// app, o `keydown` atende primeiro e engole a tecla (é o `preventDefault` que
-/// impede o menu de disparar em seguida); quando está na página, sobra o menu.
+/// Native menu accelerators keep shortcuts working while an embedded webview owns focus. Dispatch the same actions as main.ts; document handlers preventDefault to avoid double execution. Override Tauri's default Command-W window closure with tab closure.
 import { Menu, MenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/menu";
 import { t, type Key } from "./i18n";
 
-/// O que um atalho pede. A lista é a mesma dos dois lados — menu e teclado.
+/// Shared action names for native-menu and document-keyboard dispatch.
 export type Action =
   | "novoWorkspace"
   | "novaConversa"
@@ -31,8 +19,7 @@ export type Action =
 export async function install(run: (a: Action) => void) {
   const our = (id: Action, key: Key, accelerator: string) =>
     MenuItem.new({ id, text: t(key), accelerator, action: () => run(id) });
-  // Item do sistema: quem faz é o Mac (copiar, sair, tela cheia), e o que nos
-  // cabe é o rótulo, que fala o idioma da tela como o resto.
+  // The Mac implements system actions such as copy, quit, and full screen; localize their labels here.
   type Native = Exclude<Parameters<typeof PredefinedMenuItem.new>[0], undefined>["item"];
   const os = (item: Native, key?: Key) =>
     PredefinedMenuItem.new(key ? { item, text: t(key) } : { item });
@@ -41,7 +28,7 @@ export async function install(run: (a: Action) => void) {
 
   const menu = await Menu.new({
     items: await Promise.all([
-      // A primeira é a do nome do app, onde o Mac espera Sobre, Ocultar e Sair.
+      // The application-named menu contains About, Hide, and Quit as macOS expects.
       bar("Prometeu", [
         os({ About: null }, "menu.app.about"),
         os("Separator"),
@@ -59,13 +46,11 @@ export async function install(run: (a: Action) => void) {
         our("novoWorkspace", "menu.file.newWorkspace", "CmdOrCtrl+N"),
         our("novaConversa", "menu.file.newChat", "CmdOrCtrl+T"),
         os("Separator"),
-        // ⌘W é a aba, e não a janela: é a aba que se fecha o tempo todo, e
-        // fechar o app sem querer custa o dobro. A janela fecha em ⇧⌘W.
+        // Command-W closes the current tab; Shift-Command-W closes the window.
         our("fechar", "menu.file.close", "CmdOrCtrl+W"),
         os("CloseWindow", "menu.file.closeWindow"),
       ]),
-      // Editar não é enfeite: é daqui que copiar e colar funcionam dentro da
-      // página da aba de navegador, que não tem menu nenhum por conta própria.
+      // The Edit menu enables copy and paste inside embedded pages, which have no independent menu.
       bar(t("menu.edit"), [
         os("Undo", "menu.edit.undo"),
         os("Redo", "menu.edit.redo"),

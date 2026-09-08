@@ -20,8 +20,8 @@ const socketResult = (url: string): Promise<{ open: boolean; first?: unknown }> 
       try {
         first = JSON.parse(String(event.data));
       } catch {
-        // O primeiro frame válido deste protocolo é JSON; manter o valor cru
-        // deixa a asserção mostrar o que um runtime incompatível devolveu.
+        // Keep the first protocol frame raw so failed JSON assertions expose incompatible runtime
+        // responses.
       }
       socket.close();
       resolve({ open: true, first });
@@ -80,6 +80,18 @@ describe("relay no runtime do Worker", () => {
     const base = `ws://${worker.address}:${worker.port}`;
     const old = await socketResult(`${base}/team/${created.team}?s=${created.secret}&m=${created.member}&n=Alice&p=${PROTO}`);
     expect(old.open).toBe(false);
+  });
+
+  it("rejects streamed enrollment bodies above the byte limit", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(JSON.stringify({ secret: created.secret, padding: "x".repeat(1024) })));
+        controller.close();
+      },
+    });
+    const request = { method: "POST", body, duplex: "half" as const };
+    const response = await worker.fetch(`/team/${created.team}/enroll`, request);
+    expect(response.status).toBe(413);
   });
 
   it("liga a credencial ao membro e entrega o welcome", async () => {

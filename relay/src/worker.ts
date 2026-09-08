@@ -1,5 +1,4 @@
-/// A porta de entrada do relay: criar um time e encaminhar cada conexão ao
-/// Durable Object daquele time. Só isso — o resto mora em `room.ts`.
+/// Relay entry point for team creation and routing connections to each team's Durable Object.
 
 import { randomToken, sha256, TeamRoom, type Env } from "./room";
 import { parseMembership, type CreatedTeam } from "./protocol";
@@ -25,8 +24,7 @@ export default {
     if (url.pathname === "/teams") {
       if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
       if (req.method !== "POST") return new Response("method", { status: 405, headers: CORS });
-      // Cloudflare define este header na borda. No wrangler/mock ele não
-      // existe e o desenvolvimento continua sem depender da infraestrutura.
+      // Cloudflare supplies this trusted header at the edge. Local Wrangler and mocks can omit it.
       const ip = req.headers.get("CF-Connecting-IP");
       if (ip) {
         const hour = Math.floor(Date.now() / 3_600_000);

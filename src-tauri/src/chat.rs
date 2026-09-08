@@ -1,24 +1,14 @@
-//! A conversa: comandos e eventos V1 em volta dos processos de agente.
-//!
-//! Não é um terminal. Cada protocolo externo é normalizado no adapter de seu
-//! provider; o app guarda eventos V1 e os repassa para a tela e para quem
-//! estiver olhando do outro lado do relay.
-//!
-//! O que vai para dentro usa `ConversationCommandV1`: fala, resposta, modo e
-//! interrupção passam pelo mesmo cano. O processo fica de pé entre turnos — a
-//! sessão não é o processo, é o transcript no disco, e ele sobrevive a tudo.
-//!
-//! O Codex entra pelo mesmo lugar: `codex.rs` traduz seu JSON-RPC diretamente.
-//! O Claude usa o adapter stream-json de `claude.rs`. Daqui para a
-//! frente ninguém sabe qual dos dois está do outro lado: buffer, tela, relay e
-//! quadro leem o mesmo contrato.
+//! Conversation commands and events around agent processes. Provider adapters normalize external
+//! protocols into V1 for transcripts, the UI and relay viewers. Commands share one pipe; processes
+//! can survive between turns, while transcripts survive the processes. Claude stream-json and Codex
+//! JSON-RPC remain confined to their adapters.
 
 use crate::i18n;
 use crate::lock::lock;
 use crate::state::{publish, Note, Status, Workspace};
 use crate::{accounts, claude, codex, conversation, paths, transcript, usage, AppState};
 use serde_json::{json, Value};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{ChildStdin, Command, Stdio};
@@ -27,22 +17,16 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-/// Quanto de conversa fica em memória por aba. Linha de JSON é gorda — um
-/// `tool.completed` carrega o arquivo inteiro que o agente leu —, então é bem
-/// mais que a rolagem de um terminal. Passou disto, o começo sai por linha
-/// inteira: meia linha de JSON não é nada.
+/// Per-tab conversation memory limit. Tool results can contain whole files; trim only complete JSON
+/// lines.
 const KEEP: usize = 4 * 1024 * 1024;
 
-/// Do stdin fechado até insistir com SIGTERM, e daí até SIGKILL. O `claude`
-/// termina o turno em que estiver e sai sozinho quando o stdin acaba; quem não
-/// sair nesse tempo não vai sair esperando mais.
+/// Grace periods after stdin closes, before escalating to SIGTERM and SIGKILL.
 const GRACE: Duration = Duration::from_secs(2);
 const REAP: Duration = Duration::from_millis(500);
 
-/// As linhas guardadas e o número da última. É o mesmo desenho da rolagem do
-/// pty (`pty::Scroll`): um snapshot é "estas linhas, até a de número N", e quem
-/// recebe as linhas numeradas ao vivo sabe quais já estavam dentro — é o que
-/// deixa um colega abrir a conversa no meio sem repetir nem perder nada.
+/// Stored lines and their transport sequence, shared under one lock. Snapshots identify exactly
+/// which live events they already contain, as in `pty::Scroll`.
 #[derive(Default)]
 pub struct Lines {
     pub text: String,
@@ -50,7 +34,39 @@ pub struct Lines {
 }
 
 impl Lines {
-    /// Guarda uma linha, corta o começo se passou do teto, e devolve o número.
+    /// Keep the transcript, sequence and live emission in one critical section.
+    fn deliver(&mut self, text: &str, persist: bool, log: Option<&Path>, emit: impl FnOnce(u64)) {
+        let seq = if persist {
+            if let Some(log) = log {
+                append(log, text);
+            }
+            self.absorb(text)
+        } else {
+            self.skip()
+        };
+        emit(seq);
+    }
+
+    /// Block incoming events until a successful command and its local events are recorded.
+    fn command(
+        &mut self,
+        command: &Value,
+        send: impl FnOnce(&str) -> Result<Vec<Value>, String>,
+        mut record: impl FnMut(&mut Self, &Value),
+    ) -> Result<Vec<Value>, String> {
+        let echo = send(&self.text)?;
+        let event = match command["type"].as_str() {
+            Some("message.send") => command["text"].as_str().map(user),
+            _ => closed_request(command),
+        };
+        let events: Vec<Value> = event.into_iter().chain(echo).collect();
+        for event in &events {
+            record(self, event);
+        }
+        Ok(events)
+    }
+
+    /// Append a line, trim complete lines above the limit and return its sequence.
     pub fn absorb(&mut self, line: &str) -> u64 {
         self.text.push_str(line);
         self.text.push('\n');
@@ -66,17 +82,15 @@ impl Lines {
         self.seq
     }
 
-    /// Numera sem guardar: o pedaço vai ao vivo para quem está olhando, mas não
-    /// vale a memória — é o caso dos deltas de streaming, que o `assistant`
-    /// inteiro logo atrás torna redundantes.
+    /// Number a live event without retaining it. Streaming deltas are replaced by complete
+    /// assistant blocks.
     pub fn skip(&mut self) -> u64 {
         self.seq += 1;
         self.seq
     }
 
-    /// Nasce com o fim do transcript: é a conversa até aqui, no mesmo formato
-    /// que o processo vai continuar escrevendo. Vale para a tela deste app e
-    /// para o snapshot que vai a um colega.
+    /// Load the transcript tail for local replay and remote snapshots. New process output uses the
+    /// same format.
     fn seeded(path: &Path) -> Lines {
         let mut text = std::fs::read_to_string(path).unwrap_or_default();
         if text.len() > KEEP {
@@ -94,26 +108,39 @@ impl Lines {
     }
 }
 
-/// O que `chat_snapshot` devolve: as linhas e até que número elas vão.
+/// The transcript snapshot and its last transport sequence.
 #[derive(serde::Serialize)]
 pub struct Snapshot {
     pub text: String,
     pub seq: u64,
 }
 
-/// O cano para dentro do processo. Cada variante possui a tradução de entrada
-/// do próprio provider e recebe o mesmo comando V1.
+/// Provider-specific input adapters accepting the same V1 command contract.
 pub enum Wire {
     Claude(claude::Link),
     Codex(Arc<Mutex<codex::Link>>),
 }
 
-/// O que cada linha que sai do processo vira em eventos V1. Uma notificação
-/// externa pode virar várias linhas canônicas, ou nenhuma.
+/// Translate each provider output line into zero or more canonical V1 events.
 pub type Translate = Box<dyn FnMut(&str) -> Vec<String> + Send>;
 
-/// As diferenças de protocolo na borda do processo: quais linhas de stderr
-/// entram na conversa e como stdin/stdout viram o cano comum do app.
+/// Drain each output pipe independently of translation and publication locks. A bounded channel
+/// could fill while stdin waits for the child, recreating the pipe deadlock.
+/// ponytail: queued output has no memory ceiling during stalls; spool to disk if measured stalls
+/// require a bound.
+fn output_lines(output: impl Read + Send + 'static) -> std::sync::mpsc::IntoIter<String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(output).lines().map_while(Result::ok) {
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    rx.into_iter()
+}
+
+/// Process-boundary configuration: stderr filtering and the provider's input/output adapters.
 pub(crate) struct ProcessIo<F> {
     stderr_line: fn(&str) -> Option<String>,
     wire: F,
@@ -134,34 +161,28 @@ impl<F> ProcessIo<F> {
     }
 }
 
-/// O caminho de uma linha até a tela: guardar, numerar, emitir, e contar ao
-/// quadro o que ela diz. É o mesmo para o que o processo escreve e para o que
-/// o app produz por conta própria (o tradutor do Codex respondendo a um
-/// `/context`, por exemplo) — por isso é um valor que se clona, e não o corpo
-/// de uma thread.
+/// Shared event delivery for process output and locally generated events, including adapter
+/// responses such as `/context`. Each clone uses the same transcript buffer and sequence.
 #[derive(Clone)]
 pub struct Pump {
     app: AppHandle,
     id: String,
     sink: Arc<Mutex<Lines>>,
-    /// Este `Chat` foi derrubado: a thread que lê o processo velho para de
-    /// emitir, senão os últimos suspiros dele sujariam a conversa do novo.
+    /// Stop replaced processes from emitting into their successor's conversation.
     gone: Arc<AtomicBool>,
-    /// Há um turno em andamento: uma fala entrou e `turn.completed` não saiu. É
-    /// o que a tela precisa saber ao abrir a conversa — as linhas sozinhas não
-    /// dizem, porque o transcript não guarda todo estado efêmero do processo.
+    /// A message starts a turn; `turn.completed` ends it. Snapshots include this runtime state
+    /// because transcript lines alone do not retain every ephemeral process event.
     turn: Arc<AtomicBool>,
-    /// O `init` já passou por aqui (ver `react`).
+    /// Whether the initial command list has arrived; see `react`.
     ready: Arc<AtomicBool>,
-    /// Onde as linhas guardadas também ficam gravadas. O Claude Code escreve o
-    /// transcript dele sozinho; o Codex não escreve neste formato, então é o
-    /// app que grava o que traduziu — e é daí que a aba reabre.
+    /// Optional app-managed transcript. Claude writes its own; Codex V1 events are persisted here
+    /// for replay.
     log: Option<PathBuf>,
     profile: accounts::Profile,
 }
 
 impl Pump {
-    /// Uma linha, do processo ou do app, até a tela.
+    /// Record and emit one valid JSON event, then apply reactions outside the transcript lock.
     pub fn feed(&self, text: &str) {
         if self.gone.load(Ordering::Relaxed) {
             return;
@@ -173,23 +194,18 @@ impl Pump {
         let Ok(frame) = serde_json::from_str::<Value>(text) else {
             return;
         };
-        let seq = match keep(&frame) {
-            true => {
-                if let Some(log) = &self.log {
-                    append(log, text);
-                }
-                lock(&self.sink).absorb(text)
-            }
-            false => lock(&self.sink).skip(),
-        };
+        {
+            let mut lines = lock(&self.sink);
+            self.record(&mut lines, text, &frame);
+        }
+        self.react(&frame);
+    }
+
+    fn record(&self, lines: &mut Lines, text: &str, frame: &Value) {
         if self.gone.load(Ordering::Relaxed) {
             return;
         }
-        let _ = self
-            .app
-            .emit("chat", (self.id.clone(), text.to_string(), seq));
-        // O turno acaba no evento final — e pode começar sem fala, quando uma
-        // tarefa em segundo plano termina e o agente reage a ela.
+        // Completion ends a turn. Background activity can start another without a new user message.
         match frame["type"].as_str() {
             Some("turn.completed") => self.turn.store(false, Ordering::Relaxed),
             Some("assistant.block" | "assistant.started") => {
@@ -197,7 +213,20 @@ impl Pump {
             }
             _ => {}
         }
-        react(&self.app, &self.id, &frame, &self.ready, &self.profile.id);
+        lines.deliver(text, keep(frame), self.log.as_deref(), |seq| {
+            if !self.gone.load(Ordering::Relaxed) {
+                let _ = self
+                    .app
+                    .emit("chat", (self.id.clone(), text.to_string(), seq));
+            }
+        });
+    }
+
+    fn react(&self, frame: &Value) {
+        if self.gone.load(Ordering::Relaxed) {
+            return;
+        }
+        react(&self.app, &self.id, frame, &self.ready, &self.profile.id);
         if frame["type"] == "turn.completed" {
             let state = self.app.state::<AppState>();
             let queued = lock(&state.board)
@@ -211,9 +240,8 @@ impl Pump {
     }
 }
 
-/// Uma linha no fim do arquivo. A conversa continua na tela se o disco falhar,
-/// mas a falha não some: vai ao stderr do app, e o arquivo/diretório nascem
-/// privados porque prompts e resultados frequentemente carregam segredos.
+/// Append a private transcript line. Disk failures are logged while live display continues; prompts
+/// and tool results can contain secrets.
 fn append(path: &Path, line: &str) {
     let write = || -> Result<(), String> {
         if let Some(dir) = path.parent() {
@@ -244,23 +272,17 @@ pub struct Chat {
     wire: Wire,
     pump: Pump,
     pub buffer: Arc<Mutex<Lines>>,
-    /// O processo ainda está rodando. A entrada continua no mapa depois de ele
-    /// morrer — são as linhas dela que a aba mostra amanhã.
+    /// The process is running. Stopped entries remain in the map for conversation replay.
     alive: Arc<AtomicBool>,
     pid: u32,
 }
 
 impl Chat {
-    /// Uma linha de JSON para dentro do processo. É o único jeito de falar com
-    /// ele: fala, resposta de permissão, interrupção — tudo é uma linha. O que
-    /// volta são linhas para a tela que a própria entrada produziu sem passar
-    /// pelo processo — o Codex respondendo a um comando que só o app conhece.
-    pub fn write(&mut self, frame: &Value) -> Result<Vec<Value>, String> {
+    /// Translate and send one V1 command. Return any canonical events produced locally by the
+    /// adapter. The caller supplies the current transcript while holding its ordering lock.
+    pub fn write(&mut self, frame: &Value, buffer: &str) -> Result<Vec<Value>, String> {
         match &mut self.wire {
-            Wire::Claude(link) => {
-                let buffer = lock(&self.pump.sink).text.clone();
-                link.write(frame, &buffer)
-            }
+            Wire::Claude(link) => link.write(frame, buffer),
             Wire::Codex(link) => lock(link).write(frame),
         }
     }
@@ -285,21 +307,18 @@ impl Chat {
         self.pump.turn.load(Ordering::Relaxed)
     }
 
-    /// O líder do grupo do agente. Ver `machine.rs`: o que ele subiu por baixo
-    /// conta como dele.
+    /// The agent's process group leader; resource accounting includes its descendants.
     pub fn pid(&self) -> u32 {
         self.pid
     }
 }
 
-/// Sair do mapa é morrer, e morrer é em degraus: o stdin fecha (o `claude`
-/// termina o turno e sai), e quem não sair leva SIGTERM e depois SIGKILL — no
-/// grupo, para alcançar o que ele subiu por baixo.
+/// Dropping closes stdin, then escalates to SIGTERM and SIGKILL for the entire process group.
 impl Drop for Chat {
     fn drop(&mut self) {
         self.pump.gone.store(true, Ordering::Relaxed);
-        // O stdin do `claude` fecha com o `Chat`; o do Codex mora no tradutor,
-        // que a thread de leitura ainda segura — fecha à mão.
+        // Claude stdin closes with the Chat. Codex's reader still owns its adapter, so close that
+        // stdin explicitly.
         if let Wire::Codex(link) = &self.wire {
             lock(link).close();
         }
@@ -317,20 +336,12 @@ impl Drop for Chat {
     }
 }
 
-/// Tira a conversa do mapa — e, com isso, encerra o processo.
+/// Removing the conversation drops its process handle and starts shutdown.
 pub fn kill(state: &AppState, id: &str) {
     lock(&state.chats).remove(id);
 }
 
-/// Sobe um processo qualquer que fale com a conversa: o `claude` como está, ou
-/// o `codex app-server` por trás do tradutor. `seed` é a conversa até aqui, no
-/// disco; `log` é onde as linhas novas também ficam gravadas, quando o processo
-/// não grava neste formato por conta própria. `wire` recebe o stdin e devolve
-/// o cano de escrita e o tradutor de leitura — os dois lados de um mesmo
-/// protocolo, nascidos juntos.
-/// As `CLAUDE*` herdadas saem do comando — uma a uma, e não limpando o
-/// ambiente inteiro para recopiá-lo: quem chama já pôs no comando o que só ele
-/// sabe, e limpar apagaria isso junto.
+/// Remove inherited `CLAUDE*` variables without clearing caller-supplied environment values.
 fn drop_claude_vars(cmd: &mut Command) {
     let explicit: std::collections::HashSet<_> =
         cmd.get_envs().map(|(key, _)| key.to_os_string()).collect();
@@ -341,6 +352,8 @@ fn drop_claude_vars(cmd: &mut Command) {
     }
 }
 
+/// Start an adapted agent process with a transcript seed and optional app-managed log.
+/// The provider supplies both input translation and stdout translation through `ProcessIo`.
 pub(crate) fn launch(
     app: &AppHandle,
     id: &str,
@@ -358,16 +371,11 @@ pub(crate) fn launch(
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    // Um `claude` rodando dentro de outro herda CLAUDE_CODE_CHILD_SESSION e
-    // desliga o salvamento do transcript — que é justamente o que a aba guarda
-    // como ponteiro. O resto do ambiente vai inteiro: é dele que sai o PATH.
-    //
-    // Tirar as `CLAUDE*` uma a uma, e não limpar tudo para recopiar: quem chama
-    // já pôs no comando o que só ele sabe — os segredos que os cabeçalhos de
-    // MCP do Codex viajam no ambiente para não cair em argumento de processo
-    // (`mcp::codex_config`) —, e limpar aqui apagava justamente isso.
+    // Inherited CLAUDE_CODE_CHILD_SESSION disables nested Claude transcript saving. Remove
+    // inherited Claude flags while preserving PATH and caller-supplied MCP authentication
+    // environment values.
     drop_claude_vars(&mut cmd);
-    // Grupo próprio: é o que deixa o `Drop` alcançar os netos.
+    // Use a separate process group so shutdown can reach descendants.
     cmd.process_group(0);
 
     let mut child = cmd
@@ -383,6 +391,8 @@ pub(crate) fn launch(
         .stderr
         .take()
         .ok_or_else(|| i18n::t("err.chat.pipe"))?;
+    let stdout = output_lines(stdout);
+    let stderr = output_lines(stderr);
     let (wire, mut translate) = wire(stdin);
 
     let pump = Pump {
@@ -402,12 +412,9 @@ pub(crate) fn launch(
         pid,
         pump: pump.clone(),
     };
-    // A primeira linha para dentro é o `initialize` do protocolo: o processo
-    // responde com os comandos de barra que aceita (nome, descrição), sem
-    // esperar fala nenhuma — o `init` do stream do Claude, que também os lista,
-    // só sai depois da primeira fala. É o que a caixa mostra ao escrever "/".
-    // O Codex responde por conta própria no adapter.
-    match chat.write(&json!({ "v": 1, "type": "commands.list" })) {
+    // Request slash-command metadata before the first prompt. Claude's stream init requires a
+    // prompt; Codex handles initialization in its adapter.
+    match chat.write(&json!({ "v": 1, "type": "commands.list" }), "") {
         Ok(echo) => {
             for frame in echo {
                 pump.feed(&frame.to_string());
@@ -416,13 +423,12 @@ pub(crate) fn launch(
         Err(e) => eprintln!("initialize em {id}: {e}"),
     }
 
-    // O stderr que o adaptador aceita vira linha também: é por ele que o
-    // `claude` conta que não achou a sessão para retomar ou que não está
-    // logado. O Codex filtra aqui os logs que duplicam eventos do JSON-RPC.
+    // Accepted stderr lines become conversation notices, including missing sessions or
+    // authentication. Codex filters logs that duplicate JSON-RPC events.
     {
         let pump = pump.clone();
         std::thread::spawn(move || {
-            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            for line in stderr {
                 let Some(line) = stderr_line(&line) else {
                     continue;
                 };
@@ -443,39 +449,26 @@ pub(crate) fn launch(
 
     let alive = chat.alive.clone();
     std::thread::spawn(move || {
-        let mut reader = BufReader::new(stdout);
-        let mut line = String::new();
-        loop {
-            line.clear();
-            match reader.read_line(&mut line) {
-                Ok(0) | Err(_) => break,
-                Ok(_) => {}
-            }
+        for line in stdout {
             for frame in translate(line.trim_end()) {
                 pump.feed(&frame);
             }
         }
-        // EOF: o filho morreu ou está a um suspiro disso. `alive` cai antes do
-        // `wait`, para ninguém sinalizar um pid já colhido.
+        // Stop signaling before reaping the child, since the OS may reuse its PID after wait
+        // returns.
         alive.store(false, Ordering::Relaxed);
         let _ = child.wait();
         let (app, id) = (pump.app, pump.id);
         let state = app.state::<AppState>();
-        // A aba pode ter retomado enquanto este filho antigo terminava o
-        // `wait`. Nesse caso o mapa já aponta para outro `alive`: limpar o
-        // `ready` ou marcar a aba desligada aqui derrubaria o processo novo e
-        // deixaria a próxima fala presa como se ainda esperasse o setup.
-        //
-        // O lock fica até o fim da transição para a troca no mapa não entrar
-        // entre a conferência e a limpeza. Se este ainda é o atual, quem o
-        // substituir só começa depois e publica o estado novo por último.
+        // A replacement can start while the old child exits. Compare process identity under the
+        // chats lock and keep that lock through cleanup so an old exit cannot stop its successor or
+        // clear its readiness.
         let chats = lock(&state.chats);
         if !same_process(chats.get(&id).map(|chat| &chat.alive), &alive) {
             return;
         }
         lock(&state.ready).remove(&id);
-        // O processo morreu: o card não some, vira desligado. O transcript
-        // continua no disco e a próxima fala reabre de onde parou.
+        // Keep the conversation available for resume after the process stops.
         update(&app, &id, Some(Status::Desligada), Note::Clear, None);
         let _ = app.emit("chat-closed", id);
     });
@@ -483,18 +476,13 @@ pub(crate) fn launch(
     Ok(chat)
 }
 
-/// O processo que terminou ainda é o que ocupa a aba? `Arc::ptr_eq` compara a
-/// identidade, não o valor — dois processos mortos têm `false`, mas continuam
-/// sendo processos diferentes.
+/// Compare process identity, not its alive value: separate stopped processes both contain `false`.
 fn same_process(current: Option<&Arc<AtomicBool>>, ended: &Arc<AtomicBool>) -> bool {
     current.is_some_and(|current| Arc::ptr_eq(current, ended))
 }
 
-/// O que vale guardar. Os deltas de streaming são o texto chegando letra a
-/// letra, e `assistant.block` logo atrás traz o bloco inteiro; os
-/// hooks e a contagem de tokens de pensamento são ruído de progresso. Tudo
-/// isso vai ao vivo para a tela — e só. Contexto, identidade, comandos e uso
-/// também são eventos efêmeros destinados ao quadro, não ao transcript.
+/// Persist replayable conversation events. Streaming deltas and transient context, identity,
+/// commands and usage events are delivered live without entering the transcript.
 fn keep(frame: &Value) -> bool {
     !matches!(
         frame["type"].as_str(),
@@ -513,26 +501,21 @@ fn keep(frame: &Value) -> bool {
     )
 }
 
-/// O que cada linha conta ao quadro. É o que os hooks contavam antes, lido
-/// direto do stream: a ferramenta que está rodando, a pergunta que travou a
-/// sessão, o fim do turno.
+/// Apply canonical events to board activity, pending questions and turn completion.
 fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool, account: &str) {
     match frame["type"].as_str() {
-        // A resposta ao pedido inicial traz os comandos e confirma que o cano
-        // de controle está pronto.
+        // The initial command list also confirms control readiness.
         Some("commands.updated") if !ready.swap(true, Ordering::Relaxed) => {
             ready_now(app, id);
         }
-        // Quanto da cota já foi. Vem a cada pedido ao modelo, é da conta e não
-        // da sessão, e quem guarda é o `usage` — a barra de baixo é uma só.
+        // Usage belongs to the account and is stored by the shared quota subsystem.
         Some("usage.updated") if frame["provider"] == "claude" => {
             usage::claude(app, account, &frame["usage"])
         }
         Some("usage.updated") if frame["provider"] == "codex" => {
             usage::codex(app, account, &frame["usage"])
         }
-        // O adapter do Codex conta quanto a conversa pesa e qual é a sessão do
-        // lado de lá.
+        // Codex reports context size and its external conversation identity.
         Some("context.updated") => {
             update(app, id, None, Note::Keep, frame["used"].as_u64());
         }
@@ -555,9 +538,8 @@ fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool, account: 
                 _ => update(app, id, Some(Status::Rodando), Note::Keep, None),
             }
         }
-        // Um pedido de permissão — e AskUserQuestion e ExitPlanMode, que passam
-        // por aqui mesmo em bypass. O quadro fica sabendo que a sessão parou
-        // esperando alguém; quem responde é a tela.
+        // Approval, AskUserQuestion and ExitPlanMode requests can occur even in bypass mode. The
+        // board records that an answer is required; the UI sends it.
         Some("request.opened") => {
             let note = match frame["tool"].as_str() {
                 Some("AskUserQuestion") => frame["input"]["questions"][0]["question"]
@@ -570,9 +552,7 @@ fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool, account: 
             };
             update(app, id, Some(Status::Querendo), Note::Set(note), None);
         }
-        // Parou. Deixar a última ferramenta escrita aqui fazia o card dizer
-        // "pronta" embaixo de uma linha que parecia trabalho acontecendo agora.
-        // Parar é também quando a conversa cresceu: é a hora de ler quanto.
+        // Clear stale tool activity on completion and refresh context usage from the transcript.
         Some("turn.completed") => {
             crate::actions::completed(
                 app,
@@ -585,7 +565,7 @@ fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool, account: 
     }
 }
 
-/// Uma linha do tipo "Bash cd /Users/…", que é o que faz o card parecer vivo.
+/// Build a compact activity label such as `Bash cd /Users/...`.
 fn activity(block: &Value) -> String {
     let tool = block["name"].as_str().unwrap_or("");
     let input = &block["input"];
@@ -609,16 +589,15 @@ fn activity(block: &Value) -> String {
     format!("{tool} {detail}").trim().to_string()
 }
 
-/// Quanto a conversa pesa agora, lido do transcript. `None` é "não mexe":
-/// conversa que ainda não respondeu não zera o número que tinha.
+/// Read current context usage from the transcript. `None` preserves the previous estimate.
 fn context(app: &AppHandle, session: &str) -> Option<u64> {
     let state = app.state::<AppState>();
     let worktree = lock(&state.board).workspace_of(session)?.worktree.clone();
     transcript::context(&paths::transcript(session, Path::new(&worktree)))
 }
 
-/// Guarda o id que o agente escolheu para a conversa desta aba. É o Codex:
-/// ele não aceita que o app imponha o id, e é este que volta no `thread/resume`.
+/// Remember the provider's conversation identity, including the Codex thread ID required for
+/// resume.
 fn remember_session(app: &AppHandle, tab: &str, agent_session: &str) {
     let state = app.state::<AppState>();
     {
@@ -640,8 +619,8 @@ fn update(app: &AppHandle, session: &str, status: Option<Status>, note: Note, to
         let Some(ws) = board.workspace_of_mut(session) else {
             return;
         };
-        // Novidade é o agente ter parado de trabalhar enquanto você olhava outra
-        // coisa: terminou, ou travou numa pergunta. "Rodando" não é notícia.
+        // Completion or a pending question marks an unseen workspace unread; routine running
+        // updates do not.
         if matches!(status, Some(Status::Pronta | Status::Querendo))
             && looking.as_deref() != Some(ws.id.as_str())
         {
@@ -665,15 +644,9 @@ fn update(app: &AppHandle, session: &str, status: Option<Status>, note: Note, to
     publish(app);
 }
 
-/// A conversa está no mapa e aceita fala. A primeira, montada no lançador, vai
-/// agora — a não ser que o setup do worktree ainda esteja rodando: aí fica
-/// guardada, e é o fim dele que a solta (`session::release_prompts`). Agente
-/// que roda teste antes de haver `node_modules` conclui coisa errada.
-///
-/// Chamado por quem pôs o `Chat` no mapa, logo depois de pôr: o processo
-/// ainda está subindo, mas o stdin é um cano — o que entrar agora ele lê
-/// quando estiver de pé. Esperar um sinal dele não dá: o `init` do stream só
-/// sai depois da primeira fala.
+/// Called after inserting a Chat and its tab. Send queued input once setup finishes. stdin can
+/// accept input before protocol initialization; waiting for Claude init would deadlock the first
+/// prompt.
 pub fn ready_now(app: &AppHandle, session: &str) {
     let state = app.state::<AppState>();
     lock(&state.ready).insert(session.to_string());
@@ -683,16 +656,14 @@ pub fn ready_now(app: &AppHandle, session: &str) {
 }
 
 fn setup_running(state: &AppState, session: &str) -> bool {
-    // O lock do quadro sai antes do dos PTYs: dois locks aninhados é como
-    // nasce um travamento, e aqui não há motivo para segurar os dois.
+    // Release the board lock before inspecting PTYs to avoid nested lock ordering.
     let key = lock(&state.board)
         .workspace_of(session)
         .map(|ws| format!("{}:setup", ws.id));
     key.is_some_and(|key| lock(&state.ptys).get(&key).is_some_and(|p| p.alive()))
 }
 
-/// Manda a fala guardada da aba, uma vez só. `prefix` vai na frente, na mesma
-/// fala: é o aviso de que o setup não terminou bem.
+/// Send the tab's queued prompt once. An optional prefix reports setup failure in the same message.
 pub fn send_prompt(app: &AppHandle, session: &str, prefix: Option<String>) {
     let state = app.state::<AppState>();
     {
@@ -735,10 +706,8 @@ pub fn send_prompt(app: &AppHandle, session: &str, prefix: Option<String>) {
     match say(&state, session, &prompt) {
         Ok(()) => update(app, session, Some(Status::Rodando), Note::Clear, None),
         Err(error) => {
-            // O processo pode morrer entre a conferência e a escrita. A fala
-            // ainda não entrou no transcript, então volta para a frente da
-            // fila em vez de desaparecer. Uma fala que chegou nesse intervalo
-            // fica depois dela, preservando a ordem original.
+            // If the process dies before writing, restore the unrecorded prompt ahead of input
+            // queued during the attempt. Preserve message order and pause failing background tasks.
             let mut board = lock(&state.board);
             if let Some(tab) = board.tab_mut(session) {
                 if let Some(run) = tab.task.as_mut() {
@@ -757,8 +726,8 @@ pub fn send_prompt(app: &AppHandle, session: &str, prefix: Option<String>) {
     }
 }
 
-/// Uma fala no contrato V1, com a hora. O processo não ecoa o que entra, então quem a guarda e
-/// a repassa à tela (e ao colega olhando) é o app, na hora de mandar.
+/// Build the timestamped V1 user event. Providers do not echo local input, so the app records and
+/// shares it.
 fn user(text: &str) -> Value {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -767,47 +736,50 @@ fn user(text: &str) -> Value {
     json!({ "v": 1, "type": "user.message", "at": ts, "content": [{ "kind": "text", "text": text }] })
 }
 
-/// Uma linha para dentro do processo. O que volta é o que ela produziu sem
-/// passar por ele (ver `Chat::write`), junto da bomba que leva isso à tela —
-/// fora do lock do mapa, porque levar à tela é mexer no quadro.
-fn write(state: &AppState, session: &str, frame: &Value) -> Result<(Pump, Vec<Value>), String> {
-    let mut chats = lock(&state.chats);
-    let chat = chats
-        .get_mut(session)
-        .filter(|c| c.alive())
-        .ok_or_else(|| i18n::t("err.chat.gone"))?;
-    let previous_turn =
-        (frame["type"] == "message.send").then(|| chat.pump.turn.swap(true, Ordering::Relaxed));
-    let echo = match chat.write(frame) {
-        Ok(echo) => echo,
-        Err(error) => {
-            if let Some(previous) = previous_turn {
-                chat.pump.turn.store(previous, Ordering::Relaxed);
+/// Hold chats, then transcript, through the command write and its local events. Incoming output
+/// cannot overtake the user message. Run reactions only after releasing both locks.
+fn write(state: &AppState, session: &str, frame: &Value) -> Result<(), String> {
+    let (pump, events) = {
+        let mut chats = lock(&state.chats);
+        let chat = chats
+            .get_mut(session)
+            .filter(|c| c.alive())
+            .ok_or_else(|| i18n::t("err.chat.gone"))?;
+        let pump = chat.pump.clone();
+        let mut lines = lock(&pump.sink);
+        let previous_turn =
+            (frame["type"] == "message.send").then(|| pump.turn.swap(true, Ordering::Relaxed));
+        let events = match lines.command(
+            frame,
+            |buffer| chat.write(frame, buffer),
+            |lines, event| pump.record(lines, &event.to_string(), event),
+        ) {
+            Ok(events) => events,
+            Err(error) => {
+                if let Some(previous) = previous_turn {
+                    pump.turn.store(previous, Ordering::Relaxed);
+                }
+                return Err(error);
             }
-            return Err(error);
-        }
+        };
+        drop(lines);
+        (pump, events)
     };
-    Ok((chat.pump.clone(), echo))
-}
-
-/// Uma fala para dentro, e a mesma fala para fora: no buffer e na tela.
-fn say(state: &AppState, session: &str, text: &str) -> Result<(), String> {
-    let frame = user(text);
-    let command = json!({ "v": 1, "type": "message.send", "text": text });
-    let (pump, echo) = write(state, session, &command)?;
-    let line = frame.to_string();
-    pump.feed(&line);
-    // O que a fala rendeu sem ir ao processo vem depois dela, na ordem.
-    for frame in echo {
-        pump.feed(&frame.to_string());
+    // Reactions may send another command or lock the board; release both locks first.
+    for event in events {
+        pump.react(&event);
     }
     Ok(())
 }
 
-/// Uma fala. Se o processo não está de pé — o app reabriu, a aba foi
-/// arquivada, ele caiu —, sobe de novo com `--resume` e a fala vai assim que
-/// ele avisar que está pronto. É o que faz "desligada" não ser uma parede:
-/// escrever é retomar.
+/// Send a prompt and record its matching user event.
+fn say(state: &AppState, session: &str, text: &str) -> Result<(), String> {
+    let command = json!({ "v": 1, "type": "message.send", "text": text });
+    write(state, session, &command)
+}
+
+/// Send input immediately when ready, or queue it and resume the existing transcript after process
+/// loss.
 #[tauri::command]
 pub fn chat_send(
     app: AppHandle,
@@ -824,11 +796,8 @@ pub fn chat_send(
         kill(&state, &session);
         lock(&state.ready).remove(&session);
     }
-    // Já há uma fala esperando o setup: esta vai atrás dela, na mesma leva.
-    // Passar na frente seria o agente ler a segunda antes da primeira. Mesmo
-    // assim seguimos até a conferência do processo: a pendência pode ter
-    // sobrevivido a uma queda ou ao app fechado, e só anexar texto nela a
-    // deixaria presa para sempre.
+    // Append behind pending setup input without skipping process recovery. A persisted queue may
+    // belong to a stopped process, so appending alone must not leave it stuck.
     let queued = {
         let mut board = lock(&state.board);
         board.tab_mut(&session).is_some_and(|tab| {
@@ -853,13 +822,12 @@ pub fn chat_send(
         };
         tab.pending_prompt = Some(text);
     }
-    // A fila existe antes de tentar reabrir o processo: se o CLI nem conseguir
-    // subir, a fala continua visível e gravada para a próxima tentativa.
+    // Persist the queue before restarting so a failed spawn leaves input available for retry.
     publish(&app);
     flush_pending(&app, &state, &session)
 }
 
-/// Libera uma fala já persistida, respeitando setup e retomada.
+/// Release persisted input while respecting setup and process recovery.
 pub fn flush_pending(
     app: &AppHandle,
     state: &State<AppState>,
@@ -879,14 +847,11 @@ pub fn flush_pending(
         Wake::Revive => {
             crate::session::revive(app, state, session)?;
         }
-        // `ready` é o sinal do cano, não do protocolo: depois que o `Chat`
-        // entrou no mapa já se pode escrever. Ausente com processo vivo é o
-        // estado órfão deixado por versões anteriores (ou por uma corrida), e
-        // `ready_now` ainda respeita um setup que esteja realmente rodando.
+        // Readiness refers to the input pipe. A live process with a missing marker can be repaired
+        // in place; `ready_now` still waits for an active setup.
         Wake::Ready => ready_now(app, session),
-        // A fala já estava na fila, o processo está pronto e o setup acabou:
-        // é uma pendência órfã gravada por uma versão anterior, não uma razão
-        // para continuar mostrando o spinner.
+        // A ready process with finished setup can send an orphaned queue instead of leaving its
+        // spinner active.
         Wake::Send => send_prompt(app, session, None),
         Wake::None => {}
     }
@@ -924,9 +889,8 @@ enum Wake {
     Send,
 }
 
-/// Como fazer uma fila pendente voltar a andar. Processo morto precisa ser
-/// retomado; processo vivo que perdeu apenas o marcador pode ser religado no
-/// lugar. Vivo e pronto está legitimamente esperando o setup terminar.
+/// Recover queued input: revive a stopped process, restore a missing readiness marker, or wait for
+/// setup.
 fn wake(up: bool, ready: bool, setup: bool) -> Wake {
     match (up, ready, setup) {
         (false, _, _) => Wake::Revive,
@@ -936,24 +900,14 @@ fn wake(up: bool, ready: bool, setup: bool) -> Wake {
     }
 }
 
-/// Uma linha qualquer para dentro do processo: resposta a pedido de permissão,
-/// interrupção, troca de modo. O front monta o JSON; aqui só passa.
+/// Send local V1 controls, including approvals, interruption and permission mode changes.
 #[tauri::command]
 pub fn chat_control(state: State<AppState>, session: String, frame: Value) -> Result<(), String> {
-    let (pump, echo) = write(&state, &session, &frame)?;
-    if let Some(event) = closed_request(&frame) {
-        pump.feed(&event.to_string());
-    }
-    for frame in echo {
-        pump.feed(&frame.to_string());
-    }
-    Ok(())
+    write(&state, &session, &frame)
 }
 
-/// Controle vindo de outro membro não é uma linha arbitrária para o processo.
-/// A resposta é ligada a um pedido que existe no buffer e, ao autorizar uma
-/// ferramenta, o input original é recolocado aqui. Assim um cliente alterado
-/// não troca silenciosamente o comando que o dono viu no card.
+/// Validate remote controls against an open request in the transcript. Reconstruct original tool
+/// input so a modified teammate client cannot change what the owner approved.
 #[tauri::command]
 pub fn chat_control_remote(
     state: State<AppState>,
@@ -970,14 +924,7 @@ pub fn chat_control_remote(
         text
     };
     let safe = sanitize_remote_control(&buffer, &frame).ok_or_else(|| i18n::t("err.team.bad"))?;
-    let (pump, echo) = write(&state, &session, &safe)?;
-    if let Some(event) = closed_request(&safe) {
-        pump.feed(&event.to_string());
-    }
-    for frame in echo {
-        pump.feed(&frame.to_string());
-    }
-    Ok(())
+    write(&state, &session, &safe)
 }
 
 fn closed_request(command: &Value) -> Option<Value> {
@@ -1036,7 +983,7 @@ fn sanitize_remote_control(buffer: &str, frame: &Value) -> Option<Value> {
                 "response": clean,
             }))
         }
-        // Compatibilidade com colegas ainda na versão anterior.
+        // Compatibility with teammates running the previous control format.
         "control_request" => {
             let id = bounded(frame.get("request_id")?, 128)?;
             (frame.pointer("/request/subtype")?.as_str()? == "interrupt").then(|| {
@@ -1149,10 +1096,7 @@ fn answers_for(input: &Value, updated: &Value) -> Option<Value> {
     Some(out)
 }
 
-/// As linhas, mais uma no fim que as linhas não sabem dizer: se há turno em
-/// andamento. Sem ele, a tela assenta o que parecia estar chegando — o
-/// transcript não guarda `result`, então uma conversa reaberta terminaria
-/// sempre numa mensagem "chegando".
+/// Append runtime turn state to the snapshot so replay can settle or resume streaming correctly.
 fn snapshot(state: &AppState, session: &str) -> Snapshot {
     let (mut text, seq, busy) = match lock(&state.chats).get(session) {
         Some(chat) => {
@@ -1183,8 +1127,7 @@ fn snapshot(state: &AppState, session: &str) -> Snapshot {
     Snapshot { text, seq }
 }
 
-/// Onde a conversa de uma aba dorme: o transcript do Claude Code, que ele
-/// mesmo escreve, ou o que o app gravou do Codex.
+/// Resolve the native Claude transcript or the app-managed Codex transcript for this conversation.
 pub fn transcript_of(ws: &Workspace, session: &str) -> PathBuf {
     match ws.agent {
         crate::state::ProviderId::Codex => paths::chat_log(session),
@@ -1192,10 +1135,8 @@ pub fn transcript_of(ws: &Workspace, session: &str) -> PathBuf {
     }
 }
 
-/// As linhas e o número da última — para a tela desenhar, e para mandar a um
-/// colega que acabou de abrir a conversa. Tirado sob o mesmo lock que numera,
-/// então "até o N" é exato: quem recebe as linhas ao vivo sabe quais já
-/// estavam dentro e não as põe duas vezes.
+/// Capture text and sequence under the same lock used for live delivery. Remote viewers can discard
+/// only the events already included in this snapshot.
 #[tauri::command]
 pub fn chat_snapshot(state: State<AppState>, session: String) -> Snapshot {
     snapshot(&state, &session)
@@ -1205,12 +1146,152 @@ pub fn chat_snapshot(state: State<AppState>, session: String) -> Snapshot {
 mod tests {
     use super::*;
 
-    /// O que o chamador põe no comando chega ao processo. O preparo do ambiente
-    /// limpava tudo e recopiava o do app para tirar as `CLAUDE*`, e apagava
-    /// junto o que só quem chama sabia — os segredos que o Codex recebe por
-    /// variável justamente para não passarem em argumento de processo. As
-    /// `CLAUDE*` herdadas continuam ficando de fora, que é o motivo de existir
-    /// este preparo.
+    #[test]
+    fn command_records_user_and_echo_before_concurrent_response() {
+        let lines = Mutex::new(Lines::default());
+        let emitted = Mutex::new(Vec::new());
+        let directory =
+            std::env::temp_dir().join(format!("prometeu-chat-{}", uuid::Uuid::new_v4()));
+        let log = directory.join("chat.jsonl");
+        let (sent, sent_rx) = std::sync::mpsc::channel();
+        let (blocked, blocked_rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let (lines, emitted, log) = (&lines, &emitted, &log);
+            scope.spawn(move || {
+                sent_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+                assert!(lines.try_lock().is_err());
+                blocked.send(()).unwrap();
+                let response = json!({ "v": 1, "type": "assistant.block" }).to_string();
+                lock(lines).deliver(&response, true, Some(log), |seq| {
+                    lock(emitted).push((seq, "assistant.block".to_string()));
+                });
+            });
+            lock(lines)
+                .command(
+                    &json!({ "v": 1, "type": "message.send", "text": "hello" }),
+                    |buffer| {
+                        assert!(buffer.is_empty());
+                        sent.send(()).unwrap();
+                        blocked_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+                        Ok(vec![json!({ "v": 1, "type": "system.notice" })])
+                    },
+                    |lines, event| {
+                        lines.deliver(&event.to_string(), keep(event), Some(log), |seq| {
+                            lock(emitted).push((seq, event["type"].as_str().unwrap().to_string()));
+                        });
+                    },
+                )
+                .unwrap();
+        });
+        assert_eq!(
+            *lock(&emitted),
+            [
+                (1, "user.message".into()),
+                (2, "system.notice".into()),
+                (3, "assistant.block".into()),
+            ]
+        );
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), lock(&lines).text);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn large_command_drains_output_before_publishing_the_response() {
+        use std::os::unix::net::UnixStream;
+
+        let (input, mut child) = UnixStream::pair().unwrap();
+        for stream in [&input, &child] {
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+        }
+        let mut stdin = input.try_clone().unwrap();
+        let output = output_lines(input);
+        let lines = Mutex::new(Lines::default());
+        let emitted = Mutex::new(Vec::new());
+        let command = json!({ "v": 1, "type": "message.send", "text": "x".repeat(1024 * 1024) });
+        let (blocked, blocked_rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let mut pending = lock(&lines);
+            let (lines, emitted) = (&lines, &emitted);
+            let provider = scope.spawn(move || {
+                let delta = json!({ "type": "assistant.delta", "text": "y".repeat(8192) });
+                let delta = format!("{delta}\n");
+                // More output than the socket can hold, before reading the large command.
+                for _ in 0..256 {
+                    child.write_all(delta.as_bytes())?;
+                }
+                let mut received = String::new();
+                BufReader::new(child.try_clone()?).read_line(&mut received)?;
+                let received: Value = serde_json::from_str(&received).unwrap();
+                assert_eq!(received["text"].as_str().unwrap().len(), 1024 * 1024);
+                child.write_all(b"{\"type\":\"turn.completed\"}\n")
+            });
+            let incoming = scope.spawn(move || {
+                let mut blocked = Some(blocked);
+                for text in output {
+                    if let Some(blocked) = blocked.take() {
+                        assert!(lines.try_lock().is_err());
+                        blocked.send(()).unwrap();
+                    }
+                    let frame: Value = serde_json::from_str(&text).unwrap();
+                    lock(lines).deliver(&text, keep(&frame), None, |seq| {
+                        lock(emitted).push((seq, frame["type"].as_str().unwrap().to_string()));
+                    });
+                }
+            });
+            let sent = pending.command(
+                &command,
+                |_| {
+                    blocked_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                    stdin
+                        .write_all(format!("{command}\n").as_bytes())
+                        .map_err(|error| error.to_string())?;
+                    Ok(vec![])
+                },
+                |lines, event| {
+                    lines.deliver(&event.to_string(), keep(event), None, |seq| {
+                        lock(emitted).push((seq, event["type"].as_str().unwrap().to_string()));
+                    });
+                },
+            );
+            drop(pending);
+            drop(stdin);
+            provider.join().unwrap().unwrap();
+            incoming.join().unwrap();
+            sent.unwrap();
+        });
+        let emitted = lock(&emitted);
+        assert_eq!(emitted.len(), 258);
+        assert_eq!(emitted[0], (1, "user.message".into()));
+        assert_eq!(emitted[257], (258, "turn.completed".into()));
+        assert!(emitted
+            .iter()
+            .enumerate()
+            .all(|(index, (seq, _))| *seq == index as u64 + 1));
+        let lines = lock(&lines);
+        assert_eq!(lines.seq, 258);
+        assert_eq!(lines.text.lines().count(), 2);
+    }
+
+    #[test]
+    fn failed_command_does_not_record_a_user_message() {
+        let mut lines = Lines::default();
+        let error = lines.command(
+            &json!({ "v": 1, "type": "message.send", "text": "retry me" }),
+            |_| Err("broken pipe".to_string()),
+            |_, _| panic!("failed commands must not emit"),
+        );
+        assert_eq!(error.unwrap_err(), "broken pipe");
+        assert!(lines.text.is_empty());
+        assert_eq!(lines.seq, 0);
+    }
+
+    /// Caller-supplied environment values, including MCP secrets, survive inherited Claude-variable
+    /// cleanup.
     #[test]
     fn o_que_o_chamador_poe_no_ambiente_chega_ao_processo() {
         std::env::set_var("CLAUDE_CODE_CHILD_SESSION", "1");
@@ -1243,9 +1324,8 @@ mod tests {
         assert_eq!(wake(true, true, true), Wake::None);
     }
 
-    /// Cada linha ganha o número seguinte; o que vai ao vivo sem ficar guardado
-    /// também conta — o snapshot diz "até o N", e N tem de ser o mesmo dos dois
-    /// lados.
+    /// Persisted and ephemeral events share one increasing sequence so snapshots and live delivery
+    /// agree.
     #[test]
     fn linhas_numeradas_guardadas_ou_nao() {
         let mut l = Lines::default();
@@ -1255,7 +1335,7 @@ mod tests {
         assert_eq!(l.text, "a\nb\n");
     }
 
-    /// O teto corta por linha inteira: meia linha de JSON não é nada.
+    /// Trim whole JSON lines instead of keeping an invalid partial record.
     #[test]
     fn o_teto_corta_linhas_inteiras() {
         let mut l = Lines::default();
@@ -1266,8 +1346,8 @@ mod tests {
         assert_eq!(l.seq, 2);
     }
 
-    /// O que fica: falas, ferramentas, pedidos, fim de turno. O que não fica:
-    /// o texto letra a letra e o ruído de progresso.
+    /// Keep replayable messages, tools, requests and completion; discard streaming and progress
+    /// noise.
     #[test]
     fn guarda_o_que_a_tela_precisa_amanha() {
         let f = |s: &str| serde_json::from_str::<Value>(s).unwrap();

@@ -1,6 +1,4 @@
-/// Controle remoto aceito do colega antes de chegar ao processo do agente.
-/// Texto comum não é controle; formatos de controle inválidos são reconhecidos
-/// e descartados para nunca virarem prompt acidentalmente.
+/// Validate peer control before it reaches the agent. Recognize malformed control payloads and discard them so they never become ordinary prompts.
 
 export type RemoteControl = { recognized: boolean; frame: unknown | null };
 
@@ -31,7 +29,7 @@ export function remoteControl(data: string): RemoteControl {
       }
       return { recognized: true, frame: null };
     }
-    // Leitor de rollback para clientes ainda na versão anterior.
+    // Rollback reader for clients on the previous version.
     if (value.type === "control_request") {
       const ok = typeof value.request_id === "string" && value.request_id.length <= 128 && value.request?.subtype === "interrupt";
       return { recognized: true, frame: ok ? value : null };

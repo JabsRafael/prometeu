@@ -1,37 +1,25 @@
-# O Prometeu rodando o Prometeu. Este arquivo é o próprio dogfooding: se
-# testar uma mudança daqui num worktree separado não funcionar, é sinal de que a
-# feature não está pronta.
-#
-# Variáveis disponíveis nos scripts:
-#
-#   $PROMETEU_WORKSPACE_PATH  o worktree onde o script roda
-#   $PROMETEU_ROOT_PATH       o repositório de onde ele saiu
-#   $PROMETEU_WORKSPACE_NAME  o nome deste workspace
-#   $PROMETEU_PORT            porta reservada só para ele, mais nove até +9
-#   $PORT                       a mesma porta, para o que já respeita a convenção
+# Run Prometeu from its own isolated workspace to validate the complete development flow.
+# Available script variables:
+# $PROMETEU_WORKSPACE_PATH: the worktree where scripts run.
+# $PROMETEU_ROOT_PATH: the original repository.
+# $PROMETEU_WORKSPACE_NAME: the workspace name.
+# $PROMETEU_PORT: its reserved port, followed by nine more through +9.
+# $PORT: the same port for tools following that convention.
 
 [scripts]
-# Só as dependências do front: desde que o hook e o sidecar saíram, não há
-# binário para compilar antes do primeiro `cargo`.
+# Install frontend dependencies; no separate hook or sidecar binary is needed before cargo runs.
 setup = "npm install"
 
-# O app de verdade deste worktree, isolado do que estiver instalado e de qualquer
-# outro worktree: porta e `~/.prometeu-dev-<workspace>` próprios. É o teste
-# honesto — Tauri, PTY e agentes de verdade.
+# Start the real app with this worktree's own port and ~/.prometeu-dev-<workspace> state root, including
+# native Tauri, PTY and agent behavior.
 [scripts.run.app]
 command = "sh scripts/app.sh"
 default = true
 
-# A mesma UI no Chrome, sem Tauri. O back é o `src/mock.ts`, então isto testa a
-# tela e não o Rust — em troca, é o único caminho que um Playwright dirige: a
-# webview do Tauri no macOS é WKWebView e não fala CDP.
-#
-# Vite ao fundo e `wait` na frente para o processo não largar o terminal: é o
-# que deixa o botão de parar do dock derrubar o servidor junto.
-#
-# `localhost` e não `127.0.0.1`: o vite escuta só em `::1`, e o curl em IPv4
-# nunca responderia. E o `kill -0` é o que impede o laço de girar para sempre
-# quando o vite nem sobe — porta ocupada, dependência faltando.
+# Run the same UI in Chrome through src/mock.ts, for browser automation without the Rust backend.
+# WKWebView does not expose CDP.
+# Keep Vite in the background and wait in the foreground so stopping the dock terminates the server. Use
+# localhost for IPv6 binding, and kill -0 to stop polling if Vite exits before becoming ready.
 [scripts.run.browser]
 command = """
 PORT=$PROMETEU_PORT npx vite &

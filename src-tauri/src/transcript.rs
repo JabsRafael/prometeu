@@ -1,29 +1,19 @@
-//! O que o transcript de uma conversa conta sobre ela.
-//!
-//! No Claude Code, cada resposta do assistente vai para o `.jsonl` com o `usage`
-//! da chamada: quanto entrou, quanto veio do cache, quanto saiu. A soma do que
-//! entrou na última chamada é o tamanho da conversa agora — é o número que diz
-//! "essa sessão está pesada" olhando o quadro, e que despenca quando o agente
-//! compacta.
-//!
-//! O Codex grava outro arquivo (o `rollout-….jsonl`) e diz a mesma coisa de
-//! outro jeito: um evento `token_count` por resposta, com o total já somado em
-//! `last_token_usage.input_tokens`. As duas formas são lidas na mesma passada —
-//! quem chama tem um caminho de transcript nas mãos e nada mais, e não precisa
-//! saber qual CLI o escreveu.
+//! Read current conversation size from provider transcripts. Claude reports input and cache usage
+//! on assistant responses; Codex reports last_token_usage.input_tokens in token_count events.
+//! Interpret either format from the supplied path without requiring callers to identify its
+//! provider.
 
 use serde_json::Value;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
-/// Quanto do fim do arquivo ler antes de desistir e ler inteiro. A última
-/// resposta do assistente quase sempre está nos últimos KB; o que separa uma da
-/// outra é saída de ferramenta, e essa cabe aqui dentro.
+/// Search a bounded file tail first, falling back to the full transcript when no usable response
+/// appears there.
 const TAIL: u64 = 512 * 1024;
 
-/// Tokens de contexto da última resposta do assistente, ou `None` se o arquivo
-/// não existe ou ainda não tem resposta nenhuma.
+/// Return context tokens from the latest assistant response, or None for missing files or
+/// conversations without responses.
 pub fn context(path: &Path) -> Option<u64> {
     let mut file = File::open(path).ok()?;
     let len = file.metadata().ok()?.len();
@@ -32,7 +22,7 @@ pub fn context(path: &Path) -> Option<u64> {
     let mut tail = String::new();
     file.seek(SeekFrom::Start(start)).ok()?;
     file.read_to_string(&mut tail).ok()?;
-    // O corte caiu no meio de uma linha: ela não é JSON inteiro.
+    // Discard the first partial line when tail reading begins inside a JSON record.
     let tail = if start > 0 {
         tail.split_once('\n').map(|(_, rest)| rest).unwrap_or("")
     } else {
@@ -50,8 +40,8 @@ pub fn context(path: &Path) -> Option<u64> {
     last_context(&whole)
 }
 
-/// A última linha que conte alguma coisa, no formato que ela estiver. Resposta
-/// que deu erro na API vem com tudo zerado, e zero não é "a conversa esvaziou".
+/// Find the latest usable record in either format. Ignore all-zero API failure usage rather than
+/// treating it as an emptied conversation.
 fn last_context(jsonl: &str) -> Option<u64> {
     jsonl.lines().rev().find_map(|line| {
         let v: Value = serde_json::from_str(line).ok()?;
@@ -59,8 +49,7 @@ fn last_context(jsonl: &str) -> Option<u64> {
     })
 }
 
-/// O `usage` de uma resposta do Claude Code. Subagente não conta: o contexto que
-/// interessa é o da conversa que está na tela.
+/// Read primary Claude response usage without counting subagent context.
 fn claude(v: &Value) -> Option<u64> {
     if v["isSidechain"].as_bool() == Some(true) {
         return None;
@@ -77,8 +66,7 @@ fn claude(v: &Value) -> Option<u64> {
     (n > 0).then_some(n)
 }
 
-/// O `token_count` do Codex. `input_tokens` do último turno já é a conversa
-/// inteira — o que veio do cache está dentro dele, e por isso não se soma nada.
+/// Codex input_tokens already includes cached input, so no extra sum is needed.
 fn codex(v: &Value) -> Option<u64> {
     let payload = &v["payload"];
     if payload["type"].as_str() != Some("token_count") {
@@ -120,7 +108,7 @@ mod tests {
         assert_eq!(last_context(&jsonl), Some(5_001));
     }
 
-    /// O rollout do Codex, no formato que ele grava.
+    /// Use Codex's native rollout format.
     #[test]
     fn le_o_token_count_do_codex() {
         let count = |input: u64| {
@@ -150,8 +138,7 @@ mod tests {
         assert_eq!(context(Path::new("/nao/existe.jsonl")), None);
     }
 
-    /// Arquivo maior que a cauda, com a última resposta lá no começo: a cauda
-    /// não acha nada e a leitura inteira tem que achar.
+    /// Fall back to the full file when the latest usable response precedes the bounded tail.
     #[test]
     fn cauda_vazia_cai_para_o_arquivo_inteiro() {
         let path =

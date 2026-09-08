@@ -59,6 +59,10 @@ do fornecedor.
 
 Separa TypeScript e Rust. Nome, argumentos, retorno, erro e eventos formam um
 único contrato. O mock web é outro adapter desse mesmo contrato.
+`src/ipc.ts` owns the command argument/result map consumed by frontend callers
+and `IpcHandlers` in the mock. Exact command-name parity with Rust is tested;
+Rust payload shapes remain manually synchronized. See the
+[IPC contract](../contracts/ipc.md).
 
 ### Colaboração
 

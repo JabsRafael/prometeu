@@ -3,7 +3,7 @@ import * as menu from "./menu.js";
 
 const mounted = new WeakMap<Element, () => void>();
 
-/** Melhoria progressiva para o HTML emitido pelo adaptador Rails do pacote. */
+/** Progressive enhancement for HTML emitted by the package's Rails adapter. */
 export function enhance(root: ParentNode = document) {
   const disposers: (() => void)[] = [];
   const mount = (selector: string, setup: (node: HTMLElement) => () => void) => {
@@ -28,8 +28,7 @@ export function enhance(root: ParentNode = document) {
   });
 
   mount("details[data-ui-menu]", node => {
-    // Links, botões de formulário e separadores viram itens; o clique nativo
-    // preserva navegação, método HTTP e CSRF do HTML de origem.
+    // Native clicks preserve link navigation, form methods and CSRF while controls become menu items.
     const summary = node.querySelector("summary")!;
     const control = menuButton(summary.textContent!, () =>
       Array.from(node.querySelectorAll<HTMLElement>("a[href], button, hr")).map(item =>
@@ -37,7 +36,7 @@ export function enhance(root: ParentNode = document) {
           label: item.textContent!.trim(), checked: item.hasAttribute("aria-current"),
           danger: item.classList.contains("danger"), run: () => item.click(),
         }));
-    // O gatilho repete o conteúdo do summary: avatar e nome, não só o texto.
+    // Copy the complete summary content, including its avatar, into the trigger.
     control.replaceChildren(...Array.from(summary.childNodes, child => child.cloneNode(true)));
     node.before(control); node.hidden = true;
     return () => {
@@ -62,7 +61,7 @@ export function enhance(root: ParentNode = document) {
       if (busy || pending) { event.preventDefault(); return; }
       if (form.dataset.uiConfirm && !approved) {
         event.preventDefault(); pending = true;
-        // O WebKit não foca botões nativos ao clicar; este é o destino ao cancelar.
+        // WebKit does not focus native buttons on click; this restores the cancellation target.
         event.submitter?.focus();
         try {
           if (await confirmDialog({ ...JSON.parse(form.dataset.uiConfirm), signal: events.signal }) && form.isConnected) {
@@ -73,7 +72,7 @@ export function enhance(root: ParentNode = document) {
         } finally { pending = false; approved = false; }
         return;
       }
-      // Não desabilite o submitter: nome e valor fazem parte do POST nativo.
+      // Keep the submitter enabled because its name and value belong in the native POST.
       busy = true; form.setAttribute("aria-busy", "true");
       form.querySelectorAll('button[type="submit"], input[type="submit"]').forEach(button => {
         button.setAttribute("aria-disabled", "true"); button.setAttribute("data-ui-submitting", "");

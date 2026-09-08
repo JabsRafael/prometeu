@@ -15,6 +15,8 @@ como índice curto para agentes e `README.md` apresenta o produto.
 
 ## Contratos
 
+- [Organizações no Cloud](contracts/cloud-organizations.md): CRUD, convites, catálogos e acesso ao relay.
+
 - [Catálogo na conta Prometeu](contracts/cloud-catalog.md): plugins, MCP e skills gerenciados no SaaS, com itens privados e compartilhamento explícito no desktop.
 - [Conta opcional do Prometeu](contracts/cloud-account.md): SaaS, autenticação
   pelo navegador, conexão do desktop e persistência privada.
@@ -37,46 +39,31 @@ como índice curto para agentes e `README.md` apresenta o produto.
 
 ## Decisões
 
-- [ADR 0018](decisions/0018-native-file-promises.md): miniaturas de captura e promessas de arquivos no macOS.
-
-- [ADR 0017](decisions/0017-executable-design-system.md): componentes executáveis, comportamento compartilhado e adaptação Rails.
-
-- [ADR 0016](decisions/0016-company-design-system.md): Design System compartilhado da empresa, pacote e consumo pelo Cloud.
-
-- [ADR 0014](decisions/0014-optional-cloud-account.md): conta opcional e SaaS separado — stack substituída pelo ADR 0015.
-- [ADR 0015](decisions/0015-cloud-rails.md): SaaS em Rails com contrato desktop preservado — aceito.
-
-- [ADR 0011](decisions/0011-shared-ui.md): primitivas compartilhadas de interface — localização dos assets substituída pelo ADR 0016.
-- [`decisions/0013-remove-provider-accounts.md`](decisions/0013-remove-provider-accounts.md):
-  remoção de qualquer conta e seleção vazia — aceita.
-- [`decisions/0012-provider-accounts.md`](decisions/0012-provider-accounts.md):
-  contas locais e troca entre turnos — aceita.
-
-- [`decisions/README.md`](decisions/README.md): índice e ciclo de vida dos ADRs.
-- [`decisions/0001-repository-knowledge.md`](decisions/0001-repository-knowledge.md):
-  documentação versionada como fonte de verdade.
-- [`decisions/0002-canonical-conversation-protocol.md`](decisions/0002-canonical-conversation-protocol.md):
-  normalização dos protocolos de agentes — aceita.
-- [`decisions/0003-agent-capabilities.md`](decisions/0003-agent-capabilities.md):
-  disponibilidade de features por capacidades — aceita.
-- [`decisions/0004-prometeu-independent-identity.md`](decisions/0004-prometeu-independent-identity.md):
-  identidade, persistência e release independentes do produto anterior — aceita.
-- [`decisions/0005-portable-plugin-marketplace.md`](decisions/0005-portable-plugin-marketplace.md):
-  um marketplace de plugins para Claude e Codex — aceita.
-- [`decisions/0006-explicit-prometheus-import.md`](decisions/0006-explicit-prometheus-import.md):
-  importação explícita dos dados da instalação anterior — aceita.
-- [`decisions/0007-persistent-session-comments.md`](decisions/0007-persistent-session-comments.md):
-  comentários persistentes ao lado da sessão — aceita.
-- [`decisions/0008-explicit-git-index.md`](decisions/0008-explicit-git-index.md):
-  índice Git explícito e operações por repositório — aceita.
-
-- [ADR 0009](decisions/0009-reusable-actions.md): comandos e agentes reutilizáveis — aceito.
-
-- [ADR 0010](decisions/0010-default-code-review.md): Code review incluído no cadastro — aceito.
-
-- [ADR 0019](decisions/0019-cloud-catalog.md): catálogo de plugins, MCP e Ações na conta — substituído pelo ADR 0020.
-
-- [ADR 0020](decisions/0020-personal-catalog-and-local-items.md): autoria no SaaS e itens locais privados ou compartilhados.
+- [Decision index and lifecycle](decisions/README.md).
+- [ADR 0001](decisions/0001-repository-knowledge.md): conhecimento do repositório como fonte de verdade — Aceito.
+- [ADR 0002](decisions/0002-canonical-conversation-protocol.md): protocolo canônico de conversa — Aceito; espelho substituído.
+- [ADR 0003](decisions/0003-agent-capabilities.md): features dirigidas por capacidades — Aceito.
+- [ADR 0004](decisions/0004-prometeu-independent-identity.md): identidade independente do Prometeu — Aceito.
+- [ADR 0005](decisions/0005-portable-plugin-marketplace.md): marketplace portátil para Claude e Codex — Aceito.
+- [ADR 0006](decisions/0006-explicit-prometheus-import.md): importação explícita e não destrutiva do Prometheus — Aceito.
+- [ADR 0007](decisions/0007-persistent-session-comments.md): comentários persistentes ao lado da sessão — Aceito.
+- [ADR 0008](decisions/0008-explicit-git-index.md): índice Git explícito e operações por repositório — Aceito.
+- [ADR 0009](decisions/0009-reusable-actions.md): comandos e agentes reutilizáveis com acompanhamento local — Aceito.
+- [ADR 0010](decisions/0010-default-code-review.md): Code review incluído uma vez, editável e removível — Aceito.
+- [ADR 0011](decisions/0011-shared-ui.md): primitivas compartilhadas de interface — Parcialmente substituído pelo 0016.
+- [ADR 0012](decisions/0012-provider-accounts.md): contas locais e seleção global por provider — Aceito.
+- [ADR 0013](decisions/0013-remove-provider-accounts.md): remoção de contas e seleção vazia — Aceito.
+- [ADR 0014](decisions/0014-optional-cloud-account.md): conta opcional e SaaS separado — Substituído (stack).
+- [ADR 0015](decisions/0015-cloud-rails.md): SaaS em Rails com contrato desktop preservado — Aceito.
+- [ADR 0016](decisions/0016-company-design-system.md): Design System distribuível para os produtos da empresa — Parcialmente substituído pelo 0017.
+- [ADR 0017](decisions/0017-executable-design-system.md): componentes executáveis e adaptador Rails do Design System — Aceito.
+- [ADR 0018](decisions/0018-native-file-promises.md): recebimento nativo de miniaturas e promessas de arquivos — Aceito.
+- [ADR 0019](decisions/0019-cloud-catalog.md): catálogo portátil de plugins, MCP e Ações na conta Prometeu — Substituído pelo 0020.
+- [ADR 0020](decisions/0020-personal-catalog-and-local-items.md): autoria no SaaS e compartilhamento explícito de itens locais — Parcialmente substituído pelo 0021.
+- [ADR 0021](decisions/0021-cloud-organizations.md): organizações, convites por email e colaboração autorizada pelo Cloud — Aceito.
+- [ADR 0022](decisions/0022-end-to-end-encryption.md): criptografia ponta a ponta, TOFU e limites de segurança — Aceito.
+- [ADR 0023](decisions/0023-ordered-publication.md): ordered board publication and conversation delivery — Accepted.
+- [ADR 0024](decisions/0024-typed-ipc.md): command-owned IPC arguments and results — Accepted.
 
 ## Qualidade e operação
 
@@ -110,7 +97,3 @@ atual até que a implementação correspondente seja aceita.
   arquitetural.
 - [AWS — Architecture Decision Records](https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/adr-process.html):
   contexto, decisão, consequências e ciclo de vida de ADRs.
-
-- [Organizações no Cloud](contracts/cloud-organizations.md): CRUD, convites, catálogos e acesso ao relay.
-- [ADR 0021](decisions/0021-cloud-organizations.md): organização como autoridade de colaboração.
-- [ADR 0022](decisions/0022-end-to-end-encryption.md): criptografia ponta a ponta, TOFU e limites de segurança.

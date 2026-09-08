@@ -1,10 +1,6 @@
-//! Importa uma instalação do Prometheus sem transformar as duas identidades
-//! em uma só.
-//!
-//! É um caminho deliberadamente estreito: a origem é a instalação release
-//! (`~/.prometheus`), o destino precisa estar sem projetos e workspaces, e os
-//! worktrees continuam onde já estão. O que copiamos é estado durável; tokens,
-//! caches e processos temporários ficam de fora.
+//! Import durable state from the Prometheus release installation into an empty Prometeu board while
+//! preserving distinct product identities. Leave worktrees in place and exclude tokens, caches, and
+//! temporary processes.
 
 use crate::lock::lock;
 use crate::state::{publish, Board, ProviderId};
@@ -162,9 +158,8 @@ pub fn legacy_import_run(
     }
     let roots = Roots::system();
     let result = {
-        // Destino vazio significa que não há agente para bloquear. Segurar o
-        // quadro impede uma criação concorrente de atravessar a verificação
-        // e nascer embaixo do importador.
+        // Hold the empty destination board lock so concurrent workspace creation cannot race the
+        // import check.
         let mut board = lock(&state.board);
         import_for(&roots, &mut board)?
     };
@@ -266,9 +261,8 @@ fn import_for(roots: &Roots, target: &mut Board) -> Result<LegacyImportPlan, Str
             }
             let raw = fs::read_to_string(&copy.source)
                 .map_err(|error| read_error(&copy.source, error))?;
-            // Este é só o prefixo das variáveis públicas que o script recebe;
-            // nomes livres e caminhos que contenham "Prometheus" ficam como
-            // estavam.
+            // Replace only the public script-variable prefix. Preserve arbitrary names and paths
+            // containing Prometheus.
             let converted = raw.replace("PROMETHEUS_", "PROMETEU_");
             toml::from_str::<toml::Value>(&converted).map_err(|error| {
                 i18n::ta(
@@ -289,8 +283,8 @@ fn import_for(roots: &Roots, target: &mut Board) -> Result<LegacyImportPlan, Str
             }
         }
 
-        // Relê imediatamente antes de gravar: se algum cadastro independente
-        // apareceu desde a prévia, ele entra no merge em vez de ser apagado.
+        // Reread before writing so independently added registry entries are merged rather than
+        // overwritten.
         let current_plugins = target_plugins(roots)?;
         let merged_plugins = merge_plugins(current_plugins.clone(), &prepared.plugins)?;
         if merged_plugins != current_plugins {
@@ -301,8 +295,7 @@ fn import_for(roots: &Roots, target: &mut Board) -> Result<LegacyImportPlan, Str
             write_private(&roots.target.join("plugins.json"), &raw)?;
         }
 
-        // Se o Prometheus foi aberto depois da prévia, não ativamos um
-        // snapshot cujo quadro mudou no meio da cópia.
+        // Reject activation if Prometheus reopened and changed the source board during copying.
         let current = fs::read(&prepared.legacy.selected)
             .map_err(|error| read_error(&prepared.legacy.selected, error))?;
         if digest(&current) != prepared.legacy.hash {
@@ -348,9 +341,8 @@ fn import_for(roots: &Roots, target: &mut Board) -> Result<LegacyImportPlan, Str
 
     *target = prepared.legacy.board;
     manifest.status = ManifestStatus::Complete;
-    // O quadro já está íntegro e ativo. Se só a troca de "prepared" por
-    // "complete" falhar, o próximo plano reconhece os mesmos ids e continua
-    // dizendo que a importação terminou.
+    // Once the complete board is active, matching IDs let a later plan recognize completion even if
+    // updating the manifest status fails.
     if let Err(error) = write_manifest(roots, &manifest) {
         eprintln!("não finalizei o manifesto da importação: {error}");
     }
@@ -361,8 +353,8 @@ fn prepare(roots: &Roots) -> Result<Option<Prepared>, String> {
     let Some(mut legacy) = legacy_board(roots)? else {
         return Ok(None);
     };
-    // Sem a credencial do time, conservar esta marca faria workspaces serem
-    // anunciados sem que a pessoa tivesse escolhido compartilhar no Prometeu.
+    // Clear sharing intent when team credentials are not imported; sharing in Prometeu requires
+    // fresh consent.
     for workspace in &mut legacy.board.workspaces {
         workspace.shared = false;
         workspace.audience = None;
@@ -556,9 +548,8 @@ fn imported_plugins(
             let source_top = old_store.join(top);
             let source_kind = fs::symlink_metadata(&source_top)
                 .map_err(|error| read_error(&source_top, error))?;
-            // A raiz gerenciada precisa ser a pasta real que o Prometheus
-            // criou. Symlinks internos continuam sendo preservados, mas uma
-            // raiz redirecionada não vira propriedade do novo aplicativo.
+            // Require the real managed root created by Prometheus. Preserve internal symlinks
+            // without claiming ownership of a redirected root.
             if !source_kind.is_dir() {
                 return Err(i18n::ta(
                     "err.import.missingPath",
@@ -719,9 +710,8 @@ fn copy_file_new(source: &Path, target: &Path, mode: u32, private: bool) -> Resu
     write_new(target, &raw, mode, private)
 }
 
-/// Cria sem jamais passar por cima de um arquivo que apareceu no meio da
-/// operação. O hard link publica o temporário de forma atômica e falha se o
-/// nome final já existir.
+/// Publish a temporary file atomically with a hard link, failing if any destination entry appeared
+/// during the operation.
 fn write_new(target: &Path, raw: &[u8], mode: u32, private: bool) -> Result<bool, String> {
     if present(target)? {
         return Err(conflict(target));
@@ -804,8 +794,7 @@ fn copy_tree_new(source: &Path, target: &Path) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Publica a árvore inteira sem a semântica destrutiva de `rename`: no macOS,
-/// `RENAME_EXCL` faz a troca falhar se qualquer entrada apareceu no destino.
+/// Use macOS RENAME_EXCL to publish a complete tree without replacing an existing destination.
 #[cfg(target_os = "macos")]
 fn rename_new(source: &Path, target: &Path) -> Result<(), String> {
     use std::ffi::CString;
@@ -813,8 +802,7 @@ fn rename_new(source: &Path, target: &Path) -> Result<(), String> {
 
     let source = CString::new(source.as_os_str().as_bytes()).map_err(|_| conflict(source))?;
     let target_c = CString::new(target.as_os_str().as_bytes()).map_err(|_| conflict(target))?;
-    // SAFETY: os dois ponteiros vêm de `CString`, permanecem vivos durante a
-    // chamada e `renamex_np` não retém nenhum deles.
+    // SAFETY: both pointers come from live CStrings, and renamex_np retains neither pointer.
     let result = unsafe { libc::renamex_np(source.as_ptr(), target_c.as_ptr(), libc::RENAME_EXCL) };
     if result == 0 {
         return Ok(());
@@ -827,9 +815,8 @@ fn rename_new(source: &Path, target: &Path) -> Result<(), String> {
     }
 }
 
-/// O produto é macOS; este caminho mantém testes e builds auxiliares de outras
-/// plataformas funcionais. A checagem continua conservadora, embora só o macOS
-/// ofereça aqui a publicação exclusiva em uma chamada.
+/// Keep auxiliary non-macOS builds functional with a conservative existence check. Only macOS
+/// provides exclusive publication in one operation here.
 #[cfg(not(target_os = "macos"))]
 fn rename_new(source: &Path, target: &Path) -> Result<(), String> {
     if present(target)? {
@@ -889,9 +876,8 @@ fn same_tree(left: &Path, right: &Path) -> Result<bool, String> {
     Ok(tree_digest(left)? == tree_digest(right)?)
 }
 
-/// `Path::exists` segue symlinks e chama um link quebrado de ausente. Para o
-/// importador, qualquer entrada no nome final já pertence ao destino e bloqueia
-/// uma escrita destrutiva.
+/// Check directory entries without following symlinks: even a broken destination link must block
+/// destructive replacement.
 fn present(path: &Path) -> Result<bool, String> {
     match fs::symlink_metadata(path) {
         Ok(_) => Ok(true),
@@ -978,8 +964,8 @@ impl Changes {
         if self.manifest_touched {
             restore(&roots.target.join(MANIFEST), self.manifest.as_deref());
         }
-        // `write_board` pode ter renomeado o arquivo e falhado ao reafirmar a
-        // permissão. Restaurar sempre fecha também esse caminho raro.
+        // Restore the previous board even if write_board renamed successfully before failing to
+        // reaffirm permissions.
         restore(&roots.target.join("board.json"), self.board.as_deref());
         restore(
             &roots.target.join("board.json.bak"),
@@ -1114,8 +1100,8 @@ mod tests {
             "{\"v\":1,\"type\":\"message.user\"}\n",
         )
         .unwrap();
-        // Um log sem card também é preservado: apagar card não deve apagar
-        // silenciosamente o arquivo durante uma troca de produto.
+        // Preserve logs without cards; removing a card must not silently delete its transcript
+        // during product migration.
         paths::write_private(&roots.source.join("chats/orfao.jsonl"), "{}\n").unwrap();
 
         let plugin = roots.source.join("plugins/caveman");
@@ -1217,7 +1203,7 @@ mod tests {
             .as_ref()
             .is_some_and(|path| Path::new(path).exists()));
 
-        // Rodar de novo reconhece o manifesto e não duplica nada.
+        // Repeated import recognizes the manifest and creates no duplicates.
         let again = import_for(&roots, &mut target).unwrap();
         assert_eq!(again.state, LegacyImportState::Imported);
         assert_eq!(target.workspaces.len(), 2);

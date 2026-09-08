@@ -51,7 +51,7 @@ describe("espelho de uma conversa remota", () => {
     m.seed(b("0123456789"), 1);
     m.absorb(2, b("abc"));
     expect(text(m)).toBe("3456789abc");
-    // E o teto vale para a rolagem que chega grande também.
+    // Apply the retention limit to oversized snapshots as well.
     m.seed(b("ABCDEFGHIJKLMN"), 3);
     expect(text(m)).toBe("EFGHIJKLMN");
   });

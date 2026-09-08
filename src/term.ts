@@ -4,12 +4,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
-/// Um terminal ligado a um PTY do back: o dock — setup, run, os shells. A
-/// conversa com o agente não passa por aqui (ver `chat.ts`).
-///
-/// A medida é o ponto frágil: se a conta roda com a view ainda escondida, ou
-/// antes de a barra assentar, sobram linhas e a última fica cortada na borda de
-/// baixo. Daí esperar o próximo quadro e só medir quando o elemento tem tamanho.
+/// An xterm view for backend PTYs; agent conversations use chat.ts.
+/// Measure visible hosts on the next frame so layout changes do not clip terminal rows.
 
 export type Skin = {
   fontSize: number;
@@ -17,7 +13,7 @@ export type Skin = {
   scrollback: number;
 };
 
-/// Para onde vão as teclas de uma chave: o PTY local, ou o dono do lado de lá.
+/// Route input to the local PTY or its remote owner.
 export type Sink = (key: string, data: string) => void;
 
 const BACKGROUND = "#141110";
@@ -28,8 +24,8 @@ export class Term {
   private decoder = new TextDecoder("utf-8");
   private host!: HTMLElement;
   private pending = 0;
-  /// Qual PTY está na tela. Os outros seguem rodando por trás — o back manda a
-  /// saída de todos, e o que não é daqui é descartado.
+  private attachVersion = 0;
+  /// Ignore output from PTYs that are not attached to this view.
   private key: string | null = null;
   private sink: Sink = () => {};
 
@@ -63,26 +59,39 @@ export class Term {
     });
   }
 
-  /// Troca para outro PTY, redesenhando a rolagem que o back guardou.
-  async attach(key: string) {
+  /// Invalidate earlier opens before waiting for the process and its retained output.
+  async attach(key: string, ready: Promise<unknown>) {
+    this.detach();
+    const version = this.attachVersion;
     this.key = key;
-    this.term.reset();
-    const buf = await invoke<number[]>("pty_buffer", { session: key });
-    this.term.write(new TextDecoder("utf-8").decode(new Uint8Array(buf)));
-    this.refit(true);
+    try {
+      await ready;
+      if (version !== this.attachVersion) return;
+      const buf = await invoke("pty_buffer", { session: key });
+      if (version !== this.attachVersion) return;
+      this.term.write(new TextDecoder("utf-8").decode(new Uint8Array(buf)));
+      this.refit(true);
+    } catch (error) {
+      if (version !== this.attachVersion) return;
+      this.detach();
+      throw error;
+    }
   }
 
-  /// Só a rolagem de um pty, sem se ligar a ele: o que sobrou de um processo
-  /// que já morreu. Não aceita tecla — não há para quem mandar.
+  /// Show retained output without attaching input to an exited process.
   async show(key: string) {
     this.detach();
-    const buf = await invoke<number[]>("pty_buffer", { session: key });
+    const version = this.attachVersion;
+    const buf = await invoke("pty_buffer", { session: key });
+    if (version !== this.attachVersion) return;
     this.term.write(new TextDecoder("utf-8").decode(new Uint8Array(buf)));
     this.refit();
   }
 
   detach() {
+    this.attachVersion++;
     this.key = null;
+    this.decoder = new TextDecoder("utf-8");
     this.term.reset();
   }
 
@@ -98,9 +107,7 @@ export class Term {
     return { cols: this.term.cols, rows: this.term.rows };
   }
 
-  /// Avisa o PTY do tamanho novo. `force` manda mesmo sem ter mudado, que é o
-  /// caso de trocar de sessão: o tamanho é o mesmo, o processo do outro lado
-  /// não é.
+  /// Force a resize after switching PTYs even when the view dimensions stay the same.
   refit(force = false) {
     cancelAnimationFrame(this.pending);
     this.pending = requestAnimationFrame(() => {

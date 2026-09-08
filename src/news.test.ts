@@ -2,8 +2,7 @@ import { describe, expect, it } from "vitest";
 import { use } from "./i18n";
 import { cmp, localize, parse, unseen, type Release } from "./news";
 
-// Fora do navegador o app cai no inglês; estes testes conferem o texto
-// traduzido, então fixam o idioma de cada um onde ele importa.
+// Set the relevant language explicitly because Node defaults to English.
 use("pt-BR");
 
 const CHANGELOG = `# Changelog
@@ -40,7 +39,7 @@ describe("parse", () => {
     expect(all[0].date).toBe("2026-08-31");
     expect(all[0].body).toContain("### Novidades");
     expect(all[0].body).toContain("Mensagens não ficam presas");
-    // O corpo de uma versão para na próxima.
+    // A release body ends at the next release heading.
     expect(all[0].body).not.toContain("Simplifica o topo");
   });
 
@@ -80,7 +79,7 @@ describe("unseen", () => {
 
   it("em dia não conta nada", () => {
     expect(unseen(all, "0.4.8", "0.4.8")).toEqual([]);
-    // Já viu mais do que está instalado (voltou de versão): também nada.
+    // Downgrading below the last viewed version shows no new releases.
     expect(unseen(all, "0.4.7", "0.4.8")).toEqual([]);
   });
 
@@ -100,7 +99,7 @@ describe("localize", () => {
     use("en");
     expect(localize(body)).toContain("### New");
     expect(localize(body)).toContain("### Fixes");
-    // O que está escrito no commit é conteúdo: fica como está.
+    // Commit descriptions are content and remain unchanged.
     expect(localize(body)).toContain("**conversa:** algo");
     use("pt-BR");
     expect(localize(body)).toContain("### Novidades");

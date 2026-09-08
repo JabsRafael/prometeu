@@ -1,5 +1,5 @@
-//! Contas deste Mac. A seleção é global por provider; cada processo captura
-//! um perfil imutável e só muda de conta entre turnos.
+//! Accounts on this Mac. Selection is global per provider; each process captures an immutable
+//! profile and changes accounts only between turns.
 
 use crate::lock::lock;
 use crate::state::ProviderId;
@@ -239,8 +239,8 @@ pub fn profiles() -> Result<Vec<Profile>, String> {
     Ok(data.accounts.iter().map(Profile::of).collect())
 }
 
-/// Somente os dados explicitamente compartilháveis ganham links. Login,
-/// tokens, identidade e caches de autenticação permanecem no perfil.
+/// Link only explicitly shared data. Login, tokens, identity, and authentication caches remain
+/// private to the profile.
 pub fn share(base: &Path, home: &Path, name: &str, directory: bool) -> Result<(), String> {
     let source = base.join(name);
     let target = home.join(name);
@@ -331,8 +331,8 @@ pub fn account_remove(app: AppHandle, id: String) -> Result<Snapshot, String> {
         if pending.is_some() {
             return Err(i18n::t("err.account.busy"));
         }
-        // ponytail: remover esquece o cadastro; coletar perfis exige coordenar
-        // todos os processos que ainda usam suas credenciais e links de histórico.
+        // ponytail: removal forgets the registration; deleting profiles requires coordinating
+        // processes that still use their credentials and history links.
         change(|data| data.remove(&id))?;
     }
     publish(&app);
@@ -368,7 +368,7 @@ pub async fn account_login(
                 if account.provider != provider {
                     return Err(i18n::t("err.account.provider"));
                 }
-                // A conta do terminal nunca é desconectada ou substituída pelo app.
+                // The app never disconnects or replaces the terminal's account.
                 if account.id == key(provider) {
                     return Err(i18n::t("err.account.external"));
                 }
@@ -392,8 +392,8 @@ pub async fn account_login(
         });
         profile
     };
-    // O login passa a impedir novas falas antes desta conferência. Uma
-    // renovação não pode substituir credenciais no meio de um turno.
+    // Login blocks new messages before this check. Refresh must not replace credentials during an
+    // active turn.
     if lock(&app.state::<crate::AppState>().chats)
         .values()
         .any(|chat| chat.account() == profile.id && chat.working())
@@ -474,8 +474,8 @@ pub fn shutdown() {
     }
 }
 
-/// Processo auxiliar de autenticação: saída privada, prazo e cancelamento.
-/// O Drop encerra também descendentes e recolhe o filho em todos os erros.
+/// Authentication subprocess with private output, timeout, and cancellation. Drop stops descendants
+/// and reaps the child on every error path.
 pub struct AuthProcess {
     child: Child,
     stdin: ChildStdin,
@@ -682,7 +682,7 @@ mod tests {
         );
         let pid = process.child.id();
         drop(process);
-        // O Drop recolhe o filho; não fica um servidor de login órfão.
+        // Drop reaps the child so no orphaned login server remains.
         assert_eq!(
             unsafe { libc::waitpid(pid as libc::pid_t, std::ptr::null_mut(), libc::WNOHANG) },
             -1

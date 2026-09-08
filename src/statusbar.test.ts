@@ -27,8 +27,7 @@ describe("until", () => {
     expect(until(1000 + 3 * 3600, 1000)).toBe("3h");
   });
 
-  // O número na tela é o da última resposta: a janela pode ter virado desde
-  // então, e "zera em -2h" seria pior do que não dizer nada.
+  // A stale usage response must not display a negative reset countdown.
   it("janela vencida não conta para trás", () => {
     expect(until(900, 1000)).toBe("agora");
   });

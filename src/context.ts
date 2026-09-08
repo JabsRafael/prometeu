@@ -1,7 +1,4 @@
-/// O relatório do `/context`, lido do markdown que o Claude Code devolve
-/// (uma linha `assistant` sintética). Em -p ele vem como texto com tabelas —
-/// e uma tabela de 250 ferramentas MCP não é para ler, é para somar. Aqui
-/// vira números e seções; quem desenha é o `chat.ts`.
+/// Parse the CLI's /context markdown report into totals and sections for chat.ts; large tool tables are summarized instead of rendered verbatim.
 
 export type Section = { title: string; headers: string[]; rows: string[][] };
 export type Category = { name: string; tokens: string; n: number; pct: number };
@@ -60,7 +57,7 @@ export function parseContext(text: string): Report | null {
   };
 }
 
-/// "24k" → 24000, "1m" → 1000000, "~190" → 190. O que não é número é zero.
+/// Parse compact counts: 24k is 24000, 1m is 1000000, and ~190 is 190. Invalid input is zero.
 export function tokenCount(s: string): number {
   const m = /^~?\s*(\d+(?:\.\d+)?)\s*([km])?$/i.exec(s.trim());
   if (!m) return 0;
@@ -76,9 +73,7 @@ export function kilo(n: number): string {
   return `${k < 10 ? k.toFixed(1).replace(/\.0$/, "") : Math.round(k)}k`;
 }
 
-/// As linhas de uma seção agrupadas pela segunda coluna (o servidor MCP, a
-/// origem da skill), com o total de tokens de cada grupo. Seção pequena não
-/// se agrupa: fica como está.
+/// Group large sections by their second column, such as MCP server or skill source, summing tokens. Preserve small sections as individual rows.
 export function grouped(s: Section): { name: string; n: number; rows: string[][] }[] | null {
   if (s.rows.length < 8 || s.headers.length < 3) return null;
   const by = new Map<string, string[][]>();

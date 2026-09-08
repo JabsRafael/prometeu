@@ -52,7 +52,7 @@ examples.append(card("06 / Menus e diálogos", menuButton("Ações do projeto", 
   dialog.open();
 })));
 
-// Navegação: abas sublinhadas e links de barra lateral, o mesmo HTML do adaptador Rails.
+// Navigation uses the same underlined tabs and sidebar links emitted by the Rails adapter.
 const tabs = document.createElement("nav"); tabs.className = "ui-tabs"; tabs.setAttribute("aria-label", "Catálogo");
 const sidebar = document.createElement("nav"); sidebar.className = "ui-stack"; sidebar.style.gap = "2px"; sidebar.style.maxWidth = "220px";
 for (const [list, labels, current] of [[tabs, ["MCPs", "Plugins", "Skills"], "MCPs"], [sidebar, ["Perfil", "Segurança", "Sessões"], "Segurança"]]) {

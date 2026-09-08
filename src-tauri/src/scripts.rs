@@ -1,64 +1,41 @@
-//! Os scripts que um repositório declara para o Prometeu: o que rodar quando
-//! um worktree nasce (`setup`), o que sobe o projeto (`run`), e o que limpar
-//! quando ele é arquivado (`archive`).
-//!
-//! Isto é o que faz worktree separado servir para *testar*, e não só para
-//! editar: worktree novo vem sem nada que o `.gitignore` esconde — dependências,
-//! `.env`, banco, build. Sem um `setup`, todo worktree nasce quebrado.
-//!
-//! Nada aqui é descoberto sozinho, e está tudo bem: o repositório declara. O que
-//! o Prometeu faz é não deixar isso virar trabalho manual — o botão
-//! "Perguntar ao agente" manda o próprio Claude Code ler o repo e escrever o
-//! arquivo.
-//!
-//! Lê `.prometeu/settings.toml` e cai para `.conductor/settings.toml`: quem já
-//! usa Conductor não configura nada de novo. Vale um só — o primeiro que existir
-//! manda, para não juntar metade de cada.
-//!
-//! Worktree que não tem arquivo nenhum usa o do clone de onde saiu. É comum o
-//! `.prometeu/` estar no `.gitignore` — configuração pessoal, num repositório
-//! de empresa —, e aí todo worktree nascia sem setup e sem Run, e quem queria
-//! subir o projeto digitava `npm run dev` à mão: porta fixa, e o segundo
-//! worktree derrubava o primeiro.
-//!
-//! O outro que o `.gitignore` esconde é o `.env`. Esse nenhum `setup` reconstrói
-//! — não dá para derivar segredo de lugar nenhum —, então ele é copiado do clone
-//! antes do setup rodar: `[worktree] copy`, e sem declaração o `.env` da raiz e
-//! os irmãos dele. Ver `copies` e `hydrate`.
+//! Repository configuration declares setup, run, and archive commands. Prefer
+//! .prometeu/settings.toml over Conductor settings, and inherit the original clone's complete
+//! configuration when a worktree has none. Copy configured secrets and ignored files before setup;
+//! absent a copy declaration, include root .env variants. The app can ask an agent to write
+//! configuration, but does not infer project commands itself.
 
 use crate::i18n;
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 
-/// Na ordem em que são procurados. O do Prometeu vem primeiro para quem quiser
-/// um comando diferente aqui sem mexer no que o Conductor lê.
+/// Search Prometeu settings first so local overrides do not require changing Conductor
+/// configuration.
 pub const FILES: [&str; 2] = [".prometeu/settings.toml", ".conductor/settings.toml"];
 
-/// O que escrever quando não há arquivo nenhum. Comentado, porque este arquivo é
-/// o contrato inteiro entre o repositório e o Prometeu.
-pub const TEMPLATE: &str = r#"# Scripts que o Prometeu roda neste repositório.
+/// The commented example documents the repository/app contract when no settings file exists.
+pub const TEMPLATE: &str = r#"# Scripts Prometeu runs in this repository.
 #
-# `setup`   roda sozinho quando um worktree nasce; a primeira fala do agente espera por ele
-# `run`     é o botão Run
-# `archive` roda antes de arquivar o workspace
+# `setup`   runs when a worktree is created; the first agent message waits for it
+# `run`     powers the Run button
+# `archive` runs before archiving the workspace
 #
-# Rodam com `/bin/sh -lc`, com o worktree como diretório atual, e recebem:
+# Scripts run through `/bin/sh -lc` in the worktree directory and receive:
 #
-#   $PROMETEU_WORKSPACE_PATH  o worktree onde o script está rodando
-#   $PROMETEU_ROOT_PATH       o repositório de onde ele saiu
-#   $PROMETEU_WORKSPACE_NAME  o nome deste workspace
-#   $PROMETEU_PORT            porta reservada só para ele, mais nove até +9
-#   $PORT                       a mesma porta, para o que já respeita a convenção
+#   $PROMETEU_WORKSPACE_PATH  the worktree where the script runs
+#   $PROMETEU_ROOT_PATH       the source repository
+#   $PROMETEU_WORKSPACE_NAME  this workspace's name
+#   $PROMETEU_PORT            its reserved port, with nine more through +9
+#   $PORT                     the same port for tools using this convention
 #
-# Porta fixa faz dois worktrees brigarem — use $PROMETEU_PORT.
+# Fixed ports conflict across worktrees; use $PROMETEU_PORT.
 
 [scripts]
 setup = "npm install"
 run = "npm run dev -- --port $PROMETEU_PORT"
 
-# O que cada worktree novo recebe do clone de origem, antes do setup: o que o
-# `.gitignore` esconde e nenhum script reconstrói. Sem esta lista vai o `.env` da
-# raiz e os irmãos dele; `copy = []` desliga. Nunca sobrescreve o que já está aqui.
+# Files copied from the source clone before setup: ignored files that scripts
+# cannot recreate. Without this list, copy the root .env and its variants;
+# `copy = []` disables copying. Never overwrite files already in the worktree.
 #
 # [worktree]
 # copy = [".env", "config/master.key"]
@@ -67,20 +44,17 @@ run = "npm run dev -- --port $PROMETEU_PORT"
 #[derive(Deserialize, Default)]
 struct Table {
     setup: Option<String>,
-    /// Cru de propósito: `run` aceita as duas formas que o Conductor documenta —
-    /// uma string só, ou uma tabela de scripts nomeados. Um enum `untagged`
-    /// resolveria no papel, mas o custo de errar é o arquivo inteiro virar
-    /// "nenhum script"; ramificar no `Value` é explícito e não tem esse risco.
+    /// Parse run as a raw Value to support both a command string and named script tables without
+    /// invalidating the entire configuration on a shape mismatch.
     run: Option<toml::Value>,
     archive: Option<String>,
 }
 
-/// `[worktree]` do settings.toml. Separado de `[scripts]` porque não é script:
-/// é o que o Prometeu faz *antes* de qualquer um deles rodar.
+/// Worktree settings describe preparation performed before scripts, so they are separate from
+/// scripts.
 #[derive(Deserialize, Default)]
 struct WorktreeTable {
-    /// `None` é "não declarou", e vale o automático de `auto`. `Some(vec![])` é
-    /// a escolha explícita de não copiar nada — os dois precisam existir.
+    /// None enables automatic copying; an explicit empty list disables copying.
     copy: Option<Vec<String>>,
 }
 
@@ -94,35 +68,32 @@ struct File {
 
 #[derive(Serialize, Clone)]
 pub struct Run {
-    /// O nome da tabela `[scripts.run.<nome>]`, ou `"run"` quando é a string
-    /// única. É o que aparece na lista do botão.
+    /// Use the scripts.run.<name> key, or run for the single-string form, as the menu identity.
     pub name: String,
     pub command: String,
 }
 
 #[derive(Serialize, Clone, Default)]
 pub struct Scripts {
-    /// Qual dos `FILES` respondeu. `None` quando não há nenhum — e é isso que o
-    /// front usa para desenhar o estado vazio em vez de um terminal mudo.
+    /// Record the selected settings file, or None when the UI should show missing configuration.
     pub file: Option<String>,
-    /// O arquivo veio do clone de origem, e não do worktree: ver `read_for`.
-    /// "Abrir o settings.toml" vira copiar, porque não há o que abrir aqui.
+    /// Inherited settings come from the original clone. Opening them for worktree editing requires
+    /// a local copy.
     pub inherited: bool,
     pub setup: Option<String>,
     pub runs: Vec<Run>,
     pub archive: Option<String>,
-    /// O que este worktree recebe do clone, já resolvido: o `[worktree] copy`
-    /// declarado, ou o automático. É o que a aba Setup mostra, e é o que faz ela
-    /// existir mesmo num repositório sem `setup` nenhum.
+    /// Resolved files to copy from the clone determine the Setup header and can create a Setup tab
+    /// without a command.
     pub copy: Vec<String>,
-    /// Cru, como o arquivo escreveu — `None` é "não declarou". Só o `read_for`
-    /// usa, para resolver o `copy`; o front lê a lista pronta.
+    /// Retain the raw optional copy declaration for read_for; the frontend receives the resolved
+    /// list.
     #[serde(skip)]
     declared: Option<Vec<String>>,
 }
 
 impl Scripts {
-    /// O run que o botão dispara: o marcado como `default`, senão o primeiro.
+    /// Choose the explicitly default run, otherwise the first entry.
     pub fn run(&self, name: Option<&str>) -> Option<&Run> {
         match name {
             Some(n) => self.runs.iter().find(|r| r.name == n),
@@ -131,17 +102,16 @@ impl Scripts {
     }
 }
 
-/// O que vale para um workspace: o arquivo do worktree, e sem ele o do clone
-/// de origem. O worktree ganha inteiro — um `setup` daqui e um `run` de lá seria
-/// pior que qualquer um dos dois. Workspace solto no clone lê uma vez só.
+/// Use the entire worktree configuration or the entire clone fallback; never merge partial script
+/// sets. Sessions in the clone need only one read.
 pub fn read_for(worktree: &Path, repo: &Path) -> Scripts {
     let mut found = read(worktree);
     if found.file.is_none() && worktree != repo {
         found = read(repo);
         found.inherited = found.file.is_some();
     }
-    // Depois de escolher o arquivo, e não antes: a lista que vale é a de quem
-    // mandou — inclusive quando quem mandou foi o clone de origem.
+    // Resolve copies after selecting the authoritative settings file, including inherited clone
+    // settings.
     found.copy = copies(worktree, repo, found.declared.as_deref());
     found
 }
@@ -151,8 +121,7 @@ pub fn read(root: &Path) -> Scripts {
         let Ok(text) = std::fs::read_to_string(root.join(file)) else {
             continue;
         };
-        // TOML quebrado é erro do usuário, não motivo para o app sumir com a
-        // aba: vira "nenhum script", e o arquivo continua lá para ele consertar.
+        // Malformed TOML yields no scripts while leaving the file available for repair.
         let parsed: File = toml::from_str(&text).unwrap_or_default();
         return Scripts {
             file: Some(file.to_string()),
@@ -175,7 +144,7 @@ fn trimmed(value: Option<String>) -> Option<String> {
 
 fn runs(spec: Option<toml::Value>) -> Vec<Run> {
     match spec {
-        // `run = "..."`: um script só, e o nome não vem de lugar nenhum.
+        // The string run form defines one unnamed script.
         Some(toml::Value::String(command)) => trimmed(Some(command))
             .map(|command| {
                 vec![Run {
@@ -184,7 +153,7 @@ fn runs(spec: Option<toml::Value>) -> Vec<Run> {
                 }]
             })
             .unwrap_or_default(),
-        // `[scripts.run.<nome>]`: vários, cada um com seu `command`.
+        // Named run tables each provide a command.
         Some(toml::Value::Table(table)) => {
             let mut list: Vec<(bool, Run)> = table
                 .into_iter()
@@ -198,8 +167,7 @@ fn runs(spec: Option<toml::Value>) -> Vec<Run> {
                     Some((default, Run { name, command }))
                 })
                 .collect();
-            // O marcado como padrão vai para a frente, porque é ele que o botão
-            // dispara; o resto fica na ordem em que o TOML foi lido.
+            // Place the default script first and preserve the parsed order of remaining entries.
             list.sort_by_key(|(is_default, _)| !is_default);
             list.into_iter().map(|(_, run)| run).collect()
         }
@@ -207,26 +175,19 @@ fn runs(spec: Option<toml::Value>) -> Vec<Run> {
     }
 }
 
-/* ---------- o que o worktree recebe do clone ---------- */
+/* Worktree hydration */
 
-/// O que aconteceu com um arquivo da lista. Vira as linhas que a aba Setup
-/// mostra antes da saída do script: cópia calada é mágica, e mágica que falha
-/// não tem onde ser vista.
+/// Report each copy result in the Setup header so missing or failed preparation remains visible.
 pub enum Copied {
     Made(String),
-    /// O worktree já tinha. Aparece na tela mesmo assim — é o que explica por
-    /// que o `.env` daqui não é o do clone depois de alguém editar um dos dois.
+    /// Report existing worktree files too, explaining why local edits are preserved instead of
+    /// replaced by clone copies.
     Kept(String),
     Failed(String, String),
 }
 
-/// Os arquivos que este worktree recebe do clone de origem, resolvidos.
-///
-/// A lista é o que existe **no clone**, e não o que falta aqui: se encolhesse a
-/// cada cópia, a aba Setup sumiria da barra no segundo em que passou a ter
-/// motivo para existir.
-///
-/// Workspace que roda no próprio clone não recebe nada — não há de onde copiar.
+/// Resolve the files present in the clone, not only files missing from the destination, so Setup
+/// does not disappear after copying. Sessions running directly in the clone copy nothing.
 pub fn copies(worktree: &Path, repo: &Path, declared: Option<&[String]>) -> Vec<String> {
     if worktree == repo {
         return Vec::new();
@@ -241,13 +202,8 @@ pub fn copies(worktree: &Path, repo: &Path, declared: Option<&[String]>) -> Vec<
     }
 }
 
-/// Sem declaração, o `.env` da raiz do clone e os irmãos dele — `.env.local`,
-/// `.env.development` —, que é como o mesmo segredo costuma estar partido.
-///
-/// Os exemplos ficam de fora porque vêm no commit: já estão em todo worktree, e
-/// listá-los seria prometer uma cópia que nunca acontece. O resto do que o
-/// `.gitignore` esconde não precisa de teste nenhum: a cópia não sobrescreve, e
-/// arquivo versionado já está aqui.
+/// Automatically include root .env variants but exclude versioned examples already present in
+/// worktrees. Copying never overwrites existing files.
 fn auto(repo: &Path) -> Vec<String> {
     const SAMPLES: [&str; 4] = [".env.example", ".env.sample", ".env.template", ".env.dist"];
     let Ok(dir) = std::fs::read_dir(repo) else {
@@ -267,20 +223,15 @@ fn auto(repo: &Path) -> Vec<String> {
     out
 }
 
-/// Relativo e para dentro do worktree. Absoluto ou com `..` sai do repositório,
-/// e ler ou escrever fora dele não é o que este campo promete.
+/// Require relative paths confined to the worktree; reject absolute paths and parent traversal.
 fn safe(rel: &str) -> Option<PathBuf> {
     let path = Path::new(rel.trim());
     let inside = path.components().all(|c| matches!(c, Component::Normal(_)));
     (inside && path.components().next().is_some()).then(|| path.to_path_buf())
 }
 
-/// Copia do clone o que falta aqui, antes de o setup rodar.
-///
-/// Nunca sobrescreve: arquivo que já está no worktree é o que veio no commit ou
-/// o que alguém editou de propósito, e os dois valem mais que a cópia. Por isso
-/// também é seguro rodar de novo — "Rodar o setup de novo" busca o que faltar
-/// sem desfazer nada.
+/// Copy only missing files before setup. Preserve committed or manually edited destination files so
+/// rerunning setup is safe.
 pub fn hydrate(worktree: &Path, repo: &Path, list: &[String]) -> Vec<Copied> {
     if worktree == repo {
         return Vec::new();
@@ -300,8 +251,7 @@ pub fn hydrate(worktree: &Path, repo: &Path, list: &[String]) -> Vec<Copied> {
         .collect()
 }
 
-/// Arquivo ou diretório inteiro. O `fs::copy` leva os bits de permissão junto, e
-/// é disso que uma chave privada depende para continuar sendo aceita.
+/// Copy files or complete directories while retaining permissions required by private keys.
 fn copy_into(from: &Path, to: &Path) -> Result<(), String> {
     if let Some(parent) = to.parent() {
         std::fs::create_dir_all(parent).map_err(i18n::io)?;
@@ -317,8 +267,7 @@ fn copy_into(from: &Path, to: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// O cabeçalho da aba Setup. `None` quando não há lista nenhuma: worktree que
-/// não recebe nada não ganha linha em branco no começo do log.
+/// Omit the Setup copy header when there are no entries.
 pub fn report(notes: &[Copied]) -> Option<String> {
     if notes.is_empty() {
         return None;
@@ -345,13 +294,9 @@ pub fn report(notes: &[Copied]) -> Option<String> {
     Some(out)
 }
 
-/// O contrato com o script. Os nomes do Conductor vão junto com os do Prometeu
-/// para que um `.conductor/settings.toml` copiado de outro projeto funcione sem
-/// edição — e para que quem escreve para o Prometeu não precise citar o outro.
-///
-/// `PORT` vai solto também: é a convenção que Rails, Next, Express e o Procfile
-/// do Heroku já respeitam. Com ela, um `npm run dev` digitado no terminal do
-/// dock sobe na porta do worktree sem que ninguém tenha escrito script nenhum.
+/// Expose both Prometeu and Conductor environment names for compatible scripts. Also set
+/// conventional PORT so common development servers started directly from the dock use the workspace
+/// port.
 pub fn env(worktree: &Path, repo: &Path, name: &str, port: Option<u16>) -> Vec<(String, String)> {
     let mut pairs = vec![
         ("WORKSPACE_PATH", worktree.display().to_string()),
@@ -376,29 +321,15 @@ pub fn env(worktree: &Path, repo: &Path, name: &str, port: Option<u16>) -> Vec<(
     out
 }
 
-/// Dez portas por workspace, como no Conductor: `$PROMETEU_PORT` até `+9`.
-///
-/// A base é sempre múltipla de dez, então a conta que o script faz
-/// (`$((PROMETEU_PORT + 1))`) nunca cai na faixa do vizinho. `taken` são as
-/// bases que outros workspaces já guardaram — o teste de `bind` sozinho não
-/// bastaria, porque workspace parado não segura porta nenhuma e a base dele
-/// seria entregue de novo.
-///
-/// A procura começa num ponto que sai do caminho do worktree, e não sempre da
-/// primeira. Cada Prometeu de pé — o instalado e cada `tauri dev` — tem o seu
-/// quadro, e quadros que não se conhecem começando todos de 3100 entregavam a
-/// mesma porta para worktrees diferentes; o `bind` só pega o vizinho enquanto
-/// ele está rodando. Com o ponto de partida vindo do caminho, worktrees
-/// diferentes caem longe um do outro, e o mesmo worktree ganha a mesma porta em
-/// qualquer quadro. Não é à prova de tudo — são 690 faixas, e dois caminhos
-/// podem cair na mesma — mas é o bastante para os três ou quatro ambientes que
-/// alguém sobe ao mesmo tempo.
+/// Reserve ten consecutive ports per workspace, aligned to multiples of ten. Exclude saved
+/// reservations even when their servers are stopped. Begin probing at a stable hash of the worktree
+/// path to reduce collisions across independent app boards. Hash collisions remain possible within
+/// the 690 ranges; actual binds provide the final check.
 const FIRST: u16 = 3100;
 const SLOTS: u16 = (9990 - FIRST) / 10 + 1;
 
-/// Onde a procura começa, tirado só do caminho: nada do que está de pé na
-/// máquina entra aqui. É a parte que não muda — o mesmo worktree parte sempre
-/// da mesma faixa, em qualquer quadro.
+/// Derive the initial port range only from the worktree path so it is stable across boards and
+/// machine activity.
 fn port_start(worktree: &Path) -> u16 {
     (crate::paths::fnv1a(&worktree.to_string_lossy()) % u64::from(SLOTS)) as u16
 }
@@ -410,22 +341,19 @@ pub fn alloc_port(worktree: &Path, taken: &[u16]) -> Option<u16> {
         .find(|base| !taken.contains(base) && (0..10).all(|i| usable(base + i) && free(base + i)))
 }
 
-/// Portas que navegador nenhum abre: a lista de "bad ports" da spec Fetch, que
-/// Chrome (`ERR_UNSAFE_PORT`) e WebKit (`URL::portAllowed`) seguem. Um servidor
-/// na 5060 sobe e responde ao curl, mas a janela fica branca sem dizer por quê.
-/// Só as que cabem na faixa do alocador; as abaixo de 3100 nunca saem dele.
+/// Exclude browser-blocked Fetch ports within the allocator range. A server may answer curl while
+/// Chromium or WebKit refuses its port.
 const BAD: &[u16] = &[
     3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6697, 10080,
 ];
 
-/// Se um navegador aceita abrir `localhost:{port}`.
+/// Check whether browsers permit the localhost port.
 pub fn usable(port: u16) -> bool {
     !BAD.contains(&port)
 }
 
-/// Livre nos dois loopbacks: o vite, por exemplo, escuta só em `::1`, e
-/// `127.0.0.1` desocupado não diz nada sobre ele. Bind que falha por outro
-/// motivo — máquina sem IPv6 — não é porta ocupada.
+/// Check both IPv4 and IPv6 loopbacks. Only address-in-use errors prove a conflict; unavailable
+/// IPv6 does not.
 fn free(port: u16) -> bool {
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, TcpListener};
     [
@@ -439,9 +367,8 @@ fn free(port: u16) -> bool {
     })
 }
 
-/// O que o botão "Perguntar ao agente" manda na conversa nova. É prompt e não
-/// código porque a resposta certa mora no README e nos manifestos do repo, que
-/// nenhuma heurística lê tão bem quanto o agente que já está ali dentro.
+/// Ask the agent to derive configuration from repository documentation and manifests rather than
+/// guessing project commands here.
 pub fn ask_prompt(file: &str) -> String {
     format!(
         r#"Descubra como preparar e como rodar este projeto, e escreva isso em `{file}`.
@@ -537,8 +464,7 @@ mod tests {
         assert_eq!(s.file.as_deref(), Some(".prometeu/settings.toml"));
     }
 
-    /// A forma que o Conductor documenta em `[scripts.run.<nome>]` não pode
-    /// quebrar a leitura — e o marcado como padrão tem que vir na frente.
+    /// Support Conductor's named run tables and place the configured default first.
     #[test]
     fn run_nomeado_com_padrao_na_frente() {
         let dir = tmp("nomeado");
@@ -562,8 +488,7 @@ default = true
         assert_eq!(s.run(Some("api")).unwrap().command, "bin/api");
     }
 
-    /// O do Prometeu ganha, e não se mistura com o do Conductor: metade de
-    /// cada arquivo seria pior que qualquer um dos dois inteiro.
+    /// Prometeu settings replace the entire Conductor fallback rather than merging partial files.
     #[test]
     fn prometeu_tem_prioridade_e_nao_mistura() {
         let dir = tmp("prioridade");
@@ -582,8 +507,7 @@ default = true
         assert!(s.setup.is_none());
     }
 
-    /// TOML quebrado não pode sumir com a aba: vira "nenhum script", e o arquivo
-    /// continua no disco para o usuário consertar.
+    /// Malformed settings remain on disk for repair while script discovery returns empty.
     #[test]
     fn toml_quebrado_nao_explode() {
         let dir = tmp("quebrado");
@@ -599,8 +523,8 @@ default = true
         assert!(s.file.is_none() && s.runs.is_empty());
     }
 
-    /// Worktree sem arquivo usa o do clone de origem, marcado como herdado; com
-    /// arquivo próprio, o do clone não entra — nem para completar o que falta.
+    /// Inherit clone settings only when the worktree has none; a local file completely replaces the
+    /// fallback.
     #[test]
     fn worktree_sem_arquivo_herda_o_do_clone() {
         let repo = tmp("herda-repo");
@@ -622,18 +546,16 @@ default = true
         assert_eq!(s.run(None).unwrap().command, "meu");
         assert!(s.setup.is_none());
 
-        // Solto no clone: é o mesmo diretório, e nada é "herdado".
+        // A session in the original clone does not inherit from another directory.
         assert!(!read_for(&repo, &repo).inherited);
-        // Clone sem arquivo também não inventa um.
+        // Do not invent settings when neither location has a file.
         let vazio = tmp("herda-vazio");
-        assert!(read_for(&wt, &vazio).file.is_some()); // o do worktree, escrito acima
+        assert!(read_for(&wt, &vazio).file.is_some()); // Use the worktree settings written above.
         assert!(read_for(&vazio, &vazio).file.is_none());
     }
 
-    /// O settings.toml deste repositório é o caso mais torto que existe: `setup`
-    /// solto no `[scripts]`, dois runs em tabela, e um `command` de várias
-    /// linhas. Se ele deixar de ser lido, o Prometeu para de conseguir rodar o
-    /// Prometeu — e isso não pode falhar em silêncio.
+    /// Verify this repository's mixed setup, named runs, and multiline command configuration so
+    /// Prometeu can continue running itself.
     #[test]
     fn o_proprio_repositorio_e_lido() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
@@ -656,14 +578,13 @@ default = true
         assert_eq!(get("CONDUCTOR_PORT").as_deref(), Some("3100"));
         assert_eq!(get("PORT").as_deref(), Some("3100"));
         assert_eq!(get("CONDUCTOR_WORKSPACE_PATH").as_deref(), Some("/wt"));
-        // Sem porta, `PORT` não vai vazio: vazio quebraria o `${PORT:-3000}` de todo mundo.
+        // Omit PORT when unavailable instead of passing an empty value to scripts.
         assert!(env(Path::new("/wt"), Path::new("/repo"), "x", None)
             .iter()
             .all(|(k, _)| k != "PORT"));
     }
 
-    /// A base precisa ser múltipla de dez, senão `$PORT+1` de um cai no `$PORT`
-    /// do outro — e a já guardada nunca é entregue de novo.
+    /// Align reservations to ten ports and never reuse a range already saved by another workspace.
     #[test]
     fn porta_pula_a_ja_guardada_e_e_multipla_de_dez() {
         let wt = Path::new("/wt/a");
@@ -675,8 +596,7 @@ default = true
         assert!((3100..=9990).contains(&second));
     }
 
-    /// Sem `[worktree] copy`, o `.env` da raiz e os irmãos dele. Exemplo fica
-    /// de fora: vem no commit, então já está no worktree.
+    /// Automatic copying includes root .env variants but excludes committed examples.
     #[test]
     fn copia_automatica_pega_os_env_e_deixa_o_exemplo() {
         let repo = tmp("auto-repo");
@@ -691,7 +611,8 @@ default = true
         );
     }
 
-    /// Declarado manda: só o que existe no clone, e nada que aponte para fora.
+    /// An explicit declaration includes only existing clone paths that remain inside the
+    /// repository.
     #[test]
     fn copia_declarada_filtra_o_que_nao_existe_e_o_que_escapa() {
         let repo = tmp("decl-repo");
@@ -709,12 +630,11 @@ default = true
             copies(&wt, &repo, Some(&declared)),
             vec![".env".to_string(), "config/master.key".to_string()]
         );
-        // Workspace no próprio clone não recebe nada: não há de onde copiar.
+        // Sessions in the original clone copy nothing.
         assert!(copies(&repo, &repo, Some(&declared)).is_empty());
     }
 
-    /// A lista é o que existe no clone, e não o que falta aqui: se encolhesse
-    /// depois da cópia, a aba Setup sumiria assim que passasse a ter conteúdo.
+    /// Keep resolved copy entries after copying so the Setup tab retains its content.
     #[test]
     fn copia_declarada_nao_encolhe_depois_de_copiar() {
         let repo = tmp("estavel-repo");
@@ -737,22 +657,21 @@ default = true
         let notes = hydrate(&wt, &repo, &list);
         assert!(matches!(notes[0], Copied::Kept(_)));
         assert!(matches!(notes[1], Copied::Made(_)));
-        // O que já estava aqui continua sendo o daqui.
+        // Preserve existing worktree content.
         assert_eq!(std::fs::read_to_string(wt.join(".env")).unwrap(), "meu");
         assert_eq!(
             std::fs::read_to_string(wt.join("config/master.key")).unwrap(),
             "chave"
         );
 
-        // Rodar de novo não desfaz nem duplica nada.
+        // Rerunning hydration neither overwrites nor duplicates data.
         let de_novo = hydrate(&wt, &repo, &list);
         assert!(de_novo.iter().all(|n| matches!(n, Copied::Kept(_))));
         assert!(report(&de_novo).is_some());
         assert!(report(&[]).is_none());
     }
 
-    /// Diretório inteiro, porque é assim que uma credencial do Rails costuma
-    /// estar guardada.
+    /// Support whole directories for credentials stored as a tree.
     #[test]
     fn hydrate_copia_diretorio() {
         let repo = tmp("dir-repo");
@@ -765,8 +684,8 @@ default = true
         );
     }
 
-    /// A lista do clone vale no worktree que herda o arquivo dele — é o caso
-    /// inteiro: `.prometeu/` no `.gitignore` e `.env` também.
+    /// Inherited clone settings must resolve copy declarations even when settings and secrets are
+    /// ignored by Git.
     #[test]
     fn copia_vem_junto_com_o_arquivo_herdado() {
         let repo = tmp("copia-herda-repo");
@@ -781,11 +700,11 @@ default = true
 
         let s = read_for(&wt, &repo);
         assert!(s.inherited);
-        // Declarou: vale a lista dela, e o `.env` não entra de contrabando.
+        // An explicit copy list excludes unlisted automatic .env files.
         assert_eq!(s.copy, vec!["segredo".to_string()]);
     }
 
-    /// `copy = []` é a escolha de não copiar nada, e não "não declarou".
+    /// An empty copy list disables copying rather than falling back to automatic discovery.
     #[test]
     fn copia_vazia_desliga_o_automatico() {
         let repo = tmp("vazia-repo");
@@ -795,9 +714,8 @@ default = true
         assert!(read_for(&wt, &repo).copy.is_empty());
     }
 
-    /// Um worktree cujo caminho cai na faixa da 5060 pula para a seguinte: o
-    /// navegador não abre porta da lista proibida, e a faixa inteira vai junto
-    /// porque `$PORT+1` do mesmo workspace não pode cair numa delas.
+    /// Skip an entire reserved range if any port is browser-blocked, including ports reached by
+    /// PORT+n.
     #[test]
     fn porta_pula_as_que_o_navegador_recusa() {
         const SLOTS: u64 = (9990 - 3100) / 10 + 1;
@@ -811,10 +729,8 @@ default = true
         assert!((base..base + 10).all(usable), "{base}");
     }
 
-    /// Worktrees diferentes começam a procura em pontos diferentes, e o ponto
-    /// sai só do caminho — por isso o mesmo worktree parte do mesmo lugar em
-    /// qualquer quadro. A porta que sai daí depende de quem está de pé na
-    /// máquina, e é por isso que a prova é sobre o ponto de partida.
+    /// Different paths produce different starting ranges, while a given path remains stable across
+    /// boards. Verify the starting point because final allocation also depends on live sockets.
     #[test]
     fn porta_sai_do_caminho_do_worktree() {
         let a = Path::new("/Users/ana/prometeu/worktrees/app/feat-a");

@@ -38,8 +38,7 @@ input, textarea, select {
 }
 input::placeholder, textarea::placeholder { color: var(--fg-3); }
 
-/* Seletor com cara de botão ghost: rótulo da escolha e a seta. A lista é o
-   menu do app, não um `<select>` — ver `dropdown` em `ui.ts`. */
+/* Ghost dropdowns reuse the shared menu and dropdown controls. */
 .pick { padding: 0 6px 0 8px; gap: 4px; }
 .pick > span { white-space: nowrap; }
 .pick > .ic:last-child { color: var(--fg-3); }

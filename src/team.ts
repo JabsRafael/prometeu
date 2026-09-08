@@ -40,31 +40,14 @@ import type { Board, Workspace } from "./types";
 
 export type { SocketLike, Transport } from "./team-transport";
 
-/// O time: a conexão com o relay e o que ele conta — quem está online, o que
-/// está compartilhado, a caixa de comentários. Vive aqui, no front, e não no Rust,
-/// porque tudo de que o compartilhamento precisa já passa por aqui: as linhas
-/// de toda conversa chegam pelo evento `chat`, e falar numa conversa é um
-/// `invoke`. O back só guarda o `team.json`.
-///
-/// Uma conexão por app, sempre de pé enquanto houver time: cai, volta sozinha
-/// com espera crescente; o `welcome` que o relay manda ao conectar é a verdade
-/// e refaz o estado inteiro.
-///
-/// Dois papéis, no mesmo módulo, porque o mesmo app faz os dois ao mesmo
-/// tempo: **dono** do que compartilhou (anuncia o workspace, repassa as linhas
-/// das abas que alguém está olhando, recebe as falas) e **colega** do que os
-/// outros compartilharam (workspaces remotos no quadro, uma aba aberta por
-/// vez, o espelho das linhas de cada uma).
-///
-/// O relay não sabe o que carrega: para ele são bytes numerados, e eram bytes
-/// de terminal antes de serem linhas de JSON. O formato dos frames é o mesmo.
+/// Coordinate relay connection, presence, shares and comments in the frontend through the encrypted channel. The backend persists team credentials and private security state. One reconnecting connection serves local share ownership and remote viewing; authenticated welcome content rebuilds remote state.
 
 export type TeamConfig = {
-  /// URL do relay quando não é a padrão do app.
+  /// Relay URL override.
   relay: string | null;
   team: string;
   secret: string;
-  /// Identidade e prova individuais, emitidas pelo relay na matrícula.
+  /// Individual member identity and proof issued during enrollment.
   member: string;
   credential: string;
   name: string;
@@ -72,7 +55,6 @@ export type TeamConfig = {
 };
 
 export type Organization = { id: string; slug: string; name: string; member: string; role: "owner" | "admin" | "member" };
-type Organizations = { user: CloudStatus["user"]; origin: string; organizations: Organization[] };
 let organizations: Organization[] = [];
 let account: CloudStatus = { user: null, origin: "", offline: false };
 let organizationRequest = 0;
@@ -119,26 +101,20 @@ export async function acceptSecurityKey(member: string, expectedKey: string) {
 
 export type Phase = "off" | "connecting" | "online";
 
-/// O relay que `npm run relay:deploy` publicou. É o padrão do app: quem não
-/// informar outro em Configurações (ou `VITE_RELAY` no dev) entra por ele.
+/// Use the deployed relay unless Settings or VITE_RELAY overrides it.
 const RELAY = "wss://prometeu-relay.prometheus-capim.workers.dev";
 
-/// O tamanho de cada parte da conversa que vai a quem acabou de abrir uma
-/// aba. O relay limita a mensagem a 1 MB; a conversa inteira (até 4 MB, o que
-/// o back guarda) vai em quantas partes precisar, cortadas em linha inteira —
-/// meia linha de JSON não é nada.
+/// Split retained transcripts into whole-line chunks, leaving room for encryption and encoding within the relay's 1 MiB binary frame limit.
 const SNAPSHOT_PART = 128 * 1024;
-/// Quanto a saída espera antes de sair num frame só. O relay cobra por
-/// mensagem recebida; a tela do colega não distingue 40 ms.
+/// Batch output for 40 ms to reduce relay message count without perceptible display delay.
 const COALESCE = 40;
 const FRAME_MAX = 32 * 1024;
-/// Quanto o colega espera pela conversa ao abrir uma aba. Passou disso, abre
-/// com o espelho que tiver — o dono sumiu no meio.
+/// After snapshot timeout, open with the available mirror if the owner disappeared.
 const SNAPSHOT_WAIT = 10_000;
 
 const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
 
-/* ---------- o que fala com o mundo ---------- */
+/* External I/O. */
 
 const enc = new TextEncoder();
 
@@ -148,22 +124,21 @@ export function useTransport(next: Transport) {
   transport = next;
 }
 
-/// Para onde vão as linhas da conversa remota que está na tela.
+/// Destination for live lines of the displayed remote conversation.
 export type GuestSink = {
   live: (tab: string, bytes: Uint8Array) => void;
-  /// As linhas chegaram de novo (o dono voltou, ou a conexão caiu e voltou): a
-  /// tela renasce delas.
+  /// Replace the view when a fresh snapshot arrives after owner or connection recovery.
   reset: (tab: string, bytes: Uint8Array) => void;
 };
 
 let guest: GuestSink = { live: () => {}, reset: () => {} };
 export const setSink = (sink: GuestSink) => void (guest = sink);
 
-/* ---------- estado ---------- */
+/* State. */
 
 let cfg: TeamConfig | null = null;
 let defaultName = "";
-/// Relay digitado antes de haver time — vai para o `team.json` quando houver.
+/// Retain a pre-enrollment relay override for eventual team.json persistence.
 let relayDraft = "";
 let phase: Phase = "off";
 let sock: SocketLike | null = null;
@@ -172,8 +147,7 @@ let members: Member[] = [];
 let shares = new Map<string, Shared>();
 let inbox: Inbox[] = [];
 let comments = false;
-/// Os comentários de cada workspace, como o relay os contou. Só o que já foi pedido
-/// (`notes`) está aqui; o resto chega quando alguém abre o painel.
+/// Cache only workspace comments requested so far; other threads load when opened.
 const notes = new Map<string, Note[]>();
 let attempt = 0;
 let retry = 0;
@@ -195,8 +169,7 @@ export type TeamStatus = {
   you: string | null;
   members: Member[];
   defaultName: string;
-  /// O que está escrito como relay (vazio é "o padrão"), o padrão, e o que
-  /// vale de fato.
+  /// Expose the configured override, application default, and effective relay URL.
   relay: string;
   relayDefault: string;
   relayEffective: string;
@@ -222,20 +195,18 @@ export const invite = () => (cfg && !cfg.cloud ? formatInvite(cfg.team, cfg.secr
 export const inboxItems = () => inbox;
 export const supportsThreads = () => comments;
 
-/* ---------- ciclo de vida ---------- */
+/* Lifecycle. */
 
 export async function init() {
   try {
-    const file = await invoke<{ config: unknown; default_name: string }>("team_config");
+    const file = await invoke("team_config");
     defaultName = file.default_name;
     const stored = storedConfig(file.config);
     if (stored) relayDraft = stored.relay ?? "";
     if (stored?.credential || stored?.cloud) {
       cfg = { ...stored, credential: stored.credential ?? "" };
     } else if (stored) {
-      // v2 usava o segredo compartilhado como identidade. Tenta trocar o
-      // convite por uma matrícula v3 sem apagar o arquivo antigo se o relay
-      // ainda não tiver sido recriado.
+      // Exchange legacy v2 shared-secret identity for v3 enrollment without destroying old configuration if migration fails.
       const base = relayOf(stored);
       try {
         if (!base) throw new Error(t("err.team.noRelay"));
@@ -248,10 +219,9 @@ export async function init() {
       }
     }
   } catch {
-    // Sem back (ou back velho) não há time; a tela segue de pé.
+    // Keep the interface usable without team state if the backend is unavailable or older.
   }
-  // Toda linha de toda conversa passa aqui; o que é de aba que alguém está
-  // olhando vai para o relay.
+  // Forward local conversation lines only for tabs with viewers.
   listen<[string, string, number]>("chat", ({ payload: [key, line, seq] }) => output(key, line, seq));
   if (cfg && !cfg.cloud) await connect();
 }
@@ -267,7 +237,7 @@ export async function refreshOrganizations(value: CloudStatus) {
   changed();
   if (!value.user || value.offline) return;
   try {
-    const result = await invoke<Organizations>("cloud_organizations");
+    const result = await invoke("cloud_organizations");
     if (request !== organizationRequest || result.user?.id !== account.user?.id || result.origin !== account.origin) return;
     organizations = result.organizations;
     if (cfg?.cloud) {
@@ -291,9 +261,7 @@ export async function selectOrganization(id: string) {
     cloud: { user: account.user.id, origin: account.origin, slug: org.slug, name: org.name } });
 }
 
-/// O relay que vale para uma configuração: o dela, o do ambiente de dev, o
-/// padrão do app — e, no mock do navegador, um endereço qualquer, porque lá
-/// não há relay e o socket é fingido.
+/// Resolve relay from configuration, development override, then application default; the browser mock uses a fake endpoint.
 type StoredTeamConfig = Omit<TeamConfig, "credential"> & { credential?: string };
 
 function storedConfig(value: unknown): StoredTeamConfig | null {
@@ -327,7 +295,7 @@ function storedConfig(value: unknown): StoredTeamConfig | null {
 const relayOf = (c: Pick<TeamConfig, "relay"> | StoredTeamConfig | null) =>
   (c ? c.relay || "" : relayDraft) || env?.VITE_RELAY || RELAY || (transport.needsRelay ? "" : "ws://mock");
 
-/// `https://x` vira `wss://x`, `http://x` vira `ws://x`; `ws(s)://` fica.
+/// Convert HTTP(S) endpoints to WS(S), preserving existing WebSocket schemes.
 const wsUrl = (relay: string) => transportWsUrl(relay, transport.needsRelay);
 
 async function connect() {
@@ -355,7 +323,7 @@ async function connect() {
     if (c.cloud) {
       if (account.user?.id !== c.cloud.user || account.origin !== c.cloud.origin) return;
       phase = "connecting"; changed();
-      url = await invoke<string>("cloud_relay_ticket", { organization: c.team, user: c.cloud.user, expectedOrigin: c.cloud.origin });
+      url = await invoke("cloud_relay_ticket", { organization: c.team, user: c.cloud.user, expectedOrigin: c.cloud.origin });
       if (generation !== connection) return;
     } else {
       const endpoint = new URL(`${wsUrl(base)}/team/${encodeURIComponent(c.team)}`);
@@ -389,15 +357,14 @@ async function connect() {
   s.onopen = () => {
     if (sock !== s) return;
     attempt = 0;
-    // O edge derruba socket parado; o relay responde sem acordar.
+    // Keep idle sockets alive without waking unnecessary relay work.
     pinger = setInterval(() => s.send("ping"), 30_000);
   };
   s.onmessage = (ev) => {
     if (sock !== s) return;
     if (typeof ev.data === "string") {
       if (ev.data === "pong") return;
-      // O relay é configurável. Mesmo um endpoint hostil não pode entregar um
-      // JSON sem teto e obrigar a webview a materializá-lo inteiro em objetos.
+      // Bound incoming JSON before parsing because a configurable relay may be hostile.
       if (ev.data.length > DOWN_FRAME_MAX || enc.encode(ev.data).byteLength > DOWN_FRAME_MAX) {
         s.close();
         return;
@@ -447,12 +414,11 @@ async function connect() {
     if (cfg) retry = setTimeout(connect, backoff());
   };
   s.onerror = () => {
-    // O `close` vem logo atrás, e é ele que remarca.
+    // The following close event schedules reconnection.
   };
 }
 
-/// 1 s, 2 s, 4 s… até 30 s, com um pouco de acaso para dois apps do mesmo
-/// time não baterem no relay no mesmo instante.
+/// Reconnect with exponential backoff from one to thirty seconds and jitter to avoid synchronized retries.
 function backoff(): number {
   const base = Math.min(30_000, 1000 * 2 ** attempt++);
   return Math.round(base * (0.8 + Math.random() * 0.4));
@@ -516,12 +482,9 @@ function sendBinary(data: Uint8Array): boolean {
   });
 }
 
-/* ---------- o que chega ---------- */
+/* Incoming frames. */
 
-/// Erro do relay que a pessoa não pediu e não resolve: o workspace ou a aba
-/// não estão mais lá. O app pergunta por eles sozinho — ao reconectar, ao
-/// desenhar os comentários — e cada pergunta dessas virava um aviso vermelho no
-/// topo sobre algo que ninguém fez.
+/// Missing-share/tab errors often result from automatic refreshes; avoid displaying unsolicited errors for already-removed resources.
 const QUIET = new Set(["noShare", "noTab"]);
 
 function handle(frame: Down) {
@@ -533,11 +496,7 @@ function handle(frame: Down) {
       inbox = frame.inbox;
       comments = frame.comments === 1;
       phase = "online";
-      // A verdade veio; o que é meu vai de novo, e quem já olhava minhas abas
-      // ganha a rolagem inteira — o que saiu enquanto eu estava fora não
-      // chegou a ninguém. Vai antes de qualquer pedido: o relay ainda não
-      // sabe o que é meu, e perguntar sobre um workspace que ele não tem é
-      // ganhar um erro em vez de uma resposta.
+      // After welcome, reannounce local shares and resnapshot their viewers before sending requests so the relay knows their identities.
       announced.clear();
       if (cfg?.cloud && lastBoard) {
         for (const share of frame.shares) {
@@ -548,11 +507,7 @@ function handle(frame: Down) {
         }
       }
       if (lastBoard) boardChanged(lastBoard);
-      // O que eu tinha em cache pode ter envelhecido enquanto eu estava fora.
-      // Só se repete o pedido do que ainda existe daqui: o cache guarda todo
-      // workspace pelo qual já se perguntou, inclusive o que parou de ser
-      // compartilhado meses atrás, e pedir os comentários dele de novo a cada
-      // reconexão era o que fazia o erro voltar sozinho.
+      // Refresh cached comments only for currently known shares; historical cache entries must not trigger repeated missing-share requests.
       const asked = [...notes.keys()].filter(known);
       notes.clear();
       for (const ws of asked) send({ t: "notes", ws });
@@ -583,7 +538,7 @@ function handle(frame: Down) {
     case "write":
       typed(frame.ws, frame.tab, frame.data, frame.from);
       return;
-    // Tamanho de terminal, de quando a conversa era um. Nada a fazer.
+    // Ignore legacy terminal-size frames; conversations no longer use PTY geometry.
     case "size":
       return;
     case "inbox":
@@ -591,8 +546,7 @@ function handle(frame: Down) {
       break;
     case "note": {
       const list = notes.get(frame.note.ws) ?? [];
-      // Criação e resposta chegam com id novo; resolver atualiza a raiz com o
-      // mesmo id. Um caminho cobre os dois e mantém a ordem do histórico.
+      // Insert new comments/replies and replace resolved roots by ID while preserving history order.
       const at = list.findIndex((n) => n.id === frame.note.id);
       if (at === -1) list.push(frame.note);
       else list[at] = frame.note;
@@ -604,14 +558,9 @@ function handle(frame: Down) {
       notes.set(frame.ws, frame.items);
       break;
     case "error": {
-      // O erro do relay não diz a que pedido responde. Os que só contam que
-      // algo saiu de lá respondem, quase sempre, a pedido que o app fez
-      // sozinho — e a barra de cima é a resposta ao que a pessoa acabou de
-      // fazer, não um lugar onde o app conversa consigo mesmo. Quem conserta
-      // a tela é o `unshare`, que vem por conta própria.
+      // Uncorrelated missing-resource errors usually answer background requests. Let unshare reconcile the UI instead of showing unrelated header warnings.
       if (QUIET.has(frame.code)) return;
-      // Relay mais novo que o app pode mandar um código que este catálogo não
-      // tem; dizer a chave crua é pior que dizer que algo não passou.
+      // Fall back to a generic failure for unknown codes from newer relays.
       const key = `err.team.${frame.code}` as Parameters<typeof t>[0];
       const text = t(key);
       fail?.(text === key ? t("err.team.bad") : text);
@@ -623,7 +572,7 @@ function handle(frame: Down) {
   changed();
 }
 
-/* ---------- ações do time ---------- */
+/* Team actions. */
 
 async function adopt(next: TeamConfig) {
   await invoke("team_config_set", { config: next });
@@ -712,25 +661,22 @@ export async function setRelay(url: string) {
   changed();
 }
 
-/* ---------- dono: anunciar e repassar ---------- */
+/* Owner announcements and forwarding. */
 
-/// O último quadro que o app viu — é dele que sai o anúncio, e é ele que se
-/// reanuncia quando a conexão volta.
+/// Retain the latest local board for announcements and reconnect recovery.
 let lastBoard: Board | null = null;
-/// O que anunciei de cada workspace meu, serializado: só vai de novo se mudou.
+/// Send serialized share descriptions only when they change.
 const announced = new Map<string, string>();
-/// Quem está olhando cada aba minha, pelo que o relay contou.
+/// Track local-tab viewers reported by the relay.
 const watchers = new Map<string, string[]>();
-/// Saída esperando para sair num frame só, por aba.
+/// Batch pending outgoing bytes per tab.
 const queue = new Map<string, Segment[]>();
 let queued = 0;
 let flushTimer = 0;
-/// Abas com snapshot a caminho: a saída delas espera, para nenhum pedaço
-/// sair na frente do snapshot que já o contém.
+/// Hold live output while its snapshot is being sent to preserve ordering.
 const holding = new Map<string, number>();
 
-/// O tamanho de terminal que o protocolo ainda pede por aba. A conversa não
-/// tem mais um, e o relay não olha o valor: vai um qualquer.
+/// Supply legacy geometry fields required by the protocol; conversation rendering ignores them.
 const NO_SIZE: [number, number] = [80, 24];
 
 function toShare(w: Workspace): Share {
@@ -748,8 +694,7 @@ function toShare(w: Workspace): Share {
   };
 }
 
-/// O quadro mudou: o que é meu e está marcado vai ao relay se mudou; o que
-/// deixou de estar (arquivado, devolvido, tirado do quadro) sai de lá.
+/// Announce changed eligible local shares and withdraw archived, cleaned, or removed workspaces.
 export function boardChanged(board: Board) {
   lastBoard = board;
   if (!cfg) return;
@@ -777,7 +722,7 @@ export function boardChanged(board: Board) {
 const tabOwnedBy = (tab: string, ids: Set<string>) =>
   !!lastBoard?.workspaces.some((w) => ids.has(w.id) && w.tabs.some((t) => t.id === tab));
 
-/// A aba pertence a um workspace meu, anunciado agora.
+/// Require the tab to belong to a currently announced local workspace.
 const mine = (tab: string) => tabOwnedBy(tab, new Set(announced.keys()));
 function canReceive(tab: string, member: string): boolean {
   const w = lastBoard?.workspaces.find(w => w.tabs.some(t => t.id === tab));
@@ -786,8 +731,7 @@ function canReceive(tab: string, member: string): boolean {
   return audience !== false && (!audience || audience.includes(member));
 }
 
-/// Compartilha com o time inteiro (`null`), com alguns (ids de membros), ou
-/// para (`false`). Lista vazia é parar: não há "compartilhado com ninguém".
+/// Share with everyone using null, selected members using IDs, or stop using false. An empty audience also stops sharing.
 export async function share(id: string, audience: string[] | null | false) {
   const on = audience !== false && (audience === null || audience.length > 0);
   if (on && !cfg) throw t("err.team.noRelay");
@@ -829,7 +773,7 @@ function watched(tab: string, who: string[], added: string[]) {
   for (const member of added) void snapshot(tab, member);
 }
 
-/// O dono voltou: quem já olhava ganha a rolagem inteira de novo.
+/// Resend full snapshots to existing viewers after owner reconnection.
 function rewatch(watching: Watching) {
   watchers.clear();
   for (const tabs of Object.values(watching)) {
@@ -842,20 +786,18 @@ function rewatch(watching: Watching) {
   }
 }
 
-/// A conversa inteira de uma aba minha para um colega, em partes. Enquanto
-/// ela não sai toda, as linhas ao vivo da aba ficam presas: uma que saísse na
-/// frente e não estivesse na conversa seria ignorada do outro lado — e perdida.
+/// Send local snapshots in chunks while holding live output; otherwise a viewer awaiting its first snapshot could discard later lines.
 async function snapshot(tab: string, member: string) {
   if (!mine(tab) || !canReceive(tab, member)) return;
   const generation = connection;
   holding.set(tab, (holding.get(tab) ?? 0) + 1);
   try {
-    const s = await invoke<{ text: string; seq: number }>("chat_snapshot", { session: tab });
+    const s = await invoke("chat_snapshot", { session: tab });
     if (generation !== connection || !mine(tab)) return;
     const parts = split(s.text);
     parts.forEach((part, i) => sendBinary(encodeSnapshot(tab, member, s.seq, enc.encode(part), i < parts.length - 1)));
   } catch {
-    // Sessão que já não existe: o colega abre com o que tiver.
+    // If the session disappeared, the viewer opens its available mirror.
   } finally {
     if (generation === connection) {
       const left = (holding.get(tab) ?? 1) - 1;
@@ -866,8 +808,7 @@ async function snapshot(tab: string, member: string) {
   }
 }
 
-/// A conversa em partes do tamanho de uma mensagem do relay, cortadas em linha
-/// inteira. Sempre ao menos uma — vazia, se a conversa ainda não falou.
+/// Split at complete lines within relay frame size; send one empty chunk for an empty conversation.
 function split(text: string): string[] {
   const out: string[] = [];
   let rest = text;
@@ -881,8 +822,7 @@ function split(text: string): string[] {
   return out;
 }
 
-/// Uma linha de alguma conversa. Só interessa se alguém está olhando a aba —
-/// o resto do tempo isto custa uma busca num mapa vazio.
+/// Ignore output for unwatched tabs with a cheap map lookup.
 function output(key: string, line: string, seq: number) {
   if (!watchers.has(key) || !mine(key)) return;
   const list = queue.get(key) ?? [];
@@ -907,10 +847,7 @@ function flush() {
   if (queue.size && !flushTimer) flushTimer = setTimeout(flush, COALESCE);
 }
 
-/// Um colega falou numa aba minha — ou respondeu a um card dela: a resposta
-/// vem como a linha de controle inteira, em JSON (ver `chat.ts`). Só vale para
-/// aba de workspace que eu anunciei: o relay já filtra, mas o que chega vai
-/// para um processo de verdade.
+/// Revalidate remote input and control against announced local tabs before writing to a real process, even though the relay already filters it.
 function typed(ws: string, tab: string, data: string, from: string) {
   if (!announced.has(ws) || !mine(tab)) return;
   const workspace = lastBoard?.workspaces.find(w => w.id === ws);
@@ -925,26 +862,20 @@ function typed(ws: string, tab: string, data: string, from: string) {
   void invoke("chat_send", { session: tab, text }).catch(() => {});
 }
 
-/* ---------- colega: o que os outros compartilharam ---------- */
+/* Remote shares. */
 
-/// O id de um workspace de colega na tela deste app. Prefixado porque o
-/// quadro passa a ter os dois, e um id que colidisse com um workspace daqui
-/// faria a tela desenhar um e falar do outro — e mandar ao back um id que não
-/// é dele. O que o relay conhece fica no mapa.
+/// Prefix remote workspace IDs to avoid collisions with local board identities and accidental backend routing. Retain relay IDs separately.
 const PREFIX = "@time:";
 const remoteIds = new Map<string, { ws: string; owner: string }>();
 const remoteId = (owner: string, ws: string) => `${PREFIX}${owner}/${ws}`;
 
-/// A aba de um colega que está na tela, se alguma.
+/// The currently displayed remote tab, if any.
 let attached: { ws: string; tab: string } | null = null;
-/// As linhas de cada aba remota que já abri: as que o dono mandou mais o que
-/// veio ao vivo. É daqui que a tela renasce ao voltar para a aba. A regra de
-/// juntar as duas está em `mirror.ts`, testada sem rede nem tela.
+/// Cache each viewed remote transcript through mirror.ts, which merges snapshot and live data independently of UI/network.
 const mirror = new Map<string, Mirror>();
 const attachLife = new AttachLifecycle();
 
-/// Workspaces dos colegas, como o quadro os desenha. Não são do Rust: só
-/// existem na tela, e o que os distingue é `remote`.
+/// Remote workspace entries exist only in frontend board state and carry remote metadata.
 export function remotes(): Workspace[] {
   const out: Workspace[] = [];
   for (const s of shares.values()) {
@@ -964,8 +895,7 @@ export function remotes(): Workspace[] {
       archived: false,
       pinned: false,
       unread: false,
-      // O protocolo do relay não conta com que agente o colega trabalha, e o
-      // card remoto não mostra modelo: nada aqui é decidido por isto.
+      // Relay shares do not identify the provider; remote UI must not derive behavior from a placeholder provider value.
       agent: "claude",
       model: "",
       effort: "",
@@ -976,7 +906,7 @@ export function remotes(): Workspace[] {
       cleaned: false,
       shared: false,
       audience: null,
-      // O colega só anuncia o que já montou: nada aqui nasce montando.
+      // Remote shares are announced only after preparation is complete.
       preparing: false,
       failed: null,
       remote: { owner: s.owner, online: s.online },
@@ -987,25 +917,19 @@ export function remotes(): Workspace[] {
   return out;
 }
 
-/// Este id de workspace é de um colega? Pelo prefixo, e não por busca: a
-/// resposta não pode mudar porque um share chegou ou saiu no meio.
+/// Determine remoteness from the stable prefix, independent of transient share presence.
 export const isRemote = (id: string) => id.startsWith(PREFIX);
 
-/// A aba remota que está na tela, se é uma. É por aqui que a tecla decide
-/// para onde vai — o id da aba sozinho não diz de quem ela é.
+/// Use the active remote attachment to route input; tab ID alone does not identify its owner.
 export const attachedTab = () => attached?.tab ?? null;
 
-/// Abrir a aba de um colega: pede ao relay, espera as linhas chegarem e
-/// devolve o que a tela desenha. Uma aba por vez — abrir outra solta a
-/// anterior.
+/// Attach one remote tab at a time, releasing the previous watcher and waiting for its snapshot.
 export async function attach(id: string, tab: string): Promise<{ bytes: Uint8Array } | null> {
   const found = remoteIds.get(id);
   const s = found && shares.get(found.ws);
   if (!s) throw t("err.team.noShare");
   attached = { ws: s.id, tab };
-  // Também invalida uma espera anterior quando o novo destino já está
-  // offline. Sem isto a Promise antiga ainda podia acordar dez segundos
-  // depois de a tela ter mudado de aba.
+  // Invalidate old waits even when the new destination is already offline.
   if (!s.online) attachLife.cancel();
   if (s.online) {
     const ticket = attachLife.start(s.id, tab, SNAPSHOT_WAIT);
@@ -1014,8 +938,7 @@ export async function attach(id: string, tab: string): Promise<{ bytes: Uint8Arr
       return attached?.ws === s.id && attached.tab === tab ? { bytes: mirrorOf(tab) } : null;
     }
     await ticket.wait;
-    // `detach`, outra aba ou outra tela ganhou enquanto o snapshot viajava.
-    // A continuação antiga termina aqui, sem tocar no ChatView.
+    // Stop stale attachment continuations after detach or newer navigation, without touching ChatView.
     if (!attachLife.current(ticket) || attached?.ws !== s.id || attached.tab !== tab) return null;
   }
   return { bytes: mirrorOf(tab) };
@@ -1027,9 +950,7 @@ export function detach() {
   attached = null;
 }
 
-/// A fala de quem está olhando vai ao dono — se ele estiver aí. Vale para a
-/// aba na tela, que é a única em que se escreve. Uma resposta a card vai pelo
-/// mesmo caminho, como a linha de controle em JSON.
+/// Forward viewer input or JSON control to the online owner of the currently attached tab.
 export function write(data: string) {
   if (!attached) return;
   const s = shares.get(attached.ws);
@@ -1059,11 +980,11 @@ function binary(data: ArrayBuffer) {
   if (!bin) return;
   if (bin.kind === SNAPSHOT) {
     if (bin.to !== you) return;
-    // Parte do meio: guarda e espera a última.
+    // Buffer intermediate snapshot chunks until completion.
     if (!mirrorFor(bin.tab).seed(bin.bytes, bin.seq, bin.more)) return;
     const completed = attachLife.completeTab(bin.tab);
     if (!completed && attached?.tab === bin.tab) {
-      // Ninguém pediu: o dono voltou (ou a conexão), e a tela renasce.
+      // An unsolicited recovery snapshot replaces the current view.
       guest.reset(bin.tab, mirrorOf(bin.tab));
     }
     return;
@@ -1075,38 +996,28 @@ function binary(data: ArrayBuffer) {
   }
 }
 
-/* ---------- comentários ---------- */
+/* Comments. */
 
-/// O id que o relay conhece: o de um colega vem prefixado na tela, o seu é
-/// ele mesmo.
+/// Translate prefixed frontend workspace IDs back to relay identities.
 const relayId = (id: string) => remoteIds.get(id)?.ws ?? id;
 
-/// O relay tem este workspace agora? Já em id de relay: é meu e anunciado, ou
-/// é de um colega e veio no `welcome`. Perguntar sobre o que não está aqui é
-/// pedir um `noShare`.
+/// Request only currently known local announcements or remote shares to avoid missing-share errors.
 const known = (ws: string) => announced.has(ws) || shares.has(ws);
 
-/// Os comentários de um workspace, e o pedido ao relay se ainda não vieram. Devolve
-/// o que já se sabe; o resto chega pelo `onChange`.
+/// Return cached workspace comments and request missing data; onChange delivers later results.
 export function notesOf(id: string): Note[] {
-  // Workspace local não anunciado não existe no relay. Além de esconder a UI
-  // de comentários no `main`, esta guarda impede que qualquer chamada futura produza
-  // um `noShare` para um workspace que nunca foi compartilhado.
+  // Guard unannounced local workspaces at the request boundary, not only by hiding comment controls.
   if (!isRemote(id) && !announced.has(id)) return [];
   const ws = relayId(id);
   const have = notes.get(ws);
   if (have) return have;
-  // Guardar a lista vazia é dizer "já pedi". Marque antes de enviar: o mock
-  // responde no mesmo stack; marcar depois pisaria na resposta já recebida.
+  // Mark the cache before sending so a response cannot be overwritten by request initialization.
   notes.set(ws, []);
   if (!send({ t: "notes", ws })) notes.delete(ws);
   return [];
 }
 
-/// Escreve um comentário. `quote` é o trecho da conversa que ele cita, se cita, e
-/// `mentions` são ids de membros — o relay descarta quem não existe. Devolve
-/// se o pedido saiu: sem conexão o comentário não vai a lugar nenhum, e quem
-/// escreveu precisa saber disso em vez de ver o campo esvaziar.
+/// Send comments with optional quotes and member mentions. Resolve whether sending succeeded so offline input is not cleared.
 export async function addNote(
   id: string,
   tab: string | null,
@@ -1120,10 +1031,7 @@ export async function addNote(
 }
 
 async function includeMentioned(id: string, mentions: string[]) {
-  // Marcar quem está fora da audiência de um workspace seu é chamar a pessoa:
-  // ela entra na lista antes de o comentário sair, senão o relay descarta a menção.
-  // O share vai pelo mesmo socket, na frente do comentário — esperar o Rust
-  // gravar e o quadro voltar deixaria o comentário chegar primeiro.
+  // Expand an owned share's audience before mentioning a new member. Send its encrypted update before the comment on the same socket so the relay accepts the mention.
   const w = lastBoard?.workspaces.find((x) => x.id === id);
   if (w && sharedHere(w) && !w.remote && w.audience) {
     const missing = mentions.filter((m) => !w.audience!.includes(m));
@@ -1142,17 +1050,15 @@ export async function replyNote(id: string, note: string, text: string, mentions
 export const resolveNote = (id: string, note: string) =>
   sendConfirmed({ t: "note_resolve", ws: relayId(id), note });
 
-/// Quantos comentários abertos esperam você.
+/// Count unresolved comments addressed to the current user.
 export const inboxCount = () => inbox.length;
 
-/// No relay atual, abrir não conclui trabalho: o comentário fica na caixa até
-/// alguém resolver. Relay sem threads conserva a leitura antiga como fallback.
+/// Opening does not resolve current relay threads; retain the legacy read fallback for older relays.
 export function readInbox(id: string): { workspace: string; note: string; tab: string | null } | null {
   const item = inbox.find((i) => i.id === id);
   if (!item) return null;
   const owned = [...remoteIds].find(([, r]) => r.ws === item.ws);
-  // Relay antigo não tem resolução. Nele, abrir continua sendo o único jeito
-  // de concluir a entrada; no relay atual, somente resolver remove.
+  // Only legacy relays without resolution treat opening as completion.
   if (!comments) {
     send({ t: "inbox_read", id });
     inbox = inbox.filter((entry) => entry.id !== id);
@@ -1161,7 +1067,7 @@ export function readInbox(id: string): { workspace: string; note: string; tab: s
   return { workspace: owned?.[0] ?? item.ws, note: item.id, tab: item.tab ?? null };
 }
 
-/// O que a caixa mostra: o comentário, de quem é, e onde está.
+/// Inbox presentation combines comment, author, and workspace context.
 export function inboxList(): { id: string; ws: string; author: string; ts: number; title: string; text: string }[] {
   return inbox.map((i) => {
     const note = notes.get(i.ws)?.find((n) => n.id === i.id);

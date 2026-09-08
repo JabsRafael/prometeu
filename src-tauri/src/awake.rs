@@ -1,17 +1,7 @@
-//! Não deixar o Mac dormir.
-//!
-//! Quem faz isso no macOS é o `caffeinate`, que já vem instalado. Enquanto ele
-//! está de pé, `-i` impede o repouso por ociosidade, `-d` mantém a tela ligada e
-//! `-s` cobre as demais tentativas de repouso enquanto o Mac está na tomada.
-//! Sem `-d`, a tela apagava normalmente e a escolha parecia não ter funcionado;
-//! sem `-s`, só o repouso estritamente classificado como ocioso era impedido.
-//!
-//! O `-w` do nosso próprio pid é o que faz isto não ter limpeza: o
-//! `caffeinate` espera o app terminar e sai junto. Mesmo o app morrendo de
-//! SIGKILL, ninguém fica segurando o Mac acordado para sempre.
-//!
-//! Quando ligar é decisão da tela (ver `statusbar.ts`): é ela que sabe o modo
-//! escolhido e quais agentes estão trabalhando agora.
+//! Use macOS caffeinate to prevent sleep: -i blocks idle sleep, -d keeps the display on, and -s
+//! covers other sleep attempts on AC power. The -w app PID ties its lifetime to ours, including
+//! abrupt app termination. The UI chooses when to enable it based on user preference and active
+//! agents.
 
 use crate::lock::lock;
 use std::process::{Child, Command};
@@ -22,19 +12,16 @@ fn running() -> &'static Mutex<Option<Child>> {
     RUNNING.get_or_init(|| Mutex::new(None))
 }
 
-/// Liga ou desliga. Chamar duas vezes com o mesmo valor não faz nada — a tela
-/// avisa a cada mudança de quadro, e subir um `caffeinate` por turno de agente
-/// seria um processo novo a cada meia dúzia de segundos.
+/// Repeated requests for the same state are no-ops because the UI updates this setting with every
+/// board change.
 #[tauri::command]
 pub fn set_awake(on: bool) -> Result<(), String> {
     let mut child = lock(running());
-    // Um `caffeinate` que morreu sozinho (alguém o matou, o sistema o levou)
-    // não pode virar um "já está ligado" para sempre: sem isto, ligar de novo
-    // seria um clique que não faz nada e um Mac que dorme mesmo assim.
+    // Restart an unexpectedly exited caffeinate process instead of treating its stale handle as
+    // active.
     let mut alive = child.take();
     if let Some(caffeinate) = &mut alive {
-        // `Ok(None)` é o único "ainda de pé": `Ok(Some(status))` é já saiu, e
-        // `Err` é não sei mais dele.
+        // Only Ok(None) proves the process is still running; a status or error does not.
         if !matches!(caffeinate.try_wait(), Ok(None)) {
             alive = None;
         }
@@ -61,17 +48,15 @@ pub fn set_awake(on: bool) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    /// Sobe um `caffeinate` de verdade e o derruba. Ele sai junto com este
-    /// processo de teste por causa do `-w`, então nem falhando fica alguém
-    /// segurando a máquina acordada.
+    /// Start and stop real caffeinate. The test PID supplied to -w ensures failures cannot leave
+    /// the machine permanently awake.
     #[test]
     fn liga_tela_e_sistema_desliga_e_nao_sobe_dois() {
         set_awake(true).expect("caffeinate não subiu");
         let first = lock(running()).as_ref().map(|c| c.id());
         assert!(first.is_some());
 
-        // Não basta o filho existir: foi justamente usar só `-i` que deixou a
-        // tela apagar e fez a opção parecer quebrada para quem estava olhando.
+        // Verify the flags as well as the child: using only -i allowed the display to sleep.
         let command = Command::new("/bin/ps")
             .args(["-p", &first.unwrap().to_string(), "-o", "command="])
             .output()
@@ -84,7 +69,7 @@ mod tests {
 
         set_awake(false).expect("desligar");
         assert!(lock(running()).is_none());
-        // Desligar o que já está desligado não é erro nem processo novo.
+        // Disabling an already disabled assertion is a no-op.
         set_awake(false).expect("desligar de novo");
         assert!(lock(running()).is_none());
     }

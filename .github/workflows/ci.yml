@@ -1,11 +1,7 @@
-# Roda em todo PR e em todo push na main: type-check do front, testes dos dois
-# lados (vitest + cargo test), rustfmt, clippy, e o formato das mensagens de
-# commit.
-#
-# O repositório é privado e workflows vindos de forks ficam desativados nas
-# configurações do GitHub. Sob essa fronteira, a CI usa o runner self-hosted
-# deste Mac sem consumir minutos hospedados; não habilite PRs de forks enquanto
-# ele estiver registrado, pois npm ci e os testes executam código do branch.
+# Validate frontend types, web/Rust tests, Rust formatting, Clippy and commit messages on PRs and main
+# pushes.
+# The repository is private and fork PR workflows remain disabled. Self-hosted jobs execute
+# branch-controlled code; preserve this boundary while the runner is registered.
 name: CI
 
 on:
@@ -34,16 +30,16 @@ jobs:
         with:
           node-version: 24.14.0
 
-      # O runner persistente já conserva ~/.npm; enviar esse cache de volta ao
-      # GitHub só prolonga o pós-job e pode prender a fila do runner único.
+      # The persistent runner already retains ~/.npm; uploading it again only delays completion and the
+      # shared runner queue.
 
       - run: npm ci
 
       - name: navegador dos testes de fluxo
         run: npx playwright install chromium webkit
 
-      # Inclui formato, type-check, build do dist/ exigido pelo Tauri, testes
-      # web/Rust e Clippy com todos os targets.
+      # Run formatting, type checks, the Tauri-required frontend build, web/Rust tests and Clippy for
+      # every target.
       - run: npm run check
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

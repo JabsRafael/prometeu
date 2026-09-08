@@ -1,5 +1,5 @@
-//! Skills independentes são definições locais; a instalação usa o hub de
-//! plugins existente para respeitar a seleção de cada workspace e provider.
+//! Standalone skills are local definitions installed through the existing plugin hub, respecting
+//! workspace and provider selections.
 use crate::{i18n, paths, plugins};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -81,7 +81,7 @@ fn materialize(skill: &Skill, plugin: &plugins::Plugin) -> Result<(), String> {
         "version": "0.0.0",
     }))
     .map_err(|error| error.to_string())?;
-    // Strings JSON são escalares YAML válidos, inclusive com quebras de linha.
+    // JSON strings are valid YAML scalars, including escaped newlines.
     let body = format!(
         "---\nname: {}\ndescription: {}\n---\n\n{}\n",
         serde_json::to_string(&skill.id).map_err(|error| error.to_string())?,
@@ -100,7 +100,7 @@ fn materialize(skill: &Skill, plugin: &plugins::Plugin) -> Result<(), String> {
     Ok(())
 }
 
-/// Instalar não ativa a skill: somente a seleção do workspace a injeta.
+/// Installation does not activate a skill; workspace selection controls injection.
 pub fn save_local(skill: Skill) -> Result<Vec<Skill>, String> {
     let plugin = package(&skill, &paths::root(), &plugins::load())?;
     materialize(&skill, &plugin)?;
@@ -113,7 +113,7 @@ pub fn save_local(skill: Skill) -> Result<Vec<Skill>, String> {
     Ok(skills)
 }
 
-/// Remover a instalação conserva os arquivos e não exclui a definição Cloud.
+/// Uninstalling preserves files and does not delete the Cloud definition.
 pub fn remove_local(id: &str) -> Result<Vec<Skill>, String> {
     let mut skills = load();
     if let Some(skill) = skills.iter().find(|skill| skill.id == id) {

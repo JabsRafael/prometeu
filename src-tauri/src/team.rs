@@ -1,8 +1,6 @@
-//! O time mora no front: quem fala com o relay é a webview (`src/team.ts`),
-//! que já recebe todo byte de todo terminal e já sabe escrever neles. O back
-//! guarda `team.json` e `team-security.json` com permissão restrita, fora do
-//! `localStorage`. A identidade e a confiança sobrevivem à saída do time;
-//! o formato interno dos escopos de segurança pertence ao front.
+//! The frontend owns relay transport and the security scope schema. The backend stores
+//! team.json and team-security.json privately outside localStorage. Identity and trust
+//! survive leaving a team.
 
 use crate::{i18n, paths};
 use serde::Serialize;
@@ -58,7 +56,7 @@ fn write_security(path: &Path, state: &Value) -> Result<(), String> {
     if body.len() > MAX_SECURITY_BYTES {
         return Err(security_error(path, "Security state exceeds size limit"));
     }
-    // Uma leitura inválida nunca autoriza recriar identidades ou apagar confiança.
+    // Invalid storage never authorizes recreating identities or erasing trust.
     read_security(path)?;
     paths::write_private(path, &body).map_err(|error| security_error(path, error))
 }
@@ -81,8 +79,7 @@ pub fn team_security_set(state: Value) -> Result<(), String> {
     write_security(&path, &state)
 }
 
-/// O que o front recebe ao subir: o arquivo, se existe, e um nome para
-/// sugerir a quem ainda não escolheu o seu — o usuário deste Mac.
+/// Return stored team configuration and the local username as a suggested display name.
 #[derive(Serialize)]
 pub struct TeamFile {
     pub config: Option<Value>,
@@ -101,7 +98,7 @@ pub fn team_config() -> TeamFile {
     }
 }
 
-/// `None` é sair do time: o arquivo some.
+/// None leaves the team by removing its configuration file.
 #[tauri::command]
 pub fn team_config_set(config: Option<Value>) -> Result<(), String> {
     let path = paths::team_path();

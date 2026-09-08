@@ -7,9 +7,7 @@ import type {
 
 type Line = Record<string, any>;
 
-/// Leitor de rollback para transcripts produzidos antes do protocolo V1. Ele
-/// fica fora da timeline para detalhes do stream-json antigo não voltarem a
-/// ser dependência da apresentação.
+/// Read transcripts written before V1 for rollback compatibility. Keep legacy stream-json outside Timeline and presentation dependencies.
 export class LegacyConversationAdapter {
   private lastTs = 0;
   private message = "";
@@ -40,7 +38,7 @@ export class LegacyConversationAdapter {
         return [this.turn(o, at)];
       case "system":
         return this.system(o, at);
-      // Discriminante histórico: somente leitura para uma importação futura.
+      // Historical discriminator, retained as read-only data for a future import.
       case "prometheus":
         return this.legacyApp(o, at);
       case "rate_limit_event":

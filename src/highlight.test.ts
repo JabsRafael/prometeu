@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { highlight } from "./highlight";
 
-/// O tokenizador escreve HTML a partir de texto que veio de um arquivo do
-/// usuário. Dois riscos moram aqui: escapar errado (e um `<script>` num arquivo
-/// lido virar tag de verdade na tela) e classificar errado.
+/// Highlighting converts user-file contents into HTML. Test both escaping and token classification.
 
 const classes = (html: string) => [...html.matchAll(/class="h-(\w)"/g)].map((m) => m[1]);
 
@@ -12,7 +10,7 @@ describe("highlight", () => {
     const out = highlight('const x = "<img onerror=1>";', "a.ts");
     expect(out).not.toContain("<img");
     expect(out).toContain("&lt;img");
-    // Fora de qualquer gramática também: arquivo sem linguagem sai escapado.
+    // Escape files without a recognized grammar too.
     expect(highlight("<b>&</b>", "leiame.txt")).toBe("&lt;b&gt;&amp;&lt;/b&gt;");
   });
 
@@ -24,8 +22,7 @@ describe("highlight", () => {
   });
 
   it("comentário vence o que estiver dentro dele", () => {
-    // `class` dentro do comentário não pode sair como palavra reservada: a
-    // ordem das regras é o que decide, e é ela que este teste tranca.
+    // Keywords inside comments remain comments; rule order is part of this contract.
     expect(classes(highlight("# class Foo", "x.rb"))).toEqual(["c"]);
     expect(classes(highlight("// const x", "x.ts"))).toEqual(["c"]);
   });
@@ -36,14 +33,13 @@ describe("highlight", () => {
   });
 
   it("string sem fechar não engole o resto do arquivo", () => {
-    // Uma aspa solta numa linha não pode pintar as linhas seguintes: o `\\n`
-    // fora da classe é o que segura isso.
+    // An unmatched quote must not color subsequent lines.
     const out = highlight('x = "aberta\nconst depois = 1', "a.ts");
     expect(classes(out)).toContain("k");
   });
 
   it("markdown não pinta Constante em prosa", () => {
-    // Palavra com maiúscula é Constante em código e nome próprio em texto.
+    // Capitalized words are constants in code but ordinary names in prose.
     expect(classes(highlight("O Prometeu roda o Claude Code.", "x.md"))).toEqual([]);
     expect(classes(highlight("# Título", "x.md"))).toEqual(["k"]);
   });

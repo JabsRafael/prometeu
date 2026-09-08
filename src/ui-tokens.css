@@ -1,6 +1,6 @@
 @import "../packages/design-system/tokens.css";
 
-/* Geometria e estados exclusivos do desktop. */
+/* Desktop-only geometry and state tokens. */
 :root {
   --dot-rodando: var(--run);
   --dot-querendo: var(--wait);

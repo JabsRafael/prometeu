@@ -1,7 +1,5 @@
-//! Leitura do estado Git que a tela de mudanças consome.
-//!
-//! O ciclo de vida do workspace fica no módulo pai; aqui ficam somente branch,
-//! contadores e transformação do diff em uma estrutura própria da interface.
+//! Read Git state for the changes UI: branch, counters, and structured diffs. Workspace lifecycle
+//! remains in the parent module.
 
 use super::{default_base, git, head_branch, repos_of, worktree_of};
 use crate::lock::lock;
@@ -68,7 +66,7 @@ pub fn workspace_diff(app: AppHandle, state: State<AppState>, id: String) -> Vec
                 scope.spawn(move || repo_diff(&repo.name, Path::new(&repo.worktree), &repo.base))
             })
             .collect();
-        // Um panic isolado ao ler um repositório não derruba o comando inteiro.
+        // A panic while reading one repository must not abort the entire command.
         handles
             .into_iter()
             .filter_map(|handle| handle.join().ok())

@@ -23,7 +23,7 @@ const question = (tab = "a-t") => emit(tab, {
   type: "request.opened", requestId: "q", kind: "question", toolId: null, tool: "AskUserQuestion", input: {},
 });
 const speak = (tab = "a-t") => emit(tab, { type: "user.message", content: [{ kind: "text", text: "continue" }] });
-// Um pling usa dois osciladores. Contamos reprodução, não apenas a decisão de avisar.
+// Each bell uses two oscillators; count actual playback, not only notification decisions.
 const sounds = () => start.mock.calls.length / 2;
 let focused = false;
 const visible = new Set<string>();
@@ -115,7 +115,7 @@ describe("avisos da conversa", () => {
     question("b-t");
     expect(sounds()).toBe(0);
     expect(waiting()).toBe(0);
-    // Aba recolhida ou outra aba do workspace continua merecendo aviso.
+    // Collapsed or nonselected tabs still require notifications.
     visible.delete("b-t");
     question("b-t");
     expect(sounds()).toBe(1);

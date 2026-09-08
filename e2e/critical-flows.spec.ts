@@ -66,7 +66,7 @@ test("segurança do compartilhamento fixa primeira chave e exige revisão quando
 test("comentário fica ao lado da sessão até alguém resolver", async ({ page }) => {
   await bootTeam(page);
 
-  // Abrir leva ao contexto, mas não finge que a pendência acabou.
+  // Opening the context does not resolve the pending comment.
   await page.locator("#railbody .navitem.mentions").click();
   await page.locator(".inboxrow").click();
   await expect(page.locator("#crumb")).toContainText("Arquivar todos os concluídos");
@@ -88,7 +88,7 @@ test("comentário fica ao lado da sessão até alguém resolver", async ({ page 
   await expect(page.locator("#railbody .navitem.mentions")).toHaveCount(0);
   await expect(page.locator("#chatwrap .commentpin")).toHaveCount(0);
 
-  // Comentar abre outro campo; a caixa principal continua falando com agente.
+  // Comments use a separate field; the main composer still sends to the agent.
   await page.locator(".threadhead .back").click();
   await page.locator('.commentfilters [data-filter="resolved"]').click();
   await expect(page.locator(".commentcard", { hasText: "Completar um todo agora" })).toBeVisible();
@@ -120,10 +120,10 @@ test("clicar no projeto abre os arquivos do clone, sem workspace", async ({ page
 
   await expect(page.locator("#wsView")).toBeVisible();
   await expect(page.locator("#crumb")).toContainText("prometeu");
-  // Sem branch, worktree nem conversa: nada de dock nem de Mudanças.
+  // Without a branch, worktree or conversation, no dock or Changes view is available.
   await expect(page.locator("#dock")).toBeHidden();
   await expect(page.locator("#tab-diff")).toBeHidden();
-  // Centro vazio até escolher um arquivo: sem recado, sem conversa.
+  // The center stays empty until a file is selected.
   await expect(page.locator("#offline")).toBeVisible();
   await expect(page.locator("#offtitle")).toBeEmpty();
   await expect(page.locator("#offbody")).toBeHidden();
@@ -132,7 +132,7 @@ test("clicar no projeto abre os arquivos do clone, sem workspace", async ({ page
   await expect(page.locator("#viewer")).toBeVisible();
   await expect(page.locator("#vpre")).toContainText("Controle financeiro pessoal");
 
-  // Arquivo aberto vira aba, como num workspace, e o "+" é o mesmo controle.
+  // Opened files become tabs and share the same add control as workspace tabs.
   await expect(page.locator("#tabbar .tab")).toHaveText(["CLAUDE.md"]);
   await expect(page.locator("#tabbar .tabadd .caret")).toBeVisible();
   await page.locator("#tree .treerow", { hasText: "README.md" }).click();
@@ -141,26 +141,25 @@ test("clicar no projeto abre os arquivos do clone, sem workspace", async ({ page
   await page.locator("#tabbar .tab", { hasText: "CLAUDE.md" }).click();
   await expect(page.locator("#vpre")).toContainText("Controle financeiro pessoal");
 
-  // Editar e salvar é o mesmo caminho do workspace.
+  // Editing and saving use the workspace viewer path.
   await page.locator("#vtext").fill("# Direto do projeto\n");
   await expect(page.locator("#vsave")).toBeVisible();
   await page.locator("#vsave").click();
   await expect(page.locator("#vsave")).toBeHidden();
 
-  // A setinha lista o que se começa a partir do projeto.
+  // The dropdown lists actions available from the project.
   await page.locator("#tabbar .tabadd .caret").click();
   await expect(page.locator(".menu .mrow")).toHaveText(["Terminal novo", "Workspace novo"]);
   await page.keyboard.press("Escape");
 
-  // O "+" abre terminal na pasta do clone: sem conversa, é o que há para criar.
-  // Setup e Run continuam fora — nenhum script é do clone.
+  // The add button opens a terminal in the clone. Setup and Run require a workspace.
   await page.locator("#tabbar .tabadd .ico").first().click();
   const term = page.locator("#tabbar .tab", { hasText: "Terminal" });
   await expect(term).toHaveClass(/on/);
   await expect(page.locator("#termview")).toBeVisible();
   await expect(page.locator("#dock")).toBeHidden();
 
-  // Voltar para o arquivo só tira o terminal da frente.
+  // Returning to the file keeps its terminal alive in the background.
   await page.locator("#tabbar .tab", { hasText: "README.md" }).click();
   await expect(page.locator("#viewer")).toBeVisible();
   await expect(page.locator("#termview")).toBeHidden();
@@ -168,13 +167,13 @@ test("clicar no projeto abre os arquivos do clone, sem workspace", async ({ page
   await term.locator(".tabx").click();
   await expect(page.locator("#tabbar .tab", { hasText: "Terminal" })).toHaveCount(0);
 
-  // Fechar todas devolve o centro ao vazio.
+  // Closing every tab restores the empty center.
   await page.locator("#tabbar .tab", { hasText: "CLAUDE.md" }).locator(".tabx").click();
   await page.locator("#tabbar .tab", { hasText: "README.md" }).locator(".tabx").click();
   await expect(page.locator("#viewer")).toBeHidden();
   await expect(page.locator("#offline")).toBeVisible();
 
-  // O chevron continua sendo quem dobra a lista do projeto.
+  // The chevron still collapses the project list.
   await project.locator(".gc").click();
   await expect(page.locator("#railbody .navitem.sub", { hasText: "Tela igual ao Conductor" })).toHaveCount(0);
 });
@@ -182,7 +181,7 @@ test("clicar no projeto abre os arquivos do clone, sem workspace", async ({ page
 test("remove projeto sem apagar seus workspaces", async ({ page }) => {
   await boot(page);
 
-  // "prometeu + njord", em Conjuntos, também casa com "njord".
+  // The combined project name also matches a search for its second repository.
   const project = page.locator("#railbody .group", { hasText: "njord", hasNotText: "+" });
   await project.hover();
   await project.locator('button[title="Ações de njord"]').click();
@@ -233,8 +232,8 @@ test("o topo local fica estável e não trata workspace comum como compartilhado
   await expect(railWorkspace).not.toHaveAttribute("title", /Pronta|Rodando|Desligada/);
   await openWorkspace(page, "Ola");
 
-  // Este workspace nunca foi compartilhado: colaboração não vira um estado
-  // permanente na barra. A ação só entra no menu quando há um time configurado.
+  // An unshared workspace has no permanent collaboration toolbar state. Sharing appears in its menu only
+  // after team setup.
   await expect(page.locator("#msg")).toBeHidden();
   await expect(page.locator("#share")).toBeHidden();
   await expect(page.locator("#wsmore")).toBeVisible();
@@ -242,8 +241,7 @@ test("o topo local fica estável e não trata workspace comum como compartilhado
   await expect(page.locator(".menu .mrow", { hasText: "Definir etapa" })).toBeVisible();
   await page.keyboard.press("Escape");
 
-  // Um evento do quadro redesenha o app inteiro. O nó da identidade deve
-  // sobreviver em vez de sumir e nascer de novo a cada ferramenta do agente.
+  // Board redraws preserve the identity node instead of recreating it for every agent tool event.
   await page.locator("#crumb .nm").evaluate((el) => (el.dataset.stable = "yes"));
   await page.evaluate(async () => {
     type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
@@ -271,12 +269,12 @@ test("a barra lateral lista agentes por workspace, acompanha status e abre a aba
   await expect(first).toHaveAttribute("title", /Claude Code/);
   await expect(second.locator(".provider path")).toHaveCount(1);
   await expect(second).toHaveAttribute("title", /Codex/);
-  // Aba sem nome é dita pelo modelo, numa linha só.
+  // An unnamed tab displays its model on one line.
   await expect(first.locator(".lbl")).toHaveText("Opus · 1M");
   await expect(second.locator(".lbl")).toHaveText("GPT-5.6-Sol");
   await expect(first.locator(".note")).toHaveCount(0);
 
-  // O status vem do board, inclusive quando o workspace não está aberto.
+  // Tab status follows the board even when its workspace is closed.
   for (const status of ["rodando", "querendo", "desligada", "pronta"] as Status[]) {
     await page.evaluate(async (status) => {
       type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
@@ -292,7 +290,7 @@ test("a barra lateral lista agentes por workspace, acompanha status e abre a aba
   }
   await expect(first.locator(".rail-status")).toHaveCSS("color", "rgb(95, 191, 115)");
   await expect(card.locator(".navitem .rail-status")).toHaveCSS("color", "rgb(95, 191, 115)");
-  // Um agente só entra direto no card, sem a linha "1 agente" para recolher.
+  // A single agent appears directly in the card without a redundant collapse row.
   await expect(page.locator('.railworkspace[data-workspace="ui-2231"] .railagents-toggle')).toHaveCount(0);
   await expect(page.locator('.railworkspace[data-workspace="ui-2231"] .railagent')).toHaveCount(1);
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -306,7 +304,7 @@ test("a barra lateral lista agentes por workspace, acompanha status e abre a aba
   await expect(first).toHaveAttribute("aria-current", "true");
   await expect(second).not.toHaveAttribute("aria-current");
 
-  // A linha do agente também volta do arquivo para a conversa selecionada.
+  // The agent row returns from an open file to its selected conversation.
   await page.locator("#tab-files").click();
   await page.locator("#tree .treerow", { hasText: "CLAUDE.md" }).click();
   await expect(page.locator("#viewer")).toBeVisible();
@@ -319,7 +317,7 @@ test("a barra lateral lista agentes por workspace, acompanha status e abre a aba
   await expect(second).toHaveAttribute("aria-current", "true");
   await expect(page.locator("#tabbar .tab.on")).toHaveAttribute("data-tab", "t2");
 
-  // Recolher não navega; a escolha sobrevive a redesenhos e recargas.
+  // Collapsing does not navigate, and the choice survives redraws and reloads.
   await card.locator(".railagents-toggle").focus();
   await page.keyboard.press("Enter");
   await expect(card.locator(".railagents-toggle")).toHaveAttribute("aria-expanded", "false");
@@ -332,7 +330,7 @@ test("a barra lateral lista agentes por workspace, acompanha status e abre a aba
   await card.locator(".railagents-toggle").click();
   await expect(first).toBeVisible();
 
-  // Antes de nascer uma aba, o card continua abrindo o estado de preparação.
+  // Before a tab exists, the card opens workspace preparation status.
   await page.evaluate(async () => {
     type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
     const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
@@ -388,8 +386,7 @@ test("a troca rápida de aba ignora o snapshot atrasado da aba anterior", async 
   });
   await expect(page.locator("#chatwrap .bubble", { hasText: "E2E_MARKER_T1" })).toBeVisible();
 
-  // Faz o snapshot de t2 chegar depois de t1. É a ordem que antes conseguia
-  // repintar a conversa errada ao clicar rapidamente entre abas.
+  // Deliver t2's snapshot after t1's to expose stale responses during rapid tab switching.
   await page.evaluate(() => {
     type Invoke = (command: string, args?: Record<string, unknown>, options?: unknown) => Promise<unknown>;
     const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
@@ -478,10 +475,8 @@ test("cria um workspace pelo launcher e acompanha o preparo até a conversa", as
 test("a lista de issues cabe no lançador e deixa os títulos legíveis", async ({ page }) => {
   await boot(page);
 
-  // Uma lista longa revela os dois limites do popup: a lateral da folha e o
-  // início do rodapé. O mock normal é curto demais e não força rolagem, então
-  // ele é repetido — quantas vezes sai do que o mock traz, para uma issue nova
-  // no mock não virar um número errado aqui.
+  // Expand the fixture from its current length until the issue popup exceeds both its side and footer
+  // boundaries.
   const total = await page.evaluate(async () => {
     const BATCHES = 4;
     type Invoke = (command: string, args?: Record<string, unknown>, options?: unknown) => Promise<unknown>;
@@ -498,12 +493,12 @@ test("a lista de issues cabe no lançador e deixa os títulos legíveis", async 
         ).flat(),
       };
     };
-    // Conectar primeiro: o mock recusa a busca enquanto o Linear está fora.
+    // Connect Linear first; the mock rejects searches while disconnected.
     await internals.invoke("linear_connect");
     const found = (await internals.invoke("linear_issues", { force: false })) as { issues: unknown[] };
     return found.issues.length;
   });
-  // A lista precisa passar do que cabe na tela; é disso que o teste trata.
+  // The fixture must exceed the available viewport height.
   expect(total).toBeGreaterThanOrEqual(20);
 
   await expect(page.locator("#railbody .navitem", { hasText: "Issues" }).locator(".n")).toHaveText(String(total));
@@ -591,9 +586,7 @@ test("envia uma pergunta, responde o card e devolve o controle ao chat", async (
   await expect(composer).toBeEnabled();
 });
 
-/// O "@" da caixa aponta um arquivo do workspace para o agente. O que importa
-/// aqui é a caixa acabar com um caminho de verdade escrito nela: é isso que o
-/// agente lê, e é o que faltava — a lista nunca abria.
+/// File mentions must insert a real workspace path into the composer for the agent to read.
 test("o @ na caixa completa um caminho do workspace", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Ola");
@@ -604,16 +597,14 @@ test("o @ na caixa completa um caminho do workspace", async ({ page }) => {
   const first = page.locator(".menu .mrow").first();
   await expect(first).toContainText("app/adapters/transcriber.rb");
 
-  // Tab escreve o caminho inteiro no lugar do que foi digitado, e não manda a
-  // fala.
+  // Tab completes the full path without sending the prompt.
   await composer.press("Tab");
   await expect(composer).toHaveValue("veja @app/adapters/transcriber.rb ");
   await expect(page.locator("#chatwrap .feed")).not.toContainText("veja @app");
 });
 
-/// O evento nativo do Tauri traz o caminho verdadeiro, mas a posição final do
-/// drop pode vir deslocada no macOS. O alvo que já acendeu continua valendo, e
-/// o arquivo usa o mesmo rascunho de anexos do botão "+" — sem invadir o texto.
+/// A macOS drop may report an offset final position. Retain the previously highlighted target and use
+/// the attachment draft.
 test("arquivo solto na conversa vira anexo mesmo com a posição final imprecisa", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Ola");
@@ -628,8 +619,7 @@ test("arquivo solto na conversa vira anexo mesmo com a posição final imprecisa
     const mock = (window as unknown as {
       mock: { drop: (paths: string[], x: number, y: number, dropX: number, dropY: number) => void };
     }).mock;
-    // O `over` está na caixa; o `drop` termina fora da viewport, como uma
-    // coordenada nativa deslocada pela barra da janela.
+    // Hover inside the composer, then drop beyond the viewport to simulate shifted native coordinates.
     mock.drop([path], x, y, x, innerHeight + 100);
   }, { path, x: at!.x + at!.width / 2, y: at!.y + at!.height / 2 });
 
@@ -643,9 +633,7 @@ test("arquivo solto na conversa vira anexo mesmo com a posição final imprecisa
   expect(await bubble.textContent()).toBe('@"/Users/eu/Desktop/Captura de Tela.png"\n\nCompare com esta captura');
 });
 
-/// Entre dois caminhos que combinam igual, o que o agente acabou de mexer vem
-/// na frente: no meio de um trabalho, o "@" quase sempre é sobre o arquivo que
-/// acabou de aparecer na conversa.
+/// Recently accessed files rank first when multiple paths match equally.
 test("o arquivo que o agente acabou de ler sobe na lista do @", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Ola");
@@ -654,8 +642,7 @@ test("o arquivo que o agente acabou de ler sobe na lista do @", async ({ page })
   await composer.fill("veja @waha");
   await expect(page.locator(".menu .mrow").first()).toContainText("app/adapters/waha.rb");
 
-  // O agente lê outro arquivo da mesma pasta. A lista do "@" passa a oferecê-lo
-  // primeiro, mesmo com "adapters" combinando igual nos dois.
+  // An agent read updates mention ranking ahead of another equally matching path.
   await composer.fill("");
   await page.evaluate(() => {
     const mock = (window as unknown as { mock: { line: (tab: string, line: unknown) => void } }).mock;
@@ -672,11 +659,8 @@ test("o arquivo que o agente acabou de ler sobe na lista do @", async ({ page })
   await expect(page.locator(".menu .mrow").first()).toContainText("app/adapters/transcriber.rb");
 });
 
-/// Um workspace de três repositórios com cem arquivos mudados: o diff inteiro
-/// são dezenas de milhares de linhas, e montá-las de uma vez travava a tela por
-/// segundos e deixava a rolagem arrastando. O que este teste guarda é a regra —
-/// só o que está perto da tela é montado — porque ela é invisível enquanto
-/// funciona, e o que ela evita só aparece no workspace grande de alguém.
+/// A large multi-repository diff mounts only rows near the viewport, avoiding thousands of offscreen DOM
+/// nodes.
 test("a tela de Mudanças não monta o diff que ninguém está vendo", async ({ page }) => {
   await boot(page);
 
@@ -707,34 +691,29 @@ test("a tela de Mudanças não monta o diff que ninguém está vendo", async ({ 
   });
 
   await openWorkspace(page, "Contratação pelo portal");
-  // O diff é conferido de novo enquanto a tela dele está aberta: é por aí que
-  // ele chega, sem depender de o agente mexer em nada.
+  // Refresh the diff while its view is open without requiring another agent mutation.
   await page.locator("#tab-diff").click();
   await expect(page.locator(".git-repository")).toBeVisible();
 
   await page.locator("#review").click();
   const dlist = page.locator("#dlist .git-review-list");
   await expect(dlist.locator(".dfile")).toHaveCount(110);
-  // Os 110 cabeçalhos existem; as 6.600 linhas, não — só as de quem está perto
-  // da tela. Sem preguiça isto passava de 40 mil nós.
+  // All 110 headers exist, while only visible portions of 6,600 diff lines mount.
   const linhas = await dlist.locator(".drow").count();
   expect(linhas).toBeGreaterThan(0);
   expect(linhas).toBeLessThan(2_000);
 
-  // O lugar de cada arquivo já está guardado: a rolagem tem a altura do diff
-  // inteiro antes de ele existir, e por isso não anda sozinha enquanto se lê.
+  // Reserve each file's height before mounting its rows so scrolling does not jump.
   const altura = await dlist.evaluate((el) => el.scrollHeight);
   expect(altura).toBeGreaterThan(100_000);
 
-  // Clicar num arquivo lá do fim da lista leva até ele — montado.
+  // Selecting a file near the list's end scrolls to its mounted diff.
   await dlist.locator(".dfile").last().scrollIntoViewIfNeeded();
   await expect(dlist.locator(".dfile").last().locator(".drow").first()).toBeVisible();
 });
 
-/// O arquivo abre pronto para escrever — não há botão de editar. O que este
-/// teste guarda é o que quebra sozinho: o quadro bate a cada ferramenta que o
-/// agente usa e redesenha o arquivo aberto; se o redesenho não respeitar o que
-/// está sendo escrito, o texto some no meio da frase.
+/// Files open directly in an editable viewer. Frequent board updates must preserve partially typed
+/// drafts.
 test("escrever no arquivo aberto sobrevive ao redesenho do quadro e salva", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Ola");
@@ -744,14 +723,14 @@ test("escrever no arquivo aberto sobrevive ao redesenho do quadro e salva", asyn
   await expect(page.locator("#viewer")).toBeVisible();
   await expect(page.locator("#vpre")).toContainText("Controle financeiro pessoal");
 
-  // Sem nada escrito não há o que salvar nem o que desfazer.
+  // An unchanged file has nothing to save or undo.
   await expect(page.locator("#vtext")).toBeVisible();
   await expect(page.locator("#vsave")).toBeHidden();
   await expect(page.locator("#vcancel")).toBeHidden();
 
   const texto = "# Njord\n\nCorrigido à mão pelo E2E.\n";
   await page.locator("#vtext").fill(texto);
-  // As cores acompanham: o que se lê é o <pre>, e ele já mostra o texto novo.
+  // The highlighted pre element reflects newly typed text.
   await expect(page.locator("#vpre")).toContainText("Corrigido à mão pelo E2E.");
   await expect(page.locator("#vsave")).toBeVisible();
   await expect(page.locator("#vcrumb")).toHaveClass(/\bdirty\b/);
@@ -766,8 +745,7 @@ test("escrever no arquivo aberto sobrevive ao redesenho do quadro e salva", asyn
   await board();
   await expect(page.locator("#vtext")).toHaveValue(texto);
 
-  // Nem clicar em outro arquivo e voltar: o rascunho espera, e volta de onde
-  // parou. Um clique errado não custa o que já foi escrito.
+  // Navigating to another file and back preserves the draft.
   await page.locator("#tree .treerow", { hasText: ".gitignore" }).click();
   await expect(page.locator("#vpre")).toContainText("Ignore bundler config");
   await expect(page.locator("#vsave")).toBeHidden();
@@ -779,20 +757,18 @@ test("escrever no arquivo aberto sobrevive ao redesenho do quadro e salva", asyn
   await expect(page.locator("#vsave")).toBeHidden();
   await expect(page.locator("#vcrumb")).not.toHaveClass(/\bdirty\b/);
 
-  // Salvou de verdade: o redesenho seguinte lê o disco e acha o que foi escrito.
+  // After saving, a later redraw reads the edited content from disk.
   await board();
   await expect(page.locator("#vpre")).toContainText("Corrigido à mão pelo E2E.");
   await expect(page.locator("#vpre")).not.toContainText("Controle financeiro pessoal");
 
-  // E o arquivo que só passou pela tela no meio da edição continua intacto:
-  // salvar escreve no arquivo que está sendo editado, não no último aberto.
+  // Saving the edited file must not overwrite another file visited during editing.
   await page.locator("#tree .treerow", { hasText: ".gitignore" }).click();
   await expect(page.locator("#vpre")).toContainText("Ignore bundler config");
   await expect(page.locator("#vpre")).not.toContainText("Corrigido à mão pelo E2E.");
 });
 
-/// A lista mantém o atalho de duplo clique; o diff também oferece um botão
-/// visível e acessível por teclado para abrir o arquivo inteiro no viewer.
+/// Double-clicking a file or activating its explicit diff button opens the full file in the viewer.
 test("Git abre o arquivo pelo duplo clique e pelo botão do diff", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Ola");
@@ -801,7 +777,7 @@ test("Git abre o arquivo pelo duplo clique e pelo botão do diff", async ({ page
   const row = page.locator("#difflist .git-file-name", { hasText: "style.css" }).first();
   await expect(row).toBeVisible();
 
-  // Um clique é ir até o arquivo no diff do centro, e não abrir.
+  // A single click scrolls within the central diff without opening the file.
   await row.click();
   await expect(page.locator('#dlist .dfile[data-key$="src/style.css"] .dbody')).toBeVisible();
   await expect(page.locator("#viewer")).toBeHidden();
@@ -811,7 +787,7 @@ test("Git abre o arquivo pelo duplo clique e pelo botão do diff", async ({ page
   await expect(page.locator("#vcrumb")).toContainText("style.css");
   await expect(page.locator("#vpre")).toContainText("padding: 12px");
 
-  // O botão explícito funciona sem depender de descobrir o duplo clique.
+  // The explicit button supports keyboard access without discovering the double-click gesture.
   await page.locator("#tab-diff").click();
   const open = page.locator('#dlist .dfile[data-key$="src/style.css"] .dopen');
   await open.focus();
@@ -820,8 +796,8 @@ test("Git abre o arquivo pelo duplo clique e pelo botão do diff", async ({ page
   await expect(page.locator("#vcrumb")).toContainText("style.css");
 });
 
-/// Repositório limpo continua selecionável; preparar ou commitar no segundo
-/// não pode alterar o índice do primeiro.
+/// A clean repository remains selectable. Staging or committing another repository must not change its
+/// index.
 test("Git mantém repositórios limpos e isola o stage de cada repositório", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Contratação pelo portal");
@@ -843,8 +819,7 @@ test("Git mantém repositórios limpos e isola o stage de cada repositório", as
   await expect(page.locator('.git-repository .avatar')).toHaveText("P");
 });
 
-/// O hub é um só: trocar de Claude para Codex muda o adapter, não a escolha do
-/// workspace. MCP e plugins continuam visíveis para os dois providers.
+/// MCP and plugin selection belongs to the workspace and remains visible across provider changes.
 test("escolher um GPT mantém o seletor de plugins do lançador", async ({ page }) => {
   await boot(page);
   await page.locator("#railbody").getByRole("button", { name: "Criar", exact: true }).click();
@@ -856,16 +831,13 @@ test("escolher um GPT mantém o seletor de plugins do lançador", async ({ page 
   await expect(page.locator("#d-mcp")).toBeVisible();
 });
 
-/// Trocar de modelo com a conversa de pé: a escolha entra na aba, o processo
-/// cai e a caixa passa a dizer que escrever retoma. O esforço sobe um degrau
-/// por clique, como no rodapé do lançador. Sair do CLI não se oferece — a
-/// lista só tem os modelos do agente que já está de pé, porque o `--resume` do
-/// Claude Code não abre a thread do Codex.
+/// Retuning preserves the tab, restarts its process and uses the selected effort. Model choices remain
+/// within the current provider because resume identities are incompatible.
 test("trocar o modelo de uma conversa de pé desliga o processo e mantém a aba", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Ola");
 
-  // Só a caixa do workspace: os quadros da mesa continuam no DOM, escondidos.
+  // Target the workspace composer; hidden desk panels also remain in the DOM.
   const model = page.locator("#chatwrap .composer .mdl");
   const effort = page.locator("#chatwrap .composer .effort");
   await expect(model).toContainText("Opus · 1M");
@@ -880,8 +852,7 @@ test("trocar o modelo de uma conversa de pé desliga o processo e mantém a aba"
     "placeholder",
     /escrever retoma/,
   );
-  // A aba continua ali: o que caiu foi o processo, não a conversa. Sem nome,
-  // ela é dita pelo modelo — e agora fala com o Sonnet, como a irmã.
+  // The tab survives process shutdown and its unnamed label follows the newly selected model.
   await expect(page.locator('#tabbar .tab[data-tab="t1"]')).toContainText("Sonnet 1");
   await expect(page.locator('#tabbar .tab[data-tab="t2"]')).toContainText("Sonnet 2");
 
@@ -904,31 +875,26 @@ test("o filtro por time corta a lista de issues e as contagens seguem a busca", 
   await expect(pills.first()).toHaveClass(/\bon\b/);
   await expect(page.locator("#ilist .irow")).toHaveCount(7);
 
-  // Escolher um time deixa só as issues dele.
+  // Selecting a team filters its issues.
   await pills.filter({ hasText: "INF" }).click();
   await expect(page.locator("#ilist .irow")).toHaveCount(2);
   await expect(page.locator("#ilist .irow .iid").first()).toContainText("INF-");
 
-  // Buscar não muda quais pílulas existem — muda quantas issues cada uma
-  // mostraria. O time escolhido continua escolhido.
+  // Search updates team counts without replacing the team filters or current selection.
   await page.locator("#ibar input").fill("runner");
   await expect(pills).toHaveCount(3);
   await expect(pills.filter({ hasText: "INF" })).toHaveClass(/\bon\b/);
   await expect(pills.filter({ hasText: "MOA" })).toContainText("0");
   await expect(page.locator("#ilist .irow")).toHaveCount(1);
 
-  // E voltar para "Todos" devolve o que a busca achou em qualquer time.
+  // Selecting all teams restores matching issues across teams.
   await page.locator("#ibar input").fill("linear");
   await expect(page.locator("#ilist .iempty")).toBeVisible();
   await pills.first().click();
   await expect(page.locator("#ilist .irow")).toHaveCount(1);
 });
 
-/// Instalar plugin era assunto de fora do app: instalar no CLI, e depois
-/// importar. Agora é daqui — nome, o que ele deve fazer, e um agente escreve a
-/// pasta. O que este teste guarda é o caminho inteiro: o pedido, o que o
-/// agente vai escrevendo (que é o que faz a espera parecer trabalho) e o
-/// plugin já na lista no fim.
+/// Test plugin creation from request through streamed agent output to its final catalog entry.
 test("cria um plugin pelo Prometeu e ele entra na lista", async ({ page }) => {
   await boot(page);
   await page.locator("#settings").click();
@@ -939,14 +905,12 @@ test("cria um plugin pelo Prometeu e ele entra na lista", async ({ page }) => {
   await page.locator(".sheet.hubedit textarea").fill("Um comando que resume o dia num arquivo datado.");
   await page.locator(".sheetbar button", { hasText: "Criar" }).click();
 
-  // Enquanto ele escreve, a folha mostra o que está saindo — e o pedido sai da
-  // frente, para ninguém achar que ainda pode mexer nele.
+  // Show live generation output and hide the editable request while the agent works.
   await expect(page.locator(".sheet.hubedit .mstep").first()).toBeVisible();
   await expect(page.locator(".sheet.hubedit textarea")).toHaveCount(0);
   await expect(page.locator(".sheet.hubedit .mstep", { hasText: "plugin.json" })).toBeVisible();
 
-  // No fim a folha fecha sozinha e o plugin está cadastrado, com a pasta do
-  // Prometeu como origem.
+  // Completion closes the sheet and registers the plugin from its managed Prometeu directory.
   await expect(page.locator(".sheet.hubedit")).toHaveCount(0);
   const row = page.locator(".setrow", { hasText: "diario-do-dia" });
   await expect(row).toBeVisible();
@@ -977,9 +941,7 @@ test("revê e confirma a importação temporária do Prometheus", async ({ page 
   await expect(row).toContainText("Dados importados em");
 });
 
-/// Instalar plugin era assunto de fora do app: instalar no CLI e importar
-/// depois. Agora é o endereço do repositório e mais nada — e o repositório que
-/// traz vários pergunta quais antes de cadastrar.
+/// Installing a repository with multiple plugins asks which entries to register.
 test("instala um plugin pelo endereço do repositório", async ({ page }) => {
   await boot(page);
   await page.locator("#settings").click();
@@ -989,13 +951,13 @@ test("instala um plugin pelo endereço do repositório", async ({ page }) => {
   await page.locator(".sheet.hubedit input").fill("gbrancaglione/exemplo");
   await page.locator(".sheetbar button", { hasText: "Instalar" }).click();
 
-  // Um plugin só não é escolha: ele entra e a folha fecha.
+  // A single-plugin repository installs directly and closes the sheet.
   await expect(page.locator(".sheet.hubedit")).toHaveCount(0);
   const row = page.locator(".setrow", { hasText: "exemplo" });
   await expect(row).toContainText("github.com/gbrancaglione/exemplo");
   await expect(row.locator("button", { hasText: "Atualizar" })).toBeVisible();
 
-  // O repositório com vários pergunta quais — e só entra o que foi marcado.
+  // For multi-plugin repositories, install only checked entries.
   await page.locator(".setrow.head button", { hasText: "Instalar plugin" }).click();
   await page.locator(".sheet.hubedit input").fill("acme/muitos-plugins");
   await page.locator(".sheetbar button", { hasText: "Instalar" }).click();
@@ -1008,34 +970,30 @@ test("instala um plugin pelo endereço do repositório", async ({ page }) => {
   await expect(page.locator(".setrow", { hasText: "muitos-plugins-dois" })).toHaveCount(0);
 });
 
-/// Marcar plugin numa conversa que já existe: a marca é da tela, e não da
-/// resposta do back. Cada gravação derruba o processo da conversa e republica
-/// o quadro inteiro; esperar por ela para mover a marca fazia o menu parecer
-/// travado — e marcar três coisas seguidas fazia isso três vezes.
+/// Plugin toggles update immediately while debounced persistence restarts processes and republishes the
+/// board.
 test("marcar plugins na conversa responde na hora e grava uma vez só", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Ola");
 
-  // Só a caixa do workspace: os quadros da mesa continuam no DOM, escondidos.
+  // Target the workspace composer; hidden desk panels also remain in the DOM.
   const plugbtn = page.locator("#chatwrap .plugbtn");
   const mcpbtn = page.locator("#chatwrap .mcpbtn");
   await plugbtn.click();
   const row = (name: string) => page.locator(".menu .mrow").filter({ hasText: name }).first();
   await row("caveman").click();
-  // O quadro ainda não voltou, e a marca já está no lugar novo.
+  // The checkmark updates before the board response arrives.
   await expect(row("caveman").locator(".mc svg")).toBeVisible();
   await row("ponytail").click();
   await expect(row("caveman").locator(".mc svg")).toBeVisible();
   await expect(row("ponytail").locator(".mc svg")).toBeVisible();
 
-  // Fechado o menu, a tela alcança o quadro: os dois cliques viraram uma
-  // gravação, e o rodapé conta os dois.
+  // Closing the menu commits both clicks in one save and updates the footer count.
   await page.keyboard.press("Escape");
   await expect(plugbtn).toContainText("2 plugins");
   expect(await page.evaluate(() => (window as unknown as { mock: { writes: () => number } }).mock.writes())).toBe(1);
 
-  // Mexer no MCP logo em seguida é outra gravação, e não a mesma: uma espera
-  // não pode engolir a outra.
+  // A subsequent MCP selection uses a separate save; debounce queues must not consume each other.
   await mcpbtn.click();
   await page.locator(".menu .mrow").filter({ hasText: "capim-ds" }).first().click();
   await page.keyboard.press("Escape");
@@ -1043,31 +1001,28 @@ test("marcar plugins na conversa responde na hora e grava uma vez só", async ({
   await expect(plugbtn).toContainText("2 plugins");
 });
 
-/// A mesa é a tela inicial: um quadro por conversa de pé, cada um com a sua
-/// caixa. O que este teste guarda é que dá para responder dali sem entrar no
-/// workspace, e que ordem, tamanho e o que foi recolhido ficam — inclusive
-/// depois de recarregar.
+/// The desk supports direct replies and preserves panel order, size and collapse state across reloads.
 test("a mesa mostra cada conversa num quadro, responde dali e guarda a ordem", async ({ page }) => {
   await boot(page);
   const tiles = page.locator("#tiles .tile");
   await expect(tiles).toHaveCount(6);
   await expect(page.locator("#railbody .navitem", { hasText: "Mesa" })).toHaveClass(/\bon\b/);
 
-  // Arquivado, limpo e do colega ficam de fora; o que está de pé entra.
+  // Include live local conversations, excluding archived, cleaned and remote workspaces.
   await expect(page.locator('#tiles .tile[data-tab="t7"]')).toHaveCount(0);
   const first = page.locator('#tiles .tile[data-tab="t1"]');
   await expect(first.locator(".tile-head")).toContainText("Ola");
   await expect(first.locator(".feed .turn")).not.toHaveCount(0);
 
-  // Responder no quadro é responder na conversa.
+  // A desk reply reaches its conversation.
   const composer = first.locator(".composer textarea");
   await composer.fill("Oi da mesa");
   await composer.press("Enter");
   await expect(first.locator(".feed")).toContainText("Entendi: Oi da mesa");
   await expect(page.locator('#tiles .tile[data-tab="t3"] .feed')).not.toContainText("Oi da mesa");
 
-  // Arrastar o primeiro quadro para depois do segundo troca os dois de lugar.
-  // No meio do gesto, o fantasma segue o cursor e o quadro vira a vaga.
+  // Dragging reorders panels while a ghost follows the pointer and the original reserves its
+  // destination.
   const head = first.locator(".tile-head");
   const target = page.locator('#tiles .tile[data-tab="t2"]');
   const from = (await head.boundingBox())!;
@@ -1086,7 +1041,7 @@ test("a mesa mostra cada conversa num quadro, responde dali e guarda a ordem", a
   await page.reload();
   await expect(page.locator("#tiles .tile").nth(0)).toHaveAttribute("data-tab", "t2");
 
-  // A alça do canto estica o quadro, e o tamanho fica.
+  // The corner handle resizes the panel and persists its dimensions.
   const tile = page.locator('#tiles .tile[data-tab="t1"]');
   const box = (await tile.boundingBox())!;
   const grip = (await tile.locator(".tile-grip").boundingBox())!;
@@ -1100,7 +1055,7 @@ test("a mesa mostra cada conversa num quadro, responde dali e guarda a ordem", a
   await expect(page.locator("#tiles .tile")).toHaveCount(6);
   expect(await width()).toBeLessThan(box.width - 100);
 
-  // A faixa de cima recolhe um quadro e o traz de volta; recolhido fica.
+  // The top strip toggles collapse state and preserves it.
   const chip = page.locator('#deskbar .tab[data-tab="t3"]');
   await expect(chip).toHaveClass(/\bon\b/);
   await chip.click();
@@ -1110,19 +1065,18 @@ test("a mesa mostra cada conversa num quadro, responde dali e guarda a ordem", a
   await expect(page.locator('#tiles .tile[data-tab="t3"]')).toBeHidden();
   await page.locator('#deskbar .tab[data-tab="t3"]').click();
   await expect(page.locator('#tiles .tile[data-tab="t3"]')).toBeVisible();
-  // O botão do cabeçalho recolhe também.
+  // The header button also collapses the panel.
   await page.locator('#tiles .tile[data-tab="t3"] .tmin').click();
   await expect(page.locator('#tiles .tile[data-tab="t3"]')).toBeHidden();
 
-  // A seta do quadro entra no workspace, já naquela conversa.
+  // The panel arrow opens its workspace at the same conversation.
   await page.locator('#tiles .tile[data-tab="t2"] .topen').click();
   await expect(page.locator("#wsView")).toBeVisible();
   await expect(page.locator("#tabbar .tab.on")).toHaveAttribute("data-tab", "t2");
   await expect(page.locator("#deskView")).toBeHidden();
 });
 
-/// Na mesa, o arquivo solto cai no quadro debaixo do cursor — e só nele. É o
-/// mesmo anexo da conversa do workspace, com o mesmo caminho na fala.
+/// Dropping a file on the desk attaches it only to the panel beneath the pointer.
 test("arquivo solto num quadro da mesa vira anexo daquela conversa", async ({ page }) => {
   await boot(page);
   const tile = page.locator('#tiles .tile[data-tab="t3"]');
@@ -1149,9 +1103,8 @@ test("arquivo solto num quadro da mesa vira anexo daquela conversa", async ({ pa
   expect(await bubble.textContent()).toBe('@"/Users/eu/Desktop/Captura de Tela.png"\n\nOlha esta captura');
 });
 
-/// A primeira fala de um workspace sai do back no mesmo instante em que a tela
-/// abre: ela chega ao vivo enquanto o snapshot ainda vem, e vem dentro dele
-/// também. Sem o número da linha, a conversa nascia com a fala duas vezes.
+/// The first prompt can arrive live and in the initial snapshot. Sequence filtering must prevent
+/// duplication.
 test("a fala que chega durante o snapshot não entra duas vezes", async ({ page }) => {
   await boot(page);
 
@@ -1183,9 +1136,8 @@ test("a fala que chega durante o snapshot não entra duas vezes", async ({ page 
   await expect(page.locator("#chatwrap .bubble", { hasText: "FALA_DO_LANCAMENTO" })).toHaveCount(1);
 });
 
-/// A mesma aba pode desligar e ligar na mesa enquanto um `chat_snapshot` antigo
-/// ainda viaja. O número da ligação, e não só o id da aba, decide qual resposta
-/// pode desenhar: senão o snapshot antigo é anexado ao novo e duplica tudo.
+/// A tab can reattach while an older snapshot is pending. Attachment generation, not tab ID alone,
+/// determines which response can render.
 test("a mesa ignora um snapshot atrasado da mesma conversa", async ({ page }) => {
   await boot(page);
   await page.locator('#tiles .tile[data-tab="t1"] .topen').click();
@@ -1236,8 +1188,7 @@ test("a mesa ignora um snapshot atrasado da mesma conversa", async ({ page }) =>
   await expect(tile.locator(".bubble", { hasText: "SNAPSHOT_ANTIGO" })).toHaveCount(1);
 });
 
-/// O debounce junta cliques no mesmo seletor, mas a escolha pertence a um
-/// workspace. Dois quadros mexidos na mesma respiração precisam gravar os dois.
+/// Debounce combines clicks within one selector but preserves independent workspace saves.
 test("a mesa grava escolhas rápidas de MCP em workspaces diferentes", async ({ page }) => {
   await boot(page);
   const first = page.locator('#tiles .tile[data-tab="t1"] .mcpbtn');
@@ -1262,8 +1213,7 @@ test("a mesa grava escolhas rápidas de MCP em workspaces diferentes", async ({ 
   await expect.poll(() => page.evaluate(() => (window as unknown as { mock: { writes: () => number } }).mock.writes())).toBe(2);
 });
 
-/// Mesa e workspace são duas apresentações da mesma conversa. O que ainda não
-/// foi enviado — texto e arquivos — atravessa a seta junto com ela.
+/// Desk and workspace share the conversation draft, including unsent text and attachments.
 test("a mesa mantém rascunho e anexo ao abrir o workspace", async ({ page }) => {
   await boot(page);
   const tile = page.locator('#tiles .tile[data-tab="t1"]');
@@ -1285,57 +1235,53 @@ test("a mesa mantém rascunho e anexo ao abrir o workspace", async ({ page }) =>
   await expect(page.locator("#chatwrap .cfiles .injchip")).toContainText("contexto.txt");
 });
 
-/// Setup e Run continuam no painel da direita: é saída para acompanhar de
-/// canto. O terminal livre, não — ele é aba do centro, ao lado das conversas,
-/// e os dois xterms valem ao mesmo tempo.
+/// Setup and Run stay in the side panel. Free terminals occupy center tabs and can remain alive
+/// simultaneously.
 test("terminal livre é aba do centro e o Setup fica no painel da direita", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Ola");
 
-  // Entrar num workspace cai na conversa; o painel da direita abre no Setup.
+  // Opening a workspace selects its conversation and displays Setup on the right.
   await expect(page.locator("#chatwrap")).toBeVisible();
   await expect(page.locator("#termview")).toBeHidden();
   await expect(page.locator("#dockstrip .docktab.on")).toHaveText("Setup");
 
-  // Terminal novo sai da setinha do "+": um shell a mais é outra aba do centro.
+  // The add dropdown opens each new shell in another center tab.
   await page.locator(".tabadd .caret").click();
   await page.locator(".menu .mrow", { hasText: "Terminal novo" }).click();
   const tab = page.locator("#tabbar .tab").filter({ hasText: "Terminal" }).first();
   await expect(tab).toHaveClass(/on/);
   await expect(page.locator("#termview")).toBeVisible();
   await expect(page.locator("#chatwrap")).toBeHidden();
-  // O painel da direita não perdeu o Setup para o terminal.
+  // Opening a terminal preserves Setup in the side panel.
   await expect(page.locator("#dockstrip .docktab")).toHaveText(["Setup", "Run"]);
   await expect(page.locator("#dock")).toBeVisible();
 
-  // Voltar para a conversa só tira o terminal da frente.
+  // Returning to the conversation keeps the terminal running.
   await page.locator('#tabbar .tab[data-tab="t1"]').click();
   await expect(page.locator("#chatwrap")).toBeVisible();
   await expect(page.locator("#termview")).toBeHidden();
   await expect(tab).toBeVisible();
 
-  // Fechado o último terminal, o centro volta para a conversa.
+  // Closing the last terminal returns the center to the conversation.
   await tab.hover();
   await tab.locator(".tabx").click();
   await expect(page.locator("#tabbar .tab").filter({ hasText: "Terminal" })).toHaveCount(0);
   await expect(page.locator("#chatwrap")).toBeVisible();
 });
 
-/// Com o agente editando, o worktree está sujo quase o tempo todo — e uma aba
-/// que nasce disso é a barra decidindo por você. Mudanças entra na barra quando
-/// você pede, e some quando você fecha.
+/// Changes opens only when requested and stays closed after dismissal, even while the agent keeps
+/// editing.
 test("a aba de Mudanças só existe depois que você a abre", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Contratação pelo portal");
 
   const tab = page.locator("#tabbar .tab").filter({ hasText: "Alterações" });
-  // Sujo desde o começo: o contador da direita diz que há o que ver, e a barra
-  // continua sendo só das conversas.
+  // An initially dirty worktree shows a Changes count without opening a Changes tab.
   await expect(page.locator("#diffcount")).not.toBeEmpty();
   await expect(tab).toHaveCount(0);
 
-  // Segundo clique no painel da direita traz o diff para o centro — e é aí que
-  // a aba nasce.
+  // The next Changes click opens the central diff and creates its tab.
   await page.locator("#tab-diff").click();
   await page.locator("#tab-diff").click();
   await expect(page.locator("#diffview")).toBeVisible();
@@ -1345,7 +1291,7 @@ test("a aba de Mudanças só existe depois que você a abre", async ({ page }) =
   await tab.locator(".tabx").click();
   await expect(tab).toHaveCount(0);
   await expect(page.locator("#chatwrap")).toBeVisible();
-  // O worktree continua sujo, e a aba continua fora: fechada é fechada.
+  // Further dirty state does not reopen a dismissed Changes tab.
   await expect(page.locator("#diffcount")).not.toBeEmpty();
   await expect(tab).toHaveCount(0);
 });

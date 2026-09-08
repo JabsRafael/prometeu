@@ -27,11 +27,7 @@ export type AgentDescriptor = {
   capabilities: AgentCapabilities;
 };
 
-type AgentCatalog = { providers: AgentDescriptor[] };
-
-/// Aliases estáveis do Claude Code. O catálogo vivo substitui esta lista no
-/// seletor, mas ela continua dando nome a boards antigos e mantém o launcher
-/// utilizável se o control request não responder.
+/// Stable Claude Code aliases label older boards and keep the launcher usable if live catalog discovery fails.
 const CLAUDE_FALLBACK_MODELS: AgentModel[] = [
   { id: "fable", label: "Fable", efforts: [] },
   { id: "fable[1m]", label: "Fable · 1M", efforts: [] },
@@ -54,8 +50,7 @@ const NO_CAPABILITIES: AgentCapabilities = {
   attachments: false,
 };
 
-/// Estado explícito de bootstrap/falha: preserva a compatibilidade de abrir o
-/// Claude, mas não anuncia feature opcional antes de o backend confirmá-la.
+/// Explicit bootstrap and failure states allow Claude startup without advertising unconfirmed optional capabilities.
 const BOOTSTRAP: AgentDescriptor[] = [
   {
     id: "claude",
@@ -76,12 +71,11 @@ const BOOTSTRAP: AgentDescriptor[] = [
 let catalog = BOOTSTRAP;
 let generation = 0;
 
-/// Recarrega na abertura e na troca de conta. O catálogo mais lento do Claude
-/// chega atrás, sem substituir a resposta de uma seleção mais recente.
+/// Reload on startup and account changes; late Claude catalog results must not replace a newer selection.
 export async function loadAgents() {
   const current = ++generation;
   try {
-    const discovered = await invoke<AgentCatalog>("agents");
+    const discovered = await invoke("agents");
     if (current !== generation) return;
     if (discovered.providers.length) catalog = discovered.providers;
   } catch {
@@ -90,7 +84,7 @@ export async function loadAgents() {
   }
 
   if (descriptor("claude").installed) {
-    void invoke<AgentModel[]>("claude_models")
+    void invoke("claude_models")
       .then((models) => {
         if (current !== generation || !models.length) return;
         catalog = catalog.map((provider) =>
@@ -111,17 +105,13 @@ export function descriptor(id: ProviderId): AgentDescriptor {
 
 export const capabilitiesOf = (id: ProviderId): AgentCapabilities => descriptor(id).capabilities;
 
-/// Modelos oferecidos agora. Apenas o catálogo do Claude tem fallback de
-/// aliases; Codex sem cache instalado continua instalado, mas sem modelo para
-/// oferecer até o próprio CLI publicar um.
+/// Only Claude has fallback aliases. Installed Codex remains available without models until its CLI supplies a catalog.
 export function modelsOf(id: ProviderId): readonly AgentModel[] {
   const models = descriptor(id).models;
   return models.length || id !== "claude" ? models : CLAUDE_FALLBACK_MODELS;
 }
 
-/// Resolve escolhas vindas de um catálogo, como o seletor global de modelo.
-/// Depois de persistida, a identidade do provider viaja junto com o modelo e
-/// não deve ser redescoberta por este helper.
+/// Resolve provider identity only when selecting from a catalog. Persisted selections already carry their provider.
 export function providerOfModel(model: string): ProviderId {
   return catalog.find((provider) => provider.models.some((candidate) => candidate.id === model))?.id ?? "claude";
 }
@@ -134,9 +124,7 @@ export function modelOf(model: string, provider?: ProviderId): AgentModel | unde
   );
 }
 
-/// Rótulos de aliases antigos são parte da apresentação persistida do app e
-/// têm precedência sobre o displayName vivo, que pode mudar entre versões do
-/// CLI. Modelos novos continuam usando o label descoberto.
+/// Stable alias labels take precedence over changing CLI display names; newly discovered models use their catalog label.
 export function modelLabelOf(model: string, provider?: ProviderId): string {
   const legacy = CLAUDE_FALLBACK_MODELS.find((candidate) => candidate.id === model);
   if (legacy && (provider === undefined || provider === "claude")) return legacy.label;
@@ -150,9 +138,7 @@ export function isKnownModel(provider: ProviderId, model: string): boolean {
   return descriptor(provider).models.some((candidate) => candidate.id === model);
 }
 
-/// A UI usa `ultracode` como id canônico do último degrau. O catálogo do Codex
-/// o chama `ultra`; no Claude ele é o xhigh com a orquestração do app por cima.
-/// Essa tradução é metadado do provider e fica na fronteira do catálogo.
+/// The UI canonicalizes the top effort as ultracode. Codex calls it ultra; Claude uses xhigh plus application orchestration. Keep this provider metadata at the catalog boundary.
 export function effortsOf(provider: ProviderId, model: string): readonly string[] {
   const efforts = modelOf(model, provider)?.efforts ?? [];
   if (!efforts.length) return [];

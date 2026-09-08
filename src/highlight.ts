@@ -1,19 +1,12 @@
-/// Colorização de código, para o viewer e para o diff. Módulo próprio porque
-/// os dois precisam dela e nenhum dos dois é dono: o diff importava do viewer
-/// só por causa desta função.
-///
-/// Um tokenizador por regex dá conta do visual: comentário, string, número,
-/// símbolo/keyword-arg, método depois do ponto, palavra reservada, chamada,
-/// Constante. Cobre as linguagens que aparecem nos repositórios daqui; o que
-/// não tem gramática sai em texto puro.
+/// Shared syntax highlighting for viewer and diff. Regex tokenizers cover supported repository languages; unknown grammars remain plain text.
 type Lang = {
-  line?: string; // comentário de linha
-  block?: [string, string]; // comentário de bloco
+  line?: string; // Line comment.
+  block?: [string, string]; // Block comment.
   kw?: string;
-  sym?: boolean; // :símbolo
-  key?: boolean; // chave: (keyword-arg, propriedade css, chave yaml)
+  sym?: boolean; // Symbol.
+  key?: boolean; // Keyword argument, CSS property, or YAML key.
   tag?: boolean; // <tag>
-  md?: boolean; // só título, código, negrito e link; nada de Constante amarela em prosa
+  md?: boolean; // Highlight headings, code, emphasis, and links without treating prose as constants.
 };
 
 const RB =
@@ -112,10 +105,7 @@ export function highlight(code: string, path: string): string {
 
 /* ---------- diff ---------- */
 
-/// Um diff unificado, do `git diff` ou de um bloco ```diff: cabeçalho, hunk,
-/// linha que saiu, linha que entrou. É o que o card de uma ferramenta mostra
-/// quando o que ela devolveu é um diff, e o que o markdown mostra num bloco
-/// marcado como tal.
+/// Render unified diffs from tools or fenced markdown: file headers, hunks, removed lines, and added lines.
 export function isDiff(text: string): boolean {
   return /^(diff --git |--- (a\/|\/dev\/null)|\+\+\+ (b\/|\/dev\/null)|@@ -\d)/m.test(text);
 }

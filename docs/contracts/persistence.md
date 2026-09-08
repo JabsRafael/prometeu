@@ -145,6 +145,23 @@ Ao carregar:
 Mudança que remove, renomeia ou altera semântica de campo persistido exige teste
 com JSON da versão anterior.
 
+## Ordered board publication
+
+`Saver::publish` serializes snapshot creation, enqueueing, and the `board`
+event under one publication mutex. It briefly locks the current board to clone
+it, then releases the board lock before enqueueing and emission. Competing
+publishers cannot enqueue or emit an older captured snapshot after a newer one.
+The worker still coalesces writes and performs disk I/O outside the board lock.
+
+`save_now` uses the same publication mutex and waits for a flush acknowledgment.
+Flushing does not terminate the worker: action transitions also flush while
+the app remains running. Later changes must still be persisted. Regression
+coverage lives in `state.rs` (`concurrent_publications_keep_snapshot_and_emission_order`
+and `flush_keeps_saver_available_for_runtime_publications`).
+
+No board fields or serialization change. See
+[ADR 0023](../decisions/0023-ordered-publication.md).
+
 ## Plugins derivados
 
 O hub é a fonte de verdade do Prometeu. A cópia e o marketplace sob

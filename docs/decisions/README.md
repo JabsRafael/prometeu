@@ -41,9 +41,7 @@ Status: Proposto
 | [0006](0006-explicit-prometheus-import.md) | Aceito | importação explícita e não destrutiva do Prometheus |
 | [0007](0007-persistent-session-comments.md) | Aceito | comentários persistentes ao lado da sessão |
 | [0008](0008-explicit-git-index.md) | Aceito | índice Git explícito e operações por repositório |
-
 | [0009](0009-reusable-actions.md) | Aceito | comandos e agentes reutilizáveis com acompanhamento local |
-
 | [0010](0010-default-code-review.md) | Aceito | Code review incluído uma vez, editável e removível |
 | [0011](0011-shared-ui.md) | Parcialmente substituído pelo 0016 | primitivas compartilhadas de interface |
 | [0012](0012-provider-accounts.md) | Aceito | contas locais e seleção global por provider |
@@ -54,8 +52,8 @@ Status: Proposto
 | [0017](0017-executable-design-system.md) | Aceito | componentes executáveis e adaptador Rails do Design System |
 | [0018](0018-native-file-promises.md) | Aceito | recebimento nativo de miniaturas e promessas de arquivos |
 | [0019](0019-cloud-catalog.md) | Substituído pelo 0020 | catálogo portátil de plugins, MCP e Ações na conta Prometeu |
-
 | [0020](0020-personal-catalog-and-local-items.md) | Parcialmente substituído pelo 0021 | autoria no SaaS e compartilhamento explícito de itens locais |
-
 | [0021](0021-cloud-organizations.md) | Aceito | organizações, convites por email e colaboração autorizada pelo Cloud |
 | [0022](0022-end-to-end-encryption.md) | Aceito | criptografia ponta a ponta na colaboração |
+| [0023](0023-ordered-publication.md) | Accepted | ordered board publication and conversation delivery |
+| [0024](0024-typed-ipc.md) | Accepted | command-owned IPC arguments and results |

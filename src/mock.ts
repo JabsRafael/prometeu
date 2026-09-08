@@ -1,7 +1,6 @@
+import type { IpcCommand, IpcHandlers, IpcResult } from "./ipc";
 import { emptyCatalog, initializeDefaults, type Catalog, type Profile } from "./actions";
-/// Back falso para o navegador puro (`npm run dev` e abrir localhost:1420):
-/// a UI inteira roda com dados de amostra, sem subir o Tauri. Só entra quando
-/// `window.__TAURI_INTERNALS__` não existe — dentro do app não é carregado.
+/// Browser backend for sample data. Loaded only when window.__TAURI_INTERNALS__ is absent; never loaded in Tauri.
 import { simulatedSocket } from "./team-mock";
 import type { Share } from "../relay/src/protocol";
 import { LegacyConversationAdapter } from "./conversation-legacy";
@@ -10,7 +9,7 @@ import type { Accounts } from "./statusbar";
 import type { CloudStatus } from "./cloud";
 import type { CatalogState } from "./catalog";
 import type { Skill } from "./skills";
-import { hasWorktree, type Board, type Change, type Choice, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type Pr, type Scripts, type Tab, type Workspace } from "./types";
+import { hasWorktree, type Board, type Change, type Choice, type DockKind, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type Pr, type Scripts, type Tab, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
@@ -84,8 +83,7 @@ const ws = (
   pinned: false,
   unread: false,
   agent: "claude",
-  // Modelo e esforço de mentira: é o que a caixa de escrever mostra embaixo,
-  // e sem eles o rodapé da conversa não teria o que desenhar.
+  // Sample model and effort keep the composer footer visible.
   model: "opus[1m]",
   effort: "high",
   mcp: null,
@@ -112,23 +110,20 @@ const board: Board = {
   workspaces: [
     ws("sessao-0929", "p1", "njord", "Ola", "Fazendo", [
       { id: "t1", title: "", status: "pronta", note: null, tokens: 57_000 },
-      // Aba que nasceu com outro modelo que o do workspace: é o rodapé da
-      // conversa mostrando o dela, e não o das irmãs.
+      // This tab overrides the workspace model so its footer differs from sibling tabs.
       { id: "t2", title: "", status: "pronta", note: null, tokens: 112_400, pending_prompt: "O que tem nesse projeto aqui de legal?", choice: { agent: "claude", model: "sonnet", effort: "medium" } },
     ]),
     ws("ui-2231", "p2", "prometeu", "Tela igual ao Conductor", "Fazendo", [
       { id: "t3", title: "", status: "rodando", note: "Edit src/style.css", tokens: 23_800 },
     ]),
-    // Dois repositórios na mesma branch: é aqui que a lista de mudanças ganha
-    // uma seção por repo.
+    // Two repositories on one branch exercise separate change sections.
     Object.assign(
       ws("portal-1217", "p2", "prometeu", "Contratação pelo portal", "Fazendo", [
         { id: "t9", title: "", status: "rodando", note: "Edit app/models/entry.rb", tokens: 31_000 },
       ]),
       {
         worktree: "~/prometeu/worktrees/prometeu+njord/prometeu-portal-1217",
-        // Um PR por repositório: o do njord já entrou, o do prometeu ainda
-        // não — e é por isso que a barra não oferece "Concluir".
+        // Only one repository's PR is merged, so the workspace cannot be marked complete.
         repos: [
           {
             path: "/Users/gustavo/dev/prometeu",
@@ -147,21 +142,21 @@ const board: Board = {
         ],
       },
     ),
-    // Uma pergunta esperando você é justamente o que vira novidade.
+    // An unanswered question marks this conversation unread.
     Object.assign(
       ws("icone-2140", "p2", "prometeu", "Ícone do app", "Code review", [
         { id: "t4", title: "", status: "querendo", note: "Qual tamanho de ícone você quer gerar?", tokens: 8_100 },
       ]),
       { unread: true, pr: { number: 42, title: "feat(quadro): ícone do app", isDraft: false, state: "OPEN" } },
     ),
-    // PR mergeado: é este que mostra o selo no card e o "Concluir" na barra.
+    // A merged PR exposes the card badge and completion action.
     Object.assign(
       ws("dock-1130", "p2", "prometeu", "Porta do dock por worktree", "Code review", [
         { id: "t5", title: "", status: "pronta", note: null, tokens: 44_200 },
       ]),
       { pr: { number: 40, title: "feat(dock): porta por worktree", isDraft: false, state: "MERGED" } },
     ),
-    // Arquivado que ainda ocupa disco: é ele que a folha de limpeza lista.
+    // This archived workspace still occupies disk space and appears in cleanup.
     Object.assign(
       ws("linear-0912", "p1", "njord", "Conectar o Linear", "Feito", [
         { id: "t7", title: "", status: "desligada", note: null, tokens: 66_000 },
@@ -174,7 +169,7 @@ const board: Board = {
       ]),
       { archived: true },
     ),
-    // Worktree devolvido: o card que sobrou de um trabalho que acabou.
+    // Keep the completed workspace card after its worktree is removed.
     Object.assign(
       ws("idioma-1348", "p2", "prometeu", "O app fala inglês", "Feito", [
         { id: "t6", title: "", status: "desligada", note: null, tokens: 91_000 },
@@ -188,8 +183,7 @@ const board: Board = {
   ],
 };
 
-// O PR é do repositório, não do workspace: o que as amostras acima escrevem
-// solto vai para o principal — o mesmo caminho do `revive` do back.
+// Normalize sample PRs onto the primary repository, matching backend legacy loading.
 for (const w of board.workspaces as (Workspace & { pr?: Pr | null })[]) {
   if (w.pr) w.repos[0].pr = w.pr;
   delete w.pr;
@@ -220,7 +214,7 @@ const tree: Record<string, { name: string; path: string; dir: boolean }[]> = {
 const files: Record<string, string> = {
   "docs/regras.pdf":
     "%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>",
-  // Excel em pt-BR: `;` de separador, vírgula decimal, campo com quebra dentro.
+  // Brazilian Excel format: semicolon delimiters, decimal commas, and a multiline field.
   "docs/clientes.csv": [
     "id;nome;cidade;total",
     ...Array.from({ length: 3000 }, (_, i) => `${i + 1};"Cliente ${i + 1}";São Paulo;${i * 7},50`),
@@ -256,8 +250,7 @@ end
   ".rubocop.yml": "# Omakase Ruby styling for Rails\ninherit_gem: { rubocop-rails-omakase: rubocop.yml }\n\nAllCops:\n  TargetRubyVersion: 3.4\n  NewCops: enable\n",
 };
 
-/// As mudanças do segundo repositório do workspace de dois: o outro lado da
-/// mesma feature, com histórico próprio.
+/// Changes in the second repository exercise independent history for the same feature.
 const changes2 = [
   {
     path: "app/models/entry.rb",
@@ -348,8 +341,7 @@ const gitPatch = (file: Change, patch: string): Change => ({
   added: patch.split("\n").filter((line) => line.startsWith("+")).length,
   removed: patch.split("\n").filter((line) => line.startsWith("-")).length,
 });
-// Os hunks da amostra são independentes. O mock junta esses hunks ao mover
-// o índice; aplicação de patches arbitrários continua sendo teste do Git real.
+// Sample hunks are independent. The mock combines them when staging; arbitrary patch application requires real Git tests.
 function mergeGitFile(target: Change[], file: Change, prepend = false) {
   const at = target.findIndex((current) => current.path === file.path);
   if (at < 0) target.push({ ...file });
@@ -411,14 +403,12 @@ function gitStatus(value: MockGit): GitStatus {
   });
 }
 
-/// Um transcript legado de mentira, mantido como fixture de rollback. Eventos
-/// novos do mock são normalizados para V1 antes de chegar à tela ou ao relay.
+/// Legacy transcript fixture for compatibility. New mock events become V1 before reaching the UI or relay.
 const line = (o: unknown) => JSON.stringify(o);
 const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 const SAMPLE =
   [
-    // A resposta ao `initialize` que o back manda ao subir o processo, e o
-    // `init` que vem depois da primeira fala (o `color` é de terminal, sai).
+    // Simulate initialization and first-message metadata; terminal-only commands are filtered out.
     line({
       type: "control_response",
       response: {
@@ -452,9 +442,7 @@ const SAMPLE =
     line({ type: "result", subtype: "success", is_error: false, duration_ms: 5000 }),
   ].join("\n") + "\n";
 
-/// Os scripts de cada workspace. Um repo com tudo declarado e dois runs, para a
-/// lista do botão ter o que mostrar; e um sem nada, que é o estado que o convite
-/// de "Adicionar script" existe para cobrir.
+/// One workspace has setup and two run scripts; another has none to exercise the add-script prompt.
 const scripts: Record<string, Scripts> = {
   "sessao-0929": {
     file: ".conductor/settings.toml",
@@ -480,9 +468,7 @@ const scripts: Record<string, Scripts> = {
 };
 const noScripts: Scripts = { file: null, inherited: false, setup: null, runs: [], archive: null, copy: [], port: 3120 };
 
-/// Os docks que existem, pela mesma chave do Rust: `<workspace>:<tipo>`, e se
-/// o processo está vivo. O setup "termina" sozinho pouco depois de subir, para
-/// a tela do que já rodou existir no navegador.
+/// Dock keys match Rust: <workspace>:<kind>. Setup finishes on a timer so retained output is available in the browser.
 const docks = new Map<string, boolean>();
 const DONE = "\r\n\x1b[32m✓ terminou\x1b[0m\r\n";
 
@@ -525,15 +511,12 @@ const ISSUES: Issue[] = [
   issue("MOA-151", "Mostrar tokens de contexto no card", 3, TODO, "Quadro", 26),
   issue("MOA-149", "Atalho ⌘, para configurações", 4, TODO, null, 30),
   issue("MOA-120", "Explorar sync com Notion", 0, BACKLOG, "Integrações", 240),
-  // Um segundo time: é o que faz a linha de filtro por time aparecer.
+  // A second team makes the team filter visible.
   issue("INF-88", "Runner self-hosted cai depois de duas horas ocioso", 1, DOING, "Infra", 3),
   issue("INF-72", "Assinar o .dmg no CI sem pedir a senha do Keychain", 3, TODO, "Infra", 52),
 ];
 
-/// As linhas de cada conversa de mentira, numeradas como o back numera: o que
-/// `chat_send` escreve entra aqui, sai pelo evento `chat` com o número, e o
-/// `chat_snapshot` devolve o mesmo par — para o compartilhamento poder ser
-/// testado contra um relay de verdade sem subir o Tauri.
+/// Number conversation lines like the backend. Live events and snapshots share that sequence for real-relay browser tests.
 const scrolls = new Map<string, { text: string; seq: number }>();
 const conversationAdapters = new Map<string, LegacyConversationAdapter>();
 const scrollOf = (tab: string) => {
@@ -556,37 +539,30 @@ function pushLine(tab: string, o: unknown, keep = true) {
   }
 }
 
-/// Uma fala: entra como o back a ecoa, e o agente de mentira responde
-/// letra a letra. Fala com "plano" vira um plano esperando aprovação; com
-/// "pergunta", uma pergunta com opções — os dois cards que existem para ver.
+/// Echo input and stream a sample reply. The fixture keywords select plan approval or multiple-choice question cards.
 let msgN = 0;
-/// O que o `/context` devolve (um de verdade, encurtado).
-/// O hub de MCP do navegador. Muda com o que se cadastra e remove na tela —
-/// é o que deixa a seção de Configurações ser usada de verdade sem back.
+/// The browser MCP hub supports settings edits without a backend.
 let mcpHub: McpServer[] = [
   { id: "capim-ds", config: { type: "stdio", command: "npx", args: ["-y", "@capim/ds-mcp"], env: {} }, note: "design system" },
   { id: "notion", config: { type: "http", url: "https://mcp.notion.com/mcp" }, note: "" },
   { id: "linear-server", config: { type: "http", url: "https://mcp.linear.app/mcp" }, note: "capim-backend" },
 ];
 
-/// Quantas vezes a escolha de MCP ou de plugin foi gravada. É o que um teste
-/// olha para saber se marcar três coisas seguidas virou uma gravação só.
+/// Count MCP/plugin writes so tests can verify that rapid selections are coalesced.
 let writes = 0;
 
-/// Uma linha do que o agente que escreve o plugin está fazendo.
+/// One progress step from the simulated plugin author.
 type Step = { kind: string; text: string };
 
-/// O hub de plugins do navegador: um instalado por marketplace e um que
-/// alguém está escrevendo, que são os dois casos que a lista desenha.
+/// The sample hub includes a marketplace plugin and a plugin being authored locally.
 let pluginHub: Plugin[] = [
   { id: "caveman", source: "~/.prometeu/plugins/caveman", note: "fala curto e sem enfeite", made: true, from: "https://github.com/JuliusBrussee/caveman" },
   { id: "ponytail", source: "~/dev/ponytail", note: "em construção" },
 ];
 
-/// A importação existe no mock para a folha poder ser vista e testada. O
-/// navegador não toca no disco; a marca só sobrevive ao fluxo desta aba.
+/// Browser import changes only this page's mock state; it never accesses disk.
 let legacyImported = false;
-const legacyPlan = () => ({
+const legacyPlan = (): IpcResult<"legacy_import_plan"> => ({
   state: legacyImported ? "imported" : "ready",
   source: "/Users/gustavo/.prometheus",
   counts: {
@@ -608,11 +584,10 @@ const legacyPlan = () => ({
   backup: legacyImported ? "/Users/gustavo/.prometeu/imports/prometheus-mock" : null,
 });
 
-/// A corrida da criação, no navegador: os passos saem de um relógio, e não de
-/// um agente.
+/// Plugin creation progress uses timers instead of an agent.
 let pluginRun = 0;
 
-/// Em quais servidores já se entrou, no navegador.
+/// MCP servers authenticated in this browser session.
 let mcpLogins: string[] = [];
 
 const CONTEXT_MD = "## Context Usage\n\n**Model:** claude-fable-5  \n**Tokens:** 20.2k / 1m (2%)\n\n### Estimated usage by category\n\n| Category | Tokens | Percentage |\n|----------|--------|------------|\n| System prompt | 4k | 0.4% |\n| System tools | 6.5k | 0.7% |\n| MCP tools (deferred) | 14.3k | 1.4% |\n| System tools (deferred) | 14k | 1.4% |\n| Custom agents | 368 | 0.0% |\n| Skills | 3k | 0.3% |\n| Messages | 6.3k | 0.6% |\n| Compact buffer | 3k | 0.3% |\n| Free space | 976.8k | 97.7% |\n\n### MCP Tools\n\n| Tool | Server | Tokens |\n|------|--------|--------|\n| mcp__capim-ds__get_components | capim-ds | 250 |\n| mcp__capim-ds__get_foundations | capim-ds | 209 |\n| mcp__capim-ds__get_icon_details | capim-ds | 168 |\n| mcp__capim-ds__get_illustration_details | capim-ds | 194 |\n| mcp__capim-ds__get_logo_details | capim-ds | 171 |\n| mcp__capim-ds__list_components | capim-ds | 130 |\n| mcp__capim-ds__list_icons | capim-ds | 107 |\n| mcp__capim-ds__list_illustrations | capim-ds | 120 |\n| mcp__capim-ds__list_logos | capim-ds | 112 |\n| mcp__claude_ai_Google_Drive__copy_file | claude_ai_Google_Drive | 444 |\n| mcp__claude_ai_Google_Drive__create_file | claude_ai_Google_Drive | 965 |\n| mcp__claude_ai_Google_Drive__download_file_content | claude_ai_Google_Drive | 433 |\n| mcp__claude_ai_Google_Drive__get_file_metadata | claude_ai_Google_Drive | 237 |\n| mcp__claude_ai_Google_Drive__get_file_permissions | claude_ai_Google_Drive | 143 |\n\n### Custom Agents\n\n| Agent Type | Source | Tokens |\n|------------|--------|--------|\n| caveman:cavecrew-builder | Plugin | 134 |\n| caveman:cavecrew-investigator | Plugin | 112 |\n| caveman:cavecrew-reviewer | Plugin | 122 |\n\n### Skills\n\n| Skill | Source | Tokens |\n|-------|--------|--------|\n| para-memory-files | User | ~190 |\n| caveman:cavecrew | Plugin (caveman) | ~190 |\n| caveman:caveman | Plugin (caveman) | ~140 |\n| caveman:caveman-commit | Plugin (caveman) | ~120 |\n| caveman:caveman-compress | Plugin (caveman) | ~120 |\n| caveman:caveman-help | Plugin (caveman) | ~70 |\n| caveman:caveman-review | Plugin (caveman) | ~110 |\n| caveman:caveman-stats | Plugin (caveman) | ~90 |\n| dataviz | Built-in | ~380 |\n| update-config | Built-in | ~240 |\n| keybindings-help | Built-in | ~80 |\n| code-review | Built-in | ~270 |\n| simplify | Built-in | ~60 |\n| fewer-permission-prompts | Built-in | ~60 |\n| loop | Built-in | ~120 |\n| schedule | Built-in | ~130 |\n| claude-api | Built-in | ~360 |\n| workflow-authoring | Built-in | ~80 |\n| run | Built-in | ~120 |\n| init | Built-in | ~20 |\n| security-review | Built-in | ~30 |";
@@ -625,8 +600,7 @@ function sayInto(tab: string, text: string) {
     return;
   }
   if (text.trim() === "/compact") {
-    // Demora de verdade (um minuto, às vezes mais): a legenda fica o tempo
-    // todo, e no fim vêm o tamanho, o resumo e o eco do comando.
+    // Keep compaction progress visible until the result, summary, and command echo arrive.
     pushLine(tab, { type: "system", subtype: "status", status: "compacting" });
     setTimeout(() => {
       pushLine(tab, { type: "system", subtype: "status", status: null, compact_result: "success" });
@@ -659,8 +633,7 @@ function sayInto(tab: string, text: string) {
       return;
     }
     if (text.includes("background")) {
-      // Duas tarefas em segundo plano: a legenda diz quantas, o card gira
-      // até o aviso de que acabou, e o agente reage sozinho ao aviso.
+      // Two background tasks exercise progress counts, completion notices, and automatic agent replies.
       const tasks = [
         { task: `bg-${id}a`, tool: `tu-${id}a`, desc: "Mapear lacunas de teste" },
         { task: `bg-${id}b`, tool: `tu-${id}b`, desc: "Auditar qualidade do repositório" },
@@ -700,7 +673,7 @@ function sayInto(tab: string, text: string) {
   }, 60);
 }
 
-/// Uma resposta a card: a ferramenta "roda" e o turno termina.
+/// A card response completes the simulated tool and turn.
 function controlInto(tab: string, frame: Record<string, any>) {
   if (frame.v !== 1 || frame.type !== "request.respond") return;
   const req = String(frame.requestId ?? "");
@@ -711,8 +684,7 @@ function controlInto(tab: string, frame: Record<string, any>) {
   pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 400 });
 }
 
-/// Os workspaces compartilhados, entre recargas — o `shared` e a `audience`
-/// do board.json.
+/// Persist shared workspaces and their audiences across browser reloads, mirroring board.json.
 const SHARED = "mock:shared";
 for (const [id, audience, shareTeam] of JSON.parse(localStorage.getItem(SHARED) ?? "[]") as [string, string[] | null, string?][]) {
   const ws = board.workspaces.find((x) => x.id === id);
@@ -727,1009 +699,1068 @@ function emit(event: string, payload: unknown) {
   handlers.get(event)?.forEach((h) => h({ event, id: nextId++, payload }));
 }
 
-function call(cmd: string, args: Record<string, any> = {}): unknown {
-  switch (cmd) {
-    case "accounts":
-      return structuredClone(mockAccounts);
-    case "account_select": {
-      const account = mockAccounts.accounts.find((account) => account.id === args.id);
-      if (!account) throw 'i18n:{"code":"err.account.missing"}';
-      if (!account.connected && account.id !== account.provider) throw 'i18n:{"code":"err.account.disconnected"}';
-      mockAccounts.active[account.provider] = account.id;
-      return accountSnapshot();
+const mockCommands: IpcHandlers = {
+  accounts() {
+    return structuredClone(mockAccounts);
+  },
+  account_select(args) {
+    const account = mockAccounts.accounts.find((account) => account.id === args.id);
+    if (!account) throw 'i18n:{"code":"err.account.missing"}';
+    if (!account.connected && account.id !== account.provider) throw 'i18n:{"code":"err.account.disconnected"}';
+    mockAccounts.active[account.provider] = account.id;
+    return accountSnapshot();
+  },
+  account_remove(args) {
+    if (mockAccounts.login) throw 'i18n:{"code":"err.account.busy"}';
+    const account = mockAccounts.accounts.find((account) => account.id === args.id);
+    if (!account) throw 'i18n:{"code":"err.account.missing"}';
+    if (mockAccounts.active[account.provider] === account.id) delete mockAccounts.active[account.provider];
+    mockAccounts.accounts = mockAccounts.accounts.filter((entry) => entry.id !== account.id);
+    const snapshot = accountSnapshot();
+    emit("usage", call("usage"));
+    return snapshot;
+  },
+  account_login(args) {
+    if (mockAccounts.login) throw 'i18n:{"code":"err.account.busy"}';
+    if (!["claude", "codex"].includes(args.provider)) throw 'i18n:{"code":"err.account.provider"}';
+    let account = mockAccounts.accounts.find((account) => account.id === args.id);
+    if (!account) {
+      account = { id: crypto.randomUUID(), provider: args.provider, email: null, plan: null, connected: false, revision: 0 };
+      mockAccounts.accounts.push(account);
     }
-    case "account_remove": {
-      if (mockAccounts.login) throw 'i18n:{"code":"err.account.busy"}';
-      const account = mockAccounts.accounts.find((account) => account.id === args.id);
-      if (!account) throw 'i18n:{"code":"err.account.missing"}';
-      if (mockAccounts.active[account.provider] === account.id) delete mockAccounts.active[account.provider];
-      mockAccounts.accounts = mockAccounts.accounts.filter((entry) => entry.id !== account.id);
-      const snapshot = accountSnapshot();
-      emit("usage", call("usage"));
-      return snapshot;
+    const connecting = account;
+    mockAccounts.login = { id: connecting.id, provider: connecting.provider };
+    accountSnapshot();
+    return new Promise((resolve, reject) => {
+      const finish = (code?: string) => {
+        mockAccounts.login = null;
+        cancelAccountLogin = null;
+        if (!code) {
+          connecting.connected = true;
+          connecting.email = "nova@exemplo.com";
+          connecting.plan = "pro";
+          connecting.revision++;
+        }
+        const snapshot = accountSnapshot();
+        emit("usage", call("usage"));
+        if (code) reject(`i18n:${JSON.stringify({ code })}`);
+        else resolve(snapshot);
+      };
+      const timer = setTimeout(() => finish(localStorage.getItem("mock:accountLoginError") ? "err.account.login" : undefined), 1000);
+      cancelAccountLogin = () => { clearTimeout(timer); finish("err.account.cancelled"); };
+    });
+  },
+  account_login_cancel(args) {
+    if (mockAccounts.login?.id === args.id) cancelAccountLogin?.();
+    return;
+  },
+  actions_save(args) {
+    const catalog = args.catalog as Catalog;
+    if (new Set(catalog.commands.map(c => c.name)).size !== catalog.commands.length || catalog.commands.some(c => !/^[a-z0-9-]{1,64}$/.test(c.name) || ["context", "compact"].includes(c.name) || (c.kind === "prompt" ? !c.prompt.trim() : !catalog.profiles.some(p => p.id === c.profile))) || catalog.profiles.some(p => !p.name.trim() || !p.prompt.trim() || (p.watch && (p.watch.interval_seconds < 30 || p.watch.max_turns < 1 || p.watch.max_turns > 100)))) {
+      throw `i18n:${JSON.stringify({ code: "err.actions.invalid" })}`;
     }
-    case "account_login": {
-      if (mockAccounts.login) throw 'i18n:{"code":"err.account.busy"}';
-      if (!["claude", "codex"].includes(args.provider)) throw 'i18n:{"code":"err.account.provider"}';
-      let account = mockAccounts.accounts.find((account) => account.id === args.id);
-      if (!account) {
-        account = { id: crypto.randomUUID(), provider: args.provider, email: null, plan: null, connected: false, revision: 0 };
-        mockAccounts.accounts.push(account);
+    board.actions = structuredClone(catalog);
+    localStorage.setItem("mock:actions", JSON.stringify(catalog));
+    emit("board", board);
+    return;
+  },
+  action_start(args) {
+    const workspace = board.workspaces.find(w => w.id === args.workspace);
+    const catalog = board.actions ?? emptyCatalog();
+    const action = catalog.commands.find(c => c.name === args.name && c.kind === "agent");
+    if (!workspace || !action?.profile || workspace.cleaned || workspace.archived) throw `i18n:${JSON.stringify({ code: "err.actions.unavailable" })}`;
+    const existing = workspace.tabs.find(t => t.task?.command === action.name && !t.task.done);
+    if (existing) {
+      if (String(args.context ?? "").trim()) throw `i18n:${JSON.stringify({ code: "err.actions.active" })}`;
+      return existing;
+    }
+    if (workspace.tabs.some(t => t.status === "rodando" || t.status === "querendo" || t.pending_prompt)) throw `i18n:${JSON.stringify({ code: "err.actions.busy" })}`;
+    const profile = structuredClone(catalog.overrides[workspace.project]?.[action.profile] ?? catalog.profiles.find(p => p.id === action.profile)) as Profile;
+    profile.mcp ??= workspace.mcp;
+    profile.plugins ??= workspace.plugins;
+    const tab: Tab = { id: crypto.randomUUID(), title: profile.name, choice: profile.choice, status: "pronta", note: null, tokens: null,
+      task: { command: action.name, profile, paused: false, done: !profile.watch, turns: 0, checked_at: 0, error: null, seen: {}, prs: {} } };
+    scrolls.set(tab.id, { text: line({ v: 1, type: "user.message", at: Date.now(), content: [{ kind: "text", text: [action.prompt, args.context].filter(Boolean).join("\n\n") || profile.prompt }] }) + "\n", seq: 1 });
+    workspace.tabs.push(tab); workspace.active = tab.id;
+    emit("board", board);
+    return tab;
+  },
+  action_pause(args) {
+    const run = board.workspaces.flatMap(w => w.tabs).find(t => t.id === args.session)?.task;
+    if (!run) throw `i18n:${JSON.stringify({ code: "err.actions.missing" })}`;
+    run.paused = args.paused; run.error = null;
+    if (!run.paused) { run.turns = 0; run.checked_at = 0; }
+    emit("board", board); return;
+  },
+  load_board() {
+    return board;
+  },
+  cloud_status(args) {
+    if (args.refresh && localStorage.getItem("mock:cloudExpired")) localStorage.removeItem("mock:cloud");
+    return { ...mockCloud(), offline: !!localStorage.getItem("mock:cloudOffline") };
+  },
+  cloud_organizations() {
+    const cloud = mockCloud();
+    if (localStorage.getItem("mock:cloudOffline")) throw 'i18n:{"code":"err.cloud.network"}';
+    return { user: cloud.user, origin: cloud.origin, organizations: cloud.user ? JSON.parse(localStorage.getItem("mock:organizations") ?? "[]") : [] };
+  },
+  cloud_relay_ticket(args) {
+    cloudWrite();
+    const cloud = mockCloud();
+    const org = JSON.parse(localStorage.getItem("mock:organizations") ?? "[]").find((org: team.Organization) => org.id === args.organization);
+    if (!org || cloud.user?.id !== args.user || cloud.origin !== args.expectedOrigin) throw 'i18n:{"code":"err.cloud.response"}';
+    return `ws://mock/organization/${org.id}?p=4&ticket=${"t".repeat(43)}&m=${org.member}&n=${encodeURIComponent(cloud.user!.name)}`;
+  },
+  cloud_login_start() {
+    if (localStorage.getItem("mock:cloudOffline")) throw 'i18n:{"code":"err.cloud.network"}';
+    cloudPending = crypto.randomUUID();
+    return { id: cloudPending, user_code: "ABCD-EFGH", url: "https://app.prometeu.co/device?user_code=ABCD-EFGH&mode=signup", interval: 5 };
+  },
+  cloud_login_poll(args) {
+    if (!cloudPending || cloudPending !== args.id) throw 'i18n:{"code":"err.cloud.expired"}';
+    if (!localStorage.getItem("mock:cloudApproved")) return null;
+    const value = { ...emptyCloud(), user: { id: "cloud-user", name: "Gustavo Brancaglione", email: "gustavo@example.com" } };
+    localStorage.setItem("mock:cloud", JSON.stringify(value));
+    localStorage.removeItem("mock:cloudApproved"); cloudPending = null; emit("catalog", null);
+    return value;
+  },
+  catalog_state() {
+    if (!mockCloud().user) return { connected: false, revision: null, plugins: [], mcp: [], skills: [], shared: {} };
+    const state = mockCatalog();
+    state.plugins = state.plugins.map(p => ({ ...p, installed: pluginHub.some(local => local.id === p.local_id) }));
+    state.skills = state.skills.map(s => ({ ...s, installed: skillHub.some(local => local.id === s.local_id) }));
+    return state;
+  },
+  catalog_refresh() {
+    cloudWrite(); emit("catalog", null); return;
+  },
+  catalog_share(args) {
+    cloudWrite();
+    const kind = String(args.kind), id = String(args.id), state = mockCatalog();
+    if (state.shared[`${kind}:${id}`]) throw 'i18n:{"code":"err.catalog.conflict"}';
+    if (kind === "plugins") {
+      const plugin = pluginHub.find(p => p.id === id);
+      const source = plugin?.from || plugin?.source || "";
+      if (!/^(https?:\/\/|git@|[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$)/.test(source)) throw 'i18n:{"code":"err.catalog.portable"}';
+      state.plugins.push({ id, source, note: plugin!.note, local_id: id, installed: true, source_changed: false });
+    } else if (kind === "mcp") state.mcp.push(id);
+    else if (kind === "skills") {
+      const skill = skillHub.find(s => s.id === id); if (!skill) throw 'i18n:{"code":"err.catalog.invalid"}';
+      state.skills.push({ ...skill, local_id: id, installed: true });
+    } else throw 'i18n:{"code":"err.catalog.invalid"}';
+    state.shared[`${kind}:${id}`] = id; saveMockCatalog(state); return;
+  },
+  catalog_copy(args) {
+    const kind = String(args.kind), id = String(args.id), newId = String(args.newId).trim();
+    if (!newId) throw 'i18n:{"code":"err.catalog.invalid"}';
+    if (kind === "skills") {
+      if (skillHub.some(s => s.id === newId)) throw 'i18n:{"code":"err.catalog.conflict"}';
+      const skill = skillHub.find(s => s.id === id); if (!skill) throw 'i18n:{"code":"err.catalog.invalid"}';
+      saveMockSkill({ ...skill, id: newId });
+    } else if (kind === "mcp") {
+      if (mcpHub.some(s => s.id === newId)) throw 'i18n:{"code":"err.catalog.conflict"}';
+      const server = mcpHub.find(s => s.id === id); if (!server) throw 'i18n:{"code":"err.catalog.invalid"}';
+      mcpHub.push({ ...structuredClone(server), id: newId });
+    } else {
+      if (pluginHub.some(p => p.id === newId)) throw 'i18n:{"code":"err.catalog.conflict"}';
+      const plugin = pluginHub.find(p => p.id === id); if (!plugin) throw 'i18n:{"code":"err.catalog.invalid"}';
+      pluginHub.push({ ...plugin, id: newId, made: false });
+    }
+    emit("catalog", null); return;
+  },
+  catalog_install_plugin(args) {
+    const item = mockCatalog().plugins.find(p => p.id === args.id); if (!item) throw 'i18n:{"code":"err.catalog.invalid"}';
+    pluginHub = [...pluginHub.filter(p => p.id !== item.local_id), { id: item.local_id, source: `~/.prometeu/plugins/${item.local_id}`, from: item.source, note: item.note, made: false }];
+    emit("catalog", null); return;
+  },
+  catalog_install_skill(args) {
+    const item = mockCatalog().skills.find(s => s.id === args.id); if (!item) throw 'i18n:{"code":"err.catalog.invalid"}';
+    saveMockSkill({ id: item.local_id, description: item.description, content: item.content }); emit("catalog", null); return;
+  },
+  skill_hub() {
+    for (const skill of [...skillHub]) saveMockSkill(skill);
+    return skillHub;
+  },
+  skill_save(args) {
+    const skill = args.skill as Skill;
+    const state = mockCatalog();
+    if (mockCloud().user && state.shared[`skills:${skill.id}`]) {
+      cloudWrite();
+      if (args.revision !== state.revision) throw 'i18n:{"code":"err.catalog.conflict"}';
+      state.skills = state.skills.map(s => s.local_id === skill.id ? { ...s, description: skill.description, content: skill.content } : s);
+      saveMockCatalog(state);
+    }
+    saveMockSkill(skill); return skillHub;
+  },
+  skill_remove(args) {
+    skillHub = skillHub.filter(s => s.id !== args.id);
+    localStorage.setItem("mock:skills", JSON.stringify(skillHub));
+    pluginHub = pluginHub.filter(p => p.id !== `skill-${args.id}`);
+    return skillHub;
+  },
+  cloud_login_cancel(args) {
+    if (cloudPending === args.id) cloudPending = null;
+    return;
+  },
+  cloud_logout() {
+    if (localStorage.getItem("mock:cloudOffline")) throw 'i18n:{"code":"err.cloud.network"}';
+    localStorage.removeItem("mock:cloud");
+    return emptyCloud();
+  },
+  remove_project(args) {
+    board.projects = board.projects.filter((project) => project.id !== args.id);
+    emit("board", board);
+    return;
+  },
+  legacy_import_plan() {
+    return legacyPlan();
+  },
+  legacy_import_run() {
+    legacyImported = true;
+    return legacyPlan();
+  },
+  // Use localStorage for browser team state; Tauri stores it in team.json.
+  team_config() {
+    return { config: JSON.parse(localStorage.getItem("mock:team") ?? "null"), default_name: "Você" };
+  },
+  team_security() {
+    return JSON.parse(localStorage.getItem("mock:team-security") ?? "null");
+  },
+  team_security_set({ state }) {
+    localStorage.setItem("mock:team-security", JSON.stringify(state));
+  },
+  team_config_set(args) {
+    if (args.config) localStorage.setItem("mock:team", JSON.stringify(args.config));
+    else localStorage.removeItem("mock:team");
+    return;
+  },
+  pty_buffer(args) {
+    const s = String(args.session);
+    const text = docks.get(s) === false ? SCRIPT_OUT + DONE : SCRIPT_OUT;
+    return [...new TextEncoder().encode(text)];
+  },
+  // Append runtime turn state after the numbered transcript; it is not a conversation line.
+  chat_snapshot(args) {
+    const s = scrollOf(String(args.session));
+    return { text: s.text + line({ v: 1, type: "session.state", at: Date.now(), state: "ready" }) + "\n", seq: s.seq };
+  },
+  // Respond to incoming messages so remote input and replies can be tested.
+  chat_send(args) {
+    sayInto(String(args.session), String(args.text));
+    return;
+  },
+  chat_control(args) {
+    controlInto(String(args.session), args.frame as Record<string, any>);
+    return;
+  },
+  chat_control_remote(args) {
+    controlInto(String(args.session), args.frame as Record<string, any>);
+    return;
+  },
+  pty_write() {
+    return;
+  },
+  // Return one change group per repository, including the second repository's independent changes.
+  workspace_diff(args) {
+    const target = board.workspaces.find((x) => x.id === args.id);
+    return (target?.repos ?? []).map((r, i) => {
+      const files = i === 0 ? changes : changes2;
+      const base = i === 0 ? "origin/main" : "origin/develop";
+      // Only the first repository has unpushed commits, exercising both summary states.
+      const ahead = i === 0 ? 3 : 1;
+      return { name: r.name, base, ahead, unpushed: i === 0 ? 1 : 0, dirty: files.filter((f) => f.dirty).length, files };
+    });
+  },
+  workspace_git_status(args) {
+    const target = board.workspaces.find((workspace) => workspace.id === args.id && !workspace.cleaned);
+    if (!target) return gitError("err.session.noWorkspace");
+    return target.repos.map((_, index) => gitStatus(gitState(target.id, index)));
+  },
+  workspace_git_diff(args) {
+    const value = gitState(args.id, args.repo ?? 0);
+    const committed = args.scope === "commit";
+    const comparison = args.scope === "compare";
+    const position = committed && args.reference && args.reference !== "HEAD"
+      ? value.commits.findIndex((commit) => commit.oid === args.reference) : 0;
+    if (committed && position < 0) return gitError("err.git.changed");
+    const source = args.scope === "staged" ? value.staged : args.scope === "changes" ? value.changes
+      : comparison ? value.compare : value.commits[position].files;
+    return structuredClone({
+      base: committed ? value.commits[position + 1]?.oid ?? "0".repeat(40) : comparison ? "1".padStart(40, "0") : "",
+      head: committed || comparison ? value.commits[committed ? position : 0].oid : "",
+      files: source.filter((file) => args.path == null || file.path === args.path),
+    });
+  },
+  workspace_git_action(args) {
+    const value = gitState(args.id, args.repo ?? 0);
+    const status = gitStatus(value);
+    const operation = args.operation;
+    const selected: string[] = args.paths ?? [];
+    if (operation === "stage" || operation === "unstage") {
+      if (!selected.length) return gitError("err.git.selection");
+      const source = operation === "stage" ? value.changes : value.staged;
+      const target = operation === "stage" ? value.staged : value.changes;
+      if (selected.some((path) => !source.some((file) => file.path === path) && !value.conflicts[path])) return gitError("err.git.changed");
+      for (const path of new Set(selected)) {
+        const at = source.findIndex((file) => file.path === path);
+        if (at >= 0) mergeGitFile(target, source.splice(at, 1)[0], operation === "unstage");
+        else {
+          const conflict = value.conflicts[path];
+          const file = { path, added: 0, removed: 0, new_file: false, deleted: false, dirty: true, patch: "" };
+          mergeGitFile(target, gitPatch(file, `@@ -0,0 +1,${conflict.current.split("\n").length} @@\n${conflict.current.split("\n").map((line) => `+${line}`).join("\n")}`));
+        }
+        delete value.conflicts[path];
       }
-      const connecting = account;
-      mockAccounts.login = { id: connecting.id, provider: connecting.provider };
-      accountSnapshot();
-      return new Promise((resolve, reject) => {
-        const finish = (code?: string) => {
-          mockAccounts.login = null;
-          cancelAccountLogin = null;
-          if (!code) {
-            connecting.connected = true;
-            connecting.email = "nova@exemplo.com";
-            connecting.plan = "pro";
-            connecting.revision++;
-          }
-          const snapshot = accountSnapshot();
-          emit("usage", call("usage"));
-          if (code) reject(`i18n:${JSON.stringify({ code })}`);
-          else resolve(snapshot);
-        };
-        const timer = setTimeout(() => finish(localStorage.getItem("mock:accountLoginError") ? "err.account.login" : undefined), 1000);
-        cancelAccountLogin = () => { clearTimeout(timer); finish("err.account.cancelled"); };
+      value.status.index = `mock-${++value.version}`;
+    } else if (operation === "commit") {
+      if (!status.branch) return gitError("err.git.detached");
+      if (status.conflicts.length) return gitError("err.git.conflicts");
+      if ((!value.staged.length && !status.merging) || !String(args.message ?? "").trim()) return gitError("err.git.selection");
+      if (args.expected !== status.index) return gitError("err.git.changed");
+      const committed = value.staged.map((file) => ({ ...file, dirty: false }));
+      for (const file of committed) mergeGitFile(value.compare, file);
+      value.commits.unshift({
+        oid: (++nextId + 100).toString(16).padStart(40, "0"),
+        subject: String(args.message).trim().split("\n")[0], author: "Gustavo",
+        date: new Date().toISOString(), outgoing: !!status.upstream, files: committed,
       });
+      value.staged = [];
+      value.status.merging = false;
+      value.status.ahead += status.upstream ? 1 : 0;
+      value.status.index = `mock-${++value.version}`;
+    } else if (operation === "fetch") {
+      // Simulate a remote commit without network access.
+      value.status.behind = status.upstream ? Math.max(1, status.behind) : 0;
+    } else if (operation === "pull") {
+      if (!status.branch) return gitError("err.git.detached");
+      if (!status.upstream) return gitError("err.git.upstream");
+      if (status.staged.length || status.changes.length || status.conflicts.length) return gitError("err.git.dirtyPull");
+      if (status.ahead && status.behind) return gitError("err.git.changed");
+      value.status.behind = 0;
+      value.status.index = `mock-${++value.version}`;
+    } else if (operation === "push" || operation === "publish") {
+      if (!status.branch) return gitError("err.git.detached");
+      if (status.behind) return gitError("err.git.changed");
+      if (operation === "publish") {
+        if (!status.remotes.includes(args.remote ?? "")) return gitError("err.git.upstream");
+        value.status.upstream = `${args.remote}/${status.branch}`;
+      } else if (!status.upstream) return gitError("err.git.upstream");
+      value.status.ahead = 0;
+      value.commits.forEach((commit) => { commit.outgoing = false; });
+    } else return gitError("err.git.selection");
+    return;
+  },
+  workspace_git_history(args) {
+    return gitState(args.id, args.repo ?? 0).commits.map(({ files: _, ...commit }) => ({ ...commit }));
+  },
+  workspace_git_branches(args) {
+    const value = gitState(args.id, args.repo ?? 0);
+    const current = board.workspaces.find((workspace) => workspace.id === args.id)!;
+    const repo = current.repos[args.repo ?? 0];
+    const branches: GitBranch[] = board.workspaces.filter((workspace) => !workspace.cleaned && workspace.repos.some((entry) => entry.path === repo.path)).map((workspace) => ({
+      name: workspace.branch, current: workspace.branch === value.status.branch, remote: false,
+      worktree: workspace.repos.find((entry) => entry.path === repo.path)!.worktree, workspace: workspace.id,
+    }));
+    branches.push(
+      { name: "main", current: value.status.branch === "main", remote: false, worktree: repo.path, workspace: null },
+      { name: "feature/local-work", current: false, remote: false, worktree: null, workspace: null },
+      ...[...new Set([repo.base, value.status.upstream, "origin/feature/review"].filter((name): name is string => !!name))].map((name) => ({ name, current: false, remote: true, worktree: null, workspace: null })),
+    );
+    return branches.filter((branch, index) => branches.findIndex((other) => other.name === branch.name) === index);
+  },
+  workspace_git_conflict(args) {
+    const conflict = gitState(args.id, args.repo ?? 0).conflicts[args.path];
+    if (!conflict) return gitError("err.git.changed");
+    return { ...conflict };
+  },
+  workspace_git_resolve(args) {
+    const value = gitState(args.id, args.repo ?? 0);
+    const conflict = value.conflicts[args.path];
+    if (!conflict) return gitError("err.git.changed");
+    if (conflict.current !== args.was) return gitError("err.session.changed");
+    const text = String(args.text ?? "");
+    if (new TextEncoder().encode(text).length > 400_000 || /^(<<<<<<< |=======|>>>>>>> )/m.test(text)) return gitError("err.git.conflicts");
+    const before = (conflict.ours ?? "").split("\n");
+    const after = text.split("\n");
+    const patch = `@@ -1,${before.length} +1,${after.length} @@\n${before.map((line) => `-${line}`).join("\n")}\n${after.map((line) => `+${line}`).join("\n")}`;
+    if (text !== conflict.ours) mergeGitFile(value.staged, gitPatch({ path: args.path, added: 0, removed: 0, new_file: false, deleted: false, dirty: true, patch: "" }, patch));
+    delete value.conflicts[args.path];
+    value.status.index = `mock-${++value.version}`;
+    return;
+  },
+  list_dir(args) {
+    return tree[args.rel ?? ""] ?? [];
+  },
+  // Viewer saves replace mock file contents. Concurrent disk-writer detection remains a Rust test.
+  write_file(args) {
+    files[args.rel] = args.text;
+    return;
+  },
+  // The shallow sample tree needs only substring matching; return shallower paths first.
+  find_paths(args) {
+    const q = String(args.query ?? "").toLowerCase();
+    const recent: string[] = args.recent ?? [];
+    const points = (p: string) => {
+      const at = recent.indexOf(p);
+      return at < 0 ? 0 : 100 - at;
+    };
+    return Object.values(tree)
+      .flat()
+      .filter((e) => e.path.toLowerCase().includes(q))
+      .sort(
+        (a, b) =>
+          points(b.path) - points(a.path) ||
+          a.path.split("/").length - b.path.split("/").length ||
+          a.path.localeCompare(b.path),
+      )
+      .slice(0, 40);
+  },
+  file_stamp() {
+    return "0";
+  },
+  read_bytes(args) {
+    if (args.rel in files) return new TextEncoder().encode(files[args.rel]).buffer;
+    throw `i18n:${JSON.stringify({ code: "err.session.binary" })}`;
+  },
+  read_file(args) {
+    if (args.rel in files) return files[args.rel];
+    // Return backend error codes for frontend translation.
+    throw args.rel.endsWith(".lock")
+      ? `i18n:${JSON.stringify({ code: "err.session.tooBig", args: { kb: 2140 } })}`
+      : `i18n:${JSON.stringify({ code: "err.session.binary" })}`;
+  },
+  rename_workspace(args) {
+    const target = board.workspaces.find((x) => x.id === args.id);
+    if (target) target.title = args.title;
+    emit("board", board);
+    return;
+  },
+  rename_tab(args) {
+    const target = board.workspaces.find((x) => x.id === args.workspace);
+    const tab = target?.tabs.find((t) => t.id === args.tab);
+    if (tab) tab.title = args.title;
+    emit("board", board);
+    return;
+  },
+  focus_tab(args) {
+    const target = board.workspaces.find((x) => x.id === args.workspace);
+    if (target?.tabs.some((tab) => tab.id === args.tab)) target.active = args.tab;
+    emit("board", board);
+    return;
+  },
+  // A removed worktree has no branch to read, matching Rust.
+  workspace_branch(args) {
+    const target = board.workspaces.find((x) => x.id === args.id);
+    return target && !target.cleaned ? target.branch : null;
+  },
+  set_stage(args) {
+    const target = board.workspaces.find((x) => x.id === args.id);
+    if (target) target.stage = args.stage;
+    emit("board", board);
+    return;
+  },
+  set_shared(args) {
+    const target = board.workspaces.find((x) => x.id === args.id);
+    if (target) {
+      target.shared = args.shared;
+      target.share_team = args.shared ? args.team : null;
+      target.audience = args.shared ? args.audience ?? null : null;
     }
-    case "account_login_cancel":
-      if (mockAccounts.login?.id === args.id) cancelAccountLogin?.();
-      return;
+    // Persist sharing choices across page reloads, matching board.json.
+    localStorage.setItem(SHARED, JSON.stringify(board.workspaces.filter((x) => x.shared).map((x) => [x.id, x.audience, x.share_team])));
+    emit("board", board);
+    return;
+  },
+  pin_workspace(args) {
+    const target = board.workspaces.find((x) => x.id === args.id);
+    if (target) target.pinned = args.pinned;
+    emit("board", board);
+    return;
+  },
+  set_unread(args) {
+    const target = board.workspaces.find((x) => x.id === args.id);
+    if (target) target.unread = args.unread;
+    emit("board", board);
+    return;
+  },
+  look_at(args) {
+    const target = board.workspaces.find((x) => x.id === args.id);
+    if (target?.unread) {
+      target.unread = false;
+      emit("board", board);
+    }
+    return;
+  },
+  archive_workspace(args) {
+    const target = board.workspaces.find((x) => x.id === args.id);
+    if (target) target.archived = args.archived;
+    // Archiving stops tab processes, matching Rust.
+    if (target && args.archived) target.tabs.forEach((t) => (t.status = "desligada"));
+    emit("board", board);
+    return;
+  },
+  // A fixed Codex catalog exercises provider selection without an installed CLI.
+  agents() {
+    return {
+      providers: [
+        {
+          id: "claude",
+          label: "Claude",
+          installed: true,
+          models: [],
+          capabilities: {
+            initialPlanMode: true,
+            workspaceMcpSelection: true,
+            workspacePluginSelection: true,
+            resume: true,
+            compact: true,
+            contextReport: true,
+            approvals: true,
+            userQuestions: true,
+            attachments: true,
+          },
+        },
+        {
+          id: "codex",
+          label: "Codex",
+          installed: true,
+          models: [
+            { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+            { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+            { id: "gpt-5.4", label: "GPT-5.4", efforts: ["low", "medium", "high", "xhigh"] },
+          ],
+          capabilities: {
+            initialPlanMode: false,
+            workspaceMcpSelection: true,
+            workspacePluginSelection: true,
+            resume: true,
+            compact: true,
+            contextReport: true,
+            approvals: true,
+            userQuestions: true,
+            attachments: true,
+          },
+        },
+      ],
+    };
+  },
+  // Use the filtered Claude catalog shape. Haiku exposes no effort levels.
+  claude_models() {
+    return [
+      { id: "opus[1m]", label: "Opus (1M context)", efforts: ["low", "medium", "high", "xhigh", "max"] },
+      { id: "claude-fable-5[1m]", label: "Fable", efforts: ["low", "medium", "high", "xhigh", "max"] },
+      { id: "sonnet", label: "Sonnet", efforts: ["low", "medium", "high", "xhigh", "max"] },
+      { id: "haiku", label: "Haiku", efforts: [] },
+    ];
+  },
+  // Sample provider quotas keep usage indicators visible in the browser.
+  usage() {
+    const now = Math.floor(Date.now() / 1000);
+    return {
+      ...Object.fromEntries(mockAccounts.accounts.filter((account) => account.id !== account.provider && account.connected).map((account, index) => [account.id, {
+        windows: [{ kind: "session", pct: 9 + index, resets: now + 2 * 3600 }, { kind: "weekly", pct: 25 + index, resets: now + 4 * 86400 }],
+        at: now,
+      }])),
+      claude: {
+        windows: [
+          { kind: "session", pct: 16, resets: now + 3 * 3600 + 14 * 60 },
+          { kind: "weekly", pct: 78, resets: now + 3 * 86400 + 4 * 3600 },
+          { kind: "fable", pct: 72, resets: now + 3 * 86400 + 4 * 3600 },
+        ],
+        at: now - 4 * 60,
+      },
+      codex: {
+        windows: [
+          { kind: "weekly", pct: 6, resets: now + 6 * 86400 + 20 * 3600, scope: "general" },
+          {
+            kind: "session",
+            pct: 1,
+            resets: now + 4 * 3600 + 55 * 60,
+            scope: "codex_bengalfox",
+            label: "GPT-5.3-Codex-Spark",
+          },
+          {
+            kind: "weekly",
+            pct: 0,
+            resets: now + 6 * 86400 + 23 * 3600,
+            scope: "codex_bengalfox",
+            label: "GPT-5.3-Codex-Spark",
+          },
+        ],
+        at: now - 96 * 60,
+      },
+    };
+  },
+  // The browser cannot control macOS sleep; accept the command without a platform effect.
+  set_awake() {
+    return;
+  },
+  // Sample local and remote MCP servers exercise settings, selection, and composer controls.
+  mcp_hub() {
+    return mcpHub;
+  },
+  mcp_save(args) {
+    const server = args.server as (typeof mcpHub)[number];
+    if (mockCloud().user && mockCatalog().shared[`mcp:${server.id}`]) cloudWrite();
+    const at = mcpHub.findIndex((s) => s.id === server.id);
+    if (at < 0) mcpHub.push(server);
+    else mcpHub[at] = server;
+    return mcpHub;
+  },
+  mcp_remove(args) {
+    const state = mockCatalog();
+    if (mockCloud().user && state.shared[`mcp:${args.id}`]) {
+      cloudWrite(); state.mcp = state.mcp.filter(id => id !== args.id); delete state.shared[`mcp:${args.id}`]; saveMockCatalog(state);
+    }
+    mcpHub = mcpHub.filter((s) => s.id !== args.id);
+    return mcpHub;
+  },
+  // Simulate probe steps, including 401 responses that expose authentication actions.
+  mcp_check(args) {
+    const server = args.server as McpServer;
+    const url = String(server.config.url ?? "");
+    const step = (key: string, ok: boolean, note = "", detail = "") => ({ key, ok, note, detail });
+    if (url.includes("notion") || url.includes("capim"))
+      return {
+        steps: [step("connect", true, "401"), step("oauth", true), step("client", true)],
+        probe: { ok: false, auth: true, tools: 0, name: "", detail: "" },
+      };
+    if (url.includes("quebrado"))
+      return {
+        steps: [step("connect", false, "", "connection refused")],
+        probe: { ok: false, auth: false, tools: 0, name: "", detail: "connection refused" },
+      };
+    const first = url ? "connect" : "spawn";
+    return {
+      steps: [
+        step(first, true, url ? "200" : ""),
+        step("handshake", true, server.id),
+        step("tools", true, "9"),
+      ],
+      probe: { ok: true, auth: false, tools: 9, name: server.id, detail: "" },
+    };
+  },
+  // Browser login marks the sample server connected without launching an OAuth flow.
+  mcp_logins() {
+    return mcpLogins;
+  },
+  mcp_login(args) {
+    mcpLogins = [...new Set([...mcpLogins, (args.server as McpServer).id])];
+    return;
+  },
+  mcp_logout(args) {
+    mcpLogins = mcpLogins.filter((id) => id !== args.id);
+    return;
+  },
+  // Sample servers discoverable from the user's Claude configuration.
+  mcp_found() {
+    return [
+      { id: "metabase", config: { type: "http", url: "https://metabase.exemplo/mcp" }, note: "capim-backend" },
+      { id: "n8n", config: { type: "stdio", command: "npx", args: ["-y", "n8n-mcp"], env: {} }, note: "" },
+    ];
+  },
+  // Plugin hub behavior mirrors MCP hub editing.
+  plugin_hub() {
+    return pluginHub;
+  },
+  plugin_save(args) {
+    const plugin = args.plugin as Plugin;
+    if (mockCloud().user && mockCatalog().shared[`plugins:${plugin.id}`]) cloudWrite();
+    const at = pluginHub.findIndex((p) => p.id === plugin.id);
+    if (at < 0) pluginHub.push(plugin);
+    else pluginHub[at] = plugin;
+    return pluginHub;
+  },
+  plugin_remove(args) {
+    const state = mockCatalog();
+    if (mockCloud().user && state.shared[`plugins:${args.id}`]) {
+      cloudWrite(); state.plugins = state.plugins.filter(p => p.local_id !== args.id); delete state.shared[`plugins:${args.id}`]; saveMockCatalog(state);
+    }
+    pluginHub = pluginHub.filter((p) => p.id !== args.id);
+    return pluginHub;
+  },
+  // Without disk access, derive the sample plugin name from its source path.
+  plugin_look(args) {
+    const source = String(args.source ?? "").trim();
+    const id = source.replace(/\/+$/, "").split("/").pop() ?? "";
+    return { id: id.replace(/\.zip$/, ""), source, note: "" };
+  },
+  // Sources ending in -plugins simulate marketplaces; other sources install a single plugin.
+  plugin_install(args) {
+    const url = String(args.source ?? "").trim().replace(/\/+$/, "");
+    const name = (url.split(/[/:]/).pop() ?? "").replace(/\.git$/, "");
+    if (!name) throw "i18n:" + JSON.stringify({ code: "err.plugin.noSource" });
+    const dir = `~/.prometeu/plugins/${name}`;
+    const from = url.includes("://") || url.includes("@") ? url : `https://github.com/${url}`;
+    if (name.endsWith("-plugins")) {
+      return {
+        dir,
+        saved: false,
+        plugins: [
+          { id: `${name}-um`, source: `${dir}/plugins/um`, note: "o primeiro do repositório", made: true, from },
+          { id: `${name}-dois`, source: `${dir}/plugins/dois`, note: "o segundo do repositório", made: true, from },
+        ],
+      };
+    }
+    const plugin: Plugin = { id: name, source: dir, note: `plugin de ${url}`, made: true, from };
+    pluginHub = [...pluginHub.filter((p) => p.id !== name), plugin].sort((a, b) => a.id.localeCompare(b.id));
+    return { dir, saved: true, plugins: [plugin] };
+  },
+  plugin_update() {
+    return pluginHub;
+  },
+  plugin_scrap() {
+    return;
+  },
+  // Simulate plugin authoring with timed progress and a final hub entry.
+  plugin_make(args) {
+    const slug = String(args.name ?? "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+    const run = ++pluginRun;
+    const steps: Step[] = [
+      { kind: "say", text: "Vou começar pelo manifesto." },
+      { kind: "file", text: ".claude-plugin/plugin.json" },
+      { kind: "file", text: `skills/${slug}/SKILL.md` },
+      { kind: "file", text: "hooks/hooks.json" },
+    ];
+    steps.forEach((step, i) => setTimeout(() => emit("plugin-make", [run, step]), 500 * (i + 1)));
+    setTimeout(() => {
+      pluginHub.push({ id: slug, source: `~/.prometeu/plugins/${slug}`, note: String(args.ask ?? "").slice(0, 60), made: true });
+      emit("plugin-made", [run, ""]);
+    }, 500 * (steps.length + 1));
+    return { run, slug };
+  },
+  plugin_make_stop() {
+    return;
+  },
+  set_workspace_plugins(args) {
+    const target = board.workspaces.find((x) => x.id === args.id);
+    if (target) {
+      target.plugins = args.plugins as string[] | null;
+      target.tabs.forEach((t) => (t.status = "desligada"));
+    }
+    writes++;
+    // Publish board changes asynchronously so selection feedback cannot depend on an immediate backend echo.
+    setTimeout(() => emit("board", board), 0);
+    return;
+  },
+  // Model and effort changes stop the process. Matching workspace defaults clears the tab override.
+  set_tab_choice(args) {
+    const target = board.workspaces.find((x) => x.id === args.id);
+    const tab = target?.tabs.find((t) => t.id === args.tab);
+    if (target && tab) {
+      const choice = args.choice as Choice;
+      const follows =
+        choice.agent === target.agent &&
+        choice.model === target.model &&
+        choice.effort === target.effort;
+      tab.choice = follows ? null : choice;
+      tab.status = "desligada";
+    }
+    emit("board", board);
+    return;
+  },
+  set_workspace_mcp(args) {
+    const target = board.workspaces.find((x) => x.id === args.id);
+    if (target) {
+      target.mcp = args.mcp as string[] | null;
+      // Changing tools stops tab processes; the next message resumes with the new selection.
+      target.tabs.forEach((t) => (t.status = "desligada"));
+    }
+    writes++;
+    setTimeout(() => emit("board", board), 0);
+    return;
+  },
+  machine() {
+    return {
+      rss: 822 * 1024 * 1024,
+      cpu: 3.4,
+      procs: [
+        { kind: "app", name: "Prometeu", detail: "", rss: 640 * 1024 * 1024, cpu: 0.8,
+          hist: [0.4, 0.6, 1.2, 0.9, 0.7, 2.1, 1.4, 0.8, 0.6, 0.8] },
+        { kind: "chat", name: "Tela igual ao Conductor", detail: "Conversa 1", rss: 128 * 1024 * 1024, cpu: 2.2,
+          hist: [0, 0, 4.5, 8.2, 6.1, 3.3, 1.2, 2.8, 5.4, 2.2] },
+        { kind: "term", name: "Ícone do app", detail: "run", rss: 54 * 1024 * 1024, cpu: 0.4,
+          hist: [0.2, 0.3, 0.2, 0.5, 0.4, 0.3, 0.4, 0.4, 0.3, 0.4] },
+      ],
+      terms: 2,
+      ports: [{ id: "0831-1714", title: "Ícone do app", port: 3100 }],
+    };
+  },
+  list_branches() {
+    return {
+      all: [
+        "origin/main", "main", "entire/checkpoints/v1", "manual-sleep-button",
+        "dashboard-app-preview", "export-project-zip", "fix/deploy-build-cache",
+        "password-reset-crud", "project-renaming", "refactor/railsway-specs-and-lint",
+        "origin/entire/checkpoints/v1", "origin/manual-sleep-button",
+      ],
+      default: "origin/main",
+      git: true,
+    };
+  },
+  // Return a preparing workspace immediately, then finish setup on a timer to exercise optimistic creation without Git.
+  create_workspace(args) {
+    const draft = args.draft;
+    const id = `nova-${nextId++}`;
+    const repo = String(draft.project).split("/").pop() ?? "repo";
+    const fresh = ws(id, draft.project, repo, draft.title || draft.branch, draft.stage, []);
+    fresh.branch = draft.branch || "main";
+    // Multiple repositories share a parent directory with one worktree each.
+    const extras: string[] = draft.extras ?? [];
+    if (extras.length) {
+      const names = [repo, ...extras.map((p: string) => board.projects.find((x) => x.id === p)?.name ?? p)];
+      fresh.worktree = `~/prometeu/worktrees/${names.join("+")}/prometeu-${id}`;
+      fresh.repos = [draft.project, ...extras].map((p: string, i: number) => ({
+        path: String(p),
+        name: names[i],
+        worktree: `${fresh.worktree}/${names[i]}`,
+        base: "origin/main",
+        pr: null,
+      }));
+    }
+    fresh.agent = draft.agent;
+    fresh.model = draft.model;
+    fresh.effort = draft.effort;
+    fresh.issue = draft.issue ?? null;
+    fresh.preparing = true;
+    board.workspaces.push(fresh);
+    emit("board", board);
+    // Delay setup like a large Git worktree operation. The fixture failure keyword selects the error state.
+    setTimeout(() => {
+      fresh.preparing = false;
+      if (String(draft.prompt).includes("falha")) {
+        fresh.failed = JSON.stringify({
+          code: "err.git",
+          args: {
+            command: "git worktree add",
+            cause: `fatal: '${fresh.branch}' is already checked out at '/Users/g/wt/outro'`,
+          },
+        }).replace(/^/, "i18n:");
+        emit("board", board);
+        return;
+      }
+      fresh.tabs = [{ id: `t-${id}`, title: "", status: "pronta", note: null, tokens: null }];
+      fresh.active = fresh.tabs[0].id;
+      emit("board", board);
+    }, 1400);
+    return fresh;
+  },
+  workspace_scripts(args) {
+    return scripts[args.id] ?? noScripts;
+  },
+  dock_state(args) {
+    return [...docks]
+      .filter(([k]) => k.startsWith(`${args.id}:`))
+      .map(([k, alive]) => ({ kind: k.split(":")[1] as DockKind, alive }));
+  },
+  create_scripts_file() {
+    return ".prometeu/settings.toml";
+  },
+  scripts_prompt() {
+    return "Descubra como preparar e como rodar este projeto, e escreva isso em `.prometeu/settings.toml`.";
+  },
+  // External links open a separate browser tab.
+  open_external(args) {
+    window.open(String(args.url), "_blank", "noreferrer");
+    return;
+  },
+  open_run(args) {
+    console.log("abrir no navegador: http://localhost:" + ((scripts[args.id] ?? noScripts).port ?? 0));
+    return;
+  },
+  // The browser preview has no native child webview.
+  browser_open(args) {
+    return (scripts[args.id] ?? noScripts).port ?? 3100;
+  },
+  browser_url(args) {
+    return "http://localhost:" + ((scripts[args.id] ?? noScripts).port ?? 3100) + "/";
+  },
+  browser_navigate(args) {
+    console.log("navegar para:", args.url);
+    return;
+  },
+  browser_back() {
+    return;
+  },
+  browser_forward() {
+    return;
+  },
+  browser_bounds() {
+    return;
+  },
+  browser_hide() {
+    return;
+  },
+  browser_reload() {
+    return;
+  },
+  browser_close() {
+    return;
+  },
+  // Use known PR state without invoking gh; only the review workspace exposes a PR.
+  pr_open() {
+    return;
+  },
+  // Refreshing PRs preserves sample state without invoking gh.
+  refresh_prs() {
+    return;
+  },
+  finish_workspace(args) {
+    const target = board.workspaces.find((x) => x.id === args.id);
+    if (target) {
+      target.stage = board.stages[board.stages.length - 1];
+      target.archived = true;
+      target.tabs.forEach((t) => (t.status = "desligada"));
+    }
+    emit("board", board);
+    return;
+  },
+  cleanup_list() {
+    return board.workspaces
+      .filter(hasWorktree)
+      .map((x, i) => ({
+        id: x.id,
+        title: x.title,
+        repoName: x.repo_name,
+        branch: x.branch,
+        worktree: x.worktree,
+        sizeKb: 2_900_000 - i * 700_000,
+        pr: x.repos.find((r) => r.pr)?.pr?.number ?? null,
+        // Blocked rows remain selectable and explain their cleanup risk.
+        blocked: i === 1 ? 'i18n:{"args":{"n":"3"},"code":"err.cleanup.dirty"}' : null,
+      }));
+  },
+  cleanup_worktree(args) {
+    const target = board.workspaces.find((x) => x.id === args.id);
+    if (target) target.cleaned = true;
+    emit("board", board);
+    return;
+  },
+  open_pr(args) {
+    console.log("abrir o PR de " + args.id + " no navegador");
+    return;
+  },
+  pr_prompt() {
+    return [
+      "Quero abrir um PR deste worktree.",
+      "",
+      "Há 2 arquivos com mudanças fora de commit. A branch atual é `mock/ajuste`; o alvo é `origin/main`. Ainda não há branch upstream.",
+    ].join("\n");
+  },
+  open_dock(args) {
+    const key = `${args.id}:${args.kind}`;
+    docks.set(key, true);
+    if (args.kind === "setup") {
+      setTimeout(() => {
+        if (!docks.get(key)) return;
+        docks.set(key, false);
+        emit("pty", [key, [...new TextEncoder().encode(DONE)]]);
+        emit("pty-closed", [key, 0]);
+      }, 1500);
+    }
+    return key;
+  },
+  close_dock(args) {
+    docks.delete(`${args.id}:${args.kind}`);
+    return;
+  },
+  new_tab(args) {
+    const workspace = board.workspaces.find(workspace => workspace.id === args.workspace);
+    if (!workspace) throw 'i18n:{"code":"err.session.noWorkspace"}';
+    if (workspace.cleaned) throw 'i18n:{"code":"err.session.cleaned"}';
+    const tab: Tab = { id: crypto.randomUUID(), title: args.prompt.trim(), status: "pronta", note: null, tokens: null,
+      choice: args.choice ?? null };
+    workspace.tabs.push(tab);
+    workspace.active = tab.id;
+    emit("board", board);
+    if (args.prompt.trim()) sayInto(tab.id, args.prompt.trim());
+    return tab;
+  },
+  resume_tab() {
+    return true;
+  },
+  // Simulate delayed Linear login and publish the same status event as the backend.
+  linear_status() {
+    return linear;
+  },
+  // Accept the language command; browser UI translation happens in the frontend.
+  set_lang() {
+    return undefined;
+  },
+  linear_connect() {
+    linear = { ...linear, busy: true };
+    emit("linear", linear);
+    return new Promise((done) =>
+      setTimeout(() => {
+        linear = {
+          connected: true,
+          busy: false,
+          who: { name: "Gustavo Brancaglione", email: "gustavo@exemplo.com", org: "Moabi", org_key: "moabi" },
+        };
+        emit("linear", linear);
+        done(linear);
+      }, 1200),
+    );
+  },
+  linear_issues() {
+    if (!linear.connected) {
+      return Promise.reject(`i18n:${JSON.stringify({ code: "err.linear.off" })}`);
+    }
+    return new Promise((done) => setTimeout(() => done({ issues: ISSUES, fetched_at: Date.now() / 1000 }), 600));
+  },
+  linear_open(args) {
+    console.log("abrir no Linear:", args.url);
+    return;
+  },
+  linear_disconnect() {
+    linear = { connected: false, who: null, busy: false };
+    emit("linear", linear);
+    return linear;
+  },
+  add_project(args) {
+    const existing = board.projects.find(project => project.path === args.path);
+    if (existing) return existing;
+    const project = { id: args.path, name: args.path.split("/").pop() ?? args.path, path: args.path };
+    board.projects.push(project);
+    emit("board", board);
+    return project;
+  },
+  close_tab() {},
+  pty_resize() {},
+  remove_workspace() {},
+  reveal() {},
+};
+
+function call(cmd: string, args: Record<string, any> = {}): unknown {
+  if (Object.prototype.hasOwnProperty.call(mockCommands, cmd)) {
+    // Tauri dispatches dynamically; each handler is checked against the shared contract above.
+    const handler = mockCommands[cmd as IpcCommand] as (args: unknown) => unknown;
+    return handler(args);
+  }
+  switch (cmd) {
+
     case "plugin:event|listen": {
       const h = w[`_${args.handler}`] as Handler;
       handlers.set(args.event, [...(handlers.get(args.event) ?? []), h]);
       return nextId++;
     }
-    case "actions_save": {
-      const catalog = args.catalog as Catalog;
-      if (new Set(catalog.commands.map(c => c.name)).size !== catalog.commands.length || catalog.commands.some(c => !/^[a-z0-9-]{1,64}$/.test(c.name) || ["context", "compact"].includes(c.name) || (c.kind === "prompt" ? !c.prompt.trim() : !catalog.profiles.some(p => p.id === c.profile))) || catalog.profiles.some(p => !p.name.trim() || !p.prompt.trim() || (p.watch && (p.watch.interval_seconds < 30 || p.watch.max_turns < 1 || p.watch.max_turns > 100)))) {
-        throw `i18n:${JSON.stringify({ code: "err.actions.invalid" })}`;
-      }
-      board.actions = structuredClone(catalog);
-      localStorage.setItem("mock:actions", JSON.stringify(catalog));
-      emit("board", board);
-      return;
-    }
-    case "action_start": {
-      const workspace = board.workspaces.find(w => w.id === args.workspace);
-      const catalog = board.actions ?? emptyCatalog();
-      const action = catalog.commands.find(c => c.name === args.name && c.kind === "agent");
-      if (!workspace || !action?.profile || workspace.cleaned || workspace.archived) throw `i18n:${JSON.stringify({ code: "err.actions.unavailable" })}`;
-      const existing = workspace.tabs.find(t => t.task?.command === action.name && !t.task.done);
-      if (existing) {
-        if (String(args.context ?? "").trim()) throw `i18n:${JSON.stringify({ code: "err.actions.active" })}`;
-        return existing;
-      }
-      if (workspace.tabs.some(t => t.status === "rodando" || t.status === "querendo" || t.pending_prompt)) throw `i18n:${JSON.stringify({ code: "err.actions.busy" })}`;
-      const profile = structuredClone(catalog.overrides[workspace.project]?.[action.profile] ?? catalog.profiles.find(p => p.id === action.profile)) as Profile;
-      profile.mcp ??= workspace.mcp;
-      profile.plugins ??= workspace.plugins;
-      const tab: Tab = { id: crypto.randomUUID(), title: profile.name, choice: profile.choice, status: "pronta", note: null, tokens: null,
-        task: { command: action.name, profile, paused: false, done: !profile.watch, turns: 0, checked_at: 0, error: null, seen: {}, prs: {} } };
-      scrolls.set(tab.id, { text: line({ v: 1, type: "user.message", at: Date.now(), content: [{ kind: "text", text: [action.prompt, args.context].filter(Boolean).join("\n\n") || profile.prompt }] }) + "\n", seq: 1 });
-      workspace.tabs.push(tab); workspace.active = tab.id;
-      emit("board", board);
-      return tab;
-    }
-    case "action_pause": {
-      const run = board.workspaces.flatMap(w => w.tabs).find(t => t.id === args.session)?.task;
-      if (!run) throw `i18n:${JSON.stringify({ code: "err.actions.missing" })}`;
-      run.paused = args.paused; run.error = null;
-      if (!run.paused) { run.turns = 0; run.checked_at = 0; }
-      emit("board", board); return;
-    }
-    case "load_board":
-      return board;
-    case "cloud_status": {
-      if (args.refresh && localStorage.getItem("mock:cloudExpired")) localStorage.removeItem("mock:cloud");
-      return { ...mockCloud(), offline: !!localStorage.getItem("mock:cloudOffline") };
-    }
-    case "cloud_organizations": {
-      const cloud = mockCloud();
-      if (localStorage.getItem("mock:cloudOffline")) throw 'i18n:{"code":"err.cloud.network"}';
-      return { user: cloud.user, origin: cloud.origin, organizations: cloud.user ? JSON.parse(localStorage.getItem("mock:organizations") ?? "[]") : [] };
-    }
-    case "cloud_relay_ticket": {
-      cloudWrite();
-      const cloud = mockCloud();
-      const org = JSON.parse(localStorage.getItem("mock:organizations") ?? "[]").find((org: team.Organization) => org.id === args.organization);
-      if (!org || cloud.user?.id !== args.user || cloud.origin !== args.expectedOrigin) throw 'i18n:{"code":"err.cloud.response"}';
-      return `ws://mock/organization/${org.id}?p=4&ticket=${"t".repeat(43)}&m=${org.member}&n=${encodeURIComponent(cloud.user!.name)}`;
-    }
-    case "cloud_login_start":
-      if (localStorage.getItem("mock:cloudOffline")) throw 'i18n:{"code":"err.cloud.network"}';
-      cloudPending = crypto.randomUUID();
-      return { id: cloudPending, user_code: "ABCD-EFGH", url: "https://app.prometeu.co/device?user_code=ABCD-EFGH&mode=signup", interval: 5 };
-    case "cloud_login_poll": {
-      if (!cloudPending || cloudPending !== args.id) throw 'i18n:{"code":"err.cloud.expired"}';
-      if (!localStorage.getItem("mock:cloudApproved")) return null;
-      const value = { ...emptyCloud(), user: { id: "cloud-user", name: "Gustavo Brancaglione", email: "gustavo@example.com" } };
-      localStorage.setItem("mock:cloud", JSON.stringify(value));
-      localStorage.removeItem("mock:cloudApproved"); cloudPending = null; emit("catalog", null);
-      return value;
-    }
-    case "catalog_state": {
-      if (!mockCloud().user) return { connected: false, revision: null, plugins: [], mcp: [], skills: [], shared: {} };
-      const state = mockCatalog();
-      state.plugins = state.plugins.map(p => ({ ...p, installed: pluginHub.some(local => local.id === p.local_id) }));
-      state.skills = state.skills.map(s => ({ ...s, installed: skillHub.some(local => local.id === s.local_id) }));
-      return state;
-    }
-    case "catalog_refresh":
-      cloudWrite(); emit("catalog", null); return null;
-    case "catalog_share": {
-      cloudWrite();
-      const kind = String(args.kind), id = String(args.id), state = mockCatalog();
-      if (state.shared[`${kind}:${id}`]) throw 'i18n:{"code":"err.catalog.conflict"}';
-      if (kind === "plugins") {
-        const plugin = pluginHub.find(p => p.id === id);
-        const source = plugin?.from || plugin?.source || "";
-        if (!/^(https?:\/\/|git@|[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$)/.test(source)) throw 'i18n:{"code":"err.catalog.portable"}';
-        state.plugins.push({ id, source, note: plugin!.note, local_id: id, installed: true, source_changed: false });
-      } else if (kind === "mcp") state.mcp.push(id);
-      else if (kind === "skills") {
-        const skill = skillHub.find(s => s.id === id); if (!skill) throw 'i18n:{"code":"err.catalog.invalid"}';
-        state.skills.push({ ...skill, local_id: id, installed: true });
-      } else throw 'i18n:{"code":"err.catalog.invalid"}';
-      state.shared[`${kind}:${id}`] = id; saveMockCatalog(state); return null;
-    }
-    case "catalog_copy": {
-      const kind = String(args.kind), id = String(args.id), newId = String(args.newId).trim();
-      if (!newId) throw 'i18n:{"code":"err.catalog.invalid"}';
-      if (kind === "skills") {
-        if (skillHub.some(s => s.id === newId)) throw 'i18n:{"code":"err.catalog.conflict"}';
-        const skill = skillHub.find(s => s.id === id); if (!skill) throw 'i18n:{"code":"err.catalog.invalid"}';
-        saveMockSkill({ ...skill, id: newId });
-      } else if (kind === "mcp") {
-        if (mcpHub.some(s => s.id === newId)) throw 'i18n:{"code":"err.catalog.conflict"}';
-        const server = mcpHub.find(s => s.id === id); if (!server) throw 'i18n:{"code":"err.catalog.invalid"}';
-        mcpHub.push({ ...structuredClone(server), id: newId });
-      } else {
-        if (pluginHub.some(p => p.id === newId)) throw 'i18n:{"code":"err.catalog.conflict"}';
-        const plugin = pluginHub.find(p => p.id === id); if (!plugin) throw 'i18n:{"code":"err.catalog.invalid"}';
-        pluginHub.push({ ...plugin, id: newId, made: false });
-      }
-      emit("catalog", null); return null;
-    }
-    case "catalog_install_plugin": {
-      const item = mockCatalog().plugins.find(p => p.id === args.id); if (!item) throw 'i18n:{"code":"err.catalog.invalid"}';
-      pluginHub = [...pluginHub.filter(p => p.id !== item.local_id), { id: item.local_id, source: `~/.prometeu/plugins/${item.local_id}`, from: item.source, note: item.note, made: false }];
-      emit("catalog", null); return null;
-    }
-    case "catalog_install_skill": {
-      const item = mockCatalog().skills.find(s => s.id === args.id); if (!item) throw 'i18n:{"code":"err.catalog.invalid"}';
-      saveMockSkill({ id: item.local_id, description: item.description, content: item.content }); emit("catalog", null); return null;
-    }
-    case "skill_hub":
-      for (const skill of [...skillHub]) saveMockSkill(skill);
-      return skillHub;
-    case "skill_save": {
-      const skill = args.skill as Skill;
-      const state = mockCatalog();
-      if (mockCloud().user && state.shared[`skills:${skill.id}`]) {
-        cloudWrite();
-        if (args.revision !== state.revision) throw 'i18n:{"code":"err.catalog.conflict"}';
-        state.skills = state.skills.map(s => s.local_id === skill.id ? { ...s, description: skill.description, content: skill.content } : s);
-        saveMockCatalog(state);
-      }
-      saveMockSkill(skill); return skillHub;
-    }
-    case "skill_remove":
-      skillHub = skillHub.filter(s => s.id !== args.id);
-      localStorage.setItem("mock:skills", JSON.stringify(skillHub));
-      pluginHub = pluginHub.filter(p => p.id !== `skill-${args.id}`);
-      return skillHub;
-    case "cloud_login_cancel":
-      if (cloudPending === args.id) cloudPending = null;
-      return;
-    case "cloud_logout":
-      if (localStorage.getItem("mock:cloudOffline")) throw 'i18n:{"code":"err.cloud.network"}';
-      localStorage.removeItem("mock:cloud");
-      return emptyCloud();
-    case "remove_project":
-      board.projects = board.projects.filter((project) => project.id !== args.id);
-      emit("board", board);
-      return;
-    case "legacy_import_plan":
-      return legacyPlan();
-    case "legacy_import_run":
-      legacyImported = true;
-      return legacyPlan();
-    // O time fica no localStorage aqui, para sobreviver a recarregar a aba —
-    // no app é o `team.json` do back.
-    case "team_security":
-      return JSON.parse(localStorage.getItem("mock:team-security") ?? "null");
-    case "team_security_set":
-      localStorage.setItem("mock:team-security", JSON.stringify(args.state));
-      return;
-    case "team_config":
-      return { config: JSON.parse(localStorage.getItem("mock:team") ?? "null"), default_name: "Você" };
-    case "team_config_set":
-      if (args.config) localStorage.setItem("mock:team", JSON.stringify(args.config));
-      else localStorage.removeItem("mock:team");
-      return;
-    case "pty_buffer": {
-      const s = String(args.session);
-      const text = docks.get(s) === false ? SCRIPT_OUT + DONE : SCRIPT_OUT;
-      return [...new TextEncoder().encode(text)];
-    }
-    // Como o back: a última linha diz se há turno em andamento, e ela vem
-    // depois do número — não é uma linha da conversa.
-    case "chat_snapshot": {
-      const s = scrollOf(String(args.session));
-      return { text: s.text + line({ v: 1, type: "session.state", at: Date.now(), state: "ready" }) + "\n", seq: s.seq };
-    }
-    // A conversa de mentira responde ao que recebe: é o que deixa ver a fala
-    // de um colega chegar e voltar.
-    case "chat_send":
-      sayInto(String(args.session), String(args.text));
-      return;
-    case "chat_control":
-    case "chat_control_remote":
-      controlInto(String(args.session), args.frame as Record<string, any>);
-      return;
-    case "pty_write":
-      return;
-    // Um grupo por repositório, como o back: o primeiro leva as mudanças de
-    // sempre, e o segundo (só no workspace de dois repos) as do outro lado.
-    case "workspace_diff": {
-      const target = board.workspaces.find((x) => x.id === args.id);
-      return (target?.repos ?? []).map((r, i) => {
-        const files = i === 0 ? changes : changes2;
-        const base = i === 0 ? "origin/main" : "origin/develop";
-        // O primeiro tem commit que ainda não foi para o remoto e o segundo
-        // não: é o par que faz o resumo dizer as duas coisas.
-        const ahead = i === 0 ? 3 : 1;
-        return { name: r.name, base, ahead, unpushed: i === 0 ? 1 : 0, dirty: files.filter((f) => f.dirty).length, files };
-      });
-    }
-    case "workspace_git_status": {
-      const target = board.workspaces.find((workspace) => workspace.id === args.id && !workspace.cleaned);
-      if (!target) return gitError("err.session.noWorkspace");
-      return target.repos.map((_, index) => gitStatus(gitState(target.id, index)));
-    }
-    case "workspace_git_diff": {
-      const value = gitState(args.id, args.repo ?? 0);
-      const committed = args.scope === "commit";
-      const comparison = args.scope === "compare";
-      const position = committed && args.reference && args.reference !== "HEAD"
-        ? value.commits.findIndex((commit) => commit.oid === args.reference) : 0;
-      if (committed && position < 0) return gitError("err.git.changed");
-      const source = args.scope === "staged" ? value.staged : args.scope === "changes" ? value.changes
-        : comparison ? value.compare : value.commits[position].files;
-      return structuredClone({
-        base: committed ? value.commits[position + 1]?.oid ?? "0".repeat(40) : comparison ? "1".padStart(40, "0") : "",
-        head: committed || comparison ? value.commits[committed ? position : 0].oid : "",
-        files: source.filter((file) => args.path == null || file.path === args.path),
-      });
-    }
-    case "workspace_git_action": {
-      const value = gitState(args.id, args.repo ?? 0);
-      const status = gitStatus(value);
-      const operation = args.operation;
-      const selected: string[] = args.paths ?? [];
-      if (operation === "stage" || operation === "unstage") {
-        if (!selected.length) return gitError("err.git.selection");
-        const source = operation === "stage" ? value.changes : value.staged;
-        const target = operation === "stage" ? value.staged : value.changes;
-        if (selected.some((path) => !source.some((file) => file.path === path) && !value.conflicts[path])) return gitError("err.git.changed");
-        for (const path of new Set(selected)) {
-          const at = source.findIndex((file) => file.path === path);
-          if (at >= 0) mergeGitFile(target, source.splice(at, 1)[0], operation === "unstage");
-          else {
-            const conflict = value.conflicts[path];
-            const file = { path, added: 0, removed: 0, new_file: false, deleted: false, dirty: true, patch: "" };
-            mergeGitFile(target, gitPatch(file, `@@ -0,0 +1,${conflict.current.split("\n").length} @@\n${conflict.current.split("\n").map((line) => `+${line}`).join("\n")}`));
-          }
-          delete value.conflicts[path];
-        }
-        value.status.index = `mock-${++value.version}`;
-      } else if (operation === "commit") {
-        if (!status.branch) return gitError("err.git.detached");
-        if (status.conflicts.length) return gitError("err.git.conflicts");
-        if ((!value.staged.length && !status.merging) || !String(args.message ?? "").trim()) return gitError("err.git.selection");
-        if (args.expected !== status.index) return gitError("err.git.changed");
-        const committed = value.staged.map((file) => ({ ...file, dirty: false }));
-        for (const file of committed) mergeGitFile(value.compare, file);
-        value.commits.unshift({
-          oid: (++nextId + 100).toString(16).padStart(40, "0"),
-          subject: String(args.message).trim().split("\n")[0], author: "Gustavo",
-          date: new Date().toISOString(), outgoing: !!status.upstream, files: committed,
-        });
-        value.staged = [];
-        value.status.merging = false;
-        value.status.ahead += status.upstream ? 1 : 0;
-        value.status.index = `mock-${++value.version}`;
-      } else if (operation === "fetch") {
-        // O remoto da amostra oferece um commit; não há rede no navegador.
-        value.status.behind = status.upstream ? Math.max(1, status.behind) : 0;
-      } else if (operation === "pull") {
-        if (!status.branch) return gitError("err.git.detached");
-        if (!status.upstream) return gitError("err.git.upstream");
-        if (status.staged.length || status.changes.length || status.conflicts.length) return gitError("err.git.dirtyPull");
-        if (status.ahead && status.behind) return gitError("err.git.changed");
-        value.status.behind = 0;
-        value.status.index = `mock-${++value.version}`;
-      } else if (operation === "push" || operation === "publish") {
-        if (!status.branch) return gitError("err.git.detached");
-        if (status.behind) return gitError("err.git.changed");
-        if (operation === "publish") {
-          if (!status.remotes.includes(args.remote)) return gitError("err.git.upstream");
-          value.status.upstream = `${args.remote}/${status.branch}`;
-        } else if (!status.upstream) return gitError("err.git.upstream");
-        value.status.ahead = 0;
-        value.commits.forEach((commit) => { commit.outgoing = false; });
-      } else return gitError("err.git.selection");
-      return;
-    }
-    case "workspace_git_history":
-      return gitState(args.id, args.repo ?? 0).commits.map(({ files: _, ...commit }) => ({ ...commit }));
-    case "workspace_git_branches": {
-      const value = gitState(args.id, args.repo ?? 0);
-      const current = board.workspaces.find((workspace) => workspace.id === args.id)!;
-      const repo = current.repos[args.repo ?? 0];
-      const branches: GitBranch[] = board.workspaces.filter((workspace) => !workspace.cleaned && workspace.repos.some((entry) => entry.path === repo.path)).map((workspace) => ({
-        name: workspace.branch, current: workspace.branch === value.status.branch, remote: false,
-        worktree: workspace.repos.find((entry) => entry.path === repo.path)!.worktree, workspace: workspace.id,
-      }));
-      branches.push(
-        { name: "main", current: value.status.branch === "main", remote: false, worktree: repo.path, workspace: null },
-        { name: "feature/local-work", current: false, remote: false, worktree: null, workspace: null },
-        ...[...new Set([repo.base, value.status.upstream, "origin/feature/review"].filter((name): name is string => !!name))].map((name) => ({ name, current: false, remote: true, worktree: null, workspace: null })),
-      );
-      return branches.filter((branch, index) => branches.findIndex((other) => other.name === branch.name) === index);
-    }
-    case "workspace_git_conflict": {
-      const conflict = gitState(args.id, args.repo ?? 0).conflicts[args.path];
-      if (!conflict) return gitError("err.git.changed");
-      return { ...conflict };
-    }
-    case "workspace_git_resolve": {
-      const value = gitState(args.id, args.repo ?? 0);
-      const conflict = value.conflicts[args.path];
-      if (!conflict) return gitError("err.git.changed");
-      if (conflict.current !== args.was) return gitError("err.session.changed");
-      const text = String(args.text ?? "");
-      if (new TextEncoder().encode(text).length > 400_000 || /^(<<<<<<< |=======|>>>>>>> )/m.test(text)) return gitError("err.git.conflicts");
-      const before = (conflict.ours ?? "").split("\n");
-      const after = text.split("\n");
-      const patch = `@@ -1,${before.length} +1,${after.length} @@\n${before.map((line) => `-${line}`).join("\n")}\n${after.map((line) => `+${line}`).join("\n")}`;
-      if (text !== conflict.ours) mergeGitFile(value.staged, gitPatch({ path: args.path, added: 0, removed: 0, new_file: false, deleted: false, dirty: true, patch: "" }, patch));
-      delete value.conflicts[args.path];
-      value.status.index = `mock-${++value.version}`;
-      return;
-    }
-    case "list_dir":
-      return tree[args.rel ?? ""] ?? [];
-    // Salvar do viewer: escreve por cima, e a próxima leitura já vê. A guarda
-    // de corrida (`was`) é do back de verdade; aqui ninguém escreve por baixo.
-    case "write_file":
-      files[args.rel] = args.text;
-      return;
-    // Como o back: o que combina com o que foi digitado, do mais raso para o
-    // mais fundo. A árvore do mock é rasa, então basta o caminho conter o que
-    // se escreveu.
-    case "find_paths": {
-      const q = String(args.query ?? "").toLowerCase();
-      const recent: string[] = args.recent ?? [];
-      const points = (p: string) => {
-        const at = recent.indexOf(p);
-        return at < 0 ? 0 : 100 - at;
-      };
-      return Object.values(tree)
-        .flat()
-        .filter((e) => e.path.toLowerCase().includes(q))
-        .sort(
-          (a, b) =>
-            points(b.path) - points(a.path) ||
-            a.path.split("/").length - b.path.split("/").length ||
-            a.path.localeCompare(b.path),
-        )
-        .slice(0, 40);
-    }
-    case "file_stamp":
-      return "0";
-    case "read_bytes":
-      if (args.rel in files) return new TextEncoder().encode(files[args.rel]).buffer;
-      throw `i18n:${JSON.stringify({ code: "err.session.binary" })}`;
-    case "read_file":
-      if (args.rel in files) return files[args.rel];
-      // Como o back de verdade: código, e não frase. O front traduz.
-      throw args.rel.endsWith(".lock")
-        ? `i18n:${JSON.stringify({ code: "err.session.tooBig", args: { kb: 2140 } })}`
-        : `i18n:${JSON.stringify({ code: "err.session.binary" })}`;
-    case "rename_workspace": {
-      const target = board.workspaces.find((x) => x.id === args.id);
-      if (target) target.title = args.title;
-      emit("board", board);
-      return;
-    }
-    case "rename_tab": {
-      const target = board.workspaces.find((x) => x.id === args.workspace);
-      const tab = target?.tabs.find((t) => t.id === args.tab);
-      if (tab) tab.title = args.title;
-      emit("board", board);
-      return;
-    }
-    case "focus_tab": {
-      const target = board.workspaces.find((x) => x.id === args.workspace);
-      if (target?.tabs.some((tab) => tab.id === args.tab)) target.active = args.tab;
-      emit("board", board);
-      return;
-    }
-    // Como no Rust: worktree devolvido não tem branch para ler.
-    case "workspace_branch": {
-      const target = board.workspaces.find((x) => x.id === args.id);
-      return target && !target.cleaned ? target.branch : null;
-    }
-    case "set_stage": {
-      const target = board.workspaces.find((x) => x.id === args.id);
-      if (target) target.stage = args.stage;
-      emit("board", board);
-      return;
-    }
-    case "set_shared": {
-      const target = board.workspaces.find((x) => x.id === args.id);
-      if (target) {
-        target.shared = args.shared;
-        target.share_team = args.shared ? args.team : null;
-        target.audience = args.shared ? args.audience : null;
-      }
-      // Como o `board.json` do back: recarregar a página não desfaz o que foi
-      // compartilhado, senão o dono que volta volta sem nada compartilhado.
-      localStorage.setItem(SHARED, JSON.stringify(board.workspaces.filter((x) => x.shared).map((x) => [x.id, x.audience, x.share_team])));
-      emit("board", board);
-      return;
-    }
-    case "pin_workspace": {
-      const target = board.workspaces.find((x) => x.id === args.id);
-      if (target) target.pinned = args.pinned;
-      emit("board", board);
-      return;
-    }
-    case "set_unread": {
-      const target = board.workspaces.find((x) => x.id === args.id);
-      if (target) target.unread = args.unread;
-      emit("board", board);
-      return;
-    }
-    case "look_at": {
-      const target = board.workspaces.find((x) => x.id === args.id);
-      if (target?.unread) {
-        target.unread = false;
-        emit("board", board);
-      }
-      return;
-    }
-    case "archive_workspace": {
-      const target = board.workspaces.find((x) => x.id === args.id);
-      if (target) target.archived = args.archived;
-      // Como no Rust: arquivar derruba os processos das abas.
-      if (target && args.archived) target.tabs.forEach((t) => (t.status = "desligada"));
-      emit("board", board);
-      return;
-    }
-    // O catálogo do Codex, como o CLI o entrega. Fixo aqui: no navegador não há
-    // `codex` para perguntar, e o dropdown com os dois agentes é justamente o
-    // que se quer ver.
-    case "agents":
-      return {
-        providers: [
-          {
-            id: "claude",
-            label: "Claude",
-            installed: true,
-            models: [],
-            capabilities: {
-              initialPlanMode: true,
-              workspaceMcpSelection: true,
-              workspacePluginSelection: true,
-              resume: true,
-              compact: true,
-              contextReport: true,
-              approvals: true,
-              userQuestions: true,
-              attachments: true,
-            },
-          },
-          {
-            id: "codex",
-            label: "Codex",
-            installed: true,
-            models: [
-              { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
-              { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
-              { id: "gpt-5.4", label: "GPT-5.4", efforts: ["low", "medium", "high", "xhigh"] },
-            ],
-            capabilities: {
-              initialPlanMode: false,
-              workspaceMcpSelection: true,
-              workspacePluginSelection: true,
-              resume: true,
-              compact: true,
-              contextReport: true,
-              approvals: true,
-              userQuestions: true,
-              attachments: true,
-            },
-          },
-        ],
-      };
-    // O catálogo vivo do Claude Code, como o `list_models` o entrega depois do
-    // filtro do back. O Haiku sem escada é de verdade: o CLI não publica
-    // esforço para ele.
-    case "claude_models":
-      return [
-        { id: "opus[1m]", label: "Opus (1M context)", efforts: ["low", "medium", "high", "xhigh", "max"] },
-        { id: "claude-fable-5[1m]", label: "Fable", efforts: ["low", "medium", "high", "xhigh", "max"] },
-        { id: "sonnet", label: "Sonnet", efforts: ["low", "medium", "high", "xhigh", "max"] },
-        { id: "haiku", label: "Haiku", efforts: [] },
-      ];
-    // A cota dos dois agentes, com números parecidos com os de um dia de
-    // trabalho: é o que faz a faixa de baixo aparecer no navegador.
-    case "usage": {
-      const now = Math.floor(Date.now() / 1000);
-      return {
-        ...Object.fromEntries(mockAccounts.accounts.filter((account) => account.id !== account.provider && account.connected).map((account, index) => [account.id, {
-          windows: [{ kind: "session", pct: 9 + index, resets: now + 2 * 3600 }, { kind: "weekly", pct: 25 + index, resets: now + 4 * 86400 }],
-          at: now,
-        }])),
-        claude: {
-          windows: [
-            { kind: "session", pct: 16, resets: now + 3 * 3600 + 14 * 60 },
-            { kind: "weekly", pct: 78, resets: now + 3 * 86400 + 4 * 3600 },
-            { kind: "fable", pct: 72, resets: now + 3 * 86400 + 4 * 3600 },
-          ],
-          at: now - 4 * 60,
-        },
-        codex: {
-          windows: [
-            { kind: "weekly", pct: 6, resets: now + 6 * 86400 + 20 * 3600, scope: "general" },
-            {
-              kind: "session",
-              pct: 1,
-              resets: now + 4 * 3600 + 55 * 60,
-              scope: "codex_bengalfox",
-              label: "GPT-5.3-Codex-Spark",
-            },
-            {
-              kind: "weekly",
-              pct: 0,
-              resets: now + 6 * 86400 + 23 * 3600,
-              scope: "codex_bengalfox",
-              label: "GPT-5.3-Codex-Spark",
-            },
-          ],
-          at: now - 96 * 60,
-        },
-      };
-    }
-    // O que o app custaria à máquina num dia comum: ele mesmo, uma conversa e
-    // um `npm run dev` de pé.
-    // No navegador não há Mac para segurar acordado: guarda e devolve.
-    case "set_awake":
-      return null;
-    // O hub de MCP com o que uma máquina de trabalho costuma ter: um servidor
-    // que roda aqui e dois remotos. É o bastante para ver o seletor com lista,
-    // a linha de cada tipo em Configurações e o botão da conversa.
-    case "mcp_hub":
-      return mcpHub;
-    case "mcp_save": {
-      const server = args.server as (typeof mcpHub)[number];
-      if (mockCloud().user && mockCatalog().shared[`mcp:${server.id}`]) cloudWrite();
-      const at = mcpHub.findIndex((s) => s.id === server.id);
-      if (at < 0) mcpHub.push(server);
-      else mcpHub[at] = server;
-      return mcpHub;
-    }
-    case "mcp_remove": {
-      const state = mockCatalog();
-      if (mockCloud().user && state.shared[`mcp:${args.id}`]) {
-        cloudWrite(); state.mcp = state.mcp.filter(id => id !== args.id); delete state.shared[`mcp:${args.id}`]; saveMockCatalog(state);
-      }
-      mcpHub = mcpHub.filter((s) => s.id !== args.id);
-      return mcpHub;
-    }
-    // O exame do servidor. No navegador não há servidor para apertar a mão:
-    // devolve os passos que cada caso daria — inclusive o 401, que é o que
-    // muda o que a tela oferece depois.
-    case "mcp_check": {
-      const server = args.server as McpServer;
-      const url = String(server.config.url ?? "");
-      const step = (key: string, ok: boolean, note = "", detail = "") => ({ key, ok, note, detail });
-      if (url.includes("notion") || url.includes("capim"))
-        return {
-          steps: [step("connect", true, "401"), step("oauth", true), step("client", true)],
-          probe: { ok: false, auth: true, tools: 0, name: "", detail: "" },
-        };
-      if (url.includes("quebrado"))
-        return {
-          steps: [step("connect", false, "", "connection refused")],
-          probe: { ok: false, auth: false, tools: 0, name: "", detail: "connection refused" },
-        };
-      const first = url ? "connect" : "spawn";
-      return {
-        steps: [
-          step(first, true, url ? "200" : ""),
-          step("handshake", true, server.id),
-          step("tools", true, "9"),
-        ],
-        probe: { ok: true, auth: false, tools: 9, name: server.id, detail: "" },
-      };
-    }
-    // No navegador não há navegador para abrir dentro do navegador: entrar
-    // marca o servidor como conectado e pronto.
-    case "mcp_logins":
-      return mcpLogins;
-    case "mcp_login":
-      mcpLogins = [...new Set([...mcpLogins, (args.server as McpServer).id])];
-      return null;
-    case "mcp_logout":
-      mcpLogins = mcpLogins.filter((id) => id !== args.id);
-      return null;
-    // O que haveria para importar do `~/.claude.json` desta máquina.
-    case "mcp_found":
-      return [
-        { id: "metabase", config: { type: "http", url: "https://metabase.exemplo/mcp" }, note: "capim-backend" },
-        { id: "n8n", config: { type: "stdio", command: "npx", args: ["-y", "n8n-mcp"], env: {} }, note: "" },
-      ];
-    // O hub de plugins, do mesmo jeito que o de MCP.
-    case "plugin_hub":
-      return pluginHub;
-    case "plugin_save": {
-      const plugin = args.plugin as Plugin;
-      if (mockCloud().user && mockCatalog().shared[`plugins:${plugin.id}`]) cloudWrite();
-      const at = pluginHub.findIndex((p) => p.id === plugin.id);
-      if (at < 0) pluginHub.push(plugin);
-      else pluginHub[at] = plugin;
-      return pluginHub;
-    }
-    case "plugin_remove": {
-      const state = mockCatalog();
-      if (mockCloud().user && state.shared[`plugins:${args.id}`]) {
-        cloudWrite(); state.plugins = state.plugins.filter(p => p.local_id !== args.id); delete state.shared[`plugins:${args.id}`]; saveMockCatalog(state);
-      }
-      pluginHub = pluginHub.filter((p) => p.id !== args.id);
-      return pluginHub;
-    }
-    // No navegador não há pasta para ler: o nome sai do fim do caminho, que é
-    // o que o `plugin.json` costuma dizer mesmo.
-    case "plugin_look": {
-      const source = String(args.source ?? "").trim();
-      const id = source.replace(/\/+$/, "").split("/").pop() ?? "";
-      return { id: id.replace(/\.zip$/, ""), source, note: "" };
-    }
-    // Instalar, sem git nenhum: o repositório cujo nome termina em `-plugins`
-    // faz as vezes de marketplace, que é o caso em que a folha pergunta qual;
-    // qualquer outro é um plugin só, e entra direto.
-    case "plugin_install": {
-      const url = String(args.source ?? "").trim().replace(/\/+$/, "");
-      const name = (url.split(/[/:]/).pop() ?? "").replace(/\.git$/, "");
-      if (!name) throw "i18n:" + JSON.stringify({ code: "err.plugin.noSource" });
-      const dir = `~/.prometeu/plugins/${name}`;
-      const from = url.includes("://") || url.includes("@") ? url : `https://github.com/${url}`;
-      if (name.endsWith("-plugins")) {
-        return {
-          dir,
-          saved: false,
-          plugins: [
-            { id: `${name}-um`, source: `${dir}/plugins/um`, note: "o primeiro do repositório", made: true, from },
-            { id: `${name}-dois`, source: `${dir}/plugins/dois`, note: "o segundo do repositório", made: true, from },
-          ],
-        };
-      }
-      const plugin: Plugin = { id: name, source: dir, note: `plugin de ${url}`, made: true, from };
-      pluginHub = [...pluginHub.filter((p) => p.id !== name), plugin].sort((a, b) => a.id.localeCompare(b.id));
-      return { dir, saved: true, plugins: [plugin] };
-    }
-    case "plugin_update":
-      return pluginHub;
-    case "plugin_scrap":
-      return;
 
-    // Criar um plugin, sem agente nenhum: os passos chegam de meio em meio
-    // segundo, e no fim ele está no hub — que é o que a folha precisa mostrar.
-    case "plugin_make": {
-      const slug = String(args.name ?? "")
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "");
-      const run = ++pluginRun;
-      const steps: Step[] = [
-        { kind: "say", text: "Vou começar pelo manifesto." },
-        { kind: "file", text: ".claude-plugin/plugin.json" },
-        { kind: "file", text: `skills/${slug}/SKILL.md` },
-        { kind: "file", text: "hooks/hooks.json" },
-      ];
-      steps.forEach((step, i) => setTimeout(() => emit("plugin-make", [run, step]), 500 * (i + 1)));
-      setTimeout(() => {
-        pluginHub.push({ id: slug, source: `~/.prometeu/plugins/${slug}`, note: String(args.ask ?? "").slice(0, 60), made: true });
-        emit("plugin-made", [run, ""]);
-      }, 500 * (steps.length + 1));
-      return { run, slug };
-    }
-    case "plugin_make_stop":
-      return;
-    case "set_workspace_plugins": {
-      const target = board.workspaces.find((x) => x.id === args.id);
-      if (target) {
-        target.plugins = args.plugins as string[] | null;
-        target.tabs.forEach((t) => (t.status = "desligada"));
-      }
-      writes++;
-      // No app o quadro volta pela ponte, um tique depois — e é essa volta que
-      // o seletor não pode ficar esperando para mover a marca.
-      setTimeout(() => emit("board", board), 0);
-      return;
-    }
-    // Trocar o modelo ou o esforço de uma conversa de pé: a escolha entra na
-    // aba e o processo cai, como no Rust — e escolher de volta o do workspace
-    // apaga a escolha, para a aba voltar a acompanhá-lo.
-    case "set_tab_choice": {
-      const target = board.workspaces.find((x) => x.id === args.id);
-      const tab = target?.tabs.find((t) => t.id === args.tab);
-      if (target && tab) {
-        const choice = args.choice as Choice;
-        const follows =
-          choice.agent === target.agent &&
-          choice.model === target.model &&
-          choice.effort === target.effort;
-        tab.choice = follows ? null : choice;
-        tab.status = "desligada";
-      }
-      emit("board", board);
-      return;
-    }
-    case "set_workspace_mcp": {
-      const target = board.workspaces.find((x) => x.id === args.id);
-      if (target) {
-        target.mcp = args.mcp as string[] | null;
-        // Como no Rust: trocar de ferramenta derruba os processos das abas, e a
-        // próxima fala as levanta com a lista nova.
-        target.tabs.forEach((t) => (t.status = "desligada"));
-      }
-      writes++;
-      setTimeout(() => emit("board", board), 0);
-      return;
-    }
-    case "machine":
-      return {
-        rss: 822 * 1024 * 1024,
-        cpu: 3.4,
-        procs: [
-          { kind: "app", name: "Prometeu", detail: "", rss: 640 * 1024 * 1024, cpu: 0.8,
-            hist: [0.4, 0.6, 1.2, 0.9, 0.7, 2.1, 1.4, 0.8, 0.6, 0.8] },
-          { kind: "chat", name: "Tela igual ao Conductor", detail: "Conversa 1", rss: 128 * 1024 * 1024, cpu: 2.2,
-            hist: [0, 0, 4.5, 8.2, 6.1, 3.3, 1.2, 2.8, 5.4, 2.2] },
-          { kind: "term", name: "Ícone do app", detail: "run", rss: 54 * 1024 * 1024, cpu: 0.4,
-            hist: [0.2, 0.3, 0.2, 0.5, 0.4, 0.3, 0.4, 0.4, 0.3, 0.4] },
-        ],
-        terms: 2,
-        ports: [{ id: "0831-1714", title: "Ícone do app", port: 3100 }],
-      };
-    case "list_branches":
-      return {
-        all: [
-          "origin/main", "main", "entire/checkpoints/v1", "manual-sleep-button",
-          "dashboard-app-preview", "export-project-zip", "fix/deploy-build-cache",
-          "password-reset-crud", "project-renaming", "refactor/railsway-specs-and-lint",
-          "origin/entire/checkpoints/v1", "origin/manual-sleep-button",
-        ],
-        default: "origin/main",
-        git: true,
-      };
-    // O lançador inteiro funciona no navegador, e o workspace novo nasce sem
-    // script nenhum — que é o estado em que a aba Setup tem algo a dizer.
-    // Criar é otimista no back de verdade: o card volta na hora, sem aba, e o
-    // worktree monta atrás. O mock imita isso — com um relógio no lugar do
-    // `git worktree add` — porque é o único jeito de a tela de montagem existir
-    // fora do Tauri, que é onde ela é desenhada.
-    case "create_workspace": {
-      const draft = args.draft;
-      const id = `nova-${nextId++}`;
-      const repo = String(draft.project).split("/").pop() ?? "repo";
-      const fresh = ws(id, draft.project, repo, draft.title || draft.branch, draft.stage, []);
-      fresh.branch = draft.branch || "main";
-      // Mais de um repositório: a pasta que os reúne, com um worktree de cada.
-      const extras: string[] = draft.extras ?? [];
-      if (extras.length) {
-        const names = [repo, ...extras.map((p: string) => board.projects.find((x) => x.id === p)?.name ?? p)];
-        fresh.worktree = `~/prometeu/worktrees/${names.join("+")}/prometeu-${id}`;
-        fresh.repos = [draft.project, ...extras].map((p: string, i: number) => ({
-          path: String(p),
-          name: names[i],
-          worktree: `${fresh.worktree}/${names[i]}`,
-          base: "origin/main",
-          pr: null,
-        }));
-      }
-      fresh.agent = draft.agent;
-      fresh.model = draft.model;
-      fresh.effort = draft.effort;
-      fresh.issue = draft.issue ?? null;
-      fresh.preparing = true;
-      board.workspaces.push(fresh);
-      emit("board", board);
-      // O tempo de um `git worktree add` num repositório grande. Pedido com
-      // "falha" escrito não monta: é como se olha a outra metade desta tela
-      // sem precisar de um repositório em que o `git` realmente recuse.
-      setTimeout(() => {
-        fresh.preparing = false;
-        if (String(draft.prompt).includes("falha")) {
-          fresh.failed = JSON.stringify({
-            code: "err.git",
-            args: {
-              command: "git worktree add",
-              cause: `fatal: '${fresh.branch}' is already checked out at '/Users/g/wt/outro'`,
-            },
-          }).replace(/^/, "i18n:");
-          emit("board", board);
-          return;
-        }
-        fresh.tabs = [{ id: `t-${id}`, title: "", status: "pronta", note: null, tokens: null }];
-        fresh.active = fresh.tabs[0].id;
-        emit("board", board);
-      }, 1400);
-      return fresh;
-    }
-    case "workspace_scripts":
-      return scripts[args.id] ?? noScripts;
-    case "dock_state":
-      return [...docks]
-        .filter(([k]) => k.startsWith(`${args.id}:`))
-        .map(([k, alive]) => ({ kind: k.split(":")[1], alive }));
-    case "create_scripts_file":
-      return ".prometeu/settings.toml";
-    case "scripts_prompt":
-      return "Descubra como preparar e como rodar este projeto, e escreva isso em `.prometeu/settings.toml`.";
-    // No navegador puro, abrir de fora é abrir uma aba do próprio navegador.
-    case "open_external":
-      window.open(String(args.url), "_blank", "noreferrer");
-      return null;
-    case "open_run":
-      console.log("abrir no navegador: http://localhost:" + ((scripts[args.id] ?? noScripts).port ?? 0));
-      return null;
-    // A webview nativa não existe fora do Tauri: a aba abre com o buraco vazio.
-    case "browser_open":
-      return (scripts[args.id] ?? noScripts).port ?? 3100;
-    case "browser_url":
-      return "http://localhost:" + ((scripts[args.id] ?? noScripts).port ?? 3100) + "/";
-    case "browser_navigate":
-      console.log("navegar para:", args.url);
-      return null;
-    case "browser_back":
-    case "browser_forward":
-    case "browser_bounds":
-    case "browser_hide":
-    case "browser_reload":
-    case "browser_close":
-      return null;
-    // No navegador não há `gh`: o PR que o quadro já sabe é o que ele mostra,
-    // e só o workspace em code review tem — é assim que se vê o botão
-    // aparecendo num e não no outro.
-    case "pr_open":
-      return null;
-    // No navegador não há `gh`: o que o quadro já sabe é o que ele continua
-    // sabendo.
-    case "refresh_prs":
-      return null;
-    case "finish_workspace": {
-      const target = board.workspaces.find((x) => x.id === args.id);
-      if (target) {
-        target.stage = board.stages[board.stages.length - 1];
-        target.archived = true;
-        target.tabs.forEach((t) => (t.status = "desligada"));
-      }
-      emit("board", board);
-      return;
-    }
-    case "cleanup_list":
-      return board.workspaces
-        .filter(hasWorktree)
-        .map((x, i) => ({
-          id: x.id,
-          title: x.title,
-          repoName: x.repo_name,
-          branch: x.branch,
-          worktree: x.worktree,
-          sizeKb: 2_900_000 - i * 700_000,
-          pr: x.repos.find((r) => r.pr)?.pr?.number ?? null,
-          // Um bloqueado na lista é o que mostra a linha em vermelho com o
-          // motivo — e ela dá para marcar assim mesmo.
-          blocked: i === 1 ? 'i18n:{"args":{"n":"3"},"code":"err.cleanup.dirty"}' : null,
-        }));
-    case "cleanup_worktree": {
-      const target = board.workspaces.find((x) => x.id === args.id);
-      if (target) target.cleaned = true;
-      emit("board", board);
-      return;
-    }
-    case "open_pr":
-      console.log("abrir o PR de " + args.id + " no navegador");
-      return null;
-    case "pr_prompt":
-      return [
-        "Quero abrir um PR deste worktree.",
-        "",
-        "Há 2 arquivos com mudanças fora de commit. A branch atual é `mock/ajuste`; o alvo é `origin/main`. Ainda não há branch upstream.",
-      ].join("\n");
-    case "open_dock": {
-      const key = `${args.id}:${args.kind}`;
-      docks.set(key, true);
-      if (args.kind === "setup") {
-        setTimeout(() => {
-          if (!docks.get(key)) return;
-          docks.set(key, false);
-          emit("pty", [key, [...new TextEncoder().encode(DONE)]]);
-          emit("pty-closed", [key, 0]);
-        }, 1500);
-      }
-      return key;
-    }
-    case "close_dock":
-      docks.delete(`${args.id}:${args.kind}`);
-      return;
-    case "new_tab":
-      return { id: "t1" };
-    case "resume_tab":
-      return true;
-    // Pasta (projeto novo) não tem o que devolver no navegador. Arquivos, sim:
-    // dois de mentira, para o clipe do lançador ter o que mostrar.
+    // Folder selection returns no sample project. Multiple-file selection supplies sample attachments.
     case "plugin:dialog|open":
       return args.options?.multiple
         ? ["/Users/gustavo/dev/njord/docs/spec.md", "/Users/gustavo/Desktop/tela.png"]
         : null;
-    // O Linear de mentira: conectar demora um pouco, como o navegador demora,
-    // e avisa pelo mesmo evento que o back avisa.
-    case "linear_status":
-      return linear;
-    // O back de verdade guarda o idioma para as poucas frases que escreve
-    // inteiras; aqui não há nenhuma, mas o comando existe dos dois lados.
-    case "set_lang":
-      return undefined;
 
-    case "linear_connect":
-      linear = { ...linear, busy: true };
-      emit("linear", linear);
-      return new Promise((done) =>
-        setTimeout(() => {
-          linear = {
-            connected: true,
-            busy: false,
-            who: { name: "Gustavo Brancaglione", email: "gustavo@exemplo.com", org: "Moabi", org_key: "moabi" },
-          };
-          emit("linear", linear);
-          done(linear);
-        }, 1200),
-      );
-    case "linear_issues":
-      if (!linear.connected) {
-        return Promise.reject(`i18n:${JSON.stringify({ code: "err.linear.off" })}`);
-      }
-      return new Promise((done) => setTimeout(() => done({ issues: ISSUES, fetched_at: Date.now() / 1000 }), 600));
-    case "linear_open":
-      console.log("abrir no Linear:", args.url);
-      return null;
-    case "linear_disconnect":
-      linear = { connected: false, who: null, busy: false };
-      emit("linear", linear);
-      return linear;
-    // Fora do Tauri não existe bundle para perguntar a versão. Dizer isso na
-    // tela é melhor que repetir aqui um número que envelhece sozinho. Como
-    // versão ele vale 0.0.0, e é por isso que a folha de novidades não abre
-    // sozinha aqui: nenhuma versão do changelog é menor ou igual a ela.
+    // There is no app bundle version in the browser. Version zero prevents release notes from opening automatically.
     case "plugin:app|version":
       return "0.0.0-mock";
-    // O updater também não tem o que fazer aqui: `null` é "nada novo", que é
-    // a resposta honesta para uma aba de navegador.
+
+    // No app updater runs in the browser; null means no update.
     case "plugin:updater|check":
       return null;
     default:
@@ -1737,15 +1768,12 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
   }
 }
 
-/* ---------- o relay de mentira ---------- */
+/* ---------- mock relay ---------- */
 
-/// Um time com dois colegas fixos, para mexer na tela sem relay: o `welcome`
-/// chega meio segundo depois de conectar, `me` troca o nome, e o resto é
-/// silêncio. `mock.presence(false)` derruba um colega para ver a lista mudar.
+/// A fixed two-member team enables collaboration UI without a relay. mock.presence(false) simulates an offline member.
 let marcusOnline = true;
 const fakes: team.SocketLike[] = [];
-/// O workspace que o Marcus compartilhou: uma conversa rodando. É o que o
-/// quadro mostra em "Do time".
+/// Marcus's shared workspace provides a running remote conversation.
 const marcusShare = (): Share => ({
   id: "ws-marcus",
   title: "Arquivar todos os concluídos",
@@ -1766,9 +1794,7 @@ function fakeSocket(url: string): team.SocketLike {
   fakes.push(socket);
   return socket;
 }
-// Com `VITE_RELAY` no ambiente o time é de verdade — o relay local do
-// `wrangler dev` —, e só o back continua de mentira. É como dois navegadores
-// testam o compartilhamento de ponta a ponta sem subir o Tauri.
+// VITE_RELAY connects browsers to a real relay while retaining the mock backend for end-to-end sharing tests.
 if (!(import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_RELAY) {
   team.useTransport({
     needsRelay: false,
@@ -1796,23 +1822,21 @@ w.__TAURI_INTERNALS__ = {
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise.resolve(call(cmd, args)),
 };
 
-// Atalho para testar o arrastar-e-soltar pelo console: `mock.drop([...])`.
+// Console shortcut for file-drop testing: mock.drop([...]).
 w.mock = {
   usage: (payload: unknown) => emit("usage", payload),
   accountError: (error: string) => emit("account-error", error),
-  /// Uma linha na conversa de mentira, como se o processo tivesse escrito.
+  /// Inject a conversation line as if the process emitted it.
   line: (tab: string, o: unknown) => pushLine(tab, o),
-  /// Quantas gravações de MCP/plugin o back de mentira recebeu.
+  /// Expose the number of MCP/plugin writes received by the mock.
   writes: () => writes,
-  /// O que o time diz agora — para dirigir a tela de fora e ver o que ela viu.
+  /// Expose team state for external UI assertions.
   team: () => ({ status: team.status(), remotes: team.remotes() }),
   presence: (online: boolean) => {
     marcusOnline = online;
     for (const s of fakes) (s as unknown as { presence: () => void }).presence();
   },
-  /// Simula soltar arquivos num ponto da tela — o mesmo evento que o Tauri
-  /// manda quando você arrasta de fora para dentro da janela. Em pontos
-  /// lógicos, como o wry do macOS manda de verdade (ver `dropTarget` no main).
+  /// Simulate Tauri file drops using macOS logical window coordinates; see dropTarget in main.ts.
   drop: (paths: string[], x = innerWidth / 2, y = innerHeight / 2, dropX = x, dropY = y) => {
     emit("file-drag", { type: "over", paths: [], position: { x, y } });
     emit("file-drag", { type: "drop", paths, position: { x: dropX, y: dropY } });

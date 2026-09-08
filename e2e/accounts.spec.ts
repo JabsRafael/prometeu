@@ -58,7 +58,7 @@ test("login no rodapé começa sem apelido e permite cancelar e reconectar", asy
   await added.getByRole("button", { name: "Reconectar" }).click();
   await expect(added.locator(".account-select")).toBeEnabled();
   await expect(added.locator("strong")).toHaveText("nova@exemplo.com");
-  // Conectar não muda a seleção antes da escolha explícita.
+  // Connecting an account does not change selection without an explicit choice.
   await expect(panel.locator('[data-account="claude"] .account-select')).toHaveAttribute("aria-pressed", "true");
   await added.locator(".account-select").click();
   await expect(added.locator(".account-select")).toHaveAttribute("aria-pressed", "true");

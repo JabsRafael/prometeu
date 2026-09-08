@@ -94,7 +94,7 @@ test("arraste de arquivo respeita diálogo modal aberto durante o gesto", async 
   const tile = page.locator('#tiles .tile[data-tab="t1"]');
   const at = await point(tile);
   await drag(page, "enter", at, [path]);
-  // Mesmo mecanismo nativo usado pelos formulários do Design System.
+  // Use the same native mechanism as Design System forms.
   await page.evaluate(() => {
     const dialog = document.createElement("dialog");
     document.body.append(dialog);
@@ -160,7 +160,7 @@ test("arraste de arquivo da miniatura recebe captura na aba original após naveg
   const composer = page.locator("#chatwrap .composer textarea");
   await composer.fill("Analise esta captura");
   const at = await point(composer);
-  // A miniatura anuncia a promessa, ainda sem caminhos de arquivos.
+  // The screenshot thumbnail advertises a file promise before a path exists.
   await drag(page, "enter", at, []);
   await expect(page.locator("#chatwrap")).toHaveClass(/dropping/);
   await promise(page, "pending", "capture-1", at);
@@ -170,7 +170,7 @@ test("arraste de arquivo da miniatura recebe captura na aba original após naveg
   await composer.press("Enter");
   await expect(composer).toHaveValue("Analise esta captura");
 
-  // Uma atualização do quadro pode chegar entre pressionar e soltar o mouse.
+  // A board update can arrive between mouse press and release.
   const second = page.locator('#tabbar .tab[data-tab="t2"]');
   await second.hover();
   await page.mouse.down();

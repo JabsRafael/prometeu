@@ -1,9 +1,6 @@
 @import "./ui.css";
 
-/* Design system medido do Conductor (px lógicos, tela 2x):
-   superfícies #141110 → #1b1917 (sidebar) → #201e1c (barras, composer, modal)
-   → #2b2826 (pastilha ativa); texto #eae8e6 / #a4a09d / #756f6c; sublinhado de
-   aba #d8c2b3. Sidebar 256, painel direito 377, header 38+1, abas 39+1, linhas 28. */
+/* Conductor measurements: main #141110; sidebar #1b1917; bars, composer, and modal #201e1c; selection #2b2826. Text: #eae8e6, #a4a09d, #756f6c; active underline #d8c2b3. Sidebar 256px, right panel 377px, header 38px + 1px border, tabs 39px + 1px border, rows 28px. */
 
 
 * { box-sizing: border-box; }
@@ -21,8 +18,7 @@ body {
   user-select: none;
   cursor: default;
 }
-/* O app inteiro numa linha — a faixa de baixo fica fora dela, porque
-   atravessa a janela toda, inclusive por baixo da barra de workspaces. */
+/* The app occupies one row; the status bar spans the full width below it. */
 .shell { flex: 1; min-height: 0; display: flex; }
 .stack { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .spacer { flex: 1; }
@@ -30,7 +26,7 @@ body {
 code { font-family: var(--mono); font-size: 0.92em; color: var(--fg); }
 .ic { flex: none; display: block; }
 
-/* ---------- controles base ---------- */
+/* Base controls. */
 
 
 .avatar {
@@ -47,13 +43,7 @@ code { font-family: var(--mono); font-size: 0.92em; color: var(--fg); }
   display: flex; flex-direction: column; min-height: 0;
 }
 body.norail .rail { display: none; }
-/* Semáforo do macOS fica em cima da webview: a faixa de cima é só para ele.
-   O `trafficLightPosition.y` do tauri.conf.json não é a margem de cima: o tao
-   deixa o contêiner do semáforo com `botão + y` de altura, e o AppKit prende o
-   botão a 9pt do fundo desse contêiner — então o que sobra em cima é `y − 9` e
-   o centro do botão cai em `y − 9 + 14/2`. Centrar na faixa é
-   `y = --top-h / 2 + 2` → 21,5 para 39px (botão de 14pt, macOS 26).
-   Mexeu na altura da faixa, refaz a conta. */
+/* macOS trafficLightPosition.y measures from the AppKit button container's bottom. With the 9pt inset and 14pt button, the center is y - 9 + 14 / 2. Align it to --top-h / 2 + 2: 21.5pt for a 39px title bar on macOS 26. */
 .railtop {
   height: var(--top-h); flex: none; display: flex; align-items: center; gap: 2px;
   padding: 0 12px 0 84px;
@@ -63,14 +53,14 @@ body.norail .top { padding-left: 84px; }
 body.norail .top .nav { margin-left: 0; }
 .railbody { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 8px; display: flex; flex-direction: column; }
 
-/* O rodapé fica fora do `railbody`: a lista de workspaces rola, ele não. */
+/* Keep the sidebar footer outside the scrolling rail body. */
 .railfoot {
   flex: none; display: flex; align-items: center; gap: 2px;
   height: 36px; padding: 0 10px;
   border-top: 1px solid var(--line-side);
 }
 .railfoot .ver { font-size: 11px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
-/* Só aparece quando há o que baixar, e some de novo depois do reinício. */
+/* Show the updater only when a download is available; it disappears after restart. */
 #update { height: 20px; padding: 0 8px; font-size: 11px; font-weight: 500; color: var(--accent); }
 #update:hover { background: var(--bg-raised-2); }
 #update.ready { color: var(--pri-fg); background: var(--pri); }
@@ -85,12 +75,11 @@ body.norail .top .nav { margin-left: 0; }
 .navitem:hover { background: var(--bg-raised); }
 .navitem.on { background: var(--bg-raised-2); color: var(--fg); }
 .navitem > span:first-of-type, .navitem .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Com o avatar na frente, quem estica é o rótulo — e o `first-of-type` acima
-   pegaria o glifo. Mesmo peso, escrito depois: este vence. */
+/* The label must flex, but first-of-type also matches the avatar glyph. The later rule wins at equal specificity. */
 .navitem > span.av { flex: none; }
 .navitem .n { font-size: 12px; color: var(--fg-3); flex: none; }
 .navitem.brand { color: var(--fg); font-weight: 500; }
-/* Alguém te marcou: acende como o card não lido acende. */
+/* Highlight unread mentions. */
 .navitem.mentions { color: var(--fg); }
 .navitem.mentions .ic { color: var(--accent); }
 .navitem.mentions .n { color: var(--accent); font-weight: 600; }
@@ -123,15 +112,11 @@ body.norail .top .nav { margin-left: 0; }
 .navitem.sub .wsidentity { display: flex; flex-direction: column; min-width: 0; flex: 1; text-align: left; line-height: 1.3; }
 .navitem.sub .wsbranch { font-size: 11px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .navitem.sub > .rail-status { margin-top: 4px; }
-/* Novidade: o que aconteceu enquanto você olhava outra coisa. Negrito e branco,
-   como e-mail não lido — sem mais um glifo na linha. */
+/* Unread conversations use bold, bright text without an extra icon. */
 .navitem.sub.unread .lbl { color: var(--fg); font-weight: 600; }
 .navitem.sub .av { display: flex; margin: 2px -2px 0 0; }
 .navitem.sub .av .avatar { width: 14px; height: 14px; border-radius: 3px; font-size: 9px; }
-/* Avatar fatiado do workspace multi-repo: cada fatia é uma caixa com a sua
-   letra inteira, menor — meia letra de cada um virava um "R" que não era de
-   ninguém. As medidas são em `em` para o quadradinho crescer junto onde a
-   tela pede um avatar maior. */
+/* Split multi-repository avatars while keeping each initial legible at small sizes; scale with em units. */
 .avatar.multi { position: relative; overflow: hidden; background: none; }
 .avatar.multi i { position: absolute; display: grid; place-items: center; font-style: normal; font-size: .6em; }
 .avatar.multi.n2 i { top: 0; bottom: 0; width: 50%; }
@@ -142,16 +127,14 @@ body.norail .top .nav { margin-left: 0; }
 .avatar.multi.n3 i:nth-child(3), .avatar.multi.n4 i:nth-child(4) { right: 0; bottom: 0; }
 .avatar.multi.n4 i:nth-child(3) { left: 0; bottom: 0; }
 
-/* Grupo por projeto: o cabeçalho da lista, com o avatar do repositório, a
-   conta e o + de criar ali dentro. O chevron e o + só aparecem no hover —
-   recolher é ação, não enfeite permanente. */
+/* Project header: repository avatar, count, and create action. Reveal the chevron and plus on hover. */
 .group {
   display: flex; align-items: center; gap: 8px; width: 100%; height: 28px;
   margin: 4px 0 1px; padding: 0 4px; border-radius: var(--r); background: none;
   font-size: 13px; font-weight: 500; color: var(--fg-2); justify-content: flex-start;
 }
 .group:hover { background: var(--bg-raised); }
-/* O projeto aberto nos arquivos: o cabeçalho acende como qualquer item da barra. */
+/* Highlight the open project's header. */
 .group.on { background: var(--bg-raised-2); color: var(--fg); }
 .group:focus-visible { outline: 2px solid var(--tab-line); outline-offset: 1px; }
 .group > span:nth-of-type(2) { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
@@ -186,7 +169,7 @@ body.norail .top .nav { margin-left: 0; }
 .rail-status.failed { color: var(--err); background: currentColor; animation: none; }
 @media (prefers-reduced-motion: reduce) { .rail-status[data-status="rodando"] { animation: none; } }
 
-/* ---------- barra do topo ---------- */
+/* Top bar. */
 
 .top {
   height: var(--top-h); flex: none; display: flex; align-items: center; gap: 8px;
@@ -195,8 +178,7 @@ body.norail .top .nav { margin-left: 0; }
 .crumb { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--fg-2); }
 .crumb > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crumb .sep { color: var(--fg-3); display: flex; }
-/* A branch entra na migalha porque é identidade, não controle: repositório ›
-   trabalho › onde o commit cai. Monoespaçada, como todo nome que se copia. */
+/* Use monospace for the branch breadcrumb's identity. */
 .crumb .branch {
   flex: none; max-width: 220px; height: 22px; padding: 0 8px; margin-left: 2px;
   gap: 5px; border-radius: 999px; border-color: var(--line-raised); background: none;
@@ -204,8 +186,7 @@ body.norail .top .nav { margin-left: 0; }
 }
 .crumb .branch:hover { background: var(--bg-raised-2); color: var(--fg); }
 .crumb .branch > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Recados não fazem parte da identidade do workspace. Como toast, não empurram
-   breadcrumb nem ações quando aparecem e somem. */
+/* Toasts must not shift breadcrumb actions. */
 .msg {
   position: fixed; z-index: 30; top: calc(var(--top-h) + 8px); right: 14px;
   max-width: min(520px, calc(100vw - 28px)); padding: 7px 10px;
@@ -215,25 +196,21 @@ body.norail .top .nav { margin-left: 0; }
 }
 .msg:empty { display: none; }
 .msg.err { color: var(--err); border-color: color-mix(in srgb, var(--err) 35%, var(--line-raised)); }
-/* Com mais de um repositório, a migalha diz quantos são em vez de emendar os
-   nomes: a largura passa a não depender de quantos o workspace tem. Os nomes
-   estão no menu do chip e nas seções de Mudanças. */
+/* Keep the multi-repository breadcrumb count width stable; names appear in the menu and changes view. */
 .crumb .repos {
   flex: none; height: 22px; padding: 0 8px; gap: 5px; border-radius: 999px;
   border-color: var(--line-raised); background: none; font-weight: 400; font-size: 12px; color: var(--fg-2);
 }
 .crumb .repos:hover { background: var(--bg-raised-2); color: var(--fg); }
-/* O botão de PR é o único controle da barra que abre lista: o ⌄ tem de caber
-   na mesma altura dos outros. */
+/* The PR dropdown chevron must fit within the bar height. */
 .top .split { height: 28px; margin-right: 0; }
 .wsctl { display: flex; align-items: center; gap: 8px; }
-/* O texto e a seta mudam quando Git/diff/PR respondem, mas o conjunto não
-   empurra os controles vizinhos. */
+/* Async Git, diff, and PR labels must not move neighboring controls. */
 .top #prsplit { width: 146px; }
 .top #prsplit > #pr { flex: 1; min-width: 0; }
 .top #prsplit > #pr span { overflow: hidden; text-overflow: ellipsis; }
 
-/* ---------- pastilha de status ---------- */
+/* Status pill. */
 
 .chip {
   display: inline-flex; align-items: center; gap: 6px; flex: none;
@@ -249,21 +226,20 @@ body.norail .top .nav { margin-left: 0; }
 @keyframes beat { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.7); } }
 @media (prefers-reduced-motion: reduce) { .s-rodando .dot { animation: none; } }
 
-/* ---------- estrutura ---------- */
+/* Main layout. */
 
 main { flex: 1; min-height: 0; position: relative; }
 .view { position: absolute; inset: 0; display: flex; }
 .listmain { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 
-/* Segunda linha do centro: abas no workspace, ferramentas nas listas. */
+/* Tabs and tools occupy the center's second row. */
 .subbar {
   height: var(--tabs-h); flex: none; display: flex; align-items: center; gap: 2px;
   padding: 0 8px; background: var(--bg-raised); box-shadow: inset 0 -1px var(--line-raised);
   overflow-x: auto;
 }
 
-/* Renomear no lugar: o campo entra na linha do rótulo que ele substituiu, então
-   cada lugar dá a sua medida. O lápis aparece no hover da linha, como o x. */
+/* Inline rename preserves the label's dimensions; show the pencil on hover. */
 .rename { background: var(--bg); border-color: var(--line-ghost); }
 .rename.sub { height: 30px; margin: 1px 0; padding: 0 8px; font-size: 13px; }
 .rename.crumb { width: 260px; height: 24px; padding: 0 8px; }
@@ -281,7 +257,7 @@ main { flex: 1; min-height: 0; position: relative; }
   display: flex; align-items: center; gap: 6px; justify-content: flex-start;
   font-weight: 400; color: var(--fg-2); background: none;
 }
-/* O ✕ anda para junto do nome: ele é da aba, e não uma coluna à parte. */
+/* Place the tab's close action beside its label. */
 .tab .tabx { margin-left: -2px; }
 .tab:hover { color: var(--fg); background: none; }
 .tab.on { color: var(--fg); box-shadow: inset 0 -2px var(--tab-line); }
@@ -291,9 +267,7 @@ main { flex: 1; min-height: 0; position: relative; }
 .tab:hover .tabx, .tab.on .tabx { opacity: 1; }
 .tab .tabx:hover { color: var(--err); }
 .tabbar > .ico { margin-left: 4px; }
-/* O "+" e a setinha ao lado são o mesmo gesto partido em dois: o "+" abre
-   conversa com o modelo do workspace, a setinha abre a lista de modelos. Ela é
-   estreita e apagada porque o caso raro não pode pesar tanto quanto o comum. */
+/* The split plus uses the default model; keep the less frequent model picker narrow. */
 .tabadd { display: flex; align-items: center; flex: none; margin-left: 4px; }
 .tabadd > .ico { margin-left: 0; }
 .tabadd .caret { width: 16px; color: var(--fg-3); }
@@ -301,10 +275,9 @@ main { flex: 1; min-height: 0; position: relative; }
 .tabadd:hover .caret { color: var(--fg-2); }
 .tabadd .caret:hover { color: var(--fg); }
 
-/* ---------- a conversa ---------- */
+/* Conversation. */
 
-/* A timeline no centro e a caixa embaixo, as duas na mesma coluna de leitura:
-   texto largo demais cansa, e o composer do Conductor tem a largura do texto. */
+/* Timeline and composer share the same reading width. */
 .chatwrap { flex: 1; position: relative; min-height: 0; display: flex; flex-direction: column; }
 .feed {
   flex: 1; min-height: 0; overflow-y: auto; padding: 24px 24px 8px;
@@ -313,8 +286,7 @@ main { flex: 1; min-height: 0; position: relative; }
 .feed > * { width: 100%; max-width: 860px; margin: 0 auto; flex: none; }
 .feed .nohint { margin-top: 20vh; }
 
-/* A pergunta abre um assunto novo: o respiro antes dela é maior que o de
-   dentro da resposta, como no Conductor. */
+/* Give prompts more space above them to mark a new topic. */
 .turn.user { display: flex; justify-content: flex-end; margin-top: 12px; }
 .feed > .turn.user:first-child { margin-top: 0; }
 .turn.user .bubble {
@@ -323,8 +295,7 @@ main { flex: 1; min-height: 0; position: relative; }
 }
 .turn.bot { display: flex; flex-direction: column; gap: 8px; }
 
-/* Sinais de vida. Texto chegando ganha um caret no fim; pensamento em curso
-   pulsa; entre uma coisa e outra, três pontos no fim da conversa. */
+/* Live caret: pulse while thinking; dots fill the intervals between events. */
 .md.typing > :last-child::after {
   content: ""; display: inline-block; width: 7px; height: 13px; margin-left: 2px;
   vertical-align: -2px; background: var(--fg-2); border-radius: 1px;
@@ -338,7 +309,7 @@ main { flex: 1; min-height: 0; position: relative; }
 .working { display: flex; align-items: center; gap: 5px; padding: 4px 2px; }
 .working .wlabel { font-size: 12px; color: var(--fg-3); margin-left: 6px; }
 .working .wlabel:empty { display: none; }
-/* A fala que espera o setup: na tela como fala, mas apagada, com o aviso embaixo. */
+/* Dim the pending setup prompt and show its notice. */
 .turn.user.wait { flex-direction: column; align-items: flex-end; gap: 2px; }
 .turn.user.wait .bubble { opacity: 0.55; }
 .working i { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-3); animation: bounce 1.2s ease-in-out infinite; }
@@ -346,7 +317,7 @@ main { flex: 1; min-height: 0; position: relative; }
 .working i:nth-child(3) { animation-delay: 0.3s; }
 @keyframes bounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.5; } 30% { transform: translateY(-4px); opacity: 1; } }
 
-/* O markdown do agente: tipografia de leitura, código no mesmo colorizador do viewer. */
+/* Agent Markdown uses the file viewer's syntax highlighting. */
 .md { font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; }
 .md > :first-child { margin-top: 0; }
 .md > :last-child { margin-bottom: 0; }
@@ -371,14 +342,13 @@ main { flex: 1; min-height: 0; position: relative; }
 .md .img { color: var(--fg-3); font-style: italic; }
 .md strong { font-weight: 600; }
 
-/* O pensamento, dobrado: é contexto, não resposta. */
+/* Keep thought context folded by default. */
 .think { font-size: 13px; color: var(--fg-2); }
 .think summary { list-style: none; display: flex; align-items: center; gap: 8px; cursor: default; }
 .think summary::-webkit-details-marker { display: none; }
 .think .tic { display: flex; flex: none; color: var(--fg-3); }
 .think summary b { font-weight: 400; flex: none; }
-/* A isca: a primeira linha do pensamento, numa pastilha que corta onde acabar
-   o espaço. É o que diz se vale abrir — sem ela, "Pensou" não informa nada. */
+/* Show a clipped first-line preview for folded thoughts. */
 .think .prev {
   flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   padding: 2px 8px; border-radius: var(--r); background: var(--bg-raised);
@@ -391,15 +361,13 @@ main { flex: 1; min-height: 0; position: relative; }
   font-size: 12.5px; color: var(--fg-2); max-height: 320px; overflow-y: auto;
 }
 
-/* Sob a resposta que fecha o turno: quanto levou, e o botão que copia o que o
-   agente escreveu. Discreto — quem lê a conversa não está lendo isto. */
+/* Keep duration and copy actions quiet in the turn footer. */
 .meta { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 12px; color: var(--fg-3); }
 .meta .cp { width: 22px; height: 22px; color: var(--fg-3); }
 .meta .cp:hover { color: var(--fg); background: var(--bg-raised); }
 .meta .cm { height: 22px; padding: 0 7px; color: var(--fg-3); font-size: 11px; }
 
-/* O trabalho seguido do agente, num cartão só: fechado é o passo de agora
-   (ou quantos foram, quando acabou); aberto, o passo a passo. */
+/* The collapsed work card shows the current step and count; expansion reveals all steps. */
 .work { border: none; background: none; }
 .work .whead {
   width: 100%; height: 26px; padding: 0 6px 0 0; gap: 8px; border: none; border-radius: var(--r);
@@ -424,8 +392,7 @@ main { flex: 1; min-height: 0; position: relative; }
 .work.open .wbody { display: flex; }
 .work .tool { background: var(--bg-raised); }
 
-/* Uma ferramenta: uma linha fechada — o que, em quê —, o que entrou e saiu
-   quando aberta. A cor da ponta é o estado. */
+/* Expand tool rows for input and output; color indicates status. */
 .tool { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg-side); overflow: hidden; }
 .tool .thead {
   width: 100%; height: 30px; padding: 0 10px; gap: 8px; border: none; border-radius: 0;
@@ -470,7 +437,7 @@ main { flex: 1; min-height: 0; position: relative; }
 .tdiff .hunk { display: block; color: var(--accent, var(--fg-2)); }
 .tdiff .meta { display: block; color: var(--fg-3); }
 .md pre.tdiff { white-space: pre; }
-/* O /context: a janela em uso, por categoria, e as seções dobradas. */
+/* The /context view groups categories into folded sections. */
 .ctxpanel { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg-side); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; }
 .ctxhead { display: flex; align-items: baseline; gap: 10px; }
 .ctxhead b { font-weight: 500; color: var(--fg); }
@@ -499,7 +466,7 @@ main { flex: 1; min-height: 0; position: relative; }
 .ctxline .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ctxline .src { color: var(--fg-3); }
 .ctxline .n { color: var(--fg-3); font-variant-numeric: tabular-nums; }
-/* O resumo pós-compactação: dobrado como o pensamento, mas em markdown. */
+/* Fold the Markdown summary after compaction. */
 .think.summary > .md { font-size: 12.5px; max-height: 420px; }
 .spin {
   width: 10px; height: 10px; border-radius: 50%;
@@ -508,7 +475,7 @@ main { flex: 1; min-height: 0; position: relative; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* O card que espera você: permissão, pergunta, plano. A cor é a de "quer você". */
+/* Attention cards: permissions, questions, and plans. */
 .ask {
   padding: 12px 14px; border: 1px solid var(--wait); background: var(--wait-bg); border-radius: var(--r-xl);
   display: flex; flex-direction: column; gap: 10px;
@@ -530,8 +497,7 @@ main { flex: 1; min-height: 0; position: relative; }
 .ask .qbody { display: flex; flex-direction: column; gap: 6px; }
 .ask .qbody p { margin: 0; font-weight: 500; }
 .ask .opts { display: flex; flex-direction: column; gap: 4px; }
-/* A opção é botão, mas o texto dela é frase: o nowrap do botão sairia do card
-   e levaria a conversa inteira para o lado. */
+/* Wrap option labels to prevent horizontal overflow. */
 .ask .opt {
   height: auto; padding: 6px 10px; gap: 1px; text-align: left;
   display: flex; flex-direction: column; align-items: flex-start;
@@ -545,7 +511,7 @@ main { flex: 1; min-height: 0; position: relative; }
 .ask .opt span { font-size: 12px; color: var(--fg-2); }
 .ask input.field { width: 100%; }
 
-/* Linhas do sistema: erro do turno, compactação, pedido respondido. */
+/* System lines. */
 .sys { font-size: 12px; color: var(--fg-3); text-align: center; }
 .sys.err { color: var(--err); text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
 .sys.done { display: flex; align-items: center; justify-content: center; gap: 6px; }
@@ -561,7 +527,7 @@ main { flex: 1; min-height: 0; position: relative; }
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
 
-/* A caixa: a mesma coluna da conversa, um degrau acima do fundo. */
+/* The composer uses a raised background. */
 .composer {
   flex: none; align-self: center; width: calc(100% - 48px); max-width: 860px; margin: 4px 0 14px;
   padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
@@ -576,45 +542,39 @@ main { flex: 1; min-height: 0; position: relative; }
 .composer textarea:disabled { color: var(--fg-3); }
 .composer .crow { display: flex; align-items: center; gap: 8px; }
 .composer .hint { font-size: 11.5px; color: var(--fg-3); }
-/* Com quem se fala, no canto de baixo: o modelo e o degrau de esforço desta
-   conversa, e onde se troca os dois sem sair dela. Dois botões colados, do
-   tamanho do seletor de MCP ao lado — o rodapé do lançador, no composer. */
+/* Model and effort controls match MCP controls in the footer. */
 .composer .with { display: flex; align-items: center; gap: 2px; margin-left: -8px; font-size: 12px; color: var(--fg-2); }
 .composer .with button { height: 22px; padding: 0 8px; gap: 6px; font-size: 12px; }
 .composer .mdl { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-2); }
 .composer .mdl .ic { color: var(--fg-3); }
 .composer .with .effort { display: inline-flex; align-items: center; gap: 7px; color: var(--fg-3); }
-/* Enquanto o agente trabalha, ou na conversa de um colega: continua legível,
-   e só para de responder ao clique — apagar o que se está lendo seria pior. */
+/* Busy and remote controls remain readable but cannot be clicked. */
 .composer .with button:disabled { pointer-events: none; }
 .composer .with.ro button { background: none; }
-/* As ferramentas de MCP desta conversa, pela mesma regra do modelo ao lado:
-   trocar aqui derruba o processo, e a próxima fala o retoma. */
+/* MCP changes restart the process on the next message. */
 .composer .mcpbtn { height: 22px; padding: 0 8px; gap: 6px; font-size: 12px; color: var(--fg-3); }
 .composer .mcpbtn .ic { color: var(--fg-3); }
 .composer .mcpbtn.on, .composer .mcpbtn.on .ic { color: var(--fg-2); }
-/* A seta redonda: falar com o agente é uma coisa só, e não precisa de rótulo. */
+/* Use a round submit arrow without a text label. */
 .composer .send.round {
   width: 28px; height: 28px; padding: 0; border-radius: 50%;
   background: var(--pri); color: var(--pri-fg);
 }
 .composer .send.round:hover { background: #fff; }
 .composer .spacer { flex: 1; }
-/* Os anexos da fala, em cima da caixa: quebram linha quando são muitos. */
+/* Allow attachment chips to wrap. */
 .composer .cfiles { display: flex; flex-wrap: wrap; gap: 6px; }
 
 .tab.file .ic { color: var(--fg-2); }
 .tab.file.on .ic { color: var(--fg); }
 .tab .n { flex: none; font-size: 12px; color: var(--fg-3); }
 .tab .tokens { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-/* O número é quantos arquivos mudaram — não muda enquanto você lê. Que ainda
-   há coisa que você não viu é a cor dele, e não um número que só desce. */
+/* Keep the changed-file count stable; unread state changes its color, not the count. */
 .tab .n.fresh, .sidetab span.fresh { color: var(--fg); }
 
-/* ---------- viewer de arquivo ---------- */
+/* File viewer. */
 
-/* Editor do Conductor, sem o composer: migalha em caixa de borda fina, botão
-   de copiar na ponta, gutter cinza grudado à esquerda, código mono 13/20. */
+/* Editor breadcrumbs use a thin border and a copy action; the monospace gutter uses 13px text with 20px line height. */
 .viewer { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .vbar { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px 0; }
 .vcrumb {
@@ -629,28 +589,16 @@ main { flex: 1; min-height: 0; position: relative; }
   flex: 1; min-height: 0; overflow: auto; display: flex; align-items: flex-start;
   padding: 12px 0 24px; font-family: var(--mono); font-size: 13px; line-height: 20px;
   user-select: text; cursor: text;
-  /* O gutter fica por cima do código, e o navegador não sabe disso: ao levar o
-     cursor para a tela ele encostaria o começo da linha embaixo dele. Esta é a
-     faixa que ele deixa livre. */
+  /* Reserve gutter width so browser cursor scrolling stays aligned. */
   scroll-padding-left: var(--gutter);
 }
 .gutter {
-  /* Grudado na esquerda: com linha comprida, o código passa por baixo dele em
-     vez de empurrá-lo. Por isso o z-index acima do <pre> — que agora tem o seu
-     para ficar em cima da caixa de escrever. */
+  /* Keep the gutter sticky on the left and above the highlighted pre element. */
   flex: none; position: sticky; left: 0; z-index: 2; background: var(--bg);
   min-width: var(--gutter); padding: 0 16px 0 12px; text-align: right; color: var(--fg-3);
   white-space: pre; user-select: none; cursor: default;
 }
-/* O arquivo é sempre editável, e as cores continuam sendo as do `highlight`:
-   a caixa que recebe o texto fica debaixo do <pre> colorido, com o texto dela
-   transparente. O que se vê é o <pre>; o cursor e o fundo da seleção são da
-   caixa, e passam por baixo das letras coloridas em vez de tapá-las.
-
-   Os dois precisam ocupar o mesmo retângulo, letra por letra: mesma fonte,
-   mesma entrelinha, mesmo recuo, `white-space: pre` nos dois. Quem dá a altura
-   e a largura da pilha é o <pre>, que é o que tem conteúdo de verdade; quem
-   rola é o .vcode, e por isso o gutter continua ao lado das linhas certas. */
+/* The transparent textarea overlays the highlighted pre element. Font, line height, padding, and white-space: pre must match exactly. The pre element sizes the layer; vcode owns scrolling. */
 .vstack { position: relative; flex: 1; }
 #vpre {
   position: relative; z-index: 1; pointer-events: none;
@@ -665,22 +613,17 @@ main { flex: 1; min-height: 0; position: relative; }
 }
 #vtext::selection { background: var(--bg-raised-3); }
 .vcode ::selection { background: var(--bg-raised-3); }
-/* Mexeu e ainda não salvou: o ponto na migalha, o mesmo sinal do arquivo fora
-   de commit na lista de Mudanças. */
+/* Mark dirty files with a breadcrumb dot. */
 .vcrumb.dirty::after {
   content: ""; flex: none; width: 6px; height: 6px; margin-left: 8px;
   border-radius: 50%; background: var(--wait);
 }
-/* PDF e CSV no lugar do código. O PDF rola dentro do iframe; a tabela rola
-   nos dois sentidos aqui, com o cabeçalho grudado no topo. */
-/* Sem padding em cima: o cabeçalho gruda na borda do scroll, e com padding
-   as linhas passariam por essa faixa acima dele. O respiro é margem da tabela. */
+/* PDF iframes and CSV tables scroll on both axes; CSV headers remain sticky. */
+/* CSV uses no top padding so headers remain sticky; apply spacing with margins. */
 .vfile { flex: 1; min-height: 0; overflow: auto; padding: 0 12px 24px; }
 .vfile.pdf { overflow: hidden; padding: 12px 0 0; }
 .vfile iframe { width: 100%; height: 100%; border: 0; }
-/* Bordas separadas, não colapsadas: a colapsada fica do lado de fora da
-   célula e não gruda com o cabeçalho — sobrava uma fresta de 1px com linha
-   passando. Aqui cada célula carrega a sua e o cabeçalho tapa tudo. */
+/* Separate borders stay attached to the header and avoid a 1px gap. */
 .vfile table { margin-top: 12px; border-collapse: separate; border-spacing: 0; font-size: 12.5px; white-space: nowrap; }
 .vfile th, .vfile td {
   padding: 3px 10px; text-align: left;
@@ -696,13 +639,11 @@ main { flex: 1; min-height: 0; position: relative; }
 .h-f { color: #61afef; }
 .h-t { color: #e5c07b; }
 
-/* ---------- tela de mudanças ---------- */
+/* Changes view. */
 
-/* O diff de todos os arquivos num scroll só. Cabeçalho de arquivo gruda no
-   topo enquanto o corpo passa; fundo verde/vermelho fraco atrás da linha, que
-   o texto colorido do highlight ainda tem de ler bem por cima. */
+/* Use one scrolling diff with sticky file headers and subtle red/green changes. */
 .diffview { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-/* Navegador: o DOM reserva o buraco e o sistema desenha a página dentro dele. */
+/* Reserve DOM space for the native browser. */
 .webview { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .webbody { flex: 1; min-height: 0; margin: 10px 12px 12px; }
 .wurl {
@@ -716,10 +657,7 @@ main { flex: 1; min-height: 0; position: relative; }
 .vcrumb .a { color: var(--done); }
 .vcrumb .r { color: var(--err); }
 
-/* Sem respiro no topo do scroll: `.dhead` gruda em `top: 0`, que é a borda do
-   scrollport e não o fim do padding — 12px aqui viravam uma frestinha por onde
-   o código de cima passa antes do cabeçalho. O respiro vai na barra, que está
-   fora do scroll. */
+/* Diff headers stick at top: 0. Top padding would leave a 12px gap, so place spacing outside the scroll container. */
 .diffview .vbar { padding-bottom: 12px; }
 .dlist { flex: 1; min-height: 0; overflow: auto; padding: 0 0 40px; }
 .dlist .none { color: var(--fg-3); padding: 40px 20px; text-align: center; }
@@ -748,7 +686,7 @@ main { flex: 1; min-height: 0; position: relative; }
 .dhead .ui-check { flex: none; gap: 5px; font-size: 11px; white-space: nowrap; }
 .dfile.seen { border-color: var(--done); }
 .dfile.seen .dhead .dpath .nm { color: var(--fg-2); }
-/* O ponto do que está fora de commit, na lista e no cabeçalho do arquivo. */
+/* Uncommitted-change dot. */
 .dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--wait); align-self: center; }
 
 .dbody {
@@ -756,8 +694,7 @@ main { flex: 1; min-height: 0; position: relative; }
   user-select: text; cursor: text; overflow-x: auto; border-radius: 0 0 8px 8px;
   display: grid; grid-template-columns: 36px 36px 18px minmax(max-content, 1fr);
 }
-/* Subgrid compartilha as larguras entre linhas sem montar uma tabela inteira
-   fora da área visível. O scroll horizontal conserva o texto completo. */
+/* Subgrid shares widths across rows without mounting an entire offscreen table. Horizontal scrolling preserves the full text. */
 .drow { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; min-height: 20px; }
 .drow .dno {
   padding: 0 6px; text-align: right; font-size: 10px;
@@ -784,9 +721,7 @@ main { flex: 1; min-height: 0; position: relative; }
 .dbody ::selection { background: var(--bg-raised-3); }
 .dnote { grid-column: 1 / -1; color: var(--fg-3); font-size: 12px; padding: 8px 16px; }
 
-/* Com mais de um repositório, cada um é uma seção: o cabeçalho do repo gruda
-   no topo, e o do arquivo gruda logo abaixo dele — os dois param enquanto o
-   corpo passa. Histórico separado é fato do git; a tela só o agrupa. */
+/* Stack sticky repository and file headers in multi-repository diffs. */
 .drhead {
   position: sticky; top: 0; z-index: 3; width: 100%; height: 30px; border-radius: 0;
   display: flex; align-items: center; gap: 8px; justify-content: flex-start;
@@ -802,15 +737,14 @@ main { flex: 1; min-height: 0; position: relative; }
 .drepo .dhead { top: 30px; }
 .drepo + .drepo { border-top: 1px solid var(--line); }
 
-/* ---------- painel da direita ---------- */
+/* Right panel. */
 
 .side {
   width: var(--side-w); flex: none; border-left: 1px solid var(--line);
   background: var(--bg); display: flex; flex-direction: column; min-height: 0;
   position: relative;
 }
-/* A alça de redimensionar cavalga a borda do painel. Invisível até a mão
-   chegar: a borda continua sendo a linha de 1px, e não uma faixa nova. */
+/* The resize handle overlays the 1px border and highlights on hover. */
 .sideresize {
   position: absolute; left: -3px; top: 0; bottom: 0; width: 7px;
   cursor: col-resize; z-index: 4;
@@ -828,9 +762,7 @@ body.noside .side { display: none; }
 .sidebody { flex: 1 1 0; min-height: 0; display: flex; }
 .sidebody > * { flex: 1; min-height: 0; }
 
-/* Árvore do Conductor: linha 28, pastilha no hover com margem 8 dos lados,
-   ícone de pasta cinza, ícone de arquivo colorido por tipo, chevron na ponta
-   da pasta só no hover. Indent de 20 por nível vem do padding-left inline. */
+/* Tree rows are 28px tall with 8px side margins and 20px indentation. Folders are gray, files use type colors, and chevrons appear on hover. */
 .tree { overflow: auto; padding: 0 0 8px; }
 .treerow {
   display: flex; align-items: center; gap: 8px; width: calc(100% - 16px); margin: 0 8px; text-align: left;
@@ -844,12 +776,9 @@ body.noside .side { display: none; }
 .treerow .tc { display: flex; color: var(--fg-2); opacity: 0; }
 .treerow:hover .tc { opacity: 1; }
 
-/* Sem folga em cima: o cabeçalho do repositório gruda no topo do padding, e
-   uma folga ali seria uma fresta acima dele por onde os arquivos passariam
-   à vista enquanto a lista rola. O respiro do topo é o do resumo. */
+/* The tree has no top scroll padding; put spacing in the summary. */
 .difflist { overflow-y: auto; padding: 0 8px 4px; display: flex; flex-direction: column; gap: 1px; }
-/* Git mantém a densidade e as cores da interface existente. As letras são
-   status do arquivo; o avatar colorido continua identificando o repositório. */
+/* Git uses the existing interface density and colors. Letters show file status; colored avatars identify repositories. */
 .git-panel { padding: 0; gap: 0; overflow: hidden; }
 .git-panel > * { flex: none; }
 .git-repository { display: flex; align-items: center; gap: 6px; padding: 6px 12px; }
@@ -953,8 +882,7 @@ body.noside .side { display: none; }
 .git-clean-hint { color: var(--fg-2); font-size: 12px; text-align: center; margin: 0 25px; }
 .git-panel :focus-visible, .git-content :focus-visible { outline: 2px solid var(--tab-line); outline-offset: 2px; }
 
-/* Dock: Setup e Run, metade de baixo do painel. Fechado vira só a barra. O
-   terminal livre não está aqui — é aba do centro, com a `.termview`. */
+/* Setup and run use the collapsible lower panel; shell uses the central panel. */
 .dock { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
 .dock.closed { flex: none; }
 .docktabs {
@@ -971,22 +899,16 @@ body.noside .side { display: none; }
 .docktab > span { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .docktab:hover { color: var(--fg); background: none; }
 .docktab.on { color: var(--fg); box-shadow: inset 0 -2px var(--tab-line); }
-/* O ✕ é da aba em que a mão está, ou da que está na frente — nas outras ele só
-   ocuparia largura para dizer o que já se sabe. */
+/* Show close controls only on hover or when active. */
 .docktab .tabx { opacity: 0; margin-right: -4px; }
 .docktab:hover .tabx, .docktab.on .tabx { opacity: 1; }
 .docktab .tabx:hover { color: var(--err); }
 
-/* O terminal livre: aba do centro, sem barra própria — o ✕ já está na aba, e
-   uma faixa vazia por cima do prompt só roubaria altura. */
+/* The central terminal needs no duplicate bar. */
 .termview { flex: 1; min-height: 0; position: relative; }
 #shellterm { position: absolute; inset: 10px 12px 12px; }
 
-/* A onda de "tem coisa rodando", no lugar do ponto verde que havia: cor parada
-   não separa "está de pé" de "parou faz um segundo", e movimento separa. Herda
-   a cor da aba de propósito — o recado é a animação, não um tom novo na barra.
-   As seis barras nascem centradas em y≈12, então uma origem só serve para
-   todas; `transform-box` em traço de largura zero é terreno movediço. */
+/* The animated wave inherits color and separates live state from text. Six bars share an origin around y=12; avoid transform-box on zero-width strokes. */
 .wave path {
   transform-origin: 12px 12px;
   animation: wave 1.1s ease-in-out infinite;
@@ -1004,8 +926,7 @@ body.noside .side { display: none; }
   .wave path { animation: none; transform: scaleY(0.7); }
 }
 
-/* Abrir o run no navegador. Só existe com processo de pé e porta reservada —
-   sumir quando ele morre também é informação. */
+/* Show preview only while running with a reserved port. */
 #run-open {
   height: 26px; margin-right: 4px; flex: none;
   border: 1px solid var(--line-raised); background: var(--bg-raised);
@@ -1013,8 +934,7 @@ body.noside .side { display: none; }
 #run-open:hover { background: var(--bg-raised-2); }
 #run-open .port { color: var(--fg-3); }
 
-/* Run e o seletor de script: uma peça só, com a borda por fora e uma linha
-   dividindo as duas metades — em vez de dois botões colados por uma fresta. */
+/* Join the run button and selector with a border separator. */
 .split {
   display: flex; align-items: center; margin-right: 4px; height: 26px; flex: none;
   border: 1px solid var(--line-raised); border-radius: var(--r);
@@ -1037,15 +957,13 @@ body.noside .side { display: none; }
 .dockwrap { flex: 1; position: relative; min-height: 0; }
 #dockterm { position: absolute; inset: 8px 12px; }
 
-/* Estado vazio: sem moldura. A caixa tracejada parecia área de arrastar, e o
-   que está ali não é um espaço à espera de conteúdo — é a tela inteira dizendo
-   o que falta. Fica centrada nos dois eixos, como o resto dos vazios do app. */
+/* Center empty states without a dashed border, which would suggest a drop target. */
 .dockempty {
   position: absolute; inset: 0; padding: 24px;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 12px; text-align: center; overflow: hidden;
 }
-/* O ícone é fundo, não conteúdo: grande e apagado, para o olho cair no botão. */
+/* Keep decorative icons low contrast. */
 .dockempty .glyph { color: var(--fg-3); line-height: 0; opacity: 0.5; }
 .dockempty .glyph.solid svg { fill: currentColor; stroke: none; }
 .dockempty h4 { margin: 0; font-size: 17px; font-weight: 500; color: var(--fg); line-height: 22px; }
@@ -1054,10 +972,10 @@ body.noside .side { display: none; }
 .dockempty .row button { height: 30px; padding: 0 14px; font-size: 13px; gap: 8px; }
 .dockempty .row kbd { font: inherit; font-size: 11px; color: var(--fg-3); letter-spacing: 0.5px; }
 .dockempty p { margin: 0; max-width: 330px; color: var(--fg-2); font-size: 13px; line-height: 19px; }
-/* Nenhuma aba na frente: é um lembrete, não um convite — some do caminho. */
+/* Show a quiet reminder when no conversation tab is open. */
 .dockempty.idle p { color: var(--fg-3); }
 
-/* Conversa desligada: em vez de um terminal vazio e mudo, a saída explícita. */
+/* Give stopped conversations an explicit state. */
 .offline {
   position: absolute; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 14px; text-align: center;
@@ -1066,16 +984,13 @@ body.noside .side { display: none; }
 .offline h3 { margin: 0; font-size: 14px; font-weight: 500; }
 .offline p { margin: 0; max-width: 44ch; color: var(--fg-2); }
 .offline .path { font-family: var(--mono); font-size: 12px; color: var(--fg-3); user-select: text; }
-/* Worktree montando: a mesma onda do dock, no tamanho de quem é o assunto da
-   tela e não uma pastilha numa aba. Não é barra de progresso porque não há
-   progresso para medir — o `git worktree add` não conta arquivos em voz alta. */
+/* Use a setup wave instead of a fake percentage: Git supplies no progress value. */
 .offline .offwave { display: flex; color: var(--fg-3); margin-bottom: 2px; }
 
-/* Montagem que não deu: o card e o cabeçalho dizem isso na cor do erro, e o
-   texto inteiro fica no painel. */
+/* Show preparation failures in the error color, with details in the panel. */
 .chip.failed { color: var(--err); }
 
-/* ---------- lançador ---------- */
+/* Launcher. */
 
 .veil {
   position: fixed; inset: 0; background: rgb(0 0 0 / 0.5);
@@ -1096,14 +1011,13 @@ body.noside .side { display: none; }
 }
 .sheettop .who { display: flex; align-items: center; gap: 0; padding-left: 4px; }
 .sheettop .who .pick { color: var(--fg); }
-/* O + de "mais um repositório", colado ao seletor do principal. */
+/* Place the add-repository action beside the primary repository. */
 .sheettop .who .ico.sm { color: var(--fg-3); margin-left: 2px; }
 .sheettop .who .ico.sm:disabled { opacity: 0.35; pointer-events: none; }
-/* Os outros repositórios do workspace: chips como os anexos, com o ícone de
-   branch — é a mesma branch em cada um. */
+/* Extra repository chips include their branch. */
 .injchip.repo { gap: 5px; }
 .injchip.repo .ic { color: var(--fg-3); }
-/* Chavinha: o rótulo e o trilho no mesmo botão, como o toggle do Conductor. */
+/* Toggle controls combine a name and track in one button. */
 .sw { gap: 8px; padding-right: 6px; }
 .sw .knob {
   width: 26px; height: 15px; flex: none; border-radius: 8px; position: relative;
@@ -1122,11 +1036,10 @@ body.noside .side { display: none; }
 .sheettop .base > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sheettop .base.open, .sheettop .base:not(.empty) { color: var(--fg); }
 .sheettop .base.empty { color: var(--fg-3); }
-/* Base desabilitada (sem branch nova) tem de parecer desabilitada: sem branch
-   não há de onde sair. */
+/* Disable the base selector when no new branch is requested. */
 .sheettop .base:disabled { opacity: 0.35; pointer-events: none; color: var(--fg-3); }
 
-/* Lista de branches: busca em cima, rolagem embaixo — o seletor do Conductor. */
+/* Keep branch search above the scrolling list. */
 .picker {
   position: absolute; top: 40px; left: 12px; z-index: 1;
   width: min(420px, calc(100% - 24px)); max-height: 320px;
@@ -1160,29 +1073,25 @@ body.noside .side { display: none; }
   font-size: 14px; line-height: 1.5; resize: none; min-height: 162px;
 }
 .sheet textarea:not(.ui-input):focus-visible { outline: none; }
-/* Anexos à vista, entre o texto e o rodapé: vão junto da primeira fala. */
+/* Place first-prompt attachments before the footer. */
 .attach { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 16px 10px; }
 .injchip {
   display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 4px 0 8px;
   background: var(--bg); border: 1px solid var(--line-raised); border-radius: var(--r);
   font-family: var(--mono); font-size: 11.5px; color: var(--fg-2);
 }
-/* A issue de origem: uma linha só, por mais longo que o título seja. O
-   identificador é código; o título é texto, e vai na fonte de texto. */
+/* Issue identifiers use monospace; titles use the prose font on the same line. */
 .injchip.issue { max-width: 100%; font-family: var(--font); font-size: 12px; gap: 6px; }
 .injchip.issue .ic { color: var(--fg-3); }
 .injchip.issue .iid { font-family: var(--mono); font-size: 11.5px; font-weight: 400; color: var(--fg-3); flex: none; }
 .injchip.issue .it { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
 .injchip.issue .ico { flex: none; }
-/* Rodapé do Conductor: modelo, esforço e Plan à esquerda; clipe e Criar à
-   direita. Onde a sessão nasce fica no meio, e é o que encolhe. */
+/* Launcher footer: model, effort, and plan on the left; attachment and create actions on the right; location fills the middle. */
 .sheetbar {
   flex: none; display: flex; align-items: center; gap: 6px; padding: 12px;
 }
 .sheetbar .pick > .ic:first-child { color: var(--fg-3); }
-/* Esforço: as barras do Conductor. Cada clique acende mais uma; a última dá a
-   volta. Ultracode é o degrau acima do máximo, e o degradê é o aviso de que
-   aqui o agente vira vários. */
+/* Effort bars cycle through levels. Ultra uses a gradient above the highest multi-agent level. */
 .effort { padding: 0 8px 0 7px; gap: 7px; }
 .effort .bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
 .effort .bars i { width: 2px; border-radius: 1px; background: var(--line-ghost); transition: background 0.12s; }
@@ -1199,25 +1108,22 @@ body.noside .side { display: none; }
 .effort.ultra:hover { filter: brightness(1.1); }
 .effort.ultra .bars i { background: rgb(255 255 255 / 0.5); }
 .effort.ultra .bars i.lit { background: #fff; }
-/* Plan ligado é um estado, não um hover: a cor da marca, lavada, para o olho
-   distinguir "vai planejar" de "o mouse está em cima". */
+/* Selected Plan state must remain distinct from hover. */
 .sheetbar #d-plan.on { background: rgb(255 107 61 / 0.14); color: var(--accent); }
 .sheetbar #d-plan.on:hover { background: rgb(255 107 61 / 0.22); }
 .sheetbar .hint {
   flex: 1; min-width: 0; text-align: right; padding: 0 4px;
   font-size: 12px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-/* A branch pedida já está aberta em outro workspace: o rodapé deixa de contar
-   onde a pasta vai nascer e passa a contar por que ela não nasce. */
+/* Explain branch conflicts in the footer. */
 .sheetbar .hint.bad { color: var(--err); }
 .sheetbar .pri { height: 28px; padding: 0 12px; }
 .sheetbar .pri:disabled { opacity: 0.45; cursor: not-allowed; }
 .sheetbar kbd { font: inherit; font-size: 12px; opacity: 0.6; }
 
-/* ---------- issues do Linear ---------- */
+/* Linear issues. */
 
-/* A barra: busca à esquerda, e à direita quando a lista foi buscada e o
-   botão de buscar de novo. */
+/* Search sits on the left; fetch time and refresh sit on the right. */
 .ibar { gap: 8px; padding: 0 12px; }
 .ibar .ifind {
   display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px;
@@ -1229,9 +1135,7 @@ body.noside .side { display: none; }
 .ibar .imeta { font-size: 12px; color: var(--fg-3); white-space: nowrap; }
 .ibar .imeta.err { color: var(--err); }
 
-/* O filtro por time: uma pílula por time dentro de uma caixa só, como um
-   seletor de um valor. A escolhida é a que tem fundo; o resto é texto. Com
-   times demais a caixa rola em vez de empurrar a linha. */
+/* Allow team filter pills to scroll when numerous. */
 .iteams {
   display: flex; align-items: center; gap: 10px; flex: none;
   padding: 10px 16px 0; min-width: 0;
@@ -1256,9 +1160,7 @@ body.noside .side { display: none; }
 .iteams .tpill .c { color: var(--fg-3); }
 
 .ilist { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px 32px; }
-/* Cabeçalho de grupo: recolher é como quem tem issue demais tira da frente o
-   que não vai olhar hoje. O chevron aparece no hover e fica de pé quando o
-   grupo está fechado — recolhido precisa se anunciar sem o mouse em cima. */
+/* Collapsed issue groups always show their chevron; expanded groups show it on hover. */
 .igroup {
   display: flex; align-items: center; gap: 8px; width: 100%; height: 36px;
   padding: 0 8px; margin-top: 8px; border-radius: var(--r); background: none;
@@ -1280,12 +1182,11 @@ body.noside .side { display: none; }
 .irow .ititle .iproj { color: var(--fg-3); font-size: 12px; margin-left: 8px; }
 .irow .istate { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-2); white-space: nowrap; }
 .irow .istate .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-/* O atalho fica à vista — é o que a aba existe para fazer — e ganha força
-   quando o mouse chega. */
+/* Reveal and highlight shortcuts on hover. */
 .irow .iact { display: flex; gap: 6px; justify-content: flex-end; opacity: 0.55; }
 .irow:hover .iact, .irow:focus-within .iact { opacity: 1; }
 .irow .iago { font-size: 12px; color: var(--fg-3); text-align: right; white-space: nowrap; }
-/* Prioridade como o Linear desenha: barras. Urgente é a marca inteira. */
+/* Priority bars use a full mark for urgent issues. */
 .prio { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
 .prio i { width: 3px; border-radius: 1px; background: var(--line-ghost); }
 .prio i:nth-child(1) { height: 5px; }
@@ -1299,18 +1200,16 @@ body.noside .side { display: none; }
 }
 .iempty h3 { margin: 0; font-size: 15px; font-weight: 500; color: var(--fg); }
 .iempty p { margin: 0; max-width: 420px; }
-/* ---------- arquivados ---------- */
+/* Archived workspaces. */
 
-/* A mesma barra e a mesma lista das issues; a linha é outra: repositório,
-   título com a branch embaixo, etapa, PR, e o que o worktree virou. */
+/* Issue bar and list share styling, with separate repository, title/branch, stage, PR, and worktree columns. */
 .ibar #aclean { gap: 6px; white-space: nowrap; }
 .arow {
   display: grid; grid-template-columns: 22px minmax(0, 1fr) 118px 40px 132px auto;
   align-items: center; gap: 12px; height: 44px; padding: 0 8px; border-radius: var(--r);
   cursor: default;
 }
-/* Largura fixa nas colunas do meio: cada linha é o próprio grid, e sem isso a
-   etapa e o PR andavam de um lado para o outro conforme o texto. */
+/* Fixed grid columns keep rows aligned. */
 .arow:hover { background: var(--bg-raised); }
 .arow .av { display: flex; }
 .arow .atitle { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
@@ -1324,15 +1223,14 @@ body.noside .side { display: none; }
 .arow.gone .atitle b { color: var(--fg-2); }
 .arow .iact .ghost { gap: 5px; font-size: 12px; height: 24px; padding: 0 8px; }
 
-/* ---------- devolver worktrees ao disco ---------- */
+/* Reclaim worktrees. */
 
 .sheet.clean { width: min(620px, 100%); }
 .sheet.clean .sheettop b { font-weight: 500; }
 .sheet.clean .sheettop .sub { font-size: 12px; color: var(--fg-3); }
 .cleanlist { max-height: min(52vh, 460px); overflow: auto; padding: 6px; display: flex; flex-direction: column; gap: 2px; }
 .cleanempty { padding: 28px 12px; text-align: center; color: var(--fg-3); font-size: 13px; }
-/* A dica em linha própria: no rodapé ela dividia espaço com os botões e vinha
-   cortada, e o que ela diz é o que a pessoa precisa saber antes de clicar. */
+/* Give cleanup hints a separate line so footer clipping cannot hide a critical choice. */
 .cleanhint {
   padding: 10px 16px 0; font-size: 12px; color: var(--fg-3); line-height: 1.45;
   border-top: 1px solid var(--line-raised);
@@ -1355,18 +1253,16 @@ body.noside .side { display: none; }
 }
 .cleanrow .pr { font-family: var(--mono); font-size: 11.5px; color: var(--done); flex: none; }
 .cleanrow .sz { font-family: var(--mono); font-size: 12px; color: var(--fg-2); flex: none; font-variant-numeric: tabular-nums; }
-/* Vermelho é aviso, não cadeado: a linha diz o que se perde e continua
-   clicável — não vem marcada, e marcá-la é uma escolha. */
+/* Risky rows are red and unchecked by default, but remain selectable. */
 .cleanrow.risk .where { color: var(--err); }
 .cleanrow.risk:hover { background: var(--err-bg); }
 .cleanrow.risk.on .box { background: var(--err); border-color: var(--err); color: var(--pri-fg); }
 .cleanhint.risk { color: var(--err); }
 .sheetbar .pri.risk { background: var(--err); border-color: var(--err); color: var(--pri-fg); }
 
-/* ---------- novidades ---------- */
+/* Release notes. */
 
-/* O changelog como quem lê: uma versão por bloco, e dentro dela o markdown do
-   git-cliff passado pelo mesmo `.md` da conversa. */
+/* Version content shares conversation Markdown styling. */
 .sheet.news { width: min(620px, 100%); }
 .sheet.news .sheettop b { font-weight: 500; }
 .sheet.news .sheettop .sub { font-size: 12px; color: var(--fg-3); }
@@ -1378,18 +1274,16 @@ body.noside .side { display: none; }
 .newsver b { font-size: 14px; font-weight: 600; }
 .newsver span { font-size: 12px; color: var(--fg-3); }
 .newsrel .md { font-size: 13.5px; }
-/* Novidades, Correções, Desempenho: rótulos de seção, no mesmo tom dos
-   títulos de Configurações — não são frases, são divisórias. */
+/* Changelog section labels follow settings styling. */
 .newsrel .md h3 {
   margin: 12px 0 4px; font-size: 11px; font-weight: 600;
   letter-spacing: 0.05em; text-transform: uppercase; color: var(--fg-3);
 }
 .newsrel .md > :first-child { margin-top: 8px; }
 
-/* ---------- configurações ---------- */
+/* Settings. */
 
-/* Uma coluna centrada, como a página de conta do Conductor: cada ajuste é uma
-   linha com o nome e a explicação à esquerda e a ação à direita. */
+/* Center the settings column; labels and help sit on the left, actions on the right. */
 .settings { overflow: hidden; }
 .setpage { width: min(760px, 100%); margin: 0 auto; padding: 40px 32px 64px; }
 .setpage h1 { font-size: 22px; font-weight: 600; margin: 0 0 28px; }
@@ -1397,8 +1291,7 @@ body.noside .side { display: none; }
   font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
   color: var(--fg-3); margin: 24px 0 4px;
 }
-/* Configurações: a lista de páginas à esquerda, a página à direita. Numa
-   rolagem só, o que se procura ficava embaixo do que não se procurava. */
+/* Use left navigation and a right settings page to avoid one long page. */
 .setwrap { flex: 1; min-width: 0; display: flex; align-items: stretch; height: 100%; overflow: hidden; }
 .setnav {
   width: 208px; flex: none; padding: 40px 10px 24px; display: flex; flex-direction: column; gap: 2px;
@@ -1416,9 +1309,7 @@ body.noside .side { display: none; }
 .setnavitem.on .ic { color: var(--fg); }
 .setwrap .setpage { flex: 1; min-width: 0; max-width: 760px; height: 100%; overflow-y: auto; }
 
-/* Título de seção com o que se faz nela na outra ponta — o caso da lista que
-   cresce (os servidores de MCP). O que explica a seção vem logo abaixo, e não
-   dentro de uma linha: linha, aqui, é um item. */
+/* Section actions sit on the right, with help below; the header is not a list item. */
 .setpage .sechead { display: flex; align-items: baseline; gap: 12px; margin: 24px 0 4px; }
 .setpage .sechead h2 { margin: 0; }
 .setpage .sechead .spacer { flex: 1; }
@@ -1429,8 +1320,7 @@ body.noside .side { display: none; }
   border-bottom: 1px solid var(--line);
 }
 .setrow.none { color: var(--fg-3); }
-/* A primeira linha de uma página que é uma lista: diz o que a lista é e traz
-   o que se faz nela. Sem ícone — não é um item. */
+/* List page introductions need no icon. */
 .setrow.head { padding-top: 0; align-items: flex-start; }
 .setrow.head .txt span { color: var(--fg-2); }
 .setrow .glyph {
@@ -1445,11 +1335,10 @@ body.noside .side { display: none; }
 .setrow .txt .bad { color: var(--err); }
 .setrow .act { display: flex; gap: 8px; flex: none; }
 .setrow .act .md .ic:last-child { color: var(--fg-3); }
-/* As linhas de dentro do time: sem ícone, alinhadas ao texto da de cima. */
+/* Align nested team rows without icons. */
 .setrow.sub { padding: 10px 0 10px 46px; }
 .setrow.sub .txt > b { white-space: nowrap; }
-/* O formulário de criar/entrar: rótulo em cima, campos embaixo — lado a lado
-   não cabe com dois campos e dois botões. */
+/* Stack labels and fields in the team join form. */
 .setrow.sub.form { flex-direction: column; align-items: stretch; gap: 10px; }
 .setrow .act.form { flex-wrap: wrap; align-items: center; justify-content: flex-start; }
 .setrow input.field { width: 200px; height: 28px; }
@@ -1461,8 +1350,7 @@ body.noside .side { display: none; }
 .setrow .mem.off { color: var(--fg-3); }
 .setrow .mem.off .dot { background: var(--line-ghost); }
 
-/* Importador de transição: uma confirmação curta, mas com o inventário
-   inteiro à vista antes de tocar no estado local. */
+/* Show the complete import inventory before changing state. */
 .sheet.migration { width: min(600px, 100%); }
 .sheet.migration .sheettop b { font-weight: 500; }
 .sheet.migration .mbody {
@@ -1482,7 +1370,7 @@ body.noside .side { display: none; }
 .sheet.migration .sheetbar { border-top: 1px solid var(--line-raised); }
 .sheet.migration .sheetbar .hint { text-align: left; }
 
-/* ---------- time: quem olha e compartilhar ---------- */
+/* Team viewers and sharing. */
 
 .watchers { display: inline-flex; align-items: center; padding-left: 2px; }
 .watchers:empty { display: none; }
@@ -1496,7 +1384,7 @@ body.noside .side { display: none; }
 #share.on { color: var(--done); }
 #share.on .ic { color: var(--done); }
 
-/* ---------- comentários do time ---------- */
+/* Team comments. */
 
 .nohint { color: var(--fg-3); font-size: 12px; padding: 12px; text-align: center; }
 .side.comments-open #dock { display: none; }
@@ -1580,22 +1468,18 @@ body.noside .side { display: none; }
 .inboxrow .txt .what { color: var(--fg-2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inboxrow .go { color: var(--fg-3); display: flex; }
 
-/* ---------- menu de contexto ---------- */
+/* Context menu. */
 
-/* Flutua acima de tudo, inclusive do lançador: quem abriu o menu está mexendo
-   nele agora. Fica em `fixed` para o submenu poder nascer dentro do painel e
-   ainda assim se posicionar pela tela. */
-/* A lista de comandos da caixa: pode ter dezenas de linhas, então cabe na
-   tela e rola, em vez de crescer até tampar a conversa. */
+/* Menus sit above the fixed launcher and support nested submenus with screen-relative positioning. */
+/* Bound command-menu height and enable scrolling. */
 .menu.cmds { max-height: 40vh; overflow-y: auto; max-width: min(560px, calc(100vw - 16px)); }
 .menu.cmds .mrow { flex: none; }
 .menu.cmds .ml { flex: none; max-width: 240px; }
 .menu.cmds .mh { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 
-/* ---------- arquivo arrastado de fora ---------- */
+/* External file drop. */
 
-/* Soltar em cima da conversa anexa o arquivo ao rascunho; no terminal, escreve
-   o caminho escapado. A moldura mostra o destino. */
+/* Chat drops attach files; terminal drops insert escaped paths. The frame identifies the destination. */
 .dropping { position: relative; }
 .dropping::after {
   content: ""; position: absolute; inset: 2px; pointer-events: none; z-index: 3;
@@ -1603,10 +1487,9 @@ body.noside .side { display: none; }
   background: rgb(255 107 61 / 0.06);
 }
 
-/* ---------- a faixa de baixo ---------- */
+/* Status bar. */
 
-/* Quanto da cota já foi, e o estado da máquina. Fina de propósito: é o rodapé
-   que se lê de canto de olho, e cada pixel dela sai da conversa. */
+/* Compact quota and resource controls preserve conversation height. */
 .status {
   flex: none; height: 26px; display: flex; align-items: center; gap: 14px;
   padding: 0 10px; background: var(--bg-side);
@@ -1620,11 +1503,10 @@ body.noside .side { display: none; }
 }
 .uchip:hover { background: var(--bg-raised); color: var(--fg-2); }
 .utext { white-space: nowrap; font-variant-numeric: tabular-nums; }
-/* O traço de quem ainda não tem número: fica, mas não puxa o olho. */
+/* Use a subtle dash for unavailable values. */
 .utext.dim { color: var(--line-ghost); }
 
-/* A barrinha: o traço cheio é quanto já foi. Cinza enquanto é informação,
-   quente quando começa a mandar no seu dia. */
+/* Usage bars are gray normally and warm near limits. */
 .meter {
   width: 34px; height: 4px; flex: none; border-radius: 2px;
   background: var(--bg-raised-3); overflow: hidden;
@@ -1637,8 +1519,7 @@ body.noside .side { display: none; }
 .uchip:hover .meter.warn > i { background: var(--wait); }
 .uchip:hover .meter.hot > i { background: var(--err); }
 
-/* O painel do uso. Uma linha por janela; planos com buckets próprios de
-   modelo ganham subtítulos para não misturar cotas independentes. */
+/* Group usage panels by model scope. */
 .upop { min-width: 268px; padding: 10px 12px 12px; gap: 0; }
 .upop.usage { width: min(320px, calc(100vw - 16px)); overflow-y: auto; }
 .upop.usage .uhead { align-items: center; gap: 7px; }
@@ -1647,7 +1528,7 @@ body.noside .side { display: none; }
 .account-select:hover:not(:disabled) { background: var(--bg-raised-3); }
 .uaccount.active .account-select { border-color: var(--accent); }
 .account-select:disabled { cursor: default; }
-/* O botão cobre o card; as ações são botões irmãos, sem controles aninhados. */
+/* Place card buttons and actions as siblings to avoid nested controls. */
 .account-content { position: relative; pointer-events: none; }
 .account-content button { pointer-events: auto; }
 .account-heading { display: flex; align-items: center; gap: 8px; min-height: 24px; }
@@ -1688,7 +1569,7 @@ body.noside .side { display: none; }
 .uaside { font-size: 11px; font-weight: 400; color: var(--fg-3); font-variant-numeric: tabular-nums; }
 .uempty { padding: 14px 0 16px; text-align: center; font-size: 11px; color: var(--fg-3); }
 
-/* A lista de processos e a de portas: mesma linha, colunas diferentes. */
+/* Process and port lists share row styling with different columns. */
 .upop.res { min-width: 380px; }
 .upop.port { min-width: 240px; }
 .upop .prow {
@@ -1701,15 +1582,14 @@ body.noside .side { display: none; }
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--fg);
 }
-/* De onde o processo veio: a aba, o terminal. Fica atrás do nome, na mesma
-   linha, porque duas linhas por processo fariam o painel virar tela. */
+/* Show process origin inline. */
 .pname em { font-style: normal; color: var(--fg-3); }
 .pname em::before { content: " · "; }
 .spark { width: 46px; height: 14px; color: var(--fg-3); overflow: visible; }
 .pcpu, .prss { text-align: right; font-variant-numeric: tabular-nums; }
 .prss { color: var(--fg); }
 
-/* Limpar worktrees: a única ação do painel, e ela abre a folha que já existe. */
+/* Cleanup reuses the existing dialog. */
 .urow.act {
   display: flex; align-items: center; justify-content: flex-start; gap: 6px;
   width: 100%; height: 30px; margin-top: 4px; padding: 0 6px;
@@ -1727,13 +1607,10 @@ body.noside .side { display: none; }
 .pport { font-variant-numeric: tabular-nums; color: var(--fg); font-weight: 600; }
 .upop .prow.port .ic { color: var(--fg-3); }
 
-/* O pontinho do café: aceso é o Mac sendo segurado acordado agora. Apagado
-   continua na faixa, e não some — o lugar do estado tem que ser o mesmo
-   estando ligado ou não. */
+/* Keep the awake indicator stable when toggling it. */
 .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--line-ghost); flex: none; }
 .dot.on { background: var(--done); }
-/* O menu do café: a explicação de cada modo vem embaixo do nome, e não na
-   ponta da linha, senão a linha fica com o dobro da largura do resto. */
+/* Place the sleep-mode explanation below its label to avoid widening the control. */
 .menu.awake { min-width: 268px; }
 .menu.awake .mrow {
   display: grid; height: auto; padding: 7px 9px; column-gap: 0; row-gap: 1px;
@@ -1749,11 +1626,9 @@ body.noside .side { display: none; }
 }
 .menu.awake .mc { grid-area: check; justify-self: end; }
 
-/* ---------- o hub de MCP ---------- */
+/* MCP hub. */
 
-/* As linhas da lista são as mesmas de Configurações; o que é próprio daqui é o
-   assistente de dois passos. O corpo rola e o rodapé não: o segundo passo tem
-   resumo, seções e pares, e passa da altura da janela em tela pequena. */
+/* Scroll the wizard body while keeping its footer fixed. */
 .sheet.hubedit { width: min(560px, 100%); }
 .sheet.hubedit .sheettop b { font-weight: 500; }
 .sheet.hubedit .mbody {
@@ -1761,8 +1636,7 @@ body.noside .side { display: none; }
   padding: 14px; overflow-y: auto; min-height: 0; max-height: min(58vh, 560px);
 }
 .sheet.hubedit .msay { color: var(--fg-2); font-size: 12.5px; line-height: 1.5; }
-/* Cada campo diz para que serve, embaixo e por escrito: `placeholder`
-   desaparece justamente quando se está digitando. */
+/* Use persistent field help instead of placeholders. */
 .sheet.hubedit .fld { display: flex; flex-direction: column; gap: 6px; }
 .sheet.hubedit .fld .fl { font-size: 11.5px; color: var(--fg-3); }
 .sheet.hubedit .fld .fh { font-size: 11.5px; color: var(--fg-3); line-height: 1.45; }
@@ -1772,8 +1646,7 @@ body.noside .side { display: none; }
   font-family: var(--mono); font-size: 12px;
 }
 .sheet.hubedit input:not(.ui-input):focus-visible { outline: none; border-color: var(--line-raised); }
-/* O pedido de um plugin é um parágrafo, e o campo tem que parecer os outros —
-   o `textarea` da conversa é sem borda e alto, e aqui nenhum dos dois serve. */
+/* Plugin requests use a standard textarea, not chat styling. */
 .sheet.hubedit textarea:not(.ui-input) {
   width: 100%; padding: 7px 9px; min-height: 0; resize: vertical;
   background: var(--bg); color: var(--fg);
@@ -1781,8 +1654,7 @@ body.noside .side { display: none; }
   font-family: var(--mono); font-size: 12px; line-height: 1.5;
 }
 .sheet.hubedit textarea:not(.ui-input):focus-visible { outline: none; border-color: var(--line-raised); }
-/* A escolha, quando o repositório traz mais de um plugin: uma linha por
-   plugin, com o que ele diz de si embaixo do nome. */
+/* Marketplace plugin rows include descriptions. */
 .sheet.hubedit .mpick { display: flex; flex-direction: column; gap: 4px; }
 .sheet.hubedit .mpickrow {
   display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
@@ -1794,8 +1666,7 @@ body.noside .side { display: none; }
 .sheet.hubedit .mpickrow b { display: block; font-size: 12.5px; font-weight: 500; }
 .sheet.hubedit .mpickrow span { display: block; font-size: 11.5px; color: var(--fg-3); line-height: 1.45; }
 
-/* O agente escrevendo: uma linha por arquivo que sai. A última é a de baixo, e
-   é para ela que o olho vai. */
+/* Keep the latest authoring progress at the bottom. */
 .sheet.hubedit .mrun { display: flex; flex-direction: column; gap: 4px; min-height: 132px; }
 .sheet.hubedit .mstep {
   padding: 6px 10px; border-radius: var(--r); background: var(--bg);
@@ -1803,11 +1674,10 @@ body.noside .side { display: none; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .sheet.hubedit .mstep.wait { color: var(--fg-3); font-family: inherit; font-size: 12.5px; }
-/* Um servidor é um programa aqui ou um endereço lá — nunca os dois. */
+/* Choose either a local program or a remote address. */
 .sheet.hubedit .mkind { display: flex; gap: 8px; }
 
-/* O exame, passo a passo. Uma linha por tentativa: o que se tentou, como foi,
-   e o dado que ela trouxe (o status, o nome do servidor, a conta). */
+/* MCP probes show attempts, outcomes, and details. */
 .sheet.hubedit .mcheck { display: flex; flex-direction: column; gap: 2px; }
 .sheet.hubedit .mcheck .ch { font-weight: 500; margin-bottom: 6px; }
 .sheet.hubedit .crow {
@@ -1833,7 +1703,7 @@ body.noside .side { display: none; }
   font-family: var(--mono); font-size: 11px; color: var(--fg-3);
 }
 .sheet.hubedit .crow .cc:empty { display: none; }
-/* O fecho do exame: o que ele quer dizer para o passo seguinte. */
+/* The probe conclusion explains the next step. */
 .sheet.hubedit .cnote {
   display: flex; align-items: flex-start; gap: 10px; margin-top: 8px;
   padding: 10px; border-radius: var(--r); background: var(--bg);
@@ -1842,10 +1712,10 @@ body.noside .side { display: none; }
 .sheet.hubedit .cnote .ic { flex: none; color: var(--done); }
 .sheet.hubedit .cnote.bad, .sheet.hubedit .cnote.bad .ic { color: var(--err); }
 
-/* O resumo do primeiro passo, no alto do segundo: clicar volta e corrige. */
+/* Click the first-step summary to edit it. */
 .sheet.hubedit .mhead {
   display: flex; align-items: center; gap: 10px; width: 100%;
-  /* Botão tem altura fixa por padrão, e aqui são três linhas dentro dele. */
+  /* Override the fixed button height for three-line content. */
   height: auto; padding: 10px; border: 1px solid var(--line); border-radius: var(--r);
   background: var(--bg); text-align: left; font-weight: 400;
 }
@@ -1860,7 +1730,7 @@ body.noside .side { display: none; }
 .sheet.hubedit .mhead .said:empty { display: none; }
 .sheet.hubedit .mhead .pen { display: flex; flex: none; color: var(--fg-3); }
 
-/* Uma seção do segundo passo: título, a frase do que ela é, e o que tem dentro. */
+/* Wizard sections contain a title, help, and content. */
 .sheet.hubedit .msect { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .sheet.hubedit .msect > b { font-weight: 500; }
 .sheet.hubedit .msect > .sb { font-size: 12px; color: var(--fg-3); line-height: 1.45; }
@@ -1871,29 +1741,21 @@ body.noside .side { display: none; }
 .sheet.hubedit .mpair input:first-child { width: 34%; flex: none; }
 .sheet.hubedit .mpair .ico.sm { flex: none; color: var(--fg-3); }
 
-/* Sair à esquerda, o recado no meio, seguir à direita — nos dois passos. */
+/* Wizard footer: cancel on the left, message in the middle, next on the right. */
 .sheet.hubedit .sheetbar { padding: 12px 14px; gap: 10px; border-top: 1px solid var(--line-raised); }
 .sheet.hubedit .sheetbar .hint { flex: 1; min-width: 0; }
 .sheet.hubedit .hint.bad { color: var(--err); }
 
-/* ---------- a mesa ---------- */
+/* Desk. */
 
-/* Todas as conversas de uma vez, cada uma no seu quadro: quatro por tela de
-   saída. A alça do canto muda o tamanho, o cabeçalho arrasta para trocar de
-   lugar, e a faixa de cima recolhe e traz de volta — tudo fica (`desk.ts`).
-
-   A cara é de terminal — monoespaçada, moldura fina, a fala da pessoa como
-   prompt —, nas cores de sempre do app. Só aqui: a conversa do workspace
-   continua com a leitura larga. */
+/* Four default tiles support corner resizing, header dragging, collapse, and persistence. Only desk terminals use monospace throughout; workspace conversations keep the wider reading layout. */
 .desk .listmain { font-family: var(--mono); }
 .desk .tab { position: relative; font-family: var(--mono); font-size: 12px; padding-left: 12px; }
-/* O sublinhado para antes do risco: dois chips acesos lado a lado são dois
-   traços, e não um só. */
+/* Stop tile underlines before the separator. */
 .desk .tab.on { box-shadow: none; }
 .desk .tab.on::after { content: ""; position: absolute; left: 10px; right: 8px; bottom: 0; height: 2px; background: var(--accent); }
 .desk .tab + .tab.on::after { left: 22px; }
-/* Um risco curto entre as conversas: todas em mono e cinza, é o que deixa
-   contar quantas há na faixa. */
+/* Use short separators between conversations. */
 .desk .tab + .tab::before { content: ""; width: 1px; height: 14px; margin-right: 6px; background: var(--line-ghost); flex: none; }
 .tiles {
   flex: 1; min-height: 0; overflow: auto; padding: 12px;
@@ -1906,8 +1768,7 @@ body.noside .side { display: none; }
   display: flex; flex-direction: column; overflow: hidden;
   background: var(--bg); border: 1px solid var(--line-raised); border-radius: var(--r-lg);
 }
-/* Arrastando: o quadro de verdade vira a vaga tracejada, e o fantasma — só o
-   cabeçalho numa moldura do mesmo tamanho — segue o cursor por cima de tudo. */
+/* Keep a placeholder while dragging; the ghost header follows the cursor. */
 .tile.dragging { pointer-events: none; opacity: .4; border-style: dashed; border-color: var(--line-ghost); }
 .tile.ghost {
   position: fixed; z-index: 30; pointer-events: none; margin: 0; opacity: .92;
@@ -1926,7 +1787,7 @@ body.noside .side { display: none; }
 .tile-head .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
 .tile-head .tmin, .tile-head .topen { opacity: .5; }
 .tile:hover .tile-head .tmin, .tile:hover .tile-head .topen { opacity: 1; }
-/* A alça: no canto, por cima da caixa. Escura até a mão chegar perto. */
+/* The resize corner overlays the composer and appears on hover. */
 .tile-grip {
   position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; z-index: 2;
   display: flex; align-items: flex-end; justify-content: flex-end; padding: 0 3px 3px 0;
@@ -1934,9 +1795,7 @@ body.noside .side { display: none; }
 }
 .tile-grip:hover, .tile.sizing .tile-grip { color: var(--fg); }
 
-/* O que está escrito: tudo em monoespaçada, do tamanho de um terminal, na
-   largura inteira do quadro. A fala da pessoa é a linha de prompt; a do
-   agente vem embaixo, como saída. */
+/* Desk conversations use a full-width terminal style for prompts and agent output. */
 .tile .feed { padding: 10px 12px 4px; gap: 10px; font-size: 12.5px; }
 .tile .feed > * { max-width: none; }
 .tile .feed .nohint { margin-top: 10vh; font-size: 12px; }
@@ -1949,9 +1808,7 @@ body.noside .side { display: none; }
 .tile .meta { font-size: 11px; }
 .tile .think, .tile .sys, .tile .working .wlabel { font-size: 12px; }
 
-/* A caixa: a última linha do terminal. Uma linha, como o prompt; cresce com o
-   que se escreve. Os seletores do rodapé quebram linha em vez de empurrar a
-   seta para fora do quadro. */
+/* The desk composer starts on one line and grows; footer controls wrap to keep submit inside the tile. */
 .tile .composer { width: calc(100% - 16px); margin: 4px 0 8px; padding: 6px 10px; border-radius: var(--r-lg); }
 .tile .composer textarea { font-family: var(--mono); font-size: 12.5px; min-height: 22px; }
 .tile .composer .crow { flex-wrap: wrap; row-gap: 4px; }
@@ -1963,7 +1820,7 @@ body.noside .side { display: none; }
 .actionwatch { display: flex; flex-direction: column; gap: 12px; }
 .taskwatch { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Ações: comandos à mão, perfis abaixo e atalhos secundários recolhidos. */
+/* Keep secondary action commands and profiles folded. */
 .actions-page { display: flex; flex-direction: column; gap: 28px; }
 .actions-intro { margin: -18px 0 0; color: var(--fg-2); font-size: 13px; }
 .action-section-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }

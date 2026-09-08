@@ -1,5 +1,5 @@
-//! O catálogo da conta contém definições compartilhadas. Os hubs também
-//! conservam itens privados; somente vínculos explícitos publicam alterações.
+//! The account catalog contains shared definitions. Local hubs also retain private items; only
+//! explicit links publish changes.
 use crate::lock::lock;
 use crate::state::publish;
 use crate::{actions, cloud, i18n, mcp, paths, plugins, skills, AppState};
@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 static SYNC: Mutex<()> = Mutex::new(());
 
-/// Coordena a sincronização com comandos que alteram os hubs locais.
+/// Coordinate synchronization with commands that modify local hubs.
 pub(crate) fn guard() -> std::sync::MutexGuard<'static, ()> {
     lock(&SYNC)
 }
@@ -41,7 +41,7 @@ pub struct Doc {
 struct Cache {
     revision: Option<u64>,
     doc: Doc,
-    // Ausência identifica o cache anterior: os nomes eram os próprios vínculos.
+    // Absence identifies the old cache format, where names served as links.
     #[serde(default)]
     links: Option<BTreeMap<String, String>>,
 }
@@ -142,7 +142,7 @@ fn save_cache(cache: &Cache) -> Result<(), String> {
         .map_err(|_| i18n::t("err.cloud.storage"))
 }
 
-/// Desconectar mantém hubs e arquivos; os vínculos deixam de existir.
+/// Disconnecting removes links while preserving hubs and files.
 pub fn forget() {
     let _sync = guard();
     let _ = std::fs::remove_file(cache_path());
@@ -198,7 +198,7 @@ fn merge(cloud: &Value, local: &Value) -> Value {
     out
 }
 
-/// IDs de origens diferentes nunca substituem um item privado homônimo.
+/// IDs from different sources must never overwrite a private item with the same name.
 fn available(id: &str, used: &BTreeSet<String>) -> String {
     if !used.contains(id) {
         return id.into();
@@ -270,7 +270,7 @@ fn apply(app: &AppHandle, cache: &mut Cache, new: Doc) -> Result<(), String> {
             })?;
         }
     }
-    // Ações anteriores continuam compatíveis; nenhum catálogo local é exportado no login.
+    // Preserve existing actions; logging in never exports the local catalog.
     if let Some(actions) = &new.actions {
         actions::validate(actions)?;
         lock(&app.state::<AppState>().board).actions = actions.clone();
@@ -384,7 +384,7 @@ fn write(app: &AppHandle, mut cache: Cache, doc: Doc) -> Result<(), String> {
     let (code, value) = cloud::api(Method::PUT, "/api/catalog", Some(body))?
         .ok_or_else(|| i18n::t("err.catalog.disconnected"))?;
     if code == 409 {
-        // Revisão obsoleta nunca sobrescreve a edição de outro desktop/browser.
+        // A stale revision must not overwrite edits from another desktop or browser.
         pull_locked(app)?;
         return Err(conflict());
     }
@@ -438,8 +438,8 @@ pub fn save_plugin(
         .iter_mut()
         .find(|p| p.id == id)
         .ok_or_else(invalid)?;
-    // A origem remota pode ter mudado sem trocar o clone instalado neste Mac.
-    // Editar a descrição local não deve restaurar o endereço antigo na nuvem.
+    // The remote source can change without replacing this Mac's installed clone. Editing its local
+    // description must not restore the old remote address.
     target.note = plugin.note.clone();
     if doc == cache.doc {
         return Ok(());
@@ -470,7 +470,7 @@ pub fn save_mcp(
         .find(|s| s.id == id)
         .ok_or_else(invalid)?;
     *target = item;
-    // Alterar somente credenciais é uma edição local, inclusive sem rede.
+    // Credential-only changes remain local and work offline.
     if doc == cache.doc {
         return Ok(());
     }
@@ -594,7 +594,7 @@ pub fn catalog_copy(
                 .find(|p| p.id == id)
                 .cloned()
                 .ok_or_else(invalid)?;
-            // ponytail: cópias compartilham o clone; copiar arquivos se precisarem de edição independente.
+            // ponytail: copies share the clone; copy files when independent editing is required.
             for plugin in hub.iter_mut().filter(|p| p.source == item.source) {
                 plugin.made = false;
             }
@@ -779,7 +779,7 @@ mod tests {
         assert_eq!(servers.len(), 2);
         assert!(servers.iter().any(|s| s == &local));
         assert_eq!(servers[0].config["headers"]["Authorization"], "");
-        // A exclusão remota esquece o vínculo, nunca a definição privada ou os segredos.
+        // Remote deletion removes the link, never the private definition or secrets.
         bind(
             &mut fresh,
             &Doc::default(),

@@ -41,29 +41,22 @@ use std::sync::Mutex;
 
 pub struct AppState {
     pub board: Mutex<Board>,
-    /// Para onde o quadro vai quando muda: uma thread só, que junta as
-    /// gravações. Ver `state::spawn_saver`.
+    /// A single saver thread coalesces board writes; see state::spawn_saver.
     pub save: state::Saver,
-    /// Toda conversa de todo workspace continua rodando com o quadro na
-    /// frente. Chave é o id da sessão, que é o id da aba.
+    /// Running conversations keyed by their session/tab IDs, independent of the displayed
+    /// workspace.
     pub chats: Mutex<HashMap<String, chat::Chat>>,
-    /// Os terminais do dock — setup, run, shells —, por `<workspace>:<tipo>`.
+    /// Dock terminals, setup, and run processes keyed by workspace:type.
     pub ptys: Mutex<HashMap<String, pty::Pty>>,
-    /// Qual workspace está na tela. O que acontece nele não vira novidade —
-    /// você está vendo acontecer.
+    /// The visible workspace does not acquire unread status for live updates.
     pub looking: Mutex<Option<String>>,
-    /// Sessões cujo Claude Code já avisou que está de pé — só nessas a primeira
-    /// fala pode ir. Importa quando a fala espera o `setup` acabar: o fim dele
-    /// não pode escrever num processo que ainda está subindo.
+    /// Only ready agents may receive their initial message. Setup completion must not write to a
+    /// process that is still starting.
     pub ready: Mutex<HashSet<String>>,
 }
 
-/// O app aberto pelo Finder nasce com o PATH mínimo do launchd —
-/// `/usr/bin:/bin:/usr/sbin:/sbin`, sem o `claude` que mora em `~/.local/bin`
-/// e sem nada do Homebrew. Pergunta ao shell de login qual é o PATH de verdade
-/// e adota: toda sessão nasce herdando o ambiente deste processo.
-///
-/// Rodando do terminal o PATH já está certo e isto só confirma o que veio.
+/// Finder launches inherit launchd's minimal PATH. Adopt the user's login-shell PATH so agents and
+/// Homebrew tools can be found; terminal launches retain equivalent behavior.
 fn adopt_login_path() {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     let (tx, rx) = std::sync::mpsc::channel();
@@ -77,7 +70,7 @@ fn adopt_login_path() {
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
         let _ = tx.send(path);
     });
-    // O profile do usuário é código arbitrário: se ele travar, o app não trava com ele.
+    // Bound login-shell execution because arbitrary user profile code may stall.
     if let Ok(Some(path)) = rx.recv_timeout(std::time::Duration::from_secs(5)) {
         if !path.is_empty() {
             std::env::set_var("PATH", path);
@@ -85,15 +78,9 @@ fn adopt_login_path() {
     }
 }
 
-/// Quem fala HTTPS aqui — o OAuth do Linear, o teste de um servidor de MCP, o
-/// updater — usa `reqwest` com `rustls-no-provider`, e essa combinação exige
-/// que o provedor de criptografia seja instalado antes do primeiro cliente. O
-/// plugin do updater instala um, mas só quando vai checar atualização: quem
-/// falasse HTTPS antes disso entrava em pânico dentro da thread do reqwest.
-/// Instalar aqui torna a ordem irrelevante.
-///
-/// Erro é "já havia um instalado", e nesse caso não há nada a fazer nem a
-/// dizer: o que se queria era que existisse um.
+/// Install the rustls crypto provider before any HTTPS client starts. The updater would otherwise
+/// install it only during its first check, leaving earlier OAuth or MCP requests vulnerable to a
+/// runtime panic. An existing provider is already sufficient.
 fn install_crypto() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
@@ -252,8 +239,7 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("erro ao subir o Prometeu")
         .run(|app, event| {
-            // A gravação do quadro é adiada para não pesar no caminho quente.
-            // Sair é o único momento em que não existe "daqui a pouco".
+            // Flush deferred board writes during shutdown, when no later save can be assumed.
             if matches!(event, tauri::RunEvent::Exit) {
                 accounts::shutdown();
                 state::save_now(app);

@@ -12,7 +12,7 @@ const watchers = new Set<() => void>();
 export const onChange = (fn: () => void) => { watchers.add(fn); return () => watchers.delete(fn); };
 export const packageIds = () => new Set(hub.map(s => `skill-${s.id}`));
 export function init(report: typeof say) { say = report; void refresh().catch(e => say(fromBack(e), true)); }
-export async function refresh() { hub = await invoke<Skill[]>("skill_hub"); for (const fn of watchers) fn(); }
+export async function refresh() { hub = await invoke("skill_hub"); for (const fn of watchers) fn(); }
 async function changed() { await refresh(); await plugins.refresh(); await catalog.load(); }
 
 function row(id: string, description: string, controls: HTMLElement[]) {

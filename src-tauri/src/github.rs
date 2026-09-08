@@ -1,8 +1,6 @@
-//! Integração com GitHub CLI. O resto da sessão trabalha com git e worktrees;
-//! descoberta, cache e abertura de PRs ficam nesta borda de rede/processo.
-//!
-//! O PR é do repositório, não do workspace: um workspace com mais de um repo
-//! tem um PR por repo, cada um na mesma branch, cada um com o seu histórico.
+//! GitHub CLI integration owns PR discovery, caching, and opening at the network/process boundary.
+//! A multi-repository workspace has one PR per repository, each on the shared branch with its own
+//! history.
 
 use crate::domain::Pr;
 use crate::lock::lock;
@@ -13,9 +11,7 @@ use std::path::Path;
 use std::process::Command;
 use tauri::{AppHandle, State};
 
-/// Pergunta o PR desta branch em cada repositório do workspace e grava no
-/// quadro. É o caminho rápido de quem abriu o workspace; a varredura periódica
-/// continua sendo a rede de proteção.
+/// Refresh each repository's PR when opening the workspace; periodic refresh remains a fallback.
 #[tauri::command(async)]
 pub fn pr_open(app: AppHandle, state: State<AppState>, id: String) {
     let found: Vec<(String, Option<Pr>)> = repos_of(&state, &id)
@@ -29,10 +25,8 @@ pub fn pr_open(app: AppHandle, state: State<AppState>, id: String) {
     remember(&app, &state, &id, found);
 }
 
-/// Uma consulta ao `gh` por clone, não uma por workspace: dois workspaces do
-/// mesmo repositório, e os dois repos de um workspace, cabem na mesma
-/// resposta. Nem falha de rede nem resposta incompleta apagam o último estado
-/// conhecido do quadro.
+/// Query gh once per clone, covering all its workspaces. Network failures and incomplete responses
+/// must preserve the last known board state.
 #[tauri::command(async)]
 pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
     let alive: Vec<Workspace> = lock(&state.board)
@@ -42,13 +36,9 @@ pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
         .cloned()
         .collect();
 
-    // Clone → (workspace, nome do repo nele, branch).
-    //
-    // A branch é a do worktree, não a que o quadro guardou: quem trabalha
-    // renomeia a branch, ou troca de branch dentro do worktree, e a partir daí
-    // o nome gravado no card não é mais o que o `gh` conhece. Perguntar pelo
-    // nome velho não acha PR nenhum — e num workspace de vários repos isso
-    // apagava o PR de todos de uma vez.
+    // Group clone paths with workspace IDs, repository names, and live worktree branches. Read the
+    // current branch because a persisted workspace name can become stale after branch renaming or
+    // switching.
     let mut by_clone: BTreeMap<String, Vec<(String, String, String)>> = BTreeMap::new();
     for workspace in &alive {
         for repo in &workspace.repos {
@@ -91,9 +81,8 @@ pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
     }
 }
 
-/// Abre no navegador o PR desta branch num repositório do workspace — o que a
-/// tela pediu pelo nome, ou o principal. O `gh` descobre e abre a URL; nenhuma
-/// URL atravessa o IPC.
+/// Open the requested repository's PR, or the primary PR. Let gh discover and open the URL without
+/// sending it over IPC.
 #[tauri::command(async)]
 pub fn open_pr(state: State<AppState>, id: String, repo: String) -> Result<(), String> {
     let workspace =
@@ -104,9 +93,8 @@ pub fn open_pr(state: State<AppState>, id: String, repo: String) -> Result<(), S
         .find(|candidate| candidate.name == repo)
         .cloned()
         .unwrap_or_else(|| workspace.primary());
-    // Com o número gravado no quadro, é ele que abre — inclusive com o worktree
-    // devolvido, quando o `gh` roda de dentro do clone: PR mergeado continua
-    // sendo lugar aonde se volta. Sem número, a branch do worktree responde.
+    // Prefer the persisted PR number, including after worktree cleanup when gh runs from the clone.
+    // Otherwise resolve the worktree's current branch.
     let (dir, what) = match (workspace.cleaned, repo.pr.as_ref()) {
         (false, None) => (
             repo.worktree.clone(),
@@ -129,8 +117,8 @@ pub(crate) fn pr_for_branch(worktree: &Path, branch: &str) -> Option<Pr> {
     pick(&list(worktree, &["--head", branch, "--limit", "5"]), branch)
 }
 
-/// Na mesma branch, um aberto manda mais que um fechado; entre iguais vale o
-/// mais novo, que é a ordem devolvida pelo `gh`.
+/// Prefer an open PR over a closed one for the same branch, then retain the newest in gh response
+/// order.
 pub(crate) fn pick(prs: &[Pr], branch: &str) -> Option<Pr> {
     let mine = || prs.iter().filter(|pr| pr.head_ref_name == branch);
     mine()
@@ -163,7 +151,7 @@ fn list(dir: &Path, extra: &[&str]) -> Vec<Pr> {
     serde_json::from_slice::<Vec<Pr>>(&out.stdout).unwrap_or_default()
 }
 
-/// Guarda no quadro o que o `gh` respondeu para cada repositório.
+/// Persist gh results for each repository on the board.
 fn remember(app: &AppHandle, state: &State<AppState>, id: &str, found: Vec<(String, Option<Pr>)>) {
     let mut moved = false;
     {
@@ -183,11 +171,8 @@ fn remember(app: &AppHandle, state: &State<AppState>, id: &str, found: Vec<(Stri
     }
 }
 
-/// Grava no repo o que o `gh` respondeu, e diz se o quadro mudou. Não achar
-/// nada não apaga o que já se sabia: resposta vazia é `gh` mudo — sem rede, sem
-/// login —, e a lista de um repositório movimentado tem tamanho, o PR de ontem
-/// já saiu dela. Esquecer por causa disso fazia o botão da barra piscar entre
-/// "Atualizar PR" e "Open PR".
+/// Update PR metadata only when a matching response exists. Empty or truncated results can reflect
+/// network, authentication, or pagination limits and must not erase known PRs.
 fn write(repo: &mut Repo, pr: Option<Pr>) -> bool {
     if pr.is_none() && repo.pr.is_some() {
         return false;
@@ -229,8 +214,8 @@ fn workspace_copy(state: &State<AppState>, id: &str) -> Option<Workspace> {
         .cloned()
 }
 
-/// Os repositórios de um workspace que ainda tem worktree, na ordem dele — o
-/// principal primeiro. Devolvido ao disco é lista vazia.
+/// Return remaining workspace repositories in saved order, primary first. Cleaned workspaces return
+/// an empty list.
 fn repos_of(state: &State<AppState>, id: &str) -> Vec<Repo> {
     lock(&state.board)
         .workspaces
@@ -301,8 +286,8 @@ pub struct TaskSnapshot {
     pub closed: bool,
 }
 
-/// O monitor usa apenas leituras do gh. Paginação inclui comentários gerais,
-/// reviews e comentários em linhas; nenhuma dessas consultas chama um modelo.
+/// The monitor uses read-only gh queries with pagination for comments, reviews, and inline
+/// comments. No model calls are involved.
 pub fn task_snapshot(ws: &Workspace, run: &crate::actions::Run) -> Result<TaskSnapshot, String> {
     let mut snapshot = TaskSnapshot {
         prs: run.prs.clone(),
@@ -323,7 +308,7 @@ pub fn task_snapshot(ws: &Workspace, run: &crate::actions::Run) -> Result<TaskSn
             .map(u64::to_string)
             .or_else(|| head_branch(dir))
             .ok_or_else(|| i18n::t("err.session.noPr"))?;
-        // Sem PR ainda é espera, não erro. Falhas de autenticação/rede continuam visíveis.
+        // A missing PR means keep waiting. Authentication and network errors remain visible.
         if !run.prs.contains_key(&repo.name) {
             let all = task_gh(
                 dir,
@@ -478,8 +463,8 @@ fn task_check(value: &serde_json::Value) -> Option<(String, String)> {
     Some((format!("{name} {url}"), result.to_string()))
 }
 
-/// Prazo também vale se o gh ficar preso. Leitores drenam os dois pipes para
-/// que uma resposta grande não trave o processo antes do wait.
+/// Bound gh execution time and drain both output pipes so large responses cannot deadlock the
+/// process before wait.
 fn task_gh(dir: &Path, args: &[&str]) -> Result<serde_json::Value, String> {
     use std::io::Read;
     use std::process::Stdio;

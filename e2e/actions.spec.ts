@@ -58,7 +58,7 @@ test("perfil por projeto inicia tarefa em outra aba e permite pausar acompanhame
   await dialog.getByLabel("Herdar seleção do workspace").first().uncheck();
   await dialog.getByRole("button", { name: "Salvar", exact: true }).click();
   await expect(dialog).toBeHidden();
-  // A fixture original tem uma fala de setup pendente na segunda aba.
+  // The original fixture has a setup prompt pending in its second tab.
   await page.evaluate(async () => {
     type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
     const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;

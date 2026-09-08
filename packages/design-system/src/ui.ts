@@ -2,7 +2,7 @@ import { icon } from "./icons.js";
 import * as menu from "./menu.js";
 import { h } from "./dom.js";
 
-// Primitivas de apresentação. Rótulos chegam traduzidos pela tela chamadora.
+// Presentation primitives receive already-translated labels from their caller.
 export type ButtonVariant = "outline" | "pri" | "ghost" | "danger";
 
 export function button(label: string, run: () => void = () => {}, variant: ButtonVariant = "outline") {
@@ -14,8 +14,8 @@ export function button(label: string, run: () => void = () => {}, variant: Butto
   return control;
 }
 
-/** Foto ou logotipo; sem imagem, o glifo de pessoa ou de organização. Decorativo:
- *  o nome já está no texto ao lado. */
+/** Decorative photo or logo with a person/organization glyph fallback. The adjacent text supplies its
+ * accessible name. */
 export function avatar(image?: string, kind: "person" | "organization" = "person", size: "sm" | "md" | "lg" = "sm") {
   const root = document.createElement("span");
   root.className = `ui-avatar ${size}${kind === "organization" ? " org" : ""}`;
@@ -66,8 +66,8 @@ export function checkbox(label: string, checked: boolean) {
 
 export type Group = { head?: string; items: [string, string][] };
 
-// Extraído do launcher: o mesmo menu escuro funciona no navegador e WKWebView.
-// O catálogo pode mudar entre cliques; por isso as opções são lidas ao abrir.
+// Reuse the launcher menu in browsers and WKWebView. Read options on opening because the catalog may
+// change between clicks.
 export function dropdown(btn: HTMLButtonElement, groups: () => Group[], get: () => string, set: (id: string) => void) {
   const label = btn.querySelector("span")!;
   const draw = () => {
@@ -86,7 +86,7 @@ export function dropdown(btn: HTMLButtonElement, groups: () => Group[], get: () 
         label: name, checked: id === get(), run: () => { set(id); draw(); btn.focus(); },
       });
     });
-    menu.openAt({ x: at.left, y: at.bottom + 4 }, items, "ui-select-menu", () => btn.setAttribute("aria-expanded", "false"));
+    menu.openAt({ x: at.left, y: at.bottom + 4 }, items, "ui-select-menu", () => btn.setAttribute("aria-expanded", "false"), true);
     btn.setAttribute("aria-expanded", "true");
   });
   btn.addEventListener("keydown", event => {
@@ -187,7 +187,7 @@ export function formDialog(options: {
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
   });
   return {
-    body, close,
+    root: dialog, body, save, close,
     open() {
       if (dialog.isConnected) return;
       previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -231,7 +231,7 @@ export function menuButton(label: string, items: () => menu.Item[]) {
   return control;
 }
 
-/** Adapta um input existente sem substituir valor, nome, validação ou foco. */
+/** Enhance an existing input without replacing its value, name, validation or focus. */
 export function passwordToggle(control: HTMLInputElement, labels: { show: string; hide: string }) {
   const toggle = button(labels.show, () => {
     const reveal = control.type === "password";

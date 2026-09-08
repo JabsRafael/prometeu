@@ -5,7 +5,7 @@ import { $, h, template } from "./util";
 import { button as uiButton, input as uiInput, field } from "./ui";
 import * as diff from "./diff";
 import * as menu from "./menu";
-import type { GitAction, GitBranch, GitCommit, GitConflict, GitDiff, GitFile, GitStatus, RepoDiff, Workspace } from "./types";
+import type { GitAction, GitConflict, GitDiff, GitFile, GitStatus, RepoDiff, Workspace } from "./types";
 
 type Mode = "changes" | "staged" | "branches" | "history" | "compare" | "conflict";
 type Selection = { path: string; scope: "staged" | "changes" | "conflict" };
@@ -23,9 +23,7 @@ let context: Context;
 const views = new Map<string, View>();
 const data = new Map<string, GitStatus[]>();
 let busy = false, ticket = 0, sidebarSignature = "", editorSignature = "";
-/// O arquivo a rolar até no próximo desenho: clicar na lista é andar no diff
-/// empilhado, não trocar de tela. Fica vazio nos redesenhos do quadro, para a
-/// rolagem de quem está lendo não voltar sozinha a cada evento do agente.
+/// Remember a requested file scroll only for explicit navigation. Board redraws must preserve the reader's current position.
 let pendingFocus = "";
 let review: RepoDiff[] = [];
 
@@ -145,7 +143,7 @@ function selectFile(file: GitFile, scope: Selection["scope"]) {
   view.selection = { path: file.path, scope };
   view.mode = mode;
   pendingFocus = scope === "conflict" ? "" : file.path;
-  // Mesmo escopo, mesma tela: o diff já está montado, então só a rolagem anda.
+  // Reuse the mounted diff when the scope is unchanged; only scroll.
   if (stay) { drawSidebar(); void drawEditor(); return; }
   show();
 }
@@ -416,7 +414,7 @@ async function drawEditor() {
   try {
     if (mode === "branches") {
       if (editorSignature === `${ws.id}/${view.repo}/branches`) return;
-      const branches = await invoke<GitBranch[]>("workspace_git_branches", args); if (!valid()) return;
+      const branches = await invoke("workspace_git_branches", args); if (!valid()) return;
       heading(t("git.branches"));
       const box = h("div", "git-page"), search = uiInput(); search.classList.add("git-search");
       search.placeholder = t("git.branch.search"); search.setAttribute("aria-label", t("git.branch.search"));
@@ -439,7 +437,7 @@ async function drawEditor() {
       host.replaceChildren(box); editorSignature = `${ws.id}/${view.repo}/branches`; return;
     }
     if (mode === "history") {
-      const history = await invoke<GitCommit[]>("workspace_git_history", args); if (!valid()) return;
+      const history = await invoke("workspace_git_history", args); if (!valid()) return;
       if (!history.some(commit => commit.oid === view.reference)) view.reference = history[0]?.oid ?? "";
       const box = $("difflist").querySelector<HTMLElement>(".git-history-list")!;
       const focused = box.querySelector<HTMLElement>(":focus")?.dataset.oid;
@@ -474,7 +472,7 @@ async function drawEditor() {
         $("dcrumb").append(base, button(t("git.tab.compare"), apply));
       }
       if (!repo.has_head) { host.replaceChildren(h("div", "none", t("git.history.empty"))); return; }
-      const result = await invoke<GitDiff>("workspace_git_diff", { ...args, scope: mode === "compare" ? "compare" : "commit", path: null, reference: view.reference || null }); if (!valid()) return;
+      const result = await invoke("workspace_git_diff", { ...args, scope: mode === "compare" ? "compare" : "commit", path: null, reference: view.reference || null }); if (!valid()) return;
       const caption = mode === "compare" ? t("git.compare.scope", { base: view.reference || repo.base }) : `${t("git.saved")} · ${result.head.slice(0, 7)}`;
       $("dcrumb").title = caption;
       renderReview(ws, repo, result, caption, t("git.compare.empty")); return;
@@ -483,7 +481,7 @@ async function drawEditor() {
       const selected = view.selection;
       const signature = `${ws.id}/${view.repo}/conflict/${selected.path}`;
       if (signature === editorSignature) return;
-      const result = await invoke<GitConflict>("workspace_git_conflict", { ...args, path: selected.path }); if (!valid()) return;
+      const result = await invoke("workspace_git_conflict", { ...args, path: selected.path }); if (!valid()) return;
       const draftKey = `${args.repo}/${selected.path}`;
       let draft = view.conflicts.get(draftKey);
       if (!draft) { draft = { source: result, text: result.current }; view.conflicts.set(draftKey, draft); }
@@ -518,9 +516,9 @@ async function drawEditor() {
       review = []; heading(t("git.changes"));
       host.replaceChildren(h("div", "git-clean", t("git.clean")), h("p", "git-clean-hint", t("git.clean.hint"))); editorSignature = ""; return;
     }
-    // A aba explícita decide qual snapshot está em revisão, mesmo vazia.
+    // The explicit tab selects the reviewed snapshot, even when empty.
     const scope = view.mode === "staged" ? "staged" : "changes";
-    const result = await invoke<GitDiff>("workspace_git_diff", { ...args, scope, path: null, reference: null }); if (!valid()) return;
+    const result = await invoke("workspace_git_diff", { ...args, scope, path: null, reference: null }); if (!valid()) return;
     renderReview(ws, repo, result, t(scope === "staged" ? "git.scope.staged" : "git.scope.changes"), t("git.empty"));
   } catch (error) {
     if (!valid()) return;

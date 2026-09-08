@@ -7,29 +7,15 @@ import * as catalog from "./catalog";
 import type { McpCheck, McpServer, McpStep } from "./types";
 import { $, h, template } from "./util";
 
-/// O hub de MCP na tela: a lista de servidores em Configurações, e o seletor
-/// que o lançador e a conversa abrem.
-///
-/// O que um servidor de MCP é, e por que a escolha existe, está em
-/// `src-tauri/src/mcp.rs`. Aqui só o que é tela: o cadastro fica no back (o
-/// arquivo tem chave de API dentro), esta é a cópia que a janela usa para
-/// desenhar, e ela é refeita a cada gravação — o back devolve a lista inteira
-/// depois de gravar, então nunca há duas verdades.
-///
-/// O seletor é o mesmo em três lugares (lançador, conversa, e o que vier
-/// depois): um menu de marcar, aberto no botão. Marcar fecha o menu e abre de
-/// novo — o menu do app é de uma escolha só, e reabrir custa nada numa lista
-/// de meia dúzia de linhas.
+/// Present the backend-owned MCP registry in Settings and shared launcher/conversation pickers. Writes replace the whole local snapshot. Keep secrets and persistence in the backend; reopen the existing single-choice menu after each checkbox selection.
 
 let hub: McpServer[] = [];
-/// Em quais servidores já se entrou pelo OAuth. Vem do back — o token nunca
-/// chega aqui, só o nome de quem tem um.
+/// Backend OAuth state identifies authenticated servers without exposing tokens.
 let logins: string[] = [];
 let loaded = false;
 const watchers = new Set<() => void>();
 
-/// A lista que a tela tem. Vazia antes de carregar — os seletores desenham
-/// vazio e se refazem quando ela chega.
+/// The initial empty registry redraws when loading completes.
 export const list = () => hub;
 
 export const onChange = (fn: () => void) => {
@@ -41,56 +27,48 @@ function announce() {
   for (const fn of watchers) fn();
 }
 
-/// Carrega uma vez por sessão do app. O cadastro só muda por aqui, e quem o
-/// muda já recebe a lista nova de volta.
+/// Load once per app session; mutations already return the updated registry.
 export async function load() {
   if (loaded) return;
   loaded = true;
   try {
-    hub = await invoke<McpServer[]>("mcp_hub");
-    logins = await invoke<string[]>("mcp_logins");
+    hub = await invoke("mcp_hub");
+    logins = await invoke("mcp_logins");
     announce();
   } catch {
-    // Sem back (ou back velho) a tela fica sem hub, e os seletores somem.
+    // Hide hub pickers if the backend is unavailable or older.
   }
 }
 
-/// O nome de um servidor que já não existe mais no hub continua gravado no
-/// workspace — apagar do cadastro não pode mexer em quadro. A tela mostra o
-/// que sobrou como escolhido e riscado, para o buraco ter explicação.
+/// Deleted registry entries remain in persisted workspace choices. Show unavailable selections explicitly so users can remove them.
 export const known = (id: string) => hub.some((s) => s.id === id);
 
-/// Já entrou neste servidor. A linha de Configurações diz, e o formulário
-/// troca "Entrar" por "Sair".
+/// Authenticated state controls the Settings label and sign-in/sign-out action.
 export const signedIn = (id: string) => logins.includes(id);
 
 async function refreshLogins() {
   try {
-    logins = await invoke<string[]>("mcp_logins");
+    logins = await invoke("mcp_logins");
     announce();
   } catch {
-    // Sem back, a lista continua a de antes.
+    // Preserve the previous authentication list if refresh fails.
   }
 }
 
-/* ---------- o seletor ---------- */
+/* Picker. */
 
 type Pick = {
-  /// Quem está marcado agora. `null` é workspace que nunca escolheu.
+  /// Current selection; null means the workspace inherits defaults.
   chosen: () => string[] | null;
-  /// Devolve a lista nova. `null` nunca sai daqui — escolher é escolher.
+  /// Explicit picks always return a list, never null.
   set: (ids: string[]) => void;
-  /// Onde o menu cai.
+  /// Menu anchor position.
   at: () => { x: number; y: number };
-  /// Desligado enquanto o agente trabalha: trocar de MCP derruba o processo, e
-  /// no meio de um turno isso jogaria o turno fora.
+  /// Disable changes during a turn because changing MCP selection restarts the agent process.
   locked?: () => string;
 };
 
-/// `live` é o que a pessoa acabou de marcar e ainda não voltou do back — a
-/// mesma razão do seletor de plugins (ver `plugins.ts`): marcar derruba o
-/// processo e republica o quadro, e até isso dar a volta `p.chosen()` responde
-/// o de antes.
+/// Keep the latest local selection while the backend restarts the process and republishes the board; chosen() can still return the previous value.
 export function openPicker(p: Pick, live?: string[]) {
   const lock = p.locked?.() ?? "";
   const chosen = live ?? p.chosen() ?? [];
@@ -110,13 +88,12 @@ export function openPicker(p: Pick, live?: string[]) {
       run: () => {
         const next = on ? chosen.filter((id) => id !== server.id) : [...chosen, server.id];
         p.set(next);
-        // O menu do app fecha ao escolher; marcar vários é reabrir — com o que
-        // ela acabou de marcar.
+        // Reopen the single-choice menu after each selection to support multiple picks.
         openPicker(p, next);
       },
     });
   }
-  // Nomes gravados que o hub não tem mais: aparecem para poder sair.
+  // Retain missing names in the menu so they can be deselected.
   for (const id of chosen.filter((c) => !known(c))) {
     items.push({
       label: t("mcp.gone", { name: id }),
@@ -142,8 +119,7 @@ export function openPicker(p: Pick, live?: string[]) {
   menu.openAt(p.at(), items);
 }
 
-/// O que o botão escreve: quantos entram. Nenhum é escolha e se diz por
-/// extenso — "sem MCP" não é o mesmo que não ter escolhido.
+/// Distinguish explicit no-MCP selection from inherited defaults in the button label.
 export function label(chosen: string[] | null): string {
   if (chosen === null) return t("mcp.default");
   if (!chosen.length) return t("mcp.zero");
@@ -151,7 +127,7 @@ export function label(chosen: string[] | null): string {
   return t("mcp.count", { n: String(chosen.length) });
 }
 
-/* ---------- a lista em Configurações ---------- */
+/* Settings list. */
 
 type Ctx = { say: (text: string, isError?: boolean) => void };
 let ctx: Ctx;
@@ -160,16 +136,12 @@ export function init(context: Ctx) {
   ctx = context;
 }
 
-/// As linhas da página "Ferramentas": uma por servidor, e a primeira é o que
-/// esta página é e o que se faz nela.
-///
-/// Cadastrar e importar ficam nessa primeira linha, e não no fim da lista: no
-/// fim, uma linha com botões seria lida como mais um servidor.
+/// Start the Tools page with its explanation and registration/import actions, then list servers.
 export function settingsRows(): HTMLElement[] {
   return [aboutRow(), ...(hub.length ? hub.map(serverRow) : [emptyRow()])];
 }
 
-/// A linha de cima: o que são estes servidores, e por onde se põe um.
+/// Explain the registry and offer registration in the first row.
 function aboutRow(): HTMLElement {
   const row = template(
     "div",
@@ -219,13 +191,12 @@ function serverRow(server: McpServer): HTMLElement {
   return row;
 }
 
-/// stdio (um processo aqui) ou remoto (uma URL). É o que muda o formulário e o
-/// ícone da linha.
+/// Transport selects the fields and icon: local stdio process or remote URL.
 function kind(server: McpServer): "stdio" | "url" {
   return typeof server.config.command === "string" ? "stdio" : "url";
 }
 
-/// A linha de baixo: o que ele é, e de onde veio.
+/// Describe the server and its source beneath its name.
 function subtitle(server: McpServer): string {
   const what =
     kind(server) === "stdio"
@@ -238,7 +209,7 @@ function subtitle(server: McpServer): string {
 async function remove(server: McpServer) {
   if (!await catalog.confirmRemoval("mcp", server.id)) return;
   try {
-    hub = await invoke<McpServer[]>("mcp_remove", { id: server.id });
+    hub = await invoke("mcp_remove", { id: server.id });
     await catalog.load();
     announce();
   } catch (e) {
@@ -247,29 +218,25 @@ async function remove(server: McpServer) {
 }
 
 async function save(server: McpServer, revision = catalog.current().revision) {
-  hub = await invoke<McpServer[]>("mcp_save", { server, revision });
+  hub = await invoke("mcp_save", { server, revision });
   announce();
 }
 
-/// A nuvem trouxe ou levou servidores: quem gravou foi o back.
+/// Refresh after backend changes from cloud catalogs.
 export async function refresh() {
-  hub = await invoke<McpServer[]>("mcp_hub");
+  hub = await invoke("mcp_hub");
   announce();
 }
 
-/* ---------- o formulário ---------- */
+/* Editor. */
 
-/// O formulário enquanto está sendo preenchido. Vira `McpServer` na hora de
-/// examinar ou de gravar, e não antes: campo pela metade no meio da digitação
-/// é normal.
+/// Keep incomplete form input separate from McpServer until checking or saving.
 export type Draft = {
   stdio: boolean;
   id: string;
   cmd: string;
   url: string;
-  /// Variáveis (stdio) ou cabeçalhos (remoto), na ordem em que a pessoa os
-  /// pôs. Em objeto a ordem seria a do JSON, e linha que salta de lugar
-  /// enquanto se digita é linha que se perde de vista.
+  /// Preserve environment/header row order while editing rather than rebuilding from object key order.
   pairs: [string, string][];
   note: string;
 };
@@ -286,9 +253,7 @@ export function toDraft(server: McpServer | null): Draft {
   };
 }
 
-/// O que está no formulário, na forma que o CLI entende — quem escreve JSON é
-/// a tela, não a pessoa. `null` é campo faltando, e aí não há o que examinar
-/// nem o que gravar.
+/// Convert form input into provider configuration; return null when required fields are missing.
 export function toServer(d: Draft): McpServer | null {
   const id = d.id.trim();
   const parts = d.cmd.trim().split(/\s+/).filter(Boolean);
@@ -306,23 +271,7 @@ export function toServer(d: Draft): McpServer | null {
   };
 }
 
-/// Cadastrar um servidor em dois passos, como um assistente.
-///
-/// No primeiro, o que ninguém descobre por você: se é um programa daqui ou um
-/// endereço lá, o nome, e onde ele está. Sair do campo do endereço já manda o
-/// Prometeu falar com ele — subir o programa (ou bater na URL), apresentar-se,
-/// contar as ferramentas, e num remoto que pede login ver se dá para se
-/// autorizar nele. Cada uma dessas tentativas é uma linha na tela.
-///
-/// No segundo, o que depende do que o exame achou: entrar, os cabeçalhos ou as
-/// variáveis, e para que ele serve. Era tudo um formulário só, e o resultado
-/// do teste cabia numa linha do rodapé — "não conectou" e "conectou e pede
-/// login" apareciam no mesmo lugar, depois de tudo digitado, sem dizer em que
-/// ponto tinha parado.
-///
-/// Editar um servidor que já existe abre direto no segundo passo: o nome e o
-/// endereço já estão certos, e quem quiser mexer neles clica no resumo lá em
-/// cima e volta.
+/// Registration uses two steps: identify the server and probe it, then resolve authentication, variables/headers, and description. Show each probe stage. Existing servers open at the second step; the summary returns to connection details.
 function editor(server: McpServer | null) {
   let revision = server ? catalog.current().revision : null;
   const veil = $("veil");
@@ -333,12 +282,10 @@ function editor(server: McpServer | null) {
   );
   const at = <T extends HTMLElement>(sel: string) => sheet.querySelector(sel) as T;
   const draft = toDraft(server);
-  /// O último exame do que está no formulário, e `null` enquanto ninguém
-  /// examinou. Trocar de tipo joga fora: ele era sobre outro servidor.
+  /// Reset the probe result when changing transport because it describes the previous server.
   let check: McpCheck | null = null;
   let checking = false;
-  /// O botão da direita do rodapé, qualquer que seja o passo. Fica desligado
-  /// enquanto o exame corre — andar no meio dele seria andar sem o resultado.
+  /// Disable the primary action while probing so navigation cannot outrun its result.
   let go: HTMLButtonElement | null = null;
 
   const hide = () => {
@@ -353,8 +300,7 @@ function editor(server: McpServer | null) {
     hint.classList.toggle("bad", bad);
   };
 
-  /// O rodapé: sair à esquerda, o recado no meio, seguir à direita. Os dois
-  /// passos têm o mesmo desenho, e é o mesmo `hint` nos dois.
+  /// Both steps share footer layout and inline status.
   function foot(left: [Key, () => void], right: [Key, () => void]): HTMLButtonElement {
     const back = h("button", "ghost", t(left[0]));
     back.addEventListener("click", left[1]);
@@ -365,11 +311,9 @@ function editor(server: McpServer | null) {
     return go;
   }
 
-  /* ---------- primeiro passo: quem é, e onde ---------- */
+  /* Step one: identity and connection. */
 
-  /// Onde os passos do exame aparecem. Refeito por conta própria, e não com o
-  /// passo inteiro: redesenhar os campos tiraria o foco de quem acabou de sair
-  /// de um deles.
+  /// Update probe rows without rebuilding fields and disrupting focus.
   const checkBox = h("div", "mcheck");
   const paintCheck = () => {
     checkBox.hidden = !checking && !check;
@@ -385,23 +329,20 @@ function editor(server: McpServer | null) {
     if (go) go.disabled = true;
     paintCheck();
     try {
-      check = await invoke<McpCheck>("mcp_check", { server: built });
+      check = await invoke("mcp_check", { server: built });
     } catch (e) {
       say(fromBack(e), true);
     }
     checking = false;
     if (go) go.disabled = false;
     paintCheck();
-    // O resultado nasce embaixo do que se acabou de digitar, e num corpo que
-    // rola isso é fora da tela — trazê-lo à vista é o que faz o exame ter
-    // servido para alguma coisa.
+    // Scroll the newly added probe result into view.
     checkBox.scrollIntoView({ block: "end" });
   }
 
   function first() {
     at(".mt").textContent = t(server ? "mcp.title.edit" : "mcp.title.new");
-    // Um servidor é um programa aqui ou um endereço lá — nunca os dois. A
-    // escolha troca o campo de baixo e o exame inteiro.
+    // Local programs and remote URLs are mutually exclusive transports; switching resets their fields and probe.
     const kinds = h("div", "mkind");
     const sw = (on: boolean, key: Key, pick: () => void) => {
       const b = template("button", `ghost sw${on ? " on" : ""}`, `<span></span><i class="knob"></i>`);
@@ -445,32 +386,28 @@ function editor(server: McpServer | null) {
           }),
       checkBox,
     );
-    // Trocar de passo começa do começo: o corpo rola, e herdar a rolagem do
-    // passo anterior deixaria o alto do novo escondido.
+    // Reset scroll when changing steps so the new step starts at its heading.
     if (server) { const name = at(".mbody").querySelector<HTMLInputElement>("input"); if (name) name.readOnly = true; }
     at(".mbody").scrollTop = 0;
     paintCheck();
     foot(["mcp.cancel", hide], ["mcp.next", advance]);
   }
 
-  /// Continuar: quem ainda não examinou examina agora, porque o segundo passo
-  /// é escrito com o que o exame achou. Exame que deu errado não tranca o
-  /// caminho — pode ser a rede, e cadastrar para consertar depois é legítimo.
+  /// Probe before continuing when needed. Allow proceeding after failure so temporarily unreachable servers can still be registered.
   async function advance() {
     if (!toServer(draft)) return say(t("mcp.needFields"), true);
     if (!check) await examine();
     second();
   }
 
-  /* ---------- segundo passo: o que o exame deixou para decidir ---------- */
+  /* Step two: probe-dependent choices. */
 
   function second() {
     at(".mt").textContent = t(server ? "mcp.title.edit" : "mcp.title.new");
     at(".mbody").replaceChildren(
       h("p", "ui-hint", t(server && catalog.shared("mcp", server.id) ? "catalog.liveHint" : "catalog.privateHint")),
       resume(),
-      // Login só existe em servidor remoto: um programa que roda aqui recebe
-      // o segredo por variável de ambiente, e não há a quem pedir consentimento.
+      // Only remote servers use OAuth; local processes receive credentials through environment variables.
       ...(draft.stdio ? [] : [auth()]),
       pairsSection(),
       field({
@@ -481,14 +418,11 @@ function editor(server: McpServer | null) {
       }),
     );
     at(".mbody").scrollTop = 0;
-    // Cancelar nos dois passos, e não "Voltar": voltar e corrigir é o resumo
-    // lá em cima, e fechar a folha tem que ser possível de onde se está —
-    // quem abriu para editar entra por aqui e não passou pelo primeiro passo.
+    // Both steps offer cancellation. The summary navigates back, including when editing starts on step two.
     foot(["mcp.cancel", hide], ["mcp.save", store]);
   }
 
-  /// O que já foi decidido, no alto: o nome, onde ele está, e o que ele
-  /// respondeu. É botão porque voltar e corrigir tem que ser um clique.
+  /// The identity/probe summary is a button that returns to connection details.
   function resume(): HTMLElement {
     const row = template(
       "button",
@@ -506,14 +440,11 @@ function editor(server: McpServer | null) {
     return row;
   }
 
-  /// Autenticação: o estado, e o botão que o muda. Não é uma escolha — quem
-  /// decide se pede login é o servidor, e o exame já perguntou. O que sobra
-  /// para a pessoa é entrar, ou sair.
+  /// Authentication requirements come from the server; the UI offers sign-in or sign-out.
   function auth(): HTMLElement {
     const inside = signedIn(draft.id.trim());
     const asks = check?.probe.auth ?? false;
-    // Servidor que pede login mas não registra clientes na hora não tem
-    // entrada por aqui; o passo que falhou é que explica.
+    // If a server requires login but cannot register clients dynamically, show the failed probe step instead of an unusable login.
     const open = asks && check!.steps.every((s) => s.ok);
     const body: Key = inside
       ? "mcp.auth.in"
@@ -525,8 +456,7 @@ function editor(server: McpServer | null) {
           ? "mcp.auth.no"
           : "mcp.auth.unknown";
     const box = section("mcp.auth", body);
-    // Entrar aparece para quem pediu login, e para quem ninguém examinou —
-    // tentar é barato, e o erro que vier diz mais do que esconder o botão.
+    // Offer login for authentication-required or unprobed servers so attempting it can reveal a useful error.
     if (inside || open || !check) {
       const btn = h("button", "outline md", t(inside ? "mcp.logout" : "mcp.login")) as HTMLButtonElement;
       btn.addEventListener("click", () => void enter(btn));
@@ -547,8 +477,7 @@ function editor(server: McpServer | null) {
       await refreshLogins();
       return second();
     }
-    // O servidor precisa estar cadastrado antes: o login é gravado pelo nome
-    // dele, e um nome que ainda não existe no hub viraria login órfão.
+    // Register before login because OAuth state is stored by server name and must not become orphaned.
     btn.disabled = true;
     say(t("mcp.login.doing"));
     try {
@@ -557,8 +486,7 @@ function editor(server: McpServer | null) {
       await invoke("mcp_login", { server: built });
       await refreshLogins();
       say(t("mcp.login.ok"));
-      // O exame de antes dizia "pede login", e agora diria outra coisa:
-      // refazê-lo é o que faz a folha contar a verdade nova.
+      // Probe again after authentication to replace the previous login-required status.
       await examine();
       second();
     } catch (e) {
@@ -567,10 +495,7 @@ function editor(server: McpServer | null) {
     }
   }
 
-  /// Variáveis (stdio) ou cabeçalhos (remoto): uma linha por par, o nome de um
-  /// lado e o valor do outro. Era um `CHAVE=valor` por linha num campo de
-  /// texto, que é rápido de colar e fácil de errar — e remover um par era
-  /// editar texto.
+  /// Edit variables or headers as individual key/value rows with explicit removal.
   function pairsSection(): HTMLElement {
     const box = section(
       draft.stdio ? "mcp.pairs.env" : "mcp.pairs.headers",
@@ -599,8 +524,7 @@ function editor(server: McpServer | null) {
     return box;
   }
 
-  /// Gravar. O que está escrito é o que vale — inclusive de um servidor que
-  /// não respondeu ao exame.
+  /// Save the current fields even if probing failed.
   function store() {
     const built = toServer(draft);
     if (!built) return say(t("mcp.needFields"), true);
@@ -613,8 +537,7 @@ function editor(server: McpServer | null) {
   else first();
   veil.replaceChildren(sheet);
   veil.hidden = false;
-  // Só quem está cadastrando começa com o cursor no primeiro campo. Editar
-  // abre no segundo passo, e ali o primeiro campo é um que já está preenchido.
+  // Focus the first field only for new registrations; editing begins with populated details.
   if (!server) at<HTMLInputElement>("input")?.focus();
 }
 
@@ -635,16 +558,13 @@ function pairRow(pair: [string, string], drop: () => void): HTMLElement {
   return row;
 }
 
-/// Um campo com o rótulo em cima e a explicação embaixo. A explicação fica
-/// escrita, e não num `placeholder`: `placeholder` desaparece justamente
-/// quando se digita, que é quando ele serviria.
+/// Keep field explanations visible below labels instead of hiding them in placeholders while typing.
 function field(o: {
   label: Key;
   hint: Key;
   value: string;
   on: (v: string) => void;
-  /// Saiu do campo tendo mudado o que estava escrito — o momento de examinar.
-  /// Não a cada tecla: o exame sobe processo e atravessa a rede.
+  /// Probe after a changed field loses focus, not on each keystroke; probes start processes or access the network.
   done?: () => void;
 }): HTMLElement {
   const input = ui.input(o.value);
@@ -655,8 +575,7 @@ function field(o: {
   return box;
 }
 
-/// Uma seção do segundo passo: o título, uma frase do que ela é, e o que ela
-/// tem dentro.
+/// A second-step section groups its title, explanation, and controls.
 function section(title: Key, body: Key): HTMLElement {
   const box = template("div", "msect", `<b></b><span class="sb"></span>`);
   box.children[0].textContent = t(title);
@@ -664,11 +583,7 @@ function section(title: Key, body: Key): HTMLElement {
   return box;
 }
 
-/// A ordem em que o exame tenta as coisas. Serve para desenhar as linhas
-/// enquanto ele corre: o back devolve tudo de uma vez, e uma lista que só
-/// aparecesse no fim deixaria vinte segundos de tela parada. Os passos do
-/// OAuth não estão aqui porque só existem se o servidor pedir login — eles
-/// aparecem com a resposta.
+/// Render expected probe stages while the backend works. OAuth stages appear only when the response indicates authentication is needed.
 const AHEAD: Record<"stdio" | "url", string[]> = {
   stdio: ["spawn", "handshake", "tools"],
   url: ["connect", "handshake", "tools"],
@@ -696,14 +611,13 @@ function stepRow(key: string, step: McpStep | null): HTMLElement {
     ? t("mcp.step.wait")
     : step.ok
       ? t("mcp.step.ok")
-      : // Ferramenta nenhuma é a única falha que o servidor não explica: ele
-        // respondeu, e a resposta estava vazia.
+      : // An empty tool list needs a local explanation even when the server responded successfully.
         step.detail || t(key === "tools" ? "mcp.step.tools.none" : "mcp.step.fail");
   row.querySelector(".cc")!.textContent = step?.note ?? "";
   return row;
 }
 
-/// O fecho do exame: o que ele quer dizer para o passo seguinte.
+/// Summarize what the probe means for the next step.
 function verdict(check: McpCheck): HTMLElement {
   const { ok, auth } = check.probe;
   const box = template("div", `cnote${ok || auth ? "" : " bad"}`, `<span class="ic"></span><span></span>`);
@@ -712,14 +626,13 @@ function verdict(check: McpCheck): HTMLElement {
   return box;
 }
 
-/* ---------- importar ---------- */
+/* Import. */
 
-/// O que já está configurado no CLI e ainda não está no hub. Vem do back, que
-/// lê o `~/.claude.json` e os `.mcp.json` — e não mexe em nenhum deles.
+/// Discover CLI configuration missing from the hub without modifying the original files.
 async function importer(btn: HTMLElement) {
   let found: McpServer[] = [];
   try {
-    found = await invoke<McpServer[]>("mcp_found");
+    found = await invoke("mcp_found");
   } catch (e) {
     ctx.say(fromBack(e), true);
     return;

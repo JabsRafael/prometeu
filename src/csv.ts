@@ -1,8 +1,6 @@
-/// CSV para a tabela do viewer. Só leitura: separador adivinhado pela primeira
-/// linha, campo entre aspas com vírgula ou quebra de linha dentro fica inteiro,
-/// e arquivo que não é UTF-8 cai para latin-1 em vez de virar caractere quebrado.
+/// Read-only CSV parsing for the viewer. Infer the separator from the first row, preserve quoted separators and newlines, and fall back from UTF-8 to Windows-1252.
 
-/// UTF-8 estrito primeiro; se não for, é quase sempre Excel em pt-BR (cp1252).
+/// Try strict UTF-8 first; exported Excel files commonly use Windows-1252.
 export function decode(bytes: ArrayBuffer): string {
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -11,8 +9,7 @@ export function decode(bytes: ArrayBuffer): string {
   }
 }
 
-/// O separador é o que mais aparece na primeira linha, fora de aspas. Só a
-/// primeira: nas outras a vírgula decimal do pt-BR confundiria a conta.
+/// Count unquoted separators only in the header so decimal commas in later rows do not distort detection.
 export function sniff(text: string): string {
   const end = text.indexOf("\n");
   const line = end === -1 ? text : text.slice(0, end);
@@ -25,9 +22,7 @@ export function sniff(text: string): string {
   return count[";"] > count[","] ? ";" : count["\t"] > count[","] ? "\t" : ",";
 }
 
-/// RFC 4180, numa passada só: `""` dentro de aspas é aspa literal, `\r\n` e
-/// `\n` são fim de linha, e a linha vazia do fim não vira registro.
-// ponytail: síncrono no thread da tela — ~1 s por 50 MB. Worker se incomodar.
+/// Parse RFC 4180 in one pass: doubled quotes escape a quote, CRLF/LF end rows, and a trailing empty row is omitted. ponytail: synchronous on the UI thread, about 1 s per 50 MB; move to a worker if this becomes disruptive.
 export function parse(text: string, sep = sniff(text)): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];

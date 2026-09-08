@@ -1,19 +1,7 @@
-//! O OAuth que não é de ninguém: o que dois fluxos diferentes fazem igual.
-//!
-//! O Prometeu tem dois. O do Linear (`linear.rs`) é o clássico: um app
-//! registrado uma vez, endpoints escritos no código, escopo fixo. O de um
-//! servidor de MCP (`mcp_auth.rs`) não tem nada disso — os endereços saem de
-//! uma descoberta a partir do 401, e o cliente é registrado na hora, no
-//! servidor de quem quer que seja.
-//!
-//! O que os dois compartilham é a mecânica: PKCE, abrir o navegador, esperar
-//! ele voltar num socket local, e trocar o `code` por um token. É isso que
-//! mora aqui.
-//!
-//! O que **não** mora aqui é frase: a espera devolve `Denied`, e cada fluxo
-//! traduz o motivo com os códigos da tela dele. A única exceção é a página que
-//! o navegador mostra no fim — quem a lê está longe do catálogo do front, e o
-//! texto vem de quem chamou.
+//! Shared OAuth mechanics for Linear and discovered MCP servers: PKCE, browser authorization,
+//! loopback callbacks, and token exchange. Return structured failure reasons for each integration
+//! to translate. Completion-page text comes from the caller because the browser cannot use the
+//! frontend catalog.
 
 use crate::i18n;
 use base64::Engine;
@@ -24,23 +12,21 @@ use std::net::{TcpListener, TcpStream};
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-/// Por que a espera acabou sem um `code`. Sem frase: cada fluxo tem os códigos
-/// da tela dele, e é lá que isto vira texto.
+/// Structured callback failure reasons translated by each integration.
 pub enum Denied {
-    /// A pessoa disse não na tela de consentimento.
+    /// The person denied consent.
     Refused,
-    /// O servidor recusou por outro motivo — o que ele mandou vai junto.
+    /// The authorization server returned another error; retain its diagnostic.
     Error(String),
-    /// Voltou sem `code` e sem `error`.
+    /// The callback contained neither code nor error.
     NoCode,
-    /// O prazo acabou: ninguém aprovou nem negou.
+    /// The authorization deadline expired.
     Timeout,
-    /// O socket morreu no meio.
+    /// The callback socket failed.
     Broken(String),
 }
 
-/// A página que o navegador mostra quando o fluxo acaba: título e uma linha.
-/// Cada fluxo escreve a sua, nos dois idiomas.
+/// Localized completion-page title and message supplied by the caller.
 pub type Page = dyn Fn(bool, &str) -> String;
 
 pub fn now() -> u64 {
@@ -50,9 +36,7 @@ pub fn now() -> u64 {
         .unwrap_or(0)
 }
 
-/// 64 caracteres hexadecimais de duas UUIDs v4 — que saem do gerador seguro
-/// do sistema. Serve de `code_verifier` (43 a 128 caracteres, RFC 7636) e de
-/// `state`.
+/// Generate 64 hexadecimal characters from two secure UUIDs for state and an RFC 7636 verifier.
 pub fn random() -> String {
     format!(
         "{}{}",
@@ -61,7 +45,7 @@ pub fn random() -> String {
     )
 }
 
-/// `code_challenge` S256: base64url sem `=` do SHA-256 do verifier.
+/// Compute the S256 challenge as unpadded base64url of the verifier's SHA-256 hash.
 pub fn challenge(verifier: &str) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
 }
@@ -75,8 +59,7 @@ pub fn browse(url: &str) -> Result<(), String> {
     ok.then_some(()).ok_or_else(|| String::from("open"))
 }
 
-/// Corpo `application/x-www-form-urlencoded`, que é como o OAuth fala. À mão
-/// porque é uma linha: o `.form()` do reqwest é uma feature a mais para isso.
+/// Encode OAuth form bodies without enabling reqwest's additional form feature.
 pub fn form(fields: &[(&str, &str)]) -> String {
     fields
         .iter()
@@ -85,8 +68,8 @@ pub fn form(fields: &[(&str, &str)]) -> String {
         .join("&")
 }
 
-/// Percent-encoding do que vai na URL e no corpo. O redirect precisa; o
-/// resto é hexadecimal e base64url, e passa intacto.
+/// Percent-encode URL and form values, including redirect URIs; hexadecimal and base64url values
+/// remain unchanged.
 pub fn escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len() * 3);
     for b in s.bytes() {
@@ -134,8 +117,7 @@ pub fn parse_query(q: &str) -> HashMap<String, String> {
         .collect()
 }
 
-/// A primeira linha de um GET: o caminho pedido. Qualquer outro método é
-/// alguém que não é o navegador voltando do consentimento.
+/// Parse the path from a GET request line; other methods are not valid authorization callbacks.
 pub fn request_target(req: &str) -> Option<String> {
     let mut words = req.lines().next()?.split_whitespace();
     let method = words.next()?;
@@ -143,9 +125,8 @@ pub fn request_target(req: &str) -> Option<String> {
     (method == "GET").then(|| target.to_string())
 }
 
-/// Fica no socket até o navegador voltar com o `code`, ou até o prazo. O
-/// navegador pede outras coisas pelo caminho (`/favicon.ico`); tudo que não é
-/// o redirect ganha 404 e a espera continua.
+/// Wait for the callback until the deadline. Return 404 for unrelated paths, such as favicon.ico,
+/// and continue waiting.
 pub fn wait_for_code(
     listener: &TcpListener,
     route: &str,
@@ -170,9 +151,8 @@ pub fn wait_for_code(
                     continue;
                 }
                 let q = parse_query(query);
-                // Mesmo uma resposta de erro pertence ao fluxo só depois de
-                // provar o state. Sem isto qualquer request local podia matar
-                // uma autorização que ainda estava esperando o navegador.
+                // Validate state before accepting even an error response, preventing unrelated
+                // local requests from cancelling an active login.
                 if q.get("state").map(String::as_str) != Some(state) {
                     respond(&mut stream, "400 Bad Request", &page(false, ""));
                     continue;
@@ -214,8 +194,7 @@ pub fn respond(stream: &mut TcpStream, status: &str, body: &str) {
     let _ = stream.flush();
 }
 
-/// A única página que o Prometeu serve: a que diz para fechar a aba. O
-/// título e a linha vêm de quem chamou, já no idioma da pessoa.
+/// Serve the completion page using the caller's localized title and message.
 pub fn page(title: &str, text: &str) -> String {
     let lang = html(&i18n::lang());
     let title = html(title);
@@ -241,7 +220,7 @@ pub fn html(text: &str) -> String {
 mod tests {
     use super::*;
 
-    /// O vetor de teste da RFC 7636, apêndice B.
+    /// RFC 7636 Appendix B test vector.
     #[test]
     fn o_challenge_e_o_da_rfc() {
         assert_eq!(

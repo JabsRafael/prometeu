@@ -15,7 +15,7 @@ Cada evento é um objeto JSON em uma linha:
 type EventBase<T extends string> = {
   v: 1;
   type: T;
-  at: number; // Unix time em milissegundos
+  at: number; // Unix time in milliseconds
 };
 ```
 

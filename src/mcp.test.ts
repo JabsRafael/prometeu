@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { toDraft, toServer, type Draft } from "./mcp";
 
-/// O miolo do formulário: o que se digita e o que o Claude Code recebe são
-/// duas formas diferentes, e é aqui que uma vira a outra.
+/// Translate editable form fields into the provider configuration shape.
 describe("o formulário e o cadastro", () => {
   it("o comando digitado vira programa e argumentos", () => {
     const server = toServer({
@@ -25,8 +24,7 @@ describe("o formulário e o cadastro", () => {
     });
   });
 
-  /// O mesmo par é variável no que roda aqui e cabeçalho no que está lá — e o
-  /// nome do campo muda com o tipo.
+  /// The same key/value entry becomes a local environment variable or a remote header depending on transport.
   it("os pares viram variável no stdio e cabeçalho no remoto", () => {
     const pairs: [string, string][] = [["X-Key", "abracadabra"]];
     const aqui = toServer({ stdio: true, id: "aqui", cmd: "node s.js", url: "", pairs, note: "" });
@@ -36,8 +34,7 @@ describe("o formulário e o cadastro", () => {
     expect(la!.config.url).toBe("https://x/mcp");
   });
 
-  /// Linha em branco é linha que a pessoa acabou de acrescentar e ainda não
-  /// preencheu; ela não pode virar uma variável de nome vazio.
+  /// Ignore newly added blank rows instead of creating variables with empty names.
   it("par sem nome não entra no cadastro", () => {
     const server = toServer({
       stdio: true,
@@ -57,7 +54,7 @@ describe("o formulário e o cadastro", () => {
     const base: Draft = { stdio: false, id: "", cmd: "node s.js", url: "https://x", pairs: [], note: "" };
     expect(toServer(base)).toBeNull();
     expect(toServer({ ...base, id: "x", url: "" })).toBeNull();
-    // O campo do outro tipo estar vazio não atrapalha: só se olha o do tipo.
+    // Ignore empty fields belonging to the other transport type.
     expect(toServer({ ...base, id: "x", cmd: "" })).not.toBeNull();
   });
 

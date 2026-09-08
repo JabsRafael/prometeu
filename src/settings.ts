@@ -28,18 +28,10 @@ import * as team from "./team";
 import type { LegacyImportPlan, LinearStatus } from "./types";
 import { settingsRow } from "./update";
 import { $, h, template } from "./util";
-import { button, field, select, formDialog } from "./ui";
+import { button, checkbox, field, formDialog, select } from "./ui";
 
-/// Configurações do app — o que não é do repositório (isso é o
-/// `settings.toml`) nem de um workspace: a conexão com o Linear, a linha de
-/// atualização (que mora em `update.ts`) e o idioma da tela. A página é a
-/// uma das telas do app e entra no histórico ← → como as outras.
-///
-/// A conexão mora no back: o token nunca chega aqui. O que a tela sabe é o
-/// `LinearStatus`, que chega no `init` e depois pelo evento `linear` toda vez
-/// que muda — conectou, desconectou, começou a esperar o navegador. A linha
-/// do Linear é quem diz em que pé está; a barra de cima só fala quando deu
-/// erro, que é o que você precisa ler.
+/// Application preferences include Linear, updates, defaults, and interface language.
+/// Connection secrets remain in the backend; this view receives LinearStatus updates.
 
 type Ctx = { say: (text: string, isError?: boolean) => void };
 
@@ -57,31 +49,30 @@ export async function init(context: Ctx) {
     draw();
   });
   try {
-    status = await invoke<LinearStatus>("linear_status");
+    status = await invoke("linear_status");
   } catch {
-    // Sem back (ou back velho) a tela continua de pé, só desconectada.
+    // Keep the page usable and disconnected if the backend is unavailable or older.
   }
   try {
-    legacy = await invoke<LegacyImportPlan>("legacy_import_plan");
+    legacy = await invoke("legacy_import_plan");
   } catch {
-    // Back anterior à feature: a linha temporária simplesmente não aparece.
+    // Older backends do not expose the temporary migration entry.
   }
-  // Cadastrar, importar ou remover um servidor muda a lista desta página.
+  // Server registration, import, and removal update this page.
   mcp.onChange(() => {
     if (!$("settingsView").hidden) draw();
   });
   plugins.onChange(() => {
     if (!$("settingsView").hidden) draw();
   });
-  // A nuvem marca linhas e traz plugins ainda não instalados aqui.
+  // Cloud catalogs include entries that are not installed locally.
   catalog.init(async () => {
     await Promise.all([plugins.refresh(), mcp.refresh(), skills.refresh()]);
   });
   catalog.onChange(() => {
     if (!$("settingsView").hidden) draw();
   });
-  // Presença muda sozinha; a linha do time acompanha — menos enquanto você
-  // digita num campo dela, que refazer a página apagaria.
+  // Refresh presence without replacing an input the user is editing.
   team.onChange(() => {
     if ($("settingsView").hidden) return;
     const active = document.activeElement;
@@ -90,15 +81,10 @@ export async function init(context: Ctx) {
   });
 }
 
-/// O que o resto do app pergunta: tem Linear para puxar issue?
+/// Whether Linear is available to load issues.
 export const linear = () => status;
 
-/// As páginas de Configurações. Uma lista à esquerda, uma página de cada vez à
-/// direita — o mesmo desenho do Conductor, e pelo mesmo motivo: numa rolagem
-/// só, o que se procura fica embaixo de coisa que não se procurava.
-///
-/// A ordem é a de quem chega: o que se mexe primeiro em cima, o que se mexe
-/// uma vez na vida embaixo.
+/// Group settings into separate pages, ordered from frequent choices to occasional maintenance.
 type Page = { id: string; title: Key; glyph: Parameters<typeof icon>[0]; rows: () => HTMLElement[] };
 
 const PAGES: Page[] = [
@@ -150,8 +136,7 @@ const PAGES: Page[] = [
   },
 ];
 
-/// Em qual página se estava. Gruda neste Mac: quem veio ajustar o MCP três
-/// vezes numa tarde não quer passar pela lista toda a cada vez.
+/// Remember the last settings page on this Mac.
 const PAGE_KEY = "prometeu:configuracoes";
 let open = localStorage.getItem(PAGE_KEY) ?? PAGES[0].id;
 
@@ -184,7 +169,7 @@ export function draw() {
   view.replaceChildren(wrap);
 }
 
-/* ---------- importação temporária do Prometheus ---------- */
+// Temporary Prometheus import.
 
 function appRows(): HTMLElement[] {
   const rows = [settingsRow(), news.settingsRow()];
@@ -231,14 +216,35 @@ function migrationRow(plan: LegacyImportPlan): HTMLElement {
 }
 
 function openMigration(plan: LegacyImportPlan) {
-  const veil = $("veil");
-  const sheet = template(
-    "div",
-    "sheet migration",
-    `<div class="sheettop"><b></b></div><div class="mbody"></div><div class="sheetbar"></div>`,
-  );
-  sheet.querySelector(".sheettop b")!.textContent = t("migration.title");
-  const body = sheet.querySelector(".mbody")!;
+  const closed = checkbox(t("migration.closed"), false);
+  const check = closed.control;
+  check.required = true;
+  closed.label.classList.add("migration-check");
+  const dialog = formDialog({
+    title: t("migration.title"), save: t("migration.go"), cancel: t("migration.cancel"), error: fromBack,
+    submit: async () => {
+      check.disabled = true;
+      dialog.save.textContent = t("migration.doing");
+      try {
+        const result = await invoke("legacy_import_run");
+        legacy = result;
+        try {
+          await plugins.refresh();
+        } catch {
+          // Import already succeeded; reopening the hub can retry its visual refresh.
+        }
+        draw();
+        ctx.say(t("migration.done", { backup: result.backup ?? "" }));
+      } finally {
+        check.disabled = false;
+        dialog.save.textContent = t("migration.go");
+      }
+    },
+  });
+  dialog.root.classList.add("migration");
+  dialog.save.disabled = true;
+  const body = dialog.body;
+  body.classList.add("mbody");
   body.append(
     h("p", "lead", t("migration.preview", { summary: importSummary(plan) })),
     h(
@@ -268,72 +274,12 @@ function openMigration(plan: LegacyImportPlan) {
     h("p", "fact", t("migration.preview.excluded")),
   );
 
-  const closed = template("label", "migration-check", `<input type="checkbox"><span></span>`);
-  closed.querySelector("span")!.textContent = t("migration.closed");
-  const check = closed.querySelector("input") as HTMLInputElement;
-  body.append(closed);
-
-  const cancel = h("button", "ghost md", t("migration.cancel")) as HTMLButtonElement;
-  const hint = h("span", "hint");
-  const go = h("button", "pri md", t("migration.go")) as HTMLButtonElement;
-  go.disabled = true;
-  sheet.querySelector(".sheetbar")!.append(cancel, hint, go);
-
-  let running = false;
-  const hide = () => {
-    if (running) return;
-    veil.hidden = true;
-    veil.replaceChildren();
-    window.removeEventListener("keydown", key);
-  };
-  const key = (event: KeyboardEvent) => {
-    if (event.key === "Escape") hide();
-  };
-  check.addEventListener("change", () => (go.disabled = !check.checked));
-  cancel.addEventListener("click", hide);
-  go.addEventListener("click", async () => {
-    if (!check.checked || running) return;
-    running = true;
-    check.disabled = true;
-    cancel.disabled = true;
-    go.disabled = true;
-    go.textContent = t("migration.doing");
-    hint.textContent = "";
-    try {
-      const result = await invoke<LegacyImportPlan>("legacy_import_run");
-      legacy = result;
-      running = false;
-      hide();
-      try {
-        await plugins.refresh();
-      } catch {
-        // O quadro e os arquivos já foram importados; a próxima abertura
-        // relê o hub mesmo se este refresh visual falhar.
-      }
-      draw();
-      ctx.say(t("migration.done", { backup: result.backup ?? "" }));
-    } catch (error) {
-      running = false;
-      check.disabled = false;
-      cancel.disabled = false;
-      go.disabled = !check.checked;
-      go.textContent = t("migration.go");
-      hint.textContent = fromBack(error);
-      hint.classList.add("bad");
-    }
-  });
-
-  veil.onmousedown = (event) => {
-    if (event.target === veil) hide();
-  };
-  window.addEventListener("keydown", key);
-  veil.replaceChildren(sheet);
-  veil.hidden = false;
+  body.append(closed.label);
+  check.addEventListener("change", () => (dialog.save.disabled = !check.checked));
+  dialog.open();
 }
 
-/// O idioma da tela. Guardado neste Mac e em mais lugar nenhum; sem escolha, o
-/// app segue o computador — e a linha diz em que isso dá, para "do sistema"
-/// não ser uma resposta que esconde a pergunta.
+/// Store language preference locally; without an override, show the resolved system language.
 function langRow(): HTMLElement {
   const row = template(
     "div",
@@ -367,21 +313,16 @@ function langRow(): HTMLElement {
   return row;
 }
 
-/* ---------- padrões ---------- */
+// Defaults.
 
-/// Com o que o lançador abre: modelo, esforço, MCP e plugins. Antes isto era
-/// lembrança — a última escolha do lançador virava o começo da próxima —, e
-/// experimentar um modelo numa tarefa mudava calado todas as seguintes. Agora
-/// é escolha, e mora aqui; o lançador continua trocando, só que para aquele
-/// workspace e mais nada.
+/// Launcher defaults are explicit preferences. Experimenting within one workspace
+/// does not change the starting configuration of future workspaces.
 function defaultsRows(): HTMLElement[] {
   return [modelRow(), effortRow(), mcpRow(), pluginRow()];
 }
 
-/// Uma linha de Padrões: o que ela escolhe, o que isso quer dizer, e o botão
-/// que abre o seletor. Devolve o botão junto porque quem marca vários (MCP,
-/// plugins) reescreve o rótulo sem refazer a página — o menu fica aberto, e
-/// refazer a página tiraria de baixo dele o botão em que ele se ancora.
+/// Return the picker button so multiple selections can update its label
+/// without replacing the open menu or its anchor.
 function pickRow(
   glyph: Parameters<typeof icon>[0],
   title: Key,
@@ -415,8 +356,7 @@ function modelRow(): HTMLElement {
           checked: id === defaultModel(),
           run: () => {
             setDefaultModel(id);
-            // O esforço é um degrau da escada do modelo, e a escada mudou: a
-            // linha de baixo precisa se redesenhar junto.
+            // The new model can change available effort levels, so redraw both rows.
             draw();
           },
         });
@@ -427,8 +367,7 @@ function modelRow(): HTMLElement {
   return row;
 }
 
-/// O esforço padrão é um só, e a escada é a do modelo padrão — trocar de
-/// modelo no lançador aproxima o degrau do que aquele modelo aceita.
+/// The default effort follows the default model; the launcher adjusts it for another model.
 function effortRow(): HTMLElement {
   const { row, btn } = pickRow("signal", "settings.defaults.effort", "settings.defaults.effort.body");
   const stairs = effortLadder(defaultModel());
@@ -531,7 +470,7 @@ function linearRow() {
     off.addEventListener("click", async () => {
       off.disabled = true;
       try {
-        status = await invoke<LinearStatus>("linear_disconnect");
+        status = await invoke("linear_disconnect");
       } catch (e) {
         ctx.say(fromBack(e), true);
       }
@@ -552,7 +491,7 @@ function linearRow() {
     status = { ...status, busy: true };
     draw();
     try {
-      status = await invoke<LinearStatus>("linear_connect");
+      status = await invoke("linear_connect");
     } catch (e) {
       status = { ...status, busy: false };
       ctx.say(fromBack(e), true);
@@ -563,7 +502,7 @@ function linearRow() {
   return row;
 }
 
-/* ---------- organização ---------- */
+// Organization.
 
 function teamRows(): HTMLElement[] {
   const st = team.status();

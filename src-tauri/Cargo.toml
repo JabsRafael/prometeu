@@ -3,9 +3,8 @@ name = "prometeu"
 version = "0.5.12"
 edition = "2021"
 rust-version = "1.88"
-# Cargo não aceita espaço em nome de bin, e de todo modo não é daqui que sai o
-# nome no Dock: quem manda é o CFBundleName do Info.plist que o tauri-build
-# embute no binário. Ver `tauri.dev.conf.json` para o nome durante o dev.
+# Cargo binary names cannot contain spaces. The Dock name comes from CFBundleName
+# in the Info.plist embedded by tauri-build; see tauri.dev.conf.json for development.
 default-run = "Prometeu"
 
 [[bin]]
@@ -16,8 +15,8 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-# `unstable` é a webview filha (`Window::add_child`): a aba de navegador é uma
-# webview do sistema por cima do centro da janela. Ver `browser.rs`.
+# The unstable feature enables child webviews (Window::add_child). The browser tab
+# overlays a system webview on the window center; see browser.rs.
 tauri = { version = "2", features = ["unstable"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -25,33 +24,29 @@ portable-pty = "0.9"
 uuid = { version = "1", features = ["v4"] }
 dirs = "6"
 tauri-plugin-dialog = "2"
-# O app se atualiza sozinho: baixa o bundle novo, confere a assinatura minisign
-# e troca o .app no lugar. O `process` é só para reiniciar depois da troca.
+# The updater verifies the new bundle with minisign before replacing the app.
+# The process plugin restarts it afterward.
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 toml = "0.8"
-# Só para sinalizar o grupo de processos: encerrar uma sessão precisa alcançar
-# os netos (o `node` que o `npm run dev` subiu), e o pid do filho não alcança.
-# Ver `pty.rs`.
+# Signal whole process groups so session shutdown reaches grandchildren such as
+# the Node process started by npm run dev; see pty.rs.
 libc = "0.2"
-# Falar com o Linear (OAuth e GraphQL). `blocking` porque os comandos do app
-# são síncronos, numa thread do pool do Tauri. O TLS é o rustls que o updater
-# já traz, com o provider `ring` dele — não entra dependência nova de verdade,
-# só features. Ver `linear.rs`.
+# Linear uses blocking OAuth/GraphQL calls on the Tauri thread pool. Reuse the
+# updater's rustls/ring TLS stack through features; see linear.rs.
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider"] }
-# O `rustls-no-provider` do reqwest exige que alguém instale o provedor de
-# criptografia antes do primeiro cliente HTTPS. Até aqui quem instalava era o
-# plugin do updater, mas só ao checar atualização: quem falasse HTTPS antes
-# disso entrava em pânico. Ver `main.rs`.
+# reqwest rustls-no-provider requires installing a crypto provider before any
+# HTTPS client. Waiting for the updater to install it caused earlier requests
+# to panic; see main.rs.
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
-# PKCE: o `code_challenge` é o SHA-256 do verifier em base64url.
+# PKCE encodes the verifier's SHA-256 digest as base64url for code_challenge.
 sha2 = "0.10"
 base64 = "0.22"
-# A versão do cache de plugin do Codex precisa continuar sendo semver mesmo
-# quando um manifesto compatível traz uma versão livre.
+# Codex plugin cache versions must remain valid semver even when a compatible
+# manifest supplies an arbitrary version string.
 semver = "1"
 
-# Bindings já usados pelo Tauri; o receptor recebe capturas ainda sem arquivo.
+# Reuse Tauri bindings to receive screenshots before they exist as files.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSFilePromiseReceiver", "NSPasteboard", "NSView", "NSResponder", "block2"] }

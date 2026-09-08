@@ -5,25 +5,16 @@ import { t } from "./i18n";
 import { label, pending, tabLabel, type Board, type Tab, type Workspace } from "./types";
 import { $, empty, h, template } from "./util";
 
-/// A mesa: todas as conversas de uma vez, cada uma no seu quadro — para ver o
-/// que cada agente está fazendo e responder sem entrar no workspace. Cada
-/// quadro é um `ChatView` inteiro ligado na aba, o mesmo da tela do workspace.
-/// A faixa de cima lista todas; recolher tira o quadro da mesa sem fechar
-/// nada, e a faixa o traz de volta. Ordem, tamanho e o que está recolhido são
-/// seus, e ficam neste Mac.
-///
-/// Arrastar e esticar são gestos de ponteiro escritos aqui, e não o `resize`
-/// do CSS nem o drag do HTML: o WebKit do app não achava o canto nativo, e o
-/// Tauri toma o drag do HTML para entregar arquivo de verdade (ver `main.ts`).
+/// Display local conversations as independent ChatViews with locally persisted order, size, and collapsed state. Use pointer gestures because WebKit resizing and Tauri's native file-drag interception prevent reliable CSS/HTML alternatives.
 
 export type Ctx = {
   say: (text: string, isError?: boolean) => void;
   board: () => Board;
-  /// O que a caixa de escrever de uma aba precisa saber (ver `chat.ts`).
+  /// Composer context for a tab; see chat.ts.
   info: (tab: string) => Info;
-  /// Entrar no workspace, já na aba do quadro.
+  /// Open the workspace at the panel's tab.
   open: (ws: Workspace, tab: string) => void;
-  /// O lançador: é o que a mesa vazia oferece.
+  /// The empty desk offers the launcher.
   create: () => void;
   looked: () => void;
 };
@@ -33,7 +24,7 @@ type Layout = { order: string[]; sizes: Record<string, [number, number]>; hidden
 type Pair = { w: Workspace; tab: Tab };
 
 const STORE = "prometeu:mesa";
-/// Menos que isto é clique, não arraste: o fantasma só nasce depois.
+/// Movement below this threshold remains a click; create the drag ghost only afterward.
 const DRAG_START = 4;
 
 function load(): Layout {
@@ -52,11 +43,9 @@ function load(): Layout {
 let ctx: Ctx;
 let layout: Layout;
 let shown = false;
-/// Um quadro sendo arrastado: o quadro do back que chegar no meio do gesto
-/// não pode devolver os nós à ordem antiga.
+/// Board updates must not restore the previous DOM order during a drag.
 let dragging = false;
-/// Um quadro por aba. Quem sai da mesa é desligado e some da tela; a tela em
-/// si fica no mapa até a aba sumir do quadro.
+/// Keep one view per tab. Detach hidden panels and retain them until their tabs leave the board.
 const tiles = new Map<string, Tile>();
 
 const save = () => localStorage.setItem(STORE, JSON.stringify(layout));
@@ -66,9 +55,7 @@ export function init(context: Ctx) {
   layout = load();
 }
 
-/// As abas que vão para a mesa: as dos workspaces daqui que estão de pé.
-/// Arquivado saiu da frente; limpo não tem processo; montando não tem aba; o
-/// de um colega roda no Mac dele e tem a sua própria tela.
+/// Include active local workspaces; archived, cleaned, preparing, and remote workspaces use other lifecycle paths.
 const live = (board: Board): Pair[] =>
   board.workspaces
     .filter((w) => !w.archived && !w.cleaned && !w.remote && !pending(w))
@@ -83,8 +70,7 @@ export function show() {
   $("deskView").hidden = false;
 }
 
-/// Sair da mesa desliga os quadros: uma conversa ligada em dois lugares é a
-/// mesma linha desenhada duas vezes, e a tela do workspace já a tem.
+/// Detach desk panels when leaving so the workspace view owns the active conversation stream.
 export function hide() {
   if (!shown) return;
   shown = false;
@@ -92,9 +78,7 @@ export function hide() {
   for (const { view } of tiles.values()) view.detach();
 }
 
-/// O quadro alcança a mesa: quadro novo para aba nova, fora o de aba que
-/// sumiu, e o resto só atualiza o cabeçalho e a caixa. Recolhido fica no DOM
-/// escondido e desligado — não custa nada até voltar.
+/// Reconcile panel membership and update headers/composers. Collapsed panels stay hidden and detached until reopened.
 export function draw() {
   if (!shown) return;
   const host = $("tiles");
@@ -125,9 +109,7 @@ export function draw() {
     paintHead(tile.head, w, tab);
     tile.view.refresh();
   }
-  // Só mexe nos nós quando a ordem da tela não é a da mesa — na primeira vez,
-  // ou quando uma aba guardada voltou. Mover um nó tira o foco de quem está
-  // escrevendo nele, e o quadro redesenha a cada ferramenta que o agente usa.
+  // Move DOM nodes only when order changes; unnecessary moves would disrupt composer focus on board events.
   const have = [...host.querySelectorAll<HTMLElement>(".tile")].map((el) => el.dataset.tab);
   if (!dragging && layout.order.some((id, i) => id !== have[i])) {
     host.append(...layout.order.map((id) => tiles.get(id)!.el));
@@ -138,9 +120,7 @@ export function draw() {
   save();
 }
 
-/// A faixa de cima: todas as conversas, na ordem da mesa, acesa a que está
-/// nela. Clicar recolhe ou traz de volta. É a barra de abas do workspace,
-/// com o mesmo desenho — a aba aqui é uma conversa, e não um arquivo.
+/// The strip lists every conversation in desk order and toggles its panel visibility.
 function drawBar(byTab: Map<string, Pair>, hidden: Set<string>) {
   $("deskbar").replaceChildren(
     ...layout.order.map((id) => {
@@ -207,10 +187,7 @@ function paintHead(head: HTMLElement, w: Workspace, tab: Tab) {
   head.title = `${label(tab.status)} · ${t("desk.head.title")}`;
 }
 
-/// Um gesto de ponteiro: o que fazer a cada movimento e ao soltar. Ouvido no
-/// documento, e não com captura no nó — mover o quadro no DOM tira o nó da
-/// árvore por um instante, e o Chrome solta a captura junto. Soltar o botão e
-/// o sistema cancelar o ponteiro são o mesmo fim.
+/// Listen for pointer movement and completion on document. Reordering DOM nodes can release element pointer capture; pointerup and pointercancel share cleanup.
 function gesture(move: (m: PointerEvent) => void, stop: () => void) {
   const end = () => {
     document.removeEventListener("pointermove", move);
@@ -223,11 +200,7 @@ function gesture(move: (m: PointerEvent) => void, stop: () => void) {
   document.addEventListener("pointercancel", end);
 }
 
-/// Arrastar pelo cabeçalho troca o quadro de lugar. Um fantasma do quadro
-/// segue o cursor, e o quadro de verdade vira a vaga tracejada que mostra onde
-/// ele vai cair — a vaga é que anda entre os outros. Enquanto arrasta, o
-/// quadro não recebe ponteiro: é o que deixa `elementFromPoint` enxergar o
-/// quadro debaixo dele.
+/// Drag headers to reorder. A ghost follows the pointer while the real panel marks its destination; disable its pointer events so hit testing sees the panel underneath.
 function drag(el: HTMLElement, head: HTMLElement) {
   head.addEventListener("pointerdown", (e) => {
     if (e.button !== 0 || (e.target as Element).closest("button")) return;
@@ -272,9 +245,7 @@ function drag(el: HTMLElement, head: HTMLElement) {
   });
 }
 
-/// A alça no canto de baixo: arrastar muda largura e altura, e o tamanho fica.
-/// O mínimo é do CSS — o que se grava é o que a tela mediu depois dele. Duplo
-/// clique volta ao tamanho padrão, como a alça do painel lateral.
+/// Resize with the corner handle, storing CSS-clamped dimensions. Double-click restores the default size.
 function grip(el: HTMLElement, id: string) {
   const handle = template(
     "div",
@@ -311,9 +282,7 @@ function grip(el: HTMLElement, id: string) {
   el.append(handle);
 }
 
-/// Onde um arquivo solto sobre a mesa cai: no quadro debaixo do cursor, como
-/// anexo da fala daquela conversa — a mesma regra do "+" da caixa. Fora de um
-/// quadro, ou num quadro que não aceita anexo, não cai em lugar nenhum.
+/// Drop files only into the conversation panel under the pointer when it accepts attachments.
 export function dropTarget(el: Element | null): { host: HTMLElement; put: (paths: string[]) => void; wait: () => () => void } | null {
   const id = el?.closest<HTMLElement>(".tile")?.dataset.tab;
   const tile = id ? tiles.get(id) : undefined;

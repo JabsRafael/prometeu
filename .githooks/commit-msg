@@ -1,10 +1,7 @@
 #!/bin/sh
-# Recusa commit fora do Conventional Commits.
-#
-# O CHANGELOG.md e o número da versão saem dos commits (git-cliff), então a
-# mensagem é a matéria-prima das notas de release — ver CLAUDE.md. Instalado
-# por `npm install` (o script `prepare` aponta core.hooksPath para cá); o CI
-# roda este mesmo arquivo sobre cada commit do PR.
+# Require Conventional Commits because git-cliff derives versions, CHANGELOG.md and release notes from
+# commit messages. npm install sets core.hooksPath here; CI runs the same hook against each PR commit.
+# See AGENTS.md.
 set -eu
 
 MSG=$(grep -v '^#' "$1" | sed -n '/./{p;q;}')

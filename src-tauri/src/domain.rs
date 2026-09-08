@@ -1,9 +1,7 @@
-//! Tipos de domínio que atravessam estado, serviços e IPC. Eles não pertencem
-//! ao adaptador que os descobre (`session`/`gh`): mantê-los aqui evita que o
-//! estado persistido dependa de um módulo de comandos Tauri.
+//! Domain types cross state, services, and IPC. Keep them outside discovery adapters so persisted
+//! state does not depend on Tauri command modules.
 
-/// O PR desta branch, como o `gh` o descreve. Compara e imprime porque mora
-/// dentro de `Repo`, que compara e imprime nos testes.
+/// PR data from gh, comparable and printable because Repo exposes those traits in tests.
 #[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Pr {
@@ -11,11 +9,11 @@ pub struct Pr {
     pub title: String,
     #[serde(default)]
     pub is_draft: bool,
-    /// `OPEN`, `MERGED` ou `CLOSED`.
+    /// OPEN, MERGED, or CLOSED.
     #[serde(default)]
     pub state: String,
-    /// Campo de transporte do `gh`, usado para casar resposta e workspace; não
-    /// faz parte do board.json nem do contrato do front.
+    /// A gh transport field used to match responses to workspaces; excluded from board.json and the
+    /// frontend contract.
     #[serde(default, skip_serializing)]
     pub head_ref_name: String,
 }

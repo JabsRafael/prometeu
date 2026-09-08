@@ -42,6 +42,8 @@ usa `root` e os atributos `name`/`required` quando o consumidor depende de
 submissão nativa. O campo `native` participa de `FormData` e da validação HTML.
 Telas antigas que usam apenas `control` e enviam comandos próprios continuam
 validando as regras de domínio antes de salvar.
+Opening a dropdown focuses its menu options. Arrow keys move actual focus,
+not only the visual selection, and closing restores focus to the trigger.
 
 `formDialog` usa `dialog.showModal()`: conteúdo atrás fica inerte, foco retorna
 ao fechar e Tab/Shift+Tab circulam no formulário. O corpo rola e o rodapé fica
@@ -49,14 +51,18 @@ visível. Salvar respeita validação HTML, impede envio duplicado, sinaliza
 `aria-busy` e apresenta falhas em `role="alert"` sem perder o texto digitado.
 Menus abertos no diálogo entram na mesma camada. Escape fecha primeiro o menu;
 outro Escape fecha o diálogo. Atalhos globais não alteram o workspace enquanto
-o diálogo está aberto.
+o diálogo está aberto. While submission is pending, Escape and cancellation
+leave the dialog open so progress and failures remain visible.
 
 ## Adoção
 
 Editores de comandos e agentes em Ações usam os campos, seletores, checkboxes,
 disclosures e diálogo compartilhados. O launcher usa o mesmo dropdown; campos
 de texto dos hubs MCP e plugins usam `input` e `field`, incluindo o pedido de
-criação de plugin. Modais antigos dos hubs continuam com o lifecycle anterior.
+criação de plugin. Worktree cleanup and legacy import also use `formDialog`,
+including its busy-state cancellation guard and shared checkboxes. Their
+application callbacks own progress labels and operation results. Modais antigos
+dos hubs continuam com o lifecycle anterior.
 
 Novos controles e alterações de controles existentes devem reutilizar essa
 base. Se faltar comportamento, acrescente à primitiva correspondente e mostre

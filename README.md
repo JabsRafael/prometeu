@@ -325,9 +325,9 @@ Por isso o repositório declara três comandos, em `.prometeu/settings.toml`
 
 ```toml
 [scripts]
-setup   = "npm install"                        # quando um worktree nasce
-run     = "npm run dev -- --port $PROMETEU_PORT"   # o botão Run
-archive = "docker compose down"                # antes de arquivar
+setup   = "npm install"                        # when a worktree is created
+run     = "npm run dev -- --port $PROMETEU_PORT"   # the Run button
+archive = "docker compose down"                # before archiving
 ```
 
 O `setup` roda sozinho quando o worktree nasce, e a primeira fala do lançador

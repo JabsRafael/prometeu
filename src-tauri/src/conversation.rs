@@ -1,7 +1,5 @@
-//! Primitivas do contrato canônico de conversa no backend.
-//!
-//! Adapters de provider dependem deste módulo para produzir eventos V1. Este
-//! módulo não conhece transporte, processo nem protocolo externo.
+//! Canonical conversation primitives for backend adapters. This module defines V1 events without
+//! knowing transports, processes, or external protocols.
 
 use serde_json::{json, Value};
 

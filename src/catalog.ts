@@ -22,7 +22,7 @@ export const current = () => state;
 export const onChange = (fn: () => void) => { watchers.add(fn); return () => watchers.delete(fn); };
 export const shared = (kind: Kind, id: string) => !!state.shared[`${kind}:${id}`];
 export async function load() {
-  state = await invoke<CatalogState>("catalog_state");
+  state = await invoke("catalog_state");
   for (const fn of watchers) fn();
 }
 export async function refresh() { await refreshHubs(); await load(); }

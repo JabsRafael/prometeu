@@ -84,8 +84,7 @@ describe("catálogo", () => {
     expect(Object.keys(EN).sort()).toEqual(Object.keys(PT).sort());
   });
 
-  // Um `{buraco}` que só existe de um lado é texto que sai errado num idioma e
-  // certo no outro — e ninguém repara até estar na tela de quem lê o outro.
+  // Interpolation placeholders must match across languages to prevent partially translated output.
   it("cada frase tem os mesmos buracos nos dois idiomas", () => {
     const holes = (text: string) => (text.match(/\{\w+\}/g) ?? []).sort();
     for (const key of Object.keys(PT) as (keyof typeof PT)[]) {
@@ -101,7 +100,7 @@ describe("catálogo", () => {
   it("idioma sem tradução para a chave cai no inglês em vez de sumir", () => {
     use("pt-BR");
     expect(current()).toBe("pt-BR");
-    // `stage.Code review` é igual nos dois; o que importa é que existe nos dois.
+    // Code review is identical in both catalogs, but its key must exist in each.
     expect(t("stage.Code review")).toBe("Code review");
   });
 });

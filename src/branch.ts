@@ -1,13 +1,6 @@
-/// O nome da branch de um workspace novo.
+/// Generate a new workspace branch name.
 
-/// Palavras, não relógio. `prometeu/0901-1601` só dizia o minuto em que o
-/// workspace nasceu: abrir três de uma vez dava três nomes iguais (o segundo
-/// virava `-2`, o terceiro `-3`, e nenhum dizia nada), e o mesmo dia-mês volta
-/// igualzinho no ano que vem. Um par de palavras se distingue de longe e ainda
-/// se fala em voz alta — "aquele do farol-quieto".
-///
-/// Tudo ASCII e minúsculo, que é o que cabe num nome de branch sem susto: só
-/// substantivo masculino (o adjetivo concorda) e sem acento por construção.
+/// Use readable word pairs instead of timestamp names that collide when created together or in another year. Lowercase ASCII masculine nouns match their adjectives and remain safe in branch names.
 const NOUNS = [
   "farol", "tear", "cais", "porto", "ferro", "cobre", "bronze", "cedro",
   "junco", "barro", "vinco", "orvalho", "cometa", "quartzo", "granito", "sino",
@@ -46,20 +39,13 @@ const ADJS = [
   "dourado", "prateado", "azul", "verde", "rubro", "roxo", "branco", "negro",
 ];
 
-/// Um par sorteado. 16.384 combinações: o `freshBranch` é que garante
-/// que a sorteada não é de ninguém.
+/// Choose among 16,384 pairs; freshBranch checks uniqueness.
 export function pair(rand: () => number = Math.random) {
   const pick = <T>(xs: T[]) => xs[Math.floor(rand() * xs.length)];
   return `${pick(NOUNS)}-${pick(ADJS)}`;
 }
 
-/// Duas palavras e quatro dígitos aleatórios: 163.840.000 combinações.
-/// A primeira branch deste padrão que ainda não é de ninguém. Sortear de novo
-/// resolve quase toda colisão; se o sorteio insistir num nome tomado, o número
-/// no fim fecha a conta — sem ele, a busca poderia não terminar.
-///
-/// `taken` é o que o `list_branches` devolve, local e remota na mesma lista:
-/// `origin/prometeu/…` conta como tomado.
+/// Two words plus four digits provide 163,840,000 combinations. Retry collisions, then increment the suffix to guarantee termination. Treat both local and remote branch names as taken.
 export function freshBranch(taken: string[], rand: () => number = Math.random) {
   const has = (name: string) => taken.some((b) => b === name || b.endsWith(`/${name}`));
   let base = "";

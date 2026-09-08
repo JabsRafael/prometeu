@@ -32,6 +32,8 @@ para virar capacidade contratual.
 | catálogo vivo de modelos | nativo via control request | nativo via cache do CLI | `agents.rs` |
 | iniciar sessão | nativo | adaptado para JSON-RPC | `chat.rs`, `codex.rs` |
 | retomar sessão | id/transcript do Claude | thread do app-server | `session.rs`, testes Rust |
+| workspace tools with tab model/effort overrides | same selections for new and resumed tabs | same selections for new and resumed tabs | `session.rs::new_and_resumed_tabs_preserve_workspace_tools_with_model_overrides` |
+| ordered prompt, transcript, and live delivery | shared conversation mutex | shared conversation mutex | concurrent delivery, fast-response, and failed-write regressions in `chat.rs` |
 | escolher modelo | nativo por flag | adaptado no `thread/start`/`thread/resume` | `session.rs`, `codex.rs` |
 | níveis de esforço | catálogo + fallback | catálogo do Codex | `agents.rs`, `launcher.ts` |
 | plan mode inicial | nativo por permission mode | indisponível | `session.rs`, `launcher.ts` |

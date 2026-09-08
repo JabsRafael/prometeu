@@ -54,7 +54,7 @@ describe("Timeline", () => {
     if (a.kind !== "assistant" || a.blocks[1].kind !== "tool") throw new Error();
     expect(a.blocks[1].input).toEqual({ file_path: "a.txt" });
 
-    // As linhas inteiras caem em cima, na ordem: um item só, dois blocos.
+    // Complete lines arrive in order as one item with two blocks.
     t.push(assistant("m1", { type: "text", text: "olá!" }));
     t.push(assistant("m1", { type: "tool_use", id: "tu1", name: "Write", input: { file_path: "a.txt", content: "x" } }));
     expect(t.items).toHaveLength(1);
@@ -66,7 +66,7 @@ describe("Timeline", () => {
     t.push(j({ type: "result", subtype: "success", is_error: false, duration_ms: 10 }));
     expect(t.busy).toBe(false);
     expect((t.items[0] as { streaming: boolean }).streaming).toBe(false);
-    // Turno que terminou bem não ganha linha.
+    // Successful turns add no error row.
     expect(t.items).toHaveLength(1);
   });
 
@@ -108,7 +108,7 @@ describe("Timeline", () => {
       }),
     );
     expect(t.pending.map((a) => a.id)).toEqual(["r1"]);
-    // De novo a mesma linha (snapshot mais ao vivo cruzados): um card só.
+    // Overlapping snapshot and live delivery must produce one card.
     t.push(
       j({ type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "ExitPlanMode", input: {} } }),
     );
@@ -160,7 +160,7 @@ describe("Timeline", () => {
     expect(t.busy).toBe(false);
     expect((t.items[1] as { streaming: boolean }).streaming).toBe(false);
     expect(t.pending).toEqual([]);
-    // Com turno, fica como está.
+    // Preserve an existing turn association.
     t.push(assistant("m2", { type: "text", text: "de novo" }));
     t.push(j({ type: "prometheus", subtype: "state", busy: true }));
     expect(t.busy).toBe(true);
@@ -221,13 +221,13 @@ describe("Timeline", () => {
       { name: "color", description: "Set the color", hint: "" },
       { name: "release", description: "Solta uma versão", hint: "" },
     ]);
-    // O init vem depois da primeira fala e diz quais são de terminal.
+    // Initialization follows the first prompt and identifies terminal commands.
     t.push(j({ type: "system", subtype: "init", slash_commands: ["compact", "color", "release"], terminal_slash_commands: ["color"] }));
     expect(t.commands.map((c) => c.name)).toEqual(["compact", "release"]);
-    // Uma resposta nova (o processo subiu de novo) respeita o que o init disse.
+    // A restarted process preserves command metadata from initialization.
     t.push(j(answer));
     expect(t.commands.map((c) => c.name)).toEqual(["compact", "release"]);
-    // As outras respostas (permissão respondida) não mexem em nada.
+    // Unrelated responses such as permission acknowledgements change nothing.
     t.push(j({ type: "control_response", response: { subtype: "success", request_id: "x", response: {} } }));
     expect(t.commands.length).toBe(2);
   });
@@ -382,8 +382,7 @@ describe("pieces", () => {
     t.push(assistant("m3", { type: "tool_use", id: "t3", name: "Grep", input: { path: "/ws/app" } }));
     t.push(assistant("m4", { type: "tool_use", id: "t4", name: "Edit", input: { file_path: "/ws/b.rb" } }));
     t.push(assistant("m5", { type: "tool_use", id: "t5", name: "Read", input: { file_path: "/ws/a.rb" } }));
-    // O Bash e o Grep não apontam um arquivo, e o a.rb lido duas vezes é um só,
-    // na posição da última.
+    // Bash and Grep do not identify files; repeated reads retain only the most recent position.
     expect(touched(t.items)).toEqual(["/ws/a.rb", "/ws/b.rb"]);
     expect(touched(t.items, 1)).toEqual(["/ws/a.rb"]);
   });

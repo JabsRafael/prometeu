@@ -1,9 +1,4 @@
-/// O português do Brasil, e a fonte do catálogo: é daqui que sai o tipo `Key`,
-/// e é por isso que uma chave sem par no `i18n.en.ts` não compila.
-///
-/// As chaves são o caminho até onde a frase aparece — `card.`, `dock.`,
-/// `launcher.` —, e os códigos que o back manda (`err.`, `note.`) moram no
-/// mesmo lugar, porque quem lê não sabe de que lado do app veio a frase.
+/// Brazilian Portuguese defines Key and requires matching English translations. Group interface strings and backend message codes by feature; their origin does not affect translation.
 export const PT = {
   "organization.legacy": "Este time antigo continua funcionando. Gerencie novas organizações e convites por email no Cloud; selecionar uma organização preserva uma cópia deste time.",
   "organization.scopeHint": "Escolha uma organização e compartilhe cada workspace explicitamente. Trocar de organização nunca compartilha workspaces existentes com novas pessoas.",
@@ -158,7 +153,7 @@ export const PT = {
   "err.actions.timeout": "A consulta ao GitHub excedeu 30 segundos.",
   "err.actions.response": "GitHub retornou uma resposta inválida ou grande demais.",
   "err.actions.used": "Este nome já está em uso ou o agente ainda está associado a um comando.",
-  /* ---------- Contas dos agentes ---------- */
+  /* Agent accounts. */
   "account.terminal": "Conta do terminal",
   "account.new": "Nova conta",
   "account.empty": "Nenhuma conta adicionada.",
@@ -187,7 +182,7 @@ export const PT = {
   "err.account.status": "Não foi possível consultar a conta no CLI.",
   "err.account.working": "Espere o turno terminar antes de reconectar esta conta.",
 
-  /* ---------- Git local ---------- */
+  /* Local Git. */
   "git.repository": "Repositório",
   "git.changes": "Alterações",
   "git.scope": "Escopo da revisão",
@@ -287,14 +282,14 @@ export const PT = {
   "err.git.busy": "Outra operação Git está em andamento.",
   "err.git.agent": "Pause o agente antes de fazer pull.",
 
-  /* ---------- estados de uma conversa ---------- */
+  /* Conversation states. */
 
   "status.rodando": "rodando",
   "status.querendo": "quer você",
   "status.pronta": "pronta",
   "status.desligada": "desligada",
 
-  /* ---------- etapas que o app cria na primeira vez ---------- */
+  /* Default stages created on first launch. */
 
   "stage.Preparando": "Preparando",
   "stage.Fazendo": "Fazendo",
@@ -302,7 +297,7 @@ export const PT = {
   "stage.Travado": "Travado",
   "stage.Feito": "Feito",
 
-  /* ---------- barra lateral e navegação ---------- */
+  /* Sidebar and navigation. */
 
   "rail.hide": "Esconder barra lateral  ⌘B",
   "rail.show": "Mostrar barra lateral  ⌘B",
@@ -332,7 +327,7 @@ export const PT = {
   "rail.agents.one": "{n} agente",
   "rail.agents.other": "{n} agentes",
 
-  /* ---------- menu do Mac ---------- */
+  /* Mac menu. */
 
   "menu.app.about": "Sobre o Prometeu",
   "menu.app.settings": "Configurações…",
@@ -367,7 +362,7 @@ export const PT = {
   "menu.window.minimize": "Minimizar",
   "menu.window.zoom": "Zoom",
 
-  /* ---------- migalha e cabeçalho ---------- */
+  /* Breadcrumb and header. */
 
   "crumb.issues": "Issues",
   "crumb.settings": "Configurações",
@@ -390,13 +385,13 @@ export const PT = {
   "top.finish": "O PR entrou: pôr na última etapa e arquivar  ⌘⇧D",
   "top.side": "Painel lateral",
 
-  /* ---------- estado de preparação e histórico ---------- */
+  /* Preparation state and history. */
 
   "card.cleaned.title": "Worktree removido — era {path}",
   "card.building": "preparando",
   "card.failed": "falhou",
 
-  /* ---------- menu do botão direito num workspace ---------- */
+  /* Workspace context menu. */
 
   "ws.menu.read": "Marcar como lido",
   "ws.menu.unread": "Marcar como não lido",
@@ -413,7 +408,7 @@ export const PT = {
   "ws.menu.gone": "worktree removido",
   "ws.menu.drop": "Remover workspace",
 
-  /* ---------- lançador ---------- */
+  /* Launcher. */
 
   "model.claude": "Claude Code",
   "model.codex": "Codex",
@@ -470,7 +465,7 @@ export const PT = {
   "launcher.issue.empty": "nenhuma issue no seu nome",
   "launcher.issueBlock": "Issue {id} do Linear: {title}",
 
-  /* ---------- aba de issues ---------- */
+  /* Issues tab. */
 
   "issues.kind.started": "Em andamento",
   "issues.kind.unstarted": "A fazer",
@@ -494,7 +489,7 @@ export const PT = {
   "issues.noMatch.body": "Tente o número (MES-12), uma palavra do título ou o projeto.",
   "issues.empty.title": "Nenhuma issue no seu nome",
   "issues.empty.body": "Quando alguém te atribuir uma no Linear, ela aparece aqui.",
-  /* ---------- arquivados ---------- */
+  /* Archived workspaces. */
 
   "arch.search": "Buscar por título, branch ou repositório…",
   "arch.count.one": "{n} arquivado",
@@ -515,7 +510,7 @@ export const PT = {
   "ago.hour": "há {n} h",
   "ago.day": "há {n} d",
 
-  /* ---------- abas do workspace ---------- */
+  /* Workspace tabs. */
 
   "ws.rename": "Duplo clique para renomear",
   "ws.pr": "Open PR",
@@ -545,7 +540,7 @@ export const PT = {
   "tab.browser.close": "Fechar o navegador",
   "tab.browser.closeKey": "Fechar o navegador  ⌘W",
 
-  /* ---------- painel da direita, árvore e mudanças ---------- */
+  /* Side panel, file tree, and changes. */
 
   "side.files": "Arquivos",
   "side.changes": "Alterações",
@@ -603,7 +598,7 @@ export const PT = {
   "diff.repos.one": "{n} repositório",
   "diff.repos.other": "{n} repositórios",
 
-  /* ---------- a conversa ---------- */
+  /* Conversation. */
 
   "chat.empty": "Nada ainda — escreva para começar.",
   "chat.placeholder": "Escreva para o agente — Enter envia, ⇧Enter quebra a linha",
@@ -661,12 +656,12 @@ export const PT = {
   "chat.perm.no": "Recusar",
   "chat.perm.denied": "A pessoa recusou. Pergunte antes de tentar outro caminho.",
 
-  /* ---------- worktree montando ---------- */
+  /* Worktree preparation. */
 
   "build.title": "Preparando o worktree",
   "build.failed.title": "Não deu para preparar o worktree",
 
-  /* ---------- worktree devolvido ---------- */
+  /* Removed worktree. */
 
   "gone.title": "Worktree removido",
   "project.new": "Começar no projeto",
@@ -675,7 +670,7 @@ export const PT = {
   "gone.body":
     "A pasta saiu do disco e a branch local foi apagada — o trabalho já estava no alvo. O que ficou é este card: o nome, a etapa e o PR.",
 
-  /* ---------- devolver o disco ---------- */
+  /* Disk cleanup. */
 
   "clean.title": "Limpar worktrees",
   "clean.hint": "A pasta e a branch local saem; o card fica, e o PR continua onde está.",
@@ -727,7 +722,7 @@ export const PT = {
   "dock.run.idle.port": "Teste sua mudança aqui. $PROMETEU_PORT é {port}.",
   "dock.run.start": "Iniciar Run",
 
-  /* ---------- configurações ---------- */
+  /* Settings. */
 
   /* ---------- MCP ---------- */
 
@@ -1002,7 +997,7 @@ export const PT = {
   "linear.connect.title":
     "Abre o Linear no navegador para você autorizar o Prometeu. Só leitura, e só neste Mac",
 
-  /* ---------- a faixa de baixo ---------- */
+  /* Status bar. */
 
   "status.usage": "Cotas",
   "status.usage.none": "As cotas aparecem depois da primeira resposta do agente",
@@ -1030,7 +1025,7 @@ export const PT = {
   "status.ports": "Portas",
   "status.ports.none": "Nenhum Run com porta ativa",
 
-  /* ---------- atualização ---------- */
+  /* Updates. */
 
   "update.ask": "Buscar atualizações",
   "update.ask.title": "Pergunta agora se saiu versão nova",
@@ -1056,7 +1051,7 @@ export const PT = {
     "o app não reiniciou sozinho — feche e abra o Prometeu, a {version} já está instalada",
   "update.notes": "Ver o que vem",
 
-  /* ---------- novidades ---------- */
+  /* Release notes. */
 
   "news.title": "Novidades",
   "news.sub.app": "Prometeu {version}",
@@ -1070,20 +1065,20 @@ export const PT = {
   "news.sec.revert": "Revertido",
   "news.sec.other": "Outros",
 
-  /* ---------- recados da barra de cima ---------- */
+  /* Header messages. */
 
   "say.creating": "montando worktree…",
   "say.copied": "{path} copiado",
   "say.pickRepo": "Escolha o repositório",
 
-  /* ---------- o que o back diz: notas de atividade ---------- */
+  /* Backend activity notes. */
 
   "note.permission": "quer permissão para {tool}",
   "note.plan": "plano pronto: executar?",
   "note.permissionAny": "quer permissão para uma ferramenta",
   "note.question": "quer sua resposta",
 
-  /* ---------- o que o back diz: erros ---------- */
+  /* Backend errors. */
 
   "err.team.write": "não gravei {path}: {cause}",
   "err.team.name": "diga seu nome antes",

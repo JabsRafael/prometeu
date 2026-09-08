@@ -73,9 +73,20 @@ grava os eventos V1 em seu próprio transcript.
 
 ### Caminho comum
 
-`Pump.feed` valida que a linha é JSON, decide se deve persistir, atribui uma
-sequência de transporte e emite o evento Tauri `chat`. A sequência permite
-juntar snapshot e atualizações ao vivo sem repetir nem perder linhas.
+`Pump.feed` validates JSON, records the line, assigns its transport sequence,
+and emits `chat` while holding the conversation's `Lines` mutex. Snapshots
+use that same mutex, so transcript and live delivery agree on order.
+
+Sending a command holds this mutex across the child write and recording of
+local user/echo events. A successful send records those events before a fast
+child response can acquire the mutex. A failed write records no user event,
+allowing the pending message to be retried. Independent stdout/stderr readers
+continue draining into channels while command writes hold publication locks,
+preventing pipe backpressure from deadlocking the child. Queued lines drain
+before the existing EOF cleanup; prolonged stalls can grow queue memory.
+State reactions run after releasing
+the conversation locks. See [ADR 0023](../decisions/0023-ordered-publication.md)
+and concurrency tests in `src-tauri/src/chat.rs`.
 
 O reducer `Timeline` transforma eventos V1 em itens de usuário, mensagens do
 assistente, blocos de ferramenta, pedidos, resultados, contexto e avisos. Ele é
@@ -145,6 +156,7 @@ resolver a raiz encerra a thread para todos.
 O [`ADR 0002`](../decisions/0002-canonical-conversation-protocol.md) define o
 contrato vigente em
 [`conversation-events-v1.md`](../contracts/conversation-events-v1.md).
-Transcripts antigos não são reescritos. Para o log do Codex, eventos novos
-recebem um espelho legado ignorado pela versão atual, preservando rollback para
-uma versão anterior do app.
+Existing transcripts are not rewritten. The reader accepts legacy transcripts
+and ignores historical V1 mirror projections. New Codex logs contain
+V1 events only; they do not produce legacy mirrors. See the current
+[conversation contract](../contracts/conversation-events-v1.md).

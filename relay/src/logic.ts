@@ -1,12 +1,6 @@
-/// O time inteiro, sem tubulação: quem está conectado, o que está
-/// compartilhado, quem olha o quê, os comentários e a caixa de cada um. `reduce`
-/// recebe um evento e devolve o que fazer — mandar frame, gravar chave — e é
-/// isso que o teste exercita. O Durable Object (`room.ts`) só converte
-/// WebSocket em evento e efeito em `send`/`storage`.
-///
-/// O estado vive em memória e é reconstruído do storage quando o objeto acorda
-/// (`room.ts`); os sockets vêm da própria plataforma, com o membro e a aba que
-/// cada um olha guardados junto do socket (`serializeAttachment`).
+/// Pure team state and reducer: connections, shares, viewers, comments and inboxes. `reduce` returns
+/// transport and storage effects; `room.ts` adapts WebSockets and storage. State is restored after
+/// hibernation, while socket attachments retain each member and viewed tab.
 
 import type { Down, Encrypted, Inbox, Member, Note, Share, Shared, Watching } from "./protocol";
 import {
@@ -47,9 +41,9 @@ export type State = {
   members: Map<string, { name: string; last_seen: number; key?: string }>;
   socks: Map<string, Sock>;
   shares: Map<string, Entry>;
-  /// Por workspace, na ordem em que foram escritas.
+  /// Comments by workspace, in creation order.
   notes: Map<string, Note[]>;
-  /// Por membro: quais comentários abertos esperam resposta dele.
+  /// Open comments awaiting each member, indexed by member.
   inbox: Map<string, Inbox[]>;
 };
 
@@ -71,12 +65,12 @@ export type Event =
 export type Effect =
   | { e: "send"; sock: string; frame: Down }
   | { e: "sendBinary"; sock: string; data: Uint8Array }
-  /// O socket passou a olhar outra aba (ou nenhuma): vai para o attachment.
+  /// Persist the socket's new viewed tab in its attachment.
   | { e: "attachment"; sock: string; member: string; attached: Attached }
   | { e: "put"; key: string; value: unknown }
   | { e: "del"; key: string };
 
-/* ---------- leituras ---------- */
+/* reads */
 
 const online = (s: State, member: string) => [...s.socks.values()].some((k) => k.member === member);
 
@@ -89,8 +83,8 @@ const socksOf = (s: State, member: string) =>
 
 const shared = (e: Entry): Shared => ({ ...e.share, owner: e.owner, online: e.online });
 
-/// Este membro vê este share? O dono sempre; o resto, se a audiência é o time
-/// inteiro (`null`) ou o inclui.
+/// The owner always has access. Other members require an unrestricted audience or an explicit audience
+/// entry.
 const canSee = (e: Entry, member: string) => e.owner === member || !e.share.audience || e.share.audience.includes(member);
 
 const visibleTo = (s: State, ws: string, member: string) => {
@@ -98,14 +92,14 @@ const visibleTo = (s: State, ws: string, member: string) => {
   return !!e && canSee(e, member);
 };
 
-/// Sockets olhando uma aba.
+/// Sockets viewing a tab.
 const attachedTo = (s: State, ws: string, tab: string) =>
   [...s.socks.values()].filter((k) => k.attached?.ws === ws && k.attached.tab === tab);
 
-/// Membros olhando uma aba, cada um uma vez.
+/// Unique members viewing a tab.
 const watchers = (s: State, ws: string, tab: string) => [...new Set(attachedTo(s, ws, tab).map((k) => k.member))];
 
-/// O que o dono precisa saber ao chegar: quem já estava olhando cada aba sua.
+/// Viewers already watching each tab when its owner connects.
 function watching(s: State, owner: string): Watching {
   const out: Watching = {};
   for (const [ws, e] of s.shares) {
@@ -125,11 +119,11 @@ function byTab(s: State, tab: string): [string, Entry] | null {
   return null;
 }
 
-/* ---------- escritas ---------- */
+/* writes */
 
 const broadcast = (s: State, frame: Down): Effect[] => [...s.socks.keys()].map((sock) => ({ e: "send", sock, frame }));
 
-/// Só a quem vê o share; workspace inexistente não tem audiência.
+/// Notify only the share audience; missing workspaces have no audience.
 const toAudience = (s: State, ws: string, frame: Down): Effect[] =>
   [...s.socks.values()].filter((k) => visibleTo(s, ws, k.member)).map((k) => ({ e: "send", sock: k.id, frame }));
 
@@ -141,14 +135,13 @@ const error = (sock: string, code: string): Effect[] => [{ e: "send", sock, fram
 const noteKey = (n: Pick<Note, "ws" | "id">) => `note:${n.ws}:${n.id}`;
 const inboxKey = (member: string, id: string) => `inbox:${member}:${id}`;
 
-/// Expira conteúdo que tem custo linear no storage. Roda antes do welcome e
-/// das escritas; os `del` tornam a limpeza persistente quando o objeto acorda.
+/// Expire bounded-retention content before welcome and writes. Delete effects make cleanup survive
+/// hibernation.
 function prune(s: State, now: number): Effect[] {
   const out: Effect[] = [];
   const cutoff = now - NOTE_TTL_MS;
   for (const [ws, list] of s.notes) {
-    // Uma resposta recente mantém a raiz: sem ela o resto da thread perderia
-    // contexto quando o comentário atravessasse o TTL no meio da conversa.
+    // A recent reply retains its root so TTL expiry cannot remove thread context.
     const roots = new Set(list.filter((n) => !n.parent).map((n) => n.id));
     const alive = new Set(list.filter((n) => n.ts >= cutoff).map((n) => n.parent ?? n.id));
     const keep = list.filter((n) => alive.has(n.parent ?? n.id) && roots.has(n.parent ?? n.id));
@@ -163,8 +156,8 @@ function prune(s: State, now: number): Effect[] {
     }
   }
 
-  // Hydrate também pode encontrar storage escrito por uma versão antiga.
-  // Conserva as threads mais ativas e apaga o excesso como unidade.
+  // Older storage may exceed current limits. Keep the most active threads and delete excess threads as
+  // complete units.
   out.push(...trimTotalNotes(s));
 
   const liveNotes = new Set(
@@ -238,7 +231,7 @@ function trimNotes(s: State, ws: string, list: Note[]): Effect[] {
     })[0];
     if (!root) break;
     const thread = list.filter((item) => item.id === root.id || item.parent === root.id);
-    // Uma thread sozinha conserva a raiz e as respostas mais novas.
+    // An oversized thread retains its root and newest replies.
     const removed = thread.length === list.length ? thread.filter((item) => item.parent).slice(0, 1) : thread;
     for (const item of removed) list.splice(list.indexOf(item), 1);
     for (const item of removed) out.push({ e: "del", key: noteKey(item) });
@@ -280,8 +273,8 @@ function visibleMentions(s: State, ws: string, me: string, values: string[]): st
   return values.filter((member) => member !== me && s.members.has(member) && visibleTo(s, ws, member));
 }
 
-/// Quem olha uma aba mudou: o dono fica sabendo, e `added` é quem acabou de
-/// chegar — para ele mandar a rolagem inteira só a esse.
+/// Notify the owner when viewers change. `added` identifies members who need an initial transcript
+/// snapshot.
 function watchChanged(s: State, at: { ws: string; tab: string }, added: string[] = []): Effect[] {
   const e = s.shares.get(at.ws);
   if (!e) return [];
@@ -327,9 +320,8 @@ export function reduce(s: State, ev: Event): Effect[] {
       const name = normalizeName(ev.name, known?.name || ev.member.slice(0, 8));
       s.members.set(ev.member, { ...known, name, last_seen: ev.now });
       s.socks.set(ev.sock, { id: ev.sock, member: ev.member, attached: null });
-      // O dono voltou: o que ele compartilhava volta a estar de pé antes de
-      // ele reanunciar nada. Sem isto o card do colega ficava dizendo
-      // "offline" com o terminal andando atrás — e digitar não funcionava.
+      // Restore an owner's shares immediately on reconnect so viewers can interact before another
+      // advertisement arrives.
       const woke: Effect[] = [];
       for (const [ws, e] of s.shares) {
         if (e.owner !== ev.member || e.online) continue;
@@ -370,8 +362,7 @@ export function reduce(s: State, ev: Event): Effect[] {
           m.last_seen = ev.now;
           out.push({ e: "put", key: `member:${sock.member}`, value: { id: sock.member, ...m } });
         }
-        // O dono foi embora: o que ele compartilhava continua na lista, mas
-        // parado — ninguém mais vai receber byte nenhum até ele voltar.
+        // Disconnected owners keep their shares listed as offline until output can resume.
         for (const [ws, e] of s.shares) {
           if (e.owner !== sock.member || !e.online) continue;
           e.online = false;
@@ -387,8 +378,7 @@ export function reduce(s: State, ev: Event): Effect[] {
       const bin = decodeBinary(ev.data);
       if (!sock || !bin) return [];
       const found = byTab(s, bin.tab);
-      // Só o dono da aba transmite; o resto é descartado calado, que é o que se
-      // faz com bytes de quem não devia estar mandando.
+      // Only the tab owner may transmit output; discard unauthorized bytes.
       if (!found || found[1].owner !== sock.member) return [];
       const [ws] = found;
       const targets = attachedTo(s, ws, bin.tab).filter((k) => k.id !== sock.id);
@@ -444,8 +434,7 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
         - encryptedSize(had?.share.encrypted) + bytes > SHARES_ENCRYPTED_MAX) return error(sock.id, "quota");
       if (had && had.owner !== me) return error(sock.id, "owner");
       if (!had && s.shares.size >= SHARES_MAX) return error(sock.id, "quota");
-      // Uma aba precisa identificar uma conversa sem ambiguidade nos frames
-      // binários, que carregam a aba mas não o workspace.
+      // Tab IDs must identify conversations uniquely because binary frames omit workspace IDs.
       for (const tab of share.tabs) {
         const found = byTab(s, tab.id);
         if (found && found[0] !== share.id) return error(sock.id, "tabConflict");
@@ -455,8 +444,7 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
       s.shares.set(share.id, e);
       const out: Effect[] = [{ e: "put", key: `share:${share.id}`, value: e }];
       const detachedFrom: { ws: string; tab: string }[] = [];
-      // Quem via e deixou de ver recebe o unshare, e solta a aba se olhava:
-      // para ele o workspace sumiu, e é isso que a tela dele deve mostrar.
+      // Revoked viewers receive unshare and stop watching the tab.
       for (const k of s.socks.values()) {
         const tabStillExists = !k.attached || k.attached.ws !== share.id || e.share.tabs.some((tab) => tab.id === k.attached?.tab);
         if (canSee(e, k.member) && tabStillExists) {
@@ -473,8 +461,8 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
           out.push({ e: "send", sock: k.id, frame: { t: "share", share: shared(e) } });
         }
       }
-      // Caixa de quem perdeu acesso não pode continuar revelando comentários
-      // do workspace. Os comentários seguem visíveis para a nova audiência.
+      // Remove inaccessible comments from inboxes without deleting comments still visible to the new
+      // audience.
       for (const [member, box] of s.inbox) {
         if (canSee(e, member)) continue;
         const removed = box.filter((item) => item.ws === share.id);
@@ -485,8 +473,7 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
         for (const item of removed) out.push({ e: "del", key: inboxKey(member, item.id) });
         out.push(...toMember(s, member, { t: "inbox", items: keep }));
       }
-      // O dono ouve de novo quem olha cada aba: quem saiu da audiência saiu
-      // da lista.
+      // Report updated viewer lists to the owner after audience changes.
       for (const at of detachedFrom) out.push(...watchChanged(s, at));
       if (had) {
         for (const tab of e.share.tabs) out.push(...watchChanged(s, { ws: share.id, tab: tab.id }));
@@ -500,8 +487,7 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
       if (e.owner !== me) return error(sock.id, "owner");
       s.shares.delete(f.ws);
       const out: Effect[] = [{ e: "del", key: `share:${f.ws}` }, ...purgeNotes(s, f.ws)];
-      // Quem olhava fica olhando o nada: solta, para o dono que compartilhar
-      // de novo não achar espectador fantasma.
+      // Clear viewers on unshare so resharing cannot retain stale subscriptions.
       for (const k of s.socks.values()) {
         if (k.attached?.ws === f.ws) out.push(setAttached(k, null));
       }
@@ -511,8 +497,7 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
 
     case "attach": {
       const e = s.shares.get(f.ws);
-      // Fora da audiência é como se não existisse — nem o código do erro
-      // conta que existe.
+      // Hide workspace existence from unauthorized members, including error codes.
       if (!e || !canSee(e, me)) return error(sock.id, "noShare");
       if (!e.share.tabs.some((t) => t.id === f.tab)) return error(sock.id, "noTab");
       const prev = sock.attached;
@@ -566,9 +551,8 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
       if (f.tab && !entry.share.tabs.some((tab) => tab.id === f.tab)) return error(sock.id, "noTab");
       if (f.anchor && !f.tab) return error(sock.id, "bad");
       if ([...s.notes.values()].reduce((total, list) => total + list.length, 0) >= NOTES_TOTAL_MAX) return error(sock.id, "quota");
-      // Menção só a quem existe e vê o workspace, e nunca a si mesmo — o comentário
-      // já é sua. Marcar quem está fora não abre a porta: quem abre é o dono,
-      // mudando a audiência.
+      // Mentions require an existing authorized member other than the author. Mentioning someone never
+      // grants workspace access.
       const mentions = visibleMentions(s, f.ws, me, f.mentions);
       const note: Note = {
         ...(f.encrypted ? { encrypted: f.encrypted } : {}),
@@ -674,10 +658,9 @@ function text(s: State, ev: Extract<Event, { k: "text" }>): Effect[] {
   return error(sock.id, "bad");
 }
 
-/* ---------- storage → estado ---------- */
+/* storage hydration */
 
-/// O que o objeto lê ao acordar. As chaves são as mesmas que os efeitos
-/// `put`/`del` escrevem; os sockets não entram aqui, vêm da plataforma.
+/// Restore keys produced by put/delete effects. WebSockets are supplied separately by the platform.
 export function hydrate(rows: Iterable<[string, unknown]>, socks: Sock[]): State {
   const s = empty();
   for (const [key, value] of rows) {
@@ -717,8 +700,7 @@ export function hydrate(rows: Iterable<[string, unknown]>, socks: Sock[]): State
       }
     }
   }
-  // `list` devolve em ordem de chave, e o id do comentário começa pelo instante —
-  // mas ordenar aqui é barato e não depende disso.
+  // Sort comments explicitly rather than relying on timestamp-prefixed storage keys.
   for (const list of s.notes.values()) list.sort((a, b) => a.ts - b.ts);
   for (const box of s.inbox.values()) box.sort((a, b) => a.ts - b.ts);
   for (const k of socks) {
@@ -731,13 +713,11 @@ export function hydrate(rows: Iterable<[string, unknown]>, socks: Sock[]): State
       entry.share.tabs.some((tab) => tab.id === attached?.tab);
     s.socks.set(k.id, {
       ...k,
-      // Attachment também é estado persistido. Só restaurar uma audiência
-      // que ainda existe evita espectador fantasma depois de hibernar.
+      // Restore socket attachments only when their audience still exists.
       attached: allowed ? attached : null,
     });
   }
-  // Share cujo dono está conectado agora está de pé — ele vai reanunciar de
-  // qualquer jeito, mas até lá o card não pode dizer "offline" à toa.
+  // Mark shares online immediately when their owner is connected, before readvertisement.
   for (const e of s.shares.values()) e.online = online(s, e.owner);
   return s;
 }
