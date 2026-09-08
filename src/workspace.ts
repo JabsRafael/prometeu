@@ -104,7 +104,7 @@ export function init(context: Ctx) {
     // Já no painel de Mudanças, clicar de novo traz o diff para o centro. É o
     // caminho de volta depois de fechar a aba — sem ele, quem fechou só voltaria
     // clicando num arquivo da lista.
-    if (sidePane === "diff") changesUi.show("changes");
+    if (sidePane === "diff") changesUi.show();
     else setSidePane("diff");
   });
   $("tab-comments").addEventListener("click", openComments);
