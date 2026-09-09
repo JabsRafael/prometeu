@@ -4,6 +4,28 @@ O que muda no Prometeu, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.6.1] - 2026-09-09
+<!-- lang:pt-BR -->
+
+### Novidades
+
+- **controle remoto:** Permite controlar workspaces pelo celular
+
+### Correções
+
+- **avisos:** Remove sons de conclusão e comentários
+
+<!-- lang:en -->
+
+### New
+
+- **remote control:** Lets you control workspaces from mobile devices
+
+### Fixes
+
+- **alerts:** Remove completion and comment sounds
+
+<!-- lang:end -->
 ## [0.6.0] - 2026-09-08
 <!-- lang:pt-BR -->
 
