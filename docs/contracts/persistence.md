@@ -34,6 +34,7 @@ isoladas.
 | último snapshot de cotas por conta | `<root>/usage.json` | `usage.rs` |
 | transcript V1 do Codex | `<root>/chats/<tab>.jsonl` | `chat.rs` |
 | arquivos recebidos por promessa nativa | `<root>/attachments/<uuid>/<nome>` | `file_drop.rs`; diretório privado `0700`, arquivo `0600` |
+| imagem colada da área de transferência | `<root>/attachments/<uuid>/pasted.png` | `file_drop.rs`; mesma pasta e permissões, TIFF convertido para PNG |
 | hub de plugins | `<root>/plugins.json` | `plugins.rs` |
 | home/marketplace Codex derivado | `<root>/codex-workspaces/<workspace-hash>/[<conta>/]` | `plugins.rs`; reconstruível |
 | manifesto de importação | `<root>/imports/prometheus-v1.json` | `migration.rs` |

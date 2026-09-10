@@ -183,7 +183,10 @@ Cobertura: `src/alert.test.ts` e `e2e/alerts.spec.ts`.
 
 Arraste arquivos do Finder ou a miniatura de uma captura de tela para a
 conversa ou para um quadro da mesa, ou use o botão `+` da caixa de mensagem.
-Os arquivos entram como anexos do rascunho,
+Cole com Ctrl-V na caixa de mensagem ou no prompt do lançador para anexar a
+imagem da área de transferência ou os arquivos copiados no Finder; a imagem é
+salva como PNG na mesma pasta privada dos arquivos recebidos. Texto copiado
+continua colando normalmente. Os arquivos entram como anexos do rascunho,
 sem apagar o texto; caminhos repetidos não criam anexos duplicados. No terminal,
 soltar arquivos escreve os caminhos escapados para o shell.
 

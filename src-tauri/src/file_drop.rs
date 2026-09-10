@@ -84,11 +84,26 @@ pub fn on_webview_event(webview: &Webview, event: &WebviewEvent) {
     let _ = window.emit("file-drag", drag);
 }
 
+/// Clipboard files and images carry no path inside the webview. Materialize them like promised
+/// drops so every attachment path reaching an agent comes from this Mac's private directory.
+/// Tauri runs synchronous commands on the main thread, which AppKit requires for pasteboard reads;
+/// only the current clipboard item is written, so the pause stays imperceptible.
+#[tauri::command]
+pub fn paste_files() -> Result<Vec<String>, String> {
+    #[cfg(target_os = "macos")]
+    return macos::paste();
+    #[cfg(not(target_os = "macos"))]
+    Ok(Vec::new())
+}
+
 #[cfg(target_os = "macos")]
 mod macos {
     use super::*;
     use objc2::{rc::Retained, ClassType};
-    use objc2_app_kit::{NSFilePromiseReceiver, NSPasteboard, NSPasteboardNameDrag};
+    use objc2_app_kit::{
+        NSBitmapImageFileType, NSBitmapImageRep, NSFilePromiseReceiver, NSPasteboard,
+        NSPasteboardNameDrag, NSPasteboardTypePNG, NSPasteboardTypeTIFF,
+    };
     use objc2_foundation::{NSArray, NSDictionary, NSError, NSOperationQueue, NSString, NSURL};
     use std::{
         cell::RefCell,
@@ -142,6 +157,54 @@ mod macos {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
             .map_err(|e| e.to_string())?;
         Ok(path.to_string_lossy().into_owned())
+    }
+
+    /// Files copied in Finder already exist; keep their own paths instead of duplicating them.
+    fn copied_files(pasteboard: &NSPasteboard) -> Vec<String> {
+        let classes = NSArray::from_slice(&[NSURL::class()]);
+        unsafe { pasteboard.readObjectsForClasses_options(&classes, None) }
+            .map(|objects| {
+                objects
+                    .into_iter()
+                    .filter_map(|object| {
+                        let url: Retained<NSURL> = object.downcast().ok()?;
+                        url.path().filter(|_| url.isFileURL())
+                    })
+                    .map(|path| path.to_string())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Screenshots and image editors often publish TIFF only. Agents read PNG, so convert once here
+    /// rather than handing a format the CLI rejects.
+    fn copied_png(pasteboard: &NSPasteboard) -> Option<Vec<u8>> {
+        if let Some(png) = pasteboard.dataForType(unsafe { NSPasteboardTypePNG }) {
+            return Some(png.to_vec());
+        }
+        let tiff = pasteboard.dataForType(unsafe { NSPasteboardTypeTIFF })?;
+        let rep = NSBitmapImageRep::imageRepWithData(&tiff)?;
+        let png = unsafe {
+            rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())
+        }?;
+        Some(png.to_vec())
+    }
+
+    pub fn paste() -> Result<Vec<String>, String> {
+        let pasteboard = NSPasteboard::generalPasteboard();
+        let files = copied_files(&pasteboard);
+        if !files.is_empty() {
+            return Ok(files);
+        }
+        let Some(png) = copied_png(&pasteboard) else {
+            return Ok(Vec::new());
+        };
+        let directory = crate::paths::root()
+            .join("attachments")
+            .join(uuid::Uuid::new_v4().to_string());
+        let file = directory.join("pasted.png");
+        crate::paths::write_private_bytes(&file, &png)?;
+        Ok(vec![file.to_string_lossy().into_owned()])
     }
 
     pub fn receive(window: &Window, position: PhysicalPosition<f64>) -> bool {
