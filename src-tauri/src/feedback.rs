@@ -1,6 +1,39 @@
 //! Capture only after an explicit click. macOS lets the person choose a window or cancel.
-use crate::{i18n, paths};
+//! Delivery goes through the Cloud with the account credential, which never leaves this process.
+use crate::{cloud, i18n, paths};
 use base64::{engine::general_purpose::STANDARD, Engine};
+use reqwest::Method;
+use serde_json::Value;
+use std::time::Duration;
+
+/// The Cloud forwards text and image to GitHub inside the request, so allow more than the usual
+/// account call. Without an account the person is asked to connect one; nothing is sent.
+#[tauri::command(async)]
+pub async fn feedback_send(report: Value) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some((code, value)) = cloud::api(
+            Method::POST,
+            "/api/feedback",
+            Some(report),
+            Duration::from_secs(60),
+        )?
+        else {
+            return Err(i18n::t("feedback.needAccount"));
+        };
+        match code {
+            200 | 201 => Ok(()),
+            401 => Err(i18n::t("feedback.needAccount")),
+            429 => Err(i18n::t("feedback.rateLimit")),
+            409 if value["error"] == "uncertain" => Err(i18n::ta(
+                "feedback.uncertain",
+                &[("id", value["id"].as_str().unwrap_or_default().into())],
+            )),
+            _ => Err(i18n::t("feedback.sendError")),
+        }
+    })
+    .await
+    .map_err(|_| i18n::t("feedback.sendError"))?
+}
 
 #[tauri::command]
 pub async fn feedback_capture() -> Result<Option<String>, String> {

@@ -6,10 +6,11 @@ Status: implementado no cliente e no projeto separado `prometeu-cloud`; publica�
 
 A conta pertence ao Prometeu, não ao Claude ou Codex. O SaaS
 possui cadastro, autenticação, perfil e sessões de login. Nenhum workspace, transcript ou segredo de provider é sincronizado com o SaaS.
-O [feedback privado](feedback.md) é um fluxo independente e opcional: envia somente
-o texto digitado e a imagem escolhida, com aviso de tratamento privado pela equipe Prometeu.
+O [feedback privado](feedback.md) envia somente o texto digitado e a imagem
+escolhida, com aviso de tratamento privado pela equipe Prometeu. Enviar exige
+conta conectada ([ADR 0034](../decisions/0034-feedback-requires-account.md)); sem
+conta, o painel oferece a mesma autorização de dispositivo da barra lateral.
 O desktop funciona sem conta e não consulta as APIs da conta enquanto desconectado.
-Enviar feedback é uma ação explícita independente do login.
 
 O topo da barra lateral mantém o logo e o nome Prometeu. Quando desconectado,
 oferece “Criar conta” à direita, na mesma linha. Conectado, mostra o nome da

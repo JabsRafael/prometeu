@@ -60,6 +60,7 @@ export type Commands = {
   create_workspace: { args: { draft: Draft; cols: number; rows: number }; result: T.Workspace };
   dock_state: { args: { id: string }; result: T.DockState[] };
   feedback_capture: { args: undefined; result: string | null };
+  feedback_send: { args: { report: Record<string, unknown> }; result: void };
   file_stamp: { args: { id: string; rel: string }; result: string };
   find_paths: { args: { id: string; query: string; recent: string[] }; result: PathEntry[] };
   finish_workspace: { args: { id: string }; result: void };

@@ -9,6 +9,10 @@ export function init() {
   const widget = mountFeedback({
     source: "desktop", locale: current(), version, error: fromBack,
     origin: () => cloud.current().origin || "https://app.prometeu.co",
+    send: report => invoke("feedback_send", { report }),
+    // Checked when the panel opens, so connecting an account and opening it again shows the form.
+    blocked: () => cloud.current().user ? undefined
+      : { message: t("feedback.needAccount"), label: t("feedback.connect"), run: cloud.connect },
     capture: async () => {
       const base64 = await invoke("feedback_capture");
       if (!base64) return;

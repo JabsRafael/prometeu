@@ -1573,6 +1573,20 @@ const mockCommands: IpcHandlers = {
   feedback_capture() {
     return "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aHlcAAAAASUVORK5CYII=";
   },
+  // The browser mock records the report; no issue is created and nothing leaves the machine.
+  // mock:feedbackFailures makes that many attempts fail, as a recoverable delivery error does.
+  feedback_send(args) {
+    if (!mockCloud().user) throw 'i18n:{"code":"feedback.needAccount"}';
+    const attempts = JSON.parse(localStorage.getItem("mock:feedbackAttempts") ?? "[]");
+    attempts.push(args.report);
+    localStorage.setItem("mock:feedbackAttempts", JSON.stringify(attempts));
+    const failures = Number(localStorage.getItem("mock:feedbackFailures") ?? 0);
+    if (failures > 0) {
+      localStorage.setItem("mock:feedbackFailures", String(failures - 1));
+      throw 'i18n:{"code":"feedback.sendError"}';
+    }
+    return;
+  },
   // External links open a separate browser tab.
   open_external(args) {
     window.open(String(args.url), "_blank", "noreferrer");

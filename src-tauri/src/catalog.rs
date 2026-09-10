@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
 static SYNC: Mutex<()> = Mutex::new(());
@@ -355,7 +356,9 @@ fn parse(value: &Value) -> Result<(Option<u64>, Doc), String> {
 }
 
 fn pull_locked(app: &AppHandle) -> Result<(), String> {
-    let Some((code, value)) = cloud::api(Method::GET, "/api/catalog", None)? else {
+    let Some((code, value)) =
+        cloud::api(Method::GET, "/api/catalog", None, Duration::from_secs(12))?
+    else {
         return Ok(());
     };
     if code != 200 {
@@ -381,8 +384,13 @@ pub fn pull(app: &AppHandle) -> Result<(), String> {
 fn write(app: &AppHandle, mut cache: Cache, doc: Doc) -> Result<(), String> {
     validate(&doc)?;
     let body = json!({ "catalog": doc, "revision": cache.revision });
-    let (code, value) = cloud::api(Method::PUT, "/api/catalog", Some(body))?
-        .ok_or_else(|| i18n::t("err.catalog.disconnected"))?;
+    let (code, value) = cloud::api(
+        Method::PUT,
+        "/api/catalog",
+        Some(body),
+        Duration::from_secs(12),
+    )?
+    .ok_or_else(|| i18n::t("err.catalog.disconnected"))?;
     if code == 409 {
         // A stale revision must not overwrite edits from another desktop or browser.
         pull_locked(app)?;

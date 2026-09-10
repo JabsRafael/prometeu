@@ -18,7 +18,9 @@ export const FEEDBACK_PT = {
   "feedback.captureError": "Não foi possível capturar a tela. Você pode anexar uma imagem.",
   "feedback.sendError": "Não foi possível enviar. Seu feedback continua aqui; tente novamente.",
   "feedback.rateLimit": "Muitos envios. Aguarde uma hora antes de tentar novamente.",
-  "feedback.uncertain": "Não foi possível confirmar se a issue foi criada. Não reenvie. Referência:",
+  "feedback.uncertain": "Não foi possível confirmar se a issue foi criada. Não reenvie. Referência: {id}",
+  "feedback.needAccount": "Conecte sua conta Prometeu para enviar feedback.",
+  "feedback.connect": "Conectar conta",
 } as const;
 export const FEEDBACK_EN: Record<keyof typeof FEEDBACK_PT, string> = {
   "feedback.trigger": "Feedback",
@@ -40,5 +42,7 @@ export const FEEDBACK_EN: Record<keyof typeof FEEDBACK_PT, string> = {
   "feedback.captureError": "Could not capture the screen. You can attach an image instead.",
   "feedback.sendError": "Could not send. Your feedback is still here; please try again.",
   "feedback.rateLimit": "Too many submissions. Wait an hour before trying again.",
-  "feedback.uncertain": "Could not confirm whether the issue was created. Do not resend. Reference:",
+  "feedback.uncertain": "Could not confirm whether the issue was created. Do not resend. Reference: {id}",
+  "feedback.needAccount": "Connect your Prometeu account to send feedback.",
+  "feedback.connect": "Connect account",
 };
