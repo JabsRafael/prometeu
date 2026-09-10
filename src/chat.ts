@@ -33,6 +33,7 @@ import * as paths from "./paths";
 import * as team from "./team";
 import { pieces, summary, Timeline, touched, type Ask, type Block, type Command, type Item, type Piece, type ToolBlock } from "./timeline";
 import type { Choice, ProviderId, Status } from "./types";
+import { button } from "./ui";
 import { h, template } from "./util";
 
 /// Render Timeline updates and composer interaction from canonical conversation events. Send prompts, responses, and interrupts through ConversationCommandV1. Remote conversations reuse this view with relay transport. Side-panel comments anchor to stable Piece.key values without entering the transcript.
@@ -948,43 +949,58 @@ export class ChatView {
       <!-- Keep attachments visible above the prompt, matching the launcher. -->
       <div class="cfiles" hidden></div>
       <textarea rows="1" spellcheck="true"></textarea>
-      <div class="crow">
-        <!-- The file picker adds local files as prompt references. -->
-        <button class="ico sm addfile" hidden></button>
+      <div class="crow composer-meta">
         <!-- Model and effort changes restart the process on the next prompt while preserving the conversation. -->
         <span class="with" hidden>
           <button class="ghost mdl"></button>
           <button class="ghost effort"><span class="bars"><i></i><i></i><i></i><i></i><i></i></span><span class="el"></span></button>
         </span>
-        <!-- Tool selection resumes the same transcript with updated MCP and plugin settings. -->
-        <button class="ghost sm actionsbtn"></button>
         <button class="ghost sm taskwatch" hidden></button>
-        <button class="ghost sm mcpbtn" hidden><span></span></button>
-        <button class="ghost sm plugbtn" hidden><span></span></button>
-        <button class="ghost sm remotebtn sw" hidden><span></span><i class="knob"></i></button>
-        <button class="outline md quotesel" hidden></button>
-        <span class="hint"></span>
-        <span class="spacer"></span>
-        <button class="ghost md stop" hidden></button>
-        <button class="send"></button>
-      </div>`;
+        <span class="hint" role="status"></span>
+      </div>
+      <div class="crow composer-toolbar">
+        <div class="composer-tools">
+          <!-- Tool selection resumes the same transcript with updated MCP and plugin settings. -->
+          <button class="ico sm addfile" hidden></button>
+          <button class="ghost sm actionsbtn"></button>
+          <button class="ghost sm mcpbtn" hidden><span></span></button>
+          <button class="ghost sm plugbtn" hidden><span></span></button>
+        </div>
+        <div class="composer-controls"></div>
+      </div>
+      <button class="outline md quotesel" hidden></button>`;
     this.area = this.box.querySelector("textarea")!;
+    this.area.title = t("chat.input.hint");
     const q = (sel: string) => this.box.querySelector<HTMLElement>(sel)!;
+    const remote = button(t("remoteControl.label"), () => {}, "ghost");
+    remote.classList.add("remotebtn");
+    remote.hidden = true;
+    remote.innerHTML = `${icon("globe", 14)}<span></span>`;
+    remote.setAttribute("aria-label", t("remoteControl.label"));
+    const stop = button(t("chat.stop"), () => this.interrupt(), "ghost");
+    stop.classList.add("stop");
+    stop.hidden = true;
+    stop.innerHTML = icon("square", 14);
+    stop.setAttribute("aria-label", t("chat.stop"));
+    stop.title = t("chat.stop.title");
+    const send = button(t("chat.send"), () => this.send(), "pri");
+    send.classList.add("send", "round");
+    send.setAttribute("aria-label", t("chat.send"));
+    q(".composer-controls").append(remote, stop, send);
     q(".addfile").innerHTML = icon("plus", 14);
     q(".addfile").title = t("chat.addFile");
+    q(".addfile").setAttribute("aria-label", t("chat.addFile"));
     q(".quotesel").innerHTML = `${icon("message-square", 12)}<span></span>`;
     q(".quotesel span").textContent = t("notes.quoteSelection");
     q(".quotesel").title = t("notes.quoteSelection.title");
-    q(".stop").innerHTML = `${icon("square", 12)}<span></span>`;
-    q(".stop span").textContent = t("chat.stop");
-
-    q(".actionsbtn").textContent = t("actions.title");
+    q(".actionsbtn").innerHTML = `${icon("play", 13)}<span></span>`;
+    q(".actionsbtn span").textContent = t("actions.title");
+    q(".actionsbtn").title = t("actions.title");
+    q(".actionsbtn").setAttribute("aria-label", t("actions.title"));
     q(".actionsbtn").addEventListener("click", () => this.actionMenu());
     this.cleanup.push(actions.onChange(() => this.paintComposer()));
     q(".addfile").addEventListener("click", () => void this.addFile());
     q(".quotesel").addEventListener("click", () => this.quoteSelection());
-    q(".stop").addEventListener("click", () => this.interrupt());
-    q(".send").addEventListener("click", () => this.send());
 
     this.area.addEventListener("input", () => {
       this.keep();
@@ -1206,15 +1222,16 @@ export class ChatView {
           : info.status === "desligada"
             ? t("chat.placeholder.off")
             : t("chat.placeholder");
+    this.area.setAttribute("aria-label", this.area.placeholder);
     const receiving = !!this.key && drafts.pending.has(this.key);
-    q(".hint").textContent = receiving ? t("chat.drop.receiving") : this.tl.compacting ? t("chat.compacting") : this.tl.busy ? t("chat.busy") : "";
+    const hint = receiving ? t("chat.drop.receiving") : this.tl.compacting ? t("chat.compacting") : this.tl.busy ? t("chat.busy") : "";
+    if (q(".hint").textContent !== hint) q(".hint").textContent = hint;
     this.paintWith(info);
     this.paintMcp(info);
     this.paintPlugins(info);
     this.paintRemoteControl(info);
     const send = q(".send");
     (send as HTMLButtonElement).disabled = receiving;
-    send.className = "send pri round";
     send.title = t("chat.send");
     send.innerHTML = icon("arrow-up", 16);
     this.paintQuoteButton();
@@ -1257,6 +1274,7 @@ export class ChatView {
     const model = el.querySelector<HTMLButtonElement>(".mdl")!;
     model.innerHTML = `${icon("sparkles", 13)}<span></span>`;
     model.querySelector("span")!.textContent = label;
+    model.title = [label, el.title].filter(Boolean).join("\n");
     model.disabled = fixed || working;
     model.onclick = () => this.pickModel(model, info);
 
@@ -1324,7 +1342,8 @@ export class ChatView {
     btn.innerHTML = `${icon("plug", 13)}<span></span>`;
     btn.querySelector("span")!.textContent = mcp.label(info.mcp);
     btn.classList.toggle("on", !!info.mcp?.length);
-    btn.title = t("mcp.title");
+    btn.title = `${t("mcp.title")}: ${mcp.label(info.mcp)}`;
+    btn.setAttribute("aria-label", btn.title);
     btn.onclick = () => {
       const at = btn.getBoundingClientRect();
       const workspace = info.workspace!;
@@ -1358,7 +1377,8 @@ export class ChatView {
     btn.innerHTML = `${icon("puzzle", 13)}<span></span>`;
     btn.querySelector("span")!.textContent = plugins.label(info.plugins);
     btn.classList.toggle("on", !!info.plugins?.length);
-    btn.title = t("plugin.title");
+    btn.title = `${t("plugin.title")}: ${plugins.label(info.plugins)}`;
+    btn.setAttribute("aria-label", btn.title);
     btn.onclick = () => {
       const at = btn.getBoundingClientRect();
       const workspace = info.workspace!;
@@ -1383,7 +1403,7 @@ export class ChatView {
     btn.hidden = !!info.remote || !info.workspace || !team.status().config?.cloud;
     if (btn.hidden) return;
     btn.querySelector("span")!.textContent = t("remoteControl.label");
-    btn.title = t("remoteControl.title");
+    btn.title = `${t("remoteControl.label")} — ${t(info.remoteControl ? "remoteControl.on" : "remoteControl.off")}\n${t("remoteControl.title")}`;
     btn.classList.toggle("on", info.remoteControl);
     btn.setAttribute("aria-pressed", String(info.remoteControl));
     btn.onclick = () => {

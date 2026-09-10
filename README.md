@@ -494,8 +494,11 @@ tela inicial para usar como app. Remover o dispositivo fica em Configurações �
 Dispositivos no Cloud.
 
 No rodapé de uma conversa local, **Controle remoto** libera ou revoga somente
-seus dispositivos. Essa permissão não compartilha o workspace com outras
-pessoas e não muda a audiência escolhida em **Compartilhar**.
+seus dispositivos. O botão fica iluminado enquanto a permissão está ativa.
+Modelo, esforço e atividade ficam numa linha própria; ferramentas e botões de
+envio ficam abaixo. Em conversas estreitas, ferramentas e controle remoto usam
+ícones com rótulos ao passar o mouse. Essa permissão não compartilha o workspace
+com outras pessoas e não muda a audiência escolhida em **Compartilhar**.
 
 ### O relay
 

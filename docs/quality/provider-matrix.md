@@ -36,6 +36,7 @@ para virar capacidade contratual.
 | ordered prompt, transcript, and live delivery | shared conversation mutex | shared conversation mutex | concurrent delivery, fast-response, and failed-write regressions in `chat.rs` |
 | escolher modelo | nativo por flag | adaptado no `thread/start`/`thread/resume` | `session.rs`, `codex.rs` |
 | níveis de esforço | catálogo + fallback | catálogo do Codex | `agents.rs`, `launcher.ts` |
+| rodapé da conversa adaptado à largura | modelo e atividade separados das ferramentas; controle remoto iluminado quando ativo | mesma UI | `e2e/composer.spec.ts`, Chromium/WebKit, português/inglês e quadros estreitos |
 | plan mode inicial | nativo por permission mode | indisponível | `session.rs`, `launcher.ts` |
 | texto em streaming | adaptado para V1 | adaptado para V1 | `conversation.test.ts`, `timeline.test.ts`, testes de `codex.rs` |
 | pensamento | adaptado para V1 | adaptado para V1 | `timeline.test.ts`, testes de `codex.rs` |
