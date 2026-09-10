@@ -1,4 +1,4 @@
-# ADR 0034 — Feedback exige conta Prometeu
+# ADR 0035 — Feedback exige conta Prometeu
 
 Data: 2026-09-10
 Status: aceito. Substitui o [ADR 0033](0033-github-feedback-attachments.md).

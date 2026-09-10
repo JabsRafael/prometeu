@@ -1212,7 +1212,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "mobile.empty": "Nothing is shared with you right now. Share a workspace on the Mac.",
   "mobile.back": "Back",
   "mobile.send": "Send",
-  "mobile.placeholder": "Talk to the agent on {name}'s Mac",
+  "mobile.placeholder": "Write to the agent…",
   "mobile.ownerOffline": "The owner is offline; the conversation cannot receive input.",
   "mobile.comments": "Comments",
   "mobile.comment": "Comment",

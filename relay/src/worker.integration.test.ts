@@ -275,4 +275,44 @@ describe("organization sharing through Cloud authorization", () => {
     binary.socket.send(encodeLive("tab1", [{ seq: 1, bytes: new TextEncoder().encode("Unencrypted output") }]));
     await expect.poll(() => binary.socket.readyState).toBe(WebSocket.CLOSED);
   });
+
+  it("renews an identified socket without losing its watcher or broadcasting presence, then expires the renewed lease", async () => {
+    const owner = await connect(issue("k", 0));
+    const guest = await connect(issue("l", 1, 2_000));
+    const originalDeadline = Date.now() + 2_000;
+    owner.socket.send(JSON.stringify({ t: "share", share: await share(owner.identity) }));
+    await expect.poll(() => guest.frames.some(frame => frame.t === "share")).toBe(true);
+    guest.socket.send(JSON.stringify({ t: "attach", ws: "workspace1", tab: "tab1" }));
+    await expect.poll(() => owner.frames.some(frame => frame.t === "watch" && frame.members.includes(guest.member))).toBe(true);
+    const presenceCount = owner.frames.filter(frame => frame.t === "presence").length;
+    const watchCount = owner.frames.filter(frame => frame.t === "watch").length;
+    guest.socket.send(JSON.stringify({ t: "renew", ticket: issue("m", 1, 4_000) }));
+    await expect.poll(() => guest.frames.filter(frame => frame.t === "lease").length).toBe(2);
+    await expect.poll(() => Date.now() >= originalDeadline, { timeout: 4_000 }).toBe(true);
+    expect(guest.socket.readyState).toBe(WebSocket.OPEN);
+    expect(guest.frames.filter(frame => frame.t === "welcome")).toHaveLength(1);
+    expect(owner.frames.filter(frame => frame.t === "presence")).toHaveLength(presenceCount);
+    expect(owner.frames.filter(frame => frame.t === "watch")).toHaveLength(watchCount);
+    const stream = await encrypted(owner.identity, [guest.member], "After renewal");
+    owner.socket.send(encodeSnapshot("tab1", guest.member, 0, new TextEncoder().encode(JSON.stringify(stream))));
+    await expect.poll(() => guest.binaries.length).toBe(1);
+    await expect.poll(() => guest.socket.readyState, { timeout: 5_000 }).toBe(WebSocket.CLOSED);
+    owner.socket.close();
+    await expect.poll(() => owner.socket.readyState).toBe(WebSocket.CLOSED);
+  });
+
+  it("rejects renewal before identity, with another member or organization, and with a spent or revoked ticket", async () => {
+    for (const kind of ["unidentified", "other-member", "other-organization", "spent", "revoked"] as const) {
+      const guest = await connect(issue("n", 1), "spoofed", kind !== "unidentified");
+      const ticket = issue("o", kind === "other-member" ? 0 : 1);
+      if (kind === "other-organization") tickets.get(ticket)!.organization = "organization2";
+      if (kind === "revoked") tickets.delete(ticket);
+      guest.socket.send(JSON.stringify({ t: "renew", ticket }));
+      if (kind === "spent") {
+        await expect.poll(() => guest.frames.filter(frame => frame.t === "lease").length).toBe(2);
+        guest.socket.send(JSON.stringify({ t: "renew", ticket }));
+      }
+      await expect.poll(() => guest.socket.readyState).toBe(WebSocket.CLOSED);
+    }
+  });
 });

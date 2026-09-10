@@ -1570,6 +1570,10 @@ const mockCommands: IpcHandlers = {
   scripts_prompt() {
     return "Descubra como preparar e como rodar este projeto, e escreva isso em `.prometeu/settings.toml`.";
   },
+  /// The browser has no pasteboard; return a plausible attachment so the paste flow stays testable.
+  paste_files() {
+    return ["/Users/gustavo/.prometeu/attachments/pasted.png"];
+  },
   feedback_capture() {
     return "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aHlcAAAAASUVORK5CYII=";
   },
@@ -1753,7 +1757,14 @@ const mockCommands: IpcHandlers = {
     emit("board", board);
     return project;
   },
-  close_tab() {},
+  // Mirrors session.rs: the closed tab leaves the board and the first survivor becomes active.
+  close_tab(args) {
+    const workspace = board.workspaces.find((x) => x.id === args.workspace);
+    if (!workspace) return;
+    workspace.tabs = workspace.tabs.filter((t) => t.id !== args.tab);
+    if (workspace.active === args.tab) workspace.active = workspace.tabs[0]?.id ?? null;
+    emit("board", board);
+  },
   pty_resize() {},
   remove_workspace() {},
   reveal() {},

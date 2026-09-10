@@ -8,7 +8,7 @@ A conta pertence ao Prometeu, não ao Claude ou Codex. O SaaS
 possui cadastro, autenticação, perfil e sessões de login. Nenhum workspace, transcript ou segredo de provider é sincronizado com o SaaS.
 O [feedback privado](feedback.md) envia somente o texto digitado e a imagem
 escolhida, com aviso de tratamento privado pela equipe Prometeu. Enviar exige
-conta conectada ([ADR 0034](../decisions/0034-feedback-requires-account.md)); sem
+conta conectada ([ADR 0035](../decisions/0035-feedback-requires-account.md)); sem
 conta, o painel oferece a mesma autorização de dispositivo da barra lateral.
 O desktop funciona sem conta e não consulta as APIs da conta enquanto desconectado.
 

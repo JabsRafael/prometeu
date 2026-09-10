@@ -184,9 +184,13 @@ export async function open(ws: Workspace, tab?: string) {
   ctx.redraw();
 }
 
-/// Attach newly created tabs when preparation completes. Current-session state changes before awaiting the snapshot so consecutive redraws do not duplicate attachment.
+/// Attach newly created tabs when preparation completes, and follow the backend when the attached
+/// tab leaves the board so closing a conversation selects the remaining one without a click.
+/// Current-session state changes before awaiting the snapshot so consecutive redraws do not duplicate attachment.
 function catchUp(ws: Workspace) {
-  if (ws.remote || ws.cleaned || pending(ws) || session.currentSession()) return;
+  if (ws.remote || ws.cleaned || pending(ws)) return;
+  const attached = session.currentSession();
+  if (attached && ws.tabs.some((t) => t.id === attached)) return;
   const first = ws.tabs.find((t) => t.id === ws.active) ?? ws.tabs[0];
   if (first) {
     const epoch = navigation;

@@ -76,8 +76,9 @@ como índice curto para agentes e `README.md` apresenta o produto.
 - [ADR 0031](decisions/0031-public-feedback.md): feedback público pelo Cloud e GitHub Issues — Substituído pelo 0032.
 
 - [ADR 0032](decisions/0032-private-feedback.md): feedback privado no repositório do Cloud — Substituído pelo 0033.
-- [ADR 0033](decisions/0033-github-feedback-attachments.md): texto e imagens de feedback no GitHub — Substituído pelo 0034.
-- [ADR 0034](decisions/0034-feedback-requires-account.md): feedback exige conta Prometeu — Aceito.
+- [ADR 0033](decisions/0033-github-feedback-attachments.md): texto e imagens de feedback no GitHub — Substituído pelo 0035.
+- [ADR 0034](decisions/0034-mobile-pairing-continuity.md): renovação do relay sem desconexão e continuidade do pareamento móvel — Aceito.
+- [ADR 0035](decisions/0035-feedback-requires-account.md): feedback exige conta Prometeu — Aceito.
 
 ## Qualidade e operação
 

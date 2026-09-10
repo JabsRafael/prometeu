@@ -2,7 +2,7 @@
 
 Status: implementado no desktop, no Cloud e no bundle web. A ativação em produção
 depende de configurar a credencial GitHub no Cloud.
-Decisões: [ADR 0034](../decisions/0034-feedback-requires-account.md) e
+Decisões: [ADR 0035](../decisions/0035-feedback-requires-account.md) e
 [ADR 0033](../decisions/0033-github-feedback-attachments.md).
 
 O widget oferece Problema, Ideia e Outro, descrição, uma imagem opcional e

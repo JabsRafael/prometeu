@@ -170,6 +170,7 @@ fn main() {
             browser::open_external,
             feedback::feedback_capture,
             feedback::feedback_send,
+            file_drop::paste_files,
             session::pr_prompt,
             github::pr_open,
             github::refresh_prs,

@@ -20,6 +20,7 @@ import * as mcp from "./mcp";
 import * as plugins from "./plugins";
 import * as menu from "./menu";
 import { invoke } from "./ipc";
+import { pasteFiles } from "./paste";
 import { template } from "./util";
 import { branchTaken, type Board, type Issue, type IssueRef, type ProviderId, type Workspace } from "./types";
 
@@ -638,6 +639,10 @@ export function openLauncher(board: Board, opts: Open) {
     for (const path of paths) if (path && !draft.inject.includes(path)) draft.inject.push(path);
     drawInject();
   };
+  // Pasted screenshots and copied files become attachments, like a drop on the launcher.
+  prompt.addEventListener("paste", (e) => {
+    if (capabilitiesOf(draft.agent).attachments) pasteFiles(e, addFiles, (error) => console.warn("paste", error));
+  });
   $("d-add").addEventListener("click", async () => {
     const picked = await open({ multiple: true, title: t("launcher.attach.dialog") });
     addFiles(Array.isArray(picked) ? picked : picked ? [picked] : []);
