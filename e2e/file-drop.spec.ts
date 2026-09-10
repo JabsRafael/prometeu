@@ -23,6 +23,17 @@ async function promise(page: Page, type: "pending" | "received", id: string, pos
   }, { type, id, position, paths, error });
 }
 
+async function paste(page: Page, selector: string, files: boolean) {
+  await page.evaluate(({ selector, files }) => {
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    // WebKit rejects a constructed ClipboardEvent with a DataTransfer, so describe the clipboard here.
+    Object.defineProperty(event, "clipboardData", {
+      value: { files: files ? [new File([new Uint8Array([1])], "clipboard.png", { type: "image/png" })] : [] },
+    });
+    document.querySelector<HTMLTextAreaElement>(selector)!.dispatchEvent(event);
+  }, { selector, files });
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await expect(page.locator('#tiles .tile[data-tab="t1"] .composer textarea')).toBeVisible();
@@ -216,4 +227,21 @@ test("arraste de arquivo prometido mantém destinos independentes e permite repe
   await promise(page, "received", "retry", undefined, ["/tmp/duplicada.png"]);
   await expect(first.locator(".cfiles .injchip")).toHaveCount(1);
   await expect(first.locator(".cfiles .injchip")).toContainText("Captura de Tela.png");
+});
+
+test("colar imagem anexa na conversa e no lançador, sem tocar em texto colado", async ({ page }) => {
+  await page.locator('#tiles .tile[data-tab="t1"] .topen').click();
+  const composer = page.locator("#chatwrap .composer textarea");
+  await composer.fill("Veja isto");
+  await paste(page, "#chatwrap .composer textarea", false);
+  await expect(page.locator("#chatwrap .cfiles .injchip")).toHaveCount(0);
+  await paste(page, "#chatwrap .composer textarea", true);
+  await expect(page.locator("#chatwrap .cfiles .injchip")).toContainText("pasted.png");
+  await expect(composer).toHaveValue("Veja isto");
+
+  await page.locator("#railbody").getByRole("button", { name: "Criar", exact: true }).click();
+  await page.locator("#d-prompt").fill("Analise esta captura");
+  await paste(page, "#d-prompt", true);
+  await expect(page.locator("#d-inj .injchip")).toContainText("pasted.png");
+  await expect(page.locator("#d-prompt")).toHaveValue("Analise esta captura");
 });

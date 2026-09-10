@@ -30,6 +30,7 @@ import * as plugins from "./plugins";
 import * as commands from "./commands";
 import * as notes from "./notes";
 import * as paths from "./paths";
+import { pasteFiles } from "./paste";
 import * as team from "./team";
 import { pieces, summary, Timeline, touched, type Ask, type Block, type Command, type Item, type Piece, type ToolBlock } from "./timeline";
 import type { Choice, ProviderId, Status } from "./types";
@@ -1019,6 +1020,11 @@ export class ChatView {
         e.preventDefault();
         this.interrupt();
       }
+    });
+    // Pasted screenshots and copied files become attachments, like a drop on this conversation.
+    this.area.addEventListener("paste", (e) => {
+      const target = this.fileDropTarget();
+      if (target) pasteFiles(e, target.put, (error) => this.ctx.say(fromBack(error), true));
     });
   }
 

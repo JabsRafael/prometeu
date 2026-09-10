@@ -169,6 +169,7 @@ fn main() {
             browser::browser_close,
             browser::open_external,
             feedback::feedback_capture,
+            file_drop::paste_files,
             session::pr_prompt,
             github::pr_open,
             github::refresh_prs,

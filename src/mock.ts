@@ -1570,6 +1570,10 @@ const mockCommands: IpcHandlers = {
   scripts_prompt() {
     return "Descubra como preparar e como rodar este projeto, e escreva isso em `.prometeu/settings.toml`.";
   },
+  /// The browser has no pasteboard; return a plausible attachment so the paste flow stays testable.
+  paste_files() {
+    return ["/Users/gustavo/.prometeu/attachments/pasted.png"];
+  },
   feedback_capture() {
     return "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aHlcAAAAASUVORK5CYII=";
   },

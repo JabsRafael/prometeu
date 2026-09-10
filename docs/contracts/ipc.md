@@ -86,6 +86,14 @@ atravessa IPC para autenticar o WebSocket.
 | `browser:url` | `browser.rs` | `[workspace, url]` |
 | `file-drag` | `file_drop.rs`, webview principal | `{ type, paths, position?, id?, error? }` |
 
+`paste_files` completa esse caminho para a área de transferência: sem
+argumentos, lê a pasteboard geral do macOS e devolve caminhos. Arquivos
+copiados no Finder mantêm o caminho original; uma imagem é gravada como PNG em
+`<root>/attachments/<uuid>/pasted.png`, convertendo TIFF quando essa é a única
+representação disponível. Uma área de transferência sem arquivo nem imagem
+devolve lista vazia, e o comando é síncrono porque a leitura da pasteboard
+exige a thread principal do AppKit. Fora do macOS, devolve lista vazia.
+
 `file-drag` adapta o arraste nativo sem alterar os eventos internos do Tauri.
 O registro usa `on_webview_event`, filtrando a webview `main`: com a feature
 `unstable`, o runtime cria até a webview principal como filha da janela e
