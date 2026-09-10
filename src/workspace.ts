@@ -135,6 +135,7 @@ export function init(context: Ctx) {
 /* Workspace entry and exit. */
 
 export async function open(ws: Workspace, tab?: string) {
+  proj = null;
   if (tab && openWs === ws.id) return selectTab(ws.id, tab);
   const epoch = ++navigation;
   // Direct workspace switching bypasses leave; hide the previous native webview here.

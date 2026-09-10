@@ -178,6 +178,57 @@ test("clicar no projeto abre os arquivos do clone, sem workspace", async ({ page
   await expect(page.locator("#railbody .navitem.sub", { hasText: "Tela igual ao Conductor" })).toHaveCount(0);
 });
 
+test("a barra lateral preserva conversa e terminal ao sair de um arquivo do projeto", async ({ page }) => {
+  await boot(page);
+  const project = page.locator("#railbody .group", { hasText: "njord", hasNotText: "+" });
+  await project.locator("span").nth(1).click();
+  await page.locator("#tree .treerow", { hasText: "CLAUDE.md" }).click();
+  await expect(page.locator("#vtext")).toBeVisible();
+  await page.locator("#vtext").fill("Rascunho do clone");
+
+  // Entering a workspace leaves project-only mode before any tab or dock redraw.
+  await openWorkspace(page, "Ola");
+  const conversation = page.locator('#tabbar .tab[data-tab="t1"]');
+  const composer = page.locator("#chatwrap .composer textarea");
+  await expect(composer).toBeVisible();
+  await expect(conversation).toHaveClass(/\bon\b/);
+  await expect(page.locator("#viewer")).toBeHidden();
+
+  // The same path belongs to a different root; opening it preserves conversation tabs.
+  await page.locator("#tree .treerow", { hasText: "CLAUDE.md" }).click();
+  await expect(page.locator("#vtext")).toBeVisible();
+  await expect(page.locator("#vtext")).not.toHaveValue("Rascunho do clone");
+  await expect(page.locator("#tabbar .tab[data-tab]")).toHaveCount(2);
+  await page.locator("#vtext").fill("Rascunho do workspace");
+  await page.locator("#tabbar .tab", { hasText: "CLAUDE.md" }).locator(".tabx").click();
+  await expect(composer).toBeVisible();
+  await expect(conversation).toHaveClass(/\bon\b/);
+
+  await page.locator("#tabbar .tabadd .caret").click();
+  await page.locator(".menu .mrow", { hasText: "Terminal novo" }).click();
+  await expect(page.locator("#termview")).toBeVisible();
+  await expect(conversation).toBeVisible();
+  await conversation.click();
+  await expect(composer).toBeVisible();
+
+  // History restores each root's own files and drafts.
+  await page.locator("#back").click();
+  await expect(page.locator("#vtext")).toHaveValue("Rascunho do clone");
+  await expect(page.locator("#tabbar .tab")).toHaveText(["CLAUDE.md"]);
+  await page.locator("#fwd").click();
+  await expect(composer).toBeVisible();
+  await page.locator("#tree .treerow", { hasText: "CLAUDE.md" }).click();
+  await expect(page.locator("#vtext")).toHaveValue("Rascunho do workspace");
+  await expect(conversation).toBeVisible();
+
+  // Selecting an agent directly also exits project-only mode.
+  await project.locator("span").nth(1).click();
+  await expect(page.locator("#vtext")).toHaveValue("Rascunho do clone");
+  await page.locator('.railagent[data-tab="t2"]').click();
+  await expect(composer).toBeVisible();
+  await expect(page.locator("#tabbar .tab.on")).toHaveAttribute("data-tab", "t2");
+});
+
 test("remove projeto sem apagar seus workspaces", async ({ page }) => {
   await boot(page);
 

@@ -32,6 +32,8 @@ continuam de fora, porque nenhum script é do clone. O centro fica vazio enquant
 estiver aberta. É o
 caminho curto para ler ou corrigir algo à mão; o chevron da ponta continua
 recolhendo a lista do grupo. Cobertura: `e2e/critical-flows.spec.ts`.
+Ao entrar em um workspace, suas conversas e terminais continuam acessíveis.
+Arquivos abertos e rascunhos ficam separados entre o projeto e cada workspace.
 
 Projeto não precisa ser um repositório git. Uma pasta solta entra na lista do
 mesmo jeito, e o que muda é o lançador: worktree e branch nova ficam
