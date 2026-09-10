@@ -6,8 +6,9 @@
 # workflow_dispatch verifies a release build from main without publishing or consuming a version.
 #
 # Required Secrets:
-# RELEASES_TOKEN: PAT with Contents read/write access to prometeu-releases; the job's GITHUB_TOKEN cannot
-# access another repository.
+# RELEASES_TOKEN: PAT with Contents read/write access to prometeucorp/prometeu-releases; the job's
+# GITHUB_TOKEN cannot access another repository. A fine-grained PAT is bound to a resource owner, so it
+# must be issued for the prometeucorp organization, not for a personal account.
 # TAURI_SIGNING_PRIVATE_KEY: contents of ~/.tauri/prometeu.key.
 # TAURI_SIGNING_PRIVATE_KEY_PASSWORD: signing key password.
 # APPLE_ID: Apple account email.
@@ -44,6 +45,18 @@ jobs:
         run: |
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
             echo "::error::release só constrói commits que já pertencem à main"
+            exit 1
+          fi
+
+      # Signing and notarizing take about twenty minutes, and only the last step uses RELEASES_TOKEN.
+      # Check the token up front so an expired or wrongly scoped PAT fails in seconds instead of after
+      # the build, with the tag already pushed.
+      - name: RELEASES_TOKEN escreve no repositório de releases
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          if [ "$(gh api "/repos/$REPO" --jq '.permissions.push' 2>/dev/null)" != true ]; then
+            echo "::error::RELEASES_TOKEN não escreve em $REPO — reemita o PAT com resource owner prometeucorp e Contents read/write"
             exit 1
           fi
 
