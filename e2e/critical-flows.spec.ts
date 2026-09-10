@@ -461,6 +461,30 @@ test("a troca rápida de aba ignora o snapshot atrasado da aba anterior", async 
   await expect(page.locator("#chatwrap .bubble", { hasText: "E2E_MARKER_T2" })).toHaveCount(0);
 });
 
+/// Closing the selected conversation must hand the center to the surviving tab without a click.
+test("fechar a conversa selecionada seleciona a aba que sobrou", async ({ page }) => {
+  await boot(page);
+  await openWorkspace(page, "Ola");
+
+  const first = page.locator('#tabbar .tab[data-tab="t1"]');
+  const second = page.locator('#tabbar .tab[data-tab="t2"]');
+  await page.evaluate(() => {
+    const mock = (window as unknown as {
+      mock: { line: (tab: string, line: unknown) => void };
+    }).mock;
+    mock.line("t1", { type: "user", message: { role: "user", content: "E2E_FECHAR_T1" } });
+  });
+
+  await second.click();
+  await expect(second).toHaveClass(/\bon\b/);
+  await second.hover();
+  await second.locator(".tabx").click();
+
+  await expect(second).toHaveCount(0);
+  await expect(first).toHaveClass(/\bon\b/);
+  await expect(page.locator("#chatwrap .bubble", { hasText: "E2E_FECHAR_T1" })).toBeVisible();
+});
+
 test("recolhe a saída técnica de uma ferramenta que falhou", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Ola");
