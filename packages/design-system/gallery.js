@@ -68,3 +68,15 @@ const identity = row(avatar(), avatar(undefined, "person", "md"), avatar(undefin
 const account = menuButton("Gustavo", () => [{ label: "Configurações" }, "sep", { label: "Sair", danger: true }]);
 account.prepend(avatar());
 examples.append(card("07 / Navegação", tabs, sidebar, identity, row(account)));
+
+// Delivery stays local in the gallery; production hosts provide their own transport.
+const { feedbackWidget } = await import("./dist/index.js");
+feedbackWidget({
+  labels: {
+    trigger: "Feedback", title: "Deixe seu feedback", kind: "Tipo", problem: "Problema", idea: "Ideia", other: "Outro",
+    description: "Descrição", attach: "Anexar imagem", capture: "Capturar tela", remove: "Remover imagem",
+    send: "Enviar feedback", close: "Fechar", privacy: "Demonstração local: nenhum dado será enviado.",
+    invalidImage: "Use PNG, JPEG ou WebP de até 5 MB.", empty: "Escreva seu feedback.", success: "Feedback recebido na demonstração.",
+  },
+  submit: async () => {}, error: cause => String(cause),
+});

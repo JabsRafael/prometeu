@@ -1,5 +1,7 @@
+import { FEEDBACK_PT } from "./feedback-i18n";
 /// Brazilian Portuguese defines Key and requires matching English translations. Group interface strings and backend message codes by feature; their origin does not affect translation.
 export const PT = {
+  ...FEEDBACK_PT,
   "organization.legacy": "Este time antigo continua funcionando. Gerencie novas organizações e convites por email no Cloud; selecionar uma organização preserva uma cópia deste time.",
   "organization.scopeHint": "Escolha uma organização e compartilhe cada workspace explicitamente. Trocar de organização nunca compartilha workspaces existentes com novas pessoas.",
   "organization.active": "Compartilhar workspaces com",

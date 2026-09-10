@@ -7,7 +7,7 @@ import { $ } from "./util";
 /// The workspace whose native webview is visible.
 let shown: string | null = null;
 
-/// Native webviews sit above DOM content regardless of z-index. Hide the webview while #veil is visible and restore it afterward.
+/// Native webviews sit above DOM content. Hide them while application overlays need that space.
 let veiled = false;
 
 /// Navigation events and polling must preserve address-bar edits.
@@ -27,13 +27,13 @@ export function init(external: (id: string) => void, say: (m: string, err?: bool
   new ResizeObserver(place).observe($("webbody"));
   const veil = $("veil");
   new MutationObserver(() => {
-    const now = !veil.hidden;
+    const now = !veil.hidden || !!document.querySelector("dialog[open], .ui-feedback:not(.ui-feedback-capturing) .ui-feedback-panel:not([hidden])");
     if (now === veiled) return;
     veiled = now;
     if (!shown) return;
     if (veiled) invoke("browser_hide", { id: shown });
     else void invoke("browser_open", { id: shown }).then(place);
-  }).observe(veil, { attributes: true, attributeFilter: ["hidden"] });
+  }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["hidden", "open", "class"] });
 
   bar().addEventListener("keydown", (e) => {
     if (e.key === "Enter") go(say);

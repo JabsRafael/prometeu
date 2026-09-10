@@ -15,6 +15,8 @@ como índice curto para agentes e `README.md` apresenta o produto.
 
 ## Contratos
 
+- [Feedback privado](contracts/feedback.md): widget, texto e imagens no GitHub privado.
+
 - [Organizações no Cloud](contracts/cloud-organizations.md): CRUD, convites, catálogos e acesso ao relay.
 
 - [Catálogo na conta Prometeu](contracts/cloud-catalog.md): plugins, MCP e skills gerenciados no SaaS, com itens privados e compartilhamento explícito no desktop.
@@ -70,6 +72,11 @@ como índice curto para agentes e `README.md` apresenta o produto.
 - [ADR 0028](decisions/0028-mobile-web-app.md): Prometeu no celular como app web servido pelo Cloud — Aceito.
 - [ADR 0029](decisions/0029-remove-alert-sound.md): remoção dos avisos sonoros, preservando indicadores visuais — Aceito.
 - [ADR 0030](decisions/0030-remote-control.md): controle remoto pessoal independente da audiência do time — Aceito.
+
+- [ADR 0031](decisions/0031-public-feedback.md): feedback público pelo Cloud e GitHub Issues — Substituído pelo 0032.
+
+- [ADR 0032](decisions/0032-private-feedback.md): feedback privado no repositório do Cloud — Substituído pelo 0033.
+- [ADR 0033](decisions/0033-github-feedback-attachments.md): texto e imagens de feedback no GitHub — Aceito.
 
 ## Qualidade e operação
 

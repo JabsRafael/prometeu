@@ -131,3 +131,22 @@ textarea.ui-input { resize: vertical; min-height: 112px; line-height: 1.5; }
 .ui-menu-fallback hr { width: 100%; margin: 0; border: none; border-top: 1px solid var(--line-raised); }
 .ui-menu-fallback form { display: contents; }
 .ui-menu-fallback form > .ui-button { justify-content: flex-start; padding: 0; min-height: 0; border: none; font-weight: 400; }
+
+/* Feedback stays in the browser top layer, including above application dialogs. */
+.ui-feedback { z-index: 2147483647; position: fixed; inset: auto max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) auto; margin: 0; padding: 0; border: 0; background: transparent; color: var(--fg); font: inherit; overflow: visible; max-width: calc(100vw - 32px); }
+.ui-feedback-panel { width: 360px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 100px); overflow: auto; margin-bottom: var(--space-3); padding: var(--space-4); border: 1px solid var(--line-raised); border-radius: var(--r-lg); background: var(--bg-raised); box-shadow: 0 16px 48px rgb(0 0 0 / .4); box-sizing: border-box; }
+.ui-feedback-panel[hidden], .ui-feedback [hidden] { display: none; }
+.ui-feedback-panel form, .ui-feedback-attachments { display: flex; flex-direction: column; gap: var(--space-3); }
+.ui-feedback-heading { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }
+.ui-feedback .ui-feedback-trigger { display: flex; margin-left: auto; border-radius: var(--r-lg); }
+.ui-feedback img { max-width: 100%; max-height: 160px; object-fit: contain; }
+.ui-feedback p { margin: 0; }
+.ui-feedback input[type=file] { width: 100%; min-width: 0; }
+
+.ui-feedback-capturing { visibility: hidden; }
+
+.ui-feedback-kinds { display: flex; gap: var(--space-2); }
+.ui-feedback-kinds > button { flex: 1; }
+.ui-feedback-kinds [aria-pressed=true] { border-color: var(--accent); color: var(--accent); }
+
+.ui-feedback button:disabled { opacity: .5; cursor: wait; }

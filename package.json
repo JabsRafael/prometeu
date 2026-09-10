@@ -29,7 +29,8 @@
     "relay:dev": "wrangler dev --config relay/wrangler.toml --port 8787",
     "relay:deploy": "wrangler deploy --config relay/wrangler.toml",
     "design-system:build": "npm run build --prefix packages/design-system",
-    "predev": "npm run design-system:build"
+    "predev": "npm run design-system:build",
+    "build:feedback": "vite build --config vite.feedback.config.ts"
   },
   "dependencies": {
     "@hpke/core": "1.9.0",

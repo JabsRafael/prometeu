@@ -197,3 +197,8 @@ ser escolhida em ADR depois de uma prova pequena com:
 
 Gerar tipos de structs internas inteiras não é o objetivo. Apenas DTOs da
 fronteira devem aparecer no binding.
+
+## Feedback
+
+`feedback_capture` é aditivo, sem argumentos, e retorna PNG base64 ou `null`.
+Veja [captura e limites](feedback.md). O mock retorna imagem fictícia.

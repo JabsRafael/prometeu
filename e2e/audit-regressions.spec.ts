@@ -148,7 +148,7 @@ test("cleanup keeps its dialog open while deleting worktrees", async ({ page }) 
   await waiting(page);
   await page.keyboard.press("Escape");
   await expect(dialog).toBeVisible();
-  await expect(dialog.locator("form")).toHaveAttribute("aria-busy", "true");
+  await expect(dialog.locator(":scope > form")).toHaveAttribute("aria-busy", "true");
   await release(page);
   await expect(dialog).toHaveCount(0);
 });
@@ -165,7 +165,7 @@ test("legacy import keeps its dialog open while importing", async ({ page }) => 
   await waiting(page);
   await page.keyboard.press("Escape");
   await expect(dialog).toBeVisible();
-  await expect(dialog.locator("form")).toHaveAttribute("aria-busy", "true");
+  await expect(dialog.locator(":scope > form")).toHaveAttribute("aria-busy", "true");
   await release(page);
   await expect(dialog).toHaveCount(0);
 });

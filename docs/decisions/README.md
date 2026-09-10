@@ -63,3 +63,6 @@ Status: Proposto
 | [0028](0028-mobile-web-app.md) | Aceito | Prometeu no celular como app web servido pelo Cloud |
 | [0029](0029-remove-alert-sound.md) | Aceito | remoção dos avisos sonoros, preservando indicadores visuais |
 | [0030](0030-remote-control.md) | Aceito | controle remoto pessoal independente da audiência do time |
+| [0031](0031-public-feedback.md) | Substituído pelo 0032 | feedback público |
+| [0032](0032-private-feedback.md) | Substituído pelo 0033 | feedback privado no repositório do Cloud |
+| [0033](0033-github-feedback-attachments.md) | Aceito | texto e imagens de feedback no GitHub |
