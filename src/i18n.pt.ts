@@ -603,7 +603,8 @@ export const PT = {
   /* Conversation. */
 
   "chat.empty": "Nada ainda — escreva para começar.",
-  "chat.placeholder": "Escreva para o agente — Enter envia, ⇧Enter quebra a linha",
+  "chat.placeholder": "Escreva para o agente…",
+  "chat.input.hint": "Enter envia, ⇧Enter quebra a linha",
   "chat.placeholder.off": "A conversa está desligada — escrever retoma de onde parou",
   "chat.placeholder.remote": "Escreva na conversa de {name}",
   "chat.placeholder.remoteOff": "{name} está offline — a conversa roda no Mac dele",
@@ -617,7 +618,8 @@ export const PT = {
   "chat.with.pick": "com quem esta conversa fala — trocar desliga o processo, e a próxima fala retoma",
   "chat.with.busy": "o agente está trabalhando — dá para trocar de modelo quando ele parar",
   "chat.stop": "Parar",
-  "chat.busy": "o agente está trabalhando — Esc para interromper",
+  "chat.stop.title": "Parar — Esc com o campo vazio",
+  "chat.busy": "Trabalhando…",
   "chat.compacting": "compactando o contexto…",
   "chat.cmd.compact": "Resume a conversa até aqui para liberar contexto",
   "chat.cmd.context": "Quanto da janela de contexto está em uso",
@@ -955,6 +957,8 @@ export const PT = {
   "share.stop": "Parar de compartilhar",
   "share.watching": "{name} está olhando esta conversa",
   "remoteControl.label": "Controle remoto",
+  "remoteControl.on": "Ativado",
+  "remoteControl.off": "Desativado",
   "remoteControl.title": "Permite acompanhar e enviar mensagens pelos seus dispositivos. Este Mac precisa continuar aberto.",
   "settings.team": "Organizações",
   "team.title": "Organização",

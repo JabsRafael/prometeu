@@ -32,7 +32,7 @@ configuração de projeto e variáveis de ambiente próprios:
 - configuração em `.prometeu/settings.toml`;
 - variáveis públicas com prefixo `PROMETEU_`;
 - branches criadas com prefixo `prometeu/`;
-- releases publicadas em `gbrancaglione/prometeu-releases`.
+- releases publicadas em `prometeucorp/prometeu-releases`.
 
 O aplicativo não consulta nem modifica dados do Prometheus automaticamente.
 A migração será um caso de uso posterior, explícito e idempotente, que cria

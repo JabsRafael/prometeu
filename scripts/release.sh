@@ -6,7 +6,7 @@
 # sh scripts/release.sh publish Publish the CI-created draft.
 #
 # This script controls version, changelog and tag. CI builds and signs a draft in
-# gbrancaglione/prometeu-releases. Install and review its DMG before publishing.
+# prometeucorp/prometeu-releases. Install and review its DMG before publishing.
 # The updater accepts only newer versions; publishing a bad release requires another release to recover.
 # Conventional Commits supply git-cliff, CHANGELOG.md and release notes. While versions remain 0.x,
 # feat/fix bump patch and breaking changes bump minor; see cliff.toml.
@@ -15,7 +15,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-REPO=gbrancaglione/prometeu-releases
+REPO=prometeucorp/prometeu-releases
 
 die() { echo "$*" >&2; exit 1; }
 # Call git-cliff directly so npm does not consume its flags as npm configuration.

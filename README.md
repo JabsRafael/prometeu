@@ -32,6 +32,8 @@ continuam de fora, porque nenhum script é do clone. O centro fica vazio enquant
 estiver aberta. É o
 caminho curto para ler ou corrigir algo à mão; o chevron da ponta continua
 recolhendo a lista do grupo. Cobertura: `e2e/critical-flows.spec.ts`.
+Ao entrar em um workspace, suas conversas e terminais continuam acessíveis.
+Arquivos abertos e rascunhos ficam separados entre o projeto e cada workspace.
 
 Projeto não precisa ser um repositório git. Uma pasta solta entra na lista do
 mesmo jeito, e o que muda é o lançador: worktree e branch nova ficam
@@ -494,8 +496,11 @@ tela inicial para usar como app. Remover o dispositivo fica em Configurações �
 Dispositivos no Cloud.
 
 No rodapé de uma conversa local, **Controle remoto** libera ou revoga somente
-seus dispositivos. Essa permissão não compartilha o workspace com outras
-pessoas e não muda a audiência escolhida em **Compartilhar**.
+seus dispositivos. O botão fica iluminado enquanto a permissão está ativa.
+Modelo, esforço e atividade ficam numa linha própria; ferramentas e botões de
+envio ficam abaixo. Em conversas estreitas, ferramentas e controle remoto usam
+ícones com rótulos ao passar o mouse. Essa permissão não compartilha o workspace
+com outras pessoas e não muda a audiência escolhida em **Compartilhar**.
 
 ### O relay
 

@@ -535,6 +535,7 @@ main { flex: 1; min-height: 0; position: relative; }
   flex: none; align-self: center; width: calc(100% - 48px); max-width: 860px; margin: 4px 0 14px;
   padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
   background: var(--bg-raised); border: 1px solid var(--line-raised); border-radius: var(--r-xl);
+  container-type: inline-size;
 }
 .composer:focus-within { border-color: var(--line-ghost); }
 .composer textarea {
@@ -543,29 +544,47 @@ main { flex: 1; min-height: 0; position: relative; }
 }
 .composer textarea::placeholder { color: var(--fg-3); }
 .composer textarea:disabled { color: var(--fg-3); }
-.composer .crow { display: flex; align-items: center; gap: 8px; }
-.composer .hint { font-size: 11.5px; color: var(--fg-3); }
-/* Model and effort controls match MCP controls in the footer. */
-.composer .with { display: flex; align-items: center; gap: 2px; margin-left: -8px; font-size: 12px; color: var(--fg-2); }
+.composer .crow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
+.composer .hint { margin-left: auto; font-size: var(--hint-size); color: var(--fg-3); }
+.composer .hint:empty { display: none; }
+/* Keep agent settings separate from tools and submission controls. */
+.composer .with { display: flex; align-items: center; gap: 2px; min-width: 0; max-width: 100%; font-size: 12px; color: var(--fg-2); }
 .composer .with button { height: 22px; padding: 0 8px; gap: 6px; font-size: 12px; }
-.composer .mdl { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-2); }
+.composer .mdl { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--fg-2); }
+.composer .mdl span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer .mdl .ic { color: var(--fg-3); }
-.composer .with .effort { display: inline-flex; align-items: center; gap: 7px; color: var(--fg-3); }
+.composer .with .effort { display: inline-flex; align-items: center; gap: 7px; flex: none; color: var(--fg-3); }
 /* Busy and remote controls remain readable but cannot be clicked. */
 .composer .with button:disabled { pointer-events: none; }
 .composer .with.ro button { background: none; }
-/* MCP changes restart the process on the next message. */
-.composer .mcpbtn { height: 22px; padding: 0 8px; gap: 6px; font-size: 12px; color: var(--fg-3); }
-.composer .mcpbtn .ic { color: var(--fg-3); }
-.composer .mcpbtn.on, .composer .mcpbtn.on .ic { color: var(--fg-2); }
-.composer .remotebtn { height: 22px; padding-left: 8px; font-size: 12px; color: var(--fg-3); }
+.composer .composer-toolbar { padding-top: var(--space-2); border-top: 1px solid var(--line); }
+.composer .composer-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-width: 0; }
+.composer .composer-controls { display: flex; align-items: center; gap: var(--space-2); flex: none; margin-left: auto; }
+.composer .composer-tools button, .composer .remotebtn {
+  height: var(--button-height); padding: 0 var(--space-2); gap: 6px; font-size: var(--text-sm); color: var(--fg-2); white-space: nowrap;
+}
+.composer .addfile { width: var(--button-height); padding: 0; }
+.composer .mcpbtn span, .composer .plugbtn span { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.composer .mcpbtn.on, .composer .plugbtn.on { color: var(--fg); }
+.composer .remotebtn { border-radius: var(--r); }
+.composer .remotebtn.on {
+  color: var(--tab-line); background: color-mix(in srgb, var(--tab-line) 12%, transparent);
+  border-color: color-mix(in srgb, var(--tab-line) 40%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--tab-line) 14%, transparent);
+}
+.composer .quotesel { align-self: flex-start; max-width: 100%; }
+.composer .stop { width: var(--button-height); padding: 0; }
 /* Use a round submit arrow without a text label. */
 .composer .send.round {
-  width: 28px; height: 28px; padding: 0; border-radius: 50%;
+  width: var(--button-height); height: var(--button-height); flex: none; padding: 0; border-radius: 50%;
   background: var(--pri); color: var(--pri-fg);
 }
 .composer .send.round:hover { background: #fff; }
-.composer .spacer { flex: 1; }
+/* Compact labels by available conversation width, including resized desk tiles. */
+@container (max-width: 520px) {
+  .composer .composer-tools button > span, .composer .remotebtn > span { display: none; }
+  .composer .composer-tools button, .composer .remotebtn { width: var(--button-height); padding: 0; }
+}
 /* Allow attachment chips to wrap. */
 .composer .cfiles { display: flex; flex-wrap: wrap; gap: 6px; }
 
@@ -1812,14 +1831,10 @@ body.noside .side { display: none; }
 .tile .meta { font-size: 11px; }
 .tile .think, .tile .sys, .tile .working .wlabel { font-size: 12px; }
 
-/* The desk composer starts on one line and grows; footer controls wrap to keep submit inside the tile. */
+/* Desk prompts start on one line; the shared footer adapts to each tile's width. */
 .tile .composer { width: calc(100% - 16px); margin: 4px 0 8px; padding: 6px 10px; border-radius: var(--r-lg); }
 .tile .composer textarea { font-family: var(--mono); font-size: 12.5px; min-height: 22px; }
-.tile .composer .crow { flex-wrap: wrap; row-gap: 4px; }
 .tile .composer .crow, .tile .composer .hint, .tile .composer .with button, .tile .composer .mcpbtn, .tile .composer .plugbtn, .tile .composer .remotebtn { font-family: var(--mono); font-size: 11.5px; }
-.tile .composer .hint { display: none; }
-.tile .composer .send { margin-left: auto; }
-.tile .composer .send.round { width: 24px; height: 24px; }
 
 .actionwatch { display: flex; flex-direction: column; gap: 12px; }
 .taskwatch { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
