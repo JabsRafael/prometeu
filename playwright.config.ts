@@ -20,7 +20,7 @@ export default defineConfig({
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
     // Cover desktop WebKit gestures, Git review, encrypted collaboration and asynchronous editing.
-    { name: "webkit", use: { ...devices["Desktop Safari"] }, grep: /comentário fica|segurança do compartilhamento|organizações no desktop|catálogo pessoal|a mesa|a barra lateral|design system|comando reutilizável|perfil por projeto|Code review|arquivo solto|arraste de arquivo|Git|a tela de Mudanças|file saving|finishing a save|cleanup keeps|legacy import/ },
+    { name: "webkit", use: { ...devices["Desktop Safari"] }, grep: /comentário fica|segurança do compartilhamento|organizações no desktop|controle remoto no rodapé|rodapé da conversa|catálogo pessoal|a mesa|a barra lateral|design system|comando reutilizável|perfil por projeto|Code review|arquivo solto|arraste de arquivo|Git|a tela de Mudanças|file saving|finishing a save|cleanup keeps|legacy import/ },
   ],
   webServer: {
     // The static production preview avoids HMR reloads when concurrent work edits this checkout.
