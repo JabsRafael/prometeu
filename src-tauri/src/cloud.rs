@@ -27,6 +27,14 @@ struct Saved {
     user: User,
 }
 
+/// One relay identity per Mac, kept apart from the login so it survives sign-out. The Cloud lets the
+/// first Mac keep the membership identity and connects any other Mac as a companion device.
+#[derive(Clone, Deserialize, Serialize)]
+struct Device {
+    id: String,
+    label: String,
+}
+
 #[derive(Serialize)]
 pub struct Status {
     user: Option<User>,
@@ -86,10 +94,11 @@ pub async fn cloud_organizations() -> Result<Organizations, String> {
                 organizations: vec![],
             });
         };
+        let device = device()?;
         let (code, value) = http(
             &saved.origin,
             Method::GET,
-            "/api/organizations",
+            &format!("/api/organizations?device={}", device.id),
             Some(&saved.token),
             None,
             262_144,
@@ -154,12 +163,13 @@ pub async fn cloud_relay_ticket(
         if saved.user.id != user || saved.origin != expected_origin || !relay_id(&organization) {
             return Err(i18n::t("err.cloud.response"));
         }
+        let device = device()?;
         let (code, value) = http(
             &saved.origin,
             Method::POST,
             &format!("/api/organizations/{organization}/relay-ticket"),
             Some(&saved.token),
-            Some(json!({})),
+            Some(json!({ "device": device.id, "label": device.label })),
             16_384,
             Duration::from_secs(12),
         )?;
@@ -194,6 +204,32 @@ fn default_origin() -> Result<String, String> {
     origin(
         &std::env::var("PROMETEU_CLOUD_URL").unwrap_or_else(|_| "https://app.prometeu.co".into()),
     )
+}
+
+fn device() -> Result<Device, String> {
+    let path = paths::root().join("device.json");
+    if let Ok(bytes) = std::fs::read(&path) {
+        if let Ok(device) = serde_json::from_slice::<Device>(&bytes) {
+            if relay_id(&device.id) {
+                return Ok(device);
+            }
+        }
+    }
+    let label = std::process::Command::new("scutil")
+        .args(["--get", "ComputerName"])
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "Mac".into());
+    let device = Device {
+        id: oauth::random()[..32].to_string(),
+        label,
+    };
+    paths::write_private(&path, &serde_json::to_string(&device).unwrap())
+        .map_err(|_| i18n::t("err.cloud.storage"))?;
+    Ok(device)
 }
 
 fn load() -> Result<Option<Saved>, String> {

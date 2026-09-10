@@ -116,6 +116,32 @@ describe("canal ponta a ponta integrado ao relay", () => {
     expect(received(t.deliveries, "alice", "write").slice(-1)[0]).toMatchObject({ from: "phone", data: "do celular" });
   });
 
+  it("um segundo Mac da pessoa compartilha como dispositivo companheiro", async () => {
+    const t = await team();
+    await t.deliver(reduce(t.relay, { k: "roster", now: Date.now(), members: [
+      { id: "alice", name: "alice" }, { id: "bob", name: "bob" }, { id: "carol", name: "carol" },
+      { id: "phone", name: "alice (iPhone)", person: "alice" }, { id: "mac2", name: "alice (MacBook Air)", person: "alice" },
+    ] }));
+    const phone = await t.connect("phone");
+    const mac2 = await t.connect("mac2");
+    // Sharing with the whole organization never reaches the owner's other devices by itself.
+    const everyone = { ...shared, audience: null };
+    mac2.own(everyone);
+    const sent = await t.send("mac2", { t: "share", share: everyone });
+    expect((sent.encrypted as Extract<Up, { t: "share" }>).share.audience?.sort()).toEqual(["bob", "carol"]);
+    expect(t.bob.shares.get(shared.id)).toMatchObject({ id: shared.id, owner: "mac2", title: shared.title });
+    expect(t.alice.shares.size).toBe(0);
+    expect(phone.shares.size).toBe(0);
+    mac2.own(shared, true);
+    await t.send("mac2", { t: "share", share: shared });
+    expect(t.alice.shares.get(shared.id)).toMatchObject({ id: shared.id, owner: "mac2", title: shared.title });
+    expect(phone.shares.get(shared.id)).toMatchObject({ id: shared.id, owner: "mac2", title: shared.title });
+    expect(t.carol.shares.size).toBe(0);
+    await t.send("alice", { t: "attach", ws: shared.id, tab: "tab" });
+    await t.send("alice", { t: "write", ws: shared.id, tab: "tab", data: "do outro Mac" });
+    expect(received(t.deliveries, "mac2", "write").slice(-1)[0]).toMatchObject({ from: "alice", data: "do outro Mac" });
+  });
+
   it("autentica fala remota e persiste rejeição de replay após reinício", async () => {
     const t = await team();
     await t.send("alice", { t: "share", share: shared });

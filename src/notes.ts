@@ -405,7 +405,7 @@ let picking: { first: () => void } | null = null;
 
 export function pickMention(area: HTMLTextAreaElement, onChange: () => void) {
   const status = team.status();
-  const others = team.people().filter((member) => member.id !== status.you);
+  const others = team.people().filter((member) => member.id !== team.personOf(status.you));
   const at = typing(area.value, area.selectionStart);
   const list = at ? matches(at.query, others) : others;
   if (!list.length) return dropMention();

@@ -8,6 +8,10 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
 type Payload = { frame: Up; expires?: number; revision?: number } | { binary: string };
 
+/// The person a member acts for: a companion device maps to its primary member, anyone else to itself.
+export const personOf = (members: ReadonlyArray<Pick<Member, "id" | "person">>, id: string): string =>
+  members.find(m => m.id === id)?.person ?? id;
+
 /** Content boundary shared by the desktop and the browser's simulated peers. */
 export class TeamChannel {
   members: Member[] = [];
@@ -68,10 +72,15 @@ export class TeamChannel {
 
   private recipients(share: Share & { owner?: string }): string[] {
     const owner = share.owner ?? this.self;
-    const audience = (share.audience ?? this.members.filter(m => !m.person).map(m => m.id)).filter(id => id !== owner);
+    const person = personOf(this.members, owner);
+    // A local audience names people and may include the owner's own person (whole organization or a
+    // self-mention); the owner's devices only join through remote control. Received audiences are already
+    // expanded to devices and keep the owner's other devices as listed.
+    const excluded = owner === this.self ? (id: string) => personOf(this.members, id) === person : (id: string) => id === owner;
+    const audience = (share.audience ?? this.members.filter(m => !m.person).map(m => m.id)).filter(id => !excluded(id));
     const recipients = new Set([owner, ...this.devices(audience)]);
     if (this.remoteControl.has(share.id)) {
-      for (const member of this.members) if (member.person === owner) recipients.add(member.id);
+      for (const member of this.members) if (member.id !== owner && personOf(this.members, member.id) === person) recipients.add(member.id);
     }
     return [...recipients];
   }

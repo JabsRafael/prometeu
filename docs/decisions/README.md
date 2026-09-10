@@ -59,7 +59,7 @@ Status: Proposto
 | [0024](0024-typed-ipc.md) | Accepted | command-owned IPC arguments and results |
 | [0025](0025-completion-sound-per-execution.md) | Parcialmente substituído pelo 0029 | som de conclusão por execução aceita |
 | [0026](0026-portable-collaboration-core.md) | Aceito; etapas decididas no 0027 e no 0028 | núcleo de colaboração portável e acesso pelo celular via relay |
-| [0027](0027-companion-devices.md) | Aceito | dispositivos companheiros no relay com campo aditivo `person` |
+| [0027](0027-companion-devices.md) | Aceito; ampliado pelo 0036 | dispositivos companheiros no relay com campo aditivo `person` |
 | [0028](0028-mobile-web-app.md) | Aceito | Prometeu no celular como app web servido pelo Cloud |
 | [0029](0029-remove-alert-sound.md) | Aceito | remoção dos avisos sonoros, preservando indicadores visuais |
 | [0030](0030-remote-control.md) | Aceito | controle remoto pessoal independente da audiência do time |
@@ -67,3 +67,4 @@ Status: Proposto
 | [0032](0032-private-feedback.md) | Substituído pelo 0033 | feedback privado no repositório do Cloud |
 | [0033](0033-github-feedback-attachments.md) | Substituído pelo 0035 | texto e imagens de feedback no GitHub |
 | [0035](0035-feedback-requires-account.md) | Aceito | feedback exige conta Prometeu |
+| [0036](0036-second-mac-as-companion.md) | Aceito | segundo Mac da mesma conta entra como dispositivo companheiro |

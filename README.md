@@ -420,9 +420,11 @@ comparados por outro canal; isso é opcional.
 O relay ainda vê membros, destinatários, IDs, menções, presença, horários e
 tamanhos. Um servidor malicioso no primeiro contato pode substituir uma chave.
 Não há forward secrecy: roubar uma chave privada pode expor conteúdo antigo
-gravado para ela. Um segundo Mac usa o fluxo de troca de chave, sem sincronização
-automática do histórico. Não equivale às garantias do WhatsApp nem protege um
-Mac comprometido ou prompts enviados aos providers. Veja o [ADR 0022](docs/decisions/0022-end-to-end-encryption.md).
+gravado para ela. Um segundo Mac da mesma conta entra como dispositivo seu,
+com chave própria, sem sincronização automática do histórico. Não equivale às
+garantias do WhatsApp nem protege um Mac comprometido ou prompts enviados aos
+providers. Veja os ADRs [0022](docs/decisions/0022-end-to-end-encryption.md)
+e [0036](docs/decisions/0036-second-mac-as-companion.md).
 
 App e relay precisam de v4; não há fallback em texto. Dados v3 permanecem no
 relay, mas comentários v3 não aparecem no cliente novo. Fora da máquina local,
