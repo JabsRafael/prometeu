@@ -146,6 +146,7 @@ export type Watching = Record<string, Record<string, string[]>>;
 /// App-to-relay controls.
 export type Up =
   | { t: "identity"; key: string; proof: string }
+  | { t: "renew"; ticket: string }
   | { t: "me"; name: string }
   | { t: "share"; share: Share }
   | { t: "unshare"; ws: string }
@@ -162,6 +163,7 @@ export type Up =
 /// Relay-to-app controls.
 export type Down =
   | { t: "welcome"; you: string; members: Member[]; shares: Shared[]; inbox: Inbox[]; watching: Watching; comments?: 1; e2ee?: 1; challenge?: string }
+  | { t: "lease"; expires_in: number }
   | { t: "presence"; members: Member[] }
   | { t: "share"; share: Shared }
   | { t: "unshare"; ws: string }
@@ -265,6 +267,9 @@ export function parseUp(value: unknown): Up | null {
     case "identity":
       return isPublicKey(value.key) && typeof value.proof === "string" && /^[A-Za-z0-9_-]{86}$/.test(value.proof)
         ? { t: "identity", key: value.key, proof: value.proof } : null;
+    case "renew":
+      return typeof value.ticket === "string" && /^[A-Za-z0-9_-]{43}$/.test(value.ticket)
+        ? { t: "renew", ticket: value.ticket } : null;
     case "me":
       return text(value.name, NAME_MAX) ? { t: "me", name: value.name } : null;
     case "share": {
@@ -424,6 +429,8 @@ export function parseDown(value: unknown): Down | null {
   const sealed = encryption(value);
   if (!sealed) return null;
   switch (value.t) {
+    case "lease":
+      return integer(value.expires_in, 1, 60_000) ? { t: "lease", expires_in: value.expires_in } : null;
     case "welcome": {
       if (!id(value.you)) return null;
       const members = parseMembers(value.members);

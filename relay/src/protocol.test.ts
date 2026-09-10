@@ -158,4 +158,12 @@ describe("convite", () => {
     expect(parseCreatedTeam(created)).toEqual(created);
     expect(parseCreatedTeam({ ...created, team: "__proto__" })).toBeNull();
   });
+
+  it("bounds renewable leases and accepts only a single-use ticket in renewal controls", () => {
+    const ticket = "t".repeat(43);
+    expect(parseUp({ t: "renew", ticket, member: "spoofed" })).toEqual({ t: "renew", ticket });
+    for (const value of [null, "short", "t".repeat(44), "!".repeat(43)]) expect(parseUp({ t: "renew", ticket: value })).toBeNull();
+    expect(parseDown({ t: "lease", expires_in: 60_000 })).toEqual({ t: "lease", expires_in: 60_000 });
+    for (const value of [null, 0, -1, 1.5, 60_001, "60000"]) expect(parseDown({ t: "lease", expires_in: value })).toBeNull();
+  });
 });

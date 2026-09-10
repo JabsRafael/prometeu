@@ -8,6 +8,7 @@ import * as viewer from "../team-viewer";
 import { toolLabel } from "../chat-presentation";
 import { Timeline, summary, type Block, type Item } from "../timeline";
 import { h, template } from "../util";
+import { button as uiButton, input as uiInput } from "../ui";
 import type { Config, Organization } from "./shell";
 
 /// Phone interface over the collaboration core: shared conversations, one attached transcript, input to the
@@ -27,8 +28,11 @@ export class MobileView {
   private decoder = new TextDecoder();
   private partial = "";
   private loading = false;
+  private sending = false;
 
-  constructor(private root: HTMLElement, private config: Config, private actions: Actions) {}
+  constructor(private root: HTMLElement, private config: Config, private actions: Actions) {
+    root.classList.add("ui-comfortable");
+  }
 
   setOrganization(organization: Organization | null) {
     this.organization = organization;
@@ -61,6 +65,7 @@ export class MobileView {
 
   toast(text: string) {
     const box = h("div", "m-toast", text);
+    box.setAttribute("role", "alert");
     this.root.append(box);
     setTimeout(() => box.remove(), 4000);
   }
@@ -194,10 +199,12 @@ export class MobileView {
     details.querySelector("summary")!.textContent = t("mobile.comments");
     this.thread = h("div", "m-thread");
     const form = h("form", "m-form");
-    const input = h("textarea", "ui-input") as HTMLTextAreaElement;
+    const input = uiInput("", true);
     input.placeholder = t("mobile.commentPlaceholder");
+    input.setAttribute("aria-label", input.placeholder);
     input.rows = 2;
-    const send = h("button", "ui-button pri", t("mobile.comment"));
+    const send = uiButton(t("mobile.comment"), undefined, "pri");
+    send.type = "submit";
     form.append(input, send);
     form.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -210,16 +217,43 @@ export class MobileView {
     this.paintThread();
 
     const composer = h("form", "m-form m-composer");
-    const box = h("textarea", "ui-input") as HTMLTextAreaElement;
-    box.rows = 2;
-    const button = h("button", "ui-button pri", t("mobile.send"));
-    composer.append(box, button);
-    composer.addEventListener("submit", (event) => {
+    const box = uiInput("", true);
+    box.rows = 1;
+    box.placeholder = t("mobile.placeholder");
+    box.setAttribute("aria-label", box.placeholder);
+    const button = uiButton("", undefined, "pri");
+    button.type = "submit";
+    button.onclick = null;
+    button.classList.add("m-send");
+    button.innerHTML = icon("arrow-up", 20);
+    button.setAttribute("aria-label", t("mobile.send"));
+    button.title = t("mobile.send");
+    const status = h("div", "m-connection");
+    status.setAttribute("role", "status");
+    composer.append(box, button, status);
+    const resize = () => {
+      box.style.height = "auto";
+      box.style.height = `${box.scrollHeight + 2}px`;
+    };
+    box.addEventListener("input", () => { resize(); this.paintComposer(); });
+    composer.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const text = box.value.trim();
-      if (!text) return;
-      viewer.write(text);
-      box.value = "";
+      const draft = box.value, text = draft.trim();
+      if (!text || button.disabled || this.sending) return;
+      box.focus({ preventScroll: true });
+      this.sending = true;
+      composer.setAttribute("aria-busy", "true");
+      this.paintComposer();
+      try {
+        if (await viewer.write(text) && box.value === draft) box.value = "";
+      } catch {
+        this.toast(t("err.team.encryption"));
+      } finally {
+        this.sending = false;
+        composer.removeAttribute("aria-busy");
+        resize();
+        this.paintComposer();
+      }
     });
     this.root.append(composer);
     this.paintComposer();
@@ -231,9 +265,11 @@ export class MobileView {
     const box = this.root.querySelector<HTMLTextAreaElement>(".m-composer textarea");
     const button = this.root.querySelector<HTMLButtonElement>(".m-composer button");
     if (!box || !button) return;
-    const online = !!share?.online;
-    box.disabled = button.disabled = !online;
-    box.placeholder = online ? t("mobile.placeholder", { name: share ? member.nameOf(share.owner) : "" }) : t("mobile.ownerOffline");
+    const phase = member.current().phase;
+    const online = phase === "online" && !!share?.online;
+    button.disabled = !online || this.sending || !box.value.trim();
+    const status = this.root.querySelector<HTMLElement>(".m-connection");
+    if (status) status.textContent = online ? "" : phase !== "online" ? t(`mobile.status.${phase}`) : t("mobile.ownerOffline");
   }
 
   private paintThread() {

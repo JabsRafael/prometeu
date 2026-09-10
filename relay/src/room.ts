@@ -3,7 +3,7 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { hydrate, reduce, type Effect, type Sock, type State } from "./logic";
-import { authorizeOrganization } from "./cloud";
+import { authorizeOrganization, type OrganizationAccess } from "./cloud";
 import { smallJson } from "./http";
 import {
   BINARY_FRAME_MAX,
@@ -29,7 +29,7 @@ import {
 
 export type Env = { TEAM: DurableObjectNamespace<TeamRoom>; CLOUD_URL?: string };
 
-type Attachment = { auth: typeof PROTO; sock: string; member: string; attached: Sock["attached"]; challenge: string; identified: boolean; expires_at?: number };
+type Attachment = { auth: typeof PROTO; sock: string; member: string; attached: Sock["attached"]; challenge: string; identified: boolean; expires_at?: number; organization?: string };
 type Meta = { invite_hash: string; created_at: number; member_count: number };
 type Credential = { hash: string; created_at: number };
 
@@ -57,6 +57,7 @@ export class TeamRoom extends DurableObject<Env> {
   private state: State | null = null;
   private bySock = new Map<string, WebSocket>();
   private rates = new Map<string, { since: number; frames: number; bytes: number }>();
+  private renewals = new Set<string>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -167,15 +168,7 @@ export class TeamRoom extends DurableObject<Env> {
     }
 
     const state = await this.load();
-    if (access) {
-      for (const [id, ws] of this.bySock) {
-        if (!access.members.some(m => m.id === state.socks.get(id)?.member)) {
-          ws.close(1008, "membership revoked");
-          this.bySock.delete(id);
-        }
-      }
-      this.apply(reduce(state, { k: "roster", members: access.members, now: Date.now() }));
-    }
+    if (access) this.roster(state, access);
     if (state.socks.size >= SOCKETS_MAX) return new Response("full", { status: 429 });
     if ([...state.socks.values()].filter((sock) => sock.member === member).length >= SOCKETS_PER_MEMBER_MAX) {
       return new Response("too many sockets", { status: 429 });
@@ -184,7 +177,7 @@ export class TeamRoom extends DurableObject<Env> {
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     const sock = crypto.randomUUID();
     this.ctx.acceptWebSocket(server, [`m:${member}`]);
-    server.serializeAttachment({ auth: PROTO, sock, member, attached: null, challenge: randomToken(32), identified: false, expires_at } satisfies Attachment);
+    server.serializeAttachment({ auth: PROTO, sock, member, attached: null, challenge: randomToken(32), identified: false, expires_at, organization: access?.organization } satisfies Attachment);
     this.bySock.set(sock, server);
     if (expires_at) {
       const alarm = await this.ctx.storage.getAlarm();
@@ -254,8 +247,13 @@ export class TeamRoom extends DurableObject<Env> {
         ws.close(1008, "encryption required");
         return;
       }
+      if (parsed.t === "renew") {
+        await this.renew(ws, att, parsed.ticket);
+        return;
+      }
       if (att.expires_at !== undefined && parsed.t === "me") return;
       this.apply(reduce(state, { k: "text", sock: att.sock, frame: parsed, now: Date.now(), rand: crypto.randomUUID().slice(0, 8) }));
+      if (parsed.t === "identity") this.lease(ws);
     } else {
       // Forward without awaiting so each socket preserves transcript order.
       const data = new Uint8Array(message);
@@ -270,6 +268,46 @@ export class TeamRoom extends DurableObject<Env> {
   async webSocketClose(ws: WebSocket) {
     ws.close(1000, "closed");
     await this.gone(ws);
+  }
+
+  private roster(state: State, access: OrganizationAccess) {
+    // Renewing unchanged membership must not trigger presence, share announcements or snapshots.
+    if (state.members.size === access.members.length && access.members.every(m => {
+      const known = state.members.get(m.id);
+      return known?.name === m.name && known.person === m.person;
+    })) return;
+    for (const [id, ws] of this.bySock) {
+      if (!access.members.some(m => m.id === state.socks.get(id)?.member)) {
+        ws.close(1008, "membership revoked");
+        this.bySock.delete(id);
+      }
+    }
+    this.apply(reduce(state, { k: "roster", members: access.members, now: Date.now() }));
+  }
+
+  private lease(ws: WebSocket) {
+    const att = ws.deserializeAttachment() as Attachment;
+    if (att.organization && att.expires_at && this.liveSocket(att.sock) === ws) {
+      ws.send(JSON.stringify({ t: "lease", expires_in: Math.min(60_000, att.expires_at - Date.now()) }));
+    }
+  }
+
+  private async renew(ws: WebSocket, att: Attachment, ticket: string) {
+    if (!att.organization || !att.identified) { ws.close(1008, "reauthenticate"); return; }
+    if (this.renewals.has(att.sock)) return;
+    this.renewals.add(att.sock);
+    try {
+      const access = await authorizeOrganization(this.env.CLOUD_URL ?? "https://app.prometeu.co", att.organization, ticket);
+      // A ticket never revives an expired socket or changes its authenticated member, room or identity.
+      if (this.liveSocket(att.sock) !== ws) return;
+      if (!access || access.member !== att.member) { ws.close(1008, "reauthenticate"); return; }
+      const current = ws.deserializeAttachment() as Attachment;
+      ws.serializeAttachment({ ...current, expires_at: access.expires_at } satisfies Attachment);
+      this.roster(await this.load(), access);
+      const alarm = await this.ctx.storage.getAlarm();
+      if (!alarm || access.expires_at < alarm) await this.ctx.storage.setAlarm(access.expires_at);
+      this.lease(ws);
+    } finally { this.renewals.delete(att.sock); }
   }
 
   async webSocketError(ws: WebSocket) {
@@ -295,7 +333,6 @@ export class TeamRoom extends DurableObject<Env> {
   private liveSocket(id: string): WebSocket | undefined {
     const ws = this.bySock.get(id);
     const att = ws?.deserializeAttachment() as Attachment | null;
-    // ponytail: 60-second leases bound revocation; renewable leases can avoid reconnect snapshots if traffic warrants it.
     if (att?.expires_at !== undefined && att.expires_at <= Date.now()) {
       ws?.close(1008, "reauthenticate");
       return undefined;

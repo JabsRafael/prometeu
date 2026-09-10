@@ -24,6 +24,15 @@ uso. Mudanças ficam bloqueadas até aceitação local explícita. Chaves ausent
 não recebem conteúdo e não apagam vínculos. Renovar tickets não redefine TOFU.
 Veja [organizações](cloud-organizations.md) para leases e autorização Cloud.
 
+Depois da identidade, sockets de organizações recebem `lease { expires_in }`
+(1 a 60.000 ms). `renew { ticket }` consome outro ticket Cloud de 256 bits,
+codificado em 43 caracteres base64url, e exige organização e membro originais.
+O relay recusa renovação antes da identidade, após expiração ou com ticket
+inválido, consumido ou de outra matrícula. Uma renovação preserva chave, desafio,
+watchers e streaming; roster idêntico não gera presença. A confirmação é outro
+`lease`. São controles aditivos no v4: clientes antigos ignoram a capacidade,
+e clientes novos continuam reconectando quando um relay antigo não a anuncia.
+
 ## Envelope e conteúdo
 
 `Encrypted = { id, boxes: { [member]: { enc, ct } } }`. IDs são aleatórios,
@@ -72,6 +81,11 @@ falha de gravação e relógio anterior ao último consumo bloqueiam a ação. O
 recibos sobrevivem à reconexão e ao reinício. A validação local de cards
 continua obrigatória. Sequências de conversa tratam duplicatas de snapshot/live;
 o relay ainda pode omitir conteúdo ou apresentar histórico incompleto.
+
+Uma fala autenticada de um companheiro cujo `person` é o dono da conversa
+chega ao agente com o texto original, como fala da própria pessoa. Colegas e
+times legados conservam o prefixo de autoria pelo time. Essa distinção usa o
+roster autorizado, nunca o nome ou um campo enviado livremente na mensagem.
 
 Comentários de colegas usam a última audiência autenticada que receberam.
 Omissão de uma atualização pelo relay pode atrasar revogação nesses remetentes.
@@ -131,6 +145,9 @@ a fronteira do cliente com criptografia real. `protocol.test.ts` e
 `logic.test.ts` verificam contratos e regras do relay. O Worker local real é
 exercitado em `relay/src/worker.integration.test.ts`, e o mock web usa o mesmo
 canal cifrado para os fluxos E2E. Não houve auditoria de segurança independente.
+`team-organizations.test.ts` cobre renovação no mesmo socket, descarte após troca
+de organização e autoria de companheiros; o Worker real cobre expiração e
+rejeição de tickets de renovação inválidos.
 
 ## Bounded HTTP bodies
 

@@ -133,15 +133,15 @@ export function detach() {
 }
 
 /// Forward viewer input or JSON control to the online owner of the currently attached tab.
-export function write(data: string) {
-  if (!attached) return;
+export async function write(data: string): Promise<boolean> {
+  if (!attached) return false;
   const s = ctx.shares().get(attached.ws);
-  if (!s) return;
+  if (!s) return false;
   if (!s.online) {
     ctx.fail(t("err.team.offline"));
-    return;
+    return false;
   }
-  ctx.send({ t: "write", ws: s.id, tab: attached.tab, data });
+  return ctx.sendConfirmed({ t: "write", ws: s.id, tab: attached.tab, data });
 }
 
 function mirrorOf(tab: string): Uint8Array {

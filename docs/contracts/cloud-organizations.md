@@ -74,14 +74,22 @@ A remoção fica em Configurações → Dispositivos. Ver
 
 A conexão tem lease de no máximo 60 segundos, limitada também pela expiração
 do login. Alarme encerra sockets vencidos; entrada e saída verificam o prazo
-mesmo se o alarme atrasar. Após desconexão, o desktop obtém outro ticket, sujeito
-à autorização atual. Remoção/revogação impede tráfego novo em até 60 segundos.
+mesmo se o alarme atrasar. Após a prova de identidade, o relay anuncia
+`lease { expires_in }`, em milissegundos. Desktop e celular pedem outro ticket
+na metade desse prazo e enviam `renew { ticket }` pelo mesmo socket. O relay
+consulta o Cloud novamente e exige a mesma organização e o mesmo membro,
+com o socket ainda válido. A confirmação é outro `lease`; não repete handshake,
+presença nem snapshots quando o roster permanece igual. Remoção/revogação
+impede tráfego novo em até 60 segundos, inclusive após uma renovação.
 Uma nova matrícula usa outro ID e não recupera audiências privadas antigas.
 Falha no Cloud impede renovar; trabalho local continua disponível.
 
-A escolha de leases curtas mantém revogação sem webhook ou segredo de serviço,
-mas reconexões repetem snapshots de conversas observadas. Renovação no socket
-pode substituir essa estratégia se o custo justificar. Alarme utiliza a
+Clientes antigos ignoram `lease` e continuam reconectando ao vencer o prazo.
+Clientes novos só renovam quando o relay anuncia essa capacidade; um relay
+antigo conserva o caminho de reconexão. Após perda real da conexão, o cliente
+obtém outro ticket com backoff e recupera snapshots. TOFU e recibos permanecem
+intactos. A duração relativa evita depender da sincronia entre relógios.
+Decisão no [ADR 0034](../decisions/0034-mobile-pairing-continuity.md). Alarme utiliza a
 [API nativa de Durable Objects](https://developers.cloudflare.com/durable-objects/api/alarms/).
 
 Processos e transcripts continuam no Mac do dono. O relay encaminha conteúdo

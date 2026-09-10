@@ -77,6 +77,7 @@ como índice curto para agentes e `README.md` apresenta o produto.
 
 - [ADR 0032](decisions/0032-private-feedback.md): feedback privado no repositório do Cloud — Substituído pelo 0033.
 - [ADR 0033](decisions/0033-github-feedback-attachments.md): texto e imagens de feedback no GitHub — Aceito.
+- [ADR 0034](decisions/0034-mobile-pairing-continuity.md): renovação do relay sem desconexão e continuidade do pareamento móvel — Aceito.
 
 ## Qualidade e operação
 

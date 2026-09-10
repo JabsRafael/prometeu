@@ -3,6 +3,8 @@
 Data: 2026-09-08
 Status: Aceito. Conclui a etapa 2 do [ADR 0026](0026-portable-collaboration-core.md)
 sobre os dispositivos companheiros do [ADR 0027](0027-companion-devices.md).
+Autoria de mensagens dos próprios dispositivos especializada pelo
+[ADR 0034](0034-mobile-pairing-continuity.md).
 
 ## Contexto
 

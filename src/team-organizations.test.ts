@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Board, Workspace } from "./types";
 import { PROTO, type Down, type Member, type Up } from "../relay/src/protocol";
-import { generateIdentity } from "./team-crypto";
+import { generateIdentity, seal } from "./team-crypto";
+import { t } from "./i18n";
 
 const fake = vi.hoisted(() => ({
   config: null as unknown,
@@ -109,6 +110,64 @@ it("persists remote control independently and encrypts only for owner devices", 
     id: teamWork.id, shared: true, audience: null, remoteControl: false,
     team: "organization:organization1:membership1",
   }, undefined);
+});
+
+it("sends the owner's companion input as their own message and still identifies colleagues", async () => {
+  await team.selectOrganization("organization1"); await vi.advanceTimersByTimeAsync(0);
+  const phone = await generateIdentity(), colleague = await generateIdentity();
+  await sockets[0].welcome("membership1", {}, [
+    { id: "phone1", name: "Alice (iPhone)", person: "membership1", online: true, key: phone.publicKey },
+    { id: "colleague", name: "Bob", online: true, key: colleague.publicKey },
+  ]);
+  team.boardChanged(board({ ...workspace("organization:organization1:membership1"), remote_control: true }));
+  await vi.waitFor(() => expect(sockets[0].sent.some(frame => !(frame instanceof Uint8Array) && frame.t === "share")).toBe(true));
+  const identity = sockets[0].sent.find((frame): frame is Extract<Up, { t: "identity" }> => !(frame instanceof Uint8Array) && frame.t === "identity")!;
+  for (const [from, sender, expected] of [["phone1", phone, "Faz o merge"], ["colleague", colleague, t("team.remotePrompt", { name: "Bob", text: "Faz o merge" })]] as const) {
+    const id = crypto.randomUUID();
+    const data = { frame: { t: "write", ws: "workspace1", tab: "tab1", data: "Faz o merge" }, expires: Date.now() + 120_000 };
+    const box = await seal(sender, identity.key, [JSON.stringify(["organization", account.origin, "organization1"]), from, "membership1", id], new TextEncoder().encode(JSON.stringify(data)));
+    sockets[0].says({ t: "write", ws: "workspace1", tab: "tab1", from, data: "", encrypted: { id, boxes: { membership1: box } } });
+    await vi.waitFor(() => expect(fake.invoke.mock.calls.filter(([command]) => command === "chat_send"))
+      .toContainEqual(["chat_send", { session: "tab1", text: expected }, undefined]));
+  }
+});
+
+it("renews organization access on the same socket without changing presence or repeating identity", async () => {
+  await team.selectOrganization("organization1"); await vi.advanceTimersByTimeAsync(0);
+  await sockets[0].welcome("membership1");
+  const initialRequests = fake.invoke.mock.calls.filter(([command]) => command === "cloud_relay_ticket").length;
+  const changed = vi.fn();
+  const unlisten = team.onChange(changed);
+  // An older relay does not announce renewable leases; the client keeps the existing reconnect path.
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(fake.invoke.mock.calls.filter(([command]) => command === "cloud_relay_ticket")).toHaveLength(initialRequests);
+  for (let cycle = 1; cycle <= 3; cycle++) {
+    sockets[0].says({ t: "lease", expires_in: 60_000 });
+    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.waitFor(() => expect(sockets[0].sent.filter(frame => !(frame instanceof Uint8Array) && frame.t === "renew")).toHaveLength(cycle));
+    expect(team.status().phase).toBe("online");
+    expect(sockets).toHaveLength(1);
+  }
+  expect(sockets[0].sent.filter(frame => !(frame instanceof Uint8Array) && frame.t === "identity")).toHaveLength(1);
+  expect(changed).not.toHaveBeenCalled();
+  unlisten();
+});
+
+it("discards an unfinished renewal after switching organizations", async () => {
+  await team.selectOrganization("organization1"); await vi.advanceTimersByTimeAsync(0);
+  await sockets[0].welcome("membership1");
+  let finish!: (value: string) => void;
+  const previous = fake.invoke.getMockImplementation()!;
+  fake.invoke.mockImplementation((command, args) => command === "cloud_relay_ticket" && args.organization === "organization1"
+    ? new Promise(resolve => { finish = resolve; }) : previous(command, args));
+  sockets[0].says({ t: "lease", expires_in: 60_000 });
+  await vi.advanceTimersByTimeAsync(30_000);
+  await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+  await team.selectOrganization("organization2"); await vi.advanceTimersByTimeAsync(0);
+  await sockets[1].welcome("membership2");
+  finish(`wss://relay.test/organization/organization1?ticket=${"o".repeat(43)}&p=4`);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(sockets.flatMap(s => s.sent).some(frame => !(frame instanceof Uint8Array) && frame.t === "renew")).toBe(false);
 });
 
 it("does not publish legacy shares, another organization's shares or stale transcript responses after switching", async () => {
