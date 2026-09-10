@@ -30,9 +30,15 @@ do branch.
 
 No bootstrap desta nova linha, o GitHub Actions permanece desativado até haver
 um runner dedicado em `~/actions-runner-prometeu` e um `RELEASES_TOKEN`
-limitado a escrever em `gbrancaglione/prometeu-releases`. Não copie o token
+limitado a escrever em `prometeucorp/prometeu-releases`. Não copie o token
 amplo usado pelo `gh` local para o workflow. Depois de configurar os dois,
 reative Actions e rode primeiro um `workflow_dispatch`, sem tag.
+
+Um PAT fine-grained vale só para os recursos de um dono. Como o repositório de
+releases pertence à organização, o token precisa ser emitido com resource owner
+`prometeucorp`; um token emitido para a conta pessoal deixa de alcançá-lo. O
+workflow confere esse acesso antes de construir, para não gastar vinte minutos
+de build e assinatura numa tag que não vai virar draft.
 
 ## Criar release
 
