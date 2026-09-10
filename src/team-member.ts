@@ -1,6 +1,6 @@
 import { DOWN_FRAME_MAX, parseDown, parseUp, type Down, type Member, type Shared, type Up } from "../relay/src/protocol";
 import { fromBack, t } from "./i18n";
-import { TeamChannel } from "./team-channel";
+import { TeamChannel, personOf as personIn } from "./team-channel";
 import { fingerprint } from "./team-crypto";
 import { TeamSecurity } from "./team-security";
 import { defaultTransport, type SocketLike, type Transport } from "./team-transport";
@@ -66,6 +66,8 @@ export const report = (text: string) => void fail?.(text);
 
 export const current = () => ({ phase, you, members, membership });
 export const nameOf = (member: string) => members.find((m) => m.id === member)?.name ?? member.slice(0, 8);
+/// The person this device acts for; a second Mac of the same account is a companion of its first Mac (ADR 0036).
+export const personOf = (id: string | null): string | null => id === null ? null : personIn(members, id);
 /// One entry per person for audience and mention choices: companion devices fold into their primary member.
 export const people = (): Member[] => members.filter((m) => !m.person)
   .map((m) => ({ ...m, online: m.online || members.some((d) => d.person === m.id && d.online) }));

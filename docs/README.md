@@ -68,7 +68,7 @@ como índice curto para agentes e `README.md` apresenta o produto.
 - [ADR 0024](decisions/0024-typed-ipc.md): command-owned IPC arguments and results — Accepted.
 - [ADR 0025](decisions/0025-completion-sound-per-execution.md): som de conclusão por execução aceita, independente da leitura — Parcialmente substituído pelo 0029.
 - [ADR 0026](decisions/0026-portable-collaboration-core.md): núcleo de colaboração portável e acesso pelo celular via relay — Aceito; etapas decididas nos ADRs 0027 e 0028.
-- [ADR 0027](decisions/0027-companion-devices.md): dispositivos companheiros no relay com campo aditivo `person` — Aceito.
+- [ADR 0027](decisions/0027-companion-devices.md): dispositivos companheiros no relay com campo aditivo `person` — Aceito; ampliado pelo 0036.
 - [ADR 0028](decisions/0028-mobile-web-app.md): Prometeu no celular como app web servido pelo Cloud — Aceito.
 - [ADR 0029](decisions/0029-remove-alert-sound.md): remoção dos avisos sonoros, preservando indicadores visuais — Aceito.
 - [ADR 0030](decisions/0030-remote-control.md): controle remoto pessoal independente da audiência do time — Aceito.
@@ -79,6 +79,7 @@ como índice curto para agentes e `README.md` apresenta o produto.
 - [ADR 0033](decisions/0033-github-feedback-attachments.md): texto e imagens de feedback no GitHub — Substituído pelo 0035.
 - [ADR 0034](decisions/0034-mobile-pairing-continuity.md): renovação do relay sem desconexão e continuidade do pareamento móvel — Aceito.
 - [ADR 0035](decisions/0035-feedback-requires-account.md): feedback exige conta Prometeu — Aceito.
+- [ADR 0036](decisions/0036-second-mac-as-companion.md): segundo Mac da mesma conta entra como dispositivo companheiro — Aceito.
 
 ## Qualidade e operação
 

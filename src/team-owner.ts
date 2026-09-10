@@ -1,6 +1,6 @@
 import { SNAPSHOT, decodeBinary, encodeLive, encodeSnapshot, type Down, type Segment, type Share, type Up, type Watching } from "../relay/src/protocol";
 import { t } from "./i18n";
-import type { TeamChannel } from "./team-channel";
+import { personOf, type TeamChannel } from "./team-channel";
 import { remoteControl as parseRemoteControl } from "./team-control";
 import type { Context, Feature, Gate, OwnerHost } from "./team-ports";
 import type { Board, Workspace } from "./types";
@@ -163,9 +163,10 @@ const mine = (tab: string) => tabOwnedBy(tab, new Set(announced.keys()));
 function admitted(audience: string[] | null, remoteControl: boolean, member: string): boolean {
   const owner = ctx.you();
   if (member === owner) return true;
-  const person = ctx.members().find(m => m.id === member)?.person;
-  if (person === owner) return remoteControl;
-  return !audience || audience.includes(member) || (!!person && audience.includes(person));
+  const members = ctx.members();
+  const person = personOf(members, member);
+  if (owner && person === personOf(members, owner)) return remoteControl;
+  return !audience || audience.includes(member) || audience.includes(person);
 }
 
 function canReceive(tab: string, member: string): boolean {
@@ -344,6 +345,7 @@ function typed(ws: string, tab: string, data: string, from: string) {
     if (parsed.frame) void host.control(tab, parsed.frame).catch(() => {});
     return;
   }
-  const ownDevice = from === ctx.you() || ctx.members().some(m => m.id === from && m.person === ctx.you());
+  const you = ctx.you(), members = ctx.members();
+  const ownDevice = !!you && personOf(members, from) === personOf(members, you);
   void host.prompt(tab, ownDevice ? data : t("team.remotePrompt", { name: ctx.nameOf(from), text: data })).catch(() => {});
 }

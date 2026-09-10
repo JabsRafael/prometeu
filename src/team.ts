@@ -48,7 +48,7 @@ member.register(comments.install);
 member.register(viewer.install);
 
 export const {
-  useTransport, onChange, onError, nameOf, people,
+  useTransport, onChange, onError, nameOf, people, personOf,
   securityChanges, securityCode, securityChangeCodes, acceptSecurityKey,
 } = member;
 export const { setSink, isRemote, attachedTab, attach, detach, write } = viewer;

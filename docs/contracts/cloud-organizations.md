@@ -40,8 +40,8 @@ As rotas antigas de conta e catálogo pessoal permanecem inalteradas.
 
 | Rota | Autenticação e resposta |
 | --- | --- |
-| `GET /api/organizations` | Bearer desktop; `{ organizations: [{ id, slug, name, member, role }] }`, somente matrículas aceitas |
-| `POST /api/organizations/:id/relay-ticket` | Bearer desktop; JSON; `{ ticket, relay }`; exige matrícula atual |
+| `GET /api/organizations?device=` | Bearer desktop; `{ organizations: [{ id, slug, name, member, role }] }`, somente matrículas aceitas; `device` opcional define `member` (ver abaixo) |
+| `POST /api/organizations/:id/relay-ticket` | Bearer desktop; JSON `{ device?, label? }`; `{ ticket, relay }`; exige matrícula atual; 422 para `device` inválido |
 | `POST /api/relay/authorize` | JSON `{ ticket, organization }`; capacidade de uso único; devolve `{ organization, member, name, expires_at, members: [{ id, name, person? }] }` ou 401 |
 | `POST /orgs/:slug/companion-ticket` | Cookie e CSRF; JSON `{ companion, label? }`; `{ ticket, relay }`; exige matrícula atual; 422 para ID inválido ou de outra pessoa |
 | `DELETE /companions/:id` | Cookie e CSRF; remove o dispositivo da pessoa e revoga seus tickets |
@@ -66,11 +66,19 @@ Um navegador entra como dispositivo companheiro: `companion` é um ID
 único no Cloud e ligado à pessoa que o registrou. O ticket de companheiro exige
 sessão de navegador e faz `member` ser o ID do companheiro; o roster lista cada
 companheiro com `person` igual à matrícula da pessoa naquela organização e
-`name` igual ao nome da pessoa com o rótulo entre parênteses. Tickets desktop
-continuam identificando a matrícula. Pessoas sempre cabem no roster; os
-companheiros ocupam as vagas até 64 por uso recente, no máximo cinco por pessoa.
-A remoção fica em Configurações → Dispositivos. Ver
+`name` igual ao nome da pessoa com o rótulo entre parênteses. Pessoas sempre
+cabem no roster; os companheiros ocupam as vagas até 64 por uso recente, no
+máximo cinco por pessoa. A remoção fica em Configurações → Dispositivos. Ver
 [ADR 0027](../decisions/0027-companion-devices.md).
+
+Cada Mac envia `device`, um ID no mesmo formato gerado uma vez em
+`device.json` e mantido através de logouts, com `label` igual ao nome do
+computador. O primeiro dispositivo a consultar ou pedir ticket reivindica a
+matrícula (`desktop_id`) e continua com `member` igual ao ID da matrícula.
+Qualquer outro Mac da pessoa recebe `member` igual ao próprio `device`,
+registrado como companheiro com o rótulo do Mac; tickets de companheiro
+aceitam sessão desktop ou de navegador. Sem `device`, o desktop identifica a
+matrícula como antes. Ver [ADR 0036](../decisions/0036-second-mac-as-companion.md).
 
 A conexão tem lease de no máximo 60 segundos, limitada também pela expiração
 do login. Alarme encerra sockets vencidos; entrada e saída verificam o prazo
@@ -103,7 +111,8 @@ ausência de forward secrecy, estão no [ADR 0022](../decisions/0022-end-to-end-
 - `cloud_organizations`: retorna `{ user, origin, organizations }`; não consulta
   rede quando desconectado.
 - `cloud_relay_ticket`: recebe `{ organization, user, expectedOrigin }`; exige
-  identidade/origem iguais à credencial local e retorna a URL temporária.
+  identidade/origem iguais à credencial local e retorna a URL temporária. O
+  Rust acrescenta o ID e o rótulo do dispositivo (`device.json`) aos dois IPCs.
 - `team_config_set`: continua guardando JSON privado. Configuração de organização
   mantém campos legados, com `secret` e `credential` vazios, e acrescenta
   `cloud: { user, origin, slug, name }`. Tickets nunca são persistidos.
