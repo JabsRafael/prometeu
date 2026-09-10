@@ -4,6 +4,34 @@ O que muda no Prometeu, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.7.0] - 2026-09-10
+<!-- lang:pt-BR -->
+
+### Novidades
+
+- **feedback:** Pede conta conectada para enviar relatos
+- **anexos:** Cola imagem da área de transferência no chat e no lançador
+
+### Correções
+
+- **abas:** Seleciona a conversa restante ao fechar uma aba
+- **pareamento:** Estabiliza conexão e melhora uso no celular
+
+<!-- lang:en -->
+
+### New
+
+- **feedback:** Asks for a connected account to send reports
+
+- **attachments:** Pastes clipboard images into chat and workspace creation
+
+### Fixes
+
+- **tabs:** Selects the remaining conversation when a tab closes
+
+- **pairing:** Stabilizes connections and improves mobile messaging
+
+<!-- lang:end -->
 ## [0.6.2] - 2026-09-10
 <!-- lang:pt-BR -->
 
