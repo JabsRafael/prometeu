@@ -10,6 +10,16 @@ import { MobileView } from "./view";
 /// The Cloud renders the page, authenticates the session and issues companion tickets. See ADR 0028.
 
 const root = document.getElementById("app")!;
+// iOS resizes the visual viewport for the keyboard without resizing the layout viewport.
+const viewport = window.visualViewport;
+const fit = () => {
+  root.style.setProperty("--viewport-height", `${viewport?.height ?? window.innerHeight}px`);
+  root.style.setProperty("--viewport-top", `${viewport?.offsetTop ?? 0}px`);
+};
+viewport?.addEventListener("resize", fit);
+viewport?.addEventListener("scroll", fit);
+window.addEventListener("resize", fit);
+fit();
 const csrf = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? "";
 const config = readConfig(root, csrf);
 use(root.dataset.lang === "en" ? "en" : "pt-BR");

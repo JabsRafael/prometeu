@@ -1,4 +1,4 @@
-import { DOWN_FRAME_MAX, parseDown, type Down, type Member, type Shared, type Up } from "../relay/src/protocol";
+import { DOWN_FRAME_MAX, parseDown, parseUp, type Down, type Member, type Shared, type Up } from "../relay/src/protocol";
 import { fromBack, t } from "./i18n";
 import { TeamChannel } from "./team-channel";
 import { fingerprint } from "./team-crypto";
@@ -49,6 +49,7 @@ let shares = new Map<string, Shared>();
 let attempt = 0;
 let retry = 0;
 let pinger = 0;
+let renewer = 0;
 
 const listeners = new Set<() => void>();
 export const onChange = (cb: () => void) => {
@@ -162,6 +163,24 @@ async function reconnect() {
   }
   s.binaryType = "arraybuffer";
   sock = s;
+  // The same ticket port serves desktop and browser renewals. Never move a ticket to a different relay or room.
+  const renew = async () => {
+    if (sock !== s || generation !== connection) return;
+    try {
+      const next = await m.url();
+      if (sock !== s || generation !== connection) return;
+      if (!next) { s.close(); return; }
+      const endpoint = new URL(next), original = new URL(url);
+      const frame = parseUp({ t: "renew", ticket: endpoint.searchParams.get("ticket") });
+      if (endpoint.origin !== original.origin || endpoint.pathname !== original.pathname || !frame) {
+        s.close(); return;
+      }
+      s.send(JSON.stringify(frame));
+    } catch {
+      // A temporary Cloud failure can recover while the current lease remains valid.
+      if (sock === s && generation === connection) renewer = setTimeout(renew, 5_000);
+    }
+  };
   s.onopen = () => {
     if (sock !== s) return;
     attempt = 0;
@@ -194,6 +213,13 @@ async function reconnect() {
           const identity = await activeChannel.identity(frame.challenge!);
           if (sock === s) s.send(JSON.stringify(identity));
         }
+        if (plain?.t === "lease") {
+          if (!m.legacy) {
+            clearTimeout(renewer);
+            renewer = setTimeout(renew, Math.max(1_000, Math.floor(plain.expires_in / 2)));
+          }
+          return;
+        }
         if (plain) handle(plain);
         changed();
       });
@@ -212,6 +238,7 @@ async function reconnect() {
     if (sock !== s) return;
     sock = null;
     clearInterval(pinger);
+    clearTimeout(renewer);
     members = members.map((m) => ({ ...m, online: false }));
     for (const sh of shares.values()) sh.online = false;
     for (const feature of features) feature.closed?.();
@@ -236,6 +263,7 @@ export function disconnect() {
   clearTimeout(retry);
   retry = 0;
   clearInterval(pinger);
+  clearTimeout(renewer);
   const s = sock;
   sock = null;
   s?.close();

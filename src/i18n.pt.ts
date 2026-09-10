@@ -1257,7 +1257,7 @@ export const PT = {
   "mobile.empty": "Nenhuma conversa compartilhada com você agora. Compartilhe um workspace no Mac.",
   "mobile.back": "Voltar",
   "mobile.send": "Enviar",
-  "mobile.placeholder": "Falar com o agente no Mac de {name}",
+  "mobile.placeholder": "Escreva para o agente…",
   "mobile.ownerOffline": "O dono está offline; a conversa não recebe fala.",
   "mobile.comments": "Comentários",
   "mobile.comment": "Comentar",

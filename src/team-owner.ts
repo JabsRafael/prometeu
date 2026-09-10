@@ -344,5 +344,6 @@ function typed(ws: string, tab: string, data: string, from: string) {
     if (parsed.frame) void host.control(tab, parsed.frame).catch(() => {});
     return;
   }
-  void host.prompt(tab, t("team.remotePrompt", { name: ctx.nameOf(from), text: data })).catch(() => {});
+  const ownDevice = from === ctx.you() || ctx.members().some(m => m.id === from && m.person === ctx.you());
+  void host.prompt(tab, ownDevice ? data : t("team.remotePrompt", { name: ctx.nameOf(from), text: data })).catch(() => {});
 }

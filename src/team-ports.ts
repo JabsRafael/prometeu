@@ -17,7 +17,7 @@ export type Membership = {
   shareScope: string;
   /// Shared-secret teams accept legacy boards without share_team and skip Cloud-only reconciliation.
   legacy: boolean;
-  /// A fresh socket URL per connection: a one-time ticket for organizations, a credential for legacy teams.
+  /// A fresh socket URL per connection or lease renewal: a one-time ticket for organizations, a credential for legacy teams.
   /// Null gives up silently; a rejection is reported and retried with backoff.
   url(): Promise<string | null>;
 };
