@@ -1,5 +1,5 @@
 # Build tags matching v* on the self-hosted Mac, sign with repository Secrets and create a draft in
-# gbrancaglione/prometeu-releases. Notes come from the version's CHANGELOG.md section.
+# prometeucorp/prometeu-releases. Notes come from the version's CHANGELOG.md section.
 # Drafts do not reach the updater's releases/latest/download/latest.json endpoint. Install and review the
 # draft DMG before running sh scripts/release.sh publish.
 # The updater accepts only newer versions; recovery from a published defect requires a newer release.
@@ -25,7 +25,7 @@ permissions:
   contents: read
 
 env:
-  REPO: gbrancaglione/prometeu-releases
+  REPO: prometeucorp/prometeu-releases
 
 jobs:
   build:
@@ -136,7 +136,7 @@ jobs:
           # and restore Finder AppleScript.
           TAURI_BUNDLER_DMG_IGNORE_CI: "false"
         with:
-          owner: gbrancaglione
+          owner: prometeucorp
           repo: prometeu-releases
           releaseCommitish: main
           tagName: ${{ github.ref_name }}

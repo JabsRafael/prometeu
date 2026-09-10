@@ -30,7 +30,7 @@ do branch.
 
 No bootstrap desta nova linha, o GitHub Actions permanece desativado até haver
 um runner dedicado em `~/actions-runner-prometeu` e um `RELEASES_TOKEN`
-limitado a escrever em `gbrancaglione/prometeu-releases`. Não copie o token
+limitado a escrever em `prometeucorp/prometeu-releases`. Não copie o token
 amplo usado pelo `gh` local para o workflow. Depois de configurar os dois,
 reative Actions e rode primeiro um `workflow_dispatch`, sem tag.
 

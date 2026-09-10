@@ -10,7 +10,7 @@ elas existe uma pessoa:
 1. **cortar** — `sh scripts/release.sh [versão]` calcula o número a partir dos
    commits, gera a seção do `CHANGELOG.md`, commita, tagueia, empurra e
    acompanha o CI, que constrói assinado e deixa uma release **draft** em
-   `gbrancaglione/prometeu-releases`.
+   `prometeucorp/prometeu-releases`.
 2. **publicar** — depois que o usuário instalou o `.dmg` da draft e conferiu,
    `sh scripts/release.sh publish` tira a draft do ar e o updater passa a
    entregá-la.
