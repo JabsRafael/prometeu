@@ -1739,7 +1739,14 @@ const mockCommands: IpcHandlers = {
     emit("board", board);
     return project;
   },
-  close_tab() {},
+  // Mirrors session.rs: the closed tab leaves the board and the first survivor becomes active.
+  close_tab(args) {
+    const workspace = board.workspaces.find((x) => x.id === args.workspace);
+    if (!workspace) return;
+    workspace.tabs = workspace.tabs.filter((t) => t.id !== args.tab);
+    if (workspace.active === args.tab) workspace.active = workspace.tabs[0]?.id ?? null;
+    emit("board", board);
+  },
   pty_resize() {},
   remove_workspace() {},
   reveal() {},
