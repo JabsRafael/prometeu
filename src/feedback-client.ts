@@ -1,6 +1,8 @@
 import { feedbackWidget, type Feedback, type FeedbackLabels } from "../packages/design-system/src/feedback";
 import { FEEDBACK_EN, FEEDBACK_PT } from "./feedback-i18n";
 
+type Report = { id: string; kind: string; description: string; source: string; version?: string; image?: { type: string; data: string } };
+
 export function mountFeedback(options: {
   source: "desktop" | "site" | "cloud";
   origin: () => string;
@@ -8,6 +10,9 @@ export function mountFeedback(options: {
   version?: string;
   capture?: () => Promise<File | undefined>;
   error?: (cause: unknown) => string;
+  /** Delivery for hosts that hold the account credential outside the webview. */
+  send?: (report: Report) => Promise<void>;
+  blocked?: () => { message: string; label: string; run: () => void } | undefined;
 }) {
   const copy = options.locale.startsWith("pt") ? FEEDBACK_PT : FEEDBACK_EN;
   const labels = Object.fromEntries(Object.entries(copy).map(([key, value]) => [key.slice("feedback.".length), value])) as FeedbackLabels;
@@ -16,18 +21,23 @@ export function mountFeedback(options: {
     labels,
     error: cause => cause instanceof Error ? cause.message : options.error?.(cause) ?? String(cause),
     capture: options.capture,
+    blocked: options.blocked,
     submit: async (feedback: Feedback) => {
       const image = feedback.image ? { type: feedback.image.type, data: await encodeImage(feedback.image) } : undefined;
       const content = JSON.stringify({ kind: feedback.kind, description: feedback.description, source: options.source, version: options.version, image });
       if (request?.body !== content) request = { id: crypto.randomUUID(), body: content };
+      const report: Report = { ...JSON.parse(content), id: request.id };
+      // The desktop keeps its account token in the backend, so it delivers there instead of here.
+      if (options.send) { await options.send(report); request = undefined; return; }
       const response = await fetch(`${options.origin()}/api/feedback`, {
-        method: "POST", credentials: "omit", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...JSON.parse(content), id: request.id }), signal: AbortSignal.timeout(30_000),
+        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(report), signal: AbortSignal.timeout(30_000),
       }).catch(() => { throw new Error(copy["feedback.sendError"]); });
       if (!response.ok) {
+        if (response.status === 401) throw new Error(copy["feedback.needAccount"]);
         if (response.status === 429) throw new Error(copy["feedback.rateLimit"]);
         const body = await response.json().catch(() => null);
-        if (body?.error === "uncertain") throw new Error(`${copy["feedback.uncertain"]} ${request.id}`);
+        if (body?.error === "uncertain") throw new Error(copy["feedback.uncertain"].replace("{id}", request.id));
         throw new Error(copy["feedback.sendError"]);
       }
       const result = await response.json();

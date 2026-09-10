@@ -80,7 +80,7 @@ export function accountButton() {
   return control;
 }
 
-function connect() {
+export function connect() {
   let attempt: Login | null = null;
   let closed = false;
   let busy = false;

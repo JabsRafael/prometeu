@@ -210,3 +210,9 @@ fronteira devem aparecer no binding.
 
 `feedback_capture` é aditivo, sem argumentos, e retorna PNG base64 ou `null`.
 Veja [captura e limites](feedback.md). O mock retorna imagem fictícia.
+
+`feedback_send` recebe `{ report }` e não retorna valor. O backend entrega ao
+Cloud com a credencial da conta, que nunca entra na webview, e devolve erro com
+código i18n: `feedback.needAccount` sem conta ou 401, `feedback.rateLimit` no
+limite, `feedback.uncertain` com `{id}` em entrega incerta e `feedback.sendError`
+no resto. O mock registra o relato e nada sai da máquina.

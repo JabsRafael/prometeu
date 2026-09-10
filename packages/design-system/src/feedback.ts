@@ -10,6 +10,8 @@ export function feedbackWidget(options: {
   submit: (feedback: Feedback) => Promise<void>;
   capture?: () => Promise<File | undefined>;
   error: (error: unknown) => string;
+  /** Checked on every open: while it answers, the panel offers that action instead of the form. */
+  blocked?: () => { message: string; label: string; run: () => void } | undefined;
 }) {
   const labels = options.labels;
   const root = h("div", "ui-feedback");
@@ -87,7 +89,7 @@ export function feedbackWidget(options: {
   }
   const send = button(labels.send, () => {}, "pri");
   send.type = "submit";
-  form.append(heading, kinds, field(labels.description, description), attachments,
+  form.append(kinds, field(labels.description, description), attachments,
     h("p", "ui-hint", labels.privacy), error, status, send);
   form.onsubmit = async event => {
     event.preventDefault();
@@ -101,11 +103,19 @@ export function feedbackWidget(options: {
     } catch (cause) { error.textContent = options.error(cause); }
     finally { setBusy(false); }
   };
-  panel.append(form);
+  const notice = h("div", "ui-feedback-notice");
+  notice.hidden = true;
+  panel.append(heading, notice, form);
   const trigger = button(labels.trigger, () => {
     if (!panel.hidden) return close();
+    const stop = options.blocked?.();
+    notice.replaceChildren();
+    notice.hidden = !stop;
+    form.hidden = !!stop;
+    if (stop) notice.append(h("p", "ui-hint", stop.message), button(stop.label, stop.run, "pri"));
     panel.hidden = false; status.textContent = "";
-    trigger.setAttribute("aria-expanded", "true"); description.focus();
+    trigger.setAttribute("aria-expanded", "true");
+    (stop ? notice.querySelector("button")! : description).focus();
   }, "pri");
   trigger.classList.add("ui-feedback-trigger");
   trigger.setAttribute("aria-controls", panel.id);

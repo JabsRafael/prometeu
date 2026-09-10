@@ -1,7 +1,8 @@
 # ADR 0033 — Texto e imagens de feedback no GitHub
 
 Data: 2026-09-10
-Status: aceito. Substitui o [ADR 0032](0032-private-feedback.md).
+Status: substituído pelo [ADR 0035](0035-feedback-requires-account.md), que passou a
+exigir conta no envio. Substitui o [ADR 0032](0032-private-feedback.md).
 
 ## Contexto
 

@@ -2,14 +2,15 @@ import { expect, test } from "@playwright/test";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aHlcAAAAASUVORK5CYII=", "base64");
 
+const account = { user: { id: "cloud-user", name: "Gustavo Brancaglione", email: "gustavo@example.com" }, origin: "https://app.prometeu.co", offline: false };
+
+const signedIn = (failures = 0) => `
+  localStorage.setItem("mock:cloud", ${JSON.stringify(JSON.stringify(account))});
+  localStorage.setItem("mock:feedbackFailures", "${failures}");
+`;
+
 test("feedback preserves draft and attachment on failure and retries the same submission", async ({ page }) => {
-  const requests: Record<string, unknown>[] = [];
-  await page.route("**/api/feedback", async route => {
-    const body = route.request().postDataJSON(); requests.push(body);
-    await route.fulfill(requests.length === 1
-      ? { status: 503, json: { error: "unavailable" } }
-      : { status: 201, json: { id: body.id } });
-  });
+  await page.addInitScript(signedIn(1));
   await page.goto("/");
   const trigger = page.getByRole("button", { name: "Feedback", exact: true });
   await expect(page.locator(".railfoot").getByRole("button", { name: "Feedback", exact: true })).toBeVisible();
@@ -23,7 +24,7 @@ test("feedback preserves draft and attachment on failure and retries the same su
   await expect(description).toBeFocused();
   const send = panel.getByRole("button", { name: "Enviar feedback" });
   await description.fill("   "); await send.click();
-  expect(requests).toHaveLength(0);
+  expect(await attempts(page)).toHaveLength(0);
   await description.fill("Sugestão de teste <script>não executar</script>");
   await panel.getByRole("button", { name: "Ideia", exact: true }).click();
   await panel.getByLabel("Anexar imagem", { exact: false }).setInputFiles({ name: "example.png", mimeType: "image/png", buffer: png });
@@ -36,12 +37,35 @@ test("feedback preserves draft and attachment on failure and retries the same su
   await trigger.click(); await send.click();
   await expect(panel.getByRole("status")).toContainText("Feedback enviado");
   await expect(panel.getByRole("link")).toHaveCount(0);
-  expect(requests[1]).toEqual(requests[0]);
-  expect(requests[1]).toMatchObject({ kind: "idea", source: "desktop", image: { type: "image/png", data: png.toString("base64") } });
+  const sent = await attempts(page);
+  expect(sent).toHaveLength(2);
+  expect(sent[1]).toEqual(sent[0]);
+  expect(sent[1]).toMatchObject({ kind: "idea", source: "desktop", image: { type: "image/png", data: png.toString("base64") } });
   await expect(description).toHaveValue(""); await expect(panel.getByRole("img")).toBeHidden();
 });
 
+test("feedback without an account offers connecting one instead of the form", async ({ page }) => {
+  await page.goto("/");
+  const trigger = page.getByRole("button", { name: "Feedback", exact: true });
+  await trigger.click();
+  const panel = page.getByRole("dialog", { name: "Deixe seu feedback" });
+  await expect(panel).toContainText("Conecte sua conta Prometeu");
+  await expect(panel.getByRole("textbox")).toBeHidden();
+  const connect = panel.getByRole("button", { name: "Conectar conta" });
+  await expect(connect).toBeFocused();
+  await connect.click();
+  // Connecting runs the same device authorization as the account button in the sidebar.
+  await expect(page.locator(".cloud-account").getByRole("status")).toHaveText("ABCD-EFGH");
+  await page.evaluate(() => localStorage.setItem("mock:cloudApproved", "1"));
+  await expect(page.locator(".cloud-account")).toContainText("Gustavo Brancaglione");
+  await page.keyboard.press("Escape");
+  await trigger.click();
+  await expect(panel.getByRole("textbox")).toBeVisible();
+  await expect(panel).not.toContainText("Conecte sua conta Prometeu");
+});
+
 test("feedback stays usable above modal dialogs, captures a preview and fits mobile", async ({ page }) => {
+  await page.addInitScript(signedIn());
   await page.goto("/");
   const trigger = page.getByRole("button", { name: "Feedback", exact: true });
   await trigger.click();
@@ -66,3 +90,7 @@ test("feedback stays usable above modal dialogs, captures a preview and fits mob
   await trigger.click();
   await expect(panel.getByRole("textbox")).toHaveValue("Falha no modal");
 });
+
+function attempts(page: import("@playwright/test").Page) {
+  return page.evaluate(() => JSON.parse(localStorage.getItem("mock:feedbackAttempts") ?? "[]") as Record<string, unknown>[]);
+}

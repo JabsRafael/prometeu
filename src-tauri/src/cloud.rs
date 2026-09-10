@@ -93,6 +93,7 @@ pub async fn cloud_organizations() -> Result<Organizations, String> {
             Some(&saved.token),
             None,
             262_144,
+            Duration::from_secs(12),
         )?;
         if code != 200 {
             return Err(i18n::t("err.cloud.network"));
@@ -160,6 +161,7 @@ pub async fn cloud_relay_ticket(
             Some(&saved.token),
             Some(json!({})),
             16_384,
+            Duration::from_secs(12),
         )?;
         if code != 200 {
             return Err(i18n::t("err.cloud.network"));
@@ -241,15 +243,18 @@ fn request(
         token,
         body,
         65_536,
+        Duration::from_secs(12),
     )
 }
 
 /// Call the API with the stored credential, or return None without an account. Callers receive only
-/// status and JSON, never the token.
+/// status and JSON, never the token. Uploads forwarded to a third party need more than the default
+/// timeout, so the caller chooses it.
 pub(crate) fn api(
     method: Method,
     path: &str,
     body: Option<Value>,
+    timeout: Duration,
 ) -> Result<Option<(u16, Value)>, String> {
     let Some(saved) = load()? else {
         return Ok(None);
@@ -261,6 +266,7 @@ pub(crate) fn api(
         Some(&saved.token),
         body,
         512 * 1024,
+        timeout,
     )
     .map(Some)
 }
@@ -276,9 +282,10 @@ fn http(
     token: Option<&str>,
     body: Option<Value>,
     max: usize,
+    timeout: Duration,
 ) -> Result<(u16, Value), String> {
     let client = Client::builder()
-        .timeout(Duration::from_secs(12))
+        .timeout(timeout)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent("Prometeu Desktop")
         .build()

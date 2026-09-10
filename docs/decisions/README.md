@@ -65,4 +65,5 @@ Status: Proposto
 | [0030](0030-remote-control.md) | Aceito | controle remoto pessoal independente da audiência do time |
 | [0031](0031-public-feedback.md) | Substituído pelo 0032 | feedback público |
 | [0032](0032-private-feedback.md) | Substituído pelo 0033 | feedback privado no repositório do Cloud |
-| [0033](0033-github-feedback-attachments.md) | Aceito | texto e imagens de feedback no GitHub |
+| [0033](0033-github-feedback-attachments.md) | Substituído pelo 0035 | texto e imagens de feedback no GitHub |
+| [0035](0035-feedback-requires-account.md) | Aceito | feedback exige conta Prometeu |

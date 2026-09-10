@@ -13,7 +13,7 @@ para virar capacidade contratual.
 
 | Capacidade | Claude | Codex | Evidência principal |
 | --- | --- | --- | --- |
-| feedback privado com imagem e captura | independente do CLI | independente do CLI | `e2e/feedback.spec.ts`, testes `FeedbackTest` no Cloud; captura nativa e GitHub real exigem smoke manual |
+| feedback privado com conta, imagem e captura | independente do CLI | independente do CLI | `e2e/feedback.spec.ts`, testes `FeedbackTest` no Cloud; captura nativa e GitHub real exigem smoke manual |
 | organizações, convites e compartilhamento institucional | mesmo relay V4; execução local | mesmo relay V4; execução local | `team-organizations.test.ts`, `worker.integration.test.ts`, `e2e/organizations.spec.ts`, integração/browser Rails |
 | E2EE automática com TOFU na colaboração | mesmo canal HPKE Auth; sem forward secrecy | mesmo canal HPKE Auth; sem forward secrecy | `team-crypto.test.ts`, `team-security.test.ts`, `team-channel.test.ts`, `worker.integration.test.ts`, comentários E2E Chromium/WebKit |
 | conta opcional do Prometeu na barra lateral | independente do CLI | independente do CLI | `cloud.rs`, `e2e/cloud.spec.ts`; nenhum transcript é enviado |
