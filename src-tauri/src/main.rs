@@ -13,6 +13,7 @@ mod codex;
 mod conversation;
 mod dock;
 mod domain;
+mod feedback;
 mod file_drop;
 mod github;
 mod i18n;
@@ -167,6 +168,7 @@ fn main() {
             browser::browser_reload,
             browser::browser_close,
             browser::open_external,
+            feedback::feedback_capture,
             session::pr_prompt,
             github::pr_open,
             github::refresh_prs,

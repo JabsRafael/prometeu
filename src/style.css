@@ -60,6 +60,9 @@ body.norail .top .nav { margin-left: 0; }
   border-top: 1px solid var(--line-side);
 }
 .railfoot .ver { font-size: 11px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+#feedback { min-height: 20px; padding: 0 6px; font-size: 11px; flex: none; }
+/* Open feedback above its sidebar footer control. */
+.ui-feedback-desktop { inset: auto auto 64px 12px; }
 /* Show the updater only when a download is available; it disappears after restart. */
 #update { height: 20px; padding: 0 8px; font-size: 11px; font-weight: 500; color: var(--accent); }
 #update:hover { background: var(--bg-raised-2); }

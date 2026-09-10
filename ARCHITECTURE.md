@@ -40,7 +40,7 @@ inicial é aceita pelo diretório do servidor (TOFU). Ver [limites](docs/decisio
 | Codex adapter | `codex.rs` | converter comandos V1 para JSON-RPC e JSON-RPC para eventos V1 | DOM, estado do quadro ou relay |
 | Relay | Worker + Durable Object | matrícula, presença, audiência, comentários e encaminhamento | execução do agente ou acesso ao worktree |
 | Mock web | `src/mock.ts` | responder ao mesmo IPC para desenvolvimento e E2E da UI | substituir testes do backend Rust |
-| Prometeu Cloud (projeto separado) | Rails 8.1 + SQLite + ERB | conta opcional, organizações, convites e catálogos de ferramentas | execução de agentes, arquivos, segredos ou transcripts nesta etapa |
+| Prometeu Cloud (projeto separado) | Rails 8.1 + SQLite + ERB | conta opcional, organizações, convites e catálogos de ferramentas | execução de agentes, arquivos gerais, segredos ou transcripts |
 
 ## Fluxo principal atual
 
@@ -171,3 +171,12 @@ documentar, introduzir contratos testados e só então mover implementações.
 Organizações autorizam acesso ao relay por tickets de uso único. O desktop
 seleciona a organização; consentimento de compartilhamento é preso à matrícula.
 Ver [contrato](docs/contracts/cloud-organizations.md) e [ADR 0021](docs/decisions/0021-cloud-organizations.md).
+
+## Feedback privado
+
+O widget compartilhado recebe texto e imagem por escolha explícita. O Cloud
+encaminha texto e imagem à issue privada em `prometeucorp/prometeu-cloud`,
+sem credenciais GitHub no cliente. O SQLite guarda somente recibos de entrega,
+sem conteúdo. Acesso a texto e anexos pertence ao GitHub. Não participa do
+compartilhamento E2EE.
+Veja [contrato e limites](docs/contracts/feedback.md).

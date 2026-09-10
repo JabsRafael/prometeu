@@ -1570,6 +1570,9 @@ const mockCommands: IpcHandlers = {
   scripts_prompt() {
     return "Descubra como preparar e como rodar este projeto, e escreva isso em `.prometeu/settings.toml`.";
   },
+  feedback_capture() {
+    return "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aHlcAAAAASUVORK5CYII=";
+  },
   // External links open a separate browser tab.
   open_external(args) {
     window.open(String(args.url), "_blank", "noreferrer");

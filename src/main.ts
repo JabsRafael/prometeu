@@ -16,6 +16,7 @@ import * as dock from "./dock";
 import * as dockbar from "./dockbar";
 import { icon } from "./icons";
 import * as links from "./links";
+import * as feedback from "./feedback";
 import { current, fromBack, paint, t } from "./i18n";
 import * as issues from "./issues";
 import * as mcp from "./mcp";
@@ -474,7 +475,7 @@ grip.addEventListener("dblclick", () => {
 
 /// Dispatch actions from document shortcuts and native Mac menu accelerators. Return whether the shortcut was handled so its key event can be consumed.
 function act(a: appmenu.Action): boolean {
-  if (document.querySelector("dialog[open]")) return true;
+  if (document.querySelector("dialog[open], .ui-feedback-panel:not([hidden])")) return true;
   const open = ws.id();
   // Local workspace shortcuts do nothing for remote shares instead of sending unknown IDs to the backend.
   const own = open && !team.isRemote(open) ? open : null;
@@ -582,6 +583,7 @@ for (const [id, name] of [
 }
 
 links.init(say);
+feedback.init();
 void update.init(say);
 // Discover installed agents without delaying the UI; the launcher retains Claude compatibility during bootstrap.
 void loadAgents().then(() => statusbar.showAgents(installed()));

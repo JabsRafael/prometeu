@@ -605,3 +605,11 @@ acompanhamento. O botão Open PR pode usar uma ação ou manter o comportamento 
 Detalhes e limites no [contrato de ações](docs/contracts/actions.md). Testes em
 [actions.test.ts](src/actions.test.ts), [actions.rs](src-tauri/src/actions.rs) e
 [actions.spec.ts](e2e/actions.spec.ts).
+
+## Feedback
+
+O botão **Feedback** recebe problemas, ideias e outros relatos. Você pode anexar
+uma imagem ou capturar uma janela e revisar a miniatura antes de enviar.
+Feedback é tratado em privado pela equipe Prometeu. Revise a captura e remova
+senhas e outros dados sensíveis antes de enviar.
+A entrega depende da configuração do Cloud. Veja o [contrato](docs/contracts/feedback.md).

@@ -1,7 +1,9 @@
+import { FEEDBACK_EN } from "./feedback-i18n";
 import type * as pt from "./i18n.pt";
 
 /// Implement every Portuguese catalog key in English. Record rejects missing translations and obsolete keys.
 export const EN: Record<keyof typeof pt.PT, string> = {
+  ...FEEDBACK_EN,
   "organization.legacy": "This legacy team still works. Manage new organizations and email invitations in Cloud; selecting an organization preserves a backup of this team.",
   "organization.scopeHint": "Choose an organization, then explicitly share each workspace. Switching organizations never shares existing workspaces with new people.",
   "organization.active": "Share workspaces with",

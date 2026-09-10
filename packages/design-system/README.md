@@ -169,3 +169,16 @@ juntos. Nenhum produto busca versões novas pela rede em runtime.
 Verificações: `e2e/design-system.spec.ts`, `e2e/ui.spec.ts` e
 `e2e/actions.spec.ts` no desktop; `test/helpers/design_system_components_test.rb`,
 `test/design_system_test.rb` e `test/browser/accounts.spec.js` no Cloud.
+
+## Widget de feedback
+
+`feedbackWidget({ labels, submit, capture?, error })` monta uma composição portátil
+com categorias, descrição, upload opcional, miniatura e envio assíncrono.
+`submit` recebe `{ kind, description, image?: File }`; `capture` retorna um `File`
+ou `undefined` ao cancelar. Textos chegam traduzidos. O host controla transporte
+e captura. `trigger` expõe o botão para que o host possa colocá-lo em sua própria navegação.
+`destroy()` remove listeners, popover e URLs temporárias.
+
+O widget usa top layer e acompanha o modal ativo para permanecer interativo.
+Não limpa o formulário em erro. PNG, JPEG e WebP têm limite de 5 MiB.
+A galeria demonstra envio local; `e2e/feedback.spec.ts` cobre integração desktop.

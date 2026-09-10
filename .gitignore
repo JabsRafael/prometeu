@@ -9,3 +9,5 @@ worktrees*/
 .wrangler/
 prototypes/
 dist-mobile/
+
+/dist-feedback/
