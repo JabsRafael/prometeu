@@ -93,11 +93,26 @@ seleção e adapters existentes. Esses pacotes aparecem na página Skills e
 nos seletores, sem duplicar cadastro na página Plugins.
 
 Cada catálogo pertence à pessoa (`user_id`) ou à organização (`organization_id`),
-com exclusividade no banco. O desktop continua sincronizando o catálogo pessoal.
-No Cloud, membros consultam catálogos institucionais e copiam definições para
-sua conta por escolha. Dono e administradores também fazem CRUD e compartilham
-itens pessoais com a organização. As cópias são independentes, sem sobrescrever
-IDs existentes. Ver [organizações](cloud-organizations.md).
+com exclusividade no banco. O desktop sincroniza o catálogo pessoal e lista
+plugins, MCPs e skills de todas as organizações com matrícula aceita. Cada item
+institucional mostra o nome da organização e `Instalar aqui`, sem exigir cópia
+para a conta pessoal. A instalação cria um registro local independente, sem
+ativação automática nem publicação. No Cloud, dono e administradores fazem CRUD;
+copiar definições entre catálogos continua opcional. Ver [organizações](cloud-organizations.md)
+e [ADR 0039](../decisions/0039-organization-catalog-on-desktop.md).
+
+`GET /api/organizations/:id/catalog` aceita Bearer e retorna o mesmo envelope
+`{ catalog, revision }` do catálogo pessoal, com autorização pela matrícula atual.
+O desktop enumera `GET /api/organizations` e busca cada documento separadamente,
+preservando o limite por resposta. 404 remove a disponibilidade daquele catálogo
+e permite compatibilidade com Cloud antigo. Falhas de rede preservam o cache.
+
+`catalog.json` acrescenta `organizations: [{ id, name, revision, doc, links }]`, ausente
+em caches antigos. Esses `links` identificam instalações locais por tipo e ID;
+nunca participam de PUTs pessoais. Colisões usam IDs locais distintos, inclusive
+entre organizações e itens pessoais ainda não instalados. Refresh atualiza as
+definições disponíveis; instalações e credenciais continuam independentes. Sair
+da conta ou perder matrícula conserva registros e arquivos instalados.
 
 ## IPC
 
@@ -109,6 +124,7 @@ IDs existentes. Ver [organizações](cloud-organizations.md).
 | `catalog_copy` | kind, id local, newId | vazio; cria definição privada |
 | `catalog_install_plugin` | id da conta | vazio; instala origem selecionada |
 | `catalog_install_skill` | id da conta | vazio; materializa skill |
+| `catalog_install_organization_item` | organization, kind, id, revision | vazio; verifica matrícula e revisão exibida e instala localmente |
 | `skill_hub` | nenhum | Skill[] instaladas |
 | `skill_save` | skill, revision | Skill[]; publica somente se vinculada |
 | `skill_remove` | id local | Skill[]; remove somente deste Mac |
@@ -118,6 +134,11 @@ compartilhado. Novos itens privados não precisam de revisão. O evento
 `catalog` atualiza hubs e marcas da interface. `plugins` e `skills` no estado
 incluem `local_id` e `installed`; plugins também incluem `source_changed`.
 `shared` mapeia `<tipo>:<id local>` para o ID na conta.
+O campo aditivo `organization_items` contém `{ organization, organization_name,
+revision, kind, id, description, installed }`. O frontend tolera sua ausência. A instalação
+consulta novamente o catálogo da organização; se o documento mudou, atualiza o
+cache e retorna conflito antes de instalar. MCPs institucionais entram no hub
+somente após `Instalar aqui`, com credenciais vazias.
 
 ## Evidência
 

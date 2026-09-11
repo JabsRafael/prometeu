@@ -40,6 +40,7 @@ export type Commands = {
   catalog_copy: { args: { kind: Kind; id: string; newId: string }; result: void };
   catalog_install_plugin: { args: { id: string }; result: void };
   catalog_install_skill: { args: { id: string }; result: void };
+  catalog_install_organization_item: { args: { organization: string; kind: Kind; id: string; revision: number | null }; result: void };
   catalog_refresh: { args: undefined; result: void };
   catalog_share: { args: { kind: Kind; id: string }; result: void };
   catalog_state: { args: undefined; result: CatalogState };
