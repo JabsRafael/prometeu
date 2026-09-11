@@ -4,6 +4,20 @@ O que muda no Prometeu, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.7.3] - 2026-09-11
+<!-- lang:pt-BR -->
+
+### Novidades
+
+- **catalogo:** Instala ferramentas da organização no desktop
+
+<!-- lang:en -->
+
+### New
+
+- **catalog:** Installs organization tools directly on desktop
+
+<!-- lang:end -->
 ## [0.7.2] - 2026-09-11
 <!-- lang:pt-BR -->
 
