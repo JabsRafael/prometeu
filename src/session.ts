@@ -51,5 +51,6 @@ export const selection = () => view.selection();
 export const canAttachFiles = () => view.canAttachFiles();
 export const attachFiles = (paths: string[]) => view.attachFiles(paths);
 export const fileDropTarget = () => view.fileDropTarget();
+export const contextTarget = () => view.contextTarget();
 export const quoteSelection = () => view.quoteSelection();
 export const focusAnchor = (anchor: string) => view.focusAnchor(anchor);

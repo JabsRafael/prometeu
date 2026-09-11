@@ -5,7 +5,7 @@ import { md } from "../markdown";
 import * as comments from "../team-comments";
 import * as member from "../team-member";
 import * as viewer from "../team-viewer";
-import { toolLabel } from "../chat-presentation";
+import { renderBrowserMessage, toolLabel } from "../chat-presentation";
 import { Timeline, summary, type Block, type Item } from "../timeline";
 import { h, template } from "../util";
 import { button as uiButton, input as uiInput } from "../ui";
@@ -329,8 +329,11 @@ const statusLabel = (status: Status) => t(`status.${status}`);
 
 function itemNode(item: Item): HTMLElement {
   switch (item.kind) {
-    case "user":
-      return h("div", "m-item m-user", item.text);
+    case "user": {
+      const node = h("div", "m-item m-user");
+      renderBrowserMessage(node, item.text);
+      return node;
+    }
     case "assistant": {
       const box = h("div", "m-item m-assistant");
       for (const block of item.blocks) box.append(blockNode(block));

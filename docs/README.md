@@ -15,6 +15,8 @@ como índice curto para agentes e `README.md` apresenta o produto.
 
 ## Contratos
 
+- [Browser e contexto visual](contracts/browser.md): preview, inspeção, capturas e envio ao rascunho.
+
 - [Feedback privado](contracts/feedback.md): widget com conta, texto e imagens no GitHub privado.
 
 - [Organizações no Cloud](contracts/cloud-organizations.md): CRUD, convites, catálogos e acesso ao relay.
@@ -80,6 +82,8 @@ como índice curto para agentes e `README.md` apresenta o produto.
 - [ADR 0034](decisions/0034-mobile-pairing-continuity.md): renovação do relay sem desconexão e continuidade do pareamento móvel — Aceito.
 - [ADR 0035](decisions/0035-feedback-requires-account.md): feedback exige conta Prometeu — Aceito.
 - [ADR 0036](decisions/0036-second-mac-as-companion.md): segundo Mac da mesma conta entra como dispositivo companheiro — Aceito.
+- [ADR 0037](decisions/0037-browser-design-context.md): browser com contexto visual para a conversa — Aceito.
+- [ADR 0038](decisions/0038-browser-context-chips.md): elementos selecionados como tags na conversa — Aceito.
 
 ## Qualidade e operação
 

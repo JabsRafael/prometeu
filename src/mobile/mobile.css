@@ -1,3 +1,5 @@
+@import "../browser-context.css";
+
 /* Phone layout over the design-system tokens the Cloud already serves. */
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg); font: var(--text-base)/1.5 var(--font); -webkit-font-smoothing: antialiased; }

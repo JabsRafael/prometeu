@@ -2,11 +2,19 @@ import "../../packages/design-system/components.css";
 import { companionId } from "../../src/mobile/shell";
 import * as member from "../../src/team-member";
 import { simulatedSocket } from "../../src/team-mock";
+import { encodeBrowserContext } from "../../src/browser-context";
+import type { BrowserSelection } from "../../src/browser-types";
 import type { Share } from "../../relay/src/protocol";
 
 const long = "gh pr view 51 --json url,state,mergeable,headRefOid,statusCheckRollup && ".repeat(20);
+const selection: BrowserSelection = {
+  url: "https://example.com/design", selector: "#mobile-design-button", tag: "button", text: "Continuar",
+  html: '<button id="mobile-design-button">Continuar</button>', styles: { color: "#123456" },
+  rect: { x: 12, y: 24, width: 160, height: 44 }, viewport: { width: 390, height: 844 },
+};
 const sample = [
   { type: "user", message: { role: "user", content: "https://example.com/" + "workspace/".repeat(80) } },
+  { type: "user", message: { role: "user", content: `Ajuste este elemento no celular.\n\n${encodeBrowserContext({ selection, image: "/tmp/mobile-browser-context.png" })}\n\nMantenha o texto do botão.` } },
   { type: "assistant", message: { id: "answer", role: "assistant", content: [
     { type: "tool_use", id: "tool", name: "Bash", input: { command: long } },
     { type: "text", text: `Mensagem comprida ${long}\n\n\`\`\`sh\n${long}\n\`\`\`\n\n| Arquivo | Resultado |\n| --- | --- |\n| ${"code".repeat(150)} | Concluído |` },

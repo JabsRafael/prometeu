@@ -141,6 +141,7 @@ export async function open(ws: Workspace, tab?: string) {
   // Direct workspace switching bypasses leave; hide the previous native webview here.
   browser.hide();
   session.detach();
+  center("chatwrap");
   const first = ws.tabs.find((t) => t.id === (tab ?? ws.active)) ?? ws.tabs[0];
   sidebar.setOpen((openWs = ws.id));
   changesUi.enter();
@@ -204,6 +205,7 @@ export function leave() {
   navigation++;
   proj = null;
   browser.hide();
+  restoreBrowserSide();
   session.detach();
   invoke("look_at", { id: null });
   sidebar.setOpen((openWs = null));
@@ -625,7 +627,7 @@ function drawTabs(ws: Workspace) {
   const bar = $("tabbar");
   bar.replaceChildren();
   const fs = files(ws.id);
-  const elsewhere = fs.diff || fs.active || fs.web || !!dockbar.front();
+  const elsewhere = fs.diff || fs.active || !!dockbar.front();
 
   const remote = !!ws.remote;
   for (const tab of ws.tabs) {
@@ -849,10 +851,10 @@ function tabMenu(ws: Workspace, tab: Tab): menu.Item[] {
 async function selectTab(workspace: string, tab: string) {
   const fs = files(workspace);
   // Selecting the already-active tab preserves its node so double-click rename remains possible.
-  if (tab === session.currentSession() && !fs.diff && !fs.active && !fs.web && !dockbar.front()) return;
+  if (tab === session.currentSession() && !fs.diff && !fs.active && !dockbar.front()) return;
   const remote = team.isRemote(workspace);
   if (!remote) invoke("focus_tab", { workspace, tab });
-  showTerm();
+  if (!fs.web) showTerm();
   const epoch = navigation;
   if (!(await session.attach(tab, remote ? workspace : undefined))) return;
   if (!stillHere(epoch, workspace)) return;
@@ -867,7 +869,7 @@ export async function newTab(prompt = "", choice: Choice | null = null) {
   try {
     const tab = await invoke("new_tab", { workspace: ws.id, prompt, choice });
     if (!stillHere(epoch, ws.id)) return;
-    showTerm();
+    if (!files(ws.id).web) showTerm();
     if (!(await session.attach(tab.id))) return;
     if (!stillHere(epoch, ws.id)) return;
     ctx.redraw();
@@ -961,26 +963,44 @@ function showShell() {
 
 /* Browser. */
 
-/// Remember whether browser activation collapsed the side panel so existing user preferences remain intact.
-let hidSide = false;
+/// Invalidate pending preview opens even when the user returns to the same workspace and view.
+let webRequest = 0;
+let sideBeforeBrowser: boolean | null = null;
 
-/// Browser activation temporarily collapses the side panel for width and restores it on leaving when appropriate.
+function restoreBrowserSide() {
+  if (sideBeforeBrowser === null) return;
+  document.body.classList.toggle("noside", sideBeforeBrowser);
+  sideBeforeBrowser = null;
+}
+
+/// Give the conversation and preview the center width while retaining the previous panel state.
 export async function showWeb() {
   const ws = current();
-  if (!ws) return;
+  if (!ws || ws.remote || ws.cleaned || pending(ws)) return;
+  const tab = ws.tabs.find((tab) => tab.id === session.currentSession())
+    ?? ws.tabs.find((tab) => tab.id === ws.active)
+    ?? ws.tabs[0];
+  if (!tab) return;
+  const epoch = navigation;
+  const request = ++webRequest;
   const fs = files(ws.id);
+  if (sideBeforeBrowser === null) {
+    sideBeforeBrowser = document.body.classList.contains("noside");
+    document.body.classList.add("noside");
+  }
   fs.active = null;
   fs.diff = false;
   fs.web = true;
   fs.webTab = true;
-  if (!document.body.classList.contains("noside")) {
-    document.body.classList.add("noside");
-    hidSide = true;
-  }
+  // Attachment clears the previous transcript before its asynchronous snapshot loads.
+  const attached = tab.id === session.currentSession() ? undefined : session.attach(tab.id);
   center("webview");
   try {
-    fs.port = await browser.show(ws.id);
+    const [port] = await Promise.all([browser.show(ws.id), attached]);
+    if (!stillHere(epoch, ws.id) || request !== webRequest || !fs.web) return;
+    fs.port = port;
   } catch (err) {
+    if (!stillHere(epoch, ws.id) || request !== webRequest || !fs.web) return;
     ctx.say(fromBack(err), true);
     fs.webTab = false;
     showTerm();
@@ -988,30 +1008,23 @@ export async function showWeb() {
   drawTabs(ws);
 }
 
-/// Hide the native webview and restore only the panel visibility changed by browser activation.
+/// Hide the native page and invalidate any pending preview activation.
 function leaveWeb(fs: Files) {
   if (!fs.web) return;
+  webRequest++;
   fs.web = false;
   browser.hide();
-  if (hidSide) {
-    document.body.classList.remove("noside");
-    hidSide = false;
-  }
 }
 
-/// Closing destroys the native page. Retain web selection until showTerm lets selectTab recognize the required view change.
-async function closeWeb() {
+/// Closing the preview preserves the attached conversation and its draft.
+function closeWeb() {
   const ws = current();
   if (!ws) return;
   const fs = files(ws.id);
   const wasOpen = fs.web;
   fs.webTab = false;
+  if (wasOpen) showTerm();
   browser.close(ws.id);
-  if (wasOpen) {
-    const tab = session.currentSession();
-    if (tab) await selectTab(ws.id, tab);
-    else showTerm();
-  }
   drawTabs(ws);
 }
 
@@ -1047,9 +1060,13 @@ async function closeChanges() {
   drawTabs(ws);
 }
 
-/// Show one center view at a time. Leaving a shell view preserves its process and tab.
+/// The preview shares the center with the conversation; other views replace both.
 function center(show: "chatwrap" | "viewer" | "diffview" | "webview" | "termview") {
+  if (show !== "webview") restoreBrowserSide();
   for (const id of ["chatwrap", "viewer", "diffview", "webview", "termview"] as const) $(id).hidden = id !== show;
+  $("tabbody").classList.toggle("browser", show === "webview");
+  $("websplit").hidden = show !== "webview";
+  if (show === "webview") $("chatwrap").hidden = false;
   if (show !== "termview") dockbar.leave();
 }
 

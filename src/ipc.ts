@@ -26,6 +26,9 @@ export type Commands = {
   agents: { args: undefined; result: { providers: AgentDescriptor[] } };
   archive_workspace: { args: { id: string; archived: boolean }; result: void };
   browser_back: { args: { id: string }; result: void };
+  browser_capture: { args: { id: string; rect?: import("./browser-types").BrowserRect }; result: string };
+  browser_inspect: { args: { id: string; enabled: boolean }; result: void };
+  browser_selection: { args: { id: string }; result: import("./browser-types").BrowserInspection };
   browser_bounds: { args: { id: string; x: number; y: number; w: number; h: number }; result: void };
   browser_close: { args: { id: string }; result: void };
   browser_forward: { args: { id: string }; result: void };

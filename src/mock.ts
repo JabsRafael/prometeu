@@ -2,6 +2,7 @@ import type { IpcCommand, IpcHandlers, IpcResult } from "./ipc";
 import { emptyCatalog, initializeDefaults, type Catalog, type Profile } from "./actions";
 /// Browser backend for sample data. Loaded only when window.__TAURI_INTERNALS__ is absent; never loaded in Tauri.
 import { simulatedSocket } from "./team-mock";
+import * as browser from "./mock-browser";
 import type { Share } from "../relay/src/protocol";
 import { parseConversationEvent } from "./conversation";
 import { LegacyConversationAdapter } from "./conversation-legacy";
@@ -1600,34 +1601,42 @@ const mockCommands: IpcHandlers = {
     console.log("abrir no navegador: http://localhost:" + ((scripts[args.id] ?? noScripts).port ?? 0));
     return;
   },
-  // The browser preview has no native child webview.
+  // The interactive fixture shares the inspector script with the native preview.
   browser_open(args) {
-    return (scripts[args.id] ?? noScripts).port ?? 3100;
+    return browser.open(args.id, (scripts[args.id] ?? noScripts).port ?? 3100, url => emit("browser:url", [args.id, url]));
   },
   browser_url(args) {
-    return "http://localhost:" + ((scripts[args.id] ?? noScripts).port ?? 3100) + "/";
+    return browser.url(args.id);
   },
   browser_navigate(args) {
-    console.log("navegar para:", args.url);
-    return;
+    return browser.navigate(args.id, args.url);
   },
-  browser_back() {
-    return;
+  browser_back(args) {
+    return browser.back(args.id);
   },
-  browser_forward() {
-    return;
+  browser_forward(args) {
+    return browser.forward(args.id);
   },
-  browser_bounds() {
-    return;
+  browser_bounds(args) {
+    return browser.bounds(args.id, args.w, args.h);
   },
-  browser_hide() {
-    return;
+  browser_hide(args) {
+    return browser.hide(args.id);
   },
-  browser_reload() {
-    return;
+  browser_reload(args) {
+    return browser.reload(args.id);
   },
-  browser_close() {
-    return;
+  browser_close(args) {
+    return browser.close(args.id);
+  },
+  browser_inspect(args) {
+    return browser.inspect(args.id, args.enabled);
+  },
+  browser_selection(args) {
+    return browser.selection(args.id);
+  },
+  browser_capture(args) {
+    return browser.capture(args.id, args.rect);
   },
   // Use known PR state without invoking gh; only the review workspace exposes a PR.
   pr_open() {

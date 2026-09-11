@@ -3,6 +3,7 @@ import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { capabilitiesOf } from "./agents";
+import { encodeBrowserContext, type BrowserContext } from "./browser-context";
 import type { ConversationCommandV1, RequestResponse } from "./conversation";
 import { icon } from "./icons";
 import { fromBack, t, tn } from "./i18n";
@@ -11,11 +12,13 @@ import { kilo } from "./context";
 import {
   capError,
   capLines,
+  browserContextChip,
   contextPanel,
   countTools,
   errorPeek,
   inputView,
   peek,
+  renderBrowserMessage,
   tallyText,
   took,
   toolIcon,
@@ -102,6 +105,7 @@ function settleNow() {
 const drafts = {
   says: new Map<string, string>(),
   files: new Map<string, string[]>(),
+  contexts: new Map<string, BrowserContext[]>(),
   pending: new Map<string, number>(),
 };
 const draftListeners = new Set<(key: string) => void>();
@@ -144,7 +148,11 @@ export class ChatView {
     this.box = h("div", "composer");
     host.append(this.feed, this.box);
     this.buildComposer();
-    const draftChangedHere = (key: string) => { if (this.key === key) this.paintComposer(); };
+    const draftChangedHere = (key: string) => {
+      if (this.key !== key) return;
+      if (this.area.value !== this.stashed()) this.restore();
+      this.paintComposer();
+    };
     draftListeners.add(draftChangedHere);
     this.cleanup.push(() => draftListeners.delete(draftChangedHere));
 
@@ -231,6 +239,7 @@ export class ChatView {
     if (forget && key) {
       drafts.says.delete(key);
       drafts.files.delete(key);
+      drafts.contexts.delete(key);
     }
     this.disposed = true;
     for (const stop of this.cleanup.splice(0)) stop();
@@ -290,6 +299,17 @@ export class ChatView {
     if (!target) return false;
     target.put(paths);
     return true;
+  }
+
+  /** Keep selected elements separate from the person's editable text. */
+  contextTarget(): ((context: BrowserContext) => void) | null {
+    if (!this.canAttachFiles() || !this.key) return null;
+    const key = this.key;
+    return context => {
+      drafts.contexts.set(key, [...(drafts.contexts.get(key) ?? []), context]);
+      draftChanged(key);
+      if (!this.disposed && this.key === key) this.area.focus();
+    };
   }
 
   /// Delayed captures retain the draft chosen at drop time, even if this view has since unmounted.
@@ -365,7 +385,7 @@ export class ChatView {
       this.waiting.remove();
       return;
     }
-    this.waiting.querySelector(".bubble")!.textContent = text;
+    renderBrowserMessage(this.waiting.querySelector<HTMLElement>(".bubble")!, text);
     this.waiting.querySelector(".wlabel")!.textContent = t("chat.waiting");
     this.feed.querySelector(".nohint")?.remove();
     this.feed.append(this.waiting);
@@ -514,7 +534,7 @@ export class ChatView {
     switch (item.kind) {
       case "user": {
         const el = template("div", "turn user", `<div class="bubble"></div>`);
-        (el.firstElementChild as HTMLElement).textContent = item.text;
+        renderBrowserMessage(el.firstElementChild as HTMLElement, item.text);
         return el;
       }
       case "ask":
@@ -1007,7 +1027,7 @@ export class ChatView {
       this.keep();
       this.grow();
       // Slash commands own completion at prompt start; otherwise @ completes workspace file paths.
-      if (!commands.typed(this.area, this.commands(), () => this.grow(), name => this.selectAction(name))) this.typedPath();
+      if (!commands.typed(this.area, this.commands(), () => { this.keep(); this.grow(); }, name => this.selectAction(name))) this.typedPath();
     });
     this.area.addEventListener("keydown", (e) => {
       const pick = e.key === "Enter" || e.key === "Tab";
@@ -1041,11 +1061,15 @@ export class ChatView {
     return (this.key && drafts.files.get(this.key)) || [];
   }
 
+  private contexts(): BrowserContext[] {
+    return (this.key && drafts.contexts.get(this.key)) || [];
+  }
+
   /// Offer path completion only locally because remote agents use another Mac's files.
   private typedPath() {
     const ws = this.ctx.info().workspace;
     if (this.remote || !ws) return paths.dismiss();
-    void paths.typed(this.area, ws, touched(this.tl.items), () => this.grow());
+    void paths.typed(this.area, ws, touched(this.tl.items), () => { this.keep(); this.grow(); });
   }
 
   /// Persist the tab draft on every keystroke.
@@ -1066,6 +1090,7 @@ export class ChatView {
   forget(alive: Set<string>) {
     for (const key of drafts.says.keys()) if (!alive.has(key)) drafts.says.delete(key);
     for (const key of drafts.files.keys()) if (!alive.has(key)) drafts.files.delete(key);
+    for (const key of drafts.contexts.keys()) if (!alive.has(key)) drafts.contexts.delete(key);
   }
 
   private grow() {
@@ -1099,18 +1124,22 @@ export class ChatView {
     const text = this.area.value.trim();
     if (this.selectAction()) return;
     const files = this.attached();
-    if ((!text && !files.length) || !this.key) return;
+    const contexts = this.contexts();
+    if ((!text && !files.length && !contexts.length) || !this.key) return;
     const info = this.ctx.info();
     if (info.remote && !info.remote.online) return this.ctx.say(t("err.team.offline"), true);
     // Prepend attachments as mentions, matching the launcher's initial prompt format.
-    const said = [paths.mentions(files, info.worktree), text].filter(Boolean).join("\n\n");
+    const said = [paths.mentions(files, info.worktree), ...contexts.map(encodeBrowserContext), text].filter(Boolean).join("\n\n");
+    const key = this.key;
     if (this.remote) team.write(said);
-    else invoke("chat_send", { session: this.key, text: said }).catch((e) => this.ctx.say(fromBack(e), true));
-    drafts.says.delete(this.key);
-    drafts.files.delete(this.key);
+    else invoke("chat_send", { session: key, text: said }).catch(e => this.ctx.say(fromBack(e), true));
+    drafts.says.delete(key);
+    drafts.files.delete(key);
+    drafts.contexts.delete(key);
     this.area.value = "";
     commands.dismiss();
     paths.dismiss();
+    draftChanged(key);
     this.grow();
     this.paintComposer();
   }
@@ -1156,12 +1185,15 @@ export class ChatView {
     this.startingAction = true;
     const key = this.key;
     const draft = this.area.value;
-    const context = actions.expand(paths.mentions(this.attached(), this.ctx.info().worktree), rest);
+    const contexts = this.contexts();
+    const context = [actions.expand(paths.mentions(this.attached(), this.ctx.info().worktree), rest), ...contexts.map(encodeBrowserContext)].filter(Boolean).join("\n\n");
     // Preserve the draft if the backend rejects execution.
     void actions.start(workspace, action, context).then(() => {
       if (key && drafts.says.get(key) === draft) drafts.says.delete(key);
       if (key) drafts.files.delete(key);
+      if (key) drafts.contexts.set(key, (drafts.contexts.get(key) ?? []).filter(context => !contexts.includes(context)));
       if (this.key === key) { this.area.value = ""; this.grow(); }
+      if (key) draftChanged(key);
     }).catch(e => this.ctx.say(fromBack(e), true)).finally(() => { this.startingAction = false; });
   }
 
@@ -1248,7 +1280,8 @@ export class ChatView {
   private paintFiles() {
     const row = this.box.querySelector<HTMLElement>(".cfiles")!;
     const list = this.attached();
-    row.hidden = !list.length;
+    const contexts = this.contexts();
+    row.hidden = !list.length && !contexts.length;
     row.replaceChildren(
       ...list.map((path, i) => {
         const chip = template("span", "injchip", `<span></span><button class="ico sm">${icon("x", 12)}</button>`);
@@ -1262,6 +1295,12 @@ export class ChatView {
         });
         return chip;
       }),
+      ...contexts.map(context => browserContextChip(context, () => {
+        if (!this.key) return;
+        drafts.contexts.set(this.key, this.contexts().filter(item => item !== context));
+        draftChanged(this.key);
+        this.area.focus();
+      })),
     );
   }
 

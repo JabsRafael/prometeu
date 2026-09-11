@@ -1,13 +1,62 @@
 import { grouped, kilo, sectionTotal, type Report } from "./context";
+import { splitBrowserContexts, type BrowserContext } from "./browser-context";
 import { type IconName } from "./icons";
 import { t } from "./i18n";
 import type { Block, ToolBlock } from "./timeline";
+import { button, disclosure, formDialog } from "./ui";
 import { h, template } from "./util";
 
 /// Pure conversation presentation: layout decisions and content truncation. Stream state and composer actions remain in chat.ts.
 
 const RESULT_LINES = 120;
 const ERROR_LINES = 36;
+
+/** Browser content is readable on every client; local attachment paths never become image sources. */
+export function browserContextChip(context: BrowserContext, remove?: () => void): HTMLElement {
+  const chip = h("span", "browser-context");
+  const open = button(t("web.element"), () => {
+    const { selection } = context;
+    const { rect, viewport } = selection;
+    const dialog = formDialog({
+      title: t("web.contextDetails"), save: t("web.contextClose"), cancel: t("web.contextClose"),
+      submit: async () => {}, error: String,
+    });
+    dialog.root.classList.add("browser-context-dialog");
+    if (chip.closest(".ui-comfortable")) dialog.root.classList.add("ui-comfortable");
+    dialog.save.remove();
+    const html = disclosure("HTML", h("pre", "browser-context-html", selection.html));
+    const css = disclosure("CSS", h("pre", "browser-context-css", Object.entries(selection.styles)
+      .map(([name, value]) => `${name}: ${value};`).join("\n")));
+    html.open = css.open = true;
+    dialog.body.append(
+      h("code", "browser-context-selector", selection.selector),
+      h("p", "browser-context-url", selection.url),
+      h("p", "browser-context-text", selection.text),
+      h("p", "browser-context-meta", `x: ${rect.x}, y: ${rect.y} · ${rect.width} × ${rect.height} px · ${t("web.viewport")}: ${viewport.width} × ${viewport.height} px`),
+      h("p", "browser-context-meta", t(context.image ? "web.imageReady" : "web.imageMissing")),
+      html, css,
+    );
+    dialog.open();
+  }, "ghost");
+  open.classList.add("browser-context-open");
+  open.setAttribute("aria-haspopup", "dialog");
+  open.title = context.selection.selector;
+  chip.append(open);
+  if (remove) {
+    const close = button("×", remove, "ghost");
+    close.classList.add("browser-context-remove");
+    close.setAttribute("aria-label", t("web.removeElement"));
+    close.title = t("web.removeElement");
+    chip.append(close);
+  }
+  return chip;
+}
+
+/** Preserve surrounding transcript text verbatim, including malformed or unsupported context blocks. */
+export function renderBrowserMessage(host: HTMLElement, text: string): void {
+  host.replaceChildren(...splitBrowserContexts(text).map(part =>
+    typeof part === "string" ? document.createTextNode(part) : browserContextChip(part)));
+}
 
 export function inputView(name: string, input: unknown): HTMLElement {
   const box = h("div", "tin");
