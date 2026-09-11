@@ -68,3 +68,5 @@ Status: Proposto
 | [0033](0033-github-feedback-attachments.md) | Substituído pelo 0035 | texto e imagens de feedback no GitHub |
 | [0035](0035-feedback-requires-account.md) | Aceito | feedback exige conta Prometeu |
 | [0036](0036-second-mac-as-companion.md) | Aceito | segundo Mac da mesma conta entra como dispositivo companheiro |
+| [0037](0037-browser-design-context.md) | Aceito | browser com contexto visual para a conversa |
+| [0038](0038-browser-context-chips.md) | Aceito | elementos selecionados como tags na conversa |

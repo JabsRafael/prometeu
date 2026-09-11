@@ -79,8 +79,9 @@
         <section id="settingsView" class="view settings" hidden></section>
 
         <section id="wsView" class="view wsview" hidden>
-          <div class="center">
+          <div class="center" id="wscenter">
             <div class="subbar tabbar" id="tabbar"></div>
+            <div class="tabbody" id="tabbody">
             <!-- The conversation timeline and composer are created by chat.ts. -->
             <div class="chatwrap" id="chatwrap">
               <!-- Show preparation progress or retained history after worktree cleanup. -->
@@ -104,7 +105,8 @@
               </div>
               <div class="dlist" id="dlist"></div>
             </div>
-            <!-- Reserve a DOM region for the workspace Run preview rendered by the system webview. -->
+            <!-- The browser shares the center with the existing conversation and its draft. -->
+            <div id="websplit" role="separator" tabindex="0" aria-orientation="vertical" aria-controls="chatwrap" aria-valuemin="20" aria-valuemax="70" aria-valuenow="40" data-t-title="web.resize" hidden></div>
             <div class="webview" id="webview" hidden>
               <div class="vbar">
                 <button id="wback" class="ico" data-t-title="web.back"></button>
@@ -114,7 +116,11 @@
                 <button id="wreload" class="ico" data-t-title="web.reload"></button>
                 <button id="wext" class="ico" data-t-title="web.external"></button>
               </div>
-              <div class="webbody" id="webbody"></div>
+              <div id="webtools" class="webtools"></div>
+              <div id="webstage" class="webstage">
+                <div class="webbody" id="webbody"></div>
+              </div>
+              <div id="webdetails" class="webdetails" hidden></div>
             </div>
             <!-- Free terminals occupy center tabs. Setup and Run remain in the side panel. -->
             <div class="termview" id="termview" hidden><div id="shellterm"></div></div>
@@ -138,6 +144,7 @@
               </div>
               <!-- Render non-code files as a WebKit PDF iframe or CSV table. -->
               <div class="vfile" id="vfile" hidden></div>
+            </div>
             </div>
           </div>
           <aside class="side" id="side">

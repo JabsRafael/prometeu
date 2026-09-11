@@ -51,6 +51,11 @@ texto. Metadados de imagem e arquivo estão reservados para uma implementação
 que transporte anexos separadamente; bytes e caminhos locais não entram no
 transcript compartilhado por inferência.
 
+Contextos de elementos do browser usam uma convenção textual aditiva dentro
+de `text`, sem novo tipo de evento ou comando. A apresentação transforma apenas
+blocos válidos em tags; reducer, adapters e transcript preservam a string
+completa. Veja o [contrato do browser](browser.md#contexto-no-texto-da-mensagem).
+
 ## Eventos persistentes
 
 ```ts

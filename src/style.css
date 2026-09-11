@@ -1,4 +1,5 @@
 @import "./ui.css";
+@import "./browser-context.css";
 
 /* Conductor measurements: main #141110; sidebar #1b1917; bars, composer, and modal #201e1c; selection #2b2826. Text: #eae8e6, #a4a09d, #756f6c; active underline #d8c2b3. Sidebar 256px, right panel 377px, header 38px + 1px border, tabs 39px + 1px border, rows 28px. */
 
@@ -252,6 +253,23 @@ main { flex: 1; min-height: 0; position: relative; }
 
 .wsview { flex-direction: row; }
 .center { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+#wscenter { container: workspace-center / inline-size; }
+.tabbody { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.tabbody.browser {
+  --web-chat-width: 40%;
+  display: grid; grid-template-columns: minmax(0, var(--web-chat-width)) 6px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+.tabbody.browser > .chatwrap { min-width: 0; }
+.tabbody.browser .feed { padding: 16px 16px 8px; }
+.tabbody.browser .composer { width: calc(100% - 32px); }
+#websplit { cursor: col-resize; touch-action: none; background: var(--line); }
+#websplit:hover, #websplit:focus-visible { background: var(--tab-line); outline: none; }
+@container workspace-center (max-width: 650px) {
+  .tabbody.browser { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+  #websplit { display: none; }
+  .tabbody.browser > .webview { border-top: 1px solid var(--line); }
+}
 
 .tabbar { padding: 0 8px; gap: 0; }
 .tab {
@@ -667,8 +685,15 @@ main { flex: 1; min-height: 0; position: relative; }
 /* Use one scrolling diff with sticky file headers and subtle red/green changes. */
 .diffview { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 /* Reserve DOM space for the native browser. */
-.webview { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.webbody { flex: 1; min-height: 0; margin: 10px 12px 12px; }
+.webview { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.webview > .vbar { gap: 4px; }
+.webview > .vbar > .spacer { display: none; }
+.webtools { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: 8px 12px 0; }
+.webtools:empty { display: none; }
+.webstage { flex: 1; min-width: 0; min-height: 0; display: flex; justify-content: center; overflow: hidden; margin: 10px 12px 12px; }
+.webbody { flex: none; width: 100%; max-width: 100%; min-height: 0; background: var(--bg-raised); }
+.webdetails { flex: none; min-height: 0; max-height: 40%; overflow: auto; padding: 12px; border-top: 1px solid var(--line); }
+.webdetails pre { max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 var(--mono); user-select: text; }
 .wurl {
   flex: 1; min-width: 0; height: 24px; padding: 0 8px;
   border: 1px solid var(--line-raised); border-radius: var(--r);
@@ -1855,3 +1880,15 @@ body.noside .side { display: none; }
 .action-tool-title { display: block; font-size: 12px; font-weight: 500; margin-bottom: 8px; }
 .action-tool-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-height: 140px; overflow-y: auto; border: 0; margin: 8px 0 0; padding: 0; }
 .action-tool-list:disabled { opacity: 0.5; }
+
+/* Design controls surround the native viewport; external HTML is displayed only as text. */
+#webtools { display: flex; align-items: center; gap: 4px; padding: 6px 10px; flex-wrap: wrap; border-bottom: 1px solid var(--line-raised); }
+#webtools .ui-button, #webtools .ui-select { font-size: 11px; height: 28px; min-height: 28px; padding: 0 7px; }
+#winspect[aria-pressed="true"] { background: var(--bg-raised-2); color: var(--fg); box-shadow: inset 0 0 0 1px var(--fg-3); }
+#wwidth { width: 65px; height: 28px; min-height: 28px; padding: 0 6px; font-size: 11px; }
+.webselectionbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.webselectionbar .ui-button { height: 28px; min-height: 28px; font-size: 11px; padding: 0 7px; }
+.webselector { flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--fg); }
+.webmeta { font-size: 11px; color: var(--fg-3); margin: 8px 0; }
+.webcode { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.webcode pre { margin: 0; padding: 8px; font-size: 11px; line-height: 1.5; max-height: 160px; overflow: auto; background: var(--bg); border: 1px solid var(--line-raised); white-space: pre-wrap; overflow-wrap: anywhere; }

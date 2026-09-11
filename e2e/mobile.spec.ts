@@ -92,3 +92,32 @@ test("mobile preserva rascunho quando envio falha ou Mac desconecta", async ({ p
   await expect(box).toBeEditable();
   await expect(page.locator(".m-connection")).toContainText("offline");
 });
+
+test("mobile mostra contexto do navegador como tag e preserva conversa ao fechar detalhes", async ({ page }) => {
+  const message = page.locator(".m-user").filter({ hasText: "Ajuste este elemento no celular." });
+  await expect(message).toHaveText("Ajuste este elemento no celular. Elemento selecionado Mantenha o texto do botão.");
+  await expect(message).not.toContainText(/prometeu-browser-element|"selector"|<button|mobile-browser-context\.png/);
+  await expect(message.locator(".browser-context-remove")).toHaveCount(0);
+  const box = page.getByRole("textbox", { name: "Escreva para o agente…", exact: true });
+  await box.fill("Preserve meu rascunho");
+  const chip = message.getByRole("button", { name: "Elemento selecionado", exact: true });
+  await chip.tap();
+  const dialog = page.getByRole("dialog", { name: "Elemento selecionado", exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator(".browser-context-selector")).toHaveText("#mobile-design-button");
+  await expect(dialog.locator(".browser-context-url")).toHaveText("https://example.com/design");
+  await expect(dialog.locator(".browser-context-text")).toHaveText("Continuar");
+  await expect(dialog.locator(".browser-context-html")).toHaveText('<button id="mobile-design-button">Continuar</button>');
+  await expect(dialog.locator(".browser-context-css")).toHaveText("color: #123456;");
+  await dialog.getByRole("button", { name: "Fechar", exact: true }).tap();
+  await expect(dialog).toHaveCount(0);
+  await expect(chip).toBeVisible();
+  await expect(box).toHaveValue("Preserve meu rascunho");
+  await expect(page.getByRole("button", { name: "Enviar", exact: true })).toBeEnabled();
+  expect(await page.evaluate(() => {
+    const transcript = document.querySelector(".m-transcript")!;
+    const composer = document.querySelector(".m-composer")!.getBoundingClientRect();
+    return document.documentElement.scrollWidth <= innerWidth && transcript.scrollWidth <= transcript.clientWidth
+      && transcript.clientHeight > 80 && composer.bottom <= innerHeight;
+  })).toBe(true);
+});

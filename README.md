@@ -366,6 +366,27 @@ digitar pede a tela. A setinha ao lado do **+** abre um shell novo no worktree;
 sair da aba não mata nada, e ⌘W com o cursor dentro dele fecha o terminal.
 Teste em `e2e/critical-flows.spec.ts`.
 
+### O navegador e o contexto visual
+
+**Open** no Run abre o navegador junto da conversa e recolhe o painel direito
+de arquivos e revisão. O botão do painel permite reabri-lo; sair do navegador
+restaura a visibilidade anterior. A divisão pode ser
+redimensionada; em espaço estreito, os painéis ficam empilhados. Trocar de
+conversa preserva a página aberta e cada rascunho. Fechar a aba Navegador
+devolve todo o centro à conversa.
+
+**Selecionar elemento** destaca o que está sob o ponteiro. Um clique prepara
+HTML, estilos, seletor, URL e captura do elemento; Escape cancela. **Adicionar
+ao chat** inclui uma tag **Elemento selecionado** no rascunho, sem ocupar o
+texto digitado. A tag permite revisar detalhes ou remover o elemento e sua
+captura; no histórico, o contexto também aparece como tag. O agente recebe os
+dados completos quando a mensagem é enviada. Também é possível copiar
+o HTML ou capturar a área visível da página. A largura máxima aceita valores
+personalizados e opções de 390 e 768 pixels, respeitando o espaço do painel.
+
+Os uploads do preview pertencem à página. Arquivos soltos no chat continuam
+como anexos. Detalhes, limites e testes: [contrato do browser](docs/contracts/browser.md).
+
 ### Os arquivos do worktree
 
 A aba **Arquivos** do painel da direita é a árvore do worktree, e clicar num

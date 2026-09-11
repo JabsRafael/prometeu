@@ -5,6 +5,10 @@ arguments and results. Rust bindings remain manually synchronized.
 
 ## Sources and guarantees
 
+O preview, a inspeção de elementos e as capturas usam o
+[contrato do browser](browser.md). Os comandos são aditivos e não liberam IPC
+geral para a página inspecionada.
+
 - `src/ipc.ts` owns `Commands`, with one argument/result pair for each command.
   `invoke` infers the result from the command and checks its arguments. Callers
   cannot supply an arbitrary result generic. `IpcArgs`, `IpcArguments`,

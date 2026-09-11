@@ -156,6 +156,10 @@ As regras detalhadas e o estado atual de cada uma estão em
 | colaboração | shells `src/team.ts` (desktop) e `src/mobile/` (navegador, bundle para o Cloud); núcleo `src/team-member.ts`, `src/team-ports.ts`, features `src/team-owner.ts`, `src/team-viewer.ts`, `src/team-comments.ts`; `src/team-transport.ts`, `src/team-control.ts`, `relay/src/` |
 | terminal e preview | `src/dock*.ts`, `src/term.ts`, `src/browser.ts`, `src-tauri/src/dock.rs`, `src-tauri/src/pty.rs` |
 
+O preview compartilha o centro com a conversa. Inspeção e captura ficam na
+borda da webview nativa, com retorno validado e envio explícito ao rascunho.
+Veja o [contrato do browser](docs/contracts/browser.md).
+
 ## Pressões conhecidas
 
 - `session.rs`, `chat.ts`, `codex.rs`, `workspace.ts` e `chat.rs` concentram

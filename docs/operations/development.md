@@ -27,6 +27,10 @@ para UI e para os testes dirigidos pelo Playwright.
 O mock não prova lifecycle de processo, filesystem ou serialização Rust. O app
 Tauri não é dirigido pelo Playwright no macOS porque a WKWebView não expõe CDP.
 
+O preview interativo do mock usa uma página controlada em iframe e o mesmo
+script de seleção do app. Testes `browser` cobrem Chromium e WebKit; PNG nativo
+e gestos AppKit continuam fora dessa prova. Veja o [contrato do browser](../contracts/browser.md).
+
 ## Comandos de validação
 
 ```sh

@@ -1,0 +1,10 @@
+/* Shared context chips keep technical details outside conversation text and drafts. */
+.browser-context { display: inline-flex; align-items: center; max-width: 100%; vertical-align: middle; border: 1px solid var(--line-raised); border-radius: var(--r); background: var(--bg-raised); white-space: normal; }
+.browser-context > .ui-button { min-width: 0; height: auto; min-height: var(--button-height); padding: 0 var(--space-2); font-size: var(--text-sm); }
+.browser-context-open { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-context-remove { flex: none; width: var(--button-height); }
+.browser-context-dialog .ui-form-body { display: grid; gap: var(--space-3); min-width: 0; }
+.browser-context-selector, .browser-context-url, .browser-context-text, .browser-context-meta { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; user-select: text; }
+.browser-context-url, .browser-context-meta { color: var(--fg-3); font-size: var(--text-sm); }
+.browser-context-dialog summary { min-height: var(--button-height); }
+.browser-context-dialog pre { margin: 0; max-height: 35dvh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: var(--text-sm)/1.5 var(--mono); user-select: text; }

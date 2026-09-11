@@ -116,6 +116,19 @@ test("arraste de arquivo respeita diálogo modal aberto durante o gesto", async 
   await expect(tile.locator(".cfiles .injchip")).toHaveCount(0);
 });
 
+test("arraste de arquivo preserva caminho completado no rascunho sem navegador", async ({ page }) => {
+  await page.locator('#tiles .tile[data-tab="t1"] .topen').click();
+  const composer = page.locator("#chatwrap .composer textarea");
+  await composer.fill("Veja @CLA");
+  await expect(page.locator(".menu .mrow").first()).toContainText("CLAUDE.md");
+  await composer.press("Tab");
+  await expect(composer).toHaveValue("Veja @CLAUDE.md ");
+  await drag(page, "drop", await point(composer), [path]);
+  await expect(page.locator("#chatwrap .cfiles .injchip")).toContainText("Captura de Tela.png");
+  await expect(composer).toHaveValue("Veja @CLAUDE.md ");
+  await expect(page.locator("#webview")).toBeHidden();
+});
+
 test("arraste de arquivo no lançador preserva texto e não duplica anexos", async ({ page }) => {
   await page.locator("#railbody").getByRole("button", { name: "Criar", exact: true }).click();
   const composer = page.locator("#d-prompt");
