@@ -7,6 +7,10 @@ import { generateIdentity, open, seal, signIdentity, type Identity } from "../..
 let worker: Unstable_DevWorker;
 let created: CreatedTeam;
 
+// Closing under a loaded GitHub-hosted runner can exceed expect.poll's 1 s default.
+const closed = (socket: WebSocket) =>
+  expect.poll(() => socket.readyState, { timeout: 5_000 }).toBe(WebSocket.CLOSED);
+
 const socketResult = (url: string): Promise<{ open: boolean; first?: unknown }> =>
   new Promise((resolve) => {
     const socket = new WebSocket(url);
@@ -213,12 +217,12 @@ describe("organization sharing through Cloud authorization", () => {
     const write = owner.frames.find(frame => frame.t === "write");
     expect(write.data).toBe("");
     expect(await decrypted(owner.identity, guest.identity, write.encrypted, owner.member)).toBe("Please check this");
-    await expect.poll(() => guest.socket.readyState, { timeout: 5_000 }).toBe(WebSocket.CLOSED);
+    await closed(guest.socket);
     const presence = owner.frames.filter(frame => frame.t === "presence").at(-1);
     expect(presence.members.find((member: { id: string }) => member.id === "guest001").name).toBe("Bob");
     expect((await socketResult(`${base()}/organization/organization1?ticket=${"d".repeat(43)}&p=${PROTO}`)).open).toBe(false);
     owner.socket.close();
-    await expect.poll(() => owner.socket.readyState).toBe(WebSocket.CLOSED);
+    await closed(owner.socket);
   });
 
   it("persists and routes only recipient ciphertext for comments, snapshots and inbox", async () => {
@@ -246,7 +250,7 @@ describe("organization sharing through Cloud authorization", () => {
     expect(Object.keys(note.encrypted.boxes)).toEqual([guest.member]);
     expect(await decrypted(guest.identity, owner.identity, note.encrypted, guest.member)).toBe("Private comment");
     guest.socket.close();
-    await expect.poll(() => guest.socket.readyState).toBe(WebSocket.CLOSED);
+    await closed(guest.socket);
     const returned = await connect(issue("g", 1));
     expect(returned.frames[0].inbox).toHaveLength(1);
     expect(Object.keys(returned.frames[0].inbox[0].encrypted.boxes)).toEqual([guest.member]);
@@ -259,21 +263,21 @@ describe("organization sharing through Cloud authorization", () => {
     expect(JSON.stringify(returned.frames)).not.toContain("Private comment");
     owner.socket.close();
     returned.socket.close();
-    await expect.poll(() => owner.socket.readyState).toBe(WebSocket.CLOSED);
-    await expect.poll(() => returned.socket.readyState).toBe(WebSocket.CLOSED);
+    await closed(owner.socket);
+    await closed(returned.socket);
   });
 
   it("rejects forged identity proof and plaintext text or binary content", async () => {
     const forged = await connect(issue("h", 0), "spoofed", false);
     forged.socket.send(JSON.stringify({ t: "identity", key: forged.identity.publicKey,
       proof: await signIdentity(forged.identity, [forged.member, "wrong-challenge"]) }));
-    await expect.poll(() => forged.socket.readyState).toBe(WebSocket.CLOSED);
+    await closed(forged.socket);
     const plaintext = await connect(issue("i", 0));
     plaintext.socket.send(JSON.stringify({ t: "write", ws: "workspace1", tab: "tab1", data: "Unencrypted input" }));
-    await expect.poll(() => plaintext.socket.readyState).toBe(WebSocket.CLOSED);
+    await closed(plaintext.socket);
     const binary = await connect(issue("j", 0));
     binary.socket.send(encodeLive("tab1", [{ seq: 1, bytes: new TextEncoder().encode("Unencrypted output") }]));
-    await expect.poll(() => binary.socket.readyState).toBe(WebSocket.CLOSED);
+    await closed(binary.socket);
   });
 
   it("renews an identified socket without losing its watcher or broadcasting presence, then expires the renewed lease", async () => {
@@ -296,9 +300,9 @@ describe("organization sharing through Cloud authorization", () => {
     const stream = await encrypted(owner.identity, [guest.member], "After renewal");
     owner.socket.send(encodeSnapshot("tab1", guest.member, 0, new TextEncoder().encode(JSON.stringify(stream))));
     await expect.poll(() => guest.binaries.length).toBe(1);
-    await expect.poll(() => guest.socket.readyState, { timeout: 5_000 }).toBe(WebSocket.CLOSED);
+    await closed(guest.socket);
     owner.socket.close();
-    await expect.poll(() => owner.socket.readyState).toBe(WebSocket.CLOSED);
+    await closed(owner.socket);
   });
 
   it("rejects renewal before identity, with another member or organization, and with a spent or revoked ticket", async () => {
@@ -312,7 +316,7 @@ describe("organization sharing through Cloud authorization", () => {
         await expect.poll(() => guest.frames.filter(frame => frame.t === "lease").length).toBe(2);
         guest.socket.send(JSON.stringify({ t: "renew", ticket }));
       }
-      await expect.poll(() => guest.socket.readyState).toBe(WebSocket.CLOSED);
+      await closed(guest.socket);
     }
   });
 });
