@@ -4,6 +4,23 @@ O que muda no Prometeu, versão a versão, para quem usa o app.
 As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
 commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
 
+## [0.7.2] - 2026-09-11
+<!-- lang:pt-BR -->
+
+### Novidades
+
+- **configurações:** Remove a migração do Prometheus
+- **browser:** Integra navegação e seleção de elementos ao chat
+
+<!-- lang:en -->
+
+### New
+
+- **settings:** Removes the Prometheus migration
+
+- **browser:** Integrates browsing and element selection into chat
+
+<!-- lang:end -->
 ## [0.7.1] - 2026-09-10
 <!-- lang:pt-BR -->
 
