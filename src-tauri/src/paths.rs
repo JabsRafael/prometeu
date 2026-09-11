@@ -158,12 +158,6 @@ pub fn transcript(id: &str, cwd: &Path) -> PathBuf {
     transcript_in(&crate::claude::user_home().join("projects"), id, cwd)
 }
 
-/// Inject the base directory for migration previews and tests; Claude continues to own its
-/// transcript files.
-pub(crate) fn transcript_at(home: &Path, id: &str, cwd: &Path) -> PathBuf {
-    transcript_in(&home.join(".claude/projects"), id, cwd)
-}
-
 fn transcript_in(projects: &Path, id: &str, cwd: &Path) -> PathBuf {
     let slug: String = cwd
         .to_string_lossy()

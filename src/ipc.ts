@@ -65,8 +65,6 @@ export type Commands = {
   find_paths: { args: { id: string; query: string; recent: string[] }; result: PathEntry[] };
   finish_workspace: { args: { id: string }; result: void };
   focus_tab: { args: { workspace: string; tab: string }; result: void };
-  legacy_import_plan: { args: undefined; result: T.LegacyImportPlan };
-  legacy_import_run: { args: undefined; result: T.LegacyImportPlan };
   linear_connect: { args: undefined; result: T.LinearStatus };
   linear_disconnect: { args: undefined; result: T.LinearStatus };
   linear_issues: { args: { force: boolean }; result: T.Issues };

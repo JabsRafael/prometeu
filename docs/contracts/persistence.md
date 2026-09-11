@@ -37,8 +37,6 @@ isoladas.
 | imagem colada da área de transferência | `<root>/attachments/<uuid>/pasted.png` | `file_drop.rs`; mesma pasta e permissões, TIFF convertido para PNG |
 | hub de plugins | `<root>/plugins.json` | `plugins.rs` |
 | home/marketplace Codex derivado | `<root>/codex-workspaces/<workspace-hash>/[<conta>/]` | `plugins.rs`; reconstruível |
-| manifesto de importação | `<root>/imports/prometheus-v1.json` | `migration.rs` |
-| snapshots da importação | `<root>/imports/prometheus-<data>-<id>/` | `migration.rs` |
 
 Worktrees ficam em `~/prometeu/worktrees[-dev]/...`, fora da raiz de estado.
 
@@ -51,11 +49,10 @@ nesta etapa. Arquivos normais do Finder continuam usando seus caminhos originais
 Essa pasta é aditiva: rollback ignora a pasta e preserva os caminhos já enviados;
 nenhum formato existente exige migração.
 
-O Prometeu não procura nem escreve automaticamente nas raízes do Prometheus.
-Os dois aplicativos podem permanecer instalados e abertos sem compartilhar
-estado antes da migração. A importação abaixo é explícita, cria backup e não
-apaga a origem; depois dela, os worktrees adotados não devem ser operados pelos
-dois aplicativos ao mesmo tempo.
+O Prometeu não procura nem escreve nas raízes do Prometheus. Worktrees
+adotados na migração antiga continuam em `~/prometheus/worktrees`; a limpeza de
+um workspace multi-repo ainda aceita esse caminho, e os dois aplicativos não
+devem operar a mesma pasta ao mesmo tempo.
 
 ## Preferência de som removida
 
@@ -89,34 +86,6 @@ localStorage e exercita o mesmo canal criptográfico.
 
 Testes: `src/team-security.test.ts` e testes de `src-tauri/src/team.rs`.
 Contrato de rede e limites: [relay v4](relay-v4.md).
-
-## Importação do Prometheus
-
-A importação é pedida explicitamente e só aceita um board de destino sem
-projetos e workspaces. Ela lê `~/.prometheus/board.json` (ou seu backup quando o
-principal estiver inválido), passa o conteúdo pelas mesmas normalizações de
-compatibilidade do carregamento e grava o board por último.
-
-Entram:
-
-- projetos, workspaces, abas, branches, caminhos, issues e PRs do board;
-- logs Codex de `~/.prometheus/chats/`, inclusive arquivos que já não estejam
-  ligados a uma aba;
-- cadastro e pastas de plugins gerenciados, com origens reescritas para a raiz
-  do Prometeu;
-- configurações de repositório cujo destino `.prometeu/settings.toml` ainda
-  não exista.
-
-Não entram `linear.json`, `team.json`, `usage.json`, `linear-issues.json`,
-`sessions/`, `run/`, `codex-workspaces/` ou estado WebKit/localStorage. Workspaces
-importados deixam de estar compartilhados até uma escolha nova da pessoa.
-
-Os transcripts Claude permanecem em `~/.claude` e continuam sendo encontrados
-porque o primeiro passo não muda os caminhos dos worktrees. Os arquivos do
-Prometheus não são modificados. O manifesto registra versão, instante, hash do
-board, ids, contagens e snapshot; estado `prepared` com todos os ids presentes
-também conta como concluído, fechando a janela de queda entre gravar o board e
-finalizar o manifesto.
 
 ## Board
 

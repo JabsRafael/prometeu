@@ -47,7 +47,7 @@ como índice curto para agentes e `README.md` apresenta o produto.
 - [ADR 0003](decisions/0003-agent-capabilities.md): features dirigidas por capacidades — Aceito.
 - [ADR 0004](decisions/0004-prometeu-independent-identity.md): identidade independente do Prometeu — Aceito.
 - [ADR 0005](decisions/0005-portable-plugin-marketplace.md): marketplace portátil para Claude e Codex — Aceito.
-- [ADR 0006](decisions/0006-explicit-prometheus-import.md): importação explícita e não destrutiva do Prometheus — Aceito.
+- [ADR 0006](decisions/0006-explicit-prometheus-import.md): importação explícita e não destrutiva do Prometheus — Aceito; importador removido.
 - [ADR 0007](decisions/0007-persistent-session-comments.md): comentários persistentes ao lado da sessão — Aceito.
 - [ADR 0008](decisions/0008-explicit-git-index.md): índice Git explícito e operações por repositório — Aceito.
 - [ADR 0009](decisions/0009-reusable-actions.md): comandos e agentes reutilizáveis com acompanhamento local — Aceito.
