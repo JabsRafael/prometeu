@@ -1,12 +1,11 @@
 ---
-description: Abre um PR da branch atual — empurra, escreve título e corpo, garante o runner de CI no ar e acompanha os checks até o fim
+description: Abre um PR da branch atual — empurra, escreve título e corpo e acompanha os checks até o fim
 argument-hint: [título]
-allowed-tools: Bash(git:*), Bash(gh:*), Bash(sh scripts/runner.sh:*), Read
+allowed-tools: Bash(git:*), Bash(gh:*), Read
 ---
 
 Você vai abrir um pull request da branch em que está, e ficar de olho no CI
-até ele terminar. O CI roda no runner self-hosted deste Mac
-(`scripts/runner.sh`); sem ele no ar, o job fica na fila e ninguém avisa.
+até ele terminar. O CI roda em runners hospedados pelo GitHub.
 
 Título pedido: **$1** (vazio = você escreve).
 
@@ -33,14 +32,11 @@ Regras:
 Leia os commits. Se algum muda o que a pessoa vê na tela e você não tem
 certeza do que faz, abra o diff dele antes de escrever.
 
-## 3. Runner e push
+## 3. Push
 
 ```sh
-sh scripts/runner.sh
 git push -u origin HEAD
 ```
-
-Se o `runner.sh` falhar, pare e mostre o erro: PR sem CI é PR pela metade.
 
 ## 4. Abrir
 

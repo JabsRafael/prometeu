@@ -5,8 +5,8 @@
 # sh scripts/release.sh 0.2.0    Select a version explicitly.
 # sh scripts/release.sh publish Publish the CI-created draft.
 #
-# This script controls version, changelog and tag. CI builds and signs a draft in
-# prometeucorp/prometeu-releases. Install and review its DMG before publishing.
+# This script controls version, changelog and tag. CI builds and signs a draft release in this
+# repository. Install and review its DMG before publishing.
 # The updater accepts only newer versions; publishing a bad release requires another release to recover.
 # Conventional Commits supply git-cliff, CHANGELOG.md and release notes. While versions remain 0.x,
 # feat/fix bump patch and breaking changes bump minor; see cliff.toml.
@@ -15,7 +15,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-REPO=prometeucorp/prometeu-releases
+REPO=prometeucorp/prometeu
 
 die() { echo "$*" >&2; exit 1; }
 # Call git-cliff directly so npm does not consume its flags as npm configuration.
@@ -34,9 +34,6 @@ cut() {
   git fetch -q origin main
   [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] \
     || die "a main local não é a origin/main — dê pull (ou push) antes"
-
-  # Ensure the local runner is online before pushing a tag that would otherwise remain queued.
-  sh scripts/runner.sh
 
   PREV=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "")
   if [ -n "$PREV" ] && [ "$(git rev-list --count "$PREV..HEAD")" = 0 ]; then

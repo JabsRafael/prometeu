@@ -10,7 +10,7 @@ elas existe uma pessoa:
 1. **cortar** — `sh scripts/release.sh [versão]` calcula o número a partir dos
    commits, gera a seção do `CHANGELOG.md`, commita, tagueia, empurra e
    acompanha o CI, que constrói assinado e deixa uma release **draft** em
-   `prometeucorp/prometeu-releases`.
+   `prometeucorp/prometeu`, o próprio repositório.
 2. **publicar** — depois que o usuário instalou o `.dmg` da draft e conferiu,
    `sh scripts/release.sh publish` tira a draft do ar e o updater passa a
    entregá-la.
@@ -66,9 +66,9 @@ sh scripts/release.sh $1
 
 Ele marca os quatro arquivos de versão, prepende a seção ao `CHANGELOG.md`,
 roda os testes, commita `chore(release): vX.Y.Z`, tagueia, empurra e fica
-acompanhando o run do `release.yml` (roda neste Mac, pelo runner self-hosted;
-primeiro build demora, os seguintes são incrementais),
-imprimindo o estado a cada trinta segundos. Deixe rodar.
+acompanhando o run do `release.yml` (roda num runner macOS do GitHub; build,
+assinatura e notarização levam perto de meia hora), imprimindo o estado a
+cada trinta segundos. Deixe rodar.
 
 Se o script parar antes de empurrar, **leia o erro antes de tentar de novo**:
 árvore suja, main atrás da origin, teste vermelho e "nada para contar" são
