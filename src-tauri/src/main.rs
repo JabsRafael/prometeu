@@ -22,7 +22,6 @@ mod lock;
 mod machine;
 mod mcp;
 mod mcp_auth;
-mod migration;
 mod naming;
 mod oauth;
 mod paths;
@@ -209,8 +208,6 @@ fn main() {
             linear::linear_disconnect,
             linear::linear_issues,
             linear::linear_open,
-            migration::legacy_import_plan,
-            migration::legacy_import_run,
             team::team_config,
             team::team_config_set,
             team::team_security,

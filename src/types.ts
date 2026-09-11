@@ -238,29 +238,6 @@ export type Scripts = {
 
 export type Board = { actions?: import("./actions").Catalog; stages: string[]; projects: Project[]; workspaces: Workspace[] };
 
-/// Backend-computed preview for temporary Prometheus import; the UI explains it and requests confirmation.
-export type LegacyImportPlan = {
-  state: "ready" | "missing" | "imported" | "targetNotEmpty" | "invalid";
-  source: string;
-  counts: {
-    projects: number;
-    workspaces: number;
-    activeWorkspaces: number;
-    archivedWorkspaces: number;
-    tabs: number;
-    transcripts: number;
-    missingTranscripts: number;
-    codexFiles: number;
-    plugins: number;
-    settings: number;
-    worktrees: number;
-    existingWorktrees: number;
-  };
-  problem: string | null;
-  importedAt: number | null;
-  backup: string | null;
-};
-
 /// The authenticated Linear user and organization.
 export type LinearWho = { name: string; email: string; org: string; org_key: string };
 /// Persist enough issue metadata for workspace labels, links, and existing-workspace detection.

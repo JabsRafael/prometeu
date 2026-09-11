@@ -3,7 +3,7 @@ import * as actionSettings from "./action-settings";
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import { avatar, icon } from "./icons";
-import { LANGS, choose, chosen, current as locale, fromBack, fromSystem, t, tn, type Key, type Lang } from "./i18n";
+import { LANGS, choose, chosen, fromBack, fromSystem, t, type Key, type Lang } from "./i18n";
 import {
   defaultEffort,
   defaultMcp,
@@ -24,10 +24,10 @@ import * as menu from "./menu";
 import * as plugins from "./plugins";
 import * as news from "./news";
 import * as team from "./team";
-import type { LegacyImportPlan, LinearStatus } from "./types";
+import type { LinearStatus } from "./types";
 import { settingsRow } from "./update";
 import { $, h, template } from "./util";
-import { button, checkbox, field, formDialog, select } from "./ui";
+import { button, field, formDialog, select } from "./ui";
 
 /// Application preferences include Linear, updates, defaults, and interface language.
 /// Connection secrets remain in the backend; this view receives LinearStatus updates.
@@ -36,7 +36,6 @@ type Ctx = { say: (text: string, isError?: boolean) => void };
 
 let ctx: Ctx;
 let status: LinearStatus = { connected: false, who: null, busy: false };
-let legacy: LegacyImportPlan | null = null;
 
 export async function init(context: Ctx) {
   ctx = context;
@@ -51,11 +50,6 @@ export async function init(context: Ctx) {
     status = await invoke("linear_status");
   } catch {
     // Keep the page usable and disconnected if the backend is unavailable or older.
-  }
-  try {
-    legacy = await invoke("legacy_import_plan");
-  } catch {
-    // Older backends do not expose the temporary migration entry.
   }
   // Server registration, import, and removal update this page.
   mcp.onChange(() => {
@@ -168,114 +162,8 @@ export function draw() {
   view.replaceChildren(wrap);
 }
 
-// Temporary Prometheus import.
-
 function appRows(): HTMLElement[] {
-  const rows = [settingsRow(), news.settingsRow()];
-  if (legacy && legacy.state !== "missing") rows.unshift(migrationRow(legacy));
-  return rows;
-}
-
-function importSummary(plan: LegacyImportPlan): string {
-  return [
-    tn(plan.counts.projects, "migration.projects"),
-    tn(plan.counts.workspaces, "migration.workspaces"),
-    tn(plan.counts.tabs, "migration.tabs"),
-  ].join(" · ");
-}
-
-function migrationRow(plan: LegacyImportPlan): HTMLElement {
-  const row = template(
-    "div",
-    "setrow",
-    `<span class="glyph">${icon("archive-restore", 18)}</span><div class="txt"><b></b><span></span></div><div class="act"></div>`,
-  );
-  row.querySelector(".txt b")!.textContent = t("migration.title");
-  const body = row.querySelector(".txt span")!;
-  const action = row.querySelector(".act")!;
-
-  if (plan.state === "ready") {
-    body.textContent = t("migration.row.ready", { summary: importSummary(plan) });
-    const review = h("button", "outline md", t("migration.review"));
-    review.addEventListener("click", () => openMigration(plan));
-    action.append(review);
-  } else if (plan.state === "imported") {
-    const date = plan.importedAt
-      ? new Intl.DateTimeFormat(locale(), { dateStyle: "medium" }).format(new Date(plan.importedAt * 1000))
-      : "";
-    body.innerHTML = `<span class="ok"></span>`;
-    body.querySelector(".ok")!.textContent = t("migration.row.imported", { date });
-  } else if (plan.state === "targetNotEmpty") {
-    body.textContent = t("migration.row.targetNotEmpty");
-  } else {
-    body.innerHTML = `<span class="bad"></span>`;
-    body.querySelector(".bad")!.textContent = plan.problem ? fromBack(plan.problem) : t("migration.row.invalid");
-  }
-  return row;
-}
-
-function openMigration(plan: LegacyImportPlan) {
-  const closed = checkbox(t("migration.closed"), false);
-  const check = closed.control;
-  check.required = true;
-  closed.label.classList.add("migration-check");
-  const dialog = formDialog({
-    title: t("migration.title"), save: t("migration.go"), cancel: t("migration.cancel"), error: fromBack,
-    submit: async () => {
-      check.disabled = true;
-      dialog.save.textContent = t("migration.doing");
-      try {
-        const result = await invoke("legacy_import_run");
-        legacy = result;
-        try {
-          await plugins.refresh();
-        } catch {
-          // Import already succeeded; reopening the hub can retry its visual refresh.
-        }
-        draw();
-        ctx.say(t("migration.done", { backup: result.backup ?? "" }));
-      } finally {
-        check.disabled = false;
-        dialog.save.textContent = t("migration.go");
-      }
-    },
-  });
-  dialog.root.classList.add("migration");
-  dialog.save.disabled = true;
-  const body = dialog.body;
-  body.classList.add("mbody");
-  body.append(
-    h("p", "lead", t("migration.preview", { summary: importSummary(plan) })),
-    h(
-      "p",
-      "fact",
-      t("migration.preview.history", {
-        found: tn(plan.counts.transcripts, "migration.histories"),
-        missing: tn(plan.counts.missingTranscripts, "migration.missingHistories"),
-      }),
-    ),
-    h(
-      "p",
-      "fact",
-      t("migration.preview.extras", {
-        plugins: tn(plan.counts.plugins, "migration.plugins"),
-        settings: tn(plan.counts.settings, "migration.settingsFiles"),
-      }),
-    ),
-    h(
-      "p",
-      "fact",
-      t("migration.preview.worktrees", {
-        existing: plan.counts.existingWorktrees,
-        total: plan.counts.worktrees,
-      }),
-    ),
-    h("p", "fact", t("migration.preview.excluded")),
-  );
-
-  body.append(closed.label);
-  check.addEventListener("change", () => (dialog.save.disabled = !check.checked));
-  dialog.open();
+  return [settingsRow(), news.settingsRow()];
 }
 
 /// Store language preference locally; without an override, show the resolved system language.

@@ -1,7 +1,7 @@
 # ADR 0006 — Importação explícita do Prometheus
 
 Data: 2026-09-04
-Status: Aceito
+Status: Aceito; interface e importador removidos em 2026-09-10
 
 ## Contexto
 
@@ -54,6 +54,13 @@ origem nunca é escrita nem apagada.
 A interface pode ser removida quando a janela de transição acabar. O suporte
 de leitura ao estado importado e a segurança dos caminhos antigos permanecem.
 
+Em 2026-09-10 a janela terminou: quem iria migrar já migrou. A interface, os
+comandos `legacy_import_plan`/`legacy_import_run` e `migration.rs` saíram. O que
+esta decisão previu como permanente continua no código: a leitura do estado já
+importado e `paths::prometheus_multi_dir`, que deixa a limpeza de um workspace
+multi-repo aceitar o worktree herdado. Boards ainda não migrados precisam da
+versão anterior do aplicativo ou de cópia manual.
+
 ## Consequências
 
 Positivas:
@@ -75,7 +82,8 @@ Negativas:
 
 ## Evidência
 
-- testes Rust cobrem prévia, cópia, normalização, idempotência, destino
-  ocupado e conflito de transcript;
-- o E2E cobre a prévia e a confirmação da interface;
-- o contrato de persistência enumera dados incluídos e excluídos.
+Enquanto o importador existiu, testes Rust cobriam prévia, cópia, normalização,
+idempotência, destino ocupado e conflito de transcript, e o E2E cobria a prévia
+e a confirmação da interface. Depois da remoção resta
+`src-tauri/src/session.rs`, que testa a aceitação do worktree herdado em
+`check_so_deixa_sair_o_que_ja_entrou_e_esta_limpo`.

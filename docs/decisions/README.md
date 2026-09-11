@@ -38,7 +38,7 @@ Status: Proposto
 | [0003](0003-agent-capabilities.md) | Aceito | features dirigidas por capacidades |
 | [0004](0004-prometeu-independent-identity.md) | Aceito | identidade independente do Prometeu |
 | [0005](0005-portable-plugin-marketplace.md) | Aceito | marketplace portátil para Claude e Codex |
-| [0006](0006-explicit-prometheus-import.md) | Aceito | importação explícita e não destrutiva do Prometheus |
+| [0006](0006-explicit-prometheus-import.md) | Aceito; importador removido | importação explícita e não destrutiva do Prometheus |
 | [0007](0007-persistent-session-comments.md) | Aceito | comentários persistentes ao lado da sessão |
 | [0008](0008-explicit-git-index.md) | Aceito | índice Git explícito e operações por repositório |
 | [0009](0009-reusable-actions.md) | Aceito | comandos e agentes reutilizáveis com acompanhamento local |

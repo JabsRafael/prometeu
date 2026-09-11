@@ -1,4 +1,4 @@
-import type { IpcCommand, IpcHandlers, IpcResult } from "./ipc";
+import type { IpcCommand, IpcHandlers } from "./ipc";
 import { emptyCatalog, initializeDefaults, type Catalog, type Profile } from "./actions";
 /// Browser backend for sample data. Loaded only when window.__TAURI_INTERNALS__ is absent; never loaded in Tauri.
 import { simulatedSocket } from "./team-mock";
@@ -563,29 +563,6 @@ let pluginHub: Plugin[] = [
   { id: "ponytail", source: "~/dev/ponytail", note: "em construção" },
 ];
 
-/// Browser import changes only this page's mock state; it never accesses disk.
-let legacyImported = false;
-const legacyPlan = (): IpcResult<"legacy_import_plan"> => ({
-  state: legacyImported ? "imported" : "ready",
-  source: "/Users/gustavo/.prometheus",
-  counts: {
-    projects: 5,
-    workspaces: 166,
-    activeWorkspaces: 4,
-    archivedWorkspaces: 162,
-    tabs: 168,
-    transcripts: 163,
-    missingTranscripts: 5,
-    codexFiles: 35,
-    plugins: 2,
-    settings: 2,
-    worktrees: 66,
-    existingWorktrees: 66,
-  },
-  problem: null,
-  importedAt: legacyImported ? Math.floor(Date.now() / 1000) : null,
-  backup: legacyImported ? "/Users/gustavo/.prometeu/imports/prometheus-mock" : null,
-});
 
 /// Plugin creation progress uses timers instead of an agent.
 let pluginRun = 0;
@@ -916,13 +893,6 @@ const mockCommands: IpcHandlers = {
     board.projects = board.projects.filter((project) => project.id !== args.id);
     emit("board", board);
     return;
-  },
-  legacy_import_plan() {
-    return legacyPlan();
-  },
-  legacy_import_run() {
-    legacyImported = true;
-    return legacyPlan();
   },
   // Use localStorage for browser team state; Tauri stores it in team.json.
   team_config() {

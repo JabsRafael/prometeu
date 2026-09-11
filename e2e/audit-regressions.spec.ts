@@ -153,19 +153,3 @@ test("cleanup keeps its dialog open while deleting worktrees", async ({ page }) 
   await expect(dialog).toHaveCount(0);
 });
 
-test("legacy import keeps its dialog open while importing", async ({ page }) => {
-  await boot(page);
-  await page.locator("#settings").click();
-  await page.locator(".setnavitem", { hasText: "Aplicativo" }).click();
-  await page.locator(".setrow", { hasText: "Migrar do Prometheus" }).getByText("Revisar", { exact: true }).click();
-  const dialog = page.locator("dialog.migration");
-  await dialog.locator(".migration-check input").check();
-  await hold(page, "legacy_import_run");
-  await dialog.getByRole("button", { name: "Importar", exact: true }).click();
-  await waiting(page);
-  await page.keyboard.press("Escape");
-  await expect(dialog).toBeVisible();
-  await expect(dialog.locator(":scope > form")).toHaveAttribute("aria-busy", "true");
-  await release(page);
-  await expect(dialog).toHaveCount(0);
-});
