@@ -632,3 +632,10 @@ uma imagem ou capturar uma janela e revisar a miniatura antes de enviar.
 Feedback é tratado em privado pela equipe Prometeu. Revise a captura e remova
 senhas e outros dados sensíveis antes de enviar.
 A entrega depende da configuração do Cloud. Veja o [contrato](docs/contracts/feedback.md).
+
+## Código aberto
+
+O Prometeu é software livre sob a [licença MIT](LICENSE). O código, as
+releases e as issues vivem em
+[github.com/prometeucorp/prometeu](https://github.com/prometeucorp/prometeu).
+Ver [ADR 0040](docs/decisions/0040-open-source.md).
