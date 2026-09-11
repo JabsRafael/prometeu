@@ -71,3 +71,4 @@ Status: Proposto
 | [0037](0037-browser-design-context.md) | Aceito | browser com contexto visual para a conversa |
 | [0038](0038-browser-context-chips.md) | Aceito | elementos selecionados como tags na conversa |
 | [0039](0039-organization-catalog-on-desktop.md) | Aceito | catálogos da organização disponíveis no desktop |
+| [0040](0040-open-source.md) | Aceito | código aberto em um único repositório público |

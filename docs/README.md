@@ -85,6 +85,7 @@ como índice curto para agentes e `README.md` apresenta o produto.
 - [ADR 0037](decisions/0037-browser-design-context.md): browser com contexto visual para a conversa — Aceito.
 - [ADR 0038](decisions/0038-browser-context-chips.md): elementos selecionados como tags na conversa — Aceito.
 - [ADR 0039](decisions/0039-organization-catalog-on-desktop.md): catálogos da organização disponíveis no desktop — Aceito.
+- [ADR 0040](decisions/0040-open-source.md): código aberto em um único repositório público — Aceito; substitui parcialmente o ADR 0004.
 
 ## Qualidade e operação
 

@@ -76,6 +76,10 @@ Atualização de implementação em 2026-09-04: a importação posterior foi
 implementada pelo [ADR 0006](0006-explicit-prometheus-import.md), mantendo a
 origem independente e adotando os worktrees antigos sem movê-los.
 
+Atualização em 2026-09-11: o [ADR 0040](0040-open-source.md) substitui o item
+de releases. O código é público em `prometeucorp/prometeu` e as releases saem
+desse mesmo repositório; `prometeucorp/prometeu-releases` fica arquivado.
+
 ## Evidência
 
 - testes de `paths.rs` cobrem as raízes novas;

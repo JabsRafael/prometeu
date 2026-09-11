@@ -20,25 +20,15 @@ commit do PR.
 
 ## CI
 
-`.github/workflows/ci.yml` roda em PRs internos e pushes para `main` num runner
-self-hosted macOS ARM64. O job instala dependências, instala Chromium e WebKit e
-executa `npm run check`.
+`.github/workflows/ci.yml` roda em PRs, inclusive de forks, e em pushes para
+`main`, em runners macOS hospedados pelo GitHub. O job instala dependências,
+instala Chromium e WebKit e executa `npm run check`. Runners hospedados são
+descartáveis e o workflow não tem segredo, então código de fork roda sem
+risco. Não registre runner self-hosted neste repositório: o código é público
+e um PR de fork controla o que o job executa. Ver
+[ADR 0040](../decisions/0040-open-source.md).
 
-O repositório deve permanecer privado e workflows de forks desativados enquanto
-o runner self-hosted estiver registrado: checkout, npm e testes executam código
-do branch.
-
-No bootstrap desta nova linha, o GitHub Actions permanece desativado até haver
-um runner dedicado em `~/actions-runner-prometeu` e um `RELEASES_TOKEN`
-limitado a escrever em `prometeucorp/prometeu-releases`. Não copie o token
-amplo usado pelo `gh` local para o workflow. Depois de configurar os dois,
-reative Actions e rode primeiro um `workflow_dispatch`, sem tag.
-
-Um PAT fine-grained vale só para os recursos de um dono. Como o repositório de
-releases pertence à organização, o token precisa ser emitido com resource owner
-`prometeucorp`; um token emitido para a conta pessoal deixa de alcançá-lo. O
-workflow confere esse acesso antes de construir, para não gastar vinte minutos
-de build e assinatura numa tag que não vai virar draft.
+## Criar release
 
 ## Criar release
 
@@ -47,13 +37,13 @@ sh scripts/release.sh
 sh scripts/release.sh 0.5.0
 ```
 
-O script exige árvore limpa, branch `main`, paridade com `origin/main`, runner
-online e ao menos uma nota pública desde a tag anterior. Ele calcula ou recebe
+O script exige árvore limpa, branch `main`, paridade com `origin/main` e ao
+menos uma nota pública desde a tag anterior. Ele calcula ou recebe
 a versão, atualiza manifests e changelog, roda testes, cria commit/tag e envia
 para o remoto.
 
-O workflow de release constrói e assina os artefatos e cria uma draft no
-repositório público de releases.
+O workflow de release constrói e assina os artefatos e cria uma draft neste
+mesmo repositório, com o `GITHUB_TOKEN` do job. Não existe PAT de release.
 
 ## Publicar
 
