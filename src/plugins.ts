@@ -128,7 +128,7 @@ export function init(context: Ctx) {
 export function settingsRows(): HTMLElement[] {
   // Cloud entries missing locally offer installation.
   const missing = catalog.current().plugins.filter((p) => !p.installed);
-  const rows = [...hub.filter(p => !skills.packageIds().has(p.id)).map(pluginRow), ...missing.map(cloudRow)];
+  const rows = [...hub.filter(p => !skills.packageIds().has(p.id)).map(pluginRow), ...missing.map(cloudRow), ...catalog.organizationRows("plugins", ctx.say)];
   return [aboutRow(), ...(rows.length ? rows : [emptyRow()])];
 }
 

@@ -138,7 +138,8 @@ export function init(context: Ctx) {
 
 /// Start the Tools page with its explanation and registration/import actions, then list servers.
 export function settingsRows(): HTMLElement[] {
-  return [aboutRow(), ...(hub.length ? hub.map(serverRow) : [emptyRow()])];
+  const rows = [...hub.map(serverRow), ...catalog.organizationRows("mcp", ctx.say)];
+  return [aboutRow(), ...(rows.length ? rows : [emptyRow()])];
 }
 
 /// Explain the registry and offer registration in the first row.

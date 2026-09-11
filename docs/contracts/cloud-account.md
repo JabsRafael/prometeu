@@ -115,7 +115,9 @@ O mock não comprova abertura do navegador pelo Tauri nem entrega SMTP real.
 ## Catálogo pessoal
 
 A mesma conta oferece autoria web em `/catalog` e `GET/PUT /api/catalog`
-com Bearer no desktop. Conectar não publica itens locais automaticamente.
+com Bearer no desktop. `GET /api/organizations/:id/catalog` oferece leitura
+institucional autorizada pela matrícula atual, sem exigir cópia pessoal antes
+de instalar no desktop. Conectar não publica itens locais automaticamente.
 O [contrato do catálogo](cloud-catalog.md) define compartilhamento explícito,
 revisões, formatos e compatibilidade. Trocar de conta esquece vínculos
 anteriores, mantendo os arquivos locais.

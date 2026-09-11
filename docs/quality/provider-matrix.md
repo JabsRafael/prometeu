@@ -18,6 +18,7 @@ para virar capacidade contratual.
 | E2EE automática com TOFU na colaboração | mesmo canal HPKE Auth; sem forward secrecy | mesmo canal HPKE Auth; sem forward secrecy | `team-crypto.test.ts`, `team-security.test.ts`, `team-channel.test.ts`, `worker.integration.test.ts`, comentários E2E Chromium/WebKit |
 | conta opcional do Prometeu na barra lateral | independente do CLI | independente do CLI | `cloud.rs`, `e2e/cloud.spec.ts`; nenhum transcript é enviado |
 | catálogo de plugins, MCP e Ações na conta | independente do CLI | independente do CLI | `catalog.rs`, `catalog_test.rb`; segredos e instalação ficam por Mac |
+| plugins, MCPs e skills da organização | instalação local explícita no hub | mesma UI e instalação; adapters existentes | `catalog.rs`, `e2e/cloud.spec.ts`, `organizations_test.rb`; não exige cópia pessoal nem ativa automaticamente |
 | formulário de Ações com componentes compartilhados | mesma UI | mesma UI; opções vêm do catálogo | `e2e/ui.spec.ts`, `e2e/actions.spec.ts`, Chromium e WebKit |
 | componentes executáveis do DS da empresa | independente do provider | independente do provider | `e2e/design-system.spec.ts`, menu, submenu, senha, foco, validação e erro nos dois motores |
 | Code review incluído e editável | perfil inicial; pode trocar modelo/provider | pode ser escolhido no perfil | `actions.rs`, `actions.test.ts`, `e2e/actions.spec.ts` |

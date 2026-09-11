@@ -45,6 +45,19 @@ struct Cache {
     // Absence identifies the old cache format, where names served as links.
     #[serde(default)]
     links: Option<BTreeMap<String, String>>,
+    #[serde(default)]
+    organizations: Vec<OrganizationCatalog>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+struct OrganizationCatalog {
+    id: String,
+    name: String,
+    revision: Option<u64>,
+    doc: Doc,
+    // Installation creates a local snapshot, never a personal or organization write link.
+    #[serde(default)]
+    links: BTreeMap<String, String>,
 }
 
 impl Default for Cache {
@@ -53,6 +66,7 @@ impl Default for Cache {
             revision: None,
             doc: Doc::default(),
             links: Some(BTreeMap::new()),
+            organizations: Vec::new(),
         }
     }
 }
@@ -116,6 +130,18 @@ pub struct CatalogState {
     mcp: Vec<String>,
     skills: Vec<CatalogSkill>,
     shared: BTreeMap<String, String>,
+    organization_items: Vec<OrganizationItem>,
+}
+
+#[derive(Serialize)]
+struct OrganizationItem {
+    organization: String,
+    organization_name: String,
+    revision: Option<u64>,
+    kind: String,
+    id: String,
+    description: String,
+    installed: bool,
 }
 
 fn key(kind: &str, id: &str) -> String {
@@ -366,14 +392,84 @@ fn pull_locked(app: &AppHandle) -> Result<(), String> {
     }
     let (revision, doc) = parse(&value)?;
     let mut cache = load_cache();
-    if cache.revision == revision && cache.doc == doc {
+    let organizations = pull_organizations(&cache.organizations)?;
+    if cache.revision == revision && cache.doc == doc && cache.organizations == organizations {
         return Ok(());
     }
-    apply(app, &mut cache, doc)?;
+    if cache.revision != revision || cache.doc != doc {
+        apply(app, &mut cache, doc)?;
+    }
+    cache.organizations = organizations;
     cache.revision = revision;
     save_cache(&cache)?;
     let _ = app.emit("catalog", ());
     Ok(())
+}
+
+fn pull_organizations(
+    previous: &[OrganizationCatalog],
+) -> Result<Vec<OrganizationCatalog>, String> {
+    let Some((code, value)) = cloud::api(
+        Method::GET,
+        "/api/organizations",
+        None,
+        Duration::from_secs(12),
+    )?
+    else {
+        return Err(i18n::t("err.catalog.disconnected"));
+    };
+    if code == 404 {
+        return Ok(Vec::new());
+    }
+    if code != 200 {
+        return Err(i18n::t("err.cloud.network"));
+    }
+    let entries = value["organizations"].as_array().ok_or_else(invalid)?;
+    let mut result = Vec::new();
+    let mut seen = BTreeSet::new();
+    for entry in entries {
+        let id = entry["id"].as_str().ok_or_else(invalid)?;
+        let name = entry["name"].as_str().ok_or_else(invalid)?;
+        if id.is_empty()
+            || id.len() > 128
+            || !id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+            || !seen.insert(id)
+        {
+            return Err(invalid());
+        }
+        let Some((code, value)) = cloud::api(
+            Method::GET,
+            &format!("/api/organizations/{id}/catalog"),
+            None,
+            Duration::from_secs(12),
+        )?
+        else {
+            return Err(i18n::t("err.catalog.disconnected"));
+        };
+        // An older Cloud has no endpoint; a revoked membership also returns 404.
+        if code == 404 {
+            continue;
+        }
+        if code != 200 {
+            return Err(i18n::t("err.cloud.network"));
+        }
+        let (revision, doc) = parse(&value)?;
+        let links = previous
+            .iter()
+            .find(|org| org.id == id)
+            .map(|org| org.links.clone())
+            .unwrap_or_default();
+        result.push(OrganizationCatalog {
+            id: id.into(),
+            name: name.into(),
+            revision,
+            doc,
+            links,
+        });
+    }
+    Ok(result)
 }
 
 pub fn pull(app: &AppHandle) -> Result<(), String> {
@@ -675,6 +771,136 @@ pub fn catalog_install_skill(app: AppHandle, id: String) -> Result<(), String> {
 }
 
 #[tauri::command(async)]
+pub fn catalog_install_organization_item(
+    app: AppHandle,
+    organization: String,
+    kind: String,
+    id: String,
+    revision: Option<u64>,
+) -> Result<(), String> {
+    let _sync = guard();
+    let mut cache = load_cache();
+    let index = cache
+        .organizations
+        .iter()
+        .position(|org| org.id == organization)
+        .ok_or_else(invalid)?;
+    // Recheck membership and the displayed definition before installing executable content.
+    let Some((code, value)) = cloud::api(
+        Method::GET,
+        &format!("/api/organizations/{organization}/catalog"),
+        None,
+        Duration::from_secs(12),
+    )?
+    else {
+        return Err(i18n::t("err.catalog.disconnected"));
+    };
+    if code == 404 {
+        cache.organizations.remove(index);
+        save_cache(&cache)?;
+        let _ = app.emit("catalog", ());
+        return Err(invalid());
+    }
+    if code != 200 {
+        return Err(i18n::t("err.cloud.network"));
+    }
+    let (current_revision, doc) = parse(&value)?;
+    if revision != current_revision || cache.organizations[index].doc != doc {
+        cache.organizations[index].doc = doc;
+        cache.organizations[index].revision = current_revision;
+        save_cache(&cache)?;
+        let _ = app.emit("catalog", ());
+        return Err(conflict());
+    }
+    install_organization_item(&mut cache, index, &kind, &id)?;
+    save_cache(&cache)?;
+    let _ = app.emit("catalog", ());
+    Ok(())
+}
+
+fn install_organization_item(
+    cache: &mut Cache,
+    index: usize,
+    kind: &str,
+    id: &str,
+) -> Result<(), String> {
+    let mut used: BTreeSet<String> = match kind {
+        "plugins" => plugins::load().into_iter().map(|p| p.id).collect(),
+        "mcp" => mcp::load().into_iter().map(|s| s.id).collect(),
+        "skills" => skills::load().into_iter().map(|s| s.id).collect(),
+        _ => return Err(invalid()),
+    };
+    let item_key = key(kind, id);
+    if cache.organizations[index]
+        .links
+        .get(&item_key)
+        .is_some_and(|local| used.contains(local))
+    {
+        return Ok(());
+    }
+    // Reserve uninstalled personal and organization names too; no catalog owns another's item.
+    for links in cache
+        .links
+        .iter()
+        .chain(cache.organizations.iter().map(|org| &org.links))
+    {
+        used.extend(
+            links
+                .iter()
+                .filter(|(k, _)| k.starts_with(&format!("{kind}:")))
+                .map(|(_, local)| local.clone()),
+        );
+    }
+    let org = &mut cache.organizations[index];
+    let local = org
+        .links
+        .get(&item_key)
+        .cloned()
+        .unwrap_or_else(|| available(id, &used));
+    match kind {
+        "plugins" => {
+            let item = org
+                .doc
+                .plugins
+                .iter()
+                .find(|p| p.id == id)
+                .ok_or_else(invalid)?;
+            plugins::install_catalog(&item.source, &item.id, &local, &item.note)?;
+        }
+        "mcp" => {
+            let item = org
+                .doc
+                .mcp
+                .iter()
+                .find(|s| s.id == id)
+                .ok_or_else(invalid)?;
+            let mut servers = mcp::load();
+            servers.push(mcp::Server {
+                id: local.clone(),
+                ..item.clone()
+            });
+            servers.sort_by_key(|s| s.id.to_lowercase());
+            mcp::store(&servers)?;
+        }
+        "skills" => {
+            let item = org
+                .doc
+                .skills
+                .iter()
+                .find(|s| s.id == id)
+                .ok_or_else(invalid)?;
+            skills::save_local(skills::Skill {
+                id: local.clone(),
+                ..item.clone()
+            })?;
+        }
+        _ => unreachable!(),
+    }
+    org.links.insert(item_key, local);
+    Ok(())
+}
+
+#[tauri::command(async)]
 pub fn catalog_state() -> CatalogState {
     let _sync = guard();
     let connected = cloud::connected();
@@ -685,6 +911,53 @@ pub fn catalog_state() -> CatalogState {
     };
     let hub = plugins::load();
     let skill_hub = skills::load();
+    let servers = mcp::load();
+    let mut organization_items = Vec::new();
+    for org in &cache.organizations {
+        for (kind, id) in org.doc.keys() {
+            let local = org.links.get(&key(kind, &id));
+            let (description, installed) = match kind {
+                "plugins" => {
+                    let item = org.doc.plugins.iter().find(|p| p.id == id).unwrap();
+                    (
+                        format!("{} · {}", item.source, item.note),
+                        local.is_some_and(|id| hub.iter().any(|p| &p.id == id)),
+                    )
+                }
+                "mcp" => {
+                    let item = org.doc.mcp.iter().find(|s| s.id == id).unwrap();
+                    (
+                        format!(
+                            "{} · {}",
+                            item.config["url"]
+                                .as_str()
+                                .or_else(|| item.config["command"].as_str())
+                                .unwrap_or_default(),
+                            item.note
+                        ),
+                        local.is_some_and(|id| servers.iter().any(|s| &s.id == id)),
+                    )
+                }
+                "skills" => {
+                    let item = org.doc.skills.iter().find(|s| s.id == id).unwrap();
+                    (
+                        item.description.clone(),
+                        local.is_some_and(|id| skill_hub.iter().any(|s| &s.id == id)),
+                    )
+                }
+                _ => unreachable!(),
+            };
+            organization_items.push(OrganizationItem {
+                organization: org.id.clone(),
+                organization_name: org.name.clone(),
+                revision: org.revision,
+                kind: kind.into(),
+                id,
+                description,
+                installed,
+            });
+        }
+    }
     let plugins = cache
         .doc
         .plugins
@@ -737,6 +1010,7 @@ pub fn catalog_state() -> CatalogState {
         plugins,
         skills,
         shared,
+        organization_items,
         mcp: cache
             .doc
             .mcp
@@ -755,6 +1029,91 @@ pub async fn catalog_refresh(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn organization_installation_preserves_private_items_and_personal_catalog() {
+        if std::env::var_os("PROMETEU_ORGANIZATION_CATALOG_TEST").is_none() {
+            let root =
+                std::env::temp_dir().join(format!("prometeu-org-catalog-{}", uuid::Uuid::new_v4()));
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "catalog::tests::organization_installation_preserves_private_items_and_personal_catalog", "--nocapture"])
+                .env("PROMETEU_ORGANIZATION_CATALOG_TEST", "1")
+                .env("PROMETEU_ROOT", &root)
+                .output().unwrap();
+            std::fs::remove_dir_all(root).ok();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let mut cache: Cache = serde_json::from_value(
+            json!({"revision": 0, "doc": {}, "links": {"mcp:issues":"cloud-issues-1"}}),
+        )
+        .unwrap();
+        assert!(cache.organizations.is_empty());
+        let private = mcp::Server {
+            id: "issues".into(),
+            note: "private".into(),
+            config: json!({"url":"https://private.test", "headers":{"Authorization":"private-token"}}),
+        };
+        mcp::store(std::slice::from_ref(&private)).unwrap();
+        let doc = Doc {
+            mcp: vec![mcp::Server {
+                id: "issues".into(),
+                note: "team".into(),
+                config: json!({"url":"https://team.test", "headers":{"Authorization":""}}),
+            }],
+            skills: vec![skills::Skill {
+                id: "review".into(),
+                description: "Review".into(),
+                content: "Read changes".into(),
+            }],
+            ..Doc::default()
+        };
+        for id in ["one", "two"] {
+            cache.organizations.push(OrganizationCatalog {
+                id: id.into(),
+                name: id.into(),
+                revision: Some(0),
+                doc: doc.clone(),
+                links: BTreeMap::new(),
+            });
+        }
+        let personal = cache.doc.clone();
+        let personal_links = cache.links.clone();
+        install_organization_item(&mut cache, 0, "mcp", "issues").unwrap();
+        install_organization_item(&mut cache, 1, "mcp", "issues").unwrap();
+        assert_eq!(cache.organizations[0].links["mcp:issues"], "cloud-issues-2");
+        assert_eq!(cache.organizations[1].links["mcp:issues"], "cloud-issues-3");
+        let mut servers = mcp::load();
+        assert_eq!(servers.len(), 3);
+        assert!(servers.iter().any(|s| s == &private));
+        let installed = servers
+            .iter_mut()
+            .find(|s| s.id == "cloud-issues-2")
+            .unwrap();
+        assert_eq!(installed.config["headers"]["Authorization"], "");
+        installed.config["headers"]["Authorization"] = json!("local-token");
+        mcp::store(&servers).unwrap();
+        install_organization_item(&mut cache, 0, "mcp", "issues").unwrap();
+        assert!(mcp::load() == servers);
+        install_organization_item(&mut cache, 0, "skills", "review").unwrap();
+        assert_eq!(skills::load()[0].content, "Read changes");
+        assert!(cache.doc == personal);
+        assert_eq!(cache.links, personal_links);
+        assert_eq!(cache.revision, Some(0));
+        save_cache(&cache).unwrap();
+        assert!(load_cache().organizations == cache.organizations);
+        assert!(install_organization_item(&mut cache, 0, "mcp", "missing").is_err());
+        assert!(mcp::load() == servers);
+        // Losing membership forgets availability, while installed snapshots and credentials remain.
+        cache.organizations.clear();
+        save_cache(&cache).unwrap();
+        assert!(mcp::load() == servers);
+    }
 
     #[test]
     fn explicit_links_preserve_private_items_and_legacy_catalogs() {

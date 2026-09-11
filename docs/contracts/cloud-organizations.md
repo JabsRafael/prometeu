@@ -29,10 +29,11 @@ pessoal. Membros leem; dono e administradores fazem CRUD. Acesso por slug nunca
 substitui a autorização pela matrícula da conta autenticada.
 
 Compartilhar uma definição pessoal com a organização copia somente aquele item.
-Membros podem copiar itens da organização para o catálogo pessoal, que o desktop
-já sincroniza. Cópias são independentes; mudanças futuras não cruzam catálogos.
-Colisão no destino retorna 409, sem sobrescrever. Não há assinatura automática
-de catálogos institucionais nem ativação automática de código recebido.
+Membros veem as definições diretamente nos hubs do desktop e escolhem `Instalar
+aqui`. Instalações são locais e independentes; não exigem cópia para o catálogo
+pessoal. Copiar entre catálogos continua disponível no Cloud: mudanças futuras
+não cruzam catálogos e colisões retornam 409, sem sobrescrever. Não há ativação
+automática de código recebido. Ver [ADR 0039](../decisions/0039-organization-catalog-on-desktop.md).
 
 ## API e relay
 
@@ -41,6 +42,7 @@ As rotas antigas de conta e catálogo pessoal permanecem inalteradas.
 | Rota | Autenticação e resposta |
 | --- | --- |
 | `GET /api/organizations?device=` | Bearer desktop; `{ organizations: [{ id, slug, name, member, role }] }`, somente matrículas aceitas; `device` opcional define `member` (ver abaixo) |
+| `GET /api/organizations/:id/catalog` | Bearer desktop; `{ catalog, revision }`; exige matrícula atual, 404 sem acesso; nenhuma escrita institucional pelo desktop |
 | `POST /api/organizations/:id/relay-ticket` | Bearer desktop; JSON `{ device?, label? }`; `{ ticket, relay }`; exige matrícula atual; 422 para `device` inválido |
 | `POST /api/relay/authorize` | JSON `{ ticket, organization }`; capacidade de uso único; devolve `{ organization, member, name, expires_at, members: [{ id, name, person? }] }` ou 401 |
 | `POST /orgs/:slug/companion-ticket` | Cookie e CSRF; JSON `{ companion, label? }`; `{ ticket, relay }`; exige matrícula atual; 422 para ID inválido ou de outra pessoa |

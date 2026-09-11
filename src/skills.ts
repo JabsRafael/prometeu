@@ -38,7 +38,7 @@ export function settingsRows(): HTMLElement[] {
     }, "outline");
     rows.push(row(skill.id, `${skill.description} · ${t("catalog.notInstalled")}`, [install]));
   }
-  return rows;
+  return [...rows, ...catalog.organizationRows("skills", say)];
 }
 function editor(skill: Skill | null) {
   const revision = skill ? catalog.current().revision : null;

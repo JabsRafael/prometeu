@@ -228,6 +228,7 @@ fn main() {
             catalog::catalog_copy,
             catalog::catalog_install_plugin,
             catalog::catalog_install_skill,
+            catalog::catalog_install_organization_item,
             skills::skill_hub,
             skills::skill_save,
             skills::skill_remove,

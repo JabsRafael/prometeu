@@ -9,7 +9,7 @@ import { LegacyConversationAdapter } from "./conversation-legacy";
 import * as team from "./team";
 import type { Accounts } from "./statusbar";
 import type { CloudStatus } from "./cloud";
-import type { CatalogState } from "./catalog";
+import type { CatalogState, Kind } from "./catalog";
 import type { Skill } from "./skills";
 import { hasWorktree, type Board, type Change, type Choice, type DockKind, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type Pr, type Scripts, type Tab, type Workspace } from "./types";
 
@@ -30,6 +30,8 @@ const mockCatalog = (): CatalogState => JSON.parse(localStorage.getItem("mock:ca
   skills: [{ id: "revisao-cloud", description: "Revisar alterações", content: "Leia o diff e relate bugs.", local_id: "revisao-cloud", installed: false }],
   shared: { "plugins:caveman": "caveman", "plugins:revisor": "revisor", "mcp:notion": "notion", "skills:revisao-cloud": "revisao-cloud" },
 };
+type MockOrganizationCatalog = { id: string; name: string; revision?: number; plugins: Pick<Plugin, "id" | "source" | "note">[]; mcp: McpServer[]; skills: Skill[]; links: Record<string, string> };
+const mockOrganizations = (): MockOrganizationCatalog[] => JSON.parse(localStorage.getItem("mock:organizationCatalogs") ?? "[]");
 function cloudWrite() {
   if (!mockCloud().user) throw 'i18n:{"code":"err.catalog.disconnected"}';
   if (localStorage.getItem("mock:cloudOffline")) throw 'i18n:{"code":"err.cloud.network"}';
@@ -812,6 +814,11 @@ const mockCommands: IpcHandlers = {
     const state = mockCatalog();
     state.plugins = state.plugins.map(p => ({ ...p, installed: pluginHub.some(local => local.id === p.local_id) }));
     state.skills = state.skills.map(s => ({ ...s, installed: skillHub.some(local => local.id === s.local_id) }));
+    state.organization_items = mockOrganizations().flatMap(org => (["plugins", "mcp", "skills"] as Kind[]).flatMap(kind => org[kind].map(item => ({
+      organization: org.id, organization_name: org.name, revision: org.revision ?? 0, kind, id: item.id,
+      description: "description" in item ? item.description : "source" in item ? `${item.source} · ${item.note}` : item.note,
+      installed: (kind === "plugins" ? pluginHub : kind === "mcp" ? mcpHub : skillHub).some(local => local.id === org.links[`${kind}:${item.id}`]),
+    }))));
     return state;
   },
   catalog_refresh() {
@@ -859,6 +866,32 @@ const mockCommands: IpcHandlers = {
   catalog_install_skill(args) {
     const item = mockCatalog().skills.find(s => s.id === args.id); if (!item) throw 'i18n:{"code":"err.catalog.invalid"}';
     saveMockSkill({ id: item.local_id, description: item.description, content: item.content }); emit("catalog", null); return;
+  },
+  catalog_install_organization_item({ organization, kind, id, revision }) {
+    cloudWrite();
+    const organizations = mockOrganizations();
+    const org = organizations.find(org => org.id === organization);
+    if (!org || !org[kind].some(item => item.id === id)) throw 'i18n:{"code":"err.catalog.invalid"}';
+    if (revision !== (org.revision ?? 0)) { emit("catalog", null); throw 'i18n:{"code":"err.catalog.conflict"}'; }
+    const hub = kind === "plugins" ? pluginHub : kind === "mcp" ? mcpHub : skillHub;
+    const key = `${kind}:${id}`;
+    if (hub.some(item => item.id === org.links[key])) return;
+    const personal = mockCatalog();
+    const used = new Set([...hub.map(item => item.id), ...Object.entries(personal.shared).filter(([key]) => key.startsWith(`${kind}:`)).map(([key]) => key.slice(kind.length + 1)),
+      ...organizations.flatMap(org => Object.entries(org.links).filter(([key]) => key.startsWith(`${kind}:`)).map(([, local]) => local))]);
+    let local = org.links[key] ?? id;
+    if (!org.links[key]) {
+      const stem = id.replace(/[^a-z0-9-]/g, "").slice(0, 40) || "item";
+      for (let n = 1; used.has(local); n++) local = `cloud-${stem}-${n}`;
+    }
+    if (kind === "plugins") {
+      const item = org.plugins.find(item => item.id === id)!;
+      pluginHub.push({ id: local, source: `~/.prometeu/plugins/${local}`, from: item.source, note: item.note, made: false });
+    } else if (kind === "mcp") mcpHub.push({ ...structuredClone(org.mcp.find(item => item.id === id)!), id: local });
+    else saveMockSkill({ ...org.skills.find(item => item.id === id)!, id: local });
+    org.links[key] = local;
+    localStorage.setItem("mock:organizationCatalogs", JSON.stringify(organizations));
+    emit("catalog", null); return;
   },
   skill_hub() {
     for (const skill of [...skillHub]) saveMockSkill(skill);

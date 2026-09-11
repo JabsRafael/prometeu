@@ -1,5 +1,59 @@
 import { expect, test } from "@playwright/test";
 
+test("organizações no desktop oferecem instalação direta sem alterar catálogo pessoal", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("mock:cloud", JSON.stringify({ user: { id: "1", name: "Pessoa", email: "me@example.com" }, origin: "https://app.prometeu.co", offline: false }));
+    localStorage.setItem("mock:organizationCatalogs", JSON.stringify([
+      { id: "acme", name: "Equipe Acme", links: {},
+        plugins: [{ id: "revisor", source: "https://github.com/acme/revisor", note: "Revisão da equipe" }],
+        mcp: [{ id: "notion", config: { url: "https://acme.test/mcp", headers: { Authorization: "" } }, note: "Documentos da equipe" }],
+        skills: [{ id: "revisao-cloud", description: "Revisão institucional", content: "Leia mudanças da equipe." }] },
+      { id: "other", name: "Outra equipe", links: {}, plugins: [{ id: "revisor", source: "https://github.com/other/revisor", note: "Outra revisão" }], mcp: [], skills: [] },
+    ]));
+  });
+  await page.goto("/");
+  await expect(page.locator("#tiles .tile").first()).toBeVisible();
+  await page.locator("#settings").click();
+  await page.locator(".setnavitem", { hasText: "Plugins" }).click();
+  const acme = page.locator(".setrow", { hasText: "Equipe Acme" });
+  await expect(acme).toContainText("https://github.com/acme/revisor");
+  await page.evaluate(() => {
+    const organizations = JSON.parse(localStorage.getItem("mock:organizationCatalogs")!);
+    organizations[0].revision = 1;
+    organizations[0].plugins[0].source = "https://github.com/acme/revisor-v2";
+    localStorage.setItem("mock:organizationCatalogs", JSON.stringify(organizations));
+  });
+  await acme.getByRole("button", { name: "Instalar aqui" }).click();
+  await expect(page.locator(".setrow", { hasText: "cloud-revisor-1" })).toHaveCount(0);
+  await expect(acme).toContainText("https://github.com/acme/revisor-v2");
+  await acme.getByRole("button", { name: "Instalar aqui" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator(".setrow", { hasText: "cloud-revisor-1" })).toContainText("só neste Mac");
+  await expect(acme).toHaveCount(0);
+  await page.locator(".setrow", { hasText: "Outra equipe" }).getByRole("button", { name: "Instalar aqui" }).click();
+  await expect(page.locator(".setrow", { hasText: "cloud-revisor-2" })).toContainText("só neste Mac");
+  // The uninstalled personal item keeps its identity and remains available independently.
+  await expect(page.locator(".setrow", { has: page.locator("b", { hasText: /^revisor$/ }) }).getByRole("button", { name: "Instalar aqui" })).toBeVisible();
+  await page.locator(".setnavitem", { hasText: "Ferramentas" }).click();
+  await expect(acme).toContainText("Documentos da equipe");
+  await page.evaluate(() => localStorage.setItem("mock:cloudOffline", "1"));
+  await acme.getByRole("button", { name: "Instalar aqui" }).click();
+  await expect(acme.getByRole("button", { name: "Instalar aqui" })).toBeEnabled();
+  await expect(page.locator(".setrow", { hasText: "cloud-notion-1" })).toHaveCount(0);
+  await page.evaluate(() => localStorage.removeItem("mock:cloudOffline"));
+  await acme.getByRole("button", { name: "Instalar aqui" }).click();
+  await expect(page.locator(".setrow", { hasText: "cloud-notion-1" })).toContainText("só neste Mac");
+  await expect(page.locator(".setrow", { has: page.locator("b", { hasText: /^notion$/ }) })).toContainText("na nuvem");
+  await page.locator(".setnavitem", { hasText: "Skills" }).click();
+  await acme.getByRole("button", { name: "Instalar aqui" }).click();
+  await expect(page.locator(".setrow", { hasText: "cloud-revisao-cloud-1" })).toContainText("só neste Mac");
+  expect(await page.evaluate(() => localStorage.getItem("mock:catalog"))).toBeNull();
+  await page.evaluate(() => localStorage.setItem("mock:organizationCatalogs", "[]"));
+  await page.locator(".cloud-account").click();
+  await page.getByRole("menuitem", { name: "Atualizar conta" }).click();
+  await expect(page.locator(".setrow", { hasText: "cloud-revisao-cloud-1" })).toContainText("só neste Mac");
+});
+
 test("conta opcional na barra lateral conecta, persiste e sai sem alterar conversas", async ({ page }) => {
   await page.goto("/");
   const account = page.locator(".cloud-account");

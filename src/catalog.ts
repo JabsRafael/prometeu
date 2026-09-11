@@ -7,6 +7,7 @@ import { h } from "./util";
 export type Kind = "plugins" | "mcp" | "skills";
 export type CatalogPlugin = { id: string; source: string; note: string; local_id: string; installed: boolean; source_changed: boolean };
 export type CatalogSkill = { id: string; description: string; content: string; local_id: string; installed: boolean };
+export type OrganizationItem = { organization: string; organization_name: string; revision: number | null; kind: Kind; id: string; description: string; installed: boolean };
 export type CatalogState = {
   connected: boolean;
   revision: number | null;
@@ -14,6 +15,7 @@ export type CatalogState = {
   mcp: string[];
   skills: CatalogSkill[];
   shared: Record<string, string>;
+  organization_items?: OrganizationItem[];
 };
 let state: CatalogState = { connected: false, revision: null, plugins: [], mcp: [], skills: [], shared: {} };
 const watchers = new Set<() => void>();
@@ -33,6 +35,20 @@ export function init(refresh: () => Promise<void>) {
 }
 export function tag(kind: Kind, id: string): string {
   return t(shared(kind, id) ? "catalog.cloud" : "catalog.local");
+}
+export function organizationRows(kind: Kind, say: (text: string, bad?: boolean) => void): HTMLElement[] {
+  return (state.organization_items ?? []).filter(item => item.kind === kind && !item.installed).map(item => {
+    const row = h("div", "setrow");
+    const text = h("div", "txt");
+    text.append(h("b", "", item.id), h("span", "", `${item.organization_name} · ${item.description} · ${t("catalog.notInstalled")}`));
+    const install = button(t("catalog.install"), () => {
+      install.disabled = true;
+      void invoke("catalog_install_organization_item", { organization: item.organization, kind, id: item.id, revision: item.revision })
+        .then(refresh).catch(error => { install.disabled = false; say(fromBack(error), true); });
+    }, "outline");
+    const actions = h("div", "act"); actions.append(install); row.append(text, actions);
+    return row;
+  });
 }
 export function controls(kind: Kind, id: string): HTMLElement[] {
   const copy = button(t("catalog.copy"), () => {
