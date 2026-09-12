@@ -31,7 +31,7 @@ cut() {
 
   [ -z "$(git status --porcelain)" ] || die "há mudança não commitada — resolva antes de soltar"
   [ "$(git rev-parse --abbrev-ref HEAD)" = main ] || die "release sai da main"
-  git fetch -q origin main
+  git fetch -q --tags origin main
   [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] \
     || die "a main local não é a origin/main — dê pull (ou push) antes"
 
