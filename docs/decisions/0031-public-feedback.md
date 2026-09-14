@@ -1,39 +1,43 @@
-# ADR 0031 — Feedback público pelo Cloud e GitHub Issues
+# ADR 0031 — Public feedback through the Cloud and GitHub Issues
 
-Status: substituído pelo [ADR 0032](0032-private-feedback.md).
+Status: superseded by [ADR 0032](0032-private-feedback.md).
 
-## Contexto
+## Context
 
-A [sugestão de widget](https://github.com/prometeucorp/prometeu-releases/issues/2)
-pede feedback no app e no site, com texto, imagem e captura. A pessoa não deve
-precisar configurar uma ferramenta de gestão nem disponibilizar credenciais GitHub.
-O repositório de releases já recebe sugestões públicas.
+The [widget suggestion](https://github.com/prometeucorp/prometeu-releases/issues/2)
+asks for feedback in the app and on the site, with text, an image and a capture.
+The person must not have to configure a management tool or provide GitHub
+credentials. The releases repository already receives public suggestions.
 
-## Decisão
+## Decision
 
-Usar um widget portátil com controles do Design System, um endpoint público no
-Cloud e criação de issues no repositório de releases. A credencial de integração
-permanece no servidor. Não introduzir Linear para receber estes relatos.
+Use a portable widget with Design System controls, a public endpoint in the
+Cloud and issue creation in the releases repository. The integration credential
+stays on the server. Do not introduce Linear to receive these reports.
 
-Somente o texto digitado e a imagem escolhida são enviados, junto de tipo,
-origem e versão. Publicidade do conteúdo fica explícita antes do envio. Capturas
-exigem ação da pessoa e revisão da miniatura; não são telemetria automática.
-Essa é uma exceção explícita à ausência de upload no Cloud, limitada ao feedback,
-e não altera os canais E2EE de colaboração.
+Only the typed text and the chosen image are sent, along with the kind, the
+source and the version. The public nature of the content is explicit before
+sending. Captures require an action by the person and a review of the thumbnail;
+they are not automatic telemetry. This is an explicit exception to the absence of
+uploads in the Cloud, limited to feedback, and it does not change the E2EE
+collaboration channels.
 
-O Cloud persiste o relato antes de chamar GitHub. ID de envio evita repetição
-após resposta perdida. Resultado ambíguo é preservado para reconciliação operacional,
-sem repetir um POST possivelmente aceito. Imagens usam a mesma persistência SQLite,
-com uma rota pública limitada ao arquivo escolhido.
+The Cloud persists the report before calling GitHub. A submission ID avoids
+repetition after a lost response. An ambiguous result is preserved for
+operational reconciliation, without repeating a POST that may have been
+accepted. Images use the same SQLite persistence, with a public route limited to
+the chosen file.
 
-## Consequências
+## Consequences
 
-Não há nova dependência ou conta exigida para quem envia. O servidor precisa de
-credencial com Issues: write e passa a guardar imagens explicitamente públicas.
-Configuração e publicação operacional são necessárias para ativar a entrega.
+There is no new dependency or account required from whoever submits. The server
+needs a credential with Issues: write and starts storing explicitly public
+images. Configuration and operational publication are required to enable
+delivery.
 
-Rate limiting e mutex locais acompanham o único processo Puma atual. Antes de
-escalar horizontalmente, será necessário compartilhar ambos. O fluxo não inclui
-portal de suporte, notificações próprias ou triagem automática por modelos.
+Rate limiting and the mutex are local and follow the current single Puma
+process. Before scaling horizontally, both will need to be shared. The flow does
+not include a support portal, its own notifications or automatic triage by
+models.
 
-Contrato, retenção, falhas e testes: [feedback](../contracts/feedback.md).
+Contract, retention, failures and tests: [feedback](../contracts/feedback.md).

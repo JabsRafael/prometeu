@@ -1,77 +1,78 @@
-# Fluxo de conversa
+# Conversation flow
 
-Status: arquitetura atual.
+Status: current architecture.
 
-## Conceito central
+## Core concept
 
-Uma aba representa uma sessão lógica. A identidade e o transcript sobrevivem
-ao processo que executa o agente. Fechar, arquivar ou perder o processo não
-apaga a conversa; a próxima fala pode retomá-la.
+A tab represents a logical session. The identity and the transcript outlive
+the process that runs the agent. Closing, archiving or losing the process does
+not erase the conversation; the next message can resume it.
 
-## Início e retomada
+## Start and resume
 
 ```mermaid
 sequenceDiagram
     participant UI as Frontend
     participant Session as session.rs
     participant Chat as chat.rs
-    participant Adapter as Claude ou Codex
-    participant Agent as CLI do agente
+    participant Adapter as Claude or Codex
+    participant Agent as Agent CLI
 
     UI->>Session: new_tab / chat_send
-    Session->>Session: resolve Launch do workspace ou da aba
-    Session->>Adapter: spawn ou resume
-    Adapter->>Adapter: materializa MCP/plugins escolhidos
-    Adapter->>Agent: inicia processo
-    Agent-->>Adapter: saída do protocolo externo
+    Session->>Session: resolve the workspace or tab Launch
+    Session->>Adapter: spawn or resume
+    Adapter->>Adapter: materialize the chosen MCP/plugins
+    Adapter->>Agent: start process
+    Agent-->>Adapter: external protocol output
     Adapter-->>Chat: ConversationEventV1
-    Chat-->>UI: evento chat(session, line, seq)
+    Chat-->>UI: chat(session, line, seq) event
     UI->>UI: Timeline.push(line)
 ```
 
-`Launch` reúne agente, modelo, esforço, plan mode, MCP e plugins. Uma aba pode
-sobrescrever agente/modelo/esforço do workspace. Abas comuns herdam MCP e
-plugins do workspace. [Tarefas](../contracts/actions.md) guardam uma cópia
-resolvida do perfil, incluindo MCP, plugins, instruções e permissões.
+`Launch` gathers agent, model, effort, plan mode, MCP and plugins. A tab can
+override the workspace's agent/model/effort. Ordinary tabs inherit MCP and
+plugins from the workspace. [Tasks](../contracts/actions.md) keep a resolved
+copy of the profile, including MCP, plugins, instructions and permissions.
 
-Materialização pertence à borda. Claude recebe MCP e plugins por seus arquivos
-e flags; Codex recebe a tabela MCP por override e plugins por um marketplace
-derivado dentro de um `CODEX_HOME` de configuração isolado por workspace. A conta vem da
-seleção global do provider, capturada pelo processo; sessões e cache de plugins
-continuam compartilhados. A camada de configuração distingue workspace e conta
-sem escrever a seleção no `config.toml` global. Se uma seleção explícita não puder ser
-preparada, ou se os hooks declarados de um plugin não puderem ser ativados antes
-do `SessionStart`, a conversa não abre silenciosamente sem ela. O fluxo completo
-do marketplace está em
+Materialization belongs to the edge. Claude receives MCP and plugins through
+its own files and flags; Codex receives the MCP table through an override and
+plugins through a derived marketplace inside a configuration `CODEX_HOME`
+isolated per workspace. The account comes from the provider's global selection,
+captured by the process; sessions and the plugin cache remain shared. The
+configuration layer distinguishes workspace and account without writing the
+selection into the global `config.toml`. If an explicit selection cannot be
+prepared, or if a plugin's declared hooks cannot be activated before
+`SessionStart`, the conversation does not open silently without it. The full
+marketplace flow is in
 [`plugin-marketplace.md`](../contracts/plugin-marketplace.md).
 
-Trocar conta não interrompe o turno atual. A próxima fala retoma o processo
-com a conta selecionada; falas recebidas durante a transição ficam na fila.
-Histórico e configuração de plugins continuam disponíveis. O contrato está em
-[`accounts.md`](../contracts/accounts.md).
+Switching accounts does not interrupt the current turn. The next message
+resumes the process with the selected account; messages received during the
+transition are queued. Plugin history and configuration stay available. The
+contract is in [`accounts.md`](../contracts/accounts.md).
 
-Trocar modelo dentro do mesmo CLI derruba o processo e preserva a sessão.
-Trocar de Claude para Codex ou vice-versa exige outra aba, pois seus mecanismos
-de resume não compartilham identidade.
+Switching models within the same CLI kills the process and preserves the
+session. Switching from Claude to Codex or vice versa requires another tab,
+since their resume mechanisms do not share an identity.
 
-## Saída do agente
+## Agent output
 
 ### Claude
 
-`claude.rs` inicia `claude -p`, converte `ConversationCommandV1` para sua
-entrada `stream-json` e normaliza cada linha de saída em
-`ConversationEventV1`. O processo também grava o transcript nativo do Claude
-Code, que o leitor de compatibilidade adapta durante replay.
+`claude.rs` starts `claude -p`, converts `ConversationCommandV1` into its
+`stream-json` input and normalizes each output line into
+`ConversationEventV1`. The process also writes Claude Code's native transcript,
+which the compatibility reader adapts during replay.
 
 ### Codex
 
-`codex.rs` inicia `codex app-server`, conversa por JSON-RPC e converte cada
-resposta, pedido ou notificação diretamente em `ConversationEventV1`. No
-sentido inverso, ele recebe `ConversationCommandV1` e monta o pedido JSON-RPC
-correspondente sem passar pelo formato stream-json do Claude. O Prometeu
-grava os eventos V1 em seu próprio transcript.
+`codex.rs` starts `codex app-server`, talks over JSON-RPC and converts each
+response, request or notification directly into `ConversationEventV1`. In the
+opposite direction, it receives `ConversationCommandV1` and builds the matching
+JSON-RPC request without going through Claude's stream-json format. Prometeu
+writes the V1 events in its own transcript.
 
-### Caminho comum
+### Common path
 
 `Pump.feed` validates JSON, records the line, assigns its transport sequence,
 and emits `chat` while holding the conversation's `Lines` mutex. Snapshots
@@ -88,92 +89,93 @@ State reactions run after releasing
 the conversation locks. See [ADR 0023](../decisions/0023-ordered-publication.md)
 and concurrency tests in `src-tauri/src/chat.rs`.
 
-O reducer `Timeline` transforma eventos V1 em itens de usuário, mensagens do
-assistente, blocos de ferramenta, pedidos, resultados, contexto e avisos. Ele é
-puro: não acessa DOM, Tauri, disco, rede ou protocolos de provider. Linhas
-legadas passam por `conversation-legacy.ts` antes do reducer.
+The `Timeline` reducer turns V1 events into user items, assistant messages,
+tool blocks, requests, results, context and warnings. It is pure: it does not
+touch DOM, Tauri, disk, network or provider protocols. Legacy lines go through
+`conversation-legacy.ts` before the reducer.
 
-`alert.ts` acompanha execuções por aba a partir dos eventos `chat` locais ao
-vivo, separado da pendência de leitura. `chat.rs` publica `session.state`
-`starting` no spawn e `busy` após aceitar `message.send`, antes da fala local
-e dos ecos, sob o mesmo lock de publicação. Só esse `busy` inicia o
-acompanhamento da execução; atividade do assistente confirma que a execução
-começou. Snapshots, histórico,
-ecos e respostas a pedidos não armam uma execução.
+`alert.ts` tracks executions per tab from the live local `chat` events,
+separate from the unread state. `chat.rs` publishes `session.state` `starting`
+on spawn and `busy` after accepting `message.send`, before the local message
+and the echoes, under the same publication lock. Only that `busy` starts
+execution tracking; assistant activity confirms that the execution began.
+Snapshots, history, echoes and answers to requests do not arm an execution.
 
-`turn.completed` com sucesso ou erro, sem tarefas em background, é candidato
-ao aviso após 1 segundo. Nova atividade cancela o candidato; silêncio sozinho
-nunca significa conclusão. Interrupção consome a execução sem criar pendência.
-Um terminal sem atividade, como `/context`, também não cria pendência, salvo
-erro. Esvaziar
-`background.changed` não conclui a execução: ainda é necessário um terminal
-do agente principal. Claude já normaliza tarefas; Codex converte
-`collabAgentToolCall.agentsStates`, `subAgentActivity` e eventos de filhos
-conhecidos para o mesmo evento, preservando o isolamento do conteúdo dos filhos.
+A `turn.completed` with success or error, with no background tasks, becomes a
+candidate for the notice after 1 second. New activity cancels the candidate;
+silence alone never means completion. An interruption consumes the execution
+without creating a pending item. A terminal without activity, such as
+`/context`, also creates no pending item, except on error. Draining
+`background.changed` does not complete the execution: a terminal from the main
+agent is still required. Claude already normalizes tasks; Codex converts
+`collabAgentToolCall.agentsStates`, `subAgentActivity` and known child events
+into the same event, preserving the isolation of the children's content.
 
-A conclusão consome o aviso mesmo com a conversa visível;
-olhar ou responder não rearma a execução. A visibilidade inclui a aba aberta
-no workspace e os quadros não recolhidos da mesa, sempre com a janela em foco.
-`request.opened` atualiza apenas a pendência do Dock. O Dock conta workspaces,
-unindo essas pendências ao `unread` do backend. Os formatos V1, IPC, transcript
-e relay permanecem iguais; não há migração. A janela de 1 segundo depende dos
-sinais do CLI e não garante detectar uma continuação posterior não anunciada.
-O acompanhamento alimenta apenas indicadores visuais. Conclusões e comentários
-não reproduzem áudio; não há inicialização de Web Audio nem preferência de som.
-Veja [ADR 0029](../decisions/0029-remove-alert-sound.md).
+Completion consumes the notice even with the conversation visible; looking at
+it or answering does not re-arm the execution. Visibility includes the tab open
+in the workspace and the non-collapsed frames on the desk, always with the
+window focused. `request.opened` updates only the Dock's pending state. The
+Dock counts workspaces, joining those pending items with the backend's
+`unread`. The V1, IPC, transcript and relay formats remain unchanged; there is
+no migration. The 1-second window depends on the CLI's signals and does not
+guarantee detecting a later, unannounced continuation. Tracking feeds only
+visual indicators. Completions and comments do not play audio; there is no Web
+Audio initialization and no sound preference.
+See [ADR 0029](../decisions/0029-remove-alert-sound.md).
 
-## Entrada e controle
+## Input and control
 
-Uma fala local passa por `chat_send`. Se o processo estiver pronto, ela é
-enviada imediatamente; caso contrário, fica em `pending_prompt` e o processo é
-retomado. A fala entra no buffer antes dos eventos que ela provocar.
+A local message goes through `chat_send`. If the process is ready, it is sent
+immediately; otherwise it stays in `pending_prompt` and the process is resumed.
+The message enters the buffer before the events it triggers.
 
-Interrupções e respostas a perguntas ou permissões usam
-`ConversationCommandV1` e passam por `chat_control`.
-Controle remoto usa `chat_control_remote`, que reconstrói a resposta a partir
-do pedido existente no buffer. Um cliente remoto não pode trocar silenciosamente
-o comando ou o input que o dono viu.
+Interruptions and answers to questions or permissions use
+`ConversationCommandV1` and go through `chat_control`.
+Remote control uses `chat_control_remote`, which rebuilds the answer from the
+request already in the buffer. A remote client cannot silently swap the command
+or the input that the owner saw.
 
-## Snapshot e compartilhamento
+## Snapshot and sharing
 
-`chat_snapshot` devolve `{ text, seq }` sob o mesmo lock usado para numerar a
-saída ao vivo. O colega desenha o snapshot até `seq` e descarta eventos ao vivo
-com sequência já incluída nele.
+`chat_snapshot` returns `{ text, seq }` under the same lock used to number live
+output. The peer draws the snapshot up to `seq` and discards live events whose
+sequence is already included in it.
 
-O frontend do dono envia a conversa ao relay apenas enquanto alguém a observa.
-O relay não executa comandos no worktree: encaminha falas e controles ao app do
-dono, que valida e escreve no processo local.
+The owner's frontend sends the conversation to the relay only while someone is
+watching it. The relay does not run commands in the worktree: it forwards
+messages and controls to the owner's app, which validates them and writes to
+the local process.
 
-## Comentários de colaboração
+## Collaboration comments
 
-Comentários são uma camada de colaboração sobre a conversa, não eventos de
-`ConversationEventV1`. `notes.ts` apresenta threads no painel lateral e
-`team.ts` sincroniza raízes, respostas, estado e inbox com o relay. A caixa
-principal continua enviando somente comandos ao agente.
+Comments are a collaboration layer on top of the conversation, not
+`ConversationEventV1` events. `notes.ts` presents threads in the side panel and
+`team.ts` synchronizes roots, replies, state and inbox with the relay. The main
+box still sends only commands to the agent.
 
-Quando há contexto, a raiz guarda o id da aba e o `Piece.key` produzido pelo
-reducer. `chat.ts` usa essa chave para desenhar o marcador e reencontrar o
-trecho sem inserir o comentário no transcript. A citação preserva contexto
-legível caso o trecho não esteja disponível. Abrir uma atribuição só navega;
-resolver a raiz encerra a thread para todos.
+When there is context, the root stores the tab id and the `Piece.key` produced
+by the reducer. `chat.ts` uses that key to draw the marker and find the excerpt
+again without inserting the comment into the transcript. The quote preserves
+readable context in case the excerpt is unavailable. Opening an assignment only
+navigates; resolving the root closes the thread for everyone.
 
-## Ownership do estado
+## State ownership
 
-| Estado | Dono | Observação |
+| State | Owner | Note |
 | --- | --- | --- |
-| workspaces, abas e escolha de agente | `state.rs` | persistido em `board.json` |
-| processo e buffer em memória | `chat.rs` | descartável |
-| thread JSON-RPC do Codex | `codex.rs` + `Tab.agent_session` | necessária para resume |
-| itens desenhados | `timeline.ts` | derivados do transcript |
-| DOM da conversa | `chat.ts` | apresentação |
-| sequência de transporte | `chat.rs` | não é identidade persistida do evento |
-| presença e audiência | relay | estado de colaboração |
-| comentários, resolução e inbox | relay | overlay persistido, separado do transcript |
+| workspaces, tabs and agent choice | `state.rs` | persisted in `board.json` |
+| in-memory process and buffer | `chat.rs` | disposable |
+| Codex JSON-RPC thread | `codex.rs` + `Tab.agent_session` | required for resume |
+| drawn items | `timeline.ts` | derived from the transcript |
+| conversation DOM | `chat.ts` | presentation |
+| transport sequence | `chat.rs` | not the event's persisted identity |
+| presence and audience | relay | collaboration state |
+| comments, resolution and inbox | relay | persisted overlay, separate from the transcript |
 
-## Compatibilidade
+## Compatibility
 
-O [`ADR 0002`](../decisions/0002-canonical-conversation-protocol.md) define o
-contrato vigente em
+[`ADR 0002`](../decisions/0002-canonical-conversation-protocol.md) defines the
+contract in force in
 [`conversation-events-v1.md`](../contracts/conversation-events-v1.md).
 Existing transcripts are not rewritten. The reader accepts legacy transcripts
 and ignores historical V1 mirror projections. New Codex logs contain

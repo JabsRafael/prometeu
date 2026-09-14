@@ -1,80 +1,86 @@
-# Prometeu — guia para agentes
+# Prometeu — guide for agents
 
-Este arquivo é o mapa curto do repositório. A fonte de verdade detalhada fica
-em `ARCHITECTURE.md` e em `docs/`; não copie documentos inteiros para cá.
+This file is the repository's short map. The detailed source of truth lives in
+`ARCHITECTURE.md` and in `docs/`; do not copy whole documents here.
 
-## Antes de mudar código
+## Before changing code
 
-1. Leia `ARCHITECTURE.md` para localizar a fronteira afetada.
-2. Abra apenas os documentos de `docs/` apontados para aquela área.
-3. Confirme o comportamento existente nos testes e no código.
-4. Preserve mudanças locais que não pertencem à tarefa.
+1. Read `ARCHITECTURE.md` to locate the affected boundary.
+2. Open only the `docs/` documents pointed to for that area.
+3. Confirm the existing behavior in the tests and in the code.
+4. Preserve local changes that do not belong to the task.
 
-Se código e documentação divergirem, use o comportamento verificável do código
-para diagnosticar a situação e atualize a documentação na mesma mudança. Não
-transforme uma divergência em uma decisão arquitetural silenciosa.
+If code and documentation diverge, use the code's verifiable behavior to
+diagnose the situation and update the documentation in the same change. Do not
+turn a divergence into a silent architectural decision.
 
-## Mapa da documentação
+## Documentation map
 
-- `README.md`: produto, comportamento visível e início rápido.
-- `ARCHITECTURE.md`: contexto, containers, responsabilidades e fluxos centrais.
-- `docs/architecture/`: detalhes dos fluxos e regras de dependência.
-- `docs/contracts/`: formatos que atravessam processos ou camadas.
-- `docs/decisions/`: decisões arquiteturais; propostas não são regras vigentes.
-- `docs/quality/`: matrizes de suporte e estratégia de verificação.
-- `docs/operations/`: desenvolvimento, CI e release.
+- `README.md`: product, visible behavior and quick start.
+- `ARCHITECTURE.md`: context, containers, responsibilities and core flows.
+- `docs/architecture/`: details of the flows and dependency rules.
+- `docs/contracts/`: formats that cross processes or layers.
+- `docs/decisions/`: architectural decisions; proposals are not rules in force.
+- `docs/quality/`: support matrices and verification strategy.
+- `docs/operations/`: development, CI and release.
 
-Comece por `docs/README.md` para o índice completo.
+Start at `docs/README.md` for the complete index.
 
-## Invariantes do produto
+## Product invariants
 
-- Uma sessão é o transcript; o processo do agente pode morrer e ser retomado.
-- Claude e Codex são adaptações externas. Diferenças de protocolo devem ficar
-  na borda, sem espalhar payloads do fornecedor pela apresentação.
-- Etapa do workspace é decisão da pessoa; status da aba é estado observado do
-  agente. Não misture os dois.
-- A sessão compartilhada continua executando somente no Mac do dono. O relay
-  coordena e persiste ciphertext e metadados; conteúdo usa E2EE v4 com
-  confiança no primeiro contato. Limites estão no ADR 0022.
-- A fonte de tipos e validação do relay é `relay/src/protocol.ts`.
-- Texto visível da interface passa por i18n. Dados do usuário e saída do agente
-  permanecem no idioma original.
-- Controles de UI reutilizam `src/ui.ts`, `src/menu.ts` e tokens compartilhados.
-  Veja o [Design System](docs/architecture/design-system.md) antes de criar ou alterar controles.
+- A session is the transcript; the agent's process may die and be resumed.
+- Claude and Codex are external adaptations. Protocol differences must stay at
+  the edge, without spreading vendor payloads through the presentation.
+- The workspace stage is the person's decision; the tab's status is the agent's
+  observed state. Do not mix the two.
+- The shared session still runs only on the owner's Mac. The relay coordinates
+  and persists ciphertext and metadata; content uses E2EE v4 with trust on first
+  contact. The limits are in ADR 0022.
+- The relay's source of types and validation is `relay/src/protocol.ts`.
+- Visible interface text goes through i18n. User data and agent output stay in
+  their original language.
+- UI controls reuse `src/ui.ts`, `src/menu.ts` and the shared tokens.
+  See the [Design System](docs/architecture/design-system.md) before creating or
+  changing controls.
 
-As regras de dependência completas estão em
+The complete dependency rules are in
 `docs/architecture/dependency-rules.md`.
 
-## Onde cada responsabilidade mora
+## Where each responsibility lives
 
-- `src/agents.ts`: catálogo tipado, associação modelo/provider e capabilities.
-- `src/timeline.ts`: reducer puro do stream de conversa para itens de tela.
-- `src/chat.ts`: apresentação e interação da conversa.
-- `src/desk.ts`: a mesa, tela inicial — um `ChatView` por conversa de pé.
-- `src-tauri/src/chat.rs`: processo, transporte, buffer, numeração e lifecycle.
-- `src-tauri/src/claude.rs`: adapter stream-json do Claude.
-- `src-tauri/src/codex.rs`: adapter JSON-RPC do Codex.
-- `src-tauri/src/session.rs`: casos de uso e lifecycle de workspace/aba.
-- `src-tauri/src/state.rs`: estado persistido do quadro.
-- `src/team.ts`: shell do desktop da colaboração (team.json, organizações, ports do Tauri, fachada).
-- `src/team-member.ts` e `src/team-*.ts`: núcleo portável de colaboração e suas features; nunca importam Tauri ou IPC (ADR 0026).
-- `src/mobile/`: shell do navegador sobre o mesmo núcleo, vendido no Cloud como bundle (ADR 0028).
-- `relay/src/protocol.ts`: contrato de rede compartilhado por app e Worker.
-- `relay/src/logic.ts`: regras puras do relay.
+- `src/agents.ts`: typed catalog, model/provider association and capabilities.
+- `src/timeline.ts`: pure reducer from the conversation stream to screen items.
+- `src/chat.ts`: presentation and interaction of the conversation.
+- `src/desk.ts`: the desk, the home screen — one `ChatView` per running
+  conversation.
+- `src-tauri/src/chat.rs`: process, transport, buffer, numbering and lifecycle.
+- `src-tauri/src/claude.rs`: Claude's stream-json adapter.
+- `src-tauri/src/codex.rs`: Codex's JSON-RPC adapter.
+- `src-tauri/src/session.rs`: use cases and workspace/tab lifecycle.
+- `src-tauri/src/state.rs`: the board's persisted state.
+- `src/team.ts`: the collaboration desktop shell (team.json, organizations,
+  Tauri ports, facade).
+- `src/team-member.ts` and `src/team-*.ts`: the portable collaboration core and
+  its features; they never import Tauri or IPC (ADR 0026).
+- `src/mobile/`: the browser shell over the same core, vendored in the Cloud as
+  a bundle (ADR 0028).
+- `relay/src/protocol.ts`: the network contract shared by the app and the
+  Worker.
+- `relay/src/logic.ts`: the relay's pure rules.
 
-## Contratos e decisões
+## Contracts and decisions
 
-Mudança em formato persistido, IPC, relay, protocolo de conversa, fronteira de
-confiança ou dependência entre camadas exige:
+A change in a persisted format, IPC, the relay, the conversation protocol, a
+trust boundary or a dependency between layers requires:
 
-- atualizar o contrato correspondente em `docs/contracts/`;
-- adicionar ou substituir um ADR quando houver escolha com trade-offs;
-- incluir teste de compatibilidade ou explicar por que ele não se aplica.
+- updating the corresponding contract in `docs/contracts/`;
+- adding or replacing an ADR when there is a choice with trade-offs;
+- including a compatibility test or explaining why it does not apply.
 
-ADRs aceitos não são reescritos para mudar a decisão. Crie outro ADR e marque o
-anterior como substituído.
+Accepted ADRs are not rewritten to change the decision. Create another ADR and
+mark the previous one as superseded.
 
-## Desenvolvimento e validação
+## Development and validation
 
 ```sh
 npm install
@@ -88,40 +94,35 @@ npm run test:e2e
 npm run check
 ```
 
-Durante a implementação, rode primeiro o teste mais próximo da mudança. Antes
-de concluir uma alteração transversal, prefira `npm run check`. Se uma
-verificação não puder rodar, diga exatamente qual e por quê.
+During implementation, run the test closest to the change first. Before
+finishing a cross-cutting change, prefer `npm run check`. If a check cannot run,
+say exactly which one and why.
 
-O navegador usa `src/mock.ts`; o app Tauri usa o backend Rust. Comandos IPC
-novos precisam existir nos dois caminhos e no registro tipado de `src/ipc.ts`.
+The browser uses `src/mock.ts`; the Tauri app uses the Rust backend. New IPC
+commands must exist in both paths and in the typed registry in `src/ipc.ts`.
 
-## Commits e release
+## Commits and release
 
-Commits seguem Conventional Commits em português:
-
-```text
-tipo(escopo): descrição
-```
-
-`feat`, `fix` e `perf` aparecem no changelog. Use descrição voltada ao que a
-pessoa percebe, em minúscula e sem ponto final. Detalhes internos pertencem ao
-corpo ou a commits `refactor`, `test`, `docs`, `chore`, `ci`, `build` e `style`.
-Commits `feat`, `fix`, `perf` e `revert` também levam no rodapé a mesma linha
-pública em inglês, incluindo o escopo traduzido quando houver:
+Commits follow Conventional Commits in English:
 
 ```text
-Release-EN: **launcher:** Shows effort and model in footer
+type(scope): description
 ```
 
-Release é feita por `sh scripts/release.sh`; não crie tag nem publique artefato
-sem pedido explícito. Veja `docs/operations/release.md`.
+`feat`, `fix` and `perf` appear in the changelog. Use a description aimed at
+what the person perceives, in lowercase and without a trailing period. Internal
+details belong in the body or in `refactor`, `test`, `docs`, `chore`, `ci`,
+`build` and `style` commits.
 
-## Manutenção da documentação
+The release is done by `sh scripts/release.sh`; do not create a tag or publish
+an artifact without an explicit request. See `docs/operations/release.md`.
+
+## Documentation maintenance
 
 - Write all code comments and doc comments in English, including comments in
   tests, scripts, stylesheets, and configuration files.
-- Documente o porquê e os contratos; não narre código evidente.
-- Comentários explicam detalhes locais. Documentos explicam fluxos e decisões.
-- Links são relativos ao repositório e precisam continuar válidos.
-- Uma feature nova deve apontar para seus testes e declarar diferenças entre
-  agentes na matriz de `docs/quality/provider-matrix.md`.
+- Document the why and the contracts; do not narrate obvious code.
+- Comments explain local details. Documents explain flows and decisions.
+- Links are relative to the repository and must stay valid.
+- A new feature must point to its tests and state the differences between agents
+  in the matrix in `docs/quality/provider-matrix.md`.

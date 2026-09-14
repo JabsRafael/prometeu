@@ -1,60 +1,61 @@
-# ADR 0001 — Conhecimento versionado no repositório
+# ADR 0001 — Knowledge versioned in the repository
 
-Data: 2026-09-03
-Status: Aceito
+Date: 2026-09-03
+Status: Accepted
 
-## Contexto
+## Context
 
-O projeto cresceu com comentários de código detalhados, um README narrativo e
-instruções específicas em `CLAUDE.md`. Decisões e invariantes importantes
-existiam, mas era necessário conhecer previamente o arquivo certo para
-encontrá-los. Outro agente ou pessoa podia repetir investigação, criar uma
-abstração incompatível ou mudar uma regra sem perceber seu motivo.
+The project grew with detailed code comments, a narrative README and specific
+instructions in `CLAUDE.md`. Important decisions and invariants existed, but
+finding them required knowing the right file beforehand. Another agent or person
+could repeat an investigation, create an incompatible abstraction or change a
+rule without noticing its reason.
 
-Instruções grandes carregadas em toda sessão também competem com o contexto da
-tarefa. Manter cópias em formatos específicos de cada agente aumenta drift.
+Large instructions loaded in every session also compete with the task's context.
+Keeping copies in each agent's specific format increases drift.
 
-## Opções consideradas
+## Options considered
 
-1. Continuar apenas com comentários e README.
-2. Manter uma wiki ou documentos externos.
-3. Usar um arquivo de instruções grande por ferramenta.
-4. Manter conhecimento técnico estruturado e versionado junto do código, com
-   arquivos de entrada curtos para agentes.
+1. Keep only comments and the README.
+2. Keep a wiki or external documents.
+3. Use one large instruction file per tool.
+4. Keep structured technical knowledge versioned next to the code, with short
+   entry files for agents.
 
-## Decisão
+## Decision
 
-O diretório `docs/` será a fonte de verdade técnica. `ARCHITECTURE.md` será o
-mapa geral, `README.md` continuará apresentando produto e uso, e `AGENTS.md`
-será um índice curto com invariantes e comandos essenciais.
+The `docs/` directory will be the technical source of truth. `ARCHITECTURE.md`
+will be the overall map, `README.md` will keep presenting the product and its
+use, and `AGENTS.md` will be a short index with invariants and essential
+commands.
 
-Arquivos específicos de ferramenta devem importar ou apontar para `AGENTS.md`
-e conter apenas diferenças reais daquela ferramenta. Contratos, decisões,
-qualidade e operação terão áreas próprias em `docs/`.
+Tool-specific files must import or point to `AGENTS.md` and contain only the
+real differences of that tool. Contracts, decisions, quality and operations will
+have their own areas in `docs/`.
 
-Documentação passa pelo mesmo versionamento e revisão do código. Uma mudança de
-comportamento, contrato ou decisão atualiza a documentação correspondente na
-mesma alteração.
+Documentation goes through the same versioning and review as the code. A change
+in behavior, contract or decision updates the corresponding documentation in the
+same change.
 
-## Consequências
+## Consequences
 
-Positivas:
+Positive:
 
-- humanos e agentes consultam a mesma fonte;
-- decisões ganham histórico e status explícito;
-- contexto inicial permanece pequeno;
-- documentos podem ser verificados por links, testes e CI;
-- onboarding não depende da memória de quem escreveu o código.
+- humans and agents consult the same source;
+- decisions gain history and an explicit status;
+- the initial context stays small;
+- documents can be verified by links, tests and CI;
+- onboarding does not depend on the memory of whoever wrote the code.
 
-Negativas:
+Negative:
 
-- toda mudança arquitetural ganha custo pequeno de manutenção documental;
-- documentos incorretos podem dar falsa segurança;
-- será necessário revisar periodicamente links e compatibilidade com o código.
+- every architectural change gains a small documentation maintenance cost;
+- incorrect documents can give false confidence;
+- links and compatibility with the code will need periodic review.
 
-## Evidência
+## Evidence
 
-- `AGENTS.md` aponta para a árvore documental.
-- `CLAUDE.md` importa as instruções compartilhadas.
-- `docs/README.md` mantém o índice navegável.
-- contratos distinguem estado atual de propostas ainda não implementadas.
+- `AGENTS.md` points to the documentation tree.
+- `CLAUDE.md` imports the shared instructions.
+- `docs/README.md` keeps the navigable index.
+- contracts distinguish the current state from proposals not yet implemented.

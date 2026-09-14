@@ -1,19 +1,20 @@
-# Feedback privado
+# Private feedback
 
-Status: implementado no desktop, no Cloud e no bundle web. A ativação em produção
-depende de configurar a credencial GitHub no Cloud.
-Decisões: [ADR 0035](../decisions/0035-feedback-requires-account.md) e
+Status: implemented on the desktop, in the Cloud and in the web bundle. Enabling
+it in production depends on configuring the GitHub credential in the Cloud.
+Decisions: [ADR 0035](../decisions/0035-feedback-requires-account.md) and
 [ADR 0033](../decisions/0033-github-feedback-attachments.md).
 
-O widget oferece Problema, Ideia e Outro, descrição, uma imagem opcional e
-captura iniciada pela pessoa. O formulário informa que o relato será tratado
-em privado pela equipe Prometeu e pede revisão de dados sensíveis antes do envio. Nenhum transcript, caminho de workspace, email, credencial ou
-URL de navegação é coletado automaticamente. Capturas podem conter esses dados:
-a pessoa revisa a miniatura e pode remover ou substituir a imagem.
+The widget offers Problem, Idea and Other, a description, an optional image and
+a capture started by the person. The form states that the report will be handled
+privately by the Prometeu team and asks for a review of sensitive data before
+sending. No transcript, workspace path, email, credential or navigation URL is
+collected automatically. Captures may contain such data: the person reviews the
+thumbnail and can remove or replace the image.
 
 ## HTTP
 
-`POST /api/feedback` no Cloud exige conta conectada e aceita JSON:
+`POST /api/feedback` in the Cloud requires a connected account and accepts JSON:
 
 ```json
 {
@@ -21,120 +22,132 @@ a pessoa revisa a miniatura e pode remover ou substituir a imagem.
   "kind": "problem",
   "source": "desktop",
   "version": "0.6.1",
-  "description": "A janela não abre.",
+  "description": "The window does not open.",
   "image": { "type": "image/png", "data": "base64" }
 }
 ```
 
-A sessão vem do Bearer da conta no desktop ou do cookie assinado numa página do
-Cloud. Sem sessão a resposta é 401 e nada é enviado ao GitHub.
+The session comes from the account's Bearer on the desktop or from the signed
+cookie on a Cloud page. Without a session the response is 401 and nothing is
+sent to GitHub.
 
-`id` é UUID v4. `kind` aceita `problem`, `idea`, `other`; `source` aceita
-`desktop`, `site`, `cloud`. Descrição obrigatória tem até 4.000 caracteres;
-versão opcional, até 40. Imagem opcional aceita PNG, JPEG ou WebP até 5 MiB,
-com base64 estrito e assinatura compatível. Corpo completo tem limite de 7 MiB,
-aplicado antes do parser Rails.
+`id` is a UUID v4. `kind` accepts `problem`, `idea`, `other`; `source` accepts
+`desktop`, `site`, `cloud`. The required description allows up to 4,000
+characters; the optional version up to 40. The optional image accepts PNG, JPEG
+or WebP up to 5 MiB, with strict base64 and a matching signature. The complete
+body has a 7 MiB limit, applied before the Rails parser.
 
-Não existe CORS nem preflight. Uma origem diferente da pública recebe 403, e
-exigir `application/json` sem liberar CORS impede que uma página de terceiros
-poste com o cookie de quem estiver logado. O desktop entrega pelo backend Rust,
-sem `Origin`, e a credencial da conta não entra na webview.
+There is no CORS and no preflight. An origin other than the public one receives
+403, and requiring `application/json` without enabling CORS prevents a
+third-party page from posting with the cookie of whoever is logged in. The
+desktop delivers through the Rust backend, without `Origin`, and the account
+credential never enters the webview.
 
-Sucesso: `201 { id }`. A URL da issue privada permanece no servidor. O cliente
-mostra confirmação sem link para o repositório interno.
-Erros: 401 sem sessão; 403 para origem estranha;
-400/415 para formato; 413 para tamanho; 422 para conteúdo inválido;
-409 para reutilização de ID com conteúdo diferente ou entrega incerta;
-429 para limite de frequência; 503 para serviço/credencial indisponível.
-Nenhum erro limpa o formulário. Nova tentativa do mesmo conteúdo usa o mesmo ID.
+Success: `201 { id }`. The private issue's URL stays on the server. The client
+shows a confirmation without a link to the internal repository.
+Errors: 401 without a session; 403 for a foreign origin; 400/415 for the format;
+413 for size; 422 for invalid content; 409 for reuse of an ID with different
+content or for uncertain delivery; 429 for the rate limit; 503 for an
+unavailable service/credential. No error clears the form. A new attempt with the
+same content uses the same ID.
 
-O Cloud encaminha texto e imagem ao GitHub, sem persistir esse conteúdo.
-A tabela `feedbacks` guarda somente ID, SHA-256 do conteúdo, URLs GitHub do
-anexo e da issue, instante da tentativa de criar a issue e timestamps.
-Um ID concluído devolve o mesmo recibo sem criar outra issue. Conteúdo diferente
-com o mesmo ID recebe 409, inclusive quando muda somente a imagem.
+The Cloud forwards the text and image to GitHub, without persisting that
+content. The `feedbacks` table stores only the ID, the content's SHA-256, the
+GitHub URLs of the attachment and the issue, the timestamp of the issue-creation
+attempt and timestamps. A completed ID returns the same receipt without creating
+another issue. Different content with the same ID receives 409, including when
+only the image changes.
 
-Antes de enviar qualquer conteúdo, `GET /repos/prometeucorp/prometeu-cloud`
-deve confirmar `private: true` e o nome esperado. Falha de consulta ou repositório
-público retorna 503. A imagem usa o ID numérico dessa resposta em
+Before sending any content, `GET /repos/prometeucorp/prometeu-cloud` must
+confirm `private: true` and the expected name. A query failure or a public
+repository returns 503. The image uses the numeric ID from that response in
 `POST https://uploads.github.com/user-attachments/assets?name=...&content_type=...&repository_id=...`:
-bytes binários, `Content-Type: application/octet-stream`, Bearer do servidor.
-Esse é o endpoint usado pelo [GitHub CLI 2.99.0](https://github.com/cli/cli/blob/v2.99.0/internal/attachments/client.go).
-A resposta deve conter uma URL `https://github.com/user-attachments/assets/<uuid>`.
-Ela entra como imagem Markdown no corpo da issue; texto e imagem são vistos no
-GitHub, com as permissões do repositório privado. Não existe rota de anexos nem
-lista de revisores no Cloud. Não há dependência do executável `gh` no servidor.
+binary bytes, `Content-Type: application/octet-stream`, the server's Bearer.
+That is the endpoint used by
+[GitHub CLI 2.99.0](https://github.com/cli/cli/blob/v2.99.0/internal/attachments/client.go).
+The response must contain a `https://github.com/user-attachments/assets/<uuid>`
+URL. It goes into the issue body as a Markdown image; text and image are seen on
+GitHub, with the private repository's permissions. There is no attachment route
+and no reviewer list in the Cloud. There is no dependency on the `gh` executable
+on the server.
 
-`FEEDBACK_GITHUB_TOKEN` fica exclusivamente no Cloud, com Issues: write limitado
-ao repositório de destino, `prometeucorp/prometeu-cloud` por padrão e
-`FEEDBACK_GITHUB_REPO` quando for outro. O dono do PAT precisa de acesso de
-escrita ao repositório para anexar imagens. O cliente nunca recebe essa
-credencial. Sem o token o endpoint responde 503 sem enviar nada.
-A resposta devolve somente recibo, sem texto, imagem ou URL interna.
-Limite: 5 envios por hora por conta, contando tentativas recusadas. O contador
-assume um único processo Puma; múltiplas réplicas exigem cache compartilhado.
-A tabela não guarda quem enviou: a conta existe apenas durante a requisição.
+`FEEDBACK_GITHUB_TOKEN` stays exclusively in the Cloud, with Issues: write
+limited to the destination repository, `prometeucorp/prometeu-cloud` by default
+and `FEEDBACK_GITHUB_REPO` when it is another one. The PAT's owner needs write
+access to the repository to attach images. The client never receives that
+credential. Without the token the endpoint answers 503 without sending anything.
+The response returns only a receipt, without text, image or internal URL.
+Limit: 5 submissions per hour per account, counting refused attempts. The
+counter assumes a single Puma process; multiple replicas require a shared cache.
+The table does not record who sent it: the account exists only during the
+request.
 
-Falha de upload impede criar a issue. Nova tentativa preserva o formulário e
-reutiliza uma URL de anexo já registrada, se houver. Interrupção antes de receber
-ou salvar a URL pode deixar um anexo sem issue no GitHub e exigir novo upload.
-Um POST de criação interrompido pode ter sido aceito: o Cloud preserva o recibo
-e responde `409 { error: "uncertain", id }`, sem repetir esse POST automaticamente.
-O operador pesquisa `Feedback: <id>` no GitHub e reconcilia `issue_url` no recibo.
-Somente após confirmar ausência da issue pode limpar `attempted_at` e permitir
-reenvio do formulário. Não existe cópia de conteúdo no Cloud para reprocessamento.
+An upload failure prevents creating the issue. A new attempt preserves the form
+and reuses an already-recorded attachment URL, if there is one. An interruption
+before receiving or saving the URL may leave an attachment without an issue on
+GitHub and require a new upload. An interrupted creation POST may have been
+accepted: the Cloud preserves the receipt and answers
+`409 { error: "uncertain", id }`, without repeating that POST automatically. The
+operator searches for `Feedback: <id>` on GitHub and reconciles `issue_url` in
+the receipt. Only after confirming that the issue is absent may they clear
+`attempted_at` and allow the form to be resent. There is no copy of the content
+in the Cloud for reprocessing.
 
-Remoção de relatos e imagens ocorre no GitHub. Backups Cloud contêm somente
-recibos, sem texto ou imagem. O conteúdo é privado por controle de acesso,
-não E2EE; Cloud processa a requisição e GitHub armazena o conteúdo.
+Removing reports and images happens on GitHub. Cloud backups contain only
+receipts, without text or images. The content is private through access control,
+not E2EE; the Cloud processes the request and GitHub stores the content.
 
-## Captura e interface
+## Capture and interface
 
-`feedback_capture`, sem argumentos, é IPC aditivo: retorna PNG em base64 ou
-`null` ao cancelar. No Mac, `screencapture -i -W` permite selecionar a janela;
-o arquivo fica em diretório temporário privado e é removido ao terminar.
-Falhas usam i18n. O mock devolve uma imagem fictícia; não captura o computador.
+`feedback_capture`, with no arguments, is an additive IPC command: it returns a
+base64 PNG or `null` on cancellation. On the Mac, `screencapture -i -W` allows
+selecting the window; the file stays in a private temporary directory and is
+removed when it finishes. Failures use i18n. The mock returns a fictional image;
+it does not capture the computer.
 
-No navegador, `getDisplayMedia` oferece seleção de superfície quando disponível.
-As tracks são encerradas após a captura, inclusive em erro. Navegadores sem essa
-API conservam o upload. O widget fica oculto durante a captura, volta com
-miniatura e nunca envia automaticamente.
+In the browser, `getDisplayMedia` offers surface selection when available. The
+tracks are stopped after the capture, including on error. Browsers without that
+API keep the upload. The widget is hidden during the capture, comes back with a
+thumbnail and never sends automatically.
 
-Sem conta conectada, o painel troca o formulário por um aviso e pelo botão que
-inicia a mesma autorização de dispositivo da barra lateral. O estado é conferido
-a cada abertura: depois de conectar, reabrir mostra o formulário.
+Without a connected account, the panel replaces the form with a notice and the
+button that starts the same device authorization as the sidebar. The state is
+checked on every opening: after connecting, reopening shows the form.
 
-A composição portátil em `packages/design-system/src/feedback.ts` recebe textos
-e callbacks, incluindo `blocked` para esse aviso. O cliente em
-`src/feedback-client.ts` possui identidade do reenvio e transporte: `fetch` no
-navegador, com cookie de mesma origem, e `feedback_send` no desktop.
-O popover manual usa a top layer; dentro de um modal, muda para esse modal para
-continuar interativo. Escape fecha primeiro o widget. No desktop, o botão “Feedback” fica à direita no rodapé da barra lateral; o painel
-abre acima desse rodapé somente após o clique. O preview Run nativo usa toda sua
-área e fica oculto enquanto o painel está aberto.
+The portable composition in `packages/design-system/src/feedback.ts` receives
+texts and callbacks, including `blocked` for that notice. The client in
+`src/feedback-client.ts` owns the resend identity and the transport: `fetch` in
+the browser, with a same-origin cookie, and `feedback_send` on the desktop.
+The manual popover uses the top layer; inside a modal, it moves to that modal to
+stay interactive. Escape closes the widget first. On the desktop, the "Feedback"
+button sits on the right of the sidebar footer; the panel opens above that
+footer only after the click. The native Run preview uses its whole area and is
+hidden while the panel is open.
 
-`npm run build:feedback` produz `dist-feedback/feedback.js` e `feedback.css`.
-O bundle serve páginas autenticadas do Cloud, que importa ambos em
-`app/assets/feedback/`; numa página anônima o envio recebe 401. Os consumidores versionam os arquivos gerados e os servem
-localmente. Tokens do bundle ficam no widget, preservando os tokens da página.
+`npm run build:feedback` produces `dist-feedback/feedback.js` and
+`feedback.css`. The bundle serves authenticated Cloud pages, which imports both
+from `app/assets/feedback/`; on an anonymous page the submission receives 401.
+Consumers version the generated files and serve them locally. The bundle's
+tokens stay in the widget, preserving the page's tokens.
 
-## Compatibilidade e evidência
+## Compatibility and evidence
 
-Migração SQLite aditiva; estado do desktop, transcripts, conta e relay não mudam.
-O protótipo anterior de feedback não foi publicado. Sua migração foi ajustada
-antes da publicação para criar somente recibos, sem colunas de conteúdo.
-Bancos locais do protótipo não são migrados ou apagados automaticamente; testes
-usam banco novo e descartável. O corpo do `POST /api/feedback` e o recibo `{ id }`
-continuam iguais; o que mudou é a exigência de sessão, respondida com 401.
-`feedback_send` é IPC aditivo e não altera comandos existentes.
-Claude e Codex usam a mesma interface; seus CLIs não participam da entrega.
+An additive SQLite migration; desktop state, transcripts, account and relay do
+not change. The previous feedback prototype was never published. Its migration
+was adjusted before publication to create only receipts, without content
+columns. Local prototype databases are not migrated or deleted automatically;
+tests use a new, disposable database. The `POST /api/feedback` body and the
+`{ id }` receipt stay the same; what changed is the session requirement,
+answered with 401. `feedback_send` is an additive IPC command and does not
+change existing commands. Claude and Codex use the same interface; their CLIs
+do not take part in the delivery.
 
-- [`e2e/feedback.spec.ts`](../../e2e/feedback.spec.ts): aviso sem conta e conexão
-  pelo painel, erro recuperável, retry, upload, miniatura, captura simulada,
-  modal e viewport estreito em Chromium/WebKit.
-- Testes `FeedbackTest` do Cloud: 401 sem sessão, Bearer e cookie, limite por
-  conta, origem estranha, formato, assinatura, criação, idempotência, falha
-  ambígua, privacidade do repositório, upload nativo, retry e ausência de
-  conteúdo no SQLite; GitHub substituído por transporte em memória.
-- Captura nativa, permissões do macOS e entrega GitHub real exigem smoke manual.
-  Os testes não publicam issues nem capturam dados pessoais.
+- [`e2e/feedback.spec.ts`](../../e2e/feedback.spec.ts): the notice without an
+  account and connecting from the panel, a recoverable error, retry, upload,
+  thumbnail, simulated capture, modal and narrow viewport in Chromium/WebKit.
+- The Cloud's `FeedbackTest` tests: 401 without a session, Bearer and cookie,
+  per-account limit, foreign origin, format, signature, creation, idempotency,
+  ambiguous failure, repository privacy, native upload, retry and the absence of
+  content in SQLite; GitHub replaced by an in-memory transport.
+- Native capture, macOS permissions and real GitHub delivery require a manual
+  smoke test. The tests do not publish issues and do not capture personal data.

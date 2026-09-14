@@ -1,66 +1,68 @@
-# ADR 0040 — Código aberto em um único repositório público
+# ADR 0040 — Open source in a single public repository
 
-Data: 2026-09-11
-Status: Aceito. Substitui parcialmente o [ADR 0004](0004-prometeu-independent-identity.md)
-quanto ao repositório de releases.
+Date: 2026-09-11
+Status: Accepted. Partially supersedes
+[ADR 0004](0004-prometeu-independent-identity.md) regarding the releases
+repository.
 
-## Contexto
+## Context
 
-O código vivia em um repositório privado pessoal, com CI e release num runner
-self-hosted neste Mac. As releases eram copiadas para
-`prometeucorp/prometeu-releases`, público, porque o updater e o site precisam
-de URLs públicas. Isso exigia um PAT da organização no workflow, um segundo
-repositório para manter e um guarda que recusava o runner se o repositório
-deixasse de ser privado.
+The code lived in a personal private repository, with CI and releases on a
+self-hosted runner on this Mac. Releases were copied to
+`prometeucorp/prometeu-releases`, which is public, because the updater and the
+site need public URLs. That required an organization PAT in the workflow, a
+second repository to maintain and a guard that refused the runner if the
+repository stopped being private.
 
-O produto passa a ser código aberto. Com o código público, o repositório de
-releases perde a razão de existir.
+The product becomes open source. With the code public, the releases repository
+loses its reason to exist.
 
-## Opções consideradas
+## Options considered
 
-1. Abrir o código e manter `prometeu-releases` como destino das releases.
-2. Abrir o código em `prometeucorp/prometeu` e publicar releases nele mesmo.
-3. Abrir o código mantendo o runner self-hosted para CI.
+1. Open the code and keep `prometeu-releases` as the destination for releases.
+2. Open the code in `prometeucorp/prometeu` and publish releases there.
+3. Open the code while keeping the self-hosted runner for CI.
 
-## Decisão
+## Decision
 
-Opção 2. O repositório é transferido para `prometeucorp/prometeu` e fica
-público. Releases, `latest.json` do updater e o link de download do site
-apontam para ele. `prometeucorp/prometeu-releases` é arquivado.
+Option 2. The repository is transferred to `prometeucorp/prometeu` and becomes
+public. Releases, the updater's `latest.json` and the site's download link point
+to it. `prometeucorp/prometeu-releases` is archived.
 
-CI e release rodam em runners macOS hospedados pelo GitHub, gratuitos para
-repositório público. Runner self-hosted é proibido: em repositório público, um
-PR de fork escolhe o `runs-on` do próprio workflow, e com isso executaria
-código arbitrário neste Mac. O workflow de release usa o `GITHUB_TOKEN` do job
-com `contents: write`; não há PAT.
+CI and releases run on GitHub-hosted macOS runners, free for a public
+repository. A self-hosted runner is forbidden: in a public repository, a fork's
+PR chooses its own workflow's `runs-on`, and with that it would run arbitrary
+code on this Mac. The release workflow uses the job's `GITHUB_TOKEN` with
+`contents: write`; there is no PAT.
 
-O caminho de atualização é preservado por uma ponte única: depois da primeira
-release publicada no repositório novo, o mesmo `latest.json` entra como release
-em `prometeu-releases`. Instalações antigas leem o endpoint antigo, baixam o
-pacote do repositório novo, e a partir daí passam a consultar o endpoint novo,
-que já vem embutido nessa versão. A assinatura minisign não muda.
+The update path is preserved by a single bridge: after the first release
+published in the new repository, the same `latest.json` is added as a release in
+`prometeu-releases`. Old installations read the old endpoint, download the
+package from the new repository, and from then on query the new endpoint, which
+is already embedded in that version. The minisign signature does not change.
 
-## Consequências
+## Consequences
 
-Positivas:
+Positive:
 
-- um repositório só para código, issues, releases e histórico;
-- nenhuma credencial de organização nos workflows;
-- CI para PRs de forks sem expor a máquina do mantenedor;
-- o Mac deixa de ser infraestrutura de build.
+- a single repository for code, issues, releases and history;
+- no organization credential in the workflows;
+- CI for fork PRs without exposing the maintainer's machine;
+- the Mac stops being build infrastructure.
 
-Negativas:
+Negative:
 
-- build de release num runner frio leva mais tempo que o incremental local;
-- os secrets de assinatura e notarização passam a viver em runners de
-  terceiros, ainda restritos ao environment `release`;
-- `prometeu-releases` precisa continuar servindo a ponte enquanto houver
-  instalação anterior a essa mudança.
+- a release build on a cold runner takes longer than the incremental local one;
+- the signing and notarization secrets now live on third-party runners, still
+  restricted to the `release` environment;
+- `prometeu-releases` must keep serving the bridge while installations older
+  than this change exist.
 
-## Evidência
+## Evidence
 
-- `.github/workflows/ci.yml` e `release.yml` usam `macos-latest` e
+- `.github/workflows/ci.yml` and `release.yml` use `macos-latest` and
   `GITHUB_TOKEN`;
-- `src-tauri/tauri.conf.json` aponta o updater para `prometeucorp/prometeu`;
-- `scripts/release.sh` publica no mesmo repositório;
-- o job `verify` do release valida `latest.json` contra a chave pública do app.
+- `src-tauri/tauri.conf.json` points the updater to `prometeucorp/prometeu`;
+- `scripts/release.sh` publishes in the same repository;
+- the release's `verify` job validates `latest.json` against the app's public
+  key.

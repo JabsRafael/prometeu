@@ -1,113 +1,112 @@
-# Regras de dependência
+# Dependency rules
 
-Status: regras vigentes e direção de evolução.
+Status: rules in force and direction of evolution.
 
-## Princípio
+## Principle
 
-Uma interface existe quando separa uma política nossa de uma tecnologia ou
-protocolo que pode variar. Interfaces não são exigidas entre funções internas
-apenas para aumentar o número de camadas.
+An interface exists when it separates a policy of ours from a technology or
+protocol that may vary. Interfaces are not required between internal functions
+only to increase the number of layers.
 
-## Camadas conceituais
+## Conceptual layers
 
-| Camada | Exemplos atuais | Pode conhecer |
+| Layer | Current examples | May know about |
 | --- | --- | --- |
-| apresentação | `chat.ts`, `workspace.ts`, `workspace-changes.ts`, `sidebar.ts` | view models, casos de uso e contratos IPC |
-| domínio derivado | `timeline.ts`, `relay/src/logic.ts` | tipos de domínio e funções puras |
-| aplicação | `session.rs`, coordenação em `main.ts` | domínio e ports externos |
-| adapters | `claude.rs`, `codex.rs`, IPC, relay transport, Git/files | protocolos externos e contratos do core |
+| presentation | `chat.ts`, `workspace.ts`, `workspace-changes.ts`, `sidebar.ts` | view models, use cases and IPC contracts |
+| derived domain | `timeline.ts`, `relay/src/logic.ts` | domain types and pure functions |
+| application | `session.rs`, coordination in `main.ts` | domain and external ports |
+| adapters | `claude.rs`, `codex.rs`, IPC, relay transport, Git/files | external protocols and core contracts |
 
-Os diretórios atuais não representam essas camadas literalmente. A tabela serve
-para decidir ownership e direção de dependência durante mudanças incrementais.
+The current directories do not literally represent these layers. The table
+serves to decide ownership and dependency direction during incremental changes.
 
-## Regras vigentes
+## Rules in force
 
-1. `timeline.ts` não depende de DOM, Tauri ou rede.
-2. `relay/src/logic.ts` não executa I/O; `room.ts` interpreta seus efeitos.
-3. `relay/src/protocol.ts` não depende de APIs exclusivas do app ou do Worker.
-4. Estado persistido é alterado no backend e republicado pelo evento `board`.
-5. Acesso a filesystem, Git e processos acontece no backend.
-6. Entrada remota é validada novamente no lado que possui a autoridade.
-7. Erros do backend atravessam IPC como códigos/dados e são traduzidos no front.
-8. Apresentação decide visibilidade por `AgentCapabilities`; comparações de
-   nomes de provider ficam no catálogo ou nos adapters.
+1. `timeline.ts` does not depend on DOM, Tauri or network.
+2. `relay/src/logic.ts` performs no I/O; `room.ts` interprets its effects.
+3. `relay/src/protocol.ts` does not depend on APIs exclusive to the app or the Worker.
+4. Persisted state is changed in the backend and republished by the `board` event.
+5. Filesystem, Git and process access happens in the backend.
+6. Remote input is validated again on the side that owns the authority.
+7. Backend errors cross IPC as codes/data and are translated in the frontend.
+8. Presentation decides visibility through `AgentCapabilities`; provider name
+   comparisons stay in the catalog or in the adapters.
 
-## Regras vigentes para agentes
+## Rules in force for agents
 
-1. Protocolos de Claude, Codex ou outro fornecedor aparecem somente no adapter
-   correspondente e em fixtures daquele adapter.
-2. O core recebe `ConversationCommand` e produz `ConversationEvent`, ambos do
-   Prometeu.
-3. Um provider novo implementa o mesmo port e passa pela suíte de conformidade.
-4. Eventos desconhecidos não derrubam uma sessão; ficam observáveis e são
-   ignorados de forma compatível até terem tradução explícita.
+1. Claude, Codex or any other vendor protocol appears only in the corresponding
+   adapter and in that adapter's fixtures.
+2. The core receives `ConversationCommand` and produces `ConversationEvent`,
+   both owned by Prometeu.
+3. A new provider implements the same port and passes the conformance suite.
+4. Unknown events do not take a session down; they stay observable and are
+   ignored compatibly until they have an explicit translation.
 
-O leitor de transcript legado é exceção explícita à primeira regra. Fica
-isolado em `conversation-legacy.ts` e no caminho de replay do adapter Claude,
-sem alcançar a timeline nem o protocolo canônico. O Prometeu não produz novas
-linhas no formato legado.
+The legacy transcript reader is an explicit exception to the first rule. It is
+isolated in `conversation-legacy.ts` and in the Claude adapter's replay path,
+without reaching the timeline or the canonical protocol. Prometeu does not
+produce new lines in the legacy format.
 
-## Fronteiras que justificam interfaces
+## Boundaries that justify interfaces
 
-### Runtime de agente
+### Agent runtime
 
-Varia por instalação, catálogo, protocolo, resume e capacidades. Deve expor
-descoberta, início/retomada, comandos, eventos e encerramento sem vazar payload
-do fornecedor.
+Varies per installation, catalog, protocol, resume and capabilities. It must
+expose discovery, start/resume, commands, events and shutdown without leaking
+the vendor's payload.
 
 ### IPC
 
-Separa TypeScript e Rust. Nome, argumentos, retorno, erro e eventos formam um
-único contrato. O mock web é outro adapter desse mesmo contrato.
+Separates TypeScript and Rust. Name, arguments, return value, error and events
+form a single contract. The web mock is another adapter of that same contract.
 `src/ipc.ts` owns the command argument/result map consumed by frontend callers
 and `IpcHandlers` in the mock. Exact command-name parity with Rust is tested;
 Rust payload shapes remain manually synchronized. See the
 [IPC contract](../contracts/ipc.md).
 
-### Colaboração
+### Collaboration
 
-`team-transport.ts` abstrai o socket; `team-control.ts` transforma frames em
-ações locais. O protocolo e sua validação permanecem compartilhados.
+`team-transport.ts` abstracts the socket; `team-control.ts` turns frames into
+local actions. The protocol and its validation stay shared.
 
-O núcleo (`team-member.ts` e as features `team-owner.ts`, `team-viewer.ts`,
-`team-comments.ts`) recebe do shell os ports de `team-ports.ts`: `Membership`,
-`SecurityStore` e `OwnerHost`. Features são hooks registrados no membro, na
-ordem escolhida pela raiz de composição. `src/team.ts` é o shell do desktop;
-nenhum `team-*.ts` importa `@tauri-apps`, `./ipc`, `./mock` ou `./team`.
-Ver [ADR 0026](../decisions/0026-portable-collaboration-core.md).
+The core (`team-member.ts` and the features `team-owner.ts`, `team-viewer.ts`,
+`team-comments.ts`) receives the ports from `team-ports.ts` through the shell:
+`Membership`, `SecurityStore` and `OwnerHost`. Features are hooks registered on
+the member, in the order chosen by the composition root. `src/team.ts` is the
+desktop shell; no `team-*.ts` imports `@tauri-apps`, `./ipc`, `./mock` or
+`./team`. See [ADR 0026](../decisions/0026-portable-collaboration-core.md).
 
-### Sistema local
+### Local system
 
-Git, arquivos, PTY, processos e browser embutido são efeitos externos. Regras
-que escolhem quando executar esses efeitos devem continuar testáveis sem eles.
+Git, files, PTY, processes and the embedded browser are external effects. Rules
+that choose when to run those effects must stay testable without them.
 
-## Organização por feature
+## Feature-based organization
 
-Ao dividir um arquivo grande, extraia uma responsabilidade completa, com seus
-tipos e testes, em vez de separar por tamanho. Uma feature pode conter:
+When splitting a large file, extract a complete responsibility, with its types
+and tests, instead of splitting by size. A feature may contain:
 
 ```text
 feature/
-  model.ts        estado e regras puras
-  service.ts      coordenação de casos de uso
-  view.ts         DOM e interação
-  contract.ts     tipos que cruzam a fronteira, se houver
+  model.ts        state and pure rules
+  service.ts      use-case coordination
+  view.ts         DOM and interaction
+  contract.ts     types that cross the boundary, if any
   *.test.ts
 ```
 
-O projeto não precisa adotar essa árvore inteira de uma vez. Um módulo novo
-deve nascer nela apenas quando a mudança já exigir a fronteira.
+The project does not need to adopt this whole tree at once. A new module should
+be born in it only when the change already requires the boundary.
 
-## Como verificar
+## How to verify
 
-As regras são protegidas por revisão, testes focados e fitness functions
-pequenas:
+The rules are protected by review, focused tests and small fitness functions:
 
-- `npm run architecture:check` impede condicionais de UI por provider fora do
-  catálogo/capability e acoplamento do núcleo de colaboração ao desktop;
-- tipos exaustivos para `ProviderId` e eventos canônicos;
-- teste de paridade entre comandos IPC, handlers Rust e mock;
-- fixtures de conformidade por adapter.
+- `npm run architecture:check` blocks per-provider UI conditionals outside the
+  catalog/capability and coupling of the collaboration core to the desktop;
+- exhaustive types for `ProviderId` and canonical events;
+- a parity test between IPC commands, Rust handlers and the mock;
+- conformance fixtures per adapter.
 
-Não introduza uma ferramenta de análise de dependências antes de existir uma
-regra concreta que ela consiga verificar.
+Do not introduce a dependency-analysis tool before a concrete rule exists that
+it can actually verify.

@@ -1,48 +1,50 @@
-# ADR 0034 — Continuidade do pareamento móvel
+# ADR 0034 — Mobile pairing continuity
 
-Data: 2026-09-10
-Status: Aceito. Substitui a reconexão obrigatória por lease do
-[ADR 0021](0021-cloud-organizations.md) e especializa a autoria remota do
-[ADR 0028](0028-mobile-web-app.md) para os dispositivos pessoais do
+Date: 2026-09-10
+Status: Accepted. Supersedes the mandatory reconnection per lease of
+[ADR 0021](0021-cloud-organizations.md) and specializes the remote authorship of
+[ADR 0028](0028-mobile-web-app.md) for the personal devices of
 [ADR 0030](0030-remote-control.md).
 
-## Contexto
+## Context
 
-Leases de 60 segundos encerravam sockets válidos continuamente. Celular e
-compartilhamento passavam por desconexão, handshake e novos snapshots a cada
-minuto. O pareamento pessoal também identificava mensagens do próprio usuário
-como mensagens de colegas. O formulário móvel herdava altura mínima de 112px,
-e conteúdo intrínseco de linhas de comando alargava o transcript.
+60-second leases kept closing valid sockets. The phone and sharing went through
+a disconnection, a handshake and new snapshots every minute. Personal pairing
+also identified the user's own messages as messages from peers. The mobile form
+inherited a 112px minimum height, and the intrinsic content of command lines
+widened the transcript.
 
-## Decisão
+## Decision
 
-Manter a janela de revogação de 60 segundos e renovar no socket identificado.
-O relay anuncia `lease { expires_in }`; o cliente reutiliza o port de ticket
-na metade do prazo e responde `renew { ticket }`. O Cloud autoriza novamente,
-sem nova API nem credenciais permanentes no relay. Somente a mesma matrícula
-na mesma organização pode renovar um socket ainda válido. Roster inalterado
-não produz presença, anúncios ou snapshots. Clientes e relays antigos mantêm
-o caminho anterior. Perda real de conexão continua usando backoff e snapshots.
+Keep the 60-second revocation window and renew on the identified socket. The
+relay announces `lease { expires_in }`; the client reuses the ticket port
+halfway through the deadline and answers `renew { ticket }`. The Cloud
+authorizes again, without a new API and without permanent credentials in the
+relay. Only the same membership in the same organization can renew a socket that
+is still valid. An unchanged roster produces no presence, announcements or
+snapshots. Old clients and relays keep the previous path. A real connection loss
+still uses backoff and snapshots.
 
-O Mac encaminha texto original quando o remetente autenticado é um dispositivo
-da própria pessoa. Colegas continuam identificados pelo prefixo do time.
-Criptografia, consentimento de controle remoto e proteção contra replay
-permanecem obrigatórios.
+The Mac forwards the original text when the authenticated sender is a device
+belonging to the person themselves. Peers are still identified by the team's
+prefix. Encryption, remote control consent and replay protection stay mandatory.
 
-O shell móvel limita a largura das colunas do transcript e mantém rolagem
-horizontal dentro de blocos de código e tabelas. O formulário usa controles
-compartilhados de 44px, texto de 16px e crescimento limitado. A visual viewport
-mantém o envio acima do teclado. Rascunho só é limpo após o envio cifrado sair
-pelo socket; isso não representa confirmação de execução pelo Mac.
+The mobile shell limits the width of the transcript's columns and keeps
+horizontal scrolling inside code blocks and tables. The form uses shared 44px
+controls, 16px text and bounded growth. The visual viewport keeps the send
+button above the keyboard. The draft is cleared only after the encrypted message
+leaves through the socket; that does not represent confirmation of execution by
+the Mac.
 
-## Consequências e verificação
+## Consequences and verification
 
-Não aumentamos a validade da autorização para esconder desconexões. Renovação
-adiciona dois controles ao v4 e preserva a revogação sem webhook. Publicar relay
-antes dos clientes permite ativação gradual e rollback de código sem migração.
+We do not extend the authorization's validity to hide disconnections. Renewal
+adds two controls to v4 and preserves revocation without a webhook. Publishing
+the relay before the clients allows gradual activation and a code rollback
+without migration.
 
-`relay/src/worker.integration.test.ts` verifica renovação, watchers, expiração
-e rejeição de tickets. `src/team-organizations.test.ts` verifica autoria,
-continuidade e troca de organização. `e2e/mobile.spec.ts` exercita o shell real
-com peer cifrado em Chromium e WebKit, larguras de 320/390px, teclado e falha
-de envio sem perda de rascunho.
+`relay/src/worker.integration.test.ts` checks renewal, watchers, expiration and
+ticket rejection. `src/team-organizations.test.ts` checks authorship,
+continuity and organization switching. `e2e/mobile.spec.ts` exercises the real
+shell with an encrypted peer in Chromium and WebKit, widths of 320/390px, the
+keyboard and a send failure without losing the draft.

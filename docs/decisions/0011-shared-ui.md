@@ -1,37 +1,37 @@
-# ADR 0011 — Primitivas compartilhadas de interface
+# ADR 0011 — Shared interface primitives
 
-Status: localização dos tokens e do CSS compartilhado substituída pelo
-[ADR 0016](0016-company-design-system.md). Contratos de interação preservados.
+Status: the location of the tokens and of the shared CSS is superseded by
+[ADR 0016](0016-company-design-system.md). Interaction contracts preserved.
 
-## Contexto
+## Context
 
-Os editores de Ações duplicavam campos e usavam seletores nativos diferentes
-do launcher. Regras de CSS de inputs de texto atingiam checkboxes. Corrigir
-cada tela isoladamente mantinha as divergências de aparência e interação.
+The Actions editors duplicated fields and used native selectors different from
+the launcher's. CSS rules for text inputs reached checkboxes. Fixing each screen
+in isolation kept the divergences in appearance and interaction.
 
-## Decisão
+## Decision
 
-Consolidar os tokens existentes e primitivas DOM em `ui-tokens.css`, `ui.css`
-e `ui.ts`. Extrair o dropdown existente do launcher, mantendo `menu.ts` e
-`icons.ts` compartilhados. Ações passa a usar a base; campos dos hubs MCP e
-plugins também. Uma galeria executável e testes nos dois motores documentam
-os estados e comportamentos.
+Consolidate the existing tokens and DOM primitives in `ui-tokens.css`, `ui.css`
+and `ui.ts`. Extract the existing dropdown from the launcher, keeping `menu.ts`
+and `icons.ts` shared. Actions starts using the base; the MCP and plugin hubs'
+fields too. An executable gallery and tests on both engines document the states
+and behaviors.
 
-Novos formulários usam `dialog.showModal()` para modalidade e foco nativos,
-com ciclo de Tab explícito para consistência entre motores. Menus de diálogos
-são inseridos na mesma camada. Componentes recebem texto traduzido e callbacks;
-não conhecem IPC ou regras de agentes.
+New forms use `dialog.showModal()` for native modality and focus, with an
+explicit Tab cycle for consistency between engines. Dialog menus are inserted
+into the same layer. Components receive translated text and callbacks; they do
+not know about IPC or agent rules.
 
-## Consequências
+## Consequences
 
-Sem framework ou dependência adicional. Alterações nas primitivas exigem
-verificação das telas consumidoras. A migração é incremental: estilos de
-composição e modais antigos permanecem até uma mudança exigir sua adoção.
-Tokens antigos conservam valores, e a mudança não altera persistência ou IPC;
-testes de compatibilidade de dados não se aplicam.
+No framework and no additional dependency. Changes to the primitives require
+checking the consuming screens. The migration is incremental: composition styles
+and old modals stay until a change requires their adoption. Old tokens keep
+their values, and the change does not alter persistence or IPC; data
+compatibility tests do not apply.
 
-## Evidência
+## Evidence
 
-- [Guia e galeria](../architecture/design-system.md).
-- [Testes das primitivas](../../e2e/ui.spec.ts).
-- [Testes de Ações](../../e2e/actions.spec.ts).
+- [Guide and gallery](../architecture/design-system.md).
+- [Primitive tests](../../e2e/ui.spec.ts).
+- [Actions tests](../../e2e/actions.spec.ts).

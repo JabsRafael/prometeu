@@ -58,6 +58,12 @@ export function unseen(all: Release[], current: string, from: string | null): Re
 
 /// Translate git-cliff section headings from cliff.toml; preserve commit descriptions as content.
 const SECTIONS: Record<string, Key> = {
+  New: "news.sec.feat",
+  Fixes: "news.sec.fix",
+  Performance: "news.sec.perf",
+  Reverted: "news.sec.revert",
+  Other: "news.sec.other",
+  // Releases published before the English-only changelog keep their Portuguese headings.
   Novidades: "news.sec.feat",
   Correções: "news.sec.fix",
   Desempenho: "news.sec.perf",

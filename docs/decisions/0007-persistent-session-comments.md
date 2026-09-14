@@ -1,70 +1,72 @@
-# ADR 0007 — Comentários persistentes ao lado da sessão
+# ADR 0007 — Persistent comments alongside the session
 
-Data: 2026-09-04
-Status: Aceito
+Date: 2026-09-04
+Status: Accepted
 
-## Contexto
+## Context
 
-Notas de colaboração eram inseridas no transcript no instante em que chegavam.
-Com a sessão em andamento, elas saíam da área visível e perdiam a função de
-acompanhar uma decisão até sua conclusão. Para criar uma nota, a pessoa também
-precisava trocar a caixa principal do modo do agente para o modo de nota. Essa
-troca escondia o destino da próxima mensagem no momento mais sensível da
-interação.
+Collaboration notes were inserted into the transcript at the instant they
+arrived. With the session in progress, they scrolled out of the visible area and
+lost their role of following a decision through to its conclusion. To create a
+note, the person also had to switch the main box from agent mode to note mode.
+That switch hid the destination of the next message at the most sensitive moment
+of the interaction.
 
-A necessidade não é adicionar outra mensagem ao chat. É manter uma conversa
-humana sobre um trecho do trabalho, tornar pendências encontráveis e declarar
-quando deixaram de exigir atenção.
+The need is not to add another message to the chat. It is to keep a human
+conversation about a piece of the work, make open items findable and state when
+they no longer require attention.
 
-## Opções consideradas
+## Options considered
 
-1. Manter notas no transcript e melhorar seus marcadores visuais.
-2. Representar comentários como mensagens comuns enviadas ao agente.
-3. Manter threads persistentes num painel lateral, ancoradas à conversa e com
-   estado explícito.
+1. Keep notes in the transcript and improve their visual markers.
+2. Represent comments as ordinary messages sent to the agent.
+3. Keep persistent threads in a side panel, anchored to the conversation and
+   with an explicit state.
 
-## Decisão
+## Decision
 
-Comentários ficam num painel lateral próprio. A caixa principal sempre envia
-mensagens ao agente.
+Comments live in their own side panel. The main box always sends messages to the
+agent.
 
-Cada thread possui uma raiz, zero ou mais respostas e estado aberto ou
-resolvido. Ela pode ser geral da aba ou guardar `tab` e `Piece.key` como âncora
-de um trecho. A citação é contexto legível, não identidade. Marcadores no
-transcript abrem a thread e a thread pode levar de volta ao trecho.
+Each thread has a root, zero or more replies and an open or resolved state. It
+can be general to the tab or store `tab` and `Piece.key` as the anchor of an
+excerpt. The quote is readable context, not identity. Markers in the transcript
+open the thread and the thread can lead back to the excerpt.
 
-Menções criam atribuições em **Para mim**. Abrir uma atribuição não significa
-concluir trabalho; somente resolver a raiz remove a thread da inbox de todos.
-Qualquer colaborador que ainda tenha acesso ao workspace pode resolver.
+Mentions create assignments in **For me**. Opening an assignment does not mean
+finishing work; only resolving the root removes the thread from everyone's
+inbox. Any collaborator who still has access to the workspace can resolve it.
 
-O protocolo relay v3 recebe campos opcionais e os frames aditivos
-`note_reply` e `note_resolve`. O `welcome` anuncia `comments: 1`; sem essa
-capability, o app mantém comentários simples e oculta resposta e resolução.
-Nesse fallback, abrir ainda conclui uma entrada da inbox. Não há migração
-destrutiva: notas anteriores viram raízes gerais abertas.
+The v3 relay protocol receives optional fields and the additive `note_reply` and
+`note_resolve` frames. The `welcome` announces `comments: 1`; without that
+capability, the app keeps simple comments and hides replies and resolution. In
+that fallback, opening still completes an inbox entry. There is no destructive
+migration: previous notes become open general roots.
 
-## Consequências
+## Consequences
 
-Positivas:
+Positive:
 
-- pendências continuam visíveis enquanto a sessão cresce;
-- escrever para o time não muda silenciosamente o destino da caixa do agente;
-- respostas preservam o contexto e a resolução encerra a pendência para todos;
-- dados e clientes v3 anteriores continuam legíveis.
+- open items stay visible as the session grows;
+- writing to the team does not silently change the destination of the agent's
+  box;
+- replies preserve the context and resolution closes the item for everyone;
+- previous v3 data and clients stay readable.
 
-Negativas:
+Negative:
 
-- o relay passa a persistir estado e respostas de threads;
-- uma âncora pode ficar indisponível após retenção ou mudança de transcript; a
-  citação continua visível nesse caso;
-- clientes antigos podem mostrar respostas como notas independentes;
-- resolução não tem papéis adicionais: acesso ao workspace é a autoridade.
+- the relay now persists thread state and replies;
+- an anchor may become unavailable after retention or a transcript change; the
+  quote stays visible in that case;
+- old clients may show replies as independent notes;
+- resolution has no additional roles: access to the workspace is the authority.
 
-## Evidência
+## Evidence
 
-- `src/notes.test.ts` cobre agrupamento, aba, legado e ordem por atividade;
-- `src/team.test.ts` cobre capability, criação, resposta, resolução e inbox;
-- `relay/src/protocol.test.ts` e `relay/src/logic.test.ts` cobrem validação,
-  persistência, audiência, atribuição e compatibilidade;
-- `e2e/critical-flows.spec.ts` cobre criação contextual, resposta, resolução e
-  permanência da caixa principal no agente.
+- `src/notes.test.ts` covers grouping, tab, legacy data and ordering by
+  activity;
+- `src/team.test.ts` covers capability, creation, reply, resolution and inbox;
+- `relay/src/protocol.test.ts` and `relay/src/logic.test.ts` cover validation,
+  persistence, audience, assignment and compatibility;
+- `e2e/critical-flows.spec.ts` covers contextual creation, reply, resolution and
+  the main box staying on the agent.

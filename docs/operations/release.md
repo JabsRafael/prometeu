@@ -1,90 +1,87 @@
-# CI e release
+# CI and release
 
 ## Commits
 
-O repositório usa Conventional Commits em português:
+The repository uses Conventional Commits in English:
 
 ```text
-tipo(escopo): descrição
+type(scope): description
 ```
 
-`feat`, `fix` e `perf` aparecem no changelog. Durante a série 0.x, mudanças
-normais sobem patch e breaking changes sobem minor conforme `cliff.toml`.
-Esses tipos e `revert` incluem um rodapé `Release-EN` com a linha pública em
-inglês. O `git-cliff` usa a descrição em português e esse rodapé para gerar uma
-única seção de versão bilíngue. Marcadores HTML permitem que o app mostre só o
-idioma escolhido, enquanto o GitHub mostra os dois.
+`feat`, `fix` and `perf` appear in the changelog. During the 0.x series, normal
+changes bump the patch and breaking changes bump the minor according to
+`cliff.toml`. The description is the public release line: write what the person
+sees, in lowercase and without a trailing period.
 
-O hook `.githooks/commit-msg` valida localmente e o job `commits` verifica cada
-commit do PR.
+The `.githooks/commit-msg` hook validates locally and the `commits` job checks
+every commit of the PR.
 
 ## CI
 
-`.github/workflows/ci.yml` roda em PRs, inclusive de forks, e em pushes para
-`main`, em runners macOS hospedados pelo GitHub. O job instala dependências,
-instala Chromium e WebKit e executa `npm run check`. Runners hospedados são
-descartáveis e o workflow não tem segredo, então código de fork roda sem
-risco. Não registre runner self-hosted neste repositório: o código é público
-e um PR de fork controla o que o job executa. Ver
+`.github/workflows/ci.yml` runs on PRs, including from forks, and on pushes to
+`main`, on GitHub-hosted macOS runners. The job installs dependencies, installs
+Chromium and WebKit and runs `npm run check`. Hosted runners are disposable and
+the workflow has no secrets, so fork code runs without risk. Do not register a
+self-hosted runner in this repository: the code is public and a fork's PR
+controls what the job runs. See
 [ADR 0040](../decisions/0040-open-source.md).
 
-## Criar release
-
-## Criar release
+## Create a release
 
 ```sh
 sh scripts/release.sh
 sh scripts/release.sh 0.5.0
 ```
 
-O script exige árvore limpa, branch `main`, paridade com `origin/main` e ao
-menos uma nota pública desde a tag anterior. Ele calcula ou recebe
-a versão, atualiza manifests e changelog, roda testes, cria commit/tag e envia
-para o remoto.
+The script requires a clean tree, the `main` branch, parity with `origin/main`
+and at least one public note since the previous tag. It computes or receives the
+version, updates the manifests and the changelog, runs the tests, creates the
+commit/tag and pushes to the remote.
 
-O workflow de release constrói e assina os artefatos e cria uma draft neste
-mesmo repositório, com o `GITHUB_TOKEN` do job. Não existe PAT de release.
+The release workflow builds and signs the artifacts and creates a draft in this
+same repository, with the job's `GITHUB_TOKEN`. There is no release PAT.
 
-## Publicar
+## Publish
 
-Entre build e publicação existe uma verificação humana:
+Between the build and the publication there is a human check:
 
-1. baixar o `.dmg` da draft;
-2. instalar e abrir o app;
-3. validar os fluxos afetados pela versão;
-4. confirmar que todos os assets e o workflow estão completos;
-5. publicar com:
+1. download the `.dmg` from the draft;
+2. install and open the app;
+3. validate the flows affected by the version;
+4. confirm that every asset and the workflow are complete;
+5. publish with:
 
 ```sh
 sh scripts/release.sh publish
 ```
 
-Os assets não levam a versão no nome (`Prometeu_aarch64.dmg`). Isso mantém
-`releases/latest/download/Prometeu_aarch64.dmg` válido para sempre, que é o link
-do site: publicar troca a versão que o botão de download entrega, sem tocar no
-repositório do site.
+The assets do not carry the version in their name (`Prometeu_aarch64.dmg`). That
+keeps `releases/latest/download/Prometeu_aarch64.dmg` valid forever, which is
+the site's link: publishing changes the version the download button delivers,
+without touching the site's repository.
 
-O updater não possui rollback para uma versão menor. Uma release publicada com
-defeito precisa ser corrigida por uma versão seguinte.
+The updater has no rollback to a lower version. A release published with a
+defect must be fixed by a later version.
 
-## Chaves
+## Keys
 
-A chave privada de assinatura nunca entra no repositório. A cópia local fica
-em `~/.tauri/prometeu.key`; sua senha fica no Keychain sob o serviço
-`prometeu-tauri-signing`. A CI usa os Secrets `TAURI_SIGNING_PRIVATE_KEY` e
-`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Perder a cópia local e os Secrets impede
-atualizar instalações existentes.
+The private signing key never enters the repository. The local copy lives in
+`~/.tauri/prometeu.key`; its password lives in the Keychain under the
+`prometeu-tauri-signing` service. CI uses the `TAURI_SIGNING_PRIVATE_KEY` and
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets. Losing the local copy and the
+secrets makes it impossible to update existing installations.
 
-Essa assinatura protege o updater. A distribuição no macOS também usa o
-certificado `Developer ID Application: Gustavo Brancaglione (6MQT6A482B)` do
-Keychain e notarização Apple. A CI importa uma cópia `.p12` em um Keychain
-temporário usando `APPLE_CERTIFICATE` e `APPLE_CERTIFICATE_PASSWORD`, adiciona
-esse Keychain à lista de busca sem trocar o Keychain padrão do Mac e depois o
-remove. A notarização usa `APPLE_ID` e `APPLE_PASSWORD`; o segundo contém uma
-senha específica de app, nunca a senha normal da conta Apple. O job falha antes
-do build se certificado ou Secrets estiverem ausentes. O bundler notariza o app;
-o workflow notariza e grampeia o DMG final, substitui o asset criado antes dessa
-etapa e então usa `stapler` e `spctl` para validar a cópia baixada da draft.
+That signature protects the updater. Distribution on macOS also uses the
+`Developer ID Application: Gustavo Brancaglione (6MQT6A482B)` certificate from
+the Keychain and Apple notarization. CI imports a `.p12` copy into a temporary
+Keychain using `APPLE_CERTIFICATE` and `APPLE_CERTIFICATE_PASSWORD`, adds that
+Keychain to the search list without changing the Mac's default Keychain and then
+removes it. Notarization uses `APPLE_ID` and `APPLE_PASSWORD`; the second
+contains an app-specific password, never the normal Apple account password. The
+job fails before the build if the certificate or the secrets are missing. The
+bundler notarizes the app; the workflow notarizes and staples the final DMG,
+replaces the asset created before that step and then uses `stapler` and `spctl`
+to validate the copy downloaded from the draft.
 
-Não execute corte, tag, push ou publicação como parte de uma tarefa comum sem
-pedido explícito.
+Do not run a cut, tag, push or publication as part of an ordinary task without
+an explicit request.

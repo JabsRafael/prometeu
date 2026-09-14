@@ -1,45 +1,52 @@
-# ADR 0039 — Catálogos da organização disponíveis no desktop
+# ADR 0039 — Organization catalogs available on the desktop
 
-Data: 2026-09-11
-Status: Aceito. Substitui parcialmente o [ADR 0021](0021-cloud-organizations.md)
-quanto à necessidade de copiar itens para o catálogo pessoal antes de instalá-los.
+Date: 2026-09-11
+Status: Accepted. Partially supersedes
+[ADR 0021](0021-cloud-organizations.md) regarding the need to copy items into
+the personal catalog before installing them.
 
-## Contexto
+## Context
 
-O catálogo da organização já contém definições portáteis, mas exigir uma cópia
-no navegador impede sua descoberta no lugar onde a pessoa instala ferramentas.
+The organization's catalog already contains portable definitions, but requiring
+a copy in the browser prevents its discovery in the place where the person
+installs tools.
 
-## Decisão
+## Decision
 
-O desktop lista plugins, MCPs e skills de todas as organizações com matrícula
-aceita, junto aos hubs existentes, com o nome da organização e `Instalar aqui`.
-A organização ativa no relay não filtra essas definições. Instalação é explícita
-e cria um registro local independente, sem escrever no catálogo pessoal ou
-institucional e sem ativar ferramentas em conversas.
+The desktop lists plugins, MCPs and skills of every organization with an
+accepted membership, next to the existing hubs, with the organization's name and
+`Install here`. The organization active in the relay does not filter those
+definitions. Installation is explicit and creates an independent local record,
+without writing to the personal or institutional catalog and without enabling
+tools in conversations.
 
-Cada catálogo é lido por Bearer em uma rota própria, respeitando o limite de
-256 KB por documento e a autorização pela matrícula atual. O refresh existente
-atualiza a disponibilidade. Antes de instalar, o desktop verifica novamente
-o acesso e a definição exibida; mudanças exigem rever a lista atualizada.
+Each catalog is read with a Bearer on its own route, respecting the 256 KB limit
+per document and authorization through the current membership. The existing
+refresh updates availability. Before installing, the desktop checks the access
+and the displayed definition again; changes require reviewing the updated list.
 
-O cache mantém os IDs locais instalados por organização, tipo e item. Nomes
-ocupados recebem outro ID, usando a regra de colisão já existente. Atualizações
-da organização não substituem código, configurações ou credenciais instaladas.
-Revogação retira a disponibilidade no próximo refresh, preservando instalações.
+The cache keeps the installed local IDs per organization, type and item. Taken
+names get another ID, using the existing collision rule. Organization updates do
+not replace installed code, configuration or credentials. Revocation removes the
+availability on the next refresh, preserving installations.
 
-## Alternativas e consequências
+## Alternatives and consequences
 
-Copiar pelo navegador continua disponível, mas deixa de ser requisito. Mesclar
-organizações no documento pessoal confundiria autorização, revisões e propriedade.
-Sincronizar instalações continuamente exigiria resolver edições locais e fontes
-alteradas; esta mudança se limita à descoberta e instalação direta.
+Copying through the browser is still available, but is no longer a requirement.
+Merging organizations into the personal document would confuse authorization,
+revisions and ownership. Synchronizing installations continuously would require
+resolving local edits and changed sources; this change is limited to discovery
+and direct installation.
 
-Não há migração do servidor. Publique primeiro o Cloud e depois o desktop.
-Cloud antigo responde 404 e mantém o catálogo pessoal funcionando. Clientes
-antigos ignoram o campo aditivo do cache; arquivos instalados permanecem locais.
+There is no server migration. Publish the Cloud first and then the desktop. An
+old Cloud answers 404 and keeps the personal catalog working. Old clients ignore
+the cache's additive field; installed files stay local.
 
-## Evidência
+## Evidence
 
-- `src-tauri/src/catalog.rs`: colisões, credenciais, instalação local e cache antigo.
-- `e2e/cloud.spec.ts`: descoberta e instalação sem copiar para a conta.
-- Cloud, `test/integration/organizations_test.rb`: Bearer, matrícula, revogação e isolamento.
+- `src-tauri/src/catalog.rs`: collisions, credentials, local installation and an
+  old cache.
+- `e2e/cloud.spec.ts`: discovery and installation without copying into the
+  account.
+- Cloud, `test/integration/organizations_test.rb`: Bearer, membership,
+  revocation and isolation.

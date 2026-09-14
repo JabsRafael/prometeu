@@ -1,63 +1,68 @@
-# ADR 0020 — Catálogo no SaaS e compartilhamento explícito no desktop
+# ADR 0020 — Catalog in the SaaS and explicit sharing on the desktop
 
-Data: 2026-09-07
-Status: Parcialmente substituído pelo [ADR 0021](0021-cloud-organizations.md) (propriedade institucional)
-Substitui: [ADR 0019](0019-cloud-catalog.md)
+Date: 2026-09-07
+Status: Partially superseded by [ADR 0021](0021-cloud-organizations.md)
+(institutional ownership)
+Supersedes: [ADR 0019](0019-cloud-catalog.md)
 
-## Contexto
+## Context
 
-O catálogo anterior tinha persistência no SaaS, mas a autoria permanecia
-exclusivamente no desktop. Conectar uma conta publicava os hubs locais;
-MCPs e plugins portáteis não podiam continuar privados por escolha.
+The previous catalog had persistence in the SaaS, but authoring stayed
+exclusively on the desktop. Connecting an account published the local hubs;
+portable MCPs and plugins could not stay private by choice.
 
-A necessidade é cadastrar MCPs, plugins e skills no navegador, recebê-los
-nos desktops e combinar esse conjunto com definições locais opcionais.
-Catálogos de times, projetos e organizações são evolução futura.
+The need is to register MCPs, plugins and skills in the browser, receive them on
+the desktops and combine that set with optional local definitions. Catalogs for
+teams, projects and organizations are a future evolution.
 
-## Opções consideradas
+## Options considered
 
-1. Apenas acrescentar formulários ao documento anterior. Não oferece privacidade local.
-2. Criar imediatamente organizações, times, permissões e sincronização offline com merge.
-3. Manter a conta como proprietária do catálogo, acrescentar autoria web e
-   vínculos explícitos entre definições remotas e registros locais.
+1. Just add forms to the previous document. It offers no local privacy.
+2. Immediately create organizations, teams, permissions and offline
+   synchronization with merge.
+3. Keep the account as the catalog's owner, add web authoring and explicit links
+   between remote definitions and local records.
 
-## Decisão
+## Decision
 
-Adotar a opção 3. Criações desktop são privadas por padrão. Compartilhar é
-uma ação explícita; editar uma definição vinculada publica na conta. Uma
-cópia local recebe outro ID e não altera o item compartilhado.
+Adopt option 3. Desktop creations are private by default. Sharing is an explicit
+action; editing a linked definition publishes it to the account. A local copy
+gets another ID and does not change the shared item.
 
-O SaaS usa Rails convencional, formulários do Design System, cookies e CSRF.
-O desktop mantém Bearer. O documento revisionado existente continua sendo a
-unidade de armazenamento; operações web alteram somente o item escolhido,
-preservando as outras coleções. Conflitos são visíveis e conservam rascunhos.
-Nenhuma edição obsoleta é reenviada automaticamente sobre uma revisão nova.
+The SaaS uses conventional Rails, Design System forms, cookies and CSRF. The
+desktop keeps the Bearer. The existing revisioned document is still the storage
+unit; web operations change only the chosen item, preserving the other
+collections. Conflicts are visible and keep drafts. No stale edit is
+automatically resent over a new revision.
 
-Skills são definições de texto, materializadas como pacotes para reutilizar
-os adapters e seletores de plugins existentes. Código de plugins continua
-vindo de origem remota por instalação explícita; não há upload de diretórios.
+Skills are text definitions, materialized as packages to reuse the existing
+plugin adapters and selectors. Plugin code still comes from a remote source
+through an explicit installation; there is no directory upload.
 
-Receber definições não ativa ferramentas nas conversas. Exclusão remota não
-apaga arquivos ou credenciais dos Macs. Nomes privados são preservados por
-um mapa de vínculos que separa o ID da conta do ID no hub local.
+Receiving definitions does not enable tools in conversations. Remote deletion
+does not delete files or credentials from the Macs. Private names are preserved
+through a link map that separates the account's ID from the ID in the local hub.
 
-## Consequências
+## Consequences
 
-- Gerenciamento no navegador e escolha local funcionam sem novo serviço,
-  dependência ou migração de banco.
-- O JSON inteiro e seu limite de 256 KB permanecem. Edições concorrentes em
-  itens diferentes também podem exigir nova tentativa explícita.
-- Clientes antigos preservam skills novas ao omitir a coleção; seu comportamento
-  antigo de publicação automática só muda quando o desktop é atualizado.
-- Uma cópia de plugin compartilha os arquivos do clone, mas não sua definição
-  online. Skills copiadas têm conteúdo materializado independente.
-- Ações legadas continuam sincronizadas como antes e não recebem editor web nesta etapa.
-- Futuras permissões e catálogos institucionais exigem identidade composta
-  pelo proprietário, catálogo e item. Esta etapa não simula esses escopos.
-- Rollback restaura código anterior mantendo JSON e arquivos locais. Desktop
-  antigo ignora skills; não usar rollback como modo de remover dados novos.
+- Management in the browser and local choice work without a new service,
+  dependency or database migration.
+- The whole JSON and its 256 KB limit remain. Concurrent edits on different
+  items may also require an explicit retry.
+- Old clients preserve new skills by omitting the collection; their old
+  automatic publication behavior only changes when the desktop is updated.
+- A plugin copy shares the clone's files, but not its online definition. Copied
+  skills have independently materialized content.
+- Legacy Actions stay synchronized as before and get no web editor at this
+  stage.
+- Future permissions and institutional catalogs require an identity composed of
+  the owner, the catalog and the item. This stage does not simulate those
+  scopes.
+- A rollback restores the previous code while keeping the JSON and local files.
+  An old desktop ignores skills; do not use a rollback as a way to remove new
+  data.
 
-## Evidência
+## Evidence
 
-O [contrato do catálogo](../contracts/cloud-catalog.md) descreve formatos,
-compatibilidade, comportamento observável e testes dos dois repositórios.
+The [catalog contract](../contracts/cloud-catalog.md) describes formats,
+compatibility, observable behavior and tests in both repositories.

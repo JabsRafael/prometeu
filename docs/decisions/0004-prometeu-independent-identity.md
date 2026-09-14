@@ -1,89 +1,89 @@
-# ADR 0004 — Identidade independente do Prometeu
+# ADR 0004 — Prometeu's independent identity
 
-Data: 2026-09-04
-Status: Aceito
+Date: 2026-09-04
+Status: Accepted
 
-## Contexto
+## Context
 
-O nome público do produto passou a ser Prometeu e seu domínio é `prometeu.co`.
-Alterar em lugar a identidade do aplicativo anterior misturaria bundle,
-updater, estado local, worktrees e contratos de script durante a transição.
-Isso também impediria instalar os dois aplicativos lado a lado para conferir a
-nova linha antes de migrar dados reais.
+The product's public name became Prometeu and its domain is `prometeu.co`.
+Changing the previous application's identity in place would mix bundle, updater,
+local state, worktrees and script contracts during the transition. It would also
+prevent installing both applications side by side to check the new line before
+migrating real data.
 
-O código e o histórico Git foram copiados para um repositório novo. Os ADRs e
-o changelog anteriores continuam sendo registro histórico e não são
-reescritos para fingir que o nome novo sempre existiu.
+The code and the Git history were copied into a new repository. The previous
+ADRs and changelog remain historical records and are not rewritten to pretend
+the new name always existed.
 
-## Opções consideradas
+## Options considered
 
-1. Renomear o aplicativo existente e migrar seus dados durante uma atualização.
-2. Compartilhar as mesmas raízes de estado entre os dois nomes.
-3. Criar o Prometeu como aplicativo independente e importar dados depois.
+1. Rename the existing application and migrate its data during an update.
+2. Share the same state roots between the two names.
+3. Create Prometeu as an independent application and import data later.
 
-## Decisão
+## Decision
 
-O Prometeu possui repositório, bundle, executável, updater, namespace local,
-configuração de projeto e variáveis de ambiente próprios:
+Prometeu has its own repository, bundle, executable, updater, local namespace,
+project configuration and environment variables:
 
 - bundle id `co.prometeu.desktop`;
-- estado em `~/.prometeu` e `~/.prometeu-dev`;
-- worktrees em `~/prometeu/worktrees[-dev]`;
-- configuração em `.prometeu/settings.toml`;
-- variáveis públicas com prefixo `PROMETEU_`;
-- branches criadas com prefixo `prometeu/`;
-- releases publicadas em `prometeucorp/prometeu-releases`.
+- state in `~/.prometeu` and `~/.prometeu-dev`;
+- worktrees in `~/prometeu/worktrees[-dev]`;
+- configuration in `.prometeu/settings.toml`;
+- public variables with the `PROMETEU_` prefix;
+- branches created with the `prometeu/` prefix;
+- releases published in `prometeucorp/prometeu-releases`.
 
-O aplicativo não consulta nem modifica dados do Prometheus automaticamente.
-A migração será um caso de uso posterior, explícito e idempotente, que cria
-backup, preserva a origem e trata worktrees com operações Git em vez de mover
-pastas diretamente.
+The application neither reads nor modifies Prometheus data automatically. The
+migration will be a later use case, explicit and idempotent, that creates a
+backup, preserves the source and handles worktrees with Git operations instead
+of moving folders directly.
 
-O Prometeu deixa de gravar a projeção de rollback definida no ADR 0002. Não há
-versão anterior do Prometeu que dependa dela. O leitor conserva suporte aos
-tokens históricos `prometheusV1Mirror` e `type: "prometheus"` para permitir
-uma importação futura sem reescrever transcripts. Esta decisão substitui
-somente a política temporária de espelho do ADR 0002; o protocolo V1 permanece.
+Prometeu stops writing the rollback projection defined in ADR 0002. There is no
+previous Prometeu version that depends on it. The reader keeps supporting the
+historical `prometheusV1Mirror` and `type: "prometheus"` tokens to allow a
+future import without rewriting transcripts. This decision supersedes only ADR
+0002's temporary mirror policy; the V1 protocol remains.
 
-## Consequências
+## Consequences
 
-Positivas:
+Positive:
 
-- os dois produtos podem ser instalados e executados lado a lado;
-- o desenvolvimento do Prometeu não arrisca o estado existente;
-- uma falha na migração futura não apaga a origem;
-- nomes novos não carregam contratos públicos acidentalmente.
+- both products can be installed and run side by side;
+- developing Prometeu does not risk the existing state;
+- a failure in the future migration does not erase the source;
+- new names do not accidentally carry public contracts.
 
-Negativas:
+Negative:
 
-- dados existentes não aparecem antes da importação;
-- configurações `.prometheus` de outros repositórios precisam ser recriadas
-  ou importadas conscientemente;
-- integrações externas, assinatura e infraestrutura de release precisam de
-  credenciais novas;
-- o leitor legado ainda contém dois identificadores com o nome anterior.
+- existing data does not appear before the import;
+- `.prometheus` configurations of other repositories must be recreated or
+  imported consciously;
+- external integrations, signing and release infrastructure need new
+  credentials;
+- the legacy reader still contains two identifiers with the previous name.
 
-O cadastro OAuth do Linear é uma exceção temporária: o primeiro ciclo de
-desenvolvimento reutiliza seu client id anterior para não desativar a feature.
-Antes da primeira release pública, ele deve ser substituído por um cadastro do
-Prometeu; até lá, a tela de consentimento do Linear pode mostrar a marca antiga.
+Linear's OAuth registration is a temporary exception: the first development
+cycle reuses its previous client id so the feature is not disabled. Before the
+first public release, it must be replaced by a Prometeu registration; until
+then, Linear's consent screen may show the old brand.
 
-Atualização de implementação em 2026-09-04: a exceção foi encerrada. O
-Prometeu passou a usar seu próprio cadastro OAuth antes da primeira release
-pública, preservando o fluxo Authorization Code com PKCE e o escopo de leitura.
+Implementation update on 2026-09-04: the exception ended. Prometeu started using
+its own OAuth registration before the first public release, preserving the
+Authorization Code flow with PKCE and the read scope.
 
-Atualização de implementação em 2026-09-04: a importação posterior foi
-implementada pelo [ADR 0006](0006-explicit-prometheus-import.md), mantendo a
-origem independente e adotando os worktrees antigos sem movê-los.
+Implementation update on 2026-09-04: the later import was implemented by
+[ADR 0006](0006-explicit-prometheus-import.md), keeping the source independent
+and adopting the old worktrees without moving them.
 
-Atualização em 2026-09-11: o [ADR 0040](0040-open-source.md) substitui o item
-de releases. O código é público em `prometeucorp/prometeu` e as releases saem
-desse mesmo repositório; `prometeucorp/prometeu-releases` fica arquivado.
+Update on 2026-09-11: [ADR 0040](0040-open-source.md) supersedes the releases
+item. The code is public in `prometeucorp/prometeu` and releases come from that
+same repository; `prometeucorp/prometeu-releases` is archived.
 
-## Evidência
+## Evidence
 
-- testes de `paths.rs` cobrem as raízes novas;
-- testes de `scripts.rs` cobrem arquivo e variáveis novas;
-- testes de `branch.ts` cobrem o prefixo novo;
-- testes de conversa mantêm fixtures dos tokens históricos;
-- configuração Tauri define produto, binário e bundle id independentes.
+- `paths.rs` tests cover the new roots;
+- `scripts.rs` tests cover the new file and variables;
+- `branch.ts` tests cover the new prefix;
+- conversation tests keep fixtures of the historical tokens;
+- the Tauri configuration defines an independent product, binary and bundle id.

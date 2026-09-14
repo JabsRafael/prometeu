@@ -1,62 +1,63 @@
-# ADR 0015 — SaaS em Rails com contrato desktop preservado
+# ADR 0015 — SaaS in Rails with the desktop contract preserved
 
-Data: 2026-09-06
-Status: Aceito
-Substitui a escolha técnica do [ADR 0014](0014-optional-cloud-account.md).
+Date: 2026-09-06
+Status: Accepted
+Supersedes the technical choice of [ADR 0014](0014-optional-cloud-account.md).
 
-## Contexto
+## Context
 
-O mantenedor pediu explicitamente Rails, stack que conhece e já utiliza em
-outros projetos. O protótipo Node/Better Auth estava preparado na VPS, mas
-não publicado, sem usuários nem banco de produção. O cliente desktop já
-possui um contrato pequeno de conexão pelo navegador.
+The maintainer explicitly asked for Rails, a stack they know and already use in
+other projects. The Node/Better Auth prototype was prepared on the VPS but not
+published, with no users and no production database. The desktop client already
+has a small browser-based connection contract.
 
-## Decisão
+## Decision
 
-O projeto separado `prometeu-cloud` usa Rails 8.1, Ruby 4.0, SQLite e ERB.
-A autenticação parte do gerador nativo do Rails: `has_secure_password`,
-sessões persistidas, cookies assinados, proteção CSRF e Action Mailer.
-O site não precisa de SPA, Node no servidor, Redis ou processo de jobs.
+The separate `prometeu-cloud` project uses Rails 8.1, Ruby 4.0, SQLite and ERB.
+Authentication starts from Rails' native generator: `has_secure_password`,
+persisted sessions, signed cookies, CSRF protection and Action Mailer. The site
+needs no SPA, no Node on the server, no Redis and no job process.
 
-Preservar as quatro rotas usadas pelo desktop: emissão e troca de código,
-consulta da sessão e logout. `DeviceGrant` guarda somente o hash do código
-privado, expira em 10 minutos e exige confirmação da pessoa autenticada.
-Emissão do Bearer e consumo do código acontecem na mesma transação.
-O banco armazena somente o hash do Bearer. Sessões expiram após 30 dias fixos;
-renovação por atividade do protótipo anterior não é mantida.
+Preserve the four routes used by the desktop: issuing and exchanging the code,
+querying the session and logging out. `DeviceGrant` stores only the hash of the
+private code, expires in 10 minutes and requires confirmation by the
+authenticated person. Issuing the Bearer and consuming the code happen in the
+same transaction. The database stores only the Bearer's hash. Sessions expire
+after a fixed 30 days; the previous prototype's renewal on activity is not kept.
 
-Cadastro, edição e exclusão usam controllers e formulários Rails convencionais.
-Os endpoints internos do site Better Auth não são mantidos, pois não existem
-consumidores publicados. Os formatos de IPC, `cloud.json`, relay, board e
-transcripts não mudam. Tokens de teste anteriores exigem reconexão.
+Registration, editing and deletion use conventional Rails controllers and forms.
+The Better Auth site's internal endpoints are not kept, since there are no
+published consumers. The IPC, `cloud.json`, relay, board and transcript formats
+do not change. Previous test tokens require reconnecting.
 
-## Consequências e rollback
+## Consequences and rollback
 
-O mantenedor pode evoluir o SaaS com suas ferramentas habituais. O pequeno
-fluxo de dispositivo passa a ser código do projeto, coberto por testes de
-contrato e concorrência. Criptografia e senhas usam primitivas Rails/Ruby/bcrypt.
+The maintainer can evolve the SaaS with their usual tools. The small device flow
+becomes project code, covered by contract and concurrency tests. Encryption and
+passwords use Rails/Ruby/bcrypt primitives.
 
-SQLite e rate limiting em memória pressupõem um processo Puma. Escala
-horizontal exige banco e limites compartilhados. Envio SMTP é síncrono com
-timeout; uma fila durável só será necessária quando volume/retries justificarem.
-SMTP e origem HTTPS são requisitos de produção.
+SQLite and in-memory rate limiting assume a single Puma process. Horizontal
+scale requires a shared database and shared limits. SMTP delivery is synchronous
+with a timeout; a durable queue will be needed only when volume/retries justify
+it. SMTP and an HTTPS origin are production requirements.
 
-Não há dados de produção para converter. A fonte Node fica preservada em
-`prometeu-cloud-node-backup-20260906`, localmente e na VPS; a imagem anterior
-permanece disponível. O Rails usa outro arquivo de banco. Nenhuma migração
-destrutiva do banco anterior é executada. Futuras migrações exigem backup
-consistente e rollback coordenado de imagem, banco e `SECRET_KEY_BASE`.
+There is no production data to convert. The Node source is preserved in
+`prometeu-cloud-node-backup-20260906`, locally and on the VPS; the previous
+image stays available. Rails uses another database file. No destructive
+migration of the previous database is run. Future migrations require a
+consistent backup and a coordinated rollback of the image, database and
+`SECRET_KEY_BASE`.
 
-Esta decisão não implementa sincronização de transcripts, app mobile nativo,
-comandos remotos nem mudanças na fronteira de confiança do relay.
+This decision does not implement transcript synchronization, a native mobile
+app, remote commands or changes to the relay's trust boundary.
 
-## Evidência
+## Evidence
 
-Nota operacional de 2026-09-06: após a migração, o mantenedor pediu a remoção
-do protótipo Node. A fonte local foi movida para a Lixeira do Mac; a cópia na
-VPS e a imagem antiga foram excluídas. O rollback Node descrito acima registra
-o estado inicial da decisão e não está mais preparado na VPS.
+Operational note from 2026-09-06: after the migration, the maintainer asked for
+the Node prototype to be removed. The local source was moved to the Mac's Trash;
+the copy on the VPS and the old image were deleted. The Node rollback described
+above records the decision's initial state and is no longer prepared on the VPS.
 
-Ver [contrato da conta](../contracts/cloud-account.md), `cloud.rs`,
-`e2e/cloud.spec.ts` e as suítes Rails de integração, concorrência e navegador
-do projeto `prometeu-cloud`.
+See the [account contract](../contracts/cloud-account.md), `cloud.rs`,
+`e2e/cloud.spec.ts` and the `prometeu-cloud` project's Rails integration,
+concurrency and browser suites.

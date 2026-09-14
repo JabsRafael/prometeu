@@ -1,110 +1,116 @@
-# ADR 0022 — criptografia ponta a ponta na colaboração
+# ADR 0022 — end-to-end encryption in collaboration
 
-Data: 2026-09-07
-Status: Aceito; implementação local, publicação separada.
-Amplia o [ADR 0021](0021-cloud-organizations.md) e substitui a fronteira de
-conteúdo legível do [relay v3](../contracts/relay-v3.md).
+Date: 2026-09-07
+Status: Accepted; local implementation, separate publication.
+Extends [ADR 0021](0021-cloud-organizations.md) and supersedes the readable
+content boundary of [relay v3](../contracts/relay-v3.md).
 
-## Contexto
+## Context
 
-TLS termina no relay. O protocolo v3 expunha conversa, falas remotas,
-comentários, citações, prévias da inbox e títulos ao operador. A escolha de
-produto é configuração automática: confiar no diretório do servidor no
-primeiro contato (trust on first use, TOFU), sem comparar códigos obrigatoriamente.
+TLS terminates at the relay. The v3 protocol exposed the conversation, remote
+messages, comments, quotes, inbox previews and titles to the operator. The
+product choice is automatic configuration: trusting the server's directory on
+first contact (trust on first use, TOFU), without mandatory code comparison.
 
-## Decisão
+## Decision
 
-O [protocolo v4](../contracts/relay-v4.md) cifra conteúdo no dispositivo para
-cada destinatário da audiência, com HPKE Auth do
-[RFC 9180](https://www.rfc-editor.org/rfc/rfc9180.html): P-256, HKDF-SHA256 e
-AES-256-GCM. Usamos `@hpke/core`, fixado em 1.9.0, sobre WebCrypto. Não
-implementamos as primitivas ou o KEM. O formato de conteúdo, TOFU, autorização,
-controle de replay e persistência pertencem ao Prometeu e exigem revisão própria.
+The [v4 protocol](../contracts/relay-v4.md) encrypts content on the device for
+each recipient in the audience, with HPKE Auth from
+[RFC 9180](https://www.rfc-editor.org/rfc/rfc9180.html): P-256, HKDF-SHA256 and
+AES-256-GCM. We use `@hpke/core`, pinned at 1.9.0, over WebCrypto. We do not
+implement the primitives or the KEM. The content format, TOFU, authorization,
+replay control and persistence belong to Prometeu and require their own review.
 
-Cada escopo local gera uma identidade privada, independente de tickets e
-credenciais de matrícula. O relay recebe a chave pública e uma prova de posse
-ECDSA vinculada ao membro e ao desafio daquela conexão. Clientes fixam a
-primeira chave de cada membro antes de enviar conteúdo. Uma chave diferente
-bloqueia conteúdo com aquele membro até aceitação explícita nas configurações,
-onde os códigos anterior e novo podem ser comparados por outro canal.
-Não há badge de verificação manual nem transição automática assinada.
+Each local scope generates a private identity, independent of tickets and
+enrollment credentials. The relay receives the public key and an ECDSA proof of
+possession bound to the member and to that connection's challenge. Clients pin
+each member's first key before sending content. A different key blocks content
+with that member until an explicit acceptance in the settings, where the old and
+new codes can be compared through another channel. There is no manual
+verification badge and no automatic signed transition.
 
-O escopo inclui origem, organização/time e matrícula; a persistência também
-separa contas Cloud locais. Renovar ticket, reconectar ou reiniciar não apaga
-vínculos. Existe uma identidade ativa por matrícula: um segundo Mac com outra
-chave segue o fluxo de substituição, sem recuperar automaticamente a chave
-privada ou os comentários antigos. Não há sincronização de dispositivos.
+The scope includes the origin, the organization/team and the membership;
+persistence also separates local Cloud accounts. Renewing a ticket,
+reconnecting or restarting does not erase links. There is one active identity
+per membership: a second Mac with another key follows the replacement flow,
+without automatically recovering the private key or the old comments. There is
+no device synchronization.
 
-O dono continua sendo autoridade sobre seu processo e a audiência local.
-`watch` não concede acesso. Anúncios autenticados de audiência têm revisões
-persistidas; o relay não pode substituir o dono ou restaurar uma revisão já
-superada no cliente. Falas remotas têm prazo de dois minutos e recibo persistido
-antes da execução, inclusive após reinício. Após descriptografar, permanece a
-validação de `chat_control_remote` contra pedidos abertos no Mac do dono.
+The owner is still the authority over their process and the local audience.
+`watch` grants no access. Authenticated audience announcements have persisted
+revisions; the relay cannot replace the owner or restore a revision already
+superseded in the client. Remote messages have a two-minute deadline and a
+receipt persisted before execution, including after a restart. After decryption,
+the validation of `chat_control_remote` against requests open on the owner's Mac
+remains.
 
-## Alternativas e custos
+## Alternatives and costs
 
-Criptografar no relay ou usar o segredo de matrícula não protege contra o
-operador. MLS foi considerado para ratchet de grupos, mas introduz estado de
-grupo, distribuição de commits e recuperação offline que o transporte atual
-não possui. HPKE Auth permite envelopes independentes para comentários
-persistidos e reconexões sem estado compartilhado entre remetentes.
+Encrypting at the relay or using the enrollment secret does not protect against
+the operator. MLS was considered for group ratcheting, but it introduces group
+state, commit distribution and offline recovery that the current transport does
+not have. HPKE Auth allows independent envelopes for persisted comments and
+stateless reconnections, without shared state between senders.
 
-O custo é uma cópia cifrada por destinatário, até 64 membros, e ausência de
-forward secrecy e recuperação automática após comprometimento. Roubar uma
-chave privada de destinatário permite abrir ciphertext antigo gravado para
-essa chave. Esta implementação não equivale ao Signal Protocol/WhatsApp.
-Adicionar ratchet exige outra versão do contrato, migração e revisão de segurança;
-não basta trocar a cifra.
+The cost is one encrypted copy per recipient, up to 64 members, and the absence
+of forward secrecy and of automatic post-compromise recovery. Stealing a
+recipient's private key allows opening old ciphertext recorded for that key.
+This implementation is not equivalent to the Signal Protocol/WhatsApp. Adding a
+ratchet requires another version of the contract, a migration and a security
+review; swapping the cipher is not enough.
 
-## Limites de segurança
+## Security limits
 
-- Um servidor malicioso no primeiro contato pode substituir chaves. TOFU
-  detecta mudanças posteriores, não prova honestidade inicial. Comparação
-  externa de códigos é opcional. Não há key transparency.
-- O relay conhece organização, membros, nomes, IDs de workspace/aba,
-  destinatários, menções, presença, horários, tamanhos e dimensões de terminal.
-  Pode omitir, atrasar ou reordenar mensagens e negar serviço. A cifra não
-  autentica nomes de exibição, entrega, completude do histórico ou horários.
-- O dono interrompe conteúdo novo para uma pessoa removida conforme sua
-  audiência local. Comentários enviados por colegas usam o último anúncio
-  autenticado que receberam. Um relay que omite a mudança pode atrasar sua
-  aplicação nesses colegas; não há garantia de revogação instantânea global.
-- Abrir uma sessão compartilhada envia o snapshot completo que o Mac conserva,
-  conforme o consentimento existente de compartilhar a conversa. Comentários
-  persistidos só abrem com uma caixa destinada àquela identidade. Participantes
-  novos não ganham automaticamente caixas para comentários antigos.
-- Conteúdo já recebido não pode ser revogado. Autores fora da audiência atual,
-  chaves substituídas ou histórico sem caixa legível são omitidos da leitura.
-- E2EE não protege um Mac/webview comprometido, backups de chaves privadas ou
-  conteúdo enviado aos providers. Transcripts locais mantêm seu formato.
-  Dados enviados em v3 não se tornam retroativamente privados.
-- Testes locais não constituem auditoria criptográfica independente.
+- A malicious server at first contact can replace keys. TOFU detects later
+  changes, it does not prove initial honesty. External code comparison is
+  optional. There is no key transparency.
+- The relay knows the organization, members, names, workspace/tab IDs,
+  recipients, mentions, presence, timestamps, sizes and terminal dimensions. It
+  can omit, delay or reorder messages and deny service. The cipher does not
+  authenticate display names, delivery, history completeness or timestamps.
+- The owner stops new content for a removed person according to their local
+  audience. Comments sent by peers use the last authenticated announcement they
+  received. A relay that omits the change may delay its application on those
+  peers; there is no guarantee of instant global revocation.
+- Opening a shared session sends the complete snapshot the Mac keeps, according
+  to the existing consent to share the conversation. Persisted comments open
+  only with a box addressed to that identity. New participants do not
+  automatically gain boxes for old comments.
+- Content already received cannot be revoked. Authors outside the current
+  audience, replaced keys or history without a readable box are omitted from
+  reading.
+- E2EE does not protect a compromised Mac/webview, backups of private keys or
+  content sent to the providers. Local transcripts keep their format. Data sent
+  in v3 does not become retroactively private.
+- Local tests do not constitute an independent cryptographic audit.
 
-## Compatibilidade e publicação
+## Compatibility and publication
 
-O cliente exige v4 e `e2ee: 1`; não há fallback para texto. Credenciais e
-matrículas legadas continuam válidas. O Worker passa a ler/gravar colaboração
-somente sob `v4:`. Linhas v3 permanecem intactas, mas não aparecem no cliente
-v4. Não existe conversão automática ou visualizador de comentários v3.
+The client requires v4 and `e2ee: 1`; there is no fallback to plaintext. Legacy
+credentials and enrollments stay valid. The Worker now reads/writes
+collaboration only under `v4:`. v3 rows stay intact, but do not appear in the v4
+client. There is no automatic conversion and no v3 comment viewer.
 
-Publicar relay v4 antes de distribuir desktop v4. Trabalho local continua se
-a negociação falhar. Rollback deve preservar ambos os namespaces e o arquivo
-privado de segurança. Restaurar um relay/desktop v3 volta às garantias de
-texto do v3 e não pode ser anunciado como rollback que conserva E2EE.
-Não publicar releases nem migrar produção durante a validação local.
+Publish relay v4 before distributing desktop v4. Local work continues if the
+negotiation fails. A rollback must preserve both namespaces and the private
+security file. Restoring a v3 relay/desktop goes back to v3's plaintext
+guarantees and cannot be announced as a rollback that keeps E2EE.
+Do not publish releases and do not migrate production during the local
+validation.
 
-## Evidência
+## Evidence
 
-- `src/team-crypto.test.ts`: cifra real, autenticação, contexto, adulteração e
-  validação de chaves; `src/team-security.test.ts`: TOFU, persistência e falhas.
-- `src/team-channel.test.ts`: dois clientes, snapshot/live, fala, comentários,
-  inbox, replay, audiência e rejeição de downgrade.
-- `src/team.test.ts` e `src/team-organizations.test.ts`: transporte do app,
-  criptografia, escopos e reconexão; `relay/src/worker.integration.test.ts`:
-  Worker local, ciphertext, identidade, audiência e persistência.
-- `src-tauri/src/team.rs`: arquivo privado, gravação atômica e corrupção;
-  `e2e/critical-flows.spec.ts`: comentários com pares cifrados em Chromium/WebKit.
-- A [matriz de providers](../quality/provider-matrix.md) declara a mesma
-  proteção para Claude e Codex. Publicação e auditoria externa não fazem parte
-  dessas evidências.
+- `src/team-crypto.test.ts`: real encryption, authentication, context, tampering
+  and key validation; `src/team-security.test.ts`: TOFU, persistence and
+  failures.
+- `src/team-channel.test.ts`: two clients, snapshot/live, messages, comments,
+  inbox, replay, audience and downgrade rejection.
+- `src/team.test.ts` and `src/team-organizations.test.ts`: the app's transport,
+  encryption, scopes and reconnection; `relay/src/worker.integration.test.ts`: a
+  local Worker, ciphertext, identity, audience and persistence.
+- `src-tauri/src/team.rs`: the private file, atomic writing and corruption;
+  `e2e/critical-flows.spec.ts`: comments with encrypted peers in
+  Chromium/WebKit.
+- The [provider matrix](../quality/provider-matrix.md) declares the same
+  protection for Claude and Codex. Publication and an external audit are not
+  part of this evidence.

@@ -1,60 +1,63 @@
-# ADR 0012 — Contas locais e seleção global por provider
+# ADR 0012 — Local accounts and global selection per provider
 
-Data: 2026-09-05
-Status: Aceito
+Date: 2026-09-05
+Status: Accepted
 
-Substituído parcialmente pelo [ADR 0013](0013-remove-provider-accounts.md) na
-permanência dos perfis externos e na exigência de uma seleção por provider.
+Partially superseded by [ADR 0013](0013-remove-provider-accounts.md) regarding
+the permanence of external profiles and the requirement of one selection per
+provider.
 
-Substitui parcialmente o [ADR 0005](0005-portable-plugin-marketplace.md) na
-regra de compartilhar sempre a autenticação do home original do Codex.
+Partially supersedes [ADR 0005](0005-portable-plugin-marketplace.md) regarding
+the rule of always sharing the authentication of Codex's original home.
 
-## Contexto
+## Context
 
-Uma pessoa pode ter várias assinaturas de Claude e Codex. O rodapé já mostra
-cotas globais, mas o app herdava um único login de cada CLI. Trocar arquivos de
-credenciais globais afetaria terminais externos e processos em andamento.
+A person may have several Claude and Codex subscriptions. The footer already
+shows global quotas, but the app inherited a single login from each CLI.
+Swapping global credential files would affect external terminals and running
+processes.
 
-## Opções consideradas
+## Options considered
 
-- Trocar a credencial global do CLI: menos diretórios, mas muda processos fora
-  do app e permite que um turno troque de identidade durante a execução.
-- Associar contas a workspaces: adiciona configuração ao board e não atende
-  à escolha global solicitada.
-- Perfis locais por conta, com autenticação delegada ao CLI e histórico
-  compartilhado: exige adaptar homes, cotas e retomada, mas mantém a decisão
-  no rodapé e a credencial capturada por processo.
+- Swap the CLI's global credential: fewer directories, but it changes processes
+  outside the app and allows a turn to change identity mid-execution.
+- Associate accounts with workspaces: it adds configuration to the board and
+  does not serve the requested global choice.
+- Local profiles per account, with authentication delegated to the CLI and
+  shared history: it requires adapting homes, quotas and resume, but keeps the
+  decision in the footer and the credential captured per process.
 
-## Decisão
+## Decision
 
-Adotar perfis locais e uma seleção persistida por provider. O login começa
-no Prometeu e usa o fluxo oficial do CLI no navegador. O app não implementa
-um servidor OAuth próprio para assinaturas dos agentes. Contas existentes no
-terminal permanecem disponíveis como perfis externos.
+Adopt local profiles and a selection persisted per provider. The login starts in
+Prometeu and uses the CLI's official flow in the browser. The app does not
+implement its own OAuth server for the agents' subscriptions. Accounts that
+already exist in the terminal remain available as external profiles.
 
-Um turno termina com a conta que o iniciou. A próxima fala pode reiniciar o
-processo com a seleção nova, retomando o mesmo transcript. Uma fala recebida
-durante a transição permanece na fila. A escolha não é enviada ao relay.
+A turn ends with the account that started it. The next message may restart the
+process with the new selection, resuming the same transcript. A message received
+during the transition stays in the queue. The choice is not sent to the relay.
 
-Credenciais de contas diferentes ficam separadas. Histórico, plugins e skills
-continuam disponíveis por links explícitos e configuração derivada. Codex usa
-armazenamento privado em arquivo para contas criadas pelo app, permitindo que
-a camada derivada de plugins aponte para a credencial correta. A escolha de
-armazenamento do perfil externo não é alterada.
+Credentials of different accounts stay separate. History, plugins and skills
+stay available through explicit links and derived configuration. Codex uses
+private file storage for accounts created by the app, allowing the derived
+plugin layer to point to the correct credential. The external profile's storage
+choice is not changed.
 
-## Consequências
+## Consequences
 
-O cache de cotas passa a distinguir contas e o catálogo acompanha a seleção.
-Homes de plugins Codex precisam distinguir workspace e conta para que o turno
-antigo e o processo novo coexistam. Configurações alternativas de autenticação
-não podem substituir silenciosamente uma assinatura gerenciada.
+The quota cache now distinguishes accounts and the catalog follows the
+selection. Codex plugin homes must distinguish workspace and account so that the
+old turn and the new process can coexist. Alternative authentication
+configurations cannot silently replace a managed subscription.
 
-Os perfis compartilham histórico local: não são uma barreira de confidencialidade
-entre contas da mesma pessoa. Trocar conta também escolhe qual provider/conta
-recebe a continuação desse histórico. Credenciais nunca entram na conversa
-compartilhada. O formato do board e o protocolo do relay não mudam.
+The profiles share local history: they are not a confidentiality barrier between
+the same person's accounts. Switching accounts also chooses which
+provider/account receives the continuation of that history. Credentials never
+enter the shared conversation. The board's format and the relay's protocol do
+not change.
 
-## Evidência
+## Evidence
 
-O [contrato de contas](../contracts/accounts.md) registra IPC, persistência,
-adaptação por CLI, testes e o limite da validação sem dois logins reais.
+The [accounts contract](../contracts/accounts.md) records IPC, persistence,
+per-CLI adaptation, tests and the limit of validating without two real logins.

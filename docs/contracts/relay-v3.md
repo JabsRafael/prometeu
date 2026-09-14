@@ -1,123 +1,128 @@
 # Relay protocol v3
 
-Status: histórico; substituído pelo [relay v4](relay-v4.md).
-Este documento descreve o comportamento anterior, sem E2EE.
+Status: historical; superseded by [relay v4](relay-v4.md).
+This document describes the previous behavior, without E2EE.
 
-A fonte executável atual, já em v4, é `relay/src/protocol.ts`. Este documento
-explica ownership e compatibilidade; não duplica todas as unions ou limites.
+The current executable source, already at v4, is `relay/src/protocol.ts`. This
+document explains ownership and compatibility; it does not duplicate every union
+or limit.
 
-## Topologia
+## Topology
 
-O frontend fala diretamente com o relay. O backend Rust guarda a configuração
-local e executa ações autorizadas, mas não mantém o WebSocket do time.
+The frontend talks directly to the relay. The Rust backend keeps the local
+configuration and runs authorized actions, but does not hold the team's
+WebSocket.
 
-Cada time é encaminhado a um Durable Object. O relay conhece membros, presença,
-workspaces compartilhados, audiência, espectadores, comentários e inbox.
+Each team is routed to a Durable Object. The relay knows members, presence,
+shared workspaces, audience, viewers, comments and inbox.
 
-## Autenticação
+## Authentication
 
-O convite `pm2`/protocolo v3 contém id do time e segredo de matrícula. Ao entrar,
-o relay emite identidade e credencial individual. WebSockets usam a credencial
-individual, nunca o segredo coletivo do convite.
+The `pm2`/v3 protocol invitation contains the team id and the enrollment secret.
+On joining, the relay issues an identity and an individual credential.
+WebSockets use the individual credential, never the invitation's collective
+secret.
 
-Credencial prova identidade; não torna o conteúdo confiável para execução. Toda
-entrada continua sujeita a parser, limites, audiência e validação no dono.
+A credential proves identity; it does not make the content trusted for
+execution. Every input is still subject to the parser, limits, audience and
+validation on the owner's side.
 
-Organizações do Cloud usam handshake separado em `/organization/:id`, com
-ticket de uso único, identidade e roster verificados pelo Cloud e lease de
-60 segundos. O namespace de storage é distinto; códigos de times não concedem
-acesso institucional. Os frames v3 e regras de audiência permanecem iguais.
-Veja [organizações](cloud-organizations.md) para revogação e migração.
+Cloud organizations use a separate handshake at `/organization/:id`, with a
+single-use ticket, an identity and a roster verified by the Cloud and a
+60-second lease. The storage namespace is distinct; team codes do not grant
+institutional access. The v3 frames and audience rules stay the same.
+See [organizations](cloud-organizations.md) for revocation and migration.
 
-## Formatos
+## Formats
 
-- controle usa frames de texto JSON com discriminante `t`;
-- terminal e conversa ao vivo usam frames binários segmentados;
-- `Up` descreve app → relay;
-- `Down` descreve relay → app;
-- parsers recebem `unknown` e só devolvem tipos depois de validar;
-- limites de ids, textos, coleções, frame e taxa ficam junto do protocolo.
+- control uses JSON text frames with the `t` discriminant;
+- terminal and live conversation use segmented binary frames;
+- `Up` describes app → relay;
+- `Down` describes relay → app;
+- parsers receive `unknown` and only return types after validating;
+- limits for ids, texts, collections, frames and rate live next to the protocol.
 
-Adicionar variante exige parser, lógica pura, teste de protocolo e teste do
-efeito de routing. Cliente deve recusar versão incompatível no handshake.
+Adding a variant requires a parser, pure logic, a protocol test and a test of
+the routing effect. The client must refuse an incompatible version in the
+handshake.
 
-## Comentários persistentes
+## Persistent comments
 
-Comentários reutilizam a família histórica de frames `note` para manter
-compatibilidade dentro do protocolo v3:
+Comments reuse the historical `note` frame family to keep compatibility inside
+the v3 protocol:
 
-- `note` cria uma raiz com `ws`, `text`, `mentions`, `quote` e, quando houver
-  contexto, `tab` e `anchor`;
-- `note_reply` adiciona uma resposta a uma raiz aberta;
-- `note_resolve` marca a raiz como resolvida e remove suas atribuições da inbox;
-- `notes` devolve o snapshot do workspace;
-- `note` no sentido relay → app funciona como upsert. Uma resolução repete o id
-  da raiz com `resolved: true`.
+- `note` creates a root with `ws`, `text`, `mentions`, `quote` and, when there is
+  context, `tab` and `anchor`;
+- `note_reply` adds a reply to an open root;
+- `note_resolve` marks the root as resolved and removes its assignments from the
+  inbox;
+- `notes` returns the workspace's snapshot;
+- `note` in the relay → app direction works as an upsert. A resolution repeats
+  the root's id with `resolved: true`.
 
-O registro persistido tem `parent: null` na raiz e `parent: <id da raiz>` nas
-respostas. Threads são planas no protocolo. Respostas herdam o workspace e a
-aba da raiz. Dados antigos sem `tab`, `anchor`, `parent` ou `resolved` são
-normalizados como comentário geral, raiz e aberto.
+The persisted record has `parent: null` in the root and `parent: <root id>` in
+the replies. Threads are flat in the protocol. Replies inherit the root's
+workspace and tab. Old data without `tab`, `anchor`, `parent` or `resolved` is
+normalized as a general comment, a root and open.
 
-`tab` identifica a conversa. `anchor` identifica um `Piece.key` estável no
-transcript daquela aba e tem limite de 128 caracteres. `quote` é contexto de
-apresentação e fallback; não concede autoridade nem participa da execução do
-agente.
+`tab` identifies the conversation. `anchor` identifies a stable `Piece.key` in
+that tab's transcript and has a 128-character limit. `quote` is presentation
+context and a fallback; it grants no authority and does not take part in the
+agent's execution.
 
-Uma menção cria uma entrada de inbox apontando para a raiz. Respostas podem
-atribuir a thread ao autor da raiz e a novos mencionados. Num relay com
-`comments: 1`, abrir só navega para a thread; a entrada permanece até qualquer
-colaborador com acesso resolver a raiz. O frame antigo `inbox_read` continua
-aceito e o cliente o usa como fallback quando a capability não existe, pois
-esse relay não oferece resolução.
+A mention creates an inbox entry pointing to the root. Replies can assign the
+thread to the root's author and to newly mentioned people. In a relay with
+`comments: 1`, opening only navigates to the thread; the entry stays until any
+collaborator with access resolves the root. The old `inbox_read` frame is still
+accepted and the client uses it as a fallback when the capability does not
+exist, since that relay offers no resolution.
 
-A entrada de inbox guarda `id`, `ws`, `author` e `ts`; `tab` leva à conversa
-correta e `text` permite mostrar a prévia antes de carregar a thread. Os dois
-campos novos são opcionais para o storage e para clientes anteriores.
+The inbox entry stores `id`, `ws`, `author` and `ts`; `tab` leads to the correct
+conversation and `text` allows showing the preview before loading the thread.
+Both new fields are optional for the storage and for previous clients.
 
-O `welcome` anuncia `comments: 1`. Sem essa capability, um cliente atual ainda
-envia raízes simples para um relay v3 antigo, mas não oferece resposta ou
-resolução e mantém a leitura como conclusão da inbox. Campos extras de uma raiz
-são opcionais, portanto clientes antigos
-continuam lendo o comentário como nota simples. Um cliente antigo pode exibir
-uma resposta nova como item separado; isso é degradação visual, não perda de
-dados nem aumento de autoridade.
+The `welcome` announces `comments: 1`. Without that capability, a current client
+still sends simple roots to an old v3 relay, but does not offer replies or
+resolution and keeps reading as the inbox's completion. A root's extra fields
+are optional, so old clients keep reading the comment as a simple note. An old
+client may show a new reply as a separate item; that is visual degradation, not
+data loss and not an increase in authority.
 
-## Snapshot e live stream
+## Snapshot and live stream
 
-O dono obtém `{ text, seq }` do backend sob o lock de numeração. O snapshot é
-segmentado em linhas inteiras para respeitar o limite de frame. O observador
-descarta segmentos ao vivo com sequência já contida no snapshot e emenda o
-restante.
+The owner gets `{ text, seq }` from the backend under the numbering lock. The
+snapshot is segmented into whole lines to respect the frame limit. The viewer
+discards live segments whose sequence is already contained in the snapshot and
+splices the rest.
 
-A sequência pertence ao transporte atual e pode recomeçar quando o processo ou
-app reinicia. Ela não é id global de mensagem.
+The sequence belongs to the current transport and may restart when the process
+or the app restarts. It is not a global message id.
 
-## Autoridade
+## Authority
 
-- o relay decide quem pode ver um share com base em `audience`;
-- o dono é autoridade sobre o processo e o worktree;
-- fala remota é encaminhada ao `chat_send` local;
-- controle remoto é sanitizado em `chat_control_remote` contra pedido realmente
-  aberto no buffer;
-- colega não fornece comando ou input arbitrário para execução;
-- dono offline significa sessão remota congelada.
+- the relay decides who can see a share based on `audience`;
+- the owner is the authority over the process and the worktree;
+- a remote message is forwarded to the local `chat_send`;
+- remote control is sanitized in `chat_control_remote` against a request
+  actually open in the buffer;
+- a peer does not supply an arbitrary command or input for execution;
+- an offline owner means the remote session is frozen.
 
-## Persistência e privacidade
+## Persistence and privacy
 
-O relay persiste o necessário para membros offline: cadastro, shares,
-comentários e inbox, sujeito a limites e TTL. A retenção remove uma thread como
-unidade para não deixar respostas órfãs. Conteúdo de conversa ao vivo é
-encaminhado; a sessão continua local.
+The relay persists what is needed for offline members: registry, shares,
+comments and inbox, subject to limits and TTL. Retention removes a thread as a
+unit so replies are not left orphaned. Live conversation content is forwarded;
+the session stays local.
 
-O protocolo não oferece criptografia ponta a ponta. Operador do relay pode ler
-metadados e conteúdo de texto que passa pelo serviço. Alterar essa propriedade
-exige ADR de segurança e mudança incompatível de protocolo.
+The protocol offers no end-to-end encryption. The relay's operator can read
+metadata and the text content that passes through the service. Changing that
+property requires a security ADR and an incompatible protocol change.
 
-## Evidência
+## Evidence
 
-- `relay/src/protocol.test.ts`: parsing, limites, convites e frames binários;
-- `relay/src/logic.test.ts`: audiência, presença, quotas, comentários e routing;
-- `relay/src/worker.integration.test.ts`: Worker/Durable Object real local;
-- `src/team-transport.test.ts`: lifecycle e transporte do cliente;
-- `src/team-control.test.ts`: transformação de controle remoto.
+- `relay/src/protocol.test.ts`: parsing, limits, invitations and binary frames;
+- `relay/src/logic.test.ts`: audience, presence, quotas, comments and routing;
+- `relay/src/worker.integration.test.ts`: a real local Worker/Durable Object;
+- `src/team-transport.test.ts`: the client's lifecycle and transport;
+- `src/team-control.test.ts`: remote control transformation.

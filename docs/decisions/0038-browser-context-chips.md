@@ -1,44 +1,47 @@
-# ADR 0038 — elementos selecionados como tags na conversa
+# ADR 0038 — selected elements as tags in the conversation
 
-Data: 2026-09-10
-Status: Aceito
+Date: 2026-09-10
+Status: Accepted
 
-## Contexto
+## Context
 
-O browser do ADR 0037 acrescentava HTML, CSS e geometria diretamente ao texto
-editável. Esse JSON ocupava o composer e o histórico, dificultando escrever
-o pedido. O contexto precisa continuar completo para o agente e no replay.
+The browser from ADR 0037 added HTML, CSS and geometry directly to the editable
+text. That JSON took over the composer and the history, making it harder to
+write the request. The context must stay complete for the agent and in the
+replay.
 
-## Opções consideradas
+## Options considered
 
-- Introduzir um tipo de conteúdo no protocolo de conversa: exige alterar
-  adapters, fila, persistência e colaboração para uma mudança de apresentação.
-- Esconder dados somente em memória: perde a apresentação após replay e impede
-  colegas de reconhecer o contexto recebido pelo agente.
-- Manter tags no rascunho e usar um bloco textual identificado no envio:
-  preserva os transportes existentes e permite apresentação compacta no replay.
+- Introduce a content type in the conversation protocol: it requires changing
+  adapters, the queue, persistence and collaboration for a presentation change.
+- Hide the data only in memory: it loses the presentation after a replay and
+  prevents peers from recognizing the context the agent received.
+- Keep tags in the draft and use an identified textual block on send: it
+  preserves the existing transports and allows a compact presentation in the
+  replay.
 
-## Decisão
+## Decision
 
-Manter elementos e suas capturas no rascunho por conversa, separados do texto.
-Exibir tags removíveis, com detalhes acessíveis por botão. No envio, serializar
-cada elemento no formato textual versionado definido no
-[contrato do browser](../contracts/browser.md#contexto-no-texto-da-mensagem).
+Keep elements and their captures in the per-conversation draft, separate from
+the text. Show removable tags, with details reachable through a button. On send,
+serialize each element in the versioned textual format defined in the
+[browser contract](../contracts/browser.md#context-in-the-message-text).
 
-Somente a apresentação reconhece esses blocos. O reducer, os adapters e o
-relay não os removem nem os reinterpretam. Leitura estrita limita estrutura,
-tamanho e tipos; blocos inválidos permanecem literais. Conteúdo da página é
-sempre exibido como texto, sem executar HTML ou ler caminhos locais do histórico.
+Only the presentation recognizes those blocks. The reducer, the adapters and the
+relay neither remove nor reinterpret them. Strict reading bounds the structure,
+size and types; invalid blocks stay literal. Page content is always displayed as
+text, without executing HTML and without reading local paths from the history.
 
-## Consequências
+## Consequences
 
-Desktop, mesa e celular exibem tags para mensagens novas sem ampliar V1 ou IPC.
-Clientes anteriores continuam mostrando o bloco completo. Transcripts antigos
-não são reescritos. Remover uma tag retira também a captura associada do envio;
-capturas avulsas continuam sendo anexos comuns.
+Desktop, desk and phone show tags for new messages without extending V1 or IPC.
+Previous clients keep showing the complete block. Old transcripts are not
+rewritten. Removing a tag also removes the associated capture from the send;
+standalone captures are still ordinary attachments.
 
-## Evidência
+## Evidence
 
-- `src/browser-context.test.ts`: roundtrip e fallback de conteúdo inválido.
-- `e2e/browser.spec.ts`: rascunho, remoção, conteúdo enviado, replay e fila persistida.
-- `e2e/mobile.spec.ts`: tags e detalhes no histórico compartilhado.
+- `src/browser-context.test.ts`: roundtrip and fallback for invalid content.
+- `e2e/browser.spec.ts`: draft, removal, sent content, replay and the persisted
+  queue.
+- `e2e/mobile.spec.ts`: tags and details in the shared history.

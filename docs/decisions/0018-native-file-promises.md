@@ -1,50 +1,53 @@
-# ADR 0018: receber promessas de arquivos do macOS
+# ADR 0018: receiving macOS file promises
 
-Status: aceito.
+Status: accepted.
 
-## Contexto
+## Context
 
-A miniatura de uma captura de tela anuncia uma promessa de arquivo, não um
-caminho já existente. O wry 0.55.1 usado pelo app lê `NSFilenamesPboardType`;
-o frontend só conhece caminhos. Reiniciar não adiciona o tipo de arraste
-ausente nem materializa a captura.
+A screenshot's thumbnail announces a file promise, not an already-existing path.
+The wry 0.55.1 used by the app reads `NSFilenamesPboardType`; the frontend only
+knows paths. Restarting does not add the missing drag type and does not
+materialize the capture.
 
-## Opções consideradas
+## Options considered
 
-- Exigir salvar no Finder: mantém o problema do gesto esperado pela pessoa.
-- Desativar o arraste nativo e copiar todo `File` do navegador: perde os
-  caminhos originais usados pelo chat e pelo terminal.
-- Adaptar `NSFilePromiseReceiver` no backend: preserva os caminhos normais e
-  usa a operação nativa específica para capturas ainda não salvas.
+- Require saving in Finder: it keeps the problem with the gesture the person
+  expects.
+- Disable the native drag and copy every browser `File`: it loses the original
+  paths used by the chat and the terminal.
+- Adapt `NSFilePromiseReceiver` in the backend: it preserves the normal paths
+  and uses the specific native operation for captures not yet saved.
 
-## Decisão
+## Decision
 
-Registrar os tipos aceitos por `NSFilePromiseReceiver` na webview principal,
-preservando o mecanismo de drag do Tauri. Reter os receptores no início do
-gesto e materializá-los ao soltar, numa pasta privada por gesto. Os bindings
-Objective-C já fazem parte das dependências transitivas do Tauri.
+Register the types accepted by `NSFilePromiseReceiver` in the main webview,
+preserving Tauri's drag mechanism. Retain the receivers at the start of the
+gesture and materialize them on drop, in a private folder per gesture. The
+Objective-C bindings are already part of Tauri's transitive dependencies.
 
-O evento interno `file-drag` unifica caminhos imediatos e promessas. `pending`
-captura o destino na UI; `received` entrega os caminhos sem recalcular o alvo.
-O AppKit recebe os arquivos em uma fila; uma espera limitada reúne resultados
-fora da thread principal. Transcripts, providers e relay continuam consumindo
-o contrato de caminhos existente.
+The internal `file-drag` event unifies immediate paths and promises. `pending`
+captures the destination in the UI; `received` delivers the paths without
+recomputing the target. AppKit receives the files in a queue; a bounded wait
+gathers results outside the main thread. Transcripts, providers and the relay
+keep consuming the existing path contract.
 
-## Consequências
+## Consequences
 
-O app depende da API pública AppKit nessa borda. Arquivos recebidos ficam fora
-do worktree e persistem para não quebrar referências no histórico; não há
-coleta automática. Mesmo um drop fora de um destino aceito pela UI pode ser
-materializado, pois o Tauri já aceita o gesto nativo antes do hit test no DOM.
-Falhas e timeouts produzem aviso; arquivos recebidos com sucesso são preservados.
+The app depends on the public AppKit API at that edge. Received files stay
+outside the worktree and persist so that references in the history are not
+broken; there is no automatic collection. Even a drop outside a destination
+accepted by the UI may be materialized, since Tauri already accepts the native
+gesture before the DOM hit test. Failures and timeouts produce a warning;
+successfully received files are preserved.
 
-## Evidência
+## Evidence
 
-- [Documentação Apple](https://developer.apple.com/documentation/appkit/supporting-table-view-drag-and-drop-through-file-promises).
-- `src-tauri/src/file_drop.rs`: registro, recebimento, validação do destino e testes.
-- `e2e/file-drop.spec.ts`: fases assíncronas, troca de aba, falha, repetição,
-  Finder, lançador e terminal em Chromium e WebKit sobre mock.
-- Gesto real da miniatura confirmado no Prometeu Dev em 2026-09-06, após
-  registrar `on_webview_event`: com `unstable`, `on_window_event` não recebe
-  o arraste da webview principal. O diagnóstico nativo confirmou a sequência
-  de entrada, movimento e drop, com um `NSFilePromiseReceiver`.
+- [Apple documentation](https://developer.apple.com/documentation/appkit/supporting-table-view-drag-and-drop-through-file-promises).
+- `src-tauri/src/file_drop.rs`: registration, reception, destination validation
+  and tests.
+- `e2e/file-drop.spec.ts`: asynchronous phases, tab switching, failure, retry,
+  Finder, launcher and terminal in Chromium and WebKit over the mock.
+- The real thumbnail gesture was confirmed in Prometeu Dev on 2026-09-06, after
+  registering `on_webview_event`: with `unstable`, `on_window_event` does not
+  receive the main webview's drag. The native diagnosis confirmed the sequence
+  of enter, move and drop, with an `NSFilePromiseReceiver`.

@@ -1,112 +1,118 @@
-# Ações e agentes reutilizáveis
+# Reusable actions and agents
 
-Status: implementado; decisão no [ADR 0009](../decisions/0009-reusable-actions.md).
+Status: implemented; decision in [ADR 0009](../decisions/0009-reusable-actions.md).
 
-## Cadastro e entradas
+## Registry and entries
 
-`Board.actions` contém `profiles`, `commands`, `overrides`, `pr_action` e
-`defaults_initialized`. Na primeira abertura, catálogos anteriores recebem o
-perfil editável **Code review** e o comando `/review`. O perfil relata bugs e
-riscos sem modificar arquivos ou publicar PR. A inicialização é registrada para
-respeitar remoções e personalizações posteriores; nomes ou identidades existentes
-não são sobrescritos. O JSON de origem está em
-[`action-defaults.json`](../../src/action-defaults.json). O cadastro é local, reutilizável entre
-projetos, e não é enviado ao relay.
+`Board.actions` contains `profiles`, `commands`, `overrides`, `pr_action` and
+`defaults_initialized`. On first open, earlier catalogs receive the editable
+**Code review** profile and the `/review` command. The profile reports bugs and
+risks without modifying files or publishing a PR. The initialization is recorded
+so later removals and customizations are respected; existing names or identities
+are not overwritten. The source JSON is in
+[`action-defaults.json`](../../src/action-defaults.json). The registry is local,
+reusable across projects, and is not sent to the relay.
 
-- Um comando tem `name`, `description`, `kind: prompt | agent`, `prompt` e
-  `profile` opcional. Nomes são únicos, com 1–64 letras ASCII minúsculas,
-  números ou hífens; `compact` e `context` são reservados.
-- `prompt` expande texto na caixa atual sem enviar. O texto restante acompanha
-  a expansão e continua editável.
-- `agent` inicia uma tarefa em outra aba. O pedido contém o texto do comando,
-  título, repositórios/bases do workspace e contexto escrito pela pessoa.
-- `/nome` e menu **Ações** usam o mesmo cadastro. Se o provider também expõe
-  `/nome`, seu comando conserva o nome e o comando do app usa `/prometeu:nome`.
-  O namespace explícito também funciona sem colisão.
-  As sugestões de comandos cadastrados no app exibem a tag **Prometeu**;
-  comandos e skills do provider não recebem essa tag.
-- `pr_action: null` mantém o pedido de PR na conversa atual, incluindo a
-  preferência pela skill do repositório. Um nome configurado aponta para um
-  comando `agent` e serve ao botão **Open PR / Atualizar PR**.
+- A command has `name`, `description`, `kind: prompt | agent`, `prompt` and an
+  optional `profile`. Names are unique, with 1–64 lowercase ASCII letters,
+  digits or hyphens; `compact` and `context` are reserved.
+- `prompt` expands text in the current box without sending it. The remaining
+  text follows the expansion and stays editable.
+- `agent` starts a task in another tab. The request contains the command text,
+  the title, the workspace's repositories/bases and the context written by the
+  person.
+- `/name` and the **Actions** menu use the same registry. If the provider also
+  exposes `/name`, its command keeps the name and the app's command uses
+  `/prometeu:name`. The explicit namespace also works without a collision.
+  Suggestions for commands registered in the app show the **Prometeu** tag;
+  the provider's commands and skills do not get that tag.
+- `pr_action: null` keeps the PR request in the current conversation, including
+  the preference for the repository's skill. A configured name points to an
+  `agent` command and serves the **Open PR / Update PR** button.
 
-## Perfil e execução
+## Profile and execution
 
-Um perfil tem identidade, nome, prompt, `choice` (provider/modelo/esforço),
-MCP, plugins, nomes de skills, `permission: ask | auto` e `watch` opcional.
-`overrides[project][profile]` substitui integralmente um perfil para aquele
-projeto. Não altera o perfil global.
+A profile has identity, name, prompt, `choice` (provider/model/effort), MCP,
+plugins, skill names, `permission: ask | auto` and an optional `watch`.
+`overrides[project][profile]` fully replaces a profile for that project. It does
+not change the global profile.
 
-Cada `Tab.task` guarda uma cópia do perfil resolvido, nome do comando e estado
-da execução. MCP/plugins `null` herdam a seleção do workspace no início;
-listas vazias são seleções explícitas. Se o workspace também tem `null`,
-permanece a configuração externa do provider. O catálogo não contém segredos:
-credenciais continuam nos hubs existentes.
+Each `Tab.task` stores a copy of the resolved profile, the command name and the
+execution state. `null` MCP/plugins inherit the workspace selection at the
+start; empty lists are explicit selections. If the workspace is also `null`, the
+provider's external configuration remains. The catalog contains no secrets:
+credentials stay in the existing hubs.
 
-Alterar perfil ou seleção do workspace não muda essa cópia. A retomada usa o
-mesmo perfil. Trocar modelo pelo rodapé de uma tarefa é recusado; edite o
-perfil para execuções futuras. Plugins e MCP do Codex usam configuração
-derivada por sessão de tarefa, para não trocar a seleção de outra conversa.
+Changing the profile or the workspace selection does not change that copy.
+Resuming uses the same profile. Changing the model through a task's footer is
+refused; edit the profile for future executions. Codex plugins and MCP use a
+configuration derived per task session, so the selection of another conversation
+is not changed.
 
-Skills são nomes instruídos ao agente, disponíveis na instalação ou nos
-plugins selecionados. Essa lista não é uma allowlist nem desativa outras
-skills do provider. Se uma skill não estiver disponível, a instrução é parar
-e informar. O app não promete detecção automática desse resultado textual.
+Skills are names instructed to the agent, available in the installation or in
+the selected plugins. That list is not an allowlist and does not disable the
+provider's other skills. If a skill is not available, the instruction is to stop
+and report. The app does not promise automatic detection of that textual result.
 
-Permissões são materializadas pelo adapter: Claude usa seu modo normal de
-aprovação em `ask`; Codex usa `approvalPolicy: untrusted`. `auto` mantém o
-bypass existente. Essas opções não constituem isolamento do worktree.
+Permissions are materialized by the adapter: Claude uses its normal approval
+mode under `ask`; Codex uses `approvalPolicy: untrusted`. `auto` keeps the
+existing bypass. These options do not constitute worktree isolation.
 
-Uma tarefa não monitorada termina quando termina seu turno. Acompanhamento é
-opcional e não muda a etapa manual do workspace. Repetir o mesmo comando com
-uma tarefa ainda aberta retorna a aba existente. Se houver contexto adicional,
-o app recusa e preserva o rascunho para envio na aba da tarefa. Iniciar outra tarefa exige
-que não haja conversa trabalhando, esperando resposta ou com fala pendente.
+An untracked task finishes when its turn finishes. Tracking is optional and does
+not change the workspace's manual stage. Repeating the same command with a task
+still open returns the existing tab. If there is additional context, the app
+refuses and preserves the draft so it can be sent in the task's tab. Starting
+another task requires that no conversation is working, waiting for an answer or
+holding a pending message.
 
-## Acompanhamento de PR
+## PR tracking
 
-`watch` define intervalo em segundos (30–86400), comentários, resultados de CI
-e limite de turnos automáticos (1–100). O exemplo de entrega usa 60 segundos e
-10 turnos. As PRs são descobertas por branch e depois ficam presas ao número
-por repositório. Repositórios sem PR não impedem conclusão das PRs encontradas.
+`watch` defines an interval in seconds (30–86400), comments, CI results and a
+limit of automatic turns (1–100). The shipped example uses 60 seconds and 10
+turns. PRs are discovered by branch and then pinned to the number per
+repository. Repositories without a PR do not prevent the found PRs from
+completing.
 
-Uma thread do backend consulta `gh`; não existe turno de modelo durante espera.
-As consultas são sequenciais e têm prazo de 30 segundos por processo. O intervalo
-é mínimo, não garantia de entrega em tempo real. Comentários gerais, reviews e
-comentários em linhas usam paginação. Comentários da conta autenticada são
-ignorados para evitar realimentação. Resultados de CI incluem sucesso, falha,
-erro, timeout, cancelamento e pedido de ação; estados pendentes não acordam o
-agente. O identificador inclui commit e execução do check quando disponível.
+A backend thread queries `gh`; there is no model turn while waiting. The queries
+are sequential and have a 30-second deadline per process. The interval is a
+minimum, not a guarantee of real-time delivery. General comments, reviews and
+line comments use pagination. Comments from the authenticated account are
+ignored to avoid feedback loops. CI results include success, failure, error,
+timeout, cancellation and action required; pending states do not wake the agent.
+The identifier includes the commit and the check run when available.
 
-A execução guarda `seen` (hashes SHA-256 dos eventos), PRs, instante da consulta, contagem de turnos,
-`paused`, `done` e último erro. Eventos repetidos não geram turno; edições de
-comentários geram. Enquanto alguma conversa trabalha ou espera resposta,
-novidades continuam sem confirmação e são agrupadas na consulta seguinte.
-Cursor e fala pendente são gravados juntos antes do envio. Uma fala pendente
-sobrevive ao reinício e pode ser retomada. Não há garantia de exactly-once na
-janela entre o CLI aceitar a fala e a persistência do transcript.
+The execution stores `seen` (SHA-256 hashes of the events), PRs, the query
+timestamp, the turn count, `paused`, `done` and the last error. Repeated events
+do not generate a turn; comment edits do. While some conversation is working or
+waiting for an answer, news stays unconfirmed and is grouped into the next
+query. The cursor and the pending message are written together before sending.
+A pending message survives a restart and can be resumed. There is no
+exactly-once guarantee in the window between the CLI accepting the message and
+the persistence of the transcript.
 
-Dados externos não concedem permissões: entram identificados como comentários
-ou resultados de CI. Cada corpo de comentário é limitado a 12000 caracteres;
-URL acompanha o texto para inspeção completa. Respostas de `gh` acima de 8 MiB
-são recusadas. O limite de turnos pausa a execução; retomá-la renova o limite.
+External data does not grant permissions: it arrives identified as comments or
+CI results. Each comment body is limited to 12000 characters; the URL
+accompanies the text for full inspection. `gh` responses above 8 MiB are
+refused. The turn limit pauses the execution; resuming it renews the limit.
 
-Fechar todas as PRs encontradas conclui o acompanhamento. Pausar, arquivar ou
-limpar workspace suspende consultas; fechar aba remove a tarefa. Pausar não
-interrompe um turno já em andamento. App fechado ou Mac suspenso não consulta;
-a próxima abertura reconcilia novidades. Falhas de consulta ficam visíveis e
-preservam cursores; falha/interrupção de turno pausa o acompanhamento.
+Closing every found PR completes the tracking. Pausing, archiving or cleaning
+the workspace suspends the queries; closing the tab removes the task. Pausing
+does not interrupt a turn already in progress. A closed app or a suspended Mac
+does not query; the next open reconciles the news. Query failures stay visible
+and preserve the cursors; a turn failure or interruption pauses the tracking.
 
-## IPC e compatibilidade
+## IPC and compatibility
 
-- `actions_save({ catalog }) -> void`: valida referências, nomes e limites;
-  persiste no board e publica evento `board`.
-- `action_start({ workspace, name, context }) -> Tab`: resolve perfil, cria
-  sessão local e inicia pedido. Erro de spawn permanece na aba para inspeção.
-- `action_pause({ session, paused }) -> void`: pausa ou retoma acompanhamento.
+- `actions_save({ catalog }) -> void`: validates references, names and limits;
+  persists to the board and publishes the `board` event.
+- `action_start({ workspace, name, context }) -> Tab`: resolves the profile,
+  creates a local session and starts the request. A spawn error stays in the tab
+  for inspection.
+- `action_pause({ session, paused }) -> void`: pauses or resumes tracking.
 
-Campos novos são aditivos com defaults na persistência. Sessões comuns não
-mudam configuração de lançamento. Mock web implementa cadastro e criação de
-abas, mas não consulta GitHub nem executa modelos. Evidências:
+New fields are additive with defaults in persistence. Ordinary sessions do not
+change their launch configuration. The web mock implements the registry and tab
+creation, but does not query GitHub and does not run models. Evidence:
 [`actions.test.ts`](../../src/actions.test.ts),
 [`actions.rs`](../../src-tauri/src/actions.rs),
 [`github.rs`](../../src-tauri/src/github.rs),

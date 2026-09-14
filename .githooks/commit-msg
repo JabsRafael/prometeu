@@ -11,30 +11,19 @@ esac
 
 TYPES='feat|fix|perf|refactor|docs|test|chore|ci|build|style|revert'
 if ! printf '%s\n' "$MSG" | grep -Eq "^($TYPES)(\([^)]+\))?!?: [^ ]"; then
-  cat >&2 <<FIM
-commit recusado — a primeira linha precisa ser "tipo(escopo): descrição":
+  cat >&2 <<END
+commit rejected — the first line must be "type(scope): description":
 
   $MSG
 
-tipos: $(printf '%s' "$TYPES" | tr '|' ' ')
-ex.:   feat(lançador): esforço e modelo no rodapé
-       fix(quadro): arrastar card entre colunas volta a funcionar
-       chore: atualizar dependências
+types: $(printf '%s' "$TYPES" | tr '|' ' ')
+e.g.:  feat(launcher): show effort and model in the footer
+       fix(board): dragging a card between columns works again
+       chore: update dependencies
 
-A descrição de feat, fix e perf vira uma linha do changelog para quem usa o
-app: diga o que a pessoa vê, não o que o código faz. Ver AGENTS.md.
-FIM
-  exit 1
-fi
-
-if printf '%s\n' "$MSG" | grep -Eq '^(feat|fix|perf|revert)(\([^)]+\))?!?:' \
-    && ! git interpret-trailers --parse < "$1" | grep -Eq '^Release-EN: .'; then
-  cat >&2 <<FIM
-commit recusado — $MSG precisa da linha pública em inglês no rodapé:
-
-  Release-EN: **launcher:** Shows effort and model in footer
-
-Inclua escopo traduzido entre ** quando houver. Ver AGENTS.md.
-FIM
+Commits are written in English. The description of feat, fix and perf becomes a
+changelog line for whoever uses the app: say what the person sees, not what the
+code does. See AGENTS.md.
+END
   exit 1
 fi

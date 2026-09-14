@@ -1,107 +1,108 @@
-# ADR 0026 — núcleo de colaboração portável e acesso pelo celular via relay
+# ADR 0026 — portable collaboration core and phone access through the relay
 
-Data: 2026-09-08
-Status: Aceito para o núcleo portável, implementado nesta mudança. A etapa de
-identidade por dispositivo foi decidida no [ADR 0027](0027-companion-devices.md)
-como campo aditivo no v4, sem protocolo v5. O app web servido pelo Cloud foi
-decidido e implementado no [ADR 0028](0028-mobile-web-app.md).
-Amplia o [ADR 0021](0021-cloud-organizations.md) e o
-[ADR 0022](0022-end-to-end-encryption.md); não altera o
+Date: 2026-09-08
+Status: Accepted for the portable core, implemented in this change. The
+per-device identity stage was decided in
+[ADR 0027](0027-companion-devices.md) as an additive field in v4, without a v5
+protocol. The web app served by the Cloud was decided and implemented in
+[ADR 0028](0028-mobile-web-app.md).
+Extends [ADR 0021](0021-cloud-organizations.md) and
+[ADR 0022](0022-end-to-end-encryption.md); it does not change
 [relay v4](../contracts/relay-v4.md).
 
-## Contexto
+## Context
 
-O produto quer acompanhar e cutucar uma conversa a partir do celular. A
-sessão continua executando somente no Mac do dono; o relay já encaminha
-ciphertext para qualquer membro autorizado, e a criptografia usa WebCrypto.
-Em tese, um navegador no celular é apenas outro membro do relay.
+The product wants to follow and nudge a conversation from the phone. The session
+still runs only on the owner's Mac; the relay already forwards ciphertext to any
+authorized member, and the encryption uses WebCrypto. In theory, a browser on
+the phone is just another relay member.
 
-Na prática, `src/team.ts` concentrava em um arquivo três papéis distintos:
-a configuração do desktop (team.json, organizações do Cloud, IPC do Tauri),
-o papel de dono (anunciar workspaces, transmitir a conversa, executar entrada
-remota no agente local) e o papel de membro (identidade, presença, assistir,
-comentar, inbox). Um cliente móvel construído sobre esse arquivo nasceria com
-condicionais por plataforma espalhadas pelo fluxo.
+In practice, `src/team.ts` concentrated three distinct roles in one file: the
+desktop's configuration (team.json, Cloud organizations, Tauri IPC), the owner
+role (announcing workspaces, streaming the conversation, executing remote input
+in the local agent) and the member role (identity, presence, watching,
+commenting, inbox). A mobile client built on top of that file would be born with
+per-platform conditionals spread across the flow.
 
-Há ainda um limite do modelo de identidade: o relay guarda uma chave por
-membro e o dono não cifra caixas para si mesmo. Um celular com a mesma
-matrícula substituiria a chave do Mac e não receberia conteúdo.
+There is also a limit in the identity model: the relay stores one key per member
+and the owner does not encrypt boxes for themselves. A phone with the same
+membership would replace the Mac's key and would not receive content.
 
-## Opções consideradas
+## Options considered
 
-1. Compartilhar tela do Mac (VNC/Tailscale): zero código, sem produto.
-2. Servir a interface do desktop a partir do Mac por Tailscale, com IPC sobre
-   WebSocket: interface completa, mas exige rede privada e Mac acordado, sem
-   comentários persistidos nem colegas.
-3. PWA servido pelo `prometeu-cloud` conectando ao relay como membro comum,
-   sobre um núcleo de colaboração sem dependência de Tauri.
+1. Screen sharing from the Mac (VNC/Tailscale): zero code, no product.
+2. Serving the desktop interface from the Mac through Tailscale, with IPC over
+   WebSocket: a complete interface, but it requires a private network and an
+   awake Mac, with no persisted comments and no peers.
+3. A PWA served by `prometeu-cloud` connecting to the relay as an ordinary
+   member, on top of a collaboration core with no Tauri dependency.
 
-## Decisão
+## Decision
 
-Adotar a opção 3 em etapas. Esta mudança entrega a primeira: o núcleo.
+Adopt option 3 in stages. This change delivers the first one: the core.
 
-**Divisão por papel e por feature, não por plataforma.** `src/team-member.ts`
-possui a conexão reconectável, o handshake de identidade, a fila cifrada e o
-diretório de membros. Cada capacidade é um módulo com hooks registrados no
-membro (`connecting`, `outgoing`, `frame`, `binary`, `closed`, `reset`),
-definidos em `src/team-ports.ts`:
+**Split by role and by feature, not by platform.** `src/team-member.ts` owns the
+reconnectable connection, the identity handshake, the encrypted queue and the
+member directory. Each capability is a module with hooks registered on the
+member (`connecting`, `outgoing`, `frame`, `binary`, `closed`, `reset`), defined
+in `src/team-ports.ts`:
 
-- `team-owner.ts`: anúncios, snapshots, live e entrada remota. Só a máquina
-  que executa agentes o instala.
-- `team-viewer.ts`: shares remotos, attach, espelho e `write`.
-- `team-comments.ts`: threads, menções e inbox.
+- `team-owner.ts`: announcements, snapshots, live stream and remote input. Only
+  the machine that runs agents installs it.
+- `team-viewer.ts`: remote shares, attach, mirroring and `write`.
+- `team-comments.ts`: threads, mentions and inbox.
 
-O membro chama os hooks na ordem de registro; a raiz de composição escolhe as
-features e essa ordem. Uma feature nova é um arquivo novo e uma linha em cada
-raiz que a queira. Frames que nenhuma feature trata são ignorados. O gate de
-saída (`outgoing`) permite ao dono bloquear conteúdo durante troca de audiência
-sem que o membro conheça audiência.
+The member calls the hooks in registration order; the composition root chooses
+the features and that order. A new feature is a new file and one line in each
+root that wants it. Frames that no feature handles are ignored. The outgoing
+gate (`outgoing`) lets the owner block content during an audience switch without
+the member knowing about the audience.
 
-**Ports em vez de condicionais.** O shell entrega ao membro uma `Membership`
-(escopos, `shareScope`, `legacy` e uma função `url()` que obtém ticket ou
-credencial) e um `SecurityStore`. O dono recebe um `OwnerHost` com as ações
-locais. `src/team.ts` passa a ser o shell do desktop: resolve team.json e
-organizações, injeta os ports do Tauri, registra as três features e expõe a
-fachada usada pela interface, inclusive a tradução entre IDs do quadro e IDs do
-relay. Nenhum `team-*.ts` importa `@tauri-apps`, `./ipc`, `./mock` ou
-`./team`; `npm run architecture:check` falha se isso mudar.
+**Ports instead of conditionals.** The shell hands the member a `Membership`
+(scopes, `shareScope`, `legacy` and a `url()` function that obtains a ticket or
+credential) and a `SecurityStore`. The owner receives an `OwnerHost` with the
+local actions. `src/team.ts` becomes the desktop's shell: it resolves team.json
+and organizations, injects Tauri's ports, registers the three features and
+exposes the facade used by the interface, including the translation between
+board IDs and relay IDs. No `team-*.ts` imports `@tauri-apps`, `./ipc`, `./mock`
+or `./team`; `npm run architecture:check` fails if that changes.
 
-**Sem pacote ainda.** O núcleo continua em `src/team-*.ts`. Quando existir o
-segundo consumidor real (o PWA), os arquivos vão para `packages/team-core` por
-`git mv`, no padrão de `packages/design-system`. Criar o pacote antes disso só
-acrescentaria build.
+**No package yet.** The core stays in `src/team-*.ts`. When the second real
+consumer exists (the PWA), the files move to `packages/team-core` through
+`git mv`, in the pattern of `packages/design-system`. Creating the package
+before that would only add a build step.
 
-## Etapas propostas
+## Proposed stages
 
-1. **Identidade por dispositivo** (novo ADR, contrato v5). O membro do relay
-   passa a ser um dispositivo; o roster do Cloud devolve `{ id, name, person }`
-   e emite tickets por dispositivo. A audiência escolhe pessoas; o dono expande
-   pessoa em chaves de dispositivo no mesmo ponto onde hoje expande
-   `audience: null`. TOFU permanece por dispositivo.
-2. **PWA em `prometeu-cloud`.** Raiz de composição com `member` + `viewer` +
-   `comments`, `SecurityStore` sobre IndexedDB com `CryptoKey` não extraível
-   e `url()` sobre a sessão por cookie. O Rails ganha um endpoint de ticket
-   por sessão, com a mesma resposta do Bearer. Sem feature de dono.
+1. **Per-device identity** (new ADR, v5 contract). The relay's member becomes a
+   device; the Cloud's roster returns `{ id, name, person }` and issues
+   per-device tickets. The audience chooses people; the owner expands a person
+   into device keys at the same point where it expands `audience: null` today.
+   TOFU stays per device.
+2. **PWA in `prometeu-cloud`.** A composition root with `member` + `viewer` +
+   `comments`, a `SecurityStore` over IndexedDB with a non-extractable
+   `CryptoKey` and a `url()` over the cookie session. Rails gains a per-session
+   ticket endpoint, with the same response as the Bearer one. No owner feature.
 
-## Consequências
+## Consequences
 
-- O comportamento do desktop não muda; os testes existentes passam pela
-  fachada sem alteração. Duas diferenças deliberadas: falha ao carregar
-  `team-security.json` não entra em retry (era retry só no Cloud), e ao
-  desconectar por escolha o estado de anúncios é limpo como em queda de rede.
-- O celular só verá workspaces compartilhados explicitamente, com o Mac
-  acordado, o app aberto e Cloud e relay disponíveis. Não cria conversas nem
-  executa Git.
-- Comentários e inbox vêm de graça para qualquer shell que registre
+- The desktop's behavior does not change; the existing tests pass through the
+  facade unchanged. Two deliberate differences: a failure to load
+  `team-security.json` does not enter a retry (retry was Cloud-only), and when
+  disconnecting by choice the announcement state is cleared as in a network
+  drop.
+- The phone will only see explicitly shared workspaces, with the Mac awake, the
+  app open and the Cloud and relay available. It does not create conversations
+  and does not run Git.
+- Comments and inbox come for free to any shell that registers
   `team-comments.ts`.
-- A ordem de registro é contrato: dono antes de comentários mantém `share`
-  antes de `notes` após o welcome.
+- The registration order is a contract: the owner before comments keeps `share`
+  before `notes` after the welcome.
 
-## Evidência
+## Evidence
 
-- `src/team-member.test.ts`: composição sem Tauri com membro, viewer e
-  comentários sobre o relay simulado, assistindo um share e respondendo a uma
-  menção.
-- `src/team.test.ts` e `src/team-organizations.test.ts`: comportamento do
-  desktop preservado pela fachada.
-- `scripts/check-architecture.mjs`: fitness function da fronteira do núcleo.
+- `src/team-member.test.ts`: composition without Tauri with member, viewer and
+  comments over the simulated relay, watching a share and answering a mention.
+- `src/team.test.ts` and `src/team-organizations.test.ts`: the desktop's
+  behavior preserved through the facade.
+- `scripts/check-architecture.mjs`: the core boundary's fitness function.

@@ -1,57 +1,64 @@
-# ADR 0033 — Texto e imagens de feedback no GitHub
+# ADR 0033 — Feedback text and images in GitHub
 
-Data: 2026-09-10
-Status: substituído pelo [ADR 0035](0035-feedback-requires-account.md), que passou a
-exigir conta no envio. Substitui o [ADR 0032](0032-private-feedback.md).
+Date: 2026-09-10
+Status: superseded by [ADR 0035](0035-feedback-requires-account.md), which
+started requiring an account on submission. Supersedes
+[ADR 0032](0032-private-feedback.md).
 
-## Contexto
+## Context
 
-O mantenedor quer consultar texto e captura na mesma issue privada. Armazenar
-anexos no Cloud exigia outro login, uma lista de revisores e retenção de imagens.
-GitHub oferece upload nativo de imagens associado ao repositório, usado pelo
-GitHub CLI 2.99.0, com acesso controlado pelas permissões do repositório.
+The maintainer wants to read the text and the capture in the same private issue.
+Storing attachments in the Cloud required another login, a reviewer list and
+image retention. GitHub offers a native image upload associated with the
+repository, used by GitHub CLI 2.99.0, with access controlled by the
+repository's permissions.
 
-## Decisão
+## Decision
 
-O Cloud continua como intermediário para manter o PAT fora dos clientes anônimos.
-Após confirmar privacidade e identidade de `prometeucorp/prometeu-cloud`, envia
-os bytes ao endpoint nativo `uploads.github.com/user-attachments/assets`, com o
-ID numérico do repositório. Só cria a issue depois de receber uma URL válida,
-embutida no corpo como imagem Markdown. Usa `Net::HTTP` já presente na integração;
-não instala CLI ou outra dependência.
+The Cloud stays as the intermediary to keep the PAT out of anonymous clients.
+After confirming the privacy and identity of `prometeucorp/prometeu-cloud`, it
+sends the bytes to the native `uploads.github.com/user-attachments/assets`
+endpoint, with the repository's numeric ID. It only creates the issue after
+receiving a valid URL, embedded in the body as a Markdown image. It uses
+`Net::HTTP`, already present in the integration; it installs no CLI and no other
+dependency.
 
-Texto e imagem não são persistidos no Cloud. A tabela conserva somente recibos:
-ID, SHA-256 do conteúdo, URLs GitHub, instante da tentativa e timestamps. Isso
-preserva idempotência e impede repetir automaticamente uma criação incerta.
-A rota de imagens, o desvio de login e `FEEDBACK_REVIEWER_IDS` são removidos.
-O contrato anônimo `POST /api/feedback`, os limites e o recibo `{ id }` permanecem.
+Text and image are not persisted in the Cloud. The table keeps only receipts:
+ID, the content's SHA-256, GitHub URLs, the attempt's timestamp and timestamps.
+That preserves idempotency and prevents automatically repeating an uncertain
+creation. The image route, the login redirect and `FEEDBACK_REVIEWER_IDS` are
+removed. The anonymous `POST /api/feedback` contract, the limits and the
+`{ id }` receipt remain.
 
-## Consequências
+## Consequences
 
-Revisores precisam somente de acesso ao repositório privado. Remoção de conteúdo
-ocorre no GitHub, sem cópias de imagens ou descrições nos backups Cloud.
-O Cloud ainda processa conteúdo durante a requisição; esse fluxo não é E2EE.
+Reviewers need only access to the private repository. Content removal happens on
+GitHub, without copies of images or descriptions in the Cloud's backups. The
+Cloud still processes content during the request; that flow is not E2EE.
 
-Falha de upload impede criar uma issue sem o anexo escolhido. Retry reutiliza a
-URL já salva; interrupção antes de salvar a URL pode deixar um anexo sem issue.
-Resultado incerto da criação exige reconciliação pelo marcador `Feedback: <id>`.
-Como não há cópia no servidor, reenvio depende do formulário preservado no cliente.
+An upload failure prevents creating an issue without the chosen attachment. A
+retry reuses the already-saved URL; an interruption before saving the URL may
+leave an attachment without an issue. An uncertain creation result requires
+reconciliation through the `Feedback: <id>` marker. Since there is no copy on
+the server, resending depends on the form preserved in the client.
 
-O endpoint de upload acompanha a implementação oficial do GitHub CLI; mudanças
-nesse serviço exigem atualizar o adapter. O PAT escolhido precisa de validação
-no smoke de ativação; testes locais substituem o transporte e não publicam conteúdo.
+The upload endpoint follows GitHub CLI's official implementation; changes in
+that service require updating the adapter. The chosen PAT needs validation in
+the activation smoke test; local tests replace the transport and do not publish
+content.
 
-A migração anterior ainda não foi publicada e foi ajustada para criar recibos.
-Não existem relatos de produção a migrar. Bancos locais do protótipo são
-preservados; testes usam banco descartável novo. Rollback não deve restaurar
-armazenamento de conteúdo ou rota pública de anexos.
+The previous migration had not been published yet and was adjusted to create
+receipts. There are no production reports to migrate. Local prototype databases
+are preserved; tests use a new, disposable database. A rollback must not restore
+content storage or a public attachment route.
 
-## Evidência
+## Evidence
 
-`FeedbackTest` no Cloud cobre upload privado, imagem embutida, recibo sem conteúdo,
-rota removida, limites, idempotência, rejeição de upload e criação, retry e falha
-ambígua. Clientes continuam com o contrato coberto por `e2e/feedback.spec.ts`.
+`FeedbackTest` in the Cloud covers the private upload, the embedded image, a
+receipt without content, the removed route, limits, idempotency, upload and
+creation rejection, retry and an ambiguous failure. Clients keep the contract
+covered by `e2e/feedback.spec.ts`.
 
-Referências: [contrato](../contracts/feedback.md),
-[upload oficial](https://github.com/cli/cli/blob/v2.99.0/internal/attachments/client.go),
-[privacidade de anexos](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/attaching-files).
+References: [contract](../contracts/feedback.md),
+[official upload](https://github.com/cli/cli/blob/v2.99.0/internal/attachments/client.go),
+[attachment privacy](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/attaching-files).

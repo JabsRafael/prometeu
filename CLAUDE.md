@@ -2,6 +2,6 @@
 
 @AGENTS.md
 
-As instruções compartilhadas do projeto vivem em `AGENTS.md`. Este arquivo
-existe somente como ponto de entrada compatível com o Claude Code; regras
-específicas do Claude, se necessárias no futuro, ficam abaixo desta nota.
+The project's shared instructions live in `AGENTS.md`. This file exists only as
+an entry point compatible with Claude Code; Claude-specific rules, if they are
+ever needed, go below this note.

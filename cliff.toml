@@ -1,15 +1,17 @@
 # git-cliff derives CHANGELOG.md and release notes from Conventional Commits. Include user-visible feat,
 # fix, perf and revert entries; omit internal maintenance changes.
-# Public commit descriptions explain observable behavior in Portuguese without implementation filenames
-# or function names. See AGENTS.md.
+# Public commit descriptions explain observable behavior in English without implementation filenames
+# or function names. Commits made before the English-only policy carry that line in a Release-EN
+# footer, which the template prefers so regenerating the changelog keeps history in English.
+# See AGENTS.md.
 
 [changelog]
 header = """
 # Changelog
 
-O que muda no Prometeu, versão a versão, para quem usa o app.
-As versões saem de `sh scripts/release.sh`; este arquivo é gerado a partir dos
-commits pelo git-cliff, e as notas de cada release no GitHub são a seção dela.
+What changes in Prometeu, version by version, for whoever uses the app.
+Versions come from `sh scripts/release.sh`; this file is generated from the
+commits by git-cliff, and each release's notes on GitHub are its section.
 
 """
 body = """
@@ -18,26 +20,13 @@ body = """
 {%- else -%}
 ## [Unreleased]
 {%- endif %}
-<!-- lang:pt-BR -->
 {% for group, commits in commits | group_by(attribute="group") %}
-### {{ group | striptags | trim | split(pat="|") | first }}
-{% for commit in commits %}
-- {% if commit.breaking %}**Quebra:** {% endif %}{% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | split(pat="
-") | first | trim | upper_first }}
+### {{ group | striptags | trim }}
+{% for commit in commits %}{% set_global release_en = "" %}{% for footer in commit.footers %}{% if footer.token == "Release-EN" %}{% set_global release_en = footer.value %}{% endif %}{% endfor %}
+- {% if commit.breaking %}**Breaking:** {% endif %}{% if release_en %}{{ release_en | trim | upper_first }}{% else %}{% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | split(pat="
+") | first | trim | upper_first }}{% endif %}
 {%- endfor %}
 {% endfor %}
-<!-- lang:en -->
-{% for group, commits in commits | group_by(attribute="group") %}
-### {{ group | striptags | trim | split(pat="|") | last }}
-{% for commit in commits %}
-{% for footer in commit.footers %}
-{% if footer.token == "Release-EN" %}
-- {% if commit.breaking %}**Breaking:** {% endif %}{{ footer.value | trim | upper_first }}
-{%- endif %}
-{%- endfor %}
-{%- endfor %}
-{% endfor %}
-<!-- lang:end -->
 """
 footer = ""
 trim = false
@@ -66,12 +55,12 @@ commit_parsers = [
   { message = "^chore\\(release\\)", skip = true },
   { message = "^Marcar a versão", skip = true },
   { message = "^Merge ", skip = true },
-  { message = "^feat", group = "<!-- 0 -->Novidades|New" },
-  { message = "^fix", group = "<!-- 1 -->Correções|Fixes" },
-  { message = "^perf", group = "<!-- 2 -->Desempenho|Performance" },
-  { message = "^revert", group = "<!-- 3 -->Revertido|Reverted" },
+  { message = "^feat", group = "<!-- 0 -->New" },
+  { message = "^fix", group = "<!-- 1 -->Fixes" },
+  { message = "^perf", group = "<!-- 2 -->Performance" },
+  { message = "^revert", group = "<!-- 3 -->Reverted" },
   { message = "^(chore|ci|build|docs|test|style|refactor)(\\(|:|!)", skip = true },
-  { message = ".*", group = "<!-- 4 -->Outros|Other" },
+  { message = ".*", group = "<!-- 4 -->Other" },
 ]
 
 [bump]

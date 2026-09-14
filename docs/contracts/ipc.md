@@ -1,13 +1,13 @@
-# Contrato IPC TypeScript ↔ Rust
+# TypeScript ↔ Rust IPC contract
 
 Status: current contract; TypeScript commands and browser handlers share typed
 arguments and results. Rust bindings remain manually synchronized.
 
 ## Sources and guarantees
 
-O preview, a inspeção de elementos e as capturas usam o
-[contrato do browser](browser.md). Os comandos são aditivos e não liberam IPC
-geral para a página inspecionada.
+The preview, element inspection and captures use the
+[browser contract](browser.md). Those commands are additive and do not open
+general IPC to the inspected page.
 
 - `src/ipc.ts` owns `Commands`, with one argument/result pair for each command.
   `invoke` infers the result from the command and checks its arguments. Callers
@@ -32,162 +32,167 @@ map and the existing boundary tests. Untrusted relay/control input remains
 subject to backend validation. Errors keep their existing rejection format.
 See [ADR 0024](../decisions/0024-typed-ipc.md).
 
-## Regras de comando
+## Command rules
 
-- nomes usam `snake_case` e precisam ser únicos;
-- argumentos TypeScript usam as chaves esperadas pela desserialização Tauri;
-- retorno Rust deve implementar `Serialize`;
-- argumento Rust deve implementar `Deserialize`;
-- operação falível retorna `Result<Resposta, Erro>`;
-- erro de domínio usa código estável traduzido pelo frontend;
-- detalhe externo ou de I/O pode acompanhar o código sem virar texto fixo da UI;
-- operação pesada não bloqueia a thread principal.
+- names use `snake_case` and must be unique;
+- TypeScript arguments use the keys expected by Tauri's deserialization;
+- a Rust return value must implement `Serialize`;
+- a Rust argument must implement `Deserialize`;
+- a fallible operation returns `Result<Response, Error>`;
+- a domain error uses a stable code translated by the frontend;
+- an external or I/O detail may accompany the code without becoming fixed UI
+  text;
+- a heavy operation does not block the main thread.
 
-Os comandos de status, diffs, branches, commits e resolução de conflitos estão
-em [`git.md`](git.md). Eles são aditivos: `workspace_diff` mantém o contrato
-anterior e não passa a significar stage.
+The commands for status, diffs, branches, commits and conflict resolution are in
+[`git.md`](git.md). They are additive: `workspace_diff` keeps the previous
+contract and does not start meaning stage.
 
-Os comandos `actions_save`, `action_start` e `action_pause` estão descritos no
-[contrato de ações](actions.md). Usam o evento `board` existente.
+The `actions_save`, `action_start` and `action_pause` commands are described in
+the [actions contract](actions.md). They use the existing `board` event.
 
-## Estado privado de E2EE
+## Private E2EE state
 
-- `team_security`: sem argumentos, retorna o envelope de segurança ou `null`
-  somente quando o arquivo não existe. Leitura inválida retorna erro.
-- `team_security_set`: recebe `{ state }`, valida versão e limite de 8 MiB e
-  grava atomicamente o arquivo privado; retorna vazio ou erro. Um arquivo
-  existente ilegível não é sobrescrito.
+- `team_security`: no arguments, returns the security envelope or `null` only
+  when the file does not exist. An invalid read returns an error.
+- `team_security_set`: receives `{ state }`, validates the version and the 8 MiB
+  limit and atomically writes the private file; returns empty or an error. An
+  existing unreadable file is not overwritten.
 
-Os comandos existem no Rust, no registro tipado e no mock. A webview precisa
-da identidade privada para WebCrypto; ela não atravessa o WebSocket. O schema
-interno dos escopos pertence a `team-security.ts`; os payloads permanecem `unknown`
-no mapa IPC até essa validação em runtime; veja [persistência](persistence.md).
+The commands exist in Rust, in the typed registry and in the mock. The webview
+needs the private identity for WebCrypto; it does not cross the WebSocket. The
+scopes' internal schema belongs to `team-security.ts`; the payloads stay
+`unknown` in the IPC map until that runtime validation; see
+[persistence](persistence.md).
 
-## Eventos emitidos atualmente
+## Events currently emitted
 
-Os comandos `cloud_status`, `cloud_login_start`, `cloud_login_poll`,
-`cloud_login_cancel` e `cloud_logout` estão no [contrato da conta](cloud-account.md);
-`catalog_state` e `catalog_refresh`, no [contrato do catálogo](cloud-catalog.md).
-Não retornam Bearer nem senha para a webview. `cloud_organizations`,
-`cloud_relay_ticket` e os argumentos `remoteControl` e `team` de `set_shared` estão no
-[contrato de organizações](cloud-organizations.md); somente o ticket curto
-atravessa IPC para autenticar o WebSocket.
+The `cloud_status`, `cloud_login_start`, `cloud_login_poll`,
+`cloud_login_cancel` and `cloud_logout` commands are in the
+[account contract](cloud-account.md); `catalog_state` and `catalog_refresh` are
+in the [catalog contract](cloud-catalog.md). They do not return a Bearer or a
+password to the webview. `cloud_organizations`, `cloud_relay_ticket` and the
+`remoteControl` and `team` arguments of `set_shared` are in the
+[organizations contract](cloud-organizations.md); only the short ticket crosses
+IPC to authenticate the WebSocket.
 
-| Evento | Emissor | Payload emitido |
+| Event | Emitter | Emitted payload |
 | --- | --- | --- |
-| `board` | `state.rs` | `Board` completo |
+| `board` | `state.rs` | the complete `Board` |
 | `chat` | `chat.rs` | `[session, conversationEventV1JsonLine, seq]` |
-| `chat-closed` | `chat.rs` | id da sessão |
+| `chat-closed` | `chat.rs` | the session id |
 | `pty` | `pty.rs` | `[session, bytes, seq]` |
 | `pty-closed` | `pty.rs` | `[session, exitCode]` |
-| `usage` | `usage.rs` | snapshot de uso por ID local de conta |
-| `accounts` | `accounts.rs` | cadastro, seleção por provider e login pendente |
-| `account-error` | `chat.rs` | erro traduzível de uma troca ao enviar a fala pendente |
-| `machine` | `machine.rs` | estado da máquina |
+| `usage` | `usage.rs` | usage snapshot per local account ID |
+| `accounts` | `accounts.rs` | registry, per-provider selection and pending login |
+| `account-error` | `chat.rs` | a translatable error from a switch while sending the pending message |
+| `machine` | `machine.rs` | machine state |
 | `linear` | `linear.rs` | `LinearStatus` |
 | `plugin-make` | `plugins.rs` | `[run, step]` |
 | `plugin-made` | `plugins.rs` | `[run, error]` |
 | `browser:url` | `browser.rs` | `[workspace, url]` |
-| `file-drag` | `file_drop.rs`, webview principal | `{ type, paths, position?, id?, error? }` |
+| `file-drag` | `file_drop.rs`, main webview | `{ type, paths, position?, id?, error? }` |
 
-`paste_files` completa esse caminho para a área de transferência: sem
-argumentos, lê a pasteboard geral do macOS e devolve caminhos. Arquivos
-copiados no Finder mantêm o caminho original; uma imagem é gravada como PNG em
-`<root>/attachments/<uuid>/pasted.png`, convertendo TIFF quando essa é a única
-representação disponível. Uma área de transferência sem arquivo nem imagem
-devolve lista vazia, e o comando é síncrono porque a leitura da pasteboard
-exige a thread principal do AppKit. Fora do macOS, devolve lista vazia.
+`paste_files` completes that path for the clipboard: with no arguments, it reads
+the macOS general pasteboard and returns paths. Files copied in Finder keep the
+original path; an image is written as PNG in
+`<root>/attachments/<uuid>/pasted.png`, converting TIFF when that is the only
+available representation. A clipboard with neither a file nor an image returns
+an empty list, and the command is synchronous because reading the pasteboard
+requires AppKit's main thread. Outside macOS, it returns an empty list.
 
-`file-drag` adapta o arraste nativo sem alterar os eventos internos do Tauri.
-O registro usa `on_webview_event`, filtrando a webview `main`: com a feature
-`unstable`, o runtime cria até a webview principal como filha da janela e
-não entrega seu arraste aos listeners de `WindowEvent`.
-`enter`, `over`, `leave` e `drop` representam o gesto; `paths` é sempre uma
-lista. `position` contém `{ x, y }` nas coordenadas do runtime: no macOS/wry
-0.55 são pontos lógicos da janela, sem divisão por DPR.
+`file-drag` adapts the native drag without changing Tauri's internal events. The
+registration uses `on_webview_event`, filtering the `main` webview: with the
+`unstable` feature, the runtime creates even the main webview as a child of the
+window and does not deliver its drag to the `WindowEvent` listeners.
+`enter`, `over`, `leave` and `drop` represent the gesture; `paths` is always a
+list. `position` contains `{ x, y }` in the runtime's coordinates: on
+macOS/wry 0.55 they are logical window points, without division by DPR.
 
-Para uma promessa do macOS, `pending` substitui `drop`, com `id` único e a
-posição final. O frontend captura o rascunho de destino nesse instante.
-O rascunho conta recebimentos pendentes e bloqueia o envio em todas as suas
-apresentações; conclusão ou erro libera o envio quando a contagem chega a zero.
-`received` conclui o mesmo `id` com os caminhos locais materializados e
-`error` opcional; pode trazer arquivos válidos mesmo quando outro falha.
-Recebimentos desconhecidos ou duplicados são ignorados. A espera nativa tem
-limite de 30 segundos, sem bloquear a UI. `src/mock.ts` simula as mesmas fases.
+For a macOS promise, `pending` replaces `drop`, with a unique `id` and the final
+position. The frontend captures the target draft at that instant. The draft
+counts pending receipts and blocks sending in all of its presentations;
+completion or an error releases sending when the count reaches zero. `received`
+completes the same `id` with the materialized local paths and an optional
+`error`; it may bring valid files even when another one fails. Unknown or
+duplicate receipts are ignored. The native wait has a 30-second limit, without
+blocking the UI. `src/mock.ts` simulates the same phases.
 
-O contrato é aditivo, interno ao bundle app/frontend. Não há mudança em
-`chat_send`, no V1 ou no relay: o agente continua recebendo menções de caminhos.
-Veja [ADR 0018](../decisions/0018-native-file-promises.md).
+The contract is additive, internal to the app/frontend bundle. There is no
+change to `chat_send`, to V1 or to the relay: the agent still receives path
+mentions. See [ADR 0018](../decisions/0018-native-file-promises.md).
 
-Os comandos `accounts`, `account_select`, `account_remove`, `account_login` e
-`account_login_cancel` estão definidos em [`accounts.md`](accounts.md).
+The `accounts`, `account_select`, `account_remove`, `account_login` and
+`account_login_cancel` commands are defined in [`accounts.md`](accounts.md).
 
-O snapshot do evento e comando `usage` é um mapa por ID local de conta. As
-chaves antigas `claude` e `codex` representam as contas dos CLIs originais;
-contas adicionais usam UUIDs, sem alterar o formato dos valores. Cada entrada
-tem `{ windows, at }`; cada janela tem `{ kind, pct, resets, scope?, label? }`.
-`scope` identifica cotas independentes para que atualizações esparsas de um
-modelo não apaguem as demais, e `label` é texto externo opcional para exibição.
-Consumidores devem aceitar os dois campos ausentes por compatibilidade com o
-cache anterior.
+The snapshot of the `usage` event and command is a map per local account ID. The
+old `claude` and `codex` keys represent the original CLIs' accounts; additional
+accounts use UUIDs, without changing the format of the values. Each entry has
+`{ windows, at }`; each window has `{ kind, pct, resets, scope?, label? }`.
+`scope` identifies independent quotas so that sparse updates for one model do
+not erase the others, and `label` is optional external text for display.
+Consumers must accept both fields being absent for compatibility with the
+previous cache.
 
-Eventos Tauri são dinâmicos; o generic passado a `listen<T>` não valida o
-payload Rust em build time. Um evento novo precisa de teste do emissor e do
-consumidor.
+Tauri events are dynamic; the generic passed to `listen<T>` does not validate
+the Rust payload at build time. A new event needs a test of the emitter and of
+the consumer.
 
-`chat_snapshot.text` pode misturar linhas V1 e legado depois de uma importação.
-`Timeline` valida V1 e envia o restante ao leitor legado; projeções históricas
-`prometheusV1Mirror` são ignoradas pelo leitor atual. O Prometeu não produz
-essas projeções em logs novos.
+`chat_snapshot.text` may mix V1 and legacy lines after an import. `Timeline`
+validates V1 and sends the rest to the legacy reader; historical
+`prometheusV1Mirror` projections are ignored by the current reader. Prometeu
+does not produce those projections in new logs.
 
-## Raiz dos comandos de arquivo
+## Root of the file commands
 
-`list_dir`, `read_file`, `read_bytes`, `write_file`, `find_paths` e `reveal`
-recebem em `id` o workspace **ou** o projeto. Workspace resolve no worktree;
-projeto resolve na pasta do clone registrado, que é o que sustenta ler e editar
-um repositório sem workspace nenhum nele. Os dois espaços de id não colidem, e
-`session.rs::cwd_of` é a única função que faz essa resolução — `dock.rs` a
-importa em vez de repetir a regra. Caminho fora da raiz continua recusado.
+`list_dir`, `read_file`, `read_bytes`, `write_file`, `find_paths` and `reveal`
+receive in `id` the workspace **or** the project. A workspace resolves in the
+worktree; a project resolves in the registered clone's folder, which is what
+supports reading and editing a repository with no workspace on it at all. The
+two id spaces do not collide, and `session.rs::cwd_of` is the only function that
+performs that resolution — `dock.rs` imports it instead of repeating the rule. A
+path outside the root is still refused.
 
-`open_dock` aceita id de projeto apenas para terminal: o shell só precisa da
-pasta, e sem workspace não há variável de script para passar. Setup e Run
-continuam exigindo workspace e respondem `err.session.noWorkspace`.
-`workspace_scripts` e `dock_state` já toleravam id sem workspace — devolvem
-catálogo vazio e nenhuma porta.
+`open_dock` accepts a project id only for a terminal: the shell only needs the
+folder, and without a workspace there is no script variable to pass. Setup and
+Run still require a workspace and answer `err.session.noWorkspace`.
+`workspace_scripts` and `dock_state` already tolerated an id without a workspace
+— they return an empty catalog and no port.
 
-## Importação legada
+## Legacy import
 
-`legacy_import_plan` não altera estado. Ele devolve a origem, uma das situações
-`ready | missing | imported | targetNotEmpty | invalid`, as contagens da prévia
-e, quando aplicável, erro, instante e caminho do backup.
+`legacy_import_plan` does not change state. It returns the source, one of the
+situations `ready | missing | imported | targetNotEmpty | invalid`, the preview
+counts and, when applicable, the error, timestamp and backup path.
 
-`legacy_import_run` não recebe caminhos da apresentação: origem e destino são
-resolvidos pelo backend. Ele repete todas as validações, recusa o Prometheus
-aberto e um destino ocupado, executa a importação e devolve o mesmo DTO no
-estado `imported`. A mudança do board continua sendo publicada pelo evento
-`board`.
+`legacy_import_run` does not receive paths from the presentation: source and
+destination are resolved by the backend. It repeats every validation, refuses an
+open Prometheus and an occupied destination, runs the import and returns the
+same DTO in the `imported` state. The board change is still published through
+the `board` event.
 
-## Checklist de mudança
+## Change checklist
 
-Ao criar ou mudar comando:
+When creating or changing a command:
 
-1. alterar a função Rust e seu tipo de erro;
-2. registrar o handler em `main.rs`;
+1. change the Rust function and its error type;
+2. register the handler in `main.rs`;
 3. update the command name, argument shape, and result in `src/ipc.ts`;
-4. implementar ou recusar conscientemente no `src/mock.ts`;
-5. atualizar todos os consumidores TypeScript;
-6. adicionar teste da forma dos argumentos e retorno;
-7. documentar compatibilidade quando houver estado persistido envolvido.
+4. implement it or consciously refuse it in `src/mock.ts`;
+5. update every TypeScript consumer;
+6. add a test of the argument and return shape;
+7. document compatibility when persisted state is involved.
 
-Ao criar ou mudar evento:
+When creating or changing an event:
 
-1. definir payload e ownership;
-2. testar serialização no emissor;
-3. validar o payload no consumidor quando vier de fronteira não confiável;
-4. garantir que listeners sejam desmontados junto do lifecycle da tela;
-5. atualizar a tabela acima.
+1. define the payload and its ownership;
+2. test serialization in the emitter;
+3. validate the payload in the consumer when it comes from an untrusted
+   boundary;
+4. make sure listeners are torn down along with the screen's lifecycle;
+5. update the table above.
 
-## Direção de evolução
+## Direction of evolution
 
 The implemented map requires no new dependency:
 
@@ -198,25 +203,27 @@ type Commands = {
 };
 ```
 
-A future step may generate bindings from Rust DTOs. A ferramenta deve
-ser escolhida em ADR depois de uma prova pequena com:
+A future step may generate bindings from Rust DTOs. The tool must be chosen in
+an ADR after a small proof covering:
 
-- enums com `serde(rename_all)`;
-- `Option` e campos default;
-- erros serializados;
-- eventos, além de commands;
-- integração com Tauri 2 e a versão de Rust usada no projeto.
+- enums with `serde(rename_all)`;
+- `Option` and default fields;
+- serialized errors;
+- events, in addition to commands;
+- integration with Tauri 2 and the Rust version used in the project.
 
-Gerar tipos de structs internas inteiras não é o objetivo. Apenas DTOs da
-fronteira devem aparecer no binding.
+Generating types for whole internal structs is not the goal. Only boundary DTOs
+should appear in the binding.
 
 ## Feedback
 
-`feedback_capture` é aditivo, sem argumentos, e retorna PNG base64 ou `null`.
-Veja [captura e limites](feedback.md). O mock retorna imagem fictícia.
+`feedback_capture` is additive, takes no arguments, and returns a base64 PNG or
+`null`. See [capture and limits](feedback.md). The mock returns a fictional
+image.
 
-`feedback_send` recebe `{ report }` e não retorna valor. O backend entrega ao
-Cloud com a credencial da conta, que nunca entra na webview, e devolve erro com
-código i18n: `feedback.needAccount` sem conta ou 401, `feedback.rateLimit` no
-limite, `feedback.uncertain` com `{id}` em entrega incerta e `feedback.sendError`
-no resto. O mock registra o relato e nada sai da máquina.
+`feedback_send` receives `{ report }` and returns no value. The backend delivers
+it to the Cloud with the account credential, which never enters the webview, and
+returns an error with an i18n code: `feedback.needAccount` without an account or
+on 401, `feedback.rateLimit` at the limit, `feedback.uncertain` with `{id}` on
+uncertain delivery and `feedback.sendError` for the rest. The mock records the
+report and nothing leaves the machine.

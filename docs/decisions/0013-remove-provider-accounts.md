@@ -1,49 +1,53 @@
-# ADR 0013 — Remoção de contas e seleção vazia
+# ADR 0013 — Account removal and empty selection
 
-Data: 2026-09-05
-Status: Aceito
+Date: 2026-09-05
+Status: Accepted
 
-Substitui parcialmente o [ADR 0012](0012-provider-accounts.md) na permanência
-dos perfis externos e na exigência de uma seleção por provider.
+Partially supersedes [ADR 0012](0012-provider-accounts.md) regarding the
+permanence of external profiles and the requirement of one selection per
+provider.
 
-## Contexto
+## Context
 
-A pessoa precisa remover contas, inclusive a última conta e a herdada do CLI.
-Os processos capturam seus perfis e podem continuar executando após a remoção.
-Apagar credenciais ou os diretórios nessa hora pode interromper um turno ou
-afetar os links para histórico compartilhado.
+The person needs to remove accounts, including the last account and the one
+inherited from the CLI. Processes capture their profiles and may keep running
+after the removal. Deleting credentials or the directories at that moment could
+interrupt a turn or affect the links to the shared history.
 
-## Opções consideradas
+## Options considered
 
-- Impedir a remoção do perfil externo: preserva a seleção obrigatória, mas
-  não permite limpar a lista como solicitado.
-- Apagar credenciais e perfis: requer coordenar todos os processos e consultas
-  em andamento, além do armazenamento específico de cada provider.
-- Remover o cadastro e permitir seleção vazia: atende ao seletor sem alterar
-  o login do terminal ou interromper processos existentes.
+- Prevent removing the external profile: it preserves the mandatory selection,
+  but does not allow clearing the list as requested.
+- Delete credentials and profiles: it requires coordinating every running
+  process and query, plus each provider's specific storage.
+- Remove the registration and allow an empty selection: it serves the selector
+  without changing the terminal's login or interrupting existing processes.
 
-## Decisão
+## Decision
 
-Permitir a remoção de qualquer conta do cadastro. Remover a conta ativa deixa
-o provider sem seleção; não escolhe outra conta automaticamente. Novas falas
-exigem uma escolha explícita, enquanto o turno iniciado pode terminar.
+Allow removing any account from the registry. Removing the active account leaves
+the provider without a selection; it does not choose another account
+automatically. New messages require an explicit choice, while the turn already
+started may finish.
 
-O cadastro vazio é persistido. Perfis do terminal são importados somente se
-o arquivo de cadastro ainda não existe. Adicionar outra conta inicia o login
-oficial sem pedir apelido; o e-mail identifica a conta. Cadastros antigos com
-`label` continuam legíveis, mas esse campo deixa de ser usado e gravado.
+The empty registry is persisted. Terminal profiles are imported only if the
+registry file does not exist yet. Adding another account starts the official
+login without asking for a nickname; the email identifies the account. Old
+registries with `label` stay readable, but that field is no longer used or
+written.
 
-## Consequências
+## Consequences
 
-Remover não faz logout nem revoga credenciais. Diretórios privados, Keychain e
-histórico são preservados. Perfis removidos deixam de ser consultados nas
-próximas rodadas de cotas, e respostas atrasadas não os recriam no cadastro.
-Não há coleta de perfis órfãos nesta operação; essa coleta exigirá coordenar
-todos os leitores antes de excluir credenciais e links.
+Removal does not log out and does not revoke credentials. Private directories,
+Keychain and history are preserved. Removed profiles stop being queried in the
+next quota rounds, and late responses do not recreate them in the registry.
+There is no collection of orphaned profiles in this operation; that collection
+will require coordinating every reader before deleting credentials and links.
 
-## Evidência
+## Evidence
 
-O [contrato de contas](../contracts/accounts.md) descreve a seleção opcional,
-o IPC de remoção e o limite de limpeza. `accounts.rs` testa cadastro legado,
-remoção completa e releitura vazia. `e2e/accounts.spec.ts` verifica remoção,
-reabertura, novo login e preservação da conversa e do outro provider.
+The [accounts contract](../contracts/accounts.md) describes the optional
+selection, the removal IPC and the cleanup limit. `accounts.rs` tests a legacy
+registry, complete removal and an empty re-read. `e2e/accounts.spec.ts` checks
+removal, reopening, a new login and the preservation of the conversation and of
+the other provider.

@@ -1,39 +1,40 @@
-# Browser e contexto visual
+# Browser and visual context
 
-Status: implementado. Decisão: [ADR 0037](../decisions/0037-browser-design-context.md).
+Status: implemented. Decision: [ADR 0037](../decisions/0037-browser-design-context.md).
 
-## Apresentação e ciclo de vida
+## Presentation and lifecycle
 
-Cada workspace local mantém uma webview nativa `run-<id>`. A conversa continua
-visível ao lado do preview; trocar de conversa preserva a página. Arquivos,
-Mudanças e terminais substituem essa composição. Fechar o browser destrói a
-webview; sair do workspace apenas a esconde.
+Each local workspace keeps a native `run-<id>` webview. The conversation stays
+visible next to the preview; switching conversations preserves the page. Files,
+Changes and terminals replace that composition. Closing the browser destroys the
+webview; leaving the workspace only hides it.
 
-`src/browser.ts` serializa abertura, posicionamento, ocultação e fechamento.
-Uma geração invalida aberturas e consultas de URL antigas. Uma geração da
-seleção também invalida capturas após nova inspeção, navegação ou alteração
-da largura. Menus, diálogos, popovers e feedback suspendem a view nativa;
-redimensionar a divisão também a suspende, para preservar eventos do ponteiro.
-Abrir o browser recolhe o painel direito de Arquivos, Mudanças, Review e
-terminais de apoio para dar espaço à conversa e à página. O botão do painel
-permite reabri-lo durante o preview. Sair do browser ou do workspace restaura
-a visibilidade anterior do painel.
+`src/browser.ts` serializes opening, positioning, hiding and closing. A
+generation invalidates old openings and URL queries. A selection generation also
+invalidates captures after a new inspection, navigation or width change. Menus,
+dialogs, popovers and feedback suspend the native view; resizing the split also
+suspends it, to preserve pointer events. Opening the browser collapses the right
+panel of Files, Changes, Review and supporting terminals to give room to the
+conversation and the page. The panel button allows reopening it during the
+preview. Leaving the browser or the workspace restores the panel's previous
+visibility.
 
-A largura escolhida é um máximo, limitada pelo espaço disponível. Não há
-emulação de dispositivo, user-agent ou viewport maior que a superfície nativa.
+The chosen width is a maximum, limited by the available space. There is no
+device emulation, user-agent emulation or viewport larger than the native
+surface.
 
-## IPC aditivo
+## Additive IPC
 
-Os comandos antigos de navegação e bounds permanecem compatíveis. Novos comandos
-existem no registro Rust, em `src/ipc.ts` e no mock:
+The old navigation and bounds commands remain compatible. New commands exist in
+the Rust registry, in `src/ipc.ts` and in the mock:
 
-| Comando | Argumentos | Retorno |
+| Command | Arguments | Return |
 | --- | --- | --- |
 | `browser_inspect` | `{ id, enabled }` | `void` |
 | `browser_selection` | `{ id }` | `{ active, selection }` |
-| `browser_capture` | `{ id, rect? }` | caminho absoluto de PNG privado |
+| `browser_capture` | `{ id, rect? }` | absolute path of a private PNG |
 
-`selection` é `null` ou:
+`selection` is `null` or:
 
 ```ts
 {
@@ -48,96 +49,104 @@ existem no registro Rust, em `src/ipc.ts` e no mock:
 }
 ```
 
-`rect` usa pixels CSS relativos ao viewport da página. Seletores atravessando
-Shadow DOM aberto separam hosts com ` >>> `; essa convenção é contexto textual,
-não um seletor CSS único. Conteúdo interno de iframes e Shadow DOM fechado não
-é inspecionado. Não há associação garantida com componentes ou arquivos fonte.
+`rect` uses CSS pixels relative to the page viewport. Selectors crossing an open
+Shadow DOM separate hosts with ` >>> `; that convention is textual context, not
+a single CSS selector. The internal content of iframes and of a closed Shadow
+DOM is not inspected. There is no guaranteed association with components or
+source files.
 
-## Confiança e limites
+## Trust and limits
 
-O backend injeta somente o script fixo de `src/browser-inspector.js`. Nenhum
-comando recebe JavaScript arbitrário e nenhuma capability remota é adicionada.
-A página continua não confiável: Rust desserializa e limita o resultado antes
-de entregá-lo à interface. HTML e CSS são exibidos com `textContent`.
+The backend injects only the fixed script from `src/browser-inspector.js`. No
+command receives arbitrary JavaScript and no remote capability is added. The
+page stays untrusted: Rust deserializes and limits the result before delivering
+it to the interface. HTML and CSS are displayed with `textContent`.
 
-O script limita HTML a 12.000 unidades UTF-16, texto a 2.000, seletor a 1.000 e
-URL a 4.096; cada estilo tem até 1.000. Remove valores de formulário, handlers
-e conteúdo executável do trecho copiado. Rust admite o tamanho UTF-8
-correspondente, limita o objeto a 256 KiB e recusa campos desconhecidos,
-URL fora de HTTP(S), geometria inválida e mais de 64 propriedades de estilo.
+The script limits HTML to 12,000 UTF-16 units, text to 2,000, the selector to
+1,000 and the URL to 4,096; each style has up to 1,000. It removes form values,
+handlers and executable content from the copied excerpt. Rust accepts the
+corresponding UTF-8 size, limits the object to 256 KiB and refuses unknown
+fields, URLs outside HTTP(S), invalid geometry and more than 64 style
+properties.
 
-A avaliação tem timeout de 3 segundos. A captura macOS usa a API pública
-`WKWebView.takeSnapshot`, sem capturar a tela inteira e sem permissão de gravação
-da tela. Recorta a seleção aos limites atuais; sem `rect`, captura o viewport
-visível. Tem timeout de 5 segundos, limite de PNG de 20 MiB e grava em
-`<root>/attachments/<uuid>/browser.png` com as permissões privadas existentes.
-Antes e depois do recorte, confirma que o elemento continua conectado, na mesma
-geometria, URL e viewport, sem scroll ou resize desde a seleção. Uma mudança
-descarta somente o PNG, preservando o contexto textual escolhido. Isso não
-congela animações ou garante que o conteúdo visual da página permaneça imóvel.
-Fora do macOS, captura retorna `err.browser.captureFailed`. Falhas de inspeção
-retornam `err.browser.inspectFailed`.
+Evaluation has a 3-second timeout. The macOS capture uses the public
+`WKWebView.takeSnapshot` API, without capturing the whole screen and without
+screen recording permission. It crops the selection to the current bounds;
+without `rect`, it captures the visible viewport. It has a 5-second timeout, a
+20 MiB PNG limit and writes to `<root>/attachments/<uuid>/browser.png` with the
+existing private permissions. Before and after cropping, it confirms that the
+element is still connected, with the same geometry, URL and viewport, without
+scroll or resize since the selection. A change discards only the PNG, preserving
+the chosen textual context. This does not freeze animations and does not
+guarantee that the page's visual content stays still. Outside macOS, capture
+returns `err.browser.captureFailed`. Inspection failures return
+`err.browser.inspectFailed`.
 
-Selecionar um elemento prepara contexto e captura. **Adicionar ao chat** cria
-uma tag **Elemento selecionado**, separada do texto digitado. A tag reúne dados
-e PNG, permite revisar detalhes e pode ser removida inteira antes do envio.
-Rascunhos mantêm essas tags por conversa, inclusive entre mesa e workspace.
-Falha de captura preserva a tag com os dados textuais. A captura avulsa retém
-o destino da conversa antes do IPC e usa o bloqueio de anexos pendentes existente.
+Selecting an element prepares context and capture. **Add to chat** creates a
+**Selected element** tag, separate from the typed text. The tag gathers data and
+PNG, allows reviewing details and can be removed as a whole before sending.
+Drafts keep these tags per conversation, including between the desk and the
+workspace. A capture failure preserves the tag with the textual data. A
+standalone capture retains the conversation target before the IPC call and uses
+the existing pending-attachment lock.
 
-## Contexto no texto da mensagem
+## Context in the message text
 
-A [decisão 0038](../decisions/0038-browser-context-chips.md) mantém IPC,
-Conversation Events V1 e relay inalterados. Somente no envio cada tag vira um
-bloco identificado dentro de `text`:
+[Decision 0038](../decisions/0038-browser-context-chips.md) keeps IPC,
+Conversation Events V1 and the relay unchanged. Only on send does each tag
+become an identified block inside `text`:
 
 ```text
 <prometeu-browser-element v="1">
-{"selection":{...},"image":"/caminho/browser.png"}
-@"/caminho/browser.png"
+{"selection":{...},"image":"/path/browser.png"}
+@"/path/browser.png"
 </prometeu-browser-element>
 ```
 
-O JSON completo ocupa uma linha; `<` nos valores vira `\u003c`. `selection`
-segue o DTO acima. Sem captura, `image` é omitido e a linha da menção fica vazia.
-A menção mantém o mecanismo de anexos já entendido pelos agentes. Não há
-leitura local automática ao abrir um histórico ou uma conversa compartilhada.
-Os blocos precedem o texto digitado, assim como anexos comuns, para que um
-texto iniciado por `/` não descarte o contexto ao virar um comando do provider.
+The complete JSON takes one line; `<` in the values becomes `\u003c`.
+`selection` follows the DTO above. Without a capture, `image` is omitted and the
+mention line is empty. The mention keeps the attachment mechanism the agents
+already understand. There is no automatic local reading when opening a history
+or a shared conversation. The blocks precede the typed text, just like ordinary
+attachments, so that a text starting with `/` does not discard the context when
+it becomes a provider command.
 
-`src/browser-context.ts` reconhece apenas versão, estrutura e limites válidos,
-com menção correspondente ao PNG declarado. Blocos inválidos ou desconhecidos
-continuam como texto literal. Desktop e celular apresentam os blocos válidos
-como tags também no histórico e durante espera de envio. O reducer e os
-adapters conservam os dados completos; clientes antigos exibem o texto bruto.
-Não há reescrita de transcripts anteriores nem migração de dados.
+`src/browser-context.ts` recognizes only a valid version, structure and limits,
+with a mention matching the declared PNG. Invalid or unknown blocks stay as
+literal text. Desktop and phone present the valid blocks as tags in the history
+too, and while a send is pending. The reducer and the adapters keep the complete
+data; old clients show the raw text. There is no rewriting of previous
+transcripts and no data migration.
 
-É possível enviar somente tags, combiná-las com texto e outros anexos, ou
-usá-las como contexto em Ações. O envio conserva o tratamento existente de
-erros e da fila persistida; a apresentação não reenfileira mensagens.
+It is possible to send only tags, to combine them with text and other
+attachments, or to use them as context in Actions. Sending keeps the existing
+handling of errors and of the persisted queue; the presentation does not requeue
+messages.
 
-## Arraste
+## Drag
 
-Somente a view principal adapta arquivos locais e promessas ao evento
-`file-drag` existente. A filha desabilita a interceptação de drag do Tauri para
-permitir uploads dentro da página. Soltar no chat segue o fluxo de anexos;
-soltar no preview pertence à página. Isso evita que o Tauri consuma o upload
-para depois ignorar seu evento por não vir de `main`.
+Only the main view adapts local files and promises to the existing `file-drag`
+event. The child view disables Tauri's drag interception to allow uploads inside
+the page. Dropping on the chat follows the attachment flow; dropping on the
+preview belongs to the page. This prevents Tauri from consuming the upload and
+then ignoring its event because it did not come from `main`.
 
-## Evidência e limites da verificação
+## Evidence and verification limits
 
-- `e2e/browser-inspector.spec.ts`: script real em Chromium e WebKit, seleção,
-  Escape, navegação, sanitização, Shadow DOM, scroll e resize.
-- `e2e/browser.spec.ts`: composição, rascunhos, anexos, navegação e ciclo de vida
-  sobre o mock web, tags e conteúdo efetivo enviado ao agente.
-- `src/browser-context.test.ts`: compatibilidade textual e rejeição de blocos
-  inválidos sem ocultar conteúdo comum.
-- `e2e/mobile.spec.ts`: tags e detalhes no histórico compartilhado em tela estreita.
-- `src-tauri/src/browser.rs`: validação dos DTOs, recortes e limites.
-- `e2e/file-drop.spec.ts`: contrato de anexos e promessas no frontend.
+- `e2e/browser-inspector.spec.ts`: the real script in Chromium and WebKit,
+  selection, Escape, navigation, sanitization, Shadow DOM, scroll and resize.
+- `e2e/browser.spec.ts`: composition, drafts, attachments, navigation and
+  lifecycle over the web mock, tags and the actual content sent to the agent.
+- `src/browser-context.test.ts`: textual compatibility and rejection of invalid
+  blocks without hiding ordinary content.
+- `e2e/mobile.spec.ts`: tags and details in the shared history on a narrow
+  screen.
+- `src-tauri/src/browser.rs`: DTO validation, crops and limits.
+- `e2e/file-drop.spec.ts`: attachment and promise contract in the frontend.
 
-`src/mock-browser.ts` usa iframe somente no desenvolvimento web, com página
-controlada e o mesmo script de inspeção. Capturas retornam caminhos fictícios.
-Esses testes não provam PNG nativo, gesto AppKit ou consumo da imagem pelo CLI.
-A verificação de gesto nativo neste ambiente permanece bloqueada por permissão
-de Acessibilidade; isso não é evidência de aprovação desse gesto.
+`src/mock-browser.ts` uses an iframe only in web development, with a controlled
+page and the same inspection script. Captures return fictional paths. These
+tests do not prove the native PNG, the AppKit gesture or the consumption of the
+image by the CLI. Verifying the native gesture in this environment remains
+blocked by the Accessibility permission; that is not evidence that the gesture
+was approved.

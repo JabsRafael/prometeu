@@ -1,69 +1,74 @@
-# ADR 0025 — Som de conclusão por execução aceita
+# ADR 0025 — Completion sound per accepted execution
 
-Data: 2026-09-08
-Status: Parcialmente substituído pelo [ADR 0029](0029-remove-alert-sound.md) quanto ao som;
-o acompanhamento de pendências visuais e os eventos dos adapters permanecem.
+Date: 2026-09-08
+Status: Partially superseded by [ADR 0029](0029-remove-alert-sound.md) regarding
+the sound; the tracking of visual pending items and the adapters' events remain.
 
-## Contexto
+## Context
 
-O aviso sonoro compartilhava a pendência de leitura da aba. Olhar a conversa
-ou responder a um pedido rearmava essa pendência; um resultado intermediário
-ou uma continuação automática podia tocar novamente enquanto o agente ainda
-trabalhava. Perguntas também usavam o som de conclusão. No Codex, o isolamento
-de threads filhas descartava a informação necessária para acompanhar subagentes.
+The sound alert shared the tab's unread state. Looking at the conversation or
+answering a request re-armed that state; an intermediate result or an automatic
+continuation could play again while the agent was still working. Questions also
+used the completion sound. In Codex, the isolation of child threads discarded
+the information needed to track subagents.
 
-## Opções consideradas
+## Options considered
 
-1. Ajustar a pendência de leitura ou inferir conclusão pelo status do quadro.
-   Ambos misturam atenção da pessoa com execução e snapshots defasados.
-2. Inferir conclusão por um intervalo sem saída. Uma ferramenta demorada pode
-   ficar silenciosa enquanto continua trabalhando.
-3. Acompanhar a execução aceita com eventos V1 ao vivo e exigir um terminal
-   principal, sem tarefas em background, antes de avisar.
+1. Adjust the unread state or infer completion from the board's status. Both mix
+   the person's attention with execution and stale snapshots.
+2. Infer completion from an interval without output. A slow tool may stay silent
+   while it keeps working.
+3. Track the accepted execution with live V1 events and require a main terminal
+   event, with no background tasks, before notifying.
 
-## Decisão
+## Decision
 
-Adotar a terceira opção. `chat.rs` emite o evento efêmero existente
-`session.state` com `starting` ao iniciar o processo e `busy` após aceitar
-`message.send`. A publicação de `busy`, da fala e dos ecos fica sob o mesmo
-lock, antes de respostas concorrentes. Escrita malsucedida não arma um aviso.
+Adopt the third option. `chat.rs` emits the existing ephemeral `session.state`
+event with `starting` when the process starts and `busy` after accepting
+`message.send`. Publishing `busy`, the message and the echoes happens under the
+same lock, before concurrent responses. An unsuccessful write does not arm a
+notice.
 
-`alert.ts` mantém o estado da execução por aba separado da pendência de leitura.
-Só `busy` local ao vivo arma o aviso; atividade do assistente confirma execução.
-Um `turn.completed` com sucesso ou erro e sem tarefas em background agenda o
-aviso para 1 segundo depois. Nova atividade cancela o candidato. Silêncio sem
-terminal não agenda aviso. Interrupção e terminal sem atividade consomem a
-execução sem som; erro pode avisar mesmo sem atividade anterior.
+`alert.ts` keeps the per-tab execution state separate from the unread state.
+Only a live local `busy` arms the notice; assistant activity confirms the
+execution. A `turn.completed` with success or error and without background tasks
+schedules the notice for 1 second later. New activity cancels the candidate.
+Silence without a terminal event schedules no notice. An interruption and a
+terminal event without activity consume the execution without sound; an error
+may notify even without previous activity.
 
-Uma conclusão visível ou com som desligado também consome a execução. Olhar,
-responder a pedidos, ecos e eventos sintetizados no snapshot não a rearmam.
-Perguntas e permissões mantêm a indicação do Dock, sem som de conclusão.
+A visible completion or one with the sound turned off also consumes the
+execution. Looking, answering requests, echoes and events synthesized in the
+snapshot do not re-arm it. Questions and permissions keep the Dock indication,
+without a completion sound.
 
-Os adapters mantêm a responsabilidade sobre subagentes. Claude já emite
-`background.changed`. Codex normaliza `collabAgentToolCall.agentsStates`,
-`subAgentActivity` e eventos de filhos conhecidos, sem inserir o conteúdo dos
-filhos na conversa principal. O fim de uma tarefa em background não toca:
-é necessário receber outro terminal do agente principal.
+The adapters keep responsibility for subagents. Claude already emits
+`background.changed`. Codex normalizes `collabAgentToolCall.agentsStates`,
+`subAgentActivity` and known child events, without inserting the children's
+content into the main conversation. The end of a background task does not play a
+sound: another terminal event from the main agent is required.
 
-## Consequências
+## Consequences
 
-O aviso deixa de depender da navegação e da marcação de leitura. A regra comum
-cobre Claude e Codex sem payloads externos na apresentação. Formatos V1, IPC,
-transcripts e relay não mudam; não há migração de dados nem novos comandos.
+The notice no longer depends on navigation and the unread mark. The common rule
+covers Claude and Codex without external payloads in the presentation. The V1,
+IPC, transcript and relay formats do not change; there is no data migration and
+no new commands.
 
-A janela de 1 segundo absorve continuações imediatas e acrescenta essa latência
-ao aviso. A detecção depende dos sinais emitidos pelo CLI: não há garantia
-contra uma continuação posterior não anunciada. Uma tarefa em background que
-termina sem nova resposta final do agente principal não produz som.
+The 1-second window absorbs immediate continuations and adds that latency to the
+notice. Detection depends on the signals the CLI emits: there is no guarantee
+against a later, unannounced continuation. A background task that ends without a
+new final answer from the main agent produces no sound.
 
-## Evidência
+## Evidence
 
-- [Regressões de estado e som](../../src/alert.test.ts): eventos intermediários,
-  subagentes, leitura, respostas, interrupções, visibilidade e som desligado.
-- [Fluxos de mesa e workspace](../../e2e/alerts.spec.ts): Chromium e WebKit.
-- Testes de [chat.rs](../../src-tauri/src/chat.rs): `busy`, fala e eco precedem
-  respostas concorrentes; falha de escrita não publica `busy` nem fala.
-- Testes de [codex.rs](../../src-tauri/src/codex.rs): isolamento de filhos,
-  spawn, atividade e estados parciais de subagentes.
-- [Contrato V1](../contracts/conversation-events-v1.md) e
-  [matriz de providers](../quality/provider-matrix.md).
+- [State and sound regressions](../../src/alert.test.ts): intermediate events,
+  subagents, reading, answers, interruptions, visibility and sound turned off.
+- [Desk and workspace flows](../../e2e/alerts.spec.ts): Chromium and WebKit.
+- [chat.rs](../../src-tauri/src/chat.rs) tests: `busy`, the message and the echo
+  precede concurrent responses; a write failure publishes neither `busy` nor the
+  message.
+- [codex.rs](../../src-tauri/src/codex.rs) tests: child isolation, spawn,
+  activity and partial subagent states.
+- [V1 contract](../contracts/conversation-events-v1.md) and the
+  [provider matrix](../quality/provider-matrix.md).

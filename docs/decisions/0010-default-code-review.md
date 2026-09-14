@@ -1,41 +1,44 @@
-# ADR 0010 — Code review incluído no cadastro de ações
+# ADR 0010 — Code review included in the actions registry
 
-Data: 2026-09-05
-Status: Aceito
+Date: 2026-09-05
+Status: Accepted
 
-## Contexto
+## Context
 
-O cadastro vazio exigia configurar um agente e um comando antes de experimentar
-uma revisão. A tela também dava destaque excessivo à instalação manual de um
-exemplo e aos ajustes do botão de PR.
+The empty registry required configuring an agent and a command before trying a
+review. The screen also gave excessive prominence to manually installing an
+example and to the PR button's settings.
 
-## Decisão
+## Decision
 
-Incluir o perfil editável **Code review**, associado a `/review`, na primeira
-abertura após esta mudança. O perfil revisa alterações, relata achados e lacunas
-de validação e termina o turno. Não publica PR, modifica arquivos ou acompanha
-CI por padrão. Essas responsabilidades continuam configuráveis em outros perfis.
+Include the editable **Code review** profile, associated with `/review`, on the
+first opening after this change. The profile reviews changes, reports findings
+and validation gaps and ends the turn. It does not publish a PR, modify files or
+follow CI by default. Those responsibilities stay configurable in other
+profiles.
 
-O campo aditivo `defaults_initialized` registra a inicialização. O default é
-materializado no cadastro, em vez de ser uma camada implícita que reaparece
-após remoção. Configuração existente com o mesmo comando ou identidade tem
-precedência; não é substituída. O botão Open PR mantém a escolha da pessoa.
+The additive `defaults_initialized` field records the initialization. The
+default is materialized in the registry, instead of being an implicit layer that
+reappears after removal. An existing configuration with the same command or
+identity takes precedence; it is not replaced. The Open PR button keeps the
+person's choice.
 
-O JSON de origem é compartilhado pelo backend e pelo mock. Não há migração de
-transcripts nem mudança na configuração das tarefas já iniciadas.
+The source JSON is shared by the backend and the mock. There is no transcript
+migration and no change in the configuration of tasks already started.
 
-## Consequências
+## Consequences
 
-Há uma ação utilizável na primeira visita. A pessoa pode editar ou remover o
-perfil e o comando sem que o app desfaça sua escolha ao reabrir. A tela dá
-prioridade aos comandos, agrupa os agentes e recolhe os ajustes do botão de PR.
+There is a usable action on the first visit. The person can edit or remove the
+profile and the command without the app undoing their choice on reopening. The
+screen prioritizes commands, groups the agents and collapses the PR button's
+settings.
 
-Esta decisão complementa o [ADR 0009](0009-reusable-actions.md), alterando apenas
-o catálogo inicial; preserva seus contratos de execução e acompanhamento.
+This decision complements [ADR 0009](0009-reusable-actions.md), changing only
+the initial catalog; it preserves its execution and tracking contracts.
 
-## Evidência
+## Evidence
 
-- [Default compartilhado](../../src/action-defaults.json).
-- [Inicialização e compatibilidade](../../src-tauri/src/actions.rs).
-- [Paridade do mock](../../src/actions.test.ts).
-- [Cadastro, edição e remoção](../../e2e/actions.spec.ts).
+- [Shared default](../../src/action-defaults.json).
+- [Initialization and compatibility](../../src-tauri/src/actions.rs).
+- [Mock parity](../../src/actions.test.ts).
+- [Registration, editing and removal](../../e2e/actions.spec.ts).

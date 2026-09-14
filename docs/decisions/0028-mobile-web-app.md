@@ -1,73 +1,78 @@
-# ADR 0028 — Prometeu no celular como app web servido pelo Cloud
+# ADR 0028 — Prometeu on the phone as a web app served by the Cloud
 
-Data: 2026-09-08
-Status: Aceito. Conclui a etapa 2 do [ADR 0026](0026-portable-collaboration-core.md)
-sobre os dispositivos companheiros do [ADR 0027](0027-companion-devices.md).
-Autoria de mensagens dos próprios dispositivos especializada pelo
+Date: 2026-09-08
+Status: Accepted. Completes stage 2 of
+[ADR 0026](0026-portable-collaboration-core.md) on top of the companion devices
+of [ADR 0027](0027-companion-devices.md).
+Authorship of messages from one's own devices specialized by
 [ADR 0034](0034-mobile-pairing-continuity.md).
 
-## Contexto
+## Context
 
-O núcleo de colaboração já compõe sem Tauri e o Cloud já emite tickets de
-companheiro. Faltava o cliente: uma página no celular que entra na sala da
-organização, acompanha conversas compartilhadas, fala com o Mac do dono e
-comenta. A sessão continua executando somente no Mac.
+The collaboration core already composes without Tauri and the Cloud already
+issues companion tickets. The client was missing: a page on the phone that
+enters the organization's room, follows shared conversations, talks to the
+owner's Mac and comments. The session still runs only on the Mac.
 
-## Opções consideradas
+## Options considered
 
-1. **App nativo (iOS/Android).** Lojas, assinatura e uma segunda base de
-   código para uma interface de leitura e resposta.
-2. **Bundle construído dentro do Rails.** Exigiria Node e o checkout do
-   Prometeu no build do Cloud; o Design System já evita isso vendendo assets.
-3. **Bundle construído no Prometeu e vendido no Cloud.** Mesmo padrão do
-   Design System: `npm run build:mobile` gera `dist-mobile/`, `bin/mobile`
-   copia para `vendor/mobile/assets` com manifesto de hashes.
+1. **A native app (iOS/Android).** Stores, signing and a second codebase for an
+   interface that reads and replies.
+2. **A bundle built inside Rails.** It would require Node and the Prometeu
+   checkout in the Cloud's build; the Design System already avoids that by
+   vendoring assets.
+3. **A bundle built in Prometeu and vendored in the Cloud.** The same pattern as
+   the Design System: `npm run build:mobile` generates `dist-mobile/`,
+   `bin/mobile` copies it to `vendor/mobile/assets` with a hash manifest.
 
-## Decisão
+## Decision
 
-Opção 3. `src/mobile/` é a raiz de composição do navegador:
+Option 3. `src/mobile/` is the browser's composition root:
 
-- `shell.ts`: ports puros. ID de companheiro gerado uma vez por navegador,
-  `SecurityStore` sobre `localStorage`, `Membership` com o mesmo escopo de
-  cifra do desktop (`["organization", origem do Cloud, organização]`) e
-  `url()` que pede o ticket em `POST /orgs/:slug/companion-ticket` com CSRF
-  e monta a mesma URL de sala que `src-tauri/src/cloud.rs`.
-- `main.ts`: registra `team-comments` e `team-viewer` no membro; sem dono.
-- `view.ts`: lista de conversas compartilhadas, transcript pelo reducer
-  `timeline.ts`, composer que envia `write` ao dono, comentários e inbox.
-  Reutiliza `markdown.ts`, `chat-presentation.ts` e o Design System.
+- `shell.ts`: pure ports. A companion ID generated once per browser, a
+  `SecurityStore` over `localStorage`, a `Membership` with the same encryption
+  scope as the desktop (`["organization", Cloud origin, organization]`) and a
+  `url()` that requests the ticket at `POST /orgs/:slug/companion-ticket` with
+  CSRF and builds the same room URL as `src-tauri/src/cloud.rs`.
+- `main.ts`: registers `team-comments` and `team-viewer` on the member; no
+  owner.
+- `view.ts`: the list of shared conversations, the transcript through the
+  `timeline.ts` reducer, a composer that sends `write` to the owner, comments
+  and inbox. It reuses `markdown.ts`, `chat-presentation.ts` and the Design
+  System.
 
-O Cloud serve `GET /app` com layout próprio para sessão de navegador,
-renderiza no elemento raiz a origem canônica, o usuário e as matrículas, e
-libera o relay em `connect-src`. `GET /app/manifest` torna a página
-instalável. Login redireciona de volta para `/app`.
+The Cloud serves `GET /app` with its own layout for a browser session, renders
+the canonical origin, the user and the memberships on the root element, and
+allows the relay in `connect-src`. `GET /app/manifest` makes the page
+installable. Login redirects back to `/app`.
 
-Este bundle não cria conversas, não executa Git e não responde cartões de
-permissão; para isso continua sendo preciso o Mac. Entrada remota chega ao
-agente como mensagem assinada com o nome da pessoa, como já acontece entre
-colegas no desktop.
+This bundle does not create conversations, does not run Git and does not answer
+permission cards; the Mac is still required for that. Remote input reaches the
+agent as a message signed with the person's name, as already happens between
+peers on the desktop.
 
-## Consequências
+## Consequences
 
-- Duas cópias do mesmo código no Cloud (bundle vendido) e no Prometeu (fonte).
-  `bin/mobile --check` acusa divergência; a versão vem do `package.json`.
-- A identidade privada fica em `localStorage` como JWK, o mesmo esquema de
-  `team-security.json`. Limpar o armazenamento do navegador cria outro
-  dispositivo. Endurecer com `CryptoKey` não extraível em IndexedDB é um
-  passo separado, anotado no código.
-- O celular só vê workspaces compartilhados por outra pessoa ou pelo próprio
-  Mac, com o Mac acordado, o app aberto e Cloud e relay disponíveis.
-- `src/mobile/*` não importa Tauri, IPC, o shell desktop nem `chat.ts`;
-  `npm run architecture:check` protege essa fronteira.
-- Extração para `packages/team-core` continua adiada: o bundle importa os
-  arquivos de `src/` diretamente e o Cloud só recebe o artefato.
+- Two copies of the same code in the Cloud (the vendored bundle) and in Prometeu
+  (the source). `bin/mobile --check` flags a divergence; the version comes from
+  `package.json`.
+- The private identity stays in `localStorage` as a JWK, the same scheme as
+  `team-security.json`. Clearing the browser's storage creates another device.
+  Hardening it with a non-extractable `CryptoKey` in IndexedDB is a separate
+  step, noted in the code.
+- The phone only sees workspaces shared by another person or by the person's own
+  Mac, with the Mac awake, the app open and the Cloud and relay available.
+- `src/mobile/*` does not import Tauri, IPC, the desktop shell or `chat.ts`;
+  `npm run architecture:check` protects that boundary.
+- Extraction into `packages/team-core` stays deferred: the bundle imports the
+  files from `src/` directly and the Cloud only receives the artifact.
 
-## Evidência
+## Evidence
 
-- `src/mobile/shell.test.ts`: identidade estável, URL de sala igual à do
-  desktop, ticket com CSRF, escolha de organização.
-- `src/team-member.test.ts`: composição sem Tauri sobre o relay simulado.
-- `prometeu-cloud/test/integration/mobile_test.rb`: login obrigatório,
-  matrículas embutidas, CSP com relay, manifesto.
-- `prometeu-cloud/test/browser/mobile.spec.js`: entrada pelo navegador,
-  lista da organização, registro do companheiro, sem erros de script.
+- `src/mobile/shell.test.ts`: stable identity, a room URL equal to the
+  desktop's, a ticket with CSRF, organization choice.
+- `src/team-member.test.ts`: composition without Tauri over the simulated relay.
+- `prometeu-cloud/test/integration/mobile_test.rb`: mandatory login, embedded
+  memberships, CSP with the relay, manifest.
+- `prometeu-cloud/test/browser/mobile.spec.js`: entry through the browser, the
+  organization's list, companion registration, no script errors.

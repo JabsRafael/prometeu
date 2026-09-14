@@ -1,61 +1,62 @@
-# ADR 0017 — Componentes executáveis do Design System
+# ADR 0017 — Executable Design System components
 
-Data: 2026-09-06
-Status: aceito. Substitui a separação de comportamento do
-[ADR 0016](0016-company-design-system.md). Preserva os contratos do
+Date: 2026-09-06
+Status: accepted. Supersedes the separation of behavior from
+[ADR 0016](0016-company-design-system.md). Preserves the contracts of
 [ADR 0011](0011-shared-ui.md).
 
-## Contexto
+## Context
 
-Distribuir CSS e SVG unificou a aparência, mas manteve renderização e interação
-dentro de cada produto. O Design System precisa fornecer componentes prontos,
-incluindo estado, eventos, foco, teclado, validação e lifecycle.
+Distributing CSS and SVG unified the appearance, but kept rendering and
+interaction inside each product. The Design System needs to provide ready
+components, including state, events, focus, keyboard, validation and lifecycle.
 
-## Decisão
+## Decision
 
-`@prometeu/design-system` 0.2.0 passa a possuir as primitivas DOM, menus,
-ícones genéricos, formulários e estilos necessários às interações. `src/ui.ts`
-e `src/menu.ts` no desktop ficam como reexports de compatibilidade. Nenhum
-componente do pacote importa módulos do aplicativo ou regras de providers.
+`@prometeu/design-system` 0.2.0 now owns the DOM primitives, menus, generic
+icons, forms and the styles required by the interactions. `src/ui.ts` and
+`src/menu.ts` on the desktop remain as compatibility re-exports. No component of
+the package imports application modules or provider rules.
 
-O pacote distribui módulos ESM, tipos TypeScript e um bundle de navegador.
-TypeScript e Vite já existentes no projeto geram o artefato; consumidores não
-precisam de framework ou dependências JavaScript em runtime.
+The package distributes ESM modules, TypeScript types and a browser bundle. The
+TypeScript and Vite already present in the project generate the artifact;
+consumers need no framework and no runtime JavaScript dependencies.
 
-Para o Rails, o mesmo pacote fornece um FormBuilder e helpers que renderizam
-campos completos, botões e contêineres. Views compõem essas APIs em vez de
-repetir markup dos controles. O runtime compartilhado conecta menus, senhas,
-confirmações opcionais, validação e proteção contra envio duplicado. Formulários
-mantêm submissão Rails, valores do submitter e CSRF. Sem JavaScript, os controles
-essenciais continuam nativos; autorização nunca depende do runtime.
+For Rails, the same package provides a FormBuilder and helpers that render
+complete fields, buttons and containers. Views compose those APIs instead of
+repeating the controls' markup. The shared runtime wires menus, passwords,
+optional confirmations, validation and double-submit protection. Forms keep
+Rails submission, the submitter's values and CSRF. Without JavaScript, the
+essential controls stay native; authorization never depends on the runtime.
 
-O Cloud vendoriza assets compilados e o adaptador Ruby, com hashes e versão.
-Somente `vendor/design-system/assets` entra no pipeline público. Sua CSP permite
-scripts locais e nonce, sem scripts inline livres, `eval` ou fontes externas.
-Código Ruby, banco, tokens e credenciais não entram no bundle.
+The Cloud vendors the compiled assets and the Ruby adapter, with hashes and a
+version. Only `vendor/design-system/assets` enters the public pipeline. Its CSP
+allows local scripts and a nonce, without free inline scripts, `eval` or
+external sources. Ruby code, the database, tokens and credentials do not enter
+the bundle.
 
-## Alternativas e consequências
+## Alternatives and consequences
 
-Adotar React exigiria substituir a apresentação do desktop e do Rails.
-Web Components exigiriam reescrever primitivas existentes e adaptar campos à
-submissão nativa. Extrair o código DOM existente e adicionar um adaptador Rails
-mantém ambos os produtos convencionais e conserva os comportamentos testados.
+Adopting React would require replacing the desktop's and Rails' presentation.
+Web Components would require rewriting existing primitives and adapting fields
+to native submission. Extracting the existing DOM code and adding a Rails
+adapter keeps both products conventional and preserves the tested behaviors.
 
-Existem dois renderizadores no pacote, DOM e Action View, adequados aos seus
-ambientes. Classes e acessibilidade têm um contrato compartilhado e testes em
-Chromium e WebKit. Interações do navegador têm uma implementação JavaScript
-única. Layout de produto, regras de negócio e traduções permanecem externos.
+There are two renderers in the package, DOM and Action View, suited to their
+environments. Classes and accessibility have a shared contract and tests in
+Chromium and WebKit. Browser interactions have a single JavaScript
+implementation. Product layout, business rules and translations stay external.
 
-O build do pacote passa a ser necessário para distribuir novas versões. O
-Cloud não precisa de Node para construir ou executar o serviço. Rollback
-reverte runtime, estilos, adaptador e manifesto juntos. Não há mudança de API,
-IPC, dados persistidos ou conteúdo enviado ao serviço.
+Building the package becomes necessary to distribute new versions. The Cloud
+does not need Node to build or run the service. A rollback reverts the runtime,
+styles, adapter and manifest together. There is no change to the API, IPC,
+persisted data or the content sent to the service.
 
-## Evidência
+## Evidence
 
-- [API e integração](../../packages/design-system/README.md).
-- [Componentes executáveis](../../packages/design-system/src/index.ts).
-- [Adaptador Rails](../../packages/design-system/rails/prometeu_design_system.rb).
-- [Galeria independente](../../packages/design-system/index.html).
-- [Testes de comportamento](../../e2e/design-system.spec.ts).
-- [Compatibilidade das telas](../../e2e/actions.spec.ts).
+- [API and integration](../../packages/design-system/README.md).
+- [Executable components](../../packages/design-system/src/index.ts).
+- [Rails adapter](../../packages/design-system/rails/prometeu_design_system.rb).
+- [Standalone gallery](../../packages/design-system/index.html).
+- [Behavior tests](../../e2e/design-system.spec.ts).
+- [Screen compatibility](../../e2e/actions.spec.ts).

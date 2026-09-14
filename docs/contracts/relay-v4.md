@@ -1,153 +1,161 @@
 # Relay protocol v4
 
-Status: contrato atual; decisão no [ADR 0022](../decisions/0022-end-to-end-encryption.md).
-Fonte executável: `relay/src/protocol.ts`, importada pelo app e pelo Worker.
-O [v3](relay-v3.md) permanece documentado como histórico.
+Status: current contract; decision in
+[ADR 0022](../decisions/0022-end-to-end-encryption.md).
+Executable source: `relay/src/protocol.ts`, imported by the app and the Worker.
+[v3](relay-v3.md) stays documented as history.
 
-## Fronteira e autenticação
+## Boundary and authentication
 
-A webview cifra e decifra; o Rust persiste a identidade privadamente e executa
-somente ações autorizadas. O relay encaminha ciphertext, mantém audiência,
-quotas, presença, comentários e inbox. O agente continua no Mac do dono.
+The webview encrypts and decrypts; Rust persists the identity privately and runs
+only authorized actions. The relay forwards ciphertext and keeps audience,
+quotas, presence, comments and inbox. The agent stays on the owner's Mac.
 
-Matrícula `pm2`, credenciais individuais e tickets Cloud mantêm seus formatos.
-O WebSocket exige `p=4`. `welcome` anuncia `e2ee: 1`, `comments: 1` e um desafio
-aleatório por socket. Antes de qualquer outro envio, o cliente responde
-`identity { key, proof }`. A prova é ECDSA P-256/SHA-256 sobre o JSON UTF-8
-`["prometeu-identity-v4", member, challenge]`, usando a identidade privada.
-O Worker verifica posse antes de publicar `Member.key` ou permitir tráfego.
-A presença com a chave confirmada termina o handshake. O Worker não envia
-outras atualizações para um socket ainda não identificado.
+`pm2` enrollment, individual credentials and Cloud tickets keep their formats.
+The WebSocket requires `p=4`. `welcome` announces `e2ee: 1`, `comments: 1` and a
+random per-socket challenge. Before any other send, the client answers
+`identity { key, proof }`. The proof is ECDSA P-256/SHA-256 over the UTF-8 JSON
+`["prometeu-identity-v4", member, challenge]`, using the private identity.
+The Worker verifies possession before publishing `Member.key` or allowing
+traffic. Presence with the confirmed key ends the handshake. The Worker does not
+send other updates to a socket that has not identified itself yet.
 
-O diretório é TOFU: o cliente grava o primeiro vínculo membro/chave antes do
-uso. Mudanças ficam bloqueadas até aceitação local explícita. Chaves ausentes
-não recebem conteúdo e não apagam vínculos. Renovar tickets não redefine TOFU.
-Veja [organizações](cloud-organizations.md) para leases e autorização Cloud.
+The directory is TOFU: the client records the first member/key link before use.
+Changes stay blocked until an explicit local acceptance. Missing keys receive no
+content and do not erase links. Renewing tickets does not reset TOFU.
+See [organizations](cloud-organizations.md) for leases and Cloud authorization.
 
-Depois da identidade, sockets de organizações recebem `lease { expires_in }`
-(1 a 60.000 ms). `renew { ticket }` consome outro ticket Cloud de 256 bits,
-codificado em 43 caracteres base64url, e exige organização e membro originais.
-O relay recusa renovação antes da identidade, após expiração ou com ticket
-inválido, consumido ou de outra matrícula. Uma renovação preserva chave, desafio,
-watchers e streaming; roster idêntico não gera presença. A confirmação é outro
-`lease`. São controles aditivos no v4: clientes antigos ignoram a capacidade,
-e clientes novos continuam reconectando quando um relay antigo não a anuncia.
+After the identity, organization sockets receive `lease { expires_in }` (1 to
+60,000 ms). `renew { ticket }` consumes another 256-bit Cloud ticket, encoded in
+43 base64url characters, and requires the original organization and member. The
+relay refuses renewal before the identity, after expiration or with an invalid,
+consumed or foreign-membership ticket. A renewal preserves the key, challenge,
+watchers and streaming; an identical roster generates no presence. The
+confirmation is another `lease`. These are additive controls in v4: old clients
+ignore the capability, and new clients keep reconnecting when an old relay does
+not announce it.
 
-## Envelope e conteúdo
+## Envelope and content
 
-`Encrypted = { id, boxes: { [member]: { enc, ct } } }`. IDs são aleatórios,
-`enc` e `ct` usam base64url canônico sem padding. Cada caixa usa HPKE Auth,
-DHKEM(P-256, HKDF-SHA256), HKDF-SHA256, AES-256-GCM. O `info` vincula o JSON
-`["prometeu-e2ee-v4", scope, author, recipient, id]`. `scope` é o JSON de
-`["organization", cloudOrigin, organizationId]` ou `["team", relayOrigin, teamId]`.
-A chave do autor vem do vínculo local, nunca de um campo livre do envelope.
+`Encrypted = { id, boxes: { [member]: { enc, ct } } }`. IDs are random; `enc` and
+`ct` use canonical base64url without padding. Each box uses HPKE Auth,
+DHKEM(P-256, HKDF-SHA256), HKDF-SHA256, AES-256-GCM. The `info` binds the JSON
+`["prometeu-e2ee-v4", scope, author, recipient, id]`. `scope` is the JSON of
+`["organization", cloudOrigin, organizationId]` or
+`["team", relayOrigin, teamId]`. The author's key comes from the local link,
+never from a free field of the envelope.
 
-O plaintext contém `{ frame: Up }` ou `{ binary: base64url }`. `share` inclui
-`revision`, monotônica e persistida pelo dono. `write` inclui `expires`, no
-máximo dois minutos à frente. O cliente valida novamente o payload após abrir
-a caixa e confere workspace, aba, autor, destinatário e audiência.
+The plaintext contains `{ frame: Up }` or `{ binary: base64url }`. `share`
+includes `revision`, monotonic and persisted by the owner. `write` includes
+`expires`, at most two minutes ahead. The client validates the payload again
+after opening the box and checks the workspace, tab, author, recipient and
+audience.
 
-No frame externo:
+In the outer frame:
 
-- `share`: títulos, repositório, branch e etapa vazios; issue nula; texto e
-  tokens de abas nulos/vazios e status constante. IDs, aba ativa, dimensões e
-  audiência explícita continuam visíveis. `audience: null` é expandida para
-  membros com chave disponível antes de cifrar.
-- `note`/`note_reply`: texto vazio; citações e âncoras nulas. O ID persistido é
-  o ID do envelope, único no time. Menções e parentesco permanecem visíveis.
-- `note_resolve`: envelope autentica workspace e raiz. Storage conserva o
-  ciphertext original e acrescenta `resolution: { author, encrypted }`.
-- `write`: dados vazios, envelope somente para o dono.
-- Binário: envelope via frame `SNAPSHOT` unicast externo, sequência zero e
-  `more=false`. A caixa contém o frame binário original completo, inclusive
-  kind, sequência e destino. O destinatário só aceita sua aba anexada.
+- `share`: titles, repository, branch and stage empty; issue null; tab text and
+  tokens null/empty and a constant status. IDs, the active tab, dimensions and
+  the explicit audience stay visible. `audience: null` is expanded to members
+  with an available key before encrypting.
+- `note`/`note_reply`: empty text; quotes and anchors null. The persisted ID is
+  the envelope's ID, unique within the team. Mentions and parentage stay
+  visible.
+- `note_resolve`: the envelope authenticates the workspace and the root. Storage
+  keeps the original ciphertext and adds `resolution: { author, encrypted }`.
+- `write`: empty data, envelope for the owner only.
+- Binary: the envelope travels through an outer unicast `SNAPSHOT` frame, with
+  sequence zero and `more=false`. The box contains the complete original binary
+  frame, including kind, sequence and destination. The recipient accepts only
+  its own attached tab.
 
-`room.ts` recusa campos de conteúdo em claro, envelopes inválidos e binário
-legado. Parsers de domínio ainda aceitam payloads em claro para validação
-interna após decifrar; isso não autoriza o Worker a recebê-los no socket.
-`downForMember` envia somente a caixa daquele membro, inclusive nos agregados
-`welcome`, `notes` e `inbox`. Não há chaves privadas no relay.
+`room.ts` refuses cleartext content fields, invalid envelopes and legacy binary.
+Domain parsers still accept cleartext payloads for internal validation after
+decryption; that does not authorize the Worker to receive them on the socket.
+`downForMember` sends only that member's box, including in the `welcome`,
+`notes` and `inbox` aggregates. There are no private keys in the relay.
 
-## Autoridade e replay
+## Authority and replay
 
-O dono usa seu board para autorizar snapshot, live e fala recebida. Um anúncio
-ecoado pelo relay não altera a audiência local. Para shares remotos, o cliente
-persiste dono, chave, revisão e ID do último anúncio aceito; rejeita troca de
-dono e revisões antigas, permitindo repetir o mesmo anúncio na reconexão.
-Após aceitação manual de uma chave nova, a sequência daquele dono pode reiniciar.
+The owner uses their board to authorize the snapshot, the live stream and a
+received message. An announcement echoed by the relay does not change the local
+audience. For remote shares, the client persists the owner, key, revision and ID
+of the last accepted announcement; it rejects an owner change and old revisions,
+while allowing the same announcement to be repeated on reconnection. After a
+manual acceptance of a new key, that owner's sequence may restart.
 
-Falas remotas persistem ID e prazo antes de executar. Repetição, expiração,
-falha de gravação e relógio anterior ao último consumo bloqueiam a ação. Os
-recibos sobrevivem à reconexão e ao reinício. A validação local de cards
-continua obrigatória. Sequências de conversa tratam duplicatas de snapshot/live;
-o relay ainda pode omitir conteúdo ou apresentar histórico incompleto.
+Remote messages persist an ID and a deadline before executing. A repetition,
+expiration, write failure and a clock earlier than the last consumption block
+the action. The receipts survive reconnection and restart. Local card validation
+is still mandatory. Conversation sequences handle snapshot/live duplicates; the
+relay may still omit content or present an incomplete history.
 
-Uma fala autenticada de um companheiro cujo `person` é o dono da conversa
-chega ao agente com o texto original, como fala da própria pessoa. Colegas e
-times legados conservam o prefixo de autoria pelo time. Essa distinção usa o
-roster autorizado, nunca o nome ou um campo enviado livremente na mensagem.
+An authenticated message from a companion whose `person` is the conversation's
+owner reaches the agent with the original text, as a message from the person
+themselves. Peers and legacy teams keep the team's authorship prefix. That
+distinction uses the authorized roster, never the name or a field sent freely in
+the message.
 
-Comentários de colegas usam a última audiência autenticada que receberam.
-Omissão de uma atualização pelo relay pode atrasar revogação nesses remetentes.
-Conteúdo já recebido e snapshots previamente autorizados não são revogáveis.
+Peers' comments use the last authenticated audience they received. If the relay
+omits an update, revocation may be delayed for those senders. Content already
+received and previously authorized snapshots are not revocable.
 
-## Dispositivos companheiros
+## Companion devices
 
-`Member.person` é opcional e liga um dispositivo companheiro à matrícula da
-pessoa; membros primários e times legados não o têm. O Cloud entrega o campo
-no roster e o relay o valida (ID existente no mesmo roster, sem cadeias),
-persiste em `member:` e reemite em `welcome` e `presence`. Parsers antigos
-ignoram o campo.
+`Member.person` is optional and links a companion device to the person's
+membership; primary members and legacy teams do not have it. The Cloud delivers
+the field in the roster and the relay validates it (an ID present in the same
+roster, without chains), persists it under `member:` and re-emits it in
+`welcome` and `presence`. Old parsers ignore the field.
 
-Audiências, `share.audience` local e menções nomeiam pessoas. Antes de cifrar,
-o cliente expande cada pessoa nos seus dispositivos com chave: as caixas, a
-audiência publicada no relay e as `mentions` do frame passam a listar
-dispositivos, de modo que o relay aplica `watch`, `attach`, `write` e inbox
-por dispositivo sem conhecer a regra. O dono admite `watch` e `write` de um
-dispositivo pela pessoa a que ele pertence. TOFU, recibos e códigos de
-segurança continuam por dispositivo. Decisão e limites no
+Audiences, the local `share.audience` and mentions name people. Before
+encrypting, the client expands each person into their devices that have a key:
+the boxes, the audience published in the relay and the frame's `mentions` come
+to list devices, so the relay applies `watch`, `attach`, `write` and inbox per
+device without knowing the rule. The owner accepts `watch` and `write` from a
+device through the person it belongs to. TOFU, receipts and security codes stay
+per device. Decision and limits in
 [ADR 0027](../decisions/0027-companion-devices.md).
 
-Dispositivos companheiros do dono entram nos destinatários somente quando o
-`Workspace.remote_control` local está ativo. Essa permissão não atravessa o
-protocolo: o frame externo já contém audiência explícita por dispositivo. Uma
-audiência local vazia permite um share destinado somente aos dispositivos do
-dono. Veja o [ADR 0030](../decisions/0030-remote-control.md).
+The owner's companion devices enter the recipient list only when the local
+`Workspace.remote_control` is active. That permission does not cross the
+protocol: the outer frame already contains an explicit per-device audience. An
+empty local audience allows a share aimed only at the owner's devices. See
+[ADR 0030](../decisions/0030-remote-control.md).
 
-## Persistência, limites e compatibilidade
+## Persistence, limits and compatibility
 
-Credenciais e metadados de matrícula preservam suas chaves de storage. Estado
-de colaboração v4 usa prefixo `v4:`; somente esse prefixo é hidratado. Dados
-v3 permanecem preservados e invisíveis ao novo cliente. Compartilhamentos
-locais já consentidos são anunciados cifrados ao reconectar. Comentários antigos
-não são convertidos nem redistribuídos automaticamente.
+Credentials and enrollment metadata preserve their storage keys. v4
+collaboration state uses the `v4:` prefix; only that prefix is hydrated. v3 data
+stays preserved and invisible to the new client. Local shares already consented
+to are announced encrypted on reconnection. Old comments are not converted or
+redistributed automatically.
 
-Limites ficam no protocolo: até 64 membros, JSON de entrada de 2 MiB, binário
-de 1 MiB, agregados de saída de 16 MiB e 16 MiB por janela de 10 segundos.
-Cada caixa possui limite de 1 MiB de texto cifrado. A fila criptográfica do app
-é limitada a 16 MiB. Snapshots usam partes de 128 Ki caracteres, com limites
-binários conferidos após a expansão. TTL de comentários continua 90 dias,
-com retenção de threads e quotas de contagem existentes. Ciphertext persistido
-é limitado a 1536 KiB por share/comentário (incluindo resolução), 4 MiB no
-conjunto de shares e 8 MiB no conjunto de comentários por time. A inbox guarda
-somente a caixa do próprio destinatário. Esses limites contêm expansão por
-destinatário e deixam margem para metadados abaixo do limite de linha do
-[storage SQLite do Durable Object](https://developers.cloudflare.com/durable-objects/platform/limits/).
+The limits live in the protocol: up to 64 members, a 2 MiB input JSON, 1 MiB
+binary, 16 MiB output aggregates and 16 MiB per 10-second window. Each box has a
+1 MiB limit of ciphertext. The app's cryptographic queue is limited to 16 MiB.
+Snapshots use 128 Ki-character parts, with binary limits checked after
+expansion. The comment TTL is still 90 days, with the existing thread retention
+and count quotas. Persisted ciphertext is limited to 1536 KiB per
+share/comment (including resolution), 4 MiB across the set of shares and 8 MiB
+across the set of comments per team. The inbox stores only the recipient's own
+box. These limits contain per-recipient expansion and leave room for metadata
+below the row limit of the
+[Durable Object SQLite storage](https://developers.cloudflare.com/durable-objects/platform/limits/).
 
-V3 e v4 não negociam downgrade. Publicar Worker compatível precede distribuir
-o desktop. Um rollback v3 conserva dados v4, mas restaura conteúdo em claro
-na colaboração v3; veja os limites e a operação no ADR 0022.
+V3 and v4 do not negotiate a downgrade. Publishing a compatible Worker precedes
+distributing the desktop. A v3 rollback keeps v4 data, but restores cleartext
+content in v3 collaboration; see the limits and the operation in ADR 0022.
 
-## Evidência
+## Evidence
 
-`team-crypto.test.ts`, `team-security.test.ts` e `team-channel.test.ts` verificam
-a fronteira do cliente com criptografia real. `protocol.test.ts` e
-`logic.test.ts` verificam contratos e regras do relay. O Worker local real é
-exercitado em `relay/src/worker.integration.test.ts`, e o mock web usa o mesmo
-canal cifrado para os fluxos E2E. Não houve auditoria de segurança independente.
-`team-organizations.test.ts` cobre renovação no mesmo socket, descarte após troca
-de organização e autoria de companheiros; o Worker real cobre expiração e
-rejeição de tickets de renovação inválidos.
+`team-crypto.test.ts`, `team-security.test.ts` and `team-channel.test.ts` check
+the client's boundary with real cryptography. `protocol.test.ts` and
+`logic.test.ts` check the relay's contracts and rules. The real local Worker is
+exercised in `relay/src/worker.integration.test.ts`, and the web mock uses the
+same encrypted channel for the E2E flows. There has been no independent security
+audit. `team-organizations.test.ts` covers renewal on the same socket, discarding
+after an organization switch and companion authorship; the real Worker covers
+expiration and the rejection of invalid renewal tickets.
 
 ## Bounded HTTP bodies
 

@@ -1,125 +1,126 @@
-# Persistência local
+# Local persistence
 
-Status: contrato atual.
+Status: current contract.
 
-## Princípios
+## Principles
 
-- A sessão lógica sobrevive ao processo do agente.
-- Estado e credenciais ficam fora dos worktrees.
-- Apagar um worktree não apaga o histórico da conversa.
-- Arquivos sensíveis nascem privados: diretórios `0700` e arquivos `0600` em
-  plataformas Unix.
-- Reescrita de estado usa arquivo temporário, sync e rename para não expor um
-  arquivo truncado após falha.
-- Formatos antigos ganham defaults e migrações; não são descartados por falta
-  de campos novos.
+- The logical session outlives the agent process.
+- State and credentials stay outside the worktrees.
+- Deleting a worktree does not delete the conversation history.
+- Sensitive files are born private: `0700` directories and `0600` files on Unix
+  platforms.
+- State rewriting uses a temporary file, sync and rename so a truncated file is
+  never exposed after a failure.
+- Old formats get defaults and migrations; they are not discarded for missing
+  new fields.
 
-## Raiz do app
+## App root
 
-Em release, a raiz padrão é `~/.prometeu`. Em debug, `~/.prometeu-dev`.
-`PROMETEU_ROOT` pode substituir a raiz, principalmente em testes e instâncias
-isoladas.
+In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
+`PROMETEU_ROOT` can replace the root, mainly in tests and isolated instances.
 
-| Dado | Caminho | Ownership |
+| Data | Path | Ownership |
 | --- | --- | --- |
-| quadro | `<root>/board.json` | `state.rs` |
-| backup do quadro | ao lado de `board.json` | `state.rs` |
-| time e credencial | `<root>/team.json` | `team.rs` |
-| identidades E2EE, vínculos TOFU e replay | `<root>/team-security.json` | `team.rs` (arquivo), `team-security.ts` (schema interno) |
-| conta opcional do Prometeu | `<root>/cloud.json` | `cloud.rs`; ver [contrato](cloud-account.md) |
-| cache e vínculos do catálogo na nuvem | `<root>/catalog.json` (`catalog.local.json` é backup legado) | `catalog.rs`; ver [contrato](cloud-catalog.md) |
-| skills instaladas e pacotes | `<root>/skills.json`, `<root>/skills-packages/<id>/` | `skills.rs`; ver [catálogo](cloud-catalog.md) |
-| contas e seleção por provider | `<root>/accounts.json` | `accounts.rs` |
-| perfis autenticados adicionais | `<root>/accounts/<uuid>/` | adapters Claude e Codex |
-| último snapshot de cotas por conta | `<root>/usage.json` | `usage.rs` |
-| transcript V1 do Codex | `<root>/chats/<tab>.jsonl` | `chat.rs` |
-| arquivos recebidos por promessa nativa | `<root>/attachments/<uuid>/<nome>` | `file_drop.rs`; diretório privado `0700`, arquivo `0600` |
-| imagem colada da área de transferência | `<root>/attachments/<uuid>/pasted.png` | `file_drop.rs`; mesma pasta e permissões, TIFF convertido para PNG |
-| hub de plugins | `<root>/plugins.json` | `plugins.rs` |
-| home/marketplace Codex derivado | `<root>/codex-workspaces/<workspace-hash>/[<conta>/]` | `plugins.rs`; reconstruível |
+| board | `<root>/board.json` | `state.rs` |
+| board backup | next to `board.json` | `state.rs` |
+| team and credential | `<root>/team.json` | `team.rs` |
+| E2EE identities, TOFU links and replay | `<root>/team-security.json` | `team.rs` (file), `team-security.ts` (internal schema) |
+| optional Prometeu account | `<root>/cloud.json` | `cloud.rs`; see the [contract](cloud-account.md) |
+| cloud catalog cache and links | `<root>/catalog.json` (`catalog.local.json` is a legacy backup) | `catalog.rs`; see the [contract](cloud-catalog.md) |
+| installed skills and packages | `<root>/skills.json`, `<root>/skills-packages/<id>/` | `skills.rs`; see the [catalog](cloud-catalog.md) |
+| accounts and per-provider selection | `<root>/accounts.json` | `accounts.rs` |
+| additional authenticated profiles | `<root>/accounts/<uuid>/` | Claude and Codex adapters |
+| last quota snapshot per account | `<root>/usage.json` | `usage.rs` |
+| Codex V1 transcript | `<root>/chats/<tab>.jsonl` | `chat.rs` |
+| files received through a native promise | `<root>/attachments/<uuid>/<name>` | `file_drop.rs`; private `0700` directory, `0600` file |
+| image pasted from the clipboard | `<root>/attachments/<uuid>/pasted.png` | `file_drop.rs`; same folder and permissions, TIFF converted to PNG |
+| plugin hub | `<root>/plugins.json` | `plugins.rs` |
+| derived Codex home/marketplace | `<root>/codex-workspaces/<workspace-hash>/[<account>/]` | `plugins.rs`; rebuildable |
 
-Worktrees ficam em `~/prometeu/worktrees[-dev]/...`, fora da raiz de estado.
+Worktrees live in `~/prometeu/worktrees[-dev]/...`, outside the state root.
 
-Arquivos prometidos (como a miniatura de uma captura) são materializados pelo
-AppKit em um diretório novo por gesto, sem sobrescrever anexos anteriores.
-O backend só entrega à UI arquivos existentes dentro desse diretório.
-Não são removidos ao enviar a fala, encerrar a sessão ou apagar o worktree,
-pois o transcript pode referenciar seus caminhos. Não há limpeza automática
-nesta etapa. Arquivos normais do Finder continuam usando seus caminhos originais.
-Essa pasta é aditiva: rollback ignora a pasta e preserva os caminhos já enviados;
-nenhum formato existente exige migração.
+Promised files (such as a capture's thumbnail) are materialized by AppKit in a
+new directory per gesture, without overwriting previous attachments. The backend
+only delivers to the UI files that exist inside that directory. They are not
+removed when the message is sent, when the session ends or when the worktree is
+deleted, because the transcript may reference their paths. There is no automatic
+cleanup at this stage. Ordinary Finder files still use their original paths.
+That folder is additive: a rollback ignores the folder and preserves the paths
+already sent; no existing format requires migration.
 
-O Prometeu não procura nem escreve nas raízes do Prometheus. Worktrees
-adotados na migração antiga continuam em `~/prometheus/worktrees`; a limpeza de
-um workspace multi-repo ainda aceita esse caminho, e os dois aplicativos não
-devem operar a mesma pasta ao mesmo tempo.
+Prometeu neither looks for nor writes in the Prometheus roots. Worktrees adopted
+in the old migration remain in `~/prometheus/worktrees`; cleaning up a multi-repo
+workspace still accepts that path, and the two applications must not operate on
+the same folder at the same time.
 
-## Preferência de som removida
+## Removed sound preference
 
-A chave legada `prometeu:som` do localStorage deixa de ser lida ou escrita.
-Se existir, permanece inerte; não há migração nem alteração de board ou
-transcripts. Veja [ADR 0029](../decisions/0029-remove-alert-sound.md).
+The legacy `prometeu:som` localStorage key is no longer read or written. If it
+exists, it stays inert; there is no migration and no change to the board or
+transcripts. See [ADR 0029](../decisions/0029-remove-alert-sound.md).
 
-## Segurança da colaboração
+## Collaboration security
 
-`team-security.json` é aditivo, privado (`0600` em diretório `0700`), com escrita
-atômica e limite de 8 MiB. O envelope é `{ version: 1, scopes: { ... } }`.
-Cada escopo combina origem, organização/time, conta Cloud local e matrícula.
-Contém identidade P-256 (JWK privada e chave pública), vínculos de membros,
-sequência de anúncios, último dono/chave/revisão/ID por share, recibos de falas
-remotas e relógio do último consumo. Limites: 64 vínculos, 4096 shares e 4096
-recibos não expirados por escopo. Recibos expiram em até dois minutos.
+`team-security.json` is additive, private (`0600` in a `0700` directory), with
+atomic writes and an 8 MiB limit. The envelope is
+`{ version: 1, scopes: { ... } }`. Each scope combines the origin, the
+organization/team, the local Cloud account and the membership. It contains a
+P-256 identity (private JWK and public key), member links, the announcement
+sequence, the last owner/key/revision/ID per share, receipts for remote messages
+and the clock of the last consumption. Limits: 64 links, 4096 shares and 4096
+unexpired receipts per scope. Receipts expire within two minutes.
 
-Criação da identidade, primeiro vínculo, aceitação de chave, revisão e recibo
-são gravados antes do uso correspondente. Corrupção, versão desconhecida e
-falha de leitura/gravação bloqueiam colaboração; não regeneram chaves em
-silêncio. Saída do time, troca de organização, logout e renovação de ticket
-não removem o arquivo. As operações da webview são serializadas; a escrita
-Rust usa o mesmo lock durante leitura/validação/gravação.
+Identity creation, the first link, key acceptance, a revision and a receipt are
+written before the corresponding use. Corruption, an unknown version and a
+read/write failure block collaboration; they do not silently regenerate keys.
+Leaving the team, switching organizations, logging out and renewing a ticket do
+not remove the file. The webview's operations are serialized; the Rust write
+uses the same lock during read/validation/write.
 
-O arquivo contém segredos e não é backup cifrado nem chave de conteúdo no
-servidor. Perdê-lo perde continuidade de TOFU e acesso aos comentários cifrados
-para a identidade antiga. Um novo dispositivo exige aceitação da nova chave
-pelos colegas. Rollback ignora e preserva o arquivo; nunca o converte em
-credenciais v3. O mock de navegador guarda somente identidades fictícias em
-localStorage e exercita o mesmo canal criptográfico.
+The file contains secrets and is neither an encrypted backup nor a content key
+on the server. Losing it loses TOFU continuity and access to the encrypted
+comments for the old identity. A new device requires peers to accept the new
+key. A rollback ignores and preserves the file; it never converts it into v3
+credentials. The browser mock stores only fictional identities in localStorage
+and exercises the same cryptographic channel.
 
-Testes: `src/team-security.test.ts` e testes de `src-tauri/src/team.rs`.
-Contrato de rede e limites: [relay v4](relay-v4.md).
+Tests: `src/team-security.test.ts` and the `src-tauri/src/team.rs` tests.
+Network contract and limits: [relay v4](relay-v4.md).
 
 ## Board
 
-`Board` contém projetos, estágios, workspaces e o catálogo opcional `actions`.
-`Tab.task` guarda configuração resolvida e cursores das tarefas. Ausência desses
-campos mantém as sessões anteriores. O catálogo recebe Code review uma única
-vez, registrada em `actions.defaults_initialized`; ver [ações](actions.md). `Workspace` contém repositórios,
-branch, worktree, configuração de agente, MCP/plugins, compartilhamento e abas.
-`Tab.tokens` guarda uma estimativa incremental dos tokens usados na conversa;
-`Tab.context_tokens` guarda o último contexto observado para somar somente o
-crescimento. Quando o contexto cai após compactação, o novo valor inicia outro
-trecho e soma ao total. Boards antigos sem `context_tokens` tratam `tokens` como
-total e cursor inicial, sem duplicar o valor. A aba também contém identidade,
-status, fala pendente, override de modelo e identidade externa usada para
-resume quando necessário. `Tab.title` vazio é aba sem nome: a interface mostra
-o modelo com quem ela fala. Boards antigos com o nome inventado `conversa` ou
-`conversa N` são normalizados para vazio ao carregar.
+`Board` contains projects, stages, workspaces and the optional `actions`
+catalog. `Tab.task` stores the resolved configuration and the tasks' cursors.
+The absence of those fields keeps previous sessions working. The catalog
+receives Code review exactly once, recorded in `actions.defaults_initialized`;
+see [actions](actions.md). `Workspace` contains repositories, branch, worktree,
+agent configuration, MCP/plugins, sharing and tabs. `Tab.tokens` stores an
+incremental estimate of the tokens used in the conversation;
+`Tab.context_tokens` stores the last observed context so only the growth is
+added. When the context drops after compaction, the new value starts another
+segment and adds to the total. Old boards without `context_tokens` treat
+`tokens` as the total and the initial cursor, without duplicating the value. The
+tab also contains identity, status, pending message, model override and the
+external identity used for resume when needed. An empty `Tab.title` is an
+unnamed tab: the interface shows the model it talks to. Old boards with the
+invented name `conversa` or `conversa N` are normalized to empty on load.
 
-Remover um projeto tira somente seu cadastro do quadro. Repositório, worktrees
-e conversas não são apagados; workspaces ligados a ele aparecem em **Sem
-projeto**. Ao carregar, somente workspaces legados sem o campo `project`
-reconstituem o cadastro. Um id explícito sem projeto correspondente preserva a
-remoção.
+Removing a project only takes its registration out of the board. The repository,
+worktrees and conversations are not deleted; workspaces linked to it appear
+under **No project**. On load, only legacy workspaces without the `project`
+field rebuild the registration. An explicit id without a matching project
+preserves the removal.
 
-Ao carregar:
+On load:
 
-- valores de enum desconhecidos caem em estado seguro quando declarado por
+- unknown enum values fall back to a safe state when declared by
   `serde(other)`;
-- campos adicionados usam `serde(default)`;
-- aliases preservam nomes antigos durante migração;
-- estados runtime são reconciliados: processos não sobrevivem ao app.
+- added fields use `serde(default)`;
+- aliases preserve old names during migration;
+- runtime states are reconciled: processes do not survive the app.
 
-Mudança que remove, renomeia ou altera semântica de campo persistido exige teste
-com JSON da versão anterior.
+A change that removes, renames or alters the semantics of a persisted field
+requires a test with JSON from the previous version.
 
 ## Ordered board publication
 
@@ -138,75 +139,79 @@ and `flush_keeps_saver_available_for_runtime_publications`).
 No board fields or serialization change. See
 [ADR 0023](../decisions/0023-ordered-publication.md).
 
-## Plugins derivados
+## Derived plugins
 
-O hub é a fonte de verdade do Prometeu. A cópia e o marketplace sob
-`<root>/codex-workspaces/<workspace-hash>/marketplace/` são cache: carregam um
-hash da origem, podem ser recriados e não entram no board. O mesmo diretório
-contém um `config.toml` derivado que herda a configuração real e conserva a
-confiança e o estado ativo dos hooks daquele workspace. A camada da conta original permanece nesse caminho;
-contas gerenciadas recebem um subdiretório próprio. As demais entradas do
-`CODEX_HOME` apontam para o perfil capturado no spawn. Cada perfil mantém sua
-credencial, enquanto sessões, skills e cache de plugins continuam compartilhados. A configuração global não recebe marketplace nem
-ativação do Prometeu. Remover o workspace do quadro ou devolver seu worktree
-apaga essa camada derivada, sem seguir os links para o estado compartilhado. O
-contrato completo está em
+The hub is Prometeu's source of truth. The copy and the marketplace under
+`<root>/codex-workspaces/<workspace-hash>/marketplace/` are a cache: they carry
+a hash of the source, can be recreated and do not enter the board. The same
+directory contains a derived `config.toml` that inherits the real configuration
+and keeps the trust and the active hook state of that workspace. The original
+account's layer stays at that path; managed accounts get their own
+subdirectory. The remaining `CODEX_HOME` entries point to the profile captured
+at spawn. Each profile keeps its own credential, while sessions, skills and the
+plugin cache stay shared. The global configuration receives neither Prometeu's
+marketplace nor its activation. Removing the workspace from the board or
+returning its worktree deletes that derived layer, without following the links
+to the shared state. The complete contract is in
 [`plugin-marketplace.md`](plugin-marketplace.md).
 
-## Cotas
+## Quotas
 
-`usage.json` guarda por ID local de conta as janelas conhecidas e o instante
-da última mudança. As chaves antigas `claude` e `codex` continuam identificando
-os perfis originais, sem reescrever caches anteriores. O cadastro e a seleção
-global estão em [`accounts.md`](accounts.md); não entram no board nem no relay. Cada janela tem tipo, percentual e reset. `scope` e `label` são
-opcionais: snapshots antigos sem esses campos continuam sendo uma única cota;
-snapshots novos usam `scope` para manter separadas cotas gerais e buckets de
-modelo ou feature. O arquivo é cache: uma leitura válida do provider substitui
-o conteúdo persistido.
+`usage.json` stores, per local account ID, the known windows and the timestamp
+of the last change. The old `claude` and `codex` keys still identify the
+original profiles, without rewriting previous caches. The registry and the
+global selection are in [`accounts.md`](accounts.md); they do not enter the
+board or the relay. Each window has a kind, a percentage and a reset. `scope`
+and `label` are optional: old snapshots without those fields are still a single
+quota; new snapshots use `scope` to keep general quotas and model or feature
+buckets separate. The file is a cache: a valid read from the provider replaces
+the persisted content.
 
 ## Transcripts
 
 ### Claude
 
-O Claude Code grava em `~/.claude/projects/<slug-do-cwd>/<tab>.jsonl`, ou no
-`projects` do `CLAUDE_CONFIG_DIR` original quando configurado. Perfis de contas
-gerenciadas compartilham esse diretório por link; a seleção não muda o caminho
-da conversa. A pasta deriva do caminho do worktree. O arquivo pode não existir até a primeira fala.
+Claude Code writes in `~/.claude/projects/<cwd-slug>/<tab>.jsonl`, or in the
+`projects` of the original `CLAUDE_CONFIG_DIR` when configured. Managed account
+profiles share that directory through a link; the selection does not change the
+conversation's path. The folder derives from the worktree's path. The file may
+not exist until the first message.
 
 ### Codex
 
-O rollout nativo do Codex não é usado pela UI. O Prometeu grava os eventos V1
-mostrados em `<root>/chats/<tab>.jsonl`; `Tab.agent_session` guarda a thread
-opaca necessária para `thread/resume`.
+Codex's native rollout is not used by the UI. Prometeu writes the displayed V1
+events in `<root>/chats/<tab>.jsonl`; `Tab.agent_session` stores the opaque
+thread required for `thread/resume`.
 
-### Compatibilidade
+### Compatibility
 
-Leitura é tolerante a começo cortado e linhas inválidas isoladas. O buffer em
-memória tem teto e corta somente em fronteira de linha. Eventos efêmeros de
-streaming podem ser numerados sem serem persistidos quando a forma completa os
-substitui.
+Reading tolerates a truncated beginning and isolated invalid lines. The
+in-memory buffer has a ceiling and truncates only at a line boundary. Ephemeral
+streaming events may be numbered without being persisted when the complete form
+replaces them.
 
-`ConversationEventV1` mantém leitura do stream-json legado. Não há migração
-destrutiva em lugar. O leitor reconhece e ignora a marca histórica
-`prometheusV1Mirror`, necessária para uma importação futura de logs do produto
-anterior; logs novos do Prometeu gravam somente o evento V1 canônico.
+`ConversationEventV1` keeps reading the legacy stream-json. There is no
+destructive in-place migration. The reader recognizes and ignores the historical
+`prometheusV1Mirror` mark, needed for a future import of the previous product's
+logs; Prometeu's new logs write only the canonical V1 event.
 
-## Segredos e logs
+## Secrets and logs
 
-Prompts, outputs, tool results e credenciais podem conter segredo. Não envie
-transcripts para telemetria e não imprima tokens/configurações completas em
-logs. Erros podem registrar caminho e causa, mas nunca conteúdo ou credencial.
+Prompts, outputs, tool results and credentials may contain secrets. Do not send
+transcripts to telemetry and do not print complete tokens/configurations in
+logs. Errors may record the path and the cause, but never content or a
+credential.
 
-## Escopo de compartilhamento
+## Sharing scope
 
-`Workspace.share_team` é opcional e prende o consentimento à organização e
-matrícula (`organization:<id>:<member>`), ou ao time legado (`team:<id>`).
-Ausência autoriza somente o caminho legado. `team.json` aceita o campo `cloud`
-com identidade, origem e organização; tickets não são gravados. Antes de
-substituir configuração legada, `team.rs` grava `team-legacy-<uuid>.json` privado.
-Ver [migração e rollback](cloud-organizations.md).
+`Workspace.share_team` is optional and binds the consent to the organization and
+membership (`organization:<id>:<member>`), or to the legacy team (`team:<id>`).
+Its absence authorizes only the legacy path. `team.json` accepts the `cloud`
+field with identity, origin and organization; tickets are not written. Before
+replacing a legacy configuration, `team.rs` writes a private
+`team-legacy-<uuid>.json`. See [migration and rollback](cloud-organizations.md).
 
-`Workspace.remote_control`, falso por padrão, registra consentimento para os
-dispositivos companheiros do dono. Ele é independente de `audience`: uma lista
-vazia representa controle remoto sem audiência de time. Desligar o último tipo
-de acesso também limpa `shared`, `share_team` e `audience`.
+`Workspace.remote_control`, false by default, records consent for the owner's
+companion devices. It is independent of `audience`: an empty list represents
+remote control without a team audience. Turning off the last kind of access also
+clears `shared`, `share_team` and `audience`.

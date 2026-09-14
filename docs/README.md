@@ -1,121 +1,121 @@
-# Documentação do Prometeu
+# Prometeu documentation
 
-Este diretório é a fonte de verdade técnica do projeto. `AGENTS.md` funciona
-como índice curto para agentes e `README.md` apresenta o produto.
+This directory is the project's technical source of truth. `AGENTS.md` works
+as a short index for agents and `README.md` presents the product.
 
-## Arquitetura
+## Architecture
 
-- [Design System](architecture/design-system.md): tokens, componentes, galeria e adoção incremental.
+- [Design System](architecture/design-system.md): tokens, components, gallery and incremental adoption.
 
-- [`../ARCHITECTURE.md`](../ARCHITECTURE.md): mapa geral do sistema.
+- [`../ARCHITECTURE.md`](../ARCHITECTURE.md): overall system map.
 - [`architecture/conversation-flow.md`](architecture/conversation-flow.md):
-  caminho de uma conversa e ownership do estado.
+  the path of a conversation and state ownership.
 - [`architecture/dependency-rules.md`](architecture/dependency-rules.md):
-  regras entre apresentação, aplicação, domínio e adapters.
+  rules between presentation, application, domain and adapters.
 
-## Contratos
+## Contracts
 
-- [Browser e contexto visual](contracts/browser.md): preview, inspeção, capturas e envio ao rascunho.
+- [Browser and visual context](contracts/browser.md): preview, inspection, captures and sending to the draft.
 
-- [Feedback privado](contracts/feedback.md): widget com conta, texto e imagens no GitHub privado.
+- [Private feedback](contracts/feedback.md): widget with account, text and images in a private GitHub repository.
 
-- [Organizações no Cloud](contracts/cloud-organizations.md): CRUD, convites, catálogos e acesso ao relay.
+- [Organizations in the Cloud](contracts/cloud-organizations.md): CRUD, invitations, catalogs and relay access.
 
-- [Catálogo na conta Prometeu](contracts/cloud-catalog.md): plugins, MCP e skills gerenciados no SaaS, com itens privados e compartilhamento explícito no desktop.
-- [Conta opcional do Prometeu](contracts/cloud-account.md): SaaS, autenticação
-  pelo navegador, conexão do desktop e persistência privada.
+- [Catalog in the Prometeu account](contracts/cloud-catalog.md): plugins, MCP and skills managed in the SaaS, with private items and explicit sharing on the desktop.
+- [Optional Prometeu account](contracts/cloud-account.md): SaaS, browser-based
+  authentication, desktop connection and private persistence.
 
-- [Ações reutilizáveis](contracts/actions.md): comandos, perfis e acompanhamento local de PR.
-- [`contracts/accounts.md`](contracts/accounts.md): contas, login, seleção
-  global e isolamento de cotas dos agentes.
+- [Reusable actions](contracts/actions.md): commands, profiles and local PR tracking.
+- [`contracts/accounts.md`](contracts/accounts.md): accounts, login, global
+  selection and quota isolation between agents.
 
 - [`contracts/conversation-events-v1.md`](contracts/conversation-events-v1.md):
-  protocolo canônico pertencente ao Prometeu.
-- [`contracts/agent-runtime.md`](contracts/agent-runtime.md): descoberta,
-  capacidades e port de execução dos agentes.
+  canonical protocol owned by Prometeu.
+- [`contracts/agent-runtime.md`](contracts/agent-runtime.md): discovery,
+  capabilities and the agent execution port.
 - [`contracts/plugin-marketplace.md`](contracts/plugin-marketplace.md): hub,
-  pacote portátil e adaptação por provider.
-- [`contracts/ipc.md`](contracts/ipc.md): fronteira TypeScript/Rust.
-- [`contracts/git.md`](contracts/git.md): índice, worktree, revisão e operações Git.
-- [`contracts/persistence.md`](contracts/persistence.md): board e transcripts.
-- [`contracts/relay-v4.md`](contracts/relay-v4.md): colaboração cifrada e TOFU.
-- [`contracts/relay-v3.md`](contracts/relay-v3.md): histórico do protocolo sem E2EE.
+  portable package and per-provider adaptation.
+- [`contracts/ipc.md`](contracts/ipc.md): the TypeScript/Rust boundary.
+- [`contracts/git.md`](contracts/git.md): index, worktree, review and Git operations.
+- [`contracts/persistence.md`](contracts/persistence.md): board and transcripts.
+- [`contracts/relay-v4.md`](contracts/relay-v4.md): encrypted collaboration and TOFU.
+- [`contracts/relay-v3.md`](contracts/relay-v3.md): history of the protocol without E2EE.
 
-## Decisões
+## Decisions
 
 - [Decision index and lifecycle](decisions/README.md).
-- [ADR 0001](decisions/0001-repository-knowledge.md): conhecimento do repositório como fonte de verdade — Aceito.
-- [ADR 0002](decisions/0002-canonical-conversation-protocol.md): protocolo canônico de conversa — Aceito; espelho substituído.
-- [ADR 0003](decisions/0003-agent-capabilities.md): features dirigidas por capacidades — Aceito.
-- [ADR 0004](decisions/0004-prometeu-independent-identity.md): identidade independente do Prometeu — Aceito.
-- [ADR 0005](decisions/0005-portable-plugin-marketplace.md): marketplace portátil para Claude e Codex — Aceito.
-- [ADR 0006](decisions/0006-explicit-prometheus-import.md): importação explícita e não destrutiva do Prometheus — Aceito; importador removido.
-- [ADR 0007](decisions/0007-persistent-session-comments.md): comentários persistentes ao lado da sessão — Aceito.
-- [ADR 0008](decisions/0008-explicit-git-index.md): índice Git explícito e operações por repositório — Aceito.
-- [ADR 0009](decisions/0009-reusable-actions.md): comandos e agentes reutilizáveis com acompanhamento local — Aceito.
-- [ADR 0010](decisions/0010-default-code-review.md): Code review incluído uma vez, editável e removível — Aceito.
-- [ADR 0011](decisions/0011-shared-ui.md): primitivas compartilhadas de interface — Parcialmente substituído pelo 0016.
-- [ADR 0012](decisions/0012-provider-accounts.md): contas locais e seleção global por provider — Aceito.
-- [ADR 0013](decisions/0013-remove-provider-accounts.md): remoção de contas e seleção vazia — Aceito.
-- [ADR 0014](decisions/0014-optional-cloud-account.md): conta opcional e SaaS separado — Substituído (stack).
-- [ADR 0015](decisions/0015-cloud-rails.md): SaaS em Rails com contrato desktop preservado — Aceito.
-- [ADR 0016](decisions/0016-company-design-system.md): Design System distribuível para os produtos da empresa — Parcialmente substituído pelo 0017.
-- [ADR 0017](decisions/0017-executable-design-system.md): componentes executáveis e adaptador Rails do Design System — Aceito.
-- [ADR 0018](decisions/0018-native-file-promises.md): recebimento nativo de miniaturas e promessas de arquivos — Aceito.
-- [ADR 0019](decisions/0019-cloud-catalog.md): catálogo portátil de plugins, MCP e Ações na conta Prometeu — Substituído pelo 0020.
-- [ADR 0020](decisions/0020-personal-catalog-and-local-items.md): autoria no SaaS e compartilhamento explícito de itens locais — Parcialmente substituído pelo 0021.
-- [ADR 0021](decisions/0021-cloud-organizations.md): organizações, convites por email e colaboração autorizada pelo Cloud — Aceito.
-- [ADR 0022](decisions/0022-end-to-end-encryption.md): criptografia ponta a ponta, TOFU e limites de segurança — Aceito.
+- [ADR 0001](decisions/0001-repository-knowledge.md): repository knowledge as the source of truth — Accepted.
+- [ADR 0002](decisions/0002-canonical-conversation-protocol.md): canonical conversation protocol — Accepted; mirror superseded.
+- [ADR 0003](decisions/0003-agent-capabilities.md): capability-driven features — Accepted.
+- [ADR 0004](decisions/0004-prometeu-independent-identity.md): Prometeu's independent identity — Accepted.
+- [ADR 0005](decisions/0005-portable-plugin-marketplace.md): portable marketplace for Claude and Codex — Accepted.
+- [ADR 0006](decisions/0006-explicit-prometheus-import.md): explicit, non-destructive Prometheus import — Accepted; importer removed.
+- [ADR 0007](decisions/0007-persistent-session-comments.md): persistent comments alongside the session — Accepted.
+- [ADR 0008](decisions/0008-explicit-git-index.md): explicit Git index and per-repository operations — Accepted.
+- [ADR 0009](decisions/0009-reusable-actions.md): reusable commands and agents with local tracking — Accepted.
+- [ADR 0010](decisions/0010-default-code-review.md): Code review included once, editable and removable — Accepted.
+- [ADR 0011](decisions/0011-shared-ui.md): shared interface primitives — Partially superseded by 0016.
+- [ADR 0012](decisions/0012-provider-accounts.md): local accounts and global selection per provider — Accepted.
+- [ADR 0013](decisions/0013-remove-provider-accounts.md): removal of accounts and empty selection — Accepted.
+- [ADR 0014](decisions/0014-optional-cloud-account.md): optional account and separate SaaS — Superseded (stack).
+- [ADR 0015](decisions/0015-cloud-rails.md): SaaS in Rails with the desktop contract preserved — Accepted.
+- [ADR 0016](decisions/0016-company-design-system.md): distributable Design System for the company's products — Partially superseded by 0017.
+- [ADR 0017](decisions/0017-executable-design-system.md): executable components and Rails adapter for the Design System — Accepted.
+- [ADR 0018](decisions/0018-native-file-promises.md): native reception of thumbnails and file promises — Accepted.
+- [ADR 0019](decisions/0019-cloud-catalog.md): portable catalog of plugins, MCP and Actions in the Prometeu account — Superseded by 0020.
+- [ADR 0020](decisions/0020-personal-catalog-and-local-items.md): authoring in the SaaS and explicit sharing of local items — Partially superseded by 0021.
+- [ADR 0021](decisions/0021-cloud-organizations.md): organizations, email invitations and collaboration authorized by the Cloud — Accepted.
+- [ADR 0022](decisions/0022-end-to-end-encryption.md): end-to-end encryption, TOFU and security limits — Accepted.
 - [ADR 0023](decisions/0023-ordered-publication.md): ordered board publication and conversation delivery — Accepted.
 - [ADR 0024](decisions/0024-typed-ipc.md): command-owned IPC arguments and results — Accepted.
-- [ADR 0025](decisions/0025-completion-sound-per-execution.md): som de conclusão por execução aceita, independente da leitura — Parcialmente substituído pelo 0029.
-- [ADR 0026](decisions/0026-portable-collaboration-core.md): núcleo de colaboração portável e acesso pelo celular via relay — Aceito; etapas decididas nos ADRs 0027 e 0028.
-- [ADR 0027](decisions/0027-companion-devices.md): dispositivos companheiros no relay com campo aditivo `person` — Aceito; ampliado pelo 0036.
-- [ADR 0028](decisions/0028-mobile-web-app.md): Prometeu no celular como app web servido pelo Cloud — Aceito.
-- [ADR 0029](decisions/0029-remove-alert-sound.md): remoção dos avisos sonoros, preservando indicadores visuais — Aceito.
-- [ADR 0030](decisions/0030-remote-control.md): controle remoto pessoal independente da audiência do time — Aceito.
+- [ADR 0025](decisions/0025-completion-sound-per-execution.md): completion sound per accepted execution, independent of reading — Partially superseded by 0029.
+- [ADR 0026](decisions/0026-portable-collaboration-core.md): portable collaboration core and phone access through the relay — Accepted; stages decided in ADRs 0027 and 0028.
+- [ADR 0027](decisions/0027-companion-devices.md): companion devices in the relay with the additive `person` field — Accepted; extended by 0036.
+- [ADR 0028](decisions/0028-mobile-web-app.md): Prometeu on the phone as a web app served by the Cloud — Accepted.
+- [ADR 0029](decisions/0029-remove-alert-sound.md): removal of sound alerts, preserving visual indicators — Accepted.
+- [ADR 0030](decisions/0030-remote-control.md): personal remote control independent of the team audience — Accepted.
 
-- [ADR 0031](decisions/0031-public-feedback.md): feedback público pelo Cloud e GitHub Issues — Substituído pelo 0032.
+- [ADR 0031](decisions/0031-public-feedback.md): public feedback through the Cloud and GitHub Issues — Superseded by 0032.
 
-- [ADR 0032](decisions/0032-private-feedback.md): feedback privado no repositório do Cloud — Substituído pelo 0033.
-- [ADR 0033](decisions/0033-github-feedback-attachments.md): texto e imagens de feedback no GitHub — Substituído pelo 0035.
-- [ADR 0034](decisions/0034-mobile-pairing-continuity.md): renovação do relay sem desconexão e continuidade do pareamento móvel — Aceito.
-- [ADR 0035](decisions/0035-feedback-requires-account.md): feedback exige conta Prometeu — Aceito.
-- [ADR 0036](decisions/0036-second-mac-as-companion.md): segundo Mac da mesma conta entra como dispositivo companheiro — Aceito.
-- [ADR 0037](decisions/0037-browser-design-context.md): browser com contexto visual para a conversa — Aceito.
-- [ADR 0038](decisions/0038-browser-context-chips.md): elementos selecionados como tags na conversa — Aceito.
-- [ADR 0039](decisions/0039-organization-catalog-on-desktop.md): catálogos da organização disponíveis no desktop — Aceito.
-- [ADR 0040](decisions/0040-open-source.md): código aberto em um único repositório público — Aceito; substitui parcialmente o ADR 0004.
+- [ADR 0032](decisions/0032-private-feedback.md): private feedback in the Cloud repository — Superseded by 0033.
+- [ADR 0033](decisions/0033-github-feedback-attachments.md): feedback text and images in GitHub — Superseded by 0035.
+- [ADR 0034](decisions/0034-mobile-pairing-continuity.md): relay renewal without disconnection and mobile pairing continuity — Accepted.
+- [ADR 0035](decisions/0035-feedback-requires-account.md): feedback requires a Prometeu account — Accepted.
+- [ADR 0036](decisions/0036-second-mac-as-companion.md): a second Mac on the same account joins as a companion device — Accepted.
+- [ADR 0037](decisions/0037-browser-design-context.md): browser with visual context for the conversation — Accepted.
+- [ADR 0038](decisions/0038-browser-context-chips.md): selected elements as tags in the conversation — Accepted.
+- [ADR 0039](decisions/0039-organization-catalog-on-desktop.md): organization catalogs available on the desktop — Accepted.
+- [ADR 0040](decisions/0040-open-source.md): open source in a single public repository — Accepted; partially supersedes ADR 0004.
 
-## Qualidade e operação
+## Quality and operations
 
-- [`quality/provider-matrix.md`](quality/provider-matrix.md): suporte por agente
-  e evidência esperada.
-- [`operations/development.md`](operations/development.md): ambiente e testes.
-- [`operations/release.md`](operations/release.md): CI, versionamento e release.
+- [`quality/provider-matrix.md`](quality/provider-matrix.md): support per agent
+  and expected evidence.
+- [`operations/development.md`](operations/development.md): environment and tests.
+- [`operations/release.md`](operations/release.md): CI, versioning and release.
 
-## Regra de atualização
+## Update rule
 
-Uma mudança deve atualizar o documento que responde à pergunta afetada:
+A change must update the document that answers the affected question:
 
-- comportamento visível: `README.md` ou documentação da feature;
-- responsabilidade ou fluxo: arquitetura;
-- formato entre camadas: contrato;
-- escolha e trade-offs: ADR;
-- suporte por agente: matriz de providers;
-- build, teste ou publicação: operação.
+- visible behavior: `README.md` or the feature documentation;
+- responsibility or flow: architecture;
+- format between layers: contract;
+- choice and trade-offs: ADR;
+- support per agent: the provider matrix;
+- build, test or publication: operations.
 
-Documentação proposta deve declarar seu status. Ela não descreve o sistema
-atual até que a implementação correspondente seja aceita.
+Proposed documentation must declare its status. It does not describe the
+current system until the corresponding implementation is accepted.
 
-## Referências da abordagem
+## References for this approach
 
 - [OpenAI — Harness engineering](https://openai.com/index/harness-engineering/):
-  `AGENTS.md` curto como mapa e `docs/` versionado como fonte de verdade.
-- [AGENTS.md](https://agents.md/): formato comum de instruções para agentes.
+  a short `AGENTS.md` as the map and a versioned `docs/` as the source of truth.
+- [AGENTS.md](https://agents.md/): common instruction format for agents.
 - [Claude Code — project memory](https://code.claude.com/docs/en/memory):
-  instruções concisas e escopadas no repositório.
-- [C4 Model](https://c4model.com/diagrams): contexto e containers para o mapa
-  arquitetural.
+  concise instructions scoped to the repository.
+- [C4 Model](https://c4model.com/diagrams): context and containers for the
+  architectural map.
 - [AWS — Architecture Decision Records](https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/adr-process.html):
-  contexto, decisão, consequências e ciclo de vida de ADRs.
+  context, decision, consequences and ADR lifecycle.

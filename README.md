@@ -210,14 +210,14 @@ Bug reports, documentation improvements, and code contributions are welcome.
 
 Write code comments and doc comments in English. UI text belongs in the
 Portuguese and English i18n catalogs. Commits follow **Conventional Commits in
-Portuguese**, with a lowercase description and no trailing period:
+English**, with a lowercase description and no trailing period:
 
 ```text
-docs(readme): melhora as instruções para novos colaboradores
+docs(readme): improve the instructions for new contributors
 ```
 
-Commits of type `feat`, `fix`, `perf`, or `revert` also need a
-`Release-EN` footer containing the public release note in English. See the
+The description of a `feat`, `fix`, or `perf` commit becomes a changelog line,
+so write what the person using the app sees. See the
 [commit and release guide](docs/operations/release.md) for examples and rules.
 The local commit hook and CI validate commit messages.
 
@@ -227,8 +227,6 @@ Prometeu account and delivers reports privately to the Prometeu team. See the
 [feedback contract](docs/contracts/feedback.md).
 
 ## Documentation
-
-Most detailed project documentation is currently in Portuguese.
 
 - [Documentation index](docs/README.md): contracts, decisions, and operations.
 - [Architecture](ARCHITECTURE.md): system boundaries and code ownership.
