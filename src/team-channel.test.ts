@@ -199,16 +199,16 @@ describe("canal ponta a ponta integrado ao relay", () => {
     await expect(t.carol.incoming(valid)).rejects.toThrow();
   });
 
-  it("bloqueia identidade substituída e não aceita relay sem negociação E2EE", async () => {
+  it("adota identidade substituída e não aceita relay sem negociação E2EE", async () => {
     const t = await team();
     await t.send("alice", { t: "share", share: shared });
     const impostor = await generateIdentity();
     const changed = members(t.relay).map(member => member.id === "bob" ? { ...member, key: impostor.publicKey } : member);
     await t.alice.incoming({ t: "presence", members: changed });
-    expect(t.alice.security.changedKeys()).toHaveLength(1);
+    // Bob reinstalled: the new key replaces the pin and sharing keeps working without manual acceptance.
     const wire = await t.alice.outgoing({ t: "share", share: shared });
-    expect(wire.t === "share" && wire.share.encrypted?.boxes.bob).toBeUndefined();
-    await expect(t.alice.outgoingBinary(encodeSnapshot("tab", "bob", 1, encoder.encode(privateText)), ["bob"])).rejects.toThrow();
+    expect(wire.t === "share" && wire.share.encrypted?.boxes.bob).toBeDefined();
+    await expect(t.alice.outgoingBinary(encodeSnapshot("tab", "bob", 1, encoder.encode(privateText)), ["bob"])).resolves.toHaveLength(1);
     const channel = new TeamChannel(t.bob.security, "organization", "bob");
     await expect(channel.incoming({ t: "welcome", you: "bob", members: [], shares: [], inbox: [], watching: {} })).rejects.toThrow("Relay lacks encryption");
     await expect(channel.outgoing({ t: "attach", ws: shared.id, tab: "tab" })).rejects.toThrow("Encryption not ready");

@@ -20,8 +20,8 @@ The Worker verifies possession before publishing `Member.key` or allowing
 traffic. Presence with the confirmed key ends the handshake. The Worker does not
 send other updates to a socket that has not identified itself yet.
 
-The directory is TOFU: the client records the first member/key link before use.
-Changes stay blocked until an explicit local acceptance. Missing keys receive no
+The client records each member/key link before use. A changed key replaces the
+link automatically, with no local acceptance ([ADR 0042](../decisions/0042-automatic-key-rotation.md)). Missing keys receive no
 content and do not erase links. Renewing tickets does not reset TOFU.
 See [organizations](cloud-organizations.md) for leases and Cloud authorization.
 
@@ -112,8 +112,7 @@ encrypting, the client expands each person into their devices that have a key:
 the boxes, the audience published in the relay and the frame's `mentions` come
 to list devices, so the relay applies `watch`, `attach`, `write` and inbox per
 device without knowing the rule. The owner accepts `watch` and `write` from a
-device through the person it belongs to. TOFU, receipts and security codes stay
-per device. Decision and limits in
+device through the person it belongs to. Key links and receipts stay per device. Decision and limits in
 [ADR 0027](../decisions/0027-companion-devices.md).
 
 The owner's companion devices enter the recipient list only when the local

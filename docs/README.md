@@ -65,12 +65,12 @@ as a short index for agents and `README.md` presents the product.
 - [ADR 0019](decisions/0019-cloud-catalog.md): portable catalog of plugins, MCP and Actions in the Prometeu account — Superseded by 0020.
 - [ADR 0020](decisions/0020-personal-catalog-and-local-items.md): authoring in the SaaS and explicit sharing of local items — Partially superseded by 0021.
 - [ADR 0021](decisions/0021-cloud-organizations.md): organizations, email invitations and collaboration authorized by the Cloud — Accepted.
-- [ADR 0022](decisions/0022-end-to-end-encryption.md): end-to-end encryption, TOFU and security limits — Accepted.
+- [ADR 0022](decisions/0022-end-to-end-encryption.md): end-to-end encryption, TOFU and security limits — Accepted; partially superseded by 0042.
 - [ADR 0023](decisions/0023-ordered-publication.md): ordered board publication and conversation delivery — Accepted.
 - [ADR 0024](decisions/0024-typed-ipc.md): command-owned IPC arguments and results — Accepted.
 - [ADR 0025](decisions/0025-completion-sound-per-execution.md): completion sound per accepted execution, independent of reading — Partially superseded by 0029.
 - [ADR 0026](decisions/0026-portable-collaboration-core.md): portable collaboration core and phone access through the relay — Accepted; stages decided in ADRs 0027 and 0028.
-- [ADR 0027](decisions/0027-companion-devices.md): companion devices in the relay with the additive `person` field — Accepted; extended by 0036.
+- [ADR 0027](decisions/0027-companion-devices.md): companion devices in the relay with the additive `person` field — Accepted; extended by 0036, partially superseded by 0041.
 - [ADR 0028](decisions/0028-mobile-web-app.md): Prometeu on the phone as a web app served by the Cloud — Accepted.
 - [ADR 0029](decisions/0029-remove-alert-sound.md): removal of sound alerts, preserving visual indicators — Accepted.
 - [ADR 0030](decisions/0030-remote-control.md): personal remote control independent of the team audience — Accepted.
@@ -86,6 +86,8 @@ as a short index for agents and `README.md` presents the product.
 - [ADR 0038](decisions/0038-browser-context-chips.md): selected elements as tags in the conversation — Accepted.
 - [ADR 0039](decisions/0039-organization-catalog-on-desktop.md): organization catalogs available on the desktop — Accepted.
 - [ADR 0040](decisions/0040-open-source.md): open source in a single public repository — Accepted; partially supersedes ADR 0004.
+- [ADR 0041](decisions/0041-members-list-shows-people.md): the members list shows people and drops the permanent security code — Accepted.
+- [ADR 0042](decisions/0042-automatic-key-rotation.md): a peer's new key is adopted automatically, with no block or review — Accepted.
 
 ## Quality and operations
 

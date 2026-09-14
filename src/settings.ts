@@ -27,7 +27,7 @@ import * as team from "./team";
 import type { LinearStatus } from "./types";
 import { settingsRow } from "./update";
 import { $, h, template } from "./util";
-import { button, field, formDialog, select } from "./ui";
+import { button, field, select } from "./ui";
 
 /// Application preferences include Linear, updates, defaults, and interface language.
 /// Connection secrets remain in the backend; this view receives LinearStatus updates.
@@ -423,43 +423,21 @@ function teamRows(): HTMLElement[] {
     }, "ghost"));
     rows.push(legacy);
   }
-  if (st.members.length) {
+  // One chip per person: companion devices fold into their member and only lend it their online state.
+  const people = team.people();
+  if (people.length) {
+    const you = team.personOf(st.you);
     const list = h("div", "members");
-    for (const member of st.members) {
+    for (const member of people) {
       const chip = template("span", "mem" + (member.online ? "" : " off"), `${avatar(member.name)}<span class="nm"></span><i class="dot"></i>`);
-      chip.querySelector(".nm")!.textContent = member.id === st.you ? `${member.name} (${t("team.you")})` : member.name;
-      chip.title = member.online ? "" : t("team.offline");
+      chip.querySelector(".nm")!.textContent = member.id === you ? `${member.name} (${t("team.you")})` : member.name;
+      chip.title = t(member.online ? "team.online" : "team.offline");
       list.append(chip);
-      if (member.key) list.append(button(t("team.security.code"), () => {
-        void team.securityCode(member.id).then(code => {
-          const dialog = formDialog({ title: t("team.security.code"), save: t("team.security.close"), cancel: t("team.cancel"),
-            submit: async () => {}, error: fromBack });
-          dialog.body.append(h("p", "ui-hint", t("team.security.verify", { name: member.name })), h("p", "", code));
-          dialog.open();
-        }).catch(e => ctx.say(fromBack(e), true));
-      }, "ghost"));
     }
     const membersRow = h("div", "setrow");
     membersRow.append(h("b", "", t("team.members")), list);
     rows.push(membersRow);
   }
-  if (st.config) {
-    rows.push(h("p", "ui-hint", t("team.security.hint")));
-    for (const change of team.securityChanges()) {
-      const row = h("div", "setrow");
-      row.append(h("p", "ui-hint", t("team.security.changed", { name: team.nameOf(change.member) })),
-        button(t("team.security.review"), () => {
-          void team.securityChangeCodes(change.member).then(codes => {
-            const dialog = formDialog({ title: t("team.security.review"), save: t("team.security.accept"), cancel: t("team.cancel"),
-              submit: () => team.acceptSecurityKey(change.member, change.next), error: fromBack });
-            dialog.body.append(h("p", "ui-hint", t("team.security.changed", { name: team.nameOf(change.member) })),
-              h("p", "", t("team.security.previous", { code: codes.previous })),
-              h("p", "", t("team.security.next", { code: codes.next })));
-            dialog.open();
-          }).catch(e => ctx.say(fromBack(e), true));
-        }));
-      rows.push(row);
-    }
-  }
+  if (st.config) rows.push(h("p", "ui-hint", t("team.security.hint")));
   return rows;
 }

@@ -70,8 +70,8 @@ sequence, the last owner/key/revision/ID per share, receipts for remote messages
 and the clock of the last consumption. Limits: 64 links, 4096 shares and 4096
 unexpired receipts per scope. Receipts expire within two minutes.
 
-Identity creation, the first link, key acceptance, a revision and a receipt are
-written before the corresponding use. Corruption, an unknown version and a
+Identity creation, a member link — first or replaced —, a revision and a receipt
+are written before the corresponding use. Corruption, an unknown version and a
 read/write failure block collaboration; they do not silently regenerate keys.
 Leaving the team, switching organizations, logging out and renewing a ticket do
 not remove the file. The webview's operations are serialized; the Rust write
@@ -79,8 +79,8 @@ uses the same lock during read/validation/write.
 
 The file contains secrets and is neither an encrypted backup nor a content key
 on the server. Losing it loses TOFU continuity and access to the encrypted
-comments for the old identity. A new device requires peers to accept the new
-key. A rollback ignores and preserves the file; it never converts it into v3
+comments for the old identity. A new device joins with a new key and peers adopt
+it automatically ([ADR 0042](../decisions/0042-automatic-key-rotation.md)). A rollback ignores and preserves the file; it never converts it into v3
 credentials. The browser mock stores only fictional identities in localStorage
 and exercises the same cryptographic channel.
 
