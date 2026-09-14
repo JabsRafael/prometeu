@@ -103,6 +103,10 @@ describe("localize", () => {
     expect(localize(body)).toContain("**conversa:** algo");
     use("pt-BR");
     expect(localize(body)).toContain("### Novidades");
+    // The changelog now ships English headings; they translate the same way.
+    expect(localize("### New\n\n- algo\n")).toContain("### Novidades");
+    use("en");
+    expect(localize("### New\n\n- something\n")).toContain("### New");
   });
 
   it("título que não é de seção passa intacto", () => {
