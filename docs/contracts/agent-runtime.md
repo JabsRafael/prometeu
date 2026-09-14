@@ -1,17 +1,17 @@
-# Contrato do runtime de agente
+# Agent runtime contract
 
-Status: contrato vigente; identidade/capabilities implementados pelo ADR 0003
-e eventos canônicos implementados pelo ADR 0002.
+Status: contract in force; identity/capabilities implemented by ADR 0003 and
+canonical events implemented by ADR 0002.
 
-Este contrato define a fronteira entre o Prometeu e um CLI de agente. Ele não
-é uma API para modelos de linguagem: descreve processos locais que possuem
-catálogo, sessão, protocolo e capacidades próprias.
+This contract defines the boundary between Prometeu and an agent CLI. It is not
+an API for language models: it describes local processes that have their own
+catalog, session, protocol and capabilities.
 
-## Identidade
+## Identity
 
-Provider e modelo são conceitos distintos. Um modelo pertence a um provider;
-o nome do modelo não deve ser usado para redescobrir seu provider depois que o
-catálogo foi carregado.
+Provider and model are distinct concepts. A model belongs to a provider; the
+model name must not be used to rediscover its provider after the catalog has
+been loaded.
 
 ```ts
 type ProviderId = "claude" | "codex";
@@ -31,13 +31,12 @@ type AgentDescriptor = {
 };
 ```
 
-Ao adicionar um provider, `ProviderId` cresce explicitamente. Um valor antigo
-ou desconhecido vindo do disco cai no provider padrão somente durante a
-migração de persistência; código novo usa matching exaustivo. O campo no JSON
-continua chamado `agent` por compatibilidade, mas seu valor normalizado é
-`"claude" | "codex"`.
+When a provider is added, `ProviderId` grows explicitly. An old or unknown value
+coming from disk falls back to the default provider only during persistence
+migration; new code uses exhaustive matching. The JSON field is still called
+`agent` for compatibility, but its normalized value is `"claude" | "codex"`.
 
-## Capacidades
+## Capabilities
 
 ```ts
 type AgentCapabilities = {
@@ -53,27 +52,27 @@ type AgentCapabilities = {
 };
 ```
 
-Este é o conjunto mínimo observado pela interface atual. Uma capacidade só
-entra aqui quando altera comportamento oferecido pela aplicação. Detalhes de
-protocolo, como o nome de um método JSON-RPC, não são capacidades.
+This is the minimum set observed by the current interface. A capability only
+enters here when it changes behavior offered by the application. Protocol
+details, such as the name of a JSON-RPC method, are not capabilities.
 
-Algumas capacidades podem variar por versão do CLI ou modelo. Nesse caso, o
-descriptor retornado em runtime é a fonte de verdade; o frontend não mantém uma
-tabela paralela. Antes da descoberta, ou se o IPC falhar, o bootstrap do
-frontend mantém apenas Claude instalado e não anuncia capacidade opcional.
+Some capabilities may vary by CLI version or model. In that case, the descriptor
+returned at runtime is the source of truth; the frontend does not keep a
+parallel table. Before discovery, or if IPC fails, the frontend bootstrap keeps
+only Claude installed and announces no optional capability.
 
-## Conta de execução
+## Execution account
 
-A escolha de conta é global por provider e fica fora de `SessionLaunch`. O
-adapter captura o perfil selecionado no spawn; o processo mantém seu ID e
-revisão até terminar o turno. A próxima fala retoma o mesmo transcript com
-a seleção atual quando necessário. Login, perfil e credenciais pertencem à
-borda do provider; o core recebe somente identidade e estado normalizados.
-Remover a conta ativa deixa o provider sem seleção. O turno já iniciado pode
-terminar; novos envios retornam `err.account.noActive` até a próxima escolha.
-Veja [`accounts.md`](accounts.md).
+The account choice is global per provider and stays outside `SessionLaunch`. The
+adapter captures the selected profile at spawn; the process keeps its ID and
+revision until the turn ends. The next message resumes the same transcript with
+the current selection when needed. Login, profile and credentials belong to the
+provider's edge; the core receives only normalized identity and state. Removing
+the active account leaves the provider without a selection. The turn already
+started may finish; new sends return `err.account.noActive` until the next
+choice. See [`accounts.md`](accounts.md).
 
-## Configuração de sessão
+## Session configuration
 
 ```ts
 type SessionLaunch = {
@@ -88,23 +87,22 @@ type SessionLaunch = {
 };
 ```
 
-Semântica dos valores opcionais:
+Semantics of the optional values:
 
-- `null` em modelo ou esforço deixa o provider escolher seu padrão;
-- `null` em MCP/plugins significa não impor seleção e preservar a configuração
-  do CLI;
-- lista vazia significa não injetar nenhum item do hub do Prometeu; cadastro
-  global que o próprio CLI carrega permanece sob controle dele;
-- `resume` é uma identidade opaca aceita pelo provider. Pode ter sido escolhida
-  pelo Prometeu, como no Claude, ou devolvida pelo provider, como no Codex.
+- `null` in model or effort lets the provider choose its default;
+- `null` in MCP/plugins means imposing no selection and preserving the CLI's
+  configuration;
+- an empty list means injecting no item from Prometeu's hub; a global registry
+  that the CLI itself loads stays under its control;
+- `resume` is an opaque identity accepted by the provider. It may have been
+  chosen by Prometeu, as in Claude, or returned by the provider, as in Codex.
 
-O core valida `SessionLaunch` contra as capacidades antes de iniciar o adapter.
-O adapter não deve corrigir silenciosamente uma combinação inválida.
-Configuração MCP ou de plugin escolhida que não possa ser materializada falha
-antes do spawn; hook declarado que não possa ser ativado falha antes da abertura
-da thread. Iniciar sem o comportamento solicitado não é fallback válido. O
-contrato detalhado de plugins está em
-[`plugin-marketplace.md`](plugin-marketplace.md).
+The core validates `SessionLaunch` against the capabilities before starting the
+adapter. The adapter must not silently fix an invalid combination. A chosen MCP
+or plugin configuration that cannot be materialized fails before the spawn; a
+declared hook that cannot be activated fails before the thread is opened.
+Starting without the requested behavior is not a valid fallback. The detailed
+plugin contract is in [`plugin-marketplace.md`](plugin-marketplace.md).
 
 ## Workspace launch resolution
 
@@ -119,10 +117,10 @@ The regression in `session.rs` covers these selections for Claude and Codex.
 The relocated argument tests preserve existing flags, resume behavior, and
 configuration handling. No runtime or persisted format changes.
 
-## Port conceitual
+## Conceptual port
 
-O desenho pode ser implementado com trait, enum dispatch ou funções agrupadas.
-A semântica é mais importante que a forma sintática:
+The design can be implemented with a trait, enum dispatch or grouped functions.
+The semantics matter more than the syntactic form:
 
 ```text
 AgentCatalog
@@ -135,61 +133,62 @@ AgentRuntime
   output(SessionHandle, RawProviderEvent) -> ConversationEvent[]
 ```
 
-Responsabilidades do adapter:
+Adapter responsibilities:
 
-- iniciar o executável e configurar seu ambiente;
-- converter `SessionLaunch` para argumentos ou requests do provider;
-- materializar MCP e plugins na forma exigida pelo provider sem expor essa
-  forma ao domínio;
-- correlacionar requests e respostas próprias do protocolo externo;
-- transformar saída externa em `ConversationEventV1`;
-- transformar `ConversationCommandV1` em entrada externa;
-- expor falhas com código estável e detalhe diagnóstico;
-- encerrar o processo e os descendentes conforme a política do app.
+- start the executable and configure its environment;
+- convert `SessionLaunch` into the provider's arguments or requests;
+- materialize MCP and plugins in the form the provider requires without exposing
+  that form to the domain;
+- correlate the external protocol's own requests and responses;
+- turn external output into `ConversationEventV1`;
+- turn `ConversationCommandV1` into external input;
+- expose failures with a stable code and diagnostic detail;
+- terminate the process and its descendants according to the app's policy.
 
-Responsabilidades que ficam fora do adapter:
+Responsibilities that stay outside the adapter:
 
-- escolher o que a UI mostra;
-- persistir estado do quadro;
-- aplicar audiência do time;
-- renderizar ferramentas ou markdown;
-- decidir políticas globais de retomada e fila de fala.
+- choosing what the UI shows;
+- persisting board state;
+- enforcing the team audience;
+- rendering tools or markdown;
+- deciding global resume and message-queue policies.
 
-## Perfis de tarefa
+## Task profiles
 
-Lançamentos de [tarefas](actions.md) acrescentam instruções persistidas e uma
-política de permissão (`ask` ou `auto`). A sessão guarda a configuração resolvida.
-Claude recebe instruções adicionais por `--append-system-prompt`; Codex recebe
-`developerInstructions` ao iniciar ou retomar a thread. A aprovação em `ask` usa
-o modo normal do Claude e `approvalPolicy: untrusted` no Codex. Lançamentos
-anteriores preservam o bypass existente. Configuração Codex derivada de tarefa
-é isolada por sessão, evitando que perfis distintos sobrescrevam a mesma home.
+[Task](actions.md) launches add persisted instructions and a permission policy
+(`ask` or `auto`). The session stores the resolved configuration. Claude receives
+additional instructions through `--append-system-prompt`; Codex receives
+`developerInstructions` when starting or resuming the thread. Approval under
+`ask` uses Claude's normal mode and `approvalPolicy: untrusted` in Codex.
+Previous launches preserve the existing bypass. Codex configuration derived from
+a task is isolated per session, preventing distinct profiles from overwriting
+the same home.
 
-## Compatibilidade
+## Compatibility
 
-- Mudança apenas no protocolo externo deve alterar um adapter e suas fixtures.
-- Mudança no comportamento comum altera este contrato e a suíte de
-  conformidade.
-- Capacidade nova começa como `false` nos providers existentes até haver
-  evidência e teste.
-- Provider indisponível não impede o catálogo dos outros de carregar.
-- Falha de descoberta não deve inventar suporte; o fallback precisa ser
-  explícito e observável.
+- A change only in the external protocol must change one adapter and its
+  fixtures.
+- A change in common behavior changes this contract and the conformance suite.
+- A new capability starts as `false` in the existing providers until there is
+  evidence and a test.
+- An unavailable provider does not prevent the others' catalog from loading.
+- A discovery failure must not invent support; the fallback must be explicit and
+  observable.
 
-## Conformidade mínima
+## Minimum conformance
 
-Cada provider precisa demonstrar, quando a capacidade existir:
+Each provider must demonstrate, when the capability exists:
 
-1. início de sessão nova;
-2. retomada sem duplicar mensagens;
-3. fala e resposta final;
-4. streaming seguido do evento autoritativo;
-5. tool call e resultado;
-6. pergunta ou aprovação e resposta correlacionada;
-7. interrupção;
-8. compactação e relatório de contexto;
-9. encerramento do processo e descendentes;
-10. tolerância a evento externo desconhecido.
+1. starting a new session;
+2. resuming without duplicating messages;
+3. a message and a final answer;
+4. streaming followed by the authoritative event;
+5. a tool call and its result;
+6. a question or approval and a correlated answer;
+7. interruption;
+8. compaction and context report;
+9. termination of the process and its descendants;
+10. tolerance of an unknown external event.
 
-A matriz viva dessas evidências está em
+The living matrix of this evidence is in
 [`../quality/provider-matrix.md`](../quality/provider-matrix.md).

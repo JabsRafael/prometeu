@@ -1,52 +1,55 @@
-# ADR 0016 — Design System compartilhado da empresa
+# ADR 0016 — The company's shared Design System
 
-Data: 2026-09-06
-Status: separação do comportamento substituída pelo
-[ADR 0017](0017-executable-design-system.md). Substitui a localização dos tokens e do CSS compartilhado do
-[ADR 0011](0011-shared-ui.md); mantém seus contratos de interação.
+Date: 2026-09-06
+Status: the separation of behavior is superseded by
+[ADR 0017](0017-executable-design-system.md). Supersedes the location of the
+tokens and of the shared CSS from [ADR 0011](0011-shared-ui.md); keeps its
+interaction contracts.
 
-## Contexto
+## Context
 
-O desktop tem tokens, marca e primitivas próprias. O Cloud em Rails mantinha
-uma segunda paleta e controles divergentes. Copiar estilos entre telas torna
-cada produto responsável por manter a identidade da empresa.
+The desktop has its own tokens, brand and primitives. The Rails Cloud kept a
+second palette and divergent controls. Copying styles between screens makes each
+product responsible for maintaining the company's identity.
 
-## Decisão
+## Decision
 
-A fonte canônica fica em `packages/design-system` no repositório Prometeu,
-distribuída como `@prometeu/design-system`. O pacote contém tokens CSS,
-componentes por classes, a marca SVG e uma galeria HTML independente. Não
-depende de framework, backend, JavaScript ou compilação. O artefato pode ser
-gerado por `npm pack`, sem publicar em registry nesta mudança.
+The canonical source lives in `packages/design-system` in the Prometeu
+repository, distributed as `@prometeu/design-system`. The package contains CSS
+tokens, class-based components, the SVG brand and a standalone HTML gallery. It
+does not depend on a framework, a backend, JavaScript or compilation. The
+artifact can be produced with `npm pack`, without publishing to a registry in
+this change.
 
-O desktop importa essa fonte diretamente; `src/ui-tokens.css` conserva a
-geometria exclusiva do aplicativo. O Cloud importa uma versão explícita para
-`vendor/design-system`, com hashes SHA-256 e checagem no CI. O pipeline Rails
-publica esses assets sem Node nem acesso ao repositório desktop em produção.
-Edições são feitas na fonte e reimportadas, nunca no artefato vendorizado.
+The desktop imports that source directly; `src/ui-tokens.css` keeps the
+application's exclusive geometry. The Cloud imports an explicit version into
+`vendor/design-system`, with SHA-256 hashes and a check in CI. The Rails
+pipeline publishes those assets without Node and without access to the desktop
+repository in production. Edits are made in the source and re-imported, never in
+the vendored artifact.
 
-O CSS compartilhado usa classes opt-in e preserva nomes e valores dos tokens
-existentes. `ui-comfortable` oferece controles de 44px para a web. Composição
-de páginas, regras de domínio e tradução continuam em cada produto. Menus,
-diálogos e helpers DOM continuam nos adaptadores locais do desktop.
+The shared CSS uses opt-in classes and preserves the existing tokens' names and
+values. `ui-comfortable` offers 44px controls for the web. Page composition,
+domain rules and translation stay in each product. Menus, dialogs and DOM
+helpers stay in the desktop's local adapters.
 
-## Alternativas e consequências
+## Alternatives and consequences
 
-Um framework de componentes excluiria o ERB ou adicionaria runtime e build
-desnecessários. Um CDN tornaria o visual dependente da rede e dificultaria
-rollback. Um terceiro repositório é dispensável enquanto este pacote já
-fornece uma fronteira de distribuição independente.
+A component framework would exclude ERB or add unnecessary runtime and build
+steps. A CDN would make the look depend on the network and make rollback harder.
+A third repository is unnecessary while this package already provides an
+independent distribution boundary.
 
-Vendorizar exige adoção explícita de novas versões, mas mantém builds
-reproduzíveis. O manifesto detecta alterações no artefato; comparar com o
-diretório da fonte verifica sua origem. Os valores do desktop são preservados;
-o Cloud passa a usar a mesma identidade em todas as páginas de conta.
-Rollback reverte os assets e seu manifesto. Não há mudança de dados ou API.
+Vendoring requires explicitly adopting new versions, but keeps builds
+reproducible. The manifest detects changes in the artifact; comparing with the
+source directory verifies its origin. The desktop's values are preserved; the
+Cloud starts using the same identity on every account page. A rollback reverts
+the assets and their manifest. There is no data or API change.
 
-## Evidência
+## Evidence
 
-- [Pacote e contrato de consumo](../../packages/design-system/README.md).
-- [Guia do Design System](../architecture/design-system.md).
-- [Galeria independente](../../packages/design-system/index.html).
-- [Verificação de consumo isolado](../../e2e/design-system.spec.ts).
-- [Interações do desktop](../../e2e/ui.spec.ts).
+- [Package and consumption contract](../../packages/design-system/README.md).
+- [Design System guide](../architecture/design-system.md).
+- [Standalone gallery](../../packages/design-system/index.html).
+- [Isolated consumption check](../../e2e/design-system.spec.ts).
+- [Desktop interactions](../../e2e/ui.spec.ts).

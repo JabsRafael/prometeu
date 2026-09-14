@@ -1,18 +1,18 @@
-# Desenvolvimento e testes
+# Development and testing
 
-## Pré-requisitos
+## Prerequisites
 
-- Node e npm nas versões declaradas em `package.json`;
-- toolchain Rust declarada em `src-tauri/rust-toolchain.toml`;
-- Chromium do Playwright para testes E2E;
-- Claude Code e/ou Codex instalados para testar sessões reais.
+- Node and npm at the versions declared in `package.json`;
+- the Rust toolchain declared in `src-tauri/rust-toolchain.toml`;
+- Playwright's Chromium for E2E tests;
+- Claude Code and/or Codex installed to test real sessions.
 
 ```sh
 npm install
 npx playwright install chromium webkit
 ```
 
-## Modos de execução
+## Run modes
 
 ```sh
 npm run app
@@ -20,18 +20,20 @@ npm run dev
 PORT=1421 npm run dev
 ```
 
-`npm run app` inicia Tauri por `scripts/app.sh` e isola porta e raiz de estado
-por worktree. `npm run dev` abre somente o frontend sobre `src/mock.ts`, útil
-para UI e para os testes dirigidos pelo Playwright.
+`npm run app` starts Tauri through `scripts/app.sh` and isolates the port and
+the state root per worktree. `npm run dev` opens only the frontend over
+`src/mock.ts`, useful for UI work and for the Playwright-driven tests.
 
-O mock não prova lifecycle de processo, filesystem ou serialização Rust. O app
-Tauri não é dirigido pelo Playwright no macOS porque a WKWebView não expõe CDP.
+The mock does not prove process lifecycle, filesystem behavior or Rust
+serialization. The Tauri app is not driven by Playwright on macOS because
+WKWebView does not expose CDP.
 
-O preview interativo do mock usa uma página controlada em iframe e o mesmo
-script de seleção do app. Testes `browser` cobrem Chromium e WebKit; PNG nativo
-e gestos AppKit continuam fora dessa prova. Veja o [contrato do browser](../contracts/browser.md).
+The mock's interactive preview uses a controlled page in an iframe and the app's
+own selection script. The `browser` tests cover Chromium and WebKit; the native
+PNG and AppKit gestures stay outside that proof. See the
+[browser contract](../contracts/browser.md).
 
-## Comandos de validação
+## Validation commands
 
 ```sh
 npm run docs:check
@@ -46,60 +48,62 @@ npm run lint:rust
 npm run check
 ```
 
-`npm run check` executa formato Rust, build/typecheck, toda a suíte de testes e
-Clippy com warnings como erro, além da integridade da documentação. É a mesma
-validação principal da CI.
+`npm run check` runs Rust formatting, build/typecheck, the whole test suite and
+Clippy with warnings as errors, plus the documentation's integrity. It is the
+same main validation as CI.
 
-O app do celular é um bundle separado: `npm run build:mobile` gera
-`dist-mobile/` a partir de `src/mobile/`; no `prometeu-cloud`,
-`bin/mobile <caminho do prometeu>` vende os arquivos em `vendor/mobile/assets`
-com manifesto de hashes e `bin/mobile --check` acusa divergência. O Cloud não
-precisa de Node para servi-lo. Ver [ADR 0028](../decisions/0028-mobile-web-app.md).
+The phone app is a separate bundle: `npm run build:mobile` generates
+`dist-mobile/` from `src/mobile/`; in `prometeu-cloud`,
+`bin/mobile <path to prometeu>` vendors the files in `vendor/mobile/assets`
+with a hash manifest and `bin/mobile --check` flags a divergence. The Cloud does
+not need Node to serve it. See
+[ADR 0028](../decisions/0028-mobile-web-app.md).
 
-Durante desenvolvimento, rode primeiro a menor suíte que cobre a mudança. Use
-`npm run check` antes de concluir uma alteração transversal ou abrir PR.
+During development, run the smallest suite that covers the change first. Use
+`npm run check` before finishing a cross-cutting change or opening a PR.
 
-## O que cada nível prova
+## What each level proves
 
-- Vitest: reducers, apresentação pura, parsing, protocolo do relay e adapters
-  TypeScript.
-- Rust tests: lifecycle, tradução do Codex, estado, paths, Git, IPC interno e
-  processos.
-- Worker integration: autenticação e comportamento real do relay local.
-- Playwright: fluxos críticos de UI contra o mock.
-- Typecheck/build: imports, tipos, catálogo de i18n e bundle.
-- Architecture check: decisões de apresentação não voltam a comparar nomes de
-  provider diretamente.
-- Clippy/rustfmt: disciplina do backend.
+- Vitest: reducers, pure presentation, parsing, the relay's protocol and the
+  TypeScript adapters.
+- Rust tests: lifecycle, Codex translation, state, paths, Git, internal IPC and
+  processes.
+- Worker integration: authentication and the real behavior of the local relay.
+- Playwright: critical UI flows against the mock.
+- Typecheck/build: imports, types, the i18n catalog and the bundle.
+- Architecture check: presentation decisions do not go back to comparing
+  provider names directly.
+- Clippy/rustfmt: backend discipline.
 
-## Instâncias simultâneas
+## Simultaneous instances
 
-Debug e release usam raízes diferentes. Cada worktree de desenvolvimento ganha
-configuração própria por `scripts/app.sh`; isso evita colisão de `board.json` e
-porta Vite. Não substitua essa inicialização por um `tauri dev` direto sem
-entender o isolamento.
+Debug and release use different roots. Each development worktree gets its own
+configuration through `scripts/app.sh`; that avoids collisions of `board.json`
+and the Vite port. Do not replace that initialization with a direct `tauri dev`
+without understanding the isolation.
 
-O `.prometeu/settings.toml` deste repositório oferece o próprio app e o mock
-como scripts de dogfooding.
+This repository's `.prometeu/settings.toml` offers the app itself and the mock
+as dogfooding scripts.
 
-## Captura de fixtures de agentes
+## Capturing agent fixtures
 
-Fixtures de protocolo devem:
+Protocol fixtures must:
 
-- vir de saída real da versão do CLI indicada no teste;
-- remover prompts pessoais, paths do usuário, tokens e credenciais;
-- preservar ids e ordenação necessários ao cenário;
-- conter o menor conjunto de frames que reproduz o comportamento;
-- registrar provider, versão do CLI e capacidade provada;
-- nunca depender de rede durante a suíte.
+- come from real output of the CLI version stated in the test;
+- remove personal prompts, user paths, tokens and credentials;
+- preserve the ids and ordering the scenario needs;
+- contain the smallest set of frames that reproduces the behavior;
+- record the provider, the CLI version and the capability proven;
+- never depend on the network during the suite.
 
-Uma atualização do CLI que quebra fixture é sinal para revisar o adapter e o
-contrato, não para apagar a asserção até o teste passar.
+A CLI update that breaks a fixture is a signal to review the adapter and the
+contract, not to delete the assertion until the test passes.
 
-## Texto de interface
+## Interface text
 
-Português é o catálogo fonte em `src/i18n.pt.ts`; inglês implementa as mesmas
-chaves em `src/i18n.en.ts`. TypeScript usa `t`/`tn`; Rust emite códigos que o
-frontend traduz com `fromBack`.
+Portuguese is the source catalog in `src/i18n.pt.ts`; English implements the
+same keys in `src/i18n.en.ts`. TypeScript uses `t`/`tn`; Rust emits codes that
+the frontend translates with `fromBack`.
 
-Saída do agente, terminal e texto fornecido pela pessoa não são traduzidos.
+Agent output, terminal output and text provided by the person are not
+translated.

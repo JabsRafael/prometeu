@@ -1,69 +1,69 @@
-# ADR 0003 — Features dirigidas por capacidades
+# ADR 0003 — Capability-driven features
 
-Data: 2026-09-03
-Status: Aceito
+Date: 2026-09-03
+Status: Accepted
 
-## Contexto
+## Context
 
-Hoje, modelo identifica implicitamente provider e partes da UI comparam o nome
-`codex` para esconder plan mode ou plugins. `agent` é uma string aberta tanto
-no TypeScript quanto no estado Rust.
+Today, the model implicitly identifies the provider and parts of the UI compare
+the name `codex` to hide plan mode or plugins. `agent` is an open string both in
+TypeScript and in the Rust state.
 
-Esse desenho funciona com dois CLIs conhecidos, mas espalha conhecimento de
-fornecedor. Um terceiro provider exigiria encontrar todas as condicionais e
-decidir novamente quais combinações são válidas. Versões diferentes do mesmo
-CLI também podem oferecer capacidades diferentes.
+That design works with two known CLIs, but it spreads vendor knowledge around. A
+third provider would require finding every conditional and deciding again which
+combinations are valid. Different versions of the same CLI may also offer
+different capabilities.
 
-## Opções consideradas
+## Options considered
 
-1. Continuar adicionando condicionais por provider.
-2. Criar uma interface diferente de UI para cada provider.
-3. Descobrir providers em descriptors tipados e dirigir a UI por capacidades.
+1. Keep adding per-provider conditionals.
+2. Create a different UI interface for each provider.
+3. Discover providers in typed descriptors and drive the UI by capabilities.
 
-## Decisão
+## Decision
 
-Introduzir `ProviderId` fechado, `AgentDescriptor`, `AgentModel` e
-`AgentCapabilities`. O catálogo associa explicitamente modelo ao provider. UI
-e validação usam capacidades do descriptor; apenas o registry/runtime faz
-dispatch pelo `ProviderId`.
+Introduce a closed `ProviderId`, `AgentDescriptor`, `AgentModel` and
+`AgentCapabilities`. The catalog explicitly associates a model with a provider.
+The UI and validation use the descriptor's capabilities; only the
+registry/runtime dispatches by `ProviderId`.
 
-O contrato draft está em `docs/contracts/agent-runtime.md`.
+The draft contract is in `docs/contracts/agent-runtime.md`.
 
-## Implementação
+## Implementation
 
-- `ProviderId` é uma união fechada no TypeScript e um enum no Rust.
-- O carregamento de board aceita `agent: ""` e normaliza a próxima gravação
-  para `agent: "claude"`; valores desconhecidos também caem no default durante
-  a migração.
-- `src-tauri/src/agents.rs` produz `AgentDescriptor[]` com catálogo e
-  capabilities; `src/agents.ts` é a fronteira consumida pela UI.
-- Launcher, conversa e statusbar usam descriptors/capabilities. Dispatch
-  nominal continua somente no catálogo e nos adapters.
-- `scripts/check-architecture.mjs` falha se as telas principais voltarem a
-  decidir por comparação direta com `claude` ou `codex`.
-- Testes Rust cobrem normalização persistida e capabilities dos descriptors.
+- `ProviderId` is a closed union in TypeScript and an enum in Rust.
+- Board loading accepts `agent: ""` and normalizes the next write to
+  `agent: "claude"`; unknown values also fall back to the default during the
+  migration.
+- `src-tauri/src/agents.rs` produces `AgentDescriptor[]` with the catalog and
+  capabilities; `src/agents.ts` is the boundary consumed by the UI.
+- Launcher, conversation and status bar use descriptors/capabilities. Nominal
+  dispatch stays only in the catalog and in the adapters.
+- `scripts/check-architecture.mjs` fails if the main screens start deciding by
+  direct comparison with `claude` or `codex` again.
+- Rust tests cover persisted normalization and the descriptors' capabilities.
 
-## Consequências
+## Consequences
 
-Positivas:
+Positive:
 
-- suporte fica visível em uma estrutura única;
-- UI deixa de conhecer nomes de providers;
-- capacidades podem variar com CLI/modelo sem release de condicionais;
-- providers novos falham por matching não exaustivo durante desenvolvimento;
-- matriz de conformidade pode ser derivada do catálogo.
+- support becomes visible in a single structure;
+- the UI stops knowing provider names;
+- capabilities can vary with the CLI/model without releasing conditionals;
+- new providers fail through non-exhaustive matching during development;
+- the conformance matrix can be derived from the catalog.
 
-Negativas:
+Negative:
 
-- catálogo e estado persistido precisam de migração;
-- algumas capacidades não são puramente booleanas e podem exigir parâmetros;
-- descriptor incorreto pode oferecer uma feature que falha em runtime;
-- descoberta precisa de fallback explícito quando um CLI não responde.
+- the catalog and the persisted state need a migration;
+- some capabilities are not purely boolean and may require parameters;
+- an incorrect descriptor may offer a feature that fails at runtime;
+- discovery needs an explicit fallback when a CLI does not answer.
 
-## Critérios de aceitação atendidos
+## Acceptance criteria met
 
-- condicionais atuais de plan mode, MCP, plugins e anexos foram migradas;
-- capacidades atuais são publicadas por provider em runtime;
-- migração de `agent: "" | "claude" | "codex"` possui teste de serialização;
-- a fitness function impede novas decisões de UI baseadas no nome do provider;
-- a matriz aponta evidência ou limitação para cada comportamento.
+- the current plan mode, MCP, plugin and attachment conditionals were migrated;
+- the current capabilities are published per provider at runtime;
+- the `agent: "" | "claude" | "codex"` migration has a serialization test;
+- the fitness function prevents new UI decisions based on the provider's name;
+- the matrix points to evidence or a limitation for each behavior.

@@ -1,89 +1,92 @@
-# ADR 0006 — Importação explícita do Prometheus
+# ADR 0006 — Explicit Prometheus import
 
-Data: 2026-09-04
-Status: Aceito; interface e importador removidos em 2026-09-10
+Date: 2026-09-04
+Status: Accepted; interface and importer removed on 2026-09-10
 
-## Contexto
+## Context
 
-O Prometeu nasceu com identidade e raízes independentes para que pudesse ser
-validado sem arriscar a instalação anterior. As poucas pessoas que já usavam o
-Prometheus, porém, têm quadro, conversas, plugins e worktrees que não devem ser
-abandonados na troca.
+Prometeu was born with an independent identity and roots so that it could be
+validated without risking the previous installation. The few people who already
+used Prometheus, however, have a board, conversations, plugins and worktrees
+that should not be abandoned in the switch.
 
-Copiar toda a raiz não basta: transcripts do Claude dependem do caminho do
-worktree, plugins gerenciados guardam caminhos absolutos, credenciais pertencem
-à identidade externa que as emitiu e worktrees podem ocupar dezenas de
-gigabytes. Mover tudo também tiraria a instalação antiga da condição de backup.
+Copying the whole root is not enough: Claude's transcripts depend on the
+worktree's path, managed plugins store absolute paths, credentials belong to the
+external identity that issued them and worktrees can take dozens of gigabytes.
+Moving everything would also take the old installation out of its role as a
+backup.
 
-## Opções consideradas
+## Options considered
 
-1. Fazer o Prometeu consultar `~/.prometheus` automaticamente em toda abertura.
-2. Copiar a raiz inteira e mover os worktrees para o namespace novo.
-3. Oferecer uma importação única, explícita, somente para um destino vazio.
+1. Make Prometeu read `~/.prometheus` automatically on every launch.
+2. Copy the whole root and move the worktrees into the new namespace.
+3. Offer a single, explicit import, only into an empty destination.
 
-## Decisão
+## Decision
 
-O Prometeu oferece temporariamente **Configurações → Aplicativo → Migrar do
-Prometheus** quando encontra `~/.prometheus/board.json`.
+Prometeu temporarily offers **Settings → Application → Migrate from Prometheus**
+when it finds `~/.prometheus/board.json`.
 
-A operação:
+The operation:
 
-- exige que o quadro do Prometeu ainda não tenha projetos nem workspaces;
-- mostra uma prévia e exige a confirmação de que o Prometheus está fechado;
-- cria snapshot e manifesto privados sob `~/.prometeu/imports/`;
-- desserializa e normaliza o board pelo modelo atual, desligando processos e
-  removendo as marcas de compartilhamento;
-- copia todos os logs Codex para `~/.prometeu/chats/` sem sobrescrever conflito;
-- conserva os transcripts Claude em `~/.claude`, pois os caminhos de trabalho
-  não mudam;
-- copia plugins gerenciados para a raiz nova, reescreve somente suas origens no
-  cadastro e recusa colisões;
-- cria `.prometeu/settings.toml` somente quando há um
-  `.prometheus/settings.toml` e o destino não existe, trocando apenas o prefixo
-  de variável pública `PROMETHEUS_` por `PROMETEU_`;
-- não importa credenciais de Linear/time, cotas, caches, WebKit ou processos
-  temporários;
-- preserva branches e worktrees no caminho antigo. A limpeza de um workspace
-  multi-repo aceita a raiz antiga somente quando ela é exatamente a que o
-  Prometheus teria calculado.
+- requires that Prometeu's board has no projects or workspaces yet;
+- shows a preview and requires confirmation that Prometheus is closed;
+- creates a private snapshot and manifest under `~/.prometeu/imports/`;
+- deserializes and normalizes the board through the current model, shutting down
+  processes and removing the sharing marks;
+- copies every Codex log to `~/.prometeu/chats/` without overwriting on
+  conflict;
+- keeps Claude's transcripts in `~/.claude`, since the working paths do not
+  change;
+- copies managed plugins into the new root, rewrites only their sources in the
+  registry and refuses collisions;
+- creates `.prometeu/settings.toml` only when a `.prometheus/settings.toml`
+  exists and the destination does not, changing only the public variable prefix
+  `PROMETHEUS_` to `PROMETEU_`;
+- does not import Linear/team credentials, quotas, caches, WebKit or temporary
+  processes;
+- preserves branches and worktrees at the old path. Cleaning a multi-repo
+  workspace accepts the old root only when it is exactly the one Prometheus
+  would have computed.
 
-O board é gravado por último. O manifesto leva o hash SHA-256 da origem e os
-ids importados; uma repetição reconhece o resultado e não duplica dados. A
-origem nunca é escrita nem apagada.
+The board is written last. The manifest carries the source's SHA-256 hash and
+the imported ids; a repetition recognizes the result and does not duplicate
+data. The source is never written to or deleted.
 
-A interface pode ser removida quando a janela de transição acabar. O suporte
-de leitura ao estado importado e a segurança dos caminhos antigos permanecem.
+The interface may be removed when the transition window ends. Read support for
+the imported state and the safety of the old paths remain.
 
-Em 2026-09-10 a janela terminou: quem iria migrar já migrou. A interface, os
-comandos `legacy_import_plan`/`legacy_import_run` e `migration.rs` saíram. O que
-esta decisão previu como permanente continua no código: a leitura do estado já
-importado e `paths::prometheus_multi_dir`, que deixa a limpeza de um workspace
-multi-repo aceitar o worktree herdado. Boards ainda não migrados precisam da
-versão anterior do aplicativo ou de cópia manual.
+On 2026-09-10 the window ended: whoever was going to migrate has migrated. The
+interface, the `legacy_import_plan`/`legacy_import_run` commands and
+`migration.rs` were removed. What this decision foresaw as permanent stays in
+the code: reading the already-imported state and `paths::prometheus_multi_dir`,
+which lets cleaning a multi-repo workspace accept the inherited worktree. Boards
+not yet migrated require the previous application version or a manual copy.
 
-## Consequências
+## Consequences
 
-Positivas:
+Positive:
 
-- a migração tem prévia, rollback e conflitos visíveis;
-- gigabytes de worktrees não são duplicados;
-- conversas e plugins continuam disponíveis;
-- credenciais de uma identidade OAuth ou relay não vazam para outra.
+- the migration has a preview, a rollback and visible conflicts;
+- gigabytes of worktrees are not duplicated;
+- conversations and plugins stay available;
+- credentials of one OAuth or relay identity do not leak into another.
 
-Negativas:
+Negative:
 
-- enquanto um worktree não for movido ou limpo, os dois aplicativos apontam
-  para a mesma pasta e não devem operar aquele workspace ao mesmo tempo;
-- um Prometeu que já tenha dados precisa de migração manual; esta feature não
-  implementa merge de boards;
-- o Linear precisa ser autorizado novamente;
-- arquivos `.prometeu/settings.toml` criados em repositórios podem aparecer no
-  `git status` quando o diretório não estiver ignorado.
+- while a worktree is not moved or cleaned, both applications point to the same
+  folder and must not operate that workspace at the same time;
+- a Prometeu that already has data needs a manual migration; this feature does
+  not implement board merging;
+- Linear must be authorized again;
+- `.prometeu/settings.toml` files created in repositories may appear in
+  `git status` when the directory is not ignored.
 
-## Evidência
+## Evidence
 
-Enquanto o importador existiu, testes Rust cobriam prévia, cópia, normalização,
-idempotência, destino ocupado e conflito de transcript, e o E2E cobria a prévia
-e a confirmação da interface. Depois da remoção resta
-`src-tauri/src/session.rs`, que testa a aceitação do worktree herdado em
+While the importer existed, Rust tests covered the preview, the copy,
+normalization, idempotency, an occupied destination and a transcript conflict,
+and the E2E covered the preview and the interface's confirmation. After the
+removal, what remains is `src-tauri/src/session.rs`, which tests the acceptance
+of the inherited worktree in
 `check_so_deixa_sair_o_que_ja_entrou_e_esta_limpo`.

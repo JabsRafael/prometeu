@@ -1,43 +1,44 @@
-# ADR 0029 — Remoção dos avisos sonoros
+# ADR 0029 — Removal of sound alerts
 
-Data: 2026-09-08
-Status: Aceito
+Date: 2026-09-08
+Status: Accepted
 
-Substitui o [ADR 0025](0025-completion-sound-per-execution.md) quanto ao som.
+Supersedes [ADR 0025](0025-completion-sound-per-execution.md) regarding the
+sound.
 
-## Contexto
+## Context
 
-Mesmo após ajustes na detecção de conclusão, os avisos sonoros continuam
-interrompendo a pessoa repetidamente. Foi solicitada a remoção da feature.
+Even after adjustments to completion detection, the sound alerts keep
+interrupting the person repeatedly. Removing the feature was requested.
 
-## Opções consideradas
+## Options considered
 
-1. Continuar ajustando a detecção ou desligar o som por padrão.
-2. Remover o áudio e sua configuração, preservando os indicadores visuais.
+1. Keep adjusting the detection or turn the sound off by default.
+2. Remove the audio and its configuration, preserving the visual indicators.
 
-## Decisão
+## Decision
 
-Adotar a segunda opção. Remover a síntese do pling, a inicialização de
-Web Audio por interação, os disparos de conclusão e comentários, a preferência
-de som e sua linha nas Configurações. Remover também a memória de comentários
-usada exclusivamente para evitar repetições do som.
+Adopt the second option. Remove the pling synthesis, the Web Audio
+initialization on interaction, the completion and comment triggers, the sound
+preference and its row in Settings. Also remove the comment memory used
+exclusively to avoid repeating the sound.
 
-O acompanhamento de execuções em `alert.ts` permanece para a bolinha do Dock,
-incluindo perguntas, leitura, visibilidade, background e contagem de workspaces.
-Os eventos dos adapters e do backend permanecem iguais.
+Execution tracking in `alert.ts` remains for the Dock's dot, including
+questions, reading, visibility, background and the workspace count. The
+adapters' and the backend's events stay the same.
 
-## Consequências
+## Consequences
 
-O Prometeu deixa de oferecer avisos sonoros de conclusão e comentários.
-A pessoa acompanha pendências pelos indicadores visuais existentes.
+Prometeu no longer offers sound alerts for completions and comments. The person
+follows pending items through the existing visual indicators.
 
-A chave legada `prometeu:som` fica inerte no localStorage. Não há migração,
-reescrita de estado ou mudança nos formatos V1, IPC, transcript e relay;
-por isso não se aplica teste de compatibilidade de formato.
+The legacy `prometeu:som` key stays inert in localStorage. There is no
+migration, state rewriting or change in the V1, IPC, transcript and relay
+formats; therefore no format compatibility test applies.
 
-## Evidência
+## Evidence
 
-- [Testes de pendências](../../src/alert.test.ts): contagem e leitura do Dock,
-  perguntas, conclusões e comentários sem criar contexto de áudio.
-- [Fluxos da interface](../../e2e/alerts.spec.ts): ausência de áudio na mesa,
-  no workspace e com subagentes, além da remoção da opção nas Configurações.
+- [Pending-item tests](../../src/alert.test.ts): Dock counting and reading,
+  questions, completions and comments without creating an audio context.
+- [Interface flows](../../e2e/alerts.spec.ts): no audio on the desk, in the
+  workspace and with subagents, plus the removal of the option in Settings.

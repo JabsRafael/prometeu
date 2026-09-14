@@ -1,15 +1,15 @@
 # Conversation Events v1
 
-Status: contrato vigente desde 2026-09-03.
+Status: contract in force since 2026-09-03.
 
-Claude e Codex possuem protocolos externos diferentes. Os adapters traduzem
-ambos para eventos e comandos pertencentes ao Prometeu antes de buffer, IPC,
-persistência nova ou colaboração. As fontes executáveis do contrato são
-`src/conversation.ts` e `src-tauri/src/conversation.rs`.
+Claude and Codex have different external protocols. The adapters translate both
+into events and commands owned by Prometeu before the buffer, IPC, new
+persistence or collaboration. The contract's executable sources are
+`src/conversation.ts` and `src-tauri/src/conversation.rs`.
 
-## Envelope e transporte
+## Envelope and transport
 
-Cada evento é um objeto JSON em uma linha:
+Each event is a JSON object on a single line:
 
 ```ts
 type EventBase<T extends string> = {
@@ -19,14 +19,14 @@ type EventBase<T extends string> = {
 };
 ```
 
-Sessão e sequência não ficam no evento. IPC e relay carregam a linha no
-envelope de transporte existente: `[session, line, seq]`. A sequência junta
-snapshot e live stream, mas não é identidade durável.
+Session and sequence are not in the event. IPC and the relay carry the line in
+the existing transport envelope: `[session, line, seq]`. The sequence joins the
+snapshot and the live stream, but it is not a durable identity.
 
-Campos desconhecidos são ignorados. Versão, tipo ou campo obrigatório inválido
-descarta apenas a linha. Tipo desconhecido é no-op e não encerra a sessão.
+Unknown fields are ignored. An invalid version, type or required field discards
+only that line. An unknown type is a no-op and does not end the session.
 
-## Conteúdo comum
+## Common content
 
 ```ts
 type InputContent =
@@ -46,17 +46,17 @@ type BackgroundTask = {
 };
 ```
 
-O contrato atual envia anexos ao provider como menções de caminho dentro do
-texto. Metadados de imagem e arquivo estão reservados para uma implementação
-que transporte anexos separadamente; bytes e caminhos locais não entram no
-transcript compartilhado por inferência.
+The current contract sends attachments to the provider as path mentions inside
+the text. Image and file metadata are reserved for an implementation that
+transports attachments separately; bytes and local paths do not enter the shared
+transcript by inference.
 
-Contextos de elementos do browser usam uma convenção textual aditiva dentro
-de `text`, sem novo tipo de evento ou comando. A apresentação transforma apenas
-blocos válidos em tags; reducer, adapters e transcript preservam a string
-completa. Veja o [contrato do browser](browser.md#contexto-no-texto-da-mensagem).
+Browser element contexts use an additive textual convention inside `text`,
+without a new event or command type. The presentation turns only valid blocks
+into tags; the reducer, the adapters and the transcript preserve the complete
+string. See the [browser contract](browser.md#context-in-the-message-text).
 
-## Eventos persistentes
+## Persistent events
 
 ```ts
 type ConversationEventV1 =
@@ -103,18 +103,18 @@ type ConversationEventV1 =
   | (EventBase<"context.reported"> & { markdown: string });
 ```
 
-`assistant.block` é autoritativo por `(messageId, index)`. Blocos do mesmo
-`messageId` formam uma mensagem visual. Resultado para ferramenta ou fechamento
-de pedido desconhecido é no-op; nunca derruba o replay.
+`assistant.block` is authoritative per `(messageId, index)`. Blocks with the
+same `messageId` form one visual message. A result for an unknown tool or the
+closing of an unknown request is a no-op; it never breaks the replay.
 
-`turn.completed` encerra o turno e qualquer compactação visual, mas não encerra
-tarefas em background. Custo fica no evento comum como número opcional: Claude
-pode preenchê-lo e Codex pode usar `null` sem introduzir uma extensão de
-provider no histórico.
+`turn.completed` ends the turn and any visual compaction, but it does not end
+background tasks. Cost stays in the common event as an optional number: Claude
+may fill it in and Codex may use `null` without introducing a provider extension
+into the history.
 
-## Eventos efêmeros
+## Ephemeral events
 
-Não são gravados no transcript:
+These are not written to the transcript:
 
 ```ts
 type ConversationEphemeralV1 =
@@ -154,26 +154,27 @@ type ConversationEphemeralV1 =
     });
 ```
 
-Deltas antecipam a apresentação; `assistant.block` substitui o rascunho do
-mesmo índice. Eventos efêmeros ainda recebem sequência de transporte para que
-snapshot e live stream mantenham a mesma ordem.
+Deltas run ahead of the presentation; `assistant.block` replaces the draft of
+the same index. Ephemeral events still receive a transport sequence so that the
+snapshot and the live stream keep the same order.
 
-No stream local ao vivo, `chat.rs` emite `session.state` com `starting` ao
-iniciar um processo e com `busy` depois que a escrita de `message.send` é
-aceita. Esse `busy` precede `user.message`, ecos locais e respostas concorrentes,
-sob o mesmo lock de publicação; uma escrita que falha não o emite. Respostas
-a pedidos e ecos do provider não representam outra aceitação de mensagem.
-O snapshot pode sintetizar `busy` ou `ready` para apresentar o estado atual,
-mas não inicia uma nova execução no acompanhamento de pendências do Dock.
-Esses eventos continuam efêmeros, sem mudança de envelope, formato persistido
-ou versão do contrato.
-Não há avisos sonoros; veja [ADR 0029](../decisions/0029-remove-alert-sound.md).
+In the live local stream, `chat.rs` emits `session.state` with `starting` when
+starting a process and with `busy` after the `message.send` write is accepted.
+That `busy` precedes `user.message`, local echoes and concurrent responses,
+under the same publication lock; a failed write does not emit it. Answers to
+requests and provider echoes do not represent another accepted message. The
+snapshot may synthesize `busy` or `ready` to present the current state, but it
+does not start a new execution in the Dock's pending tracking. These events stay
+ephemeral, with no change to the envelope, the persisted format or the
+contract's version.
+There are no sound alerts; see
+[ADR 0029](../decisions/0029-remove-alert-sound.md).
 
-`usage.updated` identifica o provider porque cota é uma informação da conta e
-os payloads externos não possuem semântica comum suficiente. Esse payload vai
-direto ao adapter de uso, não à timeline nem ao transcript.
+`usage.updated` identifies the provider because a quota is account information
+and the external payloads do not have enough common semantics. That payload goes
+straight to the usage adapter, not to the timeline or the transcript.
 
-## Comandos
+## Commands
 
 ```ts
 type ConversationCommandV1 =
@@ -192,39 +193,42 @@ type ConversationCommandV1 =
   | { v: 1; type: "commands.list" };
 ```
 
-Slash commands continuam sendo texto de `message.send`: a interpretação
-pertence ao adapter, pois disponibilidade e implementação variam. A lista para
-autocomplete usa `commands.list` e `commands.updated`.
+Slash commands are still `message.send` text: the interpretation belongs to the
+adapter, since availability and implementation vary. The autocomplete list uses
+`commands.list` and `commands.updated`.
 
-Modelo, esforço, MCP e plugins configuram a sessão fora deste contrato.
-`permission.mode.set` só é oferecido quando a capability do provider permite.
+Model, effort, MCP and plugins configure the session outside this contract.
+`permission.mode.set` is offered only when the provider's capability allows it.
 
-## Segurança
+## Security
 
-- controle remoto é validado no Mac que possui o processo;
-- `request.respond` remoto só vale para pedido aberto no buffer;
-- input de aprovação é reconstruído do pedido original, nunca aceito do cliente;
-- respostas de pergunta aceitam apenas chaves existentes no pedido;
-- modo irrestrito não pode ser ativado remotamente;
-- eventos não concedem acesso a filesystem por si mesmos.
+- remote control is validated on the Mac that owns the process;
+- a remote `request.respond` is valid only for a request open in the buffer;
+- approval input is rebuilt from the original request, never accepted from the
+  client;
+- question answers accept only keys present in the request;
+- unrestricted mode cannot be enabled remotely;
+- events do not grant filesystem access by themselves.
 
-## Persistência e legado
+## Persistence and legacy
 
-Transcripts anteriores não são reescritos. `LegacyConversationAdapter` traduz
-linhas antigas durante o replay, fora do reducer. O transcript do Claude
-continua pertencendo ao CLI; eventos ao vivo já chegam normalizados.
+Previous transcripts are not rewritten. `LegacyConversationAdapter` translates
+old lines during replay, outside the reducer. Claude's transcript still belongs
+to the CLI; live events already arrive normalized.
 
-O Prometeu grava apenas o evento V1 no log administrado para Codex. O leitor
-continua ignorando projeções marcadas com `prometheusV1Mirror` e traduzindo o
-discriminante legado `type: "prometheus"`; esses nomes pertencem ao formato
-histórico do produto anterior e não são emitidos em logs novos. A mudança da
-política de rollback está registrada no ADR 0004.
+Prometeu writes only the V1 event in the managed log for Codex. The reader still
+ignores projections marked with `prometheusV1Mirror` and translates the legacy
+`type: "prometheus"` discriminant; those names belong to the previous product's
+historical format and are not emitted in new logs. The change in rollback policy
+is recorded in ADR 0004.
 
-## Evidência
+## Evidence
 
-- `src/conversation.test.ts`: parser, replay V1 e equivalência com legado;
-- `src/timeline.test.ts`: streaming, ferramentas, requests, background e compactação;
-- testes de `claude.rs`: tradução stream-json, comandos e desconhecidos;
-- testes de `conversation.rs`: envelope V1;
-- testes de `codex.rs`: comandos V1, protocolo JSON-RPC e saída V1 direta;
-- testes de `chat.rs`: persistência, sequência e reconstrução segura de controle remoto.
+- `src/conversation.test.ts`: parser, V1 replay and equivalence with the legacy
+  format;
+- `src/timeline.test.ts`: streaming, tools, requests, background and compaction;
+- `claude.rs` tests: stream-json translation, commands and unknown events;
+- `conversation.rs` tests: the V1 envelope;
+- `codex.rs` tests: V1 commands, the JSON-RPC protocol and direct V1 output;
+- `chat.rs` tests: persistence, sequence and safe reconstruction of remote
+  control.

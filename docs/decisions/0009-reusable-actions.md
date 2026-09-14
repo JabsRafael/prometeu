@@ -1,55 +1,59 @@
-# ADR 0009 — comandos reutilizáveis e agentes responsáveis por tarefas
+# ADR 0009 — reusable commands and agents responsible for tasks
 
-Data: 2026-09-05
-Status: Aceito
+Date: 2026-09-05
+Status: Accepted
 
-## Contexto
+## Context
 
-O botão Open PR envia um pedido à conversa atual. É necessário reutilizar
-prompts e agentes configuráveis sem vincular a tarefa a um botão específico.
-Uma entrega pode revisar, abrir PR e reagir a comentários e CI na mesma sessão.
+The Open PR button sends a request to the current conversation. Prompts and
+configurable agents need to be reusable without tying the task to a specific
+button. One delivery may review, open a PR and react to comments and CI in the
+same session.
 
-## Opções consideradas
+## Options considered
 
-1. Skills apenas: reutilizam instruções, mas não representam seleção de modelo,
-   ferramentas, execução persistida e acompanhamento pelo software.
-2. Um agente por fase e um editor genérico de workflows: exigem coordenação e
-   handoffs antes de existir necessidade de revisão independente.
-3. Comandos com dois comportamentos e perfis reutilizáveis: integram o chat,
-   o menu e o botão de PR usando sessões existentes.
+1. Skills only: they reuse instructions, but do not represent model selection,
+   tools, persisted execution and tracking by the software.
+2. One agent per phase and a generic workflow editor: they require coordination
+   and handoffs before any need for independent review exists.
+3. Commands with two behaviors and reusable profiles: they integrate the chat,
+   the menu and the PR button using existing sessions.
 
-## Decisão
+## Decision
 
-Adotar a terceira opção. Comandos expandem prompts ou iniciam agentes em outra
-aba. Perfis possuem prompt, modelo/provider/esforço, MCP, plugins, skills,
-permissões e acompanhamento opcional. Projetos podem substituir perfis.
-Execuções guardam a configuração resolvida; a sessão continua sendo transcript.
+Adopt the third option. Commands expand prompts or start agents in another tab.
+Profiles have a prompt, model/provider/effort, MCP, plugins, skills, permissions
+and optional tracking. Projects can override profiles. Executions store the
+resolved configuration; the session is still the transcript.
 
-Uma única sessão assume a responsabilidade pela entrega. Revisão, publicação
-e correções são instruções do perfil; não são gates determinísticos de um
-motor de workflows. Um resultado textual do agente não comprova aprovação de
-revisão. O exemplo exige verificar o código publicado e não autoriza merge.
+A single session takes responsibility for the delivery. Review, publication and
+fixes are profile instructions; they are not deterministic gates of a workflow
+engine. A textual result from the agent does not prove review approval. The
+example requires checking the published code and does not authorize a merge.
 
-Acompanhamento usa polling no backend local por `gh`. O modelo só recebe turno
-quando há novidades. Não há webhooks, mudança de responsabilidade do relay ou
-execução em nuvem. Adaptadores continuam materializando diferenças de provider.
+Tracking uses polling in the local backend through `gh`. The model only gets a
+turn when there is news. There are no webhooks, no change in the relay's
+responsibility and no cloud execution. Adapters keep materializing provider
+differences.
 
-## Consequências
+## Consequences
 
-A pessoa pode começar com um prompt ou uma tarefa e reutilizá-los em projetos.
-Não precisa criar três agentes para entregar uma PR. Um editor de workflows e
-handoffs entre sessões permanecem evolução futura, sem estruturas especulativas.
+The person can start with a prompt or a task and reuse them across projects.
+They do not need to create three agents to deliver a PR. A workflow editor and
+handoffs between sessions remain a future evolution, without speculative
+structures.
 
-Polling depende do app aberto, autenticação do `gh` e limites do GitHub. Cursor,
-fala pendente, limite de turnos e pausa tornam o acompanhamento retomável e
-observável. A seleção de skills é uma instrução, não isolamento de capabilities.
+Polling depends on the app being open, on `gh` authentication and on GitHub's
+limits. The cursor, the pending message, the turn limit and pausing make the
+tracking resumable and observable. Skill selection is an instruction, not
+capability isolation.
 
-O contrato está em [ações](../contracts/actions.md). A persistência é aditiva;
-boards antigos continuam com catálogo vazio e tarefas ausentes.
+The contract is in [actions](../contracts/actions.md). Persistence is additive;
+old boards keep an empty catalog and no tasks.
 
-## Evidência
+## Evidence
 
-- [Comandos e expansão](../../src/actions.test.ts).
-- [Persistência, validação e deduplicação](../../src-tauri/src/actions.rs).
-- [Leituras do GitHub e filtragem](../../src-tauri/src/github.rs).
-- [Cadastro, expansão e abertura em outra aba](../../e2e/actions.spec.ts).
+- [Commands and expansion](../../src/actions.test.ts).
+- [Persistence, validation and deduplication](../../src-tauri/src/actions.rs).
+- [GitHub reads and filtering](../../src-tauri/src/github.rs).
+- [Registration, expansion and opening in another tab](../../e2e/actions.spec.ts).

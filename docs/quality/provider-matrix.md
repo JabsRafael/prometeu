@@ -1,109 +1,111 @@
-# Matriz de providers
+# Provider matrix
 
-Status: comportamento atual observado no código. “A confirmar” significa que a
-feature pode existir, mas ainda não possui evidência de conformidade suficiente
-para virar capacidade contratual.
+Status: current behavior observed in the code. "To confirm" means the feature
+may exist, but does not yet have enough conformance evidence to become a
+contractual capability.
 
-## Legenda
+## Legend
 
-- **Nativo:** o CLI já fala a forma consumida hoje.
-- **Adaptado:** o Prometeu converte ou implementa a feature.
-- **Indisponível:** a UI não oferece porque o provider não suporta o fluxo.
-- **A confirmar:** falta fixture ou teste dedicado.
+- **Native:** the CLI already speaks the form consumed today.
+- **Adapted:** Prometeu converts or implements the feature.
+- **Unavailable:** the UI does not offer it because the provider does not
+  support the flow.
+- **To confirm:** a fixture or dedicated test is missing.
 
-| Capacidade | Claude | Codex | Evidência principal |
+| Capability | Claude | Codex | Main evidence |
 | --- | --- | --- | --- |
-| feedback privado com conta, imagem e captura | independente do CLI | independente do CLI | `e2e/feedback.spec.ts`, testes `FeedbackTest` no Cloud; captura nativa e GitHub real exigem smoke manual |
-| organizações, convites e compartilhamento institucional | mesmo relay V4; execução local | mesmo relay V4; execução local | `team-organizations.test.ts`, `worker.integration.test.ts`, `e2e/organizations.spec.ts`, integração/browser Rails |
-| E2EE automática com TOFU na colaboração | mesmo canal HPKE Auth; sem forward secrecy | mesmo canal HPKE Auth; sem forward secrecy | `team-crypto.test.ts`, `team-security.test.ts`, `team-channel.test.ts`, `worker.integration.test.ts`, comentários E2E Chromium/WebKit |
-| conta opcional do Prometeu na barra lateral | independente do CLI | independente do CLI | `cloud.rs`, `e2e/cloud.spec.ts`; nenhum transcript é enviado |
-| catálogo de plugins, MCP e Ações na conta | independente do CLI | independente do CLI | `catalog.rs`, `catalog_test.rb`; segredos e instalação ficam por Mac |
-| plugins, MCPs e skills da organização | instalação local explícita no hub | mesma UI e instalação; adapters existentes | `catalog.rs`, `e2e/cloud.spec.ts`, `organizations_test.rb`; não exige cópia pessoal nem ativa automaticamente |
-| formulário de Ações com componentes compartilhados | mesma UI | mesma UI; opções vêm do catálogo | `e2e/ui.spec.ts`, `e2e/actions.spec.ts`, Chromium e WebKit |
-| componentes executáveis do DS da empresa | independente do provider | independente do provider | `e2e/design-system.spec.ts`, menu, submenu, senha, foco, validação e erro nos dois motores |
-| Code review incluído e editável | perfil inicial; pode trocar modelo/provider | pode ser escolhido no perfil | `actions.rs`, `actions.test.ts`, `e2e/actions.spec.ts` |
-| comandos de prompt e tarefas | adaptado pelo app | adaptado pelo app | `actions.test.ts`, `e2e/actions.spec.ts` |
-| perfil por tarefa | instruções e permissões por flags | instruções e permissões por JSON-RPC | testes de `session.rs` e `codex.rs` |
-| acompanhamento de PR | polling local pelo app | polling local pelo app | `actions.rs`, `github.rs`; sem integração GitHub real em testes |
-| detectar instalação | adaptado | adaptado | `agents.rs` |
-| contas e seleção global no rodapé | adaptado por `CLAUDE_CONFIG_DIR` | adaptado por `CODEX_HOME` | `accounts.rs`, `e2e/accounts.spec.ts` |
-| remover todas as contas e seleção vazia | suportado; preserva login do CLI | suportado; preserva login do CLI | `accounts.rs`, `e2e/accounts.spec.ts`; diretórios e credenciais permanecem locais |
-| login pelo app | CLI `auth login` e navegador | app-server `account/login/start` e navegador | fixtures de identidade em `claude.rs` e `codex/account.rs`; OAuth com duas contas reais ainda exige validação manual |
-| troca de conta entre turnos | retomada do transcript compartilhado | retomada de rollout/índice compartilhados | `chat.rs`, testes de perfis; continuação autenticada entre duas contas reais ainda não comprovada pela suíte |
-| cotas por conta | stream e endpoint interno | app-server e fallback interno | `usage.rs`, `e2e/accounts.spec.ts` |
-| catálogo vivo de modelos | nativo via control request | nativo via cache do CLI | `agents.rs` |
-| iniciar sessão | nativo | adaptado para JSON-RPC | `chat.rs`, `codex.rs` |
-| retomar sessão | id/transcript do Claude | thread do app-server | `session.rs`, testes Rust |
+| private feedback with an account, image and capture | independent of the CLI | independent of the CLI | `e2e/feedback.spec.ts`, the Cloud's `FeedbackTest` tests; native capture and real GitHub require a manual smoke test |
+| organizations, invitations and institutional sharing | the same relay V4; local execution | the same relay V4; local execution | `team-organizations.test.ts`, `worker.integration.test.ts`, `e2e/organizations.spec.ts`, Rails integration/browser |
+| automatic E2EE with TOFU in collaboration | the same HPKE Auth channel; no forward secrecy | the same HPKE Auth channel; no forward secrecy | `team-crypto.test.ts`, `team-security.test.ts`, `team-channel.test.ts`, `worker.integration.test.ts`, E2E comments in Chromium/WebKit |
+| optional Prometeu account in the sidebar | independent of the CLI | independent of the CLI | `cloud.rs`, `e2e/cloud.spec.ts`; no transcript is sent |
+| catalog of plugins, MCP and Actions in the account | independent of the CLI | independent of the CLI | `catalog.rs`, `catalog_test.rb`; secrets and installation stay per Mac |
+| the organization's plugins, MCPs and skills | explicit local installation in the hub | the same UI and installation; existing adapters | `catalog.rs`, `e2e/cloud.spec.ts`, `organizations_test.rb`; it requires no personal copy and does not activate automatically |
+| Actions form with shared components | the same UI | the same UI; options come from the catalog | `e2e/ui.spec.ts`, `e2e/actions.spec.ts`, Chromium and WebKit |
+| the company's executable DS components | independent of the provider | independent of the provider | `e2e/design-system.spec.ts`, menu, submenu, password, focus, validation and error on both engines |
+| Code review included and editable | the initial profile; the model/provider can be changed | can be chosen in the profile | `actions.rs`, `actions.test.ts`, `e2e/actions.spec.ts` |
+| prompt commands and tasks | adapted by the app | adapted by the app | `actions.test.ts`, `e2e/actions.spec.ts` |
+| per-task profile | instructions and permissions through flags | instructions and permissions through JSON-RPC | `session.rs` and `codex.rs` tests |
+| PR tracking | local polling by the app | local polling by the app | `actions.rs`, `github.rs`; no real GitHub integration in tests |
+| detecting the installation | adapted | adapted | `agents.rs` |
+| accounts and global selection in the footer | adapted through `CLAUDE_CONFIG_DIR` | adapted through `CODEX_HOME` | `accounts.rs`, `e2e/accounts.spec.ts` |
+| removing every account and an empty selection | supported; preserves the CLI's login | supported; preserves the CLI's login | `accounts.rs`, `e2e/accounts.spec.ts`; directories and credentials stay local |
+| login through the app | the CLI's `auth login` and the browser | the app-server's `account/login/start` and the browser | identity fixtures in `claude.rs` and `codex/account.rs`; OAuth with two real accounts still requires manual validation |
+| switching accounts between turns | resuming the shared transcript | resuming the shared rollout/index | `chat.rs`, profile tests; an authenticated continuation between two real accounts is not yet proven by the suite |
+| quotas per account | stream and internal endpoint | app-server and internal fallback | `usage.rs`, `e2e/accounts.spec.ts` |
+| live model catalog | native through a control request | native through the CLI's cache | `agents.rs` |
+| starting a session | native | adapted to JSON-RPC | `chat.rs`, `codex.rs` |
+| resuming a session | Claude's id/transcript | the app-server's thread | `session.rs`, Rust tests |
 | workspace tools with tab model/effort overrides | same selections for new and resumed tabs | same selections for new and resumed tabs | `session.rs::new_and_resumed_tabs_preserve_workspace_tools_with_model_overrides` |
 | ordered prompt, transcript, and live delivery | shared conversation mutex | shared conversation mutex | concurrent delivery, fast-response, and failed-write regressions in `chat.rs` |
-| escolher modelo | nativo por flag | adaptado no `thread/start`/`thread/resume` | `session.rs`, `codex.rs` |
-| níveis de esforço | catálogo + fallback | catálogo do Codex | `agents.rs`, `launcher.ts` |
-| rodapé da conversa adaptado à largura | modelo e atividade separados das ferramentas; controle remoto iluminado quando ativo | mesma UI | `e2e/composer.spec.ts`, Chromium/WebKit, português/inglês e quadros estreitos |
-| plan mode inicial | nativo por permission mode | indisponível | `session.rs`, `launcher.ts` |
-| texto em streaming | adaptado para V1 | adaptado para V1 | `conversation.test.ts`, `timeline.test.ts`, testes de `codex.rs` |
-| pensamento | adaptado para V1 | adaptado para V1 | `timeline.test.ts`, testes de `codex.rs` |
-| tool call e resultado | adaptado para V1 | adaptado para V1 | `conversation.test.ts`, testes de `claude.rs`/`codex.rs` |
-| perguntas ao usuário | nativo | adaptado de request JSON-RPC | `chat.ts`, testes de `codex.rs` |
-| pedidos de aprovação | nativo | adaptado | `chat.rs`, `codex.rs` |
-| interrupção | control request | `turn/interrupt` | `codex.rs`, testes Rust |
-| compactação | comando do CLI | `thread/compact/start` | testes de `codex.rs` |
-| relatório de contexto | stream/transcript | sintetizado de token usage | `context.test.ts`, testes de `codex.rs` |
-| seleção de MCP por workspace | config estrita do CLI | tabela e ambiente montados pelo app | `mcp.rs`, `codex.rs`; erro de preparação impede spawn |
-| seleção de plugins por workspace | flags de sessão | marketplace + config isolada por workspace | `plugins.rs`, smoke do CLI, `codex.rs`, `launcher.ts`, E2E |
-| skills locais e da conta | pacote com SKILL.md via seleção de plugins | mesmo pacote com manifesto nativo | `skills.rs`, `catalog.rs`, `e2e/cloud.spec.ts`; instalação não ativa automaticamente |
-| hooks de plugin escolhido | ativos desde `SessionStart` | `enabled = true` + confiança limitada a `pluginId` e hash antes da thread | testes de `codex.rs`; falha impede a thread |
-| anexos na fala, miniaturas de captura e colagem | adaptado por caminho local; promessa e pasteboard materializadas pelo macOS | adaptado por caminho local; promessa e pasteboard materializadas pelo macOS | `file_drop.rs`, `chat.ts`, `paste.ts`; `e2e/file-drop.spec.ts` e cenários de arquivo solto em `e2e/critical-flows.spec.ts` cobrem UI sobre mock; `paste.test.ts` cobre o desvio da colagem |
-| contexto visual do browser | tag no rascunho e histórico; HTML, CSS, URL e menção ao PNG completos no envio | mesma interface e contrato textual | `browser-context.test.ts`, `e2e/browser-inspector.spec.ts`, `e2e/browser.spec.ts`, testes de `browser.rs`; captura WKWebView e gesto AppKit ainda exigem verificação nativa |
-| evento externo desconhecido | ignorado pelo adapter | ignorado pelo adapter | `conversation.test.ts`, testes de `claude.rs`/`codex.rs` |
-| subagentes do CLI | sidechain fora da tela; tarefas em `background.changed` | `collabAgentToolCall.agentsStates`, `subAgentActivity` e eventos de filhos conhecidos atualizam tarefas; conteúdo dos filhos fica isolado | `claude.rs`; testes de isolamento, spawn, atividade e estados parciais em `codex.rs` |
-| indicadores de atenção sem áudio | pendências de conclusão, perguntas e comentários no Dock | mesma regra sobre eventos V1 locais ao vivo | `src/alert.test.ts` preserva contagem e leitura; `e2e/alerts.spec.ts` em Chromium/WebKit cobre ausência de áudio e da opção de som |
-| compartilhamento ao vivo | V1 após normalização | V1 após normalização | `team*.test.ts`, E2E sobre mock |
-| controle remoto pelos dispositivos do dono | mesmo relay v4; execução permanece local | mesmo relay v4; execução permanece local | `team-channel.test.ts`, `team-organizations.test.ts`, `e2e/organizations.spec.ts` |
-| comentários em sessão compartilhada | adaptado após V1 | adaptado após V1 | `notes.test.ts`, `team.test.ts`, `relay/src/logic.test.ts`, E2E sobre mock |
-| mesa com várias conversas ao mesmo tempo | adaptado (mesma tela da conversa) | adaptado (mesma tela da conversa) | `desk.test.ts`, E2E sobre mock |
-| Git: revisão unificada/lado a lado, stage, commit, remotos, branches e conflitos | adaptado pelo app; independente do CLI | adaptado pelo app; independente do CLI | `session/git_tests.rs`, `diff.test.ts`, `e2e/git.spec.ts` em Chromium/WebKit e revisão grande em `e2e/critical-flows.spec.ts`; contrato `git.md` |
-| agentes por workspace na barra lateral | marca e status de cada aba | marca e status de cada aba | fluxos da barra lateral em `e2e/critical-flows.spec.ts`; remoto usa avatar do dono, sem inferir provider |
+| choosing a model | native through a flag | adapted in `thread/start`/`thread/resume` | `session.rs`, `codex.rs` |
+| effort levels | catalog + fallback | Codex's catalog | `agents.rs`, `launcher.ts` |
+| conversation footer adapted to the width | model and activity separated from the tools; remote control highlighted when active | the same UI | `e2e/composer.spec.ts`, Chromium/WebKit, Portuguese/English and narrow frames |
+| initial plan mode | native through permission mode | unavailable | `session.rs`, `launcher.ts` |
+| streaming text | adapted to V1 | adapted to V1 | `conversation.test.ts`, `timeline.test.ts`, `codex.rs` tests |
+| thinking | adapted to V1 | adapted to V1 | `timeline.test.ts`, `codex.rs` tests |
+| tool call and result | adapted to V1 | adapted to V1 | `conversation.test.ts`, `claude.rs`/`codex.rs` tests |
+| questions to the user | native | adapted from a JSON-RPC request | `chat.ts`, `codex.rs` tests |
+| approval requests | native | adapted | `chat.rs`, `codex.rs` |
+| interruption | control request | `turn/interrupt` | `codex.rs`, Rust tests |
+| compaction | the CLI's command | `thread/compact/start` | `codex.rs` tests |
+| context report | stream/transcript | synthesized from token usage | `context.test.ts`, `codex.rs` tests |
+| MCP selection per workspace | the CLI's strict config | table and environment assembled by the app | `mcp.rs`, `codex.rs`; a preparation error prevents the spawn |
+| plugin selection per workspace | session flags | marketplace + config isolated per workspace | `plugins.rs`, the CLI smoke test, `codex.rs`, `launcher.ts`, E2E |
+| local and account skills | a package with SKILL.md through the plugin selection | the same package with a native manifest | `skills.rs`, `catalog.rs`, `e2e/cloud.spec.ts`; installation does not activate automatically |
+| hooks of a chosen plugin | active from `SessionStart` | `enabled = true` + trust limited to the `pluginId` and hash before the thread | `codex.rs` tests; a failure prevents the thread |
+| attachments in a message, capture thumbnails and pasting | adapted through a local path; promise and pasteboard materialized by macOS | adapted through a local path; promise and pasteboard materialized by macOS | `file_drop.rs`, `chat.ts`, `paste.ts`; `e2e/file-drop.spec.ts` and dropped-file scenarios in `e2e/critical-flows.spec.ts` cover the UI over the mock; `paste.test.ts` covers the paste detour |
+| the browser's visual context | a tag in the draft and the history; complete HTML, CSS, URL and PNG mention on send | the same interface and textual contract | `browser-context.test.ts`, `e2e/browser-inspector.spec.ts`, `e2e/browser.spec.ts`, `browser.rs` tests; WKWebView capture and the AppKit gesture still require native verification |
+| unknown external event | ignored by the adapter | ignored by the adapter | `conversation.test.ts`, `claude.rs`/`codex.rs` tests |
+| the CLI's subagents | a sidechain off-screen; tasks in `background.changed` | `collabAgentToolCall.agentsStates`, `subAgentActivity` and known child events update the tasks; the children's content stays isolated | `claude.rs`; isolation, spawn, activity and partial-state tests in `codex.rs` |
+| attention indicators without audio | completion, question and comment pending items in the Dock | the same rule over live local V1 events | `src/alert.test.ts` preserves counting and reading; `e2e/alerts.spec.ts` in Chromium/WebKit covers the absence of audio and of the sound option |
+| live sharing | V1 after normalization | V1 after normalization | `team*.test.ts`, E2E over the mock |
+| remote control from the owner's devices | the same relay v4; execution stays local | the same relay v4; execution stays local | `team-channel.test.ts`, `team-organizations.test.ts`, `e2e/organizations.spec.ts` |
+| comments in a shared session | adapted after V1 | adapted after V1 | `notes.test.ts`, `team.test.ts`, `relay/src/logic.test.ts`, E2E over the mock |
+| desk with several conversations at once | adapted (the same conversation screen) | adapted (the same conversation screen) | `desk.test.ts`, E2E over the mock |
+| Git: unified/side-by-side review, stage, commit, remotes, branches and conflicts | adapted by the app; independent of the CLI | adapted by the app; independent of the CLI | `session/git_tests.rs`, `diff.test.ts`, `e2e/git.spec.ts` in Chromium/WebKit and a large review in `e2e/critical-flows.spec.ts`; the `git.md` contract |
+| agents per workspace in the sidebar | each tab's brand and status | each tab's brand and status | sidebar flows in `e2e/critical-flows.spec.ts`; a remote one uses the owner's avatar, without inferring the provider |
 
-## Regra para feature nova
+## Rule for a new feature
 
-Antes de habilitar uma feature para um provider:
+Before enabling a feature for a provider:
 
-1. declarar sua semântica comum no contrato;
-2. adicionar ou ajustar a capacidade no descriptor;
-3. capturar fixture real do CLI sem segredo ou dado pessoal;
-4. provar tradução para eventos comuns;
-5. executar o mesmo cenário no reducer e no mock;
-6. atualizar esta matriz com o caminho da evidência.
+1. declare its common semantics in the contract;
+2. add or adjust the capability in the descriptor;
+3. capture a real CLI fixture without secrets or personal data;
+4. prove the translation into common events;
+5. run the same scenario in the reducer and in the mock;
+6. update this matrix with the path to the evidence.
 
-Ausência de teste não deve virar `true` por semelhança entre providers.
+A missing test must not become `true` by similarity between providers.
 
-## Limitações conhecidas
+## Known limitations
 
-- origem de plugin em `.zip` local ou URL funciona no Claude e é recusada com
-  erro visível no Codex; pasta local é o formato portátil;
-- skills, comandos, MCP e hooks possuem adaptação portátil; `agents/*.md`
-  permanece exclusivo do Claude porque não integra o manifesto Codex atual;
-- plugins habilitados fora do Prometeu continuam sujeitos ao cadastro global
-  de cada CLI e não fazem parte da seleção do workspace;
-- anexos possuem testes de UI sobre mock e validação nativa do destino salvo;
-  o gesto real da miniatura foi confirmado no Prometeu Dev em 2026-09-06.
-  A leitura efetiva pelo CLI ainda exige verificação manual. Promessas que
-  falham ou excedem 30 segundos produzem erro visível.
+- a plugin source in a local `.zip` or a URL works in Claude and is refused with
+  a visible error in Codex; a local folder is the portable format;
+- skills, commands, MCP and hooks have a portable adaptation; `agents/*.md`
+  stays exclusive to Claude because it is not part of the current Codex
+  manifest;
+- plugins enabled outside Prometeu stay subject to each CLI's global registry
+  and are not part of the workspace's selection;
+- attachments have UI tests over the mock and native validation of the saved
+  destination; the real thumbnail gesture was confirmed in Prometeu Dev on
+  2026-09-06. Actual reading by the CLI still requires manual verification.
+  Promises that fail or exceed 30 seconds produce a visible error.
 
-## Suíte de conformidade desejada
+## Desired conformance suite
 
-| Cenário | Fixture externa | Adapter | Reducer | E2E |
+| Scenario | External fixture | Adapter | Reducer | E2E |
 | --- | --- | --- | --- | --- |
-| fala simples | por provider | obrigatório | obrigatório | smoke |
-| streaming + mensagem final | por provider | obrigatório | obrigatório | crítico |
-| ferramenta bem-sucedida | por provider | obrigatório | obrigatório | crítico |
-| ferramenta com erro | por provider | obrigatório | obrigatório | crítico |
-| pergunta e resposta | por provider | obrigatório | obrigatório | crítico |
-| interrupção | por provider | obrigatório | obrigatório | smoke |
-| resume | por provider | obrigatório | replay | crítico |
-| compactação | por provider capaz | obrigatório | obrigatório | smoke |
-| background task | por provider capaz | obrigatório | obrigatório | smoke |
-| evento desconhecido | sintética | obrigatório | obrigatório | não necessário |
+| simple message | per provider | required | required | smoke |
+| streaming + final message | per provider | required | required | critical |
+| successful tool | per provider | required | required | critical |
+| tool with an error | per provider | required | required | critical |
+| question and answer | per provider | required | required | critical |
+| interruption | per provider | required | required | smoke |
+| resume | per provider | required | replay | critical |
+| compaction | per capable provider | required | required | smoke |
+| background task | per capable provider | required | required | smoke |
+| unknown event | synthetic | required | required | not needed |
 
-E2E não substitui contrato: ele cobre poucos caminhos caros. Fixtures e
-reducers dão diagnóstico rápido para todas as combinações.
+E2E does not replace the contract: it covers a few expensive paths. Fixtures and
+reducers give fast diagnosis for every combination.

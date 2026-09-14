@@ -1,96 +1,99 @@
-# Design System do Prometeu
+# Prometeu Design System
 
-Status: componentes executáveis compartilhados; decisão no
-[ADR 0017](../decisions/0017-executable-design-system.md). O pacote contém
-renderização, comportamento, estilos e adaptação Rails.
+Status: shared executable components; decision in
+[ADR 0017](../decisions/0017-executable-design-system.md). The package contains
+rendering, behavior, styles and Rails adaptation.
 
-## Fonte de verdade
+## Source of truth
 
-- [`packages/design-system`](../../packages/design-system/README.md): pacote
-  `@prometeu/design-system`, fonte canônica de cores, fontes, raios,
-  espaçamentos, controles DOM, menus, diálogos, ícones, estilos e adaptador
-  Rails. Nomes e valores dos tokens são preservados. O pacote documenta APIs,
-  importação, lifecycle e contratos de acessibilidade.
-- [`src/ui-tokens.css`](../../src/ui-tokens.css): importa os tokens e conserva
-  somente a geometria e os estados exclusivos do desktop.
-- [`src/ui.css`](../../src/ui.css): importa os componentes compartilhados e
-  adapta somente controles antigos ao desktop. `style.css` importa essa
-  base; estilos de composição das telas continuam nas telas.
-- [`src/ui.ts`](../../src/ui.ts): reexporta os componentes do pacote, sem
-  implementação local de `button`, `input`, `field`, `checkbox`, `select`,
-  `dropdown`, `disclosure` ou `formDialog`.
-- [`src/menu.ts`](../../src/menu.ts) e [`src/icons.ts`](../../src/icons.ts):
-  reexportam menus e ícones genéricos do pacote. Ícones de etapas, arquivos e
-  providers continuam no adaptador de apresentação do desktop.
+- [`packages/design-system`](../../packages/design-system/README.md): the
+  `@prometeu/design-system` package, canonical source of colors, fonts, radii,
+  spacing, DOM controls, menus, dialogs, icons, styles and the Rails adapter.
+  Token names and values are preserved. The package documents APIs, imports,
+  lifecycle and accessibility contracts.
+- [`src/ui-tokens.css`](../../src/ui-tokens.css): imports the tokens and keeps
+  only the geometry and states exclusive to the desktop.
+- [`src/ui.css`](../../src/ui.css): imports the shared components and adapts
+  only legacy controls to the desktop. `style.css` imports that base; the
+  screens' composition styles stay in the screens.
+- [`src/ui.ts`](../../src/ui.ts): re-exports the package's components, with no
+  local implementation of `button`, `input`, `field`, `checkbox`, `select`,
+  `dropdown`, `disclosure` or `formDialog`.
+- [`src/menu.ts`](../../src/menu.ts) and [`src/icons.ts`](../../src/icons.ts):
+  re-export the package's generic menus and icons. Icons for stages, files and
+  providers stay in the desktop's presentation adapter.
 
-Componentes recebem texto já traduzido e callbacks. Não importam IPC, estado
-persistido, catálogo de agentes ou regras de negócio. Uma tela compõe essas
-primitivas e mantém suas próprias validações de domínio.
+Components receive already-translated text and callbacks. They do not import
+IPC, persisted state, the agent catalog or business rules. A screen composes
+these primitives and keeps its own domain validations.
 
-## Uso e acessibilidade
+## Usage and accessibility
 
-`field(rótulo, controle, ajuda)` associa nome e descrição ao controle. `input`
-mantém `required`, `pattern`, `min` e `max` nativos. Use `aria-invalid="true"`
-e texto de erro associado quando a validação de domínio falhar. `checkbox`
-mantém o input nativo dentro do rótulo, com tamanho independente de campos de
-texto; rótulos longos quebram ao lado do controle.
+`field(label, control, help)` associates the name and description with the
+control. `input` keeps the native `required`, `pattern`, `min` and `max`. Use
+`aria-invalid="true"` and associated error text when domain validation fails.
+`checkbox` keeps the native input inside the label, with a size independent of
+text fields; long labels wrap next to the control.
 
-`select` retorna `control`, `value`, `onchange` e `setOptions`. O seletor usa
-o mesmo `dropdown` extraído do launcher e o menu compartilhado. A seleção de
-modelo atualiza suas opções sem criar outro componente. Seleção obrigatória
-usa `root` e os atributos `name`/`required` quando o consumidor depende de
-submissão nativa. O campo `native` participa de `FormData` e da validação HTML.
-Telas antigas que usam apenas `control` e enviam comandos próprios continuam
-validando as regras de domínio antes de salvar.
+`select` returns `control`, `value`, `onchange` and `setOptions`. The selector
+uses the same `dropdown` extracted from the launcher and the shared menu. The
+model selection updates its options without creating another component. A
+required selection uses `root` and the `name`/`required` attributes when the
+consumer depends on native submission. The `native` field takes part in
+`FormData` and in HTML validation. Legacy screens that use only `control` and
+send their own commands still validate the domain rules before saving.
 Opening a dropdown focuses its menu options. Arrow keys move actual focus,
 not only the visual selection, and closing restores focus to the trigger.
 
-`formDialog` usa `dialog.showModal()`: conteúdo atrás fica inerte, foco retorna
-ao fechar e Tab/Shift+Tab circulam no formulário. O corpo rola e o rodapé fica
-visível. Salvar respeita validação HTML, impede envio duplicado, sinaliza
-`aria-busy` e apresenta falhas em `role="alert"` sem perder o texto digitado.
-Menus abertos no diálogo entram na mesma camada. Escape fecha primeiro o menu;
-outro Escape fecha o diálogo. Atalhos globais não alteram o workspace enquanto
-o diálogo está aberto. While submission is pending, Escape and cancellation
-leave the dialog open so progress and failures remain visible.
+`formDialog` uses `dialog.showModal()`: content behind it becomes inert, focus
+returns on close and Tab/Shift+Tab cycle within the form. The body scrolls and
+the footer stays visible. Saving respects HTML validation, prevents double
+submission, signals `aria-busy` and presents failures in `role="alert"` without
+losing the typed text. Menus opened in the dialog join the same layer. Escape
+closes the menu first; another Escape closes the dialog. Global shortcuts do
+not change the workspace while the dialog is open. While submission is pending,
+Escape and cancellation leave the dialog open so progress and failures remain
+visible.
 
-## Adoção
+## Adoption
 
-Editores de comandos e agentes em Ações usam os campos, seletores, checkboxes,
-disclosures e diálogo compartilhados. O launcher usa o mesmo dropdown; campos
-de texto dos hubs MCP e plugins usam `input` e `field`, incluindo o pedido de
-criação de plugin. Worktree cleanup and legacy import also use `formDialog`,
+The command and agent editors in Actions use the shared fields, selectors,
+checkboxes, disclosures and dialog. The launcher uses the same dropdown; text
+fields in the MCP and plugin hubs use `input` and `field`, including the plugin
+creation request. Worktree cleanup and legacy import also use `formDialog`,
 including its busy-state cancellation guard and shared checkboxes. Their
-application callbacks own progress labels and operation results. Modais antigos
-dos hubs continuam com o lifecycle anterior.
+application callbacks own progress labels and operation results. Legacy modals
+in the hubs keep the previous lifecycle.
 
-Novos controles e alterações de controles existentes devem reutilizar essa
-base. Se faltar comportamento, acrescente à primitiva correspondente e mostre
-o estado na galeria. Não copie CSS de uma tela para outra, nem introduza um
-componente para uma composição que só existe em uma tela.
+New controls and changes to existing controls must reuse this base. If behavior
+is missing, add it to the corresponding primitive and show the state in the
+gallery. Do not copy CSS from one screen to another, and do not introduce a
+component for a composition that exists on a single screen.
 
-## Galeria e verificação
+## Gallery and verification
 
-`/packages/design-system/index.html` é a galeria independente da empresa:
-renderiza componentes pela API compilada do pacote, sem estilos ou JavaScript
-do app. Mostra menu, submenu por teclado, senha, seleção e diálogo assíncrono
-com falha simulada. O Cloud consome runtime, estilos e adaptador Ruby em
-`vendor/design-system`, importados por `bin/design-system` e verificados por
-SHA-256 no CI. Suas views usam `ds_form_with`, `form.field`, `form.button` e
-os helpers do pacote, que mantêm o markup fora das telas.
-Desktop e telas de aplicativo do Cloud usam a densidade compacta padrão;
-`ui-comfortable` (44px) fica para os fluxos de toque do Cloud, como login e
-autorização do Mac. Mudanças começam no pacote e chegam ao Cloud por nova
-importação, nunca por edição dos arquivos vendorizados.
+`/packages/design-system/index.html` is the company's standalone gallery: it
+renders components through the package's compiled API, without the app's styles
+or JavaScript. It shows menu, keyboard submenu, password, selection and an
+asynchronous dialog with a simulated failure. The Cloud consumes the runtime,
+styles and Ruby adapter in `vendor/design-system`, imported by
+`bin/design-system` and verified by SHA-256 in CI. Its views use `ds_form_with`,
+`form.field`, `form.button` and the package's helpers, which keep the markup out
+of the screens.
+The desktop and the Cloud's application screens use the default compact
+density; `ui-comfortable` (44px) is reserved for the Cloud's touch flows, such
+as login and Mac authorization. Changes start in the package and reach the Cloud
+through a new import, never by editing the vendored files.
 
-Execute `npm run dev` e abra `/design-system.html` na mesma porta. A galeria
-também é uma entrada do build web e não inicia o backend ou agentes. Mostra
-tokens, botões, campos, seleção, erro, desabilitado, checkbox, menu com tag,
-disclosure e formulário com sucesso ou falha simulada.
+Run `npm run dev` and open `/design-system.html` on the same port. The gallery
+is also an entry point of the web build and does not start the backend or
+agents. It shows tokens, buttons, fields, selection, error, disabled, checkbox,
+menu with tag, disclosure and a form with a simulated success or failure.
 
-[`e2e/ui.spec.ts`](../../e2e/ui.spec.ts) cobre teclado, foco, validação,
-falha recuperável e viewport estreito em Chromium e WebKit.
-[`e2e/actions.spec.ts`](../../e2e/actions.spec.ts) cobre as primitivas nos
-fluxos reais da feature nos dois motores. A checagem arquitetural impede que
-`ui.ts` dependa de módulos de domínio ou que Ações recrie seletores nativos.
-Os testes web e E2E existentes protegem launcher, menus e hubs durante adoção.
+[`e2e/ui.spec.ts`](../../e2e/ui.spec.ts) covers keyboard, focus, validation,
+recoverable failure and a narrow viewport in Chromium and WebKit.
+[`e2e/actions.spec.ts`](../../e2e/actions.spec.ts) covers the primitives in the
+feature's real flows on both engines. The architectural check prevents `ui.ts`
+from depending on domain modules and prevents Actions from recreating native
+selectors. The existing web and E2E tests protect the launcher, menus and hubs
+during adoption.

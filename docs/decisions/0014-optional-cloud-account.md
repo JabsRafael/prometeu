@@ -1,51 +1,55 @@
-# ADR 0014 — conta opcional e SaaS separado
+# ADR 0014 — optional account and separate SaaS
 
-Data: 2026-09-06
-Status: Substituído pelo [ADR 0015](0015-cloud-rails.md) na escolha da stack.
-As garantias de conta opcional, isolamento do relay e conexão pelo navegador permanecem.
+Date: 2026-09-06
+Status: Superseded by [ADR 0015](0015-cloud-rails.md) in the choice of stack.
+The guarantees of an optional account, relay isolation and browser-based
+connection remain.
 
-## Contexto
+## Context
 
-O acesso pessoal por vários dispositivos precisa de identidade própria. O
-relay atual identifica membros de time e encaminha conversas; não possui
-contas pessoais nem persistência de transcripts. O uso local deve continuar
-sem cadastro ou conexão com o SaaS.
+Personal access from several devices needs its own identity. The current relay
+identifies team members and forwards conversations; it has no personal accounts
+and no transcript persistence. Local use must keep working without registration
+or a connection to the SaaS.
 
-## Opções consideradas
+## Options considered
 
-1. Reutilizar a matrícula do relay como conta: mistura pessoas e dispositivos
-   e muda a autoridade do compartilhamento existente.
-2. Implementar senhas e sessões próprias: cria manutenção de segurança que
-   não pertence ao produto.
-3. Serviço separado com autenticação existente e conexão pelo navegador.
+1. Reuse the relay's enrollment as the account: it mixes people and devices and
+   changes the authority of the existing sharing.
+2. Implement our own passwords and sessions: it creates security maintenance
+   that does not belong to the product.
+3. A separate service with existing authentication and a browser-based
+   connection.
 
-## Decisão
+## Decision
 
-Criar o projeto independente `prometeu-cloud` com Better Auth, Node 24 e SQLite,
-preparado para a VPS existente. Usar o fluxo de autorização de dispositivo do
-Better Auth para conectar o desktop. Guardar o token no backend, fora da
-webview, com as mesmas garantias de arquivo privado das integrações existentes.
+Create the independent `prometeu-cloud` project with Better Auth, Node 24 and
+SQLite, prepared for the existing VPS. Use Better Auth's device authorization
+flow to connect the desktop. Keep the token in the backend, outside the webview,
+with the same private-file guarantees as the existing integrations.
 
-A barra lateral mostra nome e menu da conta; sem conta, oferece cadastro
-opcional. Cadastro, edição e exclusão acontecem no site responsivo. Conta do
-Prometeu não seleciona conta de provider nem altera matrícula do time.
+The sidebar shows the account's name and menu; without an account, it offers
+optional registration. Registration, editing and deletion happen on the
+responsive site. A Prometeu account does not select a provider account and does
+not change the team's enrollment.
 
-## Consequências
+## Consequences
 
-SQLite e um processo bastam para esta primeira etapa; não há Redis, fila ou
-execução cloud. Escala horizontal exige reavaliar banco e coordenação. SMTP
-habilita verificação e recuperação de conta e é requisito de produção.
+SQLite and a single process are enough for this first stage; there is no Redis,
+queue or cloud execution. Horizontal scale requires re-evaluating the database
+and coordination. SMTP enables account verification and recovery and is a
+production requirement.
 
-O fluxo adiciona uma confirmação de código no navegador, mas evita senha no
-desktop e redirects para portas locais. Tokens de sessão duram até 30 dias,
-com renovação por atividade e revogação no servidor. Identidade em cache
-permite manter a UI utilizável durante indisponibilidade do SaaS.
+The flow adds a code confirmation in the browser, but avoids a password on the
+desktop and redirects to local ports. Session tokens last up to 30 days, with
+renewal on activity and server-side revocation. A cached identity keeps the UI
+usable during SaaS unavailability.
 
-Persistir transcripts é uma etapa posterior. Esta decisão não altera a
-fronteira de confiança do relay, não promete criptografia ponta a ponta e não
-autoriza upload automático de conversas ao criar conta.
+Persisting transcripts is a later stage. This decision does not change the
+relay's trust boundary, does not promise end-to-end encryption and does not
+authorize automatic upload of conversations when an account is created.
 
-## Evidência
+## Evidence
 
-Ver [contrato da conta](../contracts/cloud-account.md), testes `cloud.rs` e
-`e2e/cloud.spec.ts`, e a suíte HTTP do projeto `prometeu-cloud`.
+See the [account contract](../contracts/cloud-account.md), the `cloud.rs` tests
+and `e2e/cloud.spec.ts`, and the HTTP suite of the `prometeu-cloud` project.

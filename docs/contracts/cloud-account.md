@@ -1,130 +1,142 @@
-# Conta opcional do Prometeu
+# Optional Prometeu account
 
-Status: implementado no cliente e no projeto separado `prometeu-cloud`; publicação do serviço é uma etapa operacional independente.
+Status: implemented in the client and in the separate `prometeu-cloud` project;
+publishing the service is an independent operational step.
 
-## Fronteira
+## Boundary
 
-A conta pertence ao Prometeu, não ao Claude ou Codex. O SaaS
-possui cadastro, autenticação, perfil e sessões de login. Nenhum workspace, transcript ou segredo de provider é sincronizado com o SaaS.
-O [feedback privado](feedback.md) envia somente o texto digitado e a imagem
-escolhida, com aviso de tratamento privado pela equipe Prometeu. Enviar exige
-conta conectada ([ADR 0035](../decisions/0035-feedback-requires-account.md)); sem
-conta, o painel oferece a mesma autorização de dispositivo da barra lateral.
-O desktop funciona sem conta e não consulta as APIs da conta enquanto desconectado.
+The account belongs to Prometeu, not to Claude or Codex. The SaaS owns
+registration, authentication, profile and login sessions. No workspace,
+transcript or provider secret is synchronized with the SaaS.
+[Private feedback](feedback.md) sends only the typed text and the chosen image,
+with a notice that the Prometeu team handles it privately. Sending requires a
+connected account ([ADR 0035](../decisions/0035-feedback-requires-account.md));
+without an account, the panel offers the same device authorization as the
+sidebar. The desktop works without an account and does not call the account APIs
+while disconnected.
 
-O topo da barra lateral mantém o logo e o nome Prometeu. Quando desconectado,
-oferece “Criar conta” à direita, na mesma linha. Conectado, mostra o nome da
-pessoa abaixo da marca.
-O email fica no tooltip, e a indicação de conta offline acompanha o nome.
+The top of the sidebar keeps the Prometeu logo and name. When disconnected, it
+offers "Create account" on the right, on the same line. When connected, it shows
+the person's name below the brand.
+The email is in the tooltip, and the offline-account indication accompanies the
+name.
 
-O projeto `prometeu-cloud` usa Rails 8.1, SQLite e ERB, com autenticação baseada
-no gerador nativo do Rails e `has_secure_password`. Oferece cadastro
-por email/senha, verificação de email, leitura e edição do perfil, mudança de
-email com confirmação, mudança/recuperação de senha, logout, revogação de
-sessões de login e exclusão de conta com senha. SMTP é obrigatório para
-produção; desenvolvimento local pode rodar sem email. Sessões têm validade
-fixa de 30 dias, com revogação no servidor; não há renovação automática.
+The `prometeu-cloud` project uses Rails 8.1, SQLite and ERB, with authentication
+based on Rails' native generator and `has_secure_password`. It offers
+registration by email/password, email verification, reading and editing the
+profile, email change with confirmation, password change/recovery, logout,
+revocation of login sessions and account deletion with a password. SMTP is
+required for production; local development can run without email. Sessions have
+a fixed 30-day validity, with server-side revocation; there is no automatic
+renewal.
 
-Os controles do site são renderizados pelo adaptador Rails do Design System.
-Seu runtime local acrescenta menus, revelar senha, confirmação opcional de
-revogação e bloqueio de envios duplicados. A CSP permite scripts locais com
-nonce e não permite `unsafe-inline` ou `eval`. Formulários continuam enviando
-POSTs nativos com CSRF e valores de botão preservados. Sem JavaScript, cadastro,
-login e autorização do Mac continuam funcionando. Ver
+The site's controls are rendered by the Design System's Rails adapter. Its local
+runtime adds menus, password reveal, optional revocation confirmation and
+double-submit blocking. The CSP allows local scripts with a nonce and does not
+allow `unsafe-inline` or `eval`. Forms still send native POSTs with CSRF and
+preserved button values. Without JavaScript, registration, login and Mac
+authorization keep working. See
 [ADR 0017](../decisions/0017-executable-design-system.md).
 
-## Conexão do Mac
+## Connecting the Mac
 
-O backend usa `POST /api/auth/device/code`, com `client_id=prometeu-desktop`.
-Abre `/device?user_code=…&mode=signup` no navegador do sistema. A pessoa cria
-uma conta ou entra, confere o código mostrado no desktop e aprova explicitamente.
-O clique em “Criar conta” abre o navegador diretamente, sem diálogo no desktop.
-O código fica na barra lateral enquanto a autorização está pendente; seu menu
-permite reabrir o navegador ou cancelar. A conexão é detectada automaticamente.
-O desktop consulta `POST /api/auth/device/token` respeitando `interval`,
-`authorization_pending`, `slow_down` e expiração. O token retornado autentica
-`GET /api/auth/get-session` via Bearer. Código consumido não pode ser reutilizado.
+The backend uses `POST /api/auth/device/code`, with
+`client_id=prometeu-desktop`. It opens `/device?user_code=…&mode=signup` in the
+system browser. The person creates an account or signs in, checks the code shown
+on the desktop and approves it explicitly. Clicking "Create account" opens the
+browser directly, without a dialog on the desktop. The code stays in the sidebar
+while authorization is pending; its menu allows reopening the browser or
+cancelling. The connection is detected automatically. The desktop polls
+`POST /api/auth/device/token` respecting `interval`, `authorization_pending`,
+`slow_down` and expiration. The returned token authenticates
+`GET /api/auth/get-session` through Bearer. A consumed code cannot be reused.
 
-Credenciais ficam exclusivamente no Rust. O frontend recebe apenas perfil,
-origem, estado offline, código público de confirmação e ID local da tentativa.
-O backend constrói a URL de aprovação a partir da origem configurada e não
-segue redirects HTTP. Senhas são digitadas somente na página do SaaS.
+Credentials stay exclusively in Rust. The frontend receives only the profile,
+origin, offline state, public confirmation code and the attempt's local ID. The
+backend builds the approval URL from the configured origin and does not follow
+HTTP redirects. Passwords are typed only on the SaaS page.
 
-`PROMETEU_CLOUD_URL` configura a origem no processo do app; padrão previsto:
-`https://app.prometeu.co`. HTTPS é obrigatório fora de loopback. A origem é
-persistida junto do token para nunca encaminhar uma credencial existente a
-outro servidor após alteração de configuração.
+`PROMETEU_CLOUD_URL` configures the origin in the app process; the planned
+default is `https://app.prometeu.co`. HTTPS is required outside loopback. The
+origin is persisted alongside the token so that an existing credential is never
+forwarded to another server after a configuration change.
 
 ## IPC
 
-| Comando | Argumentos | Retorno |
+| Command | Arguments | Return |
 | --- | --- | --- |
 | `cloud_status` | `{ refresh: boolean }` | `{ user, origin, offline }` |
 | `cloud_login_start` | `{ signup: boolean }` | `{ id, user_code, url, interval }` |
-| `cloud_login_poll` | `{ id: string }` | status conectado ou `null` enquanto pendente |
-| `cloud_login_cancel` | `{ id: string }` | vazio |
-| `cloud_logout` | nenhum | status desconectado |
+| `cloud_login_poll` | `{ id: string }` | connected status or `null` while pending |
+| `cloud_login_cancel` | `{ id: string }` | empty |
+| `cloud_logout` | none | disconnected status |
 
-`user` é `null` ou `{ id, name, email }`. `refresh=false` lê apenas o cache
-local. Falha transitória preserva a identidade e marca `offline`; sessão
-revogada ou expirada remove a credencial. A UI atualiza ao recuperar foco e a
-cada 60 segundos enquanto visível. Logout revoga primeiro no serviço: uma
-falha de rede deixa a conta conectada e apresenta erro, sem fingir revogação.
-Cancelar invalida a tentativa. Uma resposta tardia não substitui a tentativa
-atual. Um login concluído antes do cancelamento já é uma sessão conectada e
-pode ser encerrado pelo menu.
+`user` is `null` or `{ id, name, email }`. `refresh=false` reads only the local
+cache. A transient failure preserves the identity and marks `offline`; a revoked
+or expired session removes the credential. The UI refreshes when the window
+regains focus and every 60 seconds while visible. Logout revokes on the service
+first: a network failure leaves the account connected and shows an error,
+without pretending the revocation happened. Cancelling invalidates the attempt.
+A late response does not replace the current attempt. A login completed before
+the cancellation is already a connected session and can be ended from the menu.
 
-## Persistência e compatibilidade
+## Persistence and compatibility
 
-`<root>/cloud.json` contém `{ origin, token, user }`, com gravação atômica e
-permissões `0600` em diretório `0700`. Ausência significa uso local. Transcripts
-e contas dos providers mantêm seus formatos. Board e `team.json` recebem campos
-opcionais para consentimento e seleção de organização, preservando a leitura dos
-dados antigos; ver [contrato de organizações](cloud-organizations.md).
-Excluir a conta no SaaS revoga as sessões de login; não exclui dados locais.
-O mock simula o fluxo sem rede e guarda somente perfil fictício em localStorage.
+`<root>/cloud.json` contains `{ origin, token, user }`, with atomic writes and
+`0600` permissions in a `0700` directory. Its absence means local-only use.
+Transcripts and provider accounts keep their formats. The board and `team.json`
+receive optional fields for consent and organization selection, preserving
+reading of the old data; see the
+[organizations contract](cloud-organizations.md). Deleting the account in the
+SaaS revokes the login sessions; it does not delete local data. The mock
+simulates the flow without a network and stores only a fictional profile in
+localStorage.
 
-A substituição do protótipo Node pelo Rails preserva as quatro rotas do
-desktop, seus payloads e o logout por `POST /api/auth/sign-out` com Bearer e
-corpo JSON. Sessão inválida retorna JSON `null` em `get-session` e 401 no logout.
-O protótipo não tinha dados de produção. Seu banco não é reutilizado pelo Rails;
-tokens de teste antigos exigem nova conexão. As rotas internas do site foram
-substituídas por formulários Rails com CSRF; não eram consumidas pelo desktop.
-Ver [ADR 0015](../decisions/0015-cloud-rails.md).
+Replacing the Node prototype with Rails preserves the desktop's four routes,
+their payloads and logout through `POST /api/auth/sign-out` with Bearer and a
+JSON body. An invalid session returns JSON `null` in `get-session` and 401 on
+logout. The prototype had no production data. Its database is not reused by
+Rails; old test tokens require a new connection. The site's internal routes were
+replaced with Rails forms with CSRF; they were not consumed by the desktop.
+See [ADR 0015](../decisions/0015-cloud-rails.md).
 
-O catálogo de plugins, MCP e Ações passou a ter a conta como repositório; ver
-[`cloud-catalog.md`](cloud-catalog.md). Transcripts na nuvem permanecem fora desta etapa. A colaboração usa
-[E2EE v4](relay-v4.md), separada da credencial da conta. Organizações usam a
-identidade da conta para autorizar colaboração no relay; ver
-[contrato de organizações](cloud-organizations.md).
+The catalog of plugins, MCP and Actions now has the account as its repository;
+see [`cloud-catalog.md`](cloud-catalog.md). Transcripts in the cloud stay
+outside this stage. Collaboration uses [E2EE v4](relay-v4.md), separate from the
+account credential. Organizations use the account identity to authorize
+collaboration in the relay; see the
+[organizations contract](cloud-organizations.md).
 
 
-## Evidência
+## Evidence
 
-- `src-tauri/src/cloud.rs`: validação de origem e ausência de token no status.
-- `e2e/cloud.spec.ts`: conexão, persistência, cancelamento, logout, conta offline,
-  revogação e preservação das conversas, em Chromium e WebKit.
-- `prometeu-cloud/test/integration/accounts_test.rb`: requests Rails, CRUD,
-  isolamento, contrato desktop, aprovação, revogação, CSRF, rate limiting e email.
-- `prometeu-cloud/test/models/device_grant_test.rb`: consumo único concorrente.
-- `prometeu-cloud/test/browser/accounts.spec.js`: HTTP real e formulários com
-  CSRF ativo em Chromium e WebKit, em viewport mobile.
+- `src-tauri/src/cloud.rs`: origin validation and absence of the token in the
+  status.
+- `e2e/cloud.spec.ts`: connection, persistence, cancellation, logout, offline
+  account, revocation and preservation of conversations, in Chromium and WebKit.
+- `prometeu-cloud/test/integration/accounts_test.rb`: Rails requests, CRUD,
+  isolation, desktop contract, approval, revocation, CSRF, rate limiting and
+  email.
+- `prometeu-cloud/test/models/device_grant_test.rb`: concurrent single
+  consumption.
+- `prometeu-cloud/test/browser/accounts.spec.js`: real HTTP and forms with CSRF
+  active in Chromium and WebKit, in a mobile viewport.
 
-O mock não comprova abertura do navegador pelo Tauri nem entrega SMTP real.
+The mock does not prove that Tauri opens the browser, nor real SMTP delivery.
 
-## Catálogo pessoal
+## Personal catalog
 
-A mesma conta oferece autoria web em `/catalog` e `GET/PUT /api/catalog`
-com Bearer no desktop. `GET /api/organizations/:id/catalog` oferece leitura
-institucional autorizada pela matrícula atual, sem exigir cópia pessoal antes
-de instalar no desktop. Conectar não publica itens locais automaticamente.
-O [contrato do catálogo](cloud-catalog.md) define compartilhamento explícito,
-revisões, formatos e compatibilidade. Trocar de conta esquece vínculos
-anteriores, mantendo os arquivos locais.
+The same account offers web authoring at `/catalog` and `GET/PUT /api/catalog`
+with Bearer on the desktop. `GET /api/organizations/:id/catalog` offers
+institutional reading authorized by the current membership, without requiring a
+personal copy before installing on the desktop. Connecting does not publish
+local items automatically. The [catalog contract](cloud-catalog.md) defines
+explicit sharing, revisions, formats and compatibility. Switching accounts
+forgets previous links, keeping the local files.
 
-## Organizações
+## Organizations
 
-`cloud_organizations` e `cloud_relay_ticket` são IPCs aditivos descritos no
-[contrato de organizações](cloud-organizations.md). O segundo devolve ticket
-curto, nunca a credencial desktop. Revogar a conta também impede renovar
-acesso às organizações.
+`cloud_organizations` and `cloud_relay_ticket` are additive IPC commands
+described in the [organizations contract](cloud-organizations.md). The second
+returns a short ticket, never the desktop credential. Revoking the account also
+prevents renewing access to the organizations.

@@ -1,68 +1,74 @@
-# ADR 0035 — Feedback exige conta Prometeu
+# ADR 0035 — Feedback requires a Prometeu account
 
-Data: 2026-09-10
-Status: aceito. Substitui o [ADR 0033](0033-github-feedback-attachments.md).
+Date: 2026-09-10
+Status: accepted. Supersedes
+[ADR 0033](0033-github-feedback-attachments.md).
 
-## Contexto
+## Context
 
-O ADR 0031 abriu o envio anônimo e os ADRs 0032 e 0033 mantiveram esse contrato
-enquanto mudavam apenas o destino e o armazenamento. Nada disso chegou a rodar em
-produção: `POST /api/feedback` nunca existiu no Cloud e o desktop recebia 404 em
-cada tentativa, com o erro genérico de envio.
+ADR 0031 opened anonymous submission and ADRs 0032 and 0033 kept that contract
+while changing only the destination and the storage. None of that ever ran in
+production: `POST /api/feedback` never existed in the Cloud and the desktop
+received 404 on every attempt, with the generic send error.
 
-Criar issue no GitHub exige um token, e não existe criação anônima. Distribuir
-esse token no cliente o entregaria a quem abrisse o binário, com escrita e
-leitura no repositório privado. O intermediário é obrigatório.
+Creating an issue on GitHub requires a token, and there is no anonymous
+creation. Distributing that token in the client would hand it to anyone who
+opened the binary, with write and read access to the private repository. The
+intermediary is mandatory.
 
-Feedback é canal de produto do Prometeu, não formulário público. Quem envia deve
-ser identificável para o time responder e para o canal não virar destino de spam.
+Feedback is a Prometeu product channel, not a public form. Whoever submits must
+be identifiable so the team can answer and so the channel does not become a spam
+target.
 
-## Decisão
+## Decision
 
-`POST /api/feedback` exige sessão: o desktop envia o Bearer da conta conectada e
-uma página do Cloud envia o cookie de sessão assinado. Sem sessão, 401. O limite
-passa a ser por conta, cinco relatos por hora, no lugar do limite por IP e da
-cota diária global.
+`POST /api/feedback` requires a session: the desktop sends the connected
+account's Bearer and a Cloud page sends the signed session cookie. Without a
+session, 401. The limit becomes per account, five reports per hour, replacing
+the per-IP limit and the global daily quota.
 
-O desktop entrega pelo backend Rust, no comando `feedback_send`, porque o token
-da conta vive fora da webview desde o ADR da conta opcional. A webview monta o
-relato e nunca vê a credencial.
+The desktop delivers through the Rust backend, in the `feedback_send` command,
+because the account's token has lived outside the webview since the optional
+account ADR. The webview assembles the report and never sees the credential.
 
-Sem conta conectada, o painel troca o formulário por um aviso e pelo botão que
-inicia a mesma autorização de dispositivo da barra lateral. O botão de feedback
-continua visível: esconder o canal esconde também o caminho para usá-lo.
+Without a connected account, the panel replaces the form with a notice and the
+button that starts the same device authorization as the sidebar. The feedback
+button stays visible: hiding the channel also hides the path to using it.
 
-O endpoint deixa de responder CORS e preflight. O desktop chega sem `Origin` e a
-página do Cloud é mesma origem; exigir `application/json` sem liberar CORS impede
-que uma página de terceiros poste com o cookie de quem estiver logado.
+The endpoint stops answering CORS and preflight. The desktop arrives without
+`Origin` and the Cloud page is same-origin; requiring `application/json` without
+enabling CORS prevents a third-party page from posting with the cookie of
+whoever is logged in.
 
-O restante do ADR 0033 continua vigente: verificação de repositório privado,
-upload nativo de anexo, issue com a imagem embutida, recibo `{ id }` sem URL
-interna, idempotência por ID e nenhuma cópia de conteúdo no Cloud.
+The rest of ADR 0033 stays in force: the private repository check, the native
+attachment upload, the issue with the embedded image, the `{ id }` receipt
+without an internal URL, idempotency by ID and no copy of the content in the
+Cloud.
 
-## Consequências
+## Consequences
 
-Quem não tem conta não envia feedback. O widget anônimo do site perde o canal:
-o bundle continua existindo para páginas autenticadas do Cloud, e a landing
-precisa de outra rota se quiser ouvir visitantes.
+Whoever has no account cannot submit feedback. The site's anonymous widget loses
+the channel: the bundle still exists for authenticated Cloud pages, and the
+landing page needs another route if it wants to hear from visitors.
 
-O time passa a saber de qual conta veio cada relato pela sessão da requisição.
-Isso não entra na tabela: o recibo continua sem conteúdo, sem imagem e sem
-identificação de pessoa. A associação existe apenas durante a requisição.
+The team now knows which account each report came from, through the request's
+session. That does not enter the table: the receipt still has no content, no
+image and no identification of a person. The association exists only during the
+request.
 
-Reenvio depende do formulário preservado no cliente, como antes. O limite por
-conta usa o cache em memória de um processo Puma; múltiplas réplicas exigem cache
-compartilhado, igual aos demais limites do Cloud.
+Resending depends on the form preserved in the client, as before. The per-account
+limit uses the in-memory cache of one Puma process; multiple replicas require a
+shared cache, like the Cloud's other limits.
 
-## Evidência
+## Evidence
 
-`FeedbackTest` no Cloud cobre 401 sem sessão, Bearer do desktop, cookie do
-navegador, limite por conta, verificação do repositório privado, upload, issue
-com marcador, idempotência, conflito, entrega incerta, ausência de conteúdo na
-tabela e recusa de origem estranha.
-[`e2e/feedback.spec.ts`](../../e2e/feedback.spec.ts) cobre o aviso sem conta, a
-conexão a partir do painel, o rascunho preservado no erro e o reenvio do mesmo
-relato.
+`FeedbackTest` in the Cloud covers 401 without a session, the desktop's Bearer,
+the browser's cookie, the per-account limit, the private repository check, the
+upload, the issue with the marker, idempotency, conflict, uncertain delivery,
+the absence of content in the table and the refusal of a foreign origin.
+[`e2e/feedback.spec.ts`](../../e2e/feedback.spec.ts) covers the notice without
+an account, connecting from the panel, the draft preserved on error and
+resending the same report.
 
-Referências: [contrato](../contracts/feedback.md),
-[conta opcional](../contracts/cloud-account.md).
+References: [contract](../contracts/feedback.md),
+[optional account](../contracts/cloud-account.md).

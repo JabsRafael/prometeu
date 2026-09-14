@@ -1,48 +1,48 @@
-# ADR 0008 — índice Git explícito e operações por repositório
+# ADR 0008 — explicit Git index and per-repository operations
 
-Data: 2026-09-05
-Status: Aceito
+Date: 2026-09-05
+Status: Accepted
 
-## Contexto
+## Context
 
-Mudanças reunia commits da branch e modificações locais num diff desde a merge
-base. O filtro de arquivos sujos não mudava a base dos patches. Esse modelo
-servia para revisão, mas não descrevia o índice necessário para preparar um
-commit. Sessões de agentes também podem continuar editando enquanto a pessoa
-revisa, e um workspace pode conter vários repositórios independentes.
+Changes gathered the branch's commits and local modifications into a diff from
+the merge base. The dirty-file filter did not change the patches' base. That
+model served review, but it did not describe the index needed to prepare a
+commit. Agent sessions may also keep editing while the person reviews, and a
+workspace may contain several independent repositories.
 
-## Opções consideradas
+## Options considered
 
-1. Acrescentar stage ao diff existente, mantendo patches misturados.
-2. Expor índice, worktree e conflitos separadamente, preservando revisão de
-   branch e histórico como comparações explícitas.
-3. Delegar todas as operações ao agente ou a um cliente Git externo.
+1. Add a stage to the existing diff, keeping patches mixed together.
+2. Expose index, worktree and conflicts separately, preserving branch review and
+   history as explicit comparisons.
+3. Delegate every operation to the agent or to an external Git client.
 
-## Decisão
+## Decision
 
-Adotar a segunda opção. A UI prepara e commita por repositório, e separa commit
-local de push. O backend resolve caminhos a partir do workspace e possui as
-operações Git; apresentação não executa comandos do shell. Os novos comandos
-são aditivos ao IPC existente, descritos em
+Adopt the second option. The UI stages and commits per repository, and separates
+a local commit from a push. The backend resolves paths from the workspace and
+owns the Git operations; the presentation does not run shell commands. The new
+commands are additive to the existing IPC, described in
 [`../contracts/git.md`](../contracts/git.md).
 
-A seleção de branch reutiliza o lançador e o lifecycle de worktrees. Não troca
-o checkout do workspace que mantém conversas em execução. O avatar de inicial
-colorida permanece a identidade visual do repositório.
+Branch selection reuses the launcher and the worktree lifecycle. It does not
+switch the checkout of a workspace that has running conversations. The colored
+initial avatar remains the repository's visual identity.
 
-## Consequências
+## Consequences
 
-- Arquivos parcialmente preparados aparecem nos dois grupos, com patches
-  específicos. Novas edições do agente permanecem fora do commit.
-- Contadores locais e contadores de upstream têm significados distintos.
-- Erros de Git ficam explícitos; um repositório com falha não parece limpo.
-- A UI guarda rascunhos e protege ações contra respostas de navegação antigas.
-- O app não se torna um cliente Git completo: não acrescenta checkout sobre
-  agentes, force-push, stage de linhas ou finalização de rebase.
-- Não há mudança em persistência, contratos dos agentes ou relay.
+- Partially staged files appear in both groups, with specific patches. New agent
+  edits stay out of the commit.
+- Local counters and upstream counters have distinct meanings.
+- Git errors are explicit; a failing repository does not look clean.
+- The UI keeps drafts and protects actions against old navigation responses.
+- The app does not become a complete Git client: it does not add a checkout on
+  top of agents, force-push, line staging or rebase completion.
+- There is no change in persistence, agent contracts or the relay.
 
-## Evidência
+## Evidence
 
-Testes reais em `src-tauri/src/session/git_tests.rs`, UI em `e2e/git.spec.ts` e
-paridade IPC em `src-tauri/tests/mock.rs`. A aprovação visual ocorreu num
-protótipo temporário; esse artefato não faz parte da documentação versionada.
+Real tests in `src-tauri/src/session/git_tests.rs`, UI in `e2e/git.spec.ts` and
+IPC parity in `src-tauri/tests/mock.rs`. Visual approval happened in a temporary
+prototype; that artifact is not part of the versioned documentation.

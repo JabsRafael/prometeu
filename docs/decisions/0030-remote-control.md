@@ -1,51 +1,53 @@
-# ADR 0030 — controle remoto independente do compartilhamento
+# ADR 0030 — remote control independent of sharing
 
-Data: 2026-09-08
-Status: Aceito. Amplia os [ADRs 0027](0027-companion-devices.md) e
-[0028](0028-mobile-web-app.md), sem alterar o [relay v4](../contracts/relay-v4.md).
+Date: 2026-09-08
+Status: Accepted. Extends [ADR 0027](0027-companion-devices.md) and
+[ADR 0028](0028-mobile-web-app.md), without changing
+[relay v4](../contracts/relay-v4.md).
 
-## Contexto
+## Context
 
-O celular pertence à mesma pessoa que executa o workspace no Mac, mas o menu
-de compartilhamento oferece somente outras pessoas ou toda a organização.
-Assim, acessar o próprio workspace pelo celular exigia expô-lo a alguém mais.
+The phone belongs to the same person who runs the workspace on the Mac, but the
+sharing menu offers only other people or the whole organization. So reaching
+one's own workspace from the phone required exposing it to someone else.
 
-O acesso pessoal também precisa poder ser revogado sem mudar quem já recebeu o
-workspace pela colaboração do time.
+Personal access must also be revocable without changing who already received the
+workspace through the team's collaboration.
 
-## Opções consideradas
+## Options considered
 
-1. Mostrar a própria pessoa no menu de audiência. Resolve o acesso exclusivo,
-   mas mistura dispositivos pessoais com colaboração e não permite desligar o
-   celular quando a audiência é toda a organização.
-2. Criar outro tipo de share no relay. Separa os conceitos, mas duplica
-   armazenamento, comentários e streaming.
-3. Persistir uma permissão pessoal no workspace e reutilizar o share existente.
+1. Show the person themselves in the audience menu. It solves exclusive access,
+   but mixes personal devices with collaboration and does not allow turning the
+   phone off when the audience is the whole organization.
+2. Create another kind of share in the relay. It separates the concepts, but
+   duplicates storage, comments and streaming.
+3. Persist a personal permission in the workspace and reuse the existing share.
 
-## Decisão
+## Decision
 
-Adotar a opção 3. `Workspace.remote_control` registra consentimento separado.
-O rodapé da conversa mostra **Controle remoto** em português e **Remote
-control** em inglês quando uma organização do Cloud está ativa.
+Adopt option 3. `Workspace.remote_control` records separate consent. The
+conversation's footer shows **Controle remoto** in Portuguese and **Remote
+control** in English when a Cloud organization is active.
 
-O workspace continua com um único anúncio. Antes de cifrar, o dono acrescenta
-seus dispositivos companheiros aos destinatários somente quando
-`remote_control` está ativo. A audiência do time continua independente. Um
-workspace com controle remoto e sem audiência de time usa `audience: []`
-localmente; no frame externo, a audiência explícita contém apenas os
-dispositivos autorizados.
+The workspace still has a single announcement. Before encrypting, the owner adds
+their companion devices to the recipients only when `remote_control` is active.
+The team's audience stays independent. A workspace with remote control and no
+team audience uses `audience: []` locally; in the outer frame, the explicit
+audience contains only the authorized devices.
 
-## Consequências
+## Consequences
 
-- Ativar o controle remoto não compartilha o workspace com outras pessoas.
-- Desativá-lo revoga os dispositivos pessoais sem remover a audiência do time.
-- Boards antigos recebem `remote_control: false` por padrão.
-- O Mac continua executando o agente e precisa permanecer com o Prometeu aberto.
-- O relay recebe os mesmos frames v4 e continua sem conhecer a permissão local.
+- Enabling remote control does not share the workspace with other people.
+- Disabling it revokes the personal devices without removing the team's
+  audience.
+- Old boards receive `remote_control: false` by default.
+- The Mac still runs the agent and must stay with Prometeu open.
+- The relay receives the same v4 frames and still does not know about the local
+  permission.
 
-## Evidência
+## Evidence
 
-- `src/team-channel.test.ts`: dispositivo do dono não recebe o share antes da
-  permissão e recebe depois dela.
-- `src/team-organizations.test.ts`: persistência independente e caixas cifradas
-  somente para o dono e seu dispositivo.
+- `src/team-channel.test.ts`: the owner's device does not receive the share
+  before the permission and receives it afterwards.
+- `src/team-organizations.test.ts`: independent persistence and boxes encrypted
+  only for the owner and their device.

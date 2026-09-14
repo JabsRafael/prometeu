@@ -1,50 +1,52 @@
-# ADR 0021 — Organizações e convites no Cloud
+# ADR 0021 — Organizations and invitations in the Cloud
 
-Data: 2026-09-07
-Status: Aceito; protocolo e fronteira de conteúdo ampliados pelo
+Date: 2026-09-07
+Status: Accepted; protocol and content boundary extended by
 [ADR 0022](0022-end-to-end-encryption.md).
-A exigência de cópia pessoal antes da instalação foi substituída pelo
+The requirement of a personal copy before installing was superseded by
 [ADR 0039](0039-organization-catalog-on-desktop.md).
-A reconexão obrigatória ao vencer cada lease foi substituída pela renovação
-do [ADR 0034](0034-mobile-pairing-continuity.md).
-Amplia [ADR 0015](0015-cloud-rails.md) e substitui a limitação de propriedade
-exclusivamente pessoal do [ADR 0020](0020-personal-catalog-and-local-items.md).
+The mandatory reconnection when each lease expires was superseded by the renewal
+in [ADR 0034](0034-mobile-pairing-continuity.md).
+Extends [ADR 0015](0015-cloud-rails.md) and supersedes the exclusively personal
+ownership limitation of [ADR 0020](0020-personal-catalog-and-local-items.md).
 
-## Contexto
+## Context
 
-Criação e matrícula de times existiam no desktop, por segredo compartilhado.
-O Cloud possuía somente uma prévia estática de organização. O produto precisa
-administrar organizações no navegador, exigir aceitação de convite por email
-e compartilhar tanto workspaces ao vivo quanto catálogos de ferramentas.
+Team creation and enrollment existed on the desktop, through a shared secret.
+The Cloud had only a static organization preview. The product needs to manage
+organizations in the browser, require invitation acceptance by email and share
+both live workspaces and tool catalogs.
 
-## Decisão
+## Decision
 
-A organização no Rails passa a ser autoridade sobre identidade, matrículas,
-papéis e catálogos. Não introduzimos uma segunda camada de times. Usamos Active
-Record, constraints SQLite, tokens assinados e Action Mailer existentes.
-Catálogos reutilizam documento revisionado e validação de portabilidade;
-compartilhamento entre catálogos é cópia explícita e independente.
+The organization in Rails becomes the authority over identity, memberships,
+roles and catalogs. We do not introduce a second team layer. We use existing
+Active Record, SQLite constraints, signed tokens and Action Mailer. Catalogs
+reuse the revisioned document and the portability validation; sharing between
+catalogs is an explicit, independent copy.
 
-Preservamos o relay e o protocolo de conversas. Tickets individuais de uso
-único autenticam leases de 60 segundos, com consulta ao Cloud no handshake.
-Isso dispensa novos segredos de serviço, assinatura JWT customizada e webhook
-de revogação, ao custo de renovar conexões e snapshots periodicamente. O tráfego
-para após o prazo mesmo quando o alarme do Durable Object atrasa.
+We preserve the relay and the conversation protocol. Single-use individual
+tickets authenticate 60-second leases, with a Cloud query in the handshake. That
+avoids new service secrets, custom JWT signing and a revocation webhook, at the
+cost of renewing connections and snapshots periodically. Traffic stops after the
+deadline even when the Durable Object's alarm is late.
 
-Consentimento de envio de workspace inclui organização e matrícula. Troca de
-contexto não envia trabalho antigo a outro grupo. Times legados mantêm seu
-namespace e credenciais durante a transição; selecionar organização conserva
-backup local. Identidades anônimas não são convertidas em emails inferidos.
+Consent to send a workspace includes the organization and the membership.
+Switching context does not send old work to another group. Legacy teams keep
+their namespace and credentials during the transition; selecting an organization
+keeps a local backup. Anonymous identities are not converted into inferred
+emails.
 
-## Consequências
+## Consequences
 
-O desktop continua útil sem conta. Colaboração institucional exige Cloud
-disponível para renovar autorização. Revogação tem limite de 60 segundos.
-Organizações suportam os mesmos 64 membros do relay. Catálogos pessoais seguem
-sincronizados como antes; copiar da organização é uma adoção explícita, sem
-assinatura automática das próximas edições. Código recebido nunca é ativado
-somente por aceitar convite.
+The desktop stays useful without an account. Institutional collaboration
+requires the Cloud to be available to renew authorization. Revocation has a
+60-second limit. Organizations support the same 64 members as the relay.
+Personal catalogs stay synchronized as before; copying from the organization is
+an explicit adoption, without automatically subscribing to the next edits.
+Received code is never activated just by accepting an invitation.
 
-Rollback mantém o schema expandido e o storage legado. Publicação segue Cloud,
-relay, desktop; não há contração destrutiva implícita. Contratos, configuração,
-limites e evidência estão em [cloud-organizations.md](../contracts/cloud-organizations.md).
+A rollback keeps the expanded schema and the legacy storage. Publication follows
+Cloud, relay, desktop; there is no implicit destructive contraction. Contracts,
+configuration, limits and evidence are in
+[cloud-organizations.md](../contracts/cloud-organizations.md).

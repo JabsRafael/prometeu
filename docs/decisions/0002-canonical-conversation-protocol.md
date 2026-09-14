@@ -1,67 +1,69 @@
-# ADR 0002 — Protocolo canônico de conversa
+# ADR 0002 — Canonical conversation protocol
 
-Data: 2026-09-03
-Status: Aceito; política de espelho substituída pelo ADR 0004
+Date: 2026-09-03
+Status: Accepted; mirror policy superseded by ADR 0004
 
-## Contexto
+## Context
 
-O frontend reduz stream-json do Claude. O adapter do Codex converte JSON-RPC
-para esse mesmo formato, permitindo reutilizar timeline, transcript e
-compartilhamento. A solução provou a utilidade de uma representação comum.
+The frontend reduces Claude's stream-json. The Codex adapter converts JSON-RPC
+into that same format, allowing the timeline, transcript and sharing to be
+reused. The solution proved the usefulness of a common representation.
 
-Entretanto, o formato comum pertence a um fornecedor, é consumido como JSON
-dinâmico e mistura fatos da conversa com detalhes do protocolo do Claude.
-Features exclusivas de outro provider precisam imitar conceitos externos ou
-injetar subtipos próprios.
+However, the common format belongs to a vendor, is consumed as dynamic JSON and
+mixes conversation facts with Claude protocol details. Features exclusive to
+another provider have to imitate external concepts or inject their own subtypes.
 
-## Opções consideradas
+## Options considered
 
-1. Manter stream-json do Claude como contrato permanente.
-2. Fazer o frontend conhecer e reduzir cada protocolo separadamente.
-3. Criar eventos canônicos do Prometheus e adapters por provider.
+1. Keep Claude's stream-json as a permanent contract.
+2. Make the frontend know and reduce each protocol separately.
+3. Create canonical Prometheus events and per-provider adapters.
 
-## Decisão
+## Decision
 
-Adotar `ConversationEventV1` e `ConversationCommandV1` como contratos internos
-versionados. Cada provider traduz entrada e saída na borda. Timeline,
-persistência e colaboração consomem somente o contrato do Prometheus.
+Adopt `ConversationEventV1` and `ConversationCommandV1` as versioned internal
+contracts. Each provider translates input and output at the edge. Timeline,
+persistence and collaboration consume only the Prometheus contract.
 
-A migração mantém leitura dos transcripts legados. O contrato vigente está em
+The migration keeps reading legacy transcripts. The contract in force is in
 `docs/contracts/conversation-events-v1.md`.
 
-## Consequências
+## Consequences
 
-Positivas:
+Positive:
 
-- provider novo não exige condicionais no reducer;
-- eventos passam a ter parser, tipos e compatibilidade explícitos;
-- testes de conformidade podem ser compartilhados;
-- mudanças externas ficam concentradas nas fixtures do adapter.
+- a new provider does not require conditionals in the reducer;
+- events gain an explicit parser, types and compatibility;
+- conformance tests can be shared;
+- external changes stay concentrated in the adapter's fixtures.
 
-Negativas:
+Negative:
 
-- haverá um período com leitura e espelho de rollback em dois formatos;
-- cada novo evento exige decisão de semântica comum;
-- tradução pode perder detalhe específico do provider;
-- transcripts e snapshot/live precisam de migração cuidadosa.
+- there will be a period with reading and a rollback mirror in two formats;
+- each new event requires a decision on common semantics;
+- translation may lose a provider-specific detail;
+- transcripts and snapshot/live need a careful migration.
 
-## Evidência de aceitação
+## Acceptance evidence
 
-- `conversation.test.ts` demonstra replay equivalente entre legado e V1;
-- testes do reducer cobrem streaming, requests, background e compactação;
-- testes Rust cobrem a tradução do stream-json e a tradução V1 direta do Codex;
-- parser e adapters descartam evento desconhecido isoladamente;
-- logs do Codex recebem espelho legado marcado, permitindo rollback sem
-  reescrever transcripts.
+- `conversation.test.ts` demonstrates equivalent replay between the legacy
+  format and V1;
+- reducer tests cover streaming, requests, background and compaction;
+- Rust tests cover the stream-json translation and Codex's direct V1
+  translation;
+- the parser and the adapters discard an unknown event in isolation;
+- Codex logs receive a marked legacy mirror, allowing a rollback without
+  rewriting transcripts.
 
-## Decisões de detalhe
+## Detail decisions
 
-- anexo separado continua fora do V1 até existir transporte real de bytes;
-- custo permanece no evento comum como campo anulável;
-- slash commands continuam texto interpretado pelo adapter, com descoberta
-  explícita por `commands.list`;
-- notice traduzido e apresentável aparece; tipo externo desconhecido é no-op;
-- o espelho `prometheusV1Mirror` é temporário, mas sua remoção exige novo ADR.
+- a separate attachment stays outside V1 until real byte transport exists;
+- cost stays in the common event as a nullable field;
+- slash commands remain text interpreted by the adapter, with explicit discovery
+  through `commands.list`;
+- a translated, presentable notice appears; an unknown external type is a no-op;
+- the `prometheusV1Mirror` mirror is temporary, but removing it requires a new
+  ADR.
 
-O ADR 0004 encerrou a emissão desse espelho na linha independente do Prometeu.
-Os tokens legados continuam aceitos somente para leitura e importação futura.
+ADR 0004 ended the emission of that mirror in Prometeu's independent line. The
+legacy tokens are still accepted only for reading and for a future import.

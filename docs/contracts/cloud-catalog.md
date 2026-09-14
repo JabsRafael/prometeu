@@ -1,42 +1,43 @@
-# Catálogo pessoal e itens locais
+# Personal catalog and local items
 
-Status: implementado; decisão no [ADR 0020](../decisions/0020-personal-catalog-and-local-items.md),
-que substitui o [ADR 0019](../decisions/0019-cloud-catalog.md).
+Status: implemented; decision in [ADR 0020](../decisions/0020-personal-catalog-and-local-items.md),
+which supersedes [ADR 0019](../decisions/0019-cloud-catalog.md).
 
-## Autoria e disponibilidade
+## Authoring and availability
 
-O navegador oferece `/catalog`, com cadastro, edição e exclusão de MCPs,
-plugins e skills da conta autenticada. Cada desktop reúne essas definições
-com seus próprios itens. Criar ou instalar um item no desktop é local por
-padrão, inclusive quando há conta. Conectar nunca publica o hub inteiro.
+The browser offers `/catalog`, with creation, editing and deletion of the
+authenticated account's MCPs, plugins and skills. Each desktop merges those
+definitions with its own items. Creating or installing an item on the desktop is
+local by default, even when there is an account. Connecting never publishes the
+whole hub.
 
-`Compartilhar na nuvem` publica uma definição e estabelece um vínculo:
-edições posteriores atualizam a conta. `Criar cópia local` cria outra
-definição, sem vínculo, e conserva a compartilhada. Uma cópia de plugin
-referencia os mesmos arquivos instalados; remover qualquer dessas definições
-não apaga o clone compartilhado. Para modificar os arquivos independentemente,
-cadastre outro diretório. Skills copiadas têm pacote e conteúdo próprios.
+`Share in the cloud` publishes a definition and establishes a link: later edits
+update the account. `Create local copy` creates another definition, without a
+link, and keeps the shared one. A plugin copy references the same installed
+files; removing either of those definitions does not delete the shared clone. To
+modify the files independently, register another directory. Copied skills have
+their own package and content.
 
-MCPs recebidos entram no hub, sem conexão ou ativação automática. Plugins e
-skills recebidos aparecem como disponíveis, com `Instalar aqui`. A seleção
-por workspace/conversa continua determinando o que os providers recebem.
-O desktop busca atualizações no login, ao recuperar foco, a cada 60 segundos
-enquanto visível e em **Atualizar conta**. Não há WebSocket de catálogo.
-Alterações na origem de um plugin exigem `Usar nova origem`; sincronizar
-metadados não substitui um clone por código novo automaticamente. O editor
-desktop altera a descrição de plugins compartilhados; a origem é editada no
-SaaS, preservando a diferença entre definição e instalação local. Atualizar
-um repositório continua sendo uma ação explícita no desktop.
+Received MCPs enter the hub, without automatic connection or activation.
+Received plugins and skills appear as available, with `Install here`. The
+per-workspace/per-conversation selection still determines what the providers
+receive. The desktop checks for updates on login, when the window regains focus,
+every 60 seconds while visible and on **Refresh account**. There is no catalog
+WebSocket. Changes to a plugin's source require `Use new source`; syncing
+metadata does not automatically replace a clone with new code. The desktop
+editor changes the description of shared plugins; the source is edited in the
+SaaS, preserving the difference between definition and local installation.
+Updating a repository is still an explicit action on the desktop.
 
-Excluir pelo navegador remove a definição compartilhada. Os desktops
-conservam os registros e arquivos já instalados como locais. Excluir um MCP
-ou plugin compartilhado pelo desktop exige confirmação de exclusão na nuvem.
-Remover uma skill do Mac apenas desinstala seu registro: ela volta à lista de
-itens disponíveis. Sair da conta mantém os hubs e esquece os vínculos.
+Deleting through the browser removes the shared definition. Desktops keep the
+records and files already installed as local ones. Deleting a shared MCP or
+plugin from the desktop requires confirming the deletion in the cloud. Removing
+a skill from the Mac only uninstalls its record: it returns to the list of
+available items. Signing out keeps the hubs and forgets the links.
 
-## Documento e HTTP
+## Document and HTTP
 
-Uma conta tem no máximo um documento JSON de 256 KB:
+An account has at most one 256 KB JSON document:
 
 ```ts
 type Doc = {
@@ -47,108 +48,114 @@ type Doc = {
 };
 ```
 
-`skills` é aditivo: documentos antigos omitem a coleção. A API preserva
-skills existentes quando um desktop antigo envia PUT sem essa chave. Enviar
-`skills: []` remove suas definições. Ações anteriores conservam o contrato
-existente; ainda não possuem editor no SaaS nem controle individual de compartilhamento.
+`skills` is additive: old documents omit the collection. The API preserves
+existing skills when an old desktop sends a PUT without that key. Sending
+`skills: []` removes its definitions. Previous Actions keep the existing
+contract; they still have no editor in the SaaS and no individual sharing
+control.
 
-| Rota | Autenticação | Corpo e resultado |
+| Route | Authentication | Body and result |
 | --- | --- | --- |
-| `GET /api/catalog` | Bearer desktop | `{ catalog: Doc ou null, revision: number ou null }` |
-| `PUT /api/catalog` | Bearer desktop | `{ catalog: Doc, revision }`; retorna documento e revisão |
-| `/catalog` e `/catalog/:kind` | cookie de navegador e CSRF | CRUD de item em `plugins`, `mcp` ou `skills` |
+| `GET /api/catalog` | desktop Bearer | `{ catalog: Doc or null, revision: number or null }` |
+| `PUT /api/catalog` | desktop Bearer | `{ catalog: Doc, revision }`; returns the document and revision |
+| `/catalog` and `/catalog/:kind` | browser cookie and CSRF | item CRUD in `plugins`, `mcp` or `skills` |
 
-`revision: null` significa primeira gravação. Revisão diferente devolve 409,
-sem escrever. Browser conserva o rascunho para revisão; desktop atualiza seu
-cache e informa conflito, sem reenviar silenciosamente. Editores desktop
-levam a revisão de quando foram abertos; um refresh no fundo não autoriza
-sobrescrever outra edição. Falha de rede impede somente a edição compartilhada.
-Edições privadas continuam disponíveis offline.
+`revision: null` means the first write. A different revision returns 409,
+without writing. The browser keeps the draft for review; the desktop updates its
+cache and reports the conflict, without silently resending. Desktop editors
+carry the revision from when they were opened; a background refresh does not
+authorize overwriting another edit. A network failure blocks only shared
+editing. Private edits stay available offline.
 
-O servidor valida tipos, nomes únicos, origens remotas e limites antes de
-persistir. IDs de skills seguem `[a-z0-9][a-z0-9-]{0,55}`; descrição tem até
-2000 caracteres e conteúdo até 65536 bytes. O conteúdo é corpo Markdown,
-sem frontmatter: o desktop gera nome e descrição com strings YAML escapadas.
+The server validates types, unique names, remote sources and limits before
+persisting. Skill IDs follow `[a-z0-9][a-z0-9-]{0,55}`; the description allows
+up to 2000 characters and the content up to 65536 bytes. The content is a
+Markdown body, without frontmatter: the desktop generates the name and
+description with escaped YAML strings.
 
-Plugins guardam endereço Git ou URL de `.zip`, nunca upload de pasta local.
-MCPs guardam o comando portátil ou URL e argumentos. Valores de `env` e
-`headers` ficam vazios na nuvem; o servidor recusa valores preenchidos.
-Credenciais são preenchidas em cada Mac e preservadas durante atualizações.
-Argumentos e textos livres são conteúdo publicado pela pessoa: não coloque
-segredos neles. O serviço não executa comandos, instala plugins nem acessa
-as origens cadastradas.
+Plugins store a Git address or a `.zip` URL, never an upload of a local folder.
+MCPs store the portable command or URL and arguments. `env` and `headers` values
+stay empty in the cloud; the server refuses filled-in values. Credentials are
+filled in on each Mac and preserved during updates. Arguments and free text are
+content published by the person: do not put secrets in them. The service does
+not run commands, install plugins or access the registered sources.
 
-## Identidade e persistência local
+## Identity and local persistence
 
-`<root>/catalog.json` guarda `{ revision, doc, links }`. `links` mapeia
-`<tipo>:<id na conta>` para um ID local. Nomes privados ocupados recebem um
-ID distinto para a definição remota (`cloud-<nome>-<n>`), preservando o item
-privado. Cache antigo sem `links` migra os vínculos históricos por nome.
-Trocar de conta/origem esquece o cache anterior, conservando itens locais.
+`<root>/catalog.json` stores `{ revision, doc, links }`. `links` maps
+`<type>:<id in the account>` to a local ID. Taken private names get a distinct ID
+for the remote definition (`cloud-<name>-<n>`), preserving the private item. An
+old cache without `links` migrates the historical links by name. Switching
+account/origin forgets the previous cache, keeping local items.
 
-`<root>/skills.json` guarda definições instaladas. Cada skill é materializada
-em `<root>/skills-packages/<id>/`, com manifestos Claude/Codex e
-`skills/<id>/SKILL.md`. O hub de plugins contém `skill-<id>` e reutiliza
-seleção e adapters existentes. Esses pacotes aparecem na página Skills e
-nos seletores, sem duplicar cadastro na página Plugins.
+`<root>/skills.json` stores installed definitions. Each skill is materialized in
+`<root>/skills-packages/<id>/`, with Claude/Codex manifests and
+`skills/<id>/SKILL.md`. The plugin hub contains `skill-<id>` and reuses the
+existing selection and adapters. These packages appear on the Skills page and in
+the selectors, without duplicating the registration on the Plugins page.
 
-Cada catálogo pertence à pessoa (`user_id`) ou à organização (`organization_id`),
-com exclusividade no banco. O desktop sincroniza o catálogo pessoal e lista
-plugins, MCPs e skills de todas as organizações com matrícula aceita. Cada item
-institucional mostra o nome da organização e `Instalar aqui`, sem exigir cópia
-para a conta pessoal. A instalação cria um registro local independente, sem
-ativação automática nem publicação. No Cloud, dono e administradores fazem CRUD;
-copiar definições entre catálogos continua opcional. Ver [organizações](cloud-organizations.md)
-e [ADR 0039](../decisions/0039-organization-catalog-on-desktop.md).
+Each catalog belongs to the person (`user_id`) or to the organization
+(`organization_id`), exclusively in the database. The desktop synchronizes the
+personal catalog and lists plugins, MCPs and skills of every organization with
+an accepted membership. Each institutional item shows the organization's name
+and `Install here`, without requiring a copy into the personal account. The
+installation creates an independent local record, without automatic activation
+or publication. In the Cloud, the owner and administrators do CRUD; copying
+definitions between catalogs is still optional. See
+[organizations](cloud-organizations.md) and
+[ADR 0039](../decisions/0039-organization-catalog-on-desktop.md).
 
-`GET /api/organizations/:id/catalog` aceita Bearer e retorna o mesmo envelope
-`{ catalog, revision }` do catálogo pessoal, com autorização pela matrícula atual.
-O desktop enumera `GET /api/organizations` e busca cada documento separadamente,
-preservando o limite por resposta. 404 remove a disponibilidade daquele catálogo
-e permite compatibilidade com Cloud antigo. Falhas de rede preservam o cache.
+`GET /api/organizations/:id/catalog` accepts Bearer and returns the same
+`{ catalog, revision }` envelope as the personal catalog, authorized by the
+current membership. The desktop enumerates `GET /api/organizations` and fetches
+each document separately, preserving the per-response limit. A 404 removes that
+catalog's availability and allows compatibility with an old Cloud. Network
+failures preserve the cache.
 
-`catalog.json` acrescenta `organizations: [{ id, name, revision, doc, links }]`, ausente
-em caches antigos. Esses `links` identificam instalações locais por tipo e ID;
-nunca participam de PUTs pessoais. Colisões usam IDs locais distintos, inclusive
-entre organizações e itens pessoais ainda não instalados. Refresh atualiza as
-definições disponíveis; instalações e credenciais continuam independentes. Sair
-da conta ou perder matrícula conserva registros e arquivos instalados.
+`catalog.json` adds `organizations: [{ id, name, revision, doc, links }]`, absent
+from old caches. Those `links` identify local installations by type and ID; they
+never take part in personal PUTs. Collisions use distinct local IDs, including
+between organizations and personal items not yet installed. A refresh updates
+the available definitions; installations and credentials stay independent.
+Signing out or losing membership keeps the installed records and files.
 
 ## IPC
 
-| Comando | Argumentos | Retorno |
+| Command | Arguments | Return |
 | --- | --- | --- |
-| `catalog_state` | nenhum | connected, revision, plugins, mcp, skills e shared |
-| `catalog_refresh` | nenhum | vazio; busca definições da conta |
-| `catalog_share` | kind, id local | vazio; publica e vincula |
-| `catalog_copy` | kind, id local, newId | vazio; cria definição privada |
-| `catalog_install_plugin` | id da conta | vazio; instala origem selecionada |
-| `catalog_install_skill` | id da conta | vazio; materializa skill |
-| `catalog_install_organization_item` | organization, kind, id, revision | vazio; verifica matrícula e revisão exibida e instala localmente |
-| `skill_hub` | nenhum | Skill[] instaladas |
-| `skill_save` | skill, revision | Skill[]; publica somente se vinculada |
-| `skill_remove` | id local | Skill[]; remove somente deste Mac |
+| `catalog_state` | none | connected, revision, plugins, mcp, skills and shared |
+| `catalog_refresh` | none | empty; fetches the account's definitions |
+| `catalog_share` | kind, local id | empty; publishes and links |
+| `catalog_copy` | kind, local id, newId | empty; creates a private definition |
+| `catalog_install_plugin` | account id | empty; installs the selected source |
+| `catalog_install_skill` | account id | empty; materializes the skill |
+| `catalog_install_organization_item` | organization, kind, id, revision | empty; checks the membership and displayed revision and installs locally |
+| `skill_hub` | none | installed Skill[] |
+| `skill_save` | skill, revision | Skill[]; publishes only if linked |
+| `skill_remove` | local id | Skill[]; removes only from this Mac |
 
-`plugin_save` e `mcp_save` também recebem `revision` quando editam um item
-compartilhado. Novos itens privados não precisam de revisão. O evento
-`catalog` atualiza hubs e marcas da interface. `plugins` e `skills` no estado
-incluem `local_id` e `installed`; plugins também incluem `source_changed`.
-`shared` mapeia `<tipo>:<id local>` para o ID na conta.
-O campo aditivo `organization_items` contém `{ organization, organization_name,
-revision, kind, id, description, installed }`. O frontend tolera sua ausência. A instalação
-consulta novamente o catálogo da organização; se o documento mudou, atualiza o
-cache e retorna conflito antes de instalar. MCPs institucionais entram no hub
-somente após `Instalar aqui`, com credenciais vazias.
+`plugin_save` and `mcp_save` also receive `revision` when editing a shared item.
+New private items do not need a revision. The `catalog` event updates the
+interface's hubs and markers. `plugins` and `skills` in the state include
+`local_id` and `installed`; plugins also include `source_changed`. `shared` maps
+`<type>:<local id>` to the ID in the account.
+The additive `organization_items` field contains `{ organization,
+organization_name, revision, kind, id, description, installed }`. The frontend
+tolerates its absence. The installation queries the organization's catalog
+again; if the document changed, it updates the cache and returns a conflict
+before installing. Institutional MCPs enter the hub only after `Install here`,
+with empty credentials.
 
-## Evidência
+## Evidence
 
-- `src-tauri/src/catalog.rs`: migração de vínculos, colisão de nomes, preservação
-  de itens privados e credenciais, rejeição de documentos malformados.
-- `src-tauri/src/skills.rs`: validação, isolamento de diretórios, frontmatter,
-  manifestos dos dois providers e atualização de conteúdo.
-- `e2e/cloud.spec.ts`: instalação, compartilhamento explícito, cópia privada,
-  edição offline e conflito de revisão sobre mock.
-- `prometeu-cloud/test/integration/catalog_test.rb` e `catalog_browser_test.rb`:
-  autenticação, isolamento por conta, CRUD browser/API, conflito e compatibilidade.
-- `prometeu-cloud/test/browser/catalog.spec.js`: formulários Rails reais,
-  CSRF, consumo da API desktop e layout em Chromium/WebKit.
+- `src-tauri/src/catalog.rs`: link migration, name collisions, preservation of
+  private items and credentials, rejection of malformed documents.
+- `src-tauri/src/skills.rs`: validation, directory isolation, frontmatter, both
+  providers' manifests and content updates.
+- `e2e/cloud.spec.ts`: installation, explicit sharing, private copy, offline
+  editing and revision conflict over the mock.
+- `prometeu-cloud/test/integration/catalog_test.rb` and
+  `catalog_browser_test.rb`: authentication, per-account isolation, browser/API
+  CRUD, conflict and compatibility.
+- `prometeu-cloud/test/browser/catalog.spec.js`: real Rails forms, CSRF,
+  consumption of the desktop API and layout in Chromium/WebKit.

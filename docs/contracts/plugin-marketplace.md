@@ -1,14 +1,14 @@
-# Contrato do hub de plugins
+# Plugin hub contract
 
-Status: contrato vigente; adaptação portátil decidida pelo ADR 0005.
+Status: contract in force; portable adaptation decided by ADR 0005.
 
-Este contrato define como um único catálogo do Prometeu alimenta sessões do
-Claude Code e do Codex. O hub é estado do produto; manifests, argumentos e
-caches de cada CLI são detalhes dos adapters.
+This contract defines how a single Prometeu catalog feeds Claude Code and Codex
+sessions. The hub is product state; each CLI's manifests, arguments and caches
+are adapter details.
 
 ## Hub
 
-O cadastro vive em `<root>/plugins.json` e conserva a forma existente:
+The registry lives in `<root>/plugins.json` and keeps the existing shape:
 
 ```ts
 type Plugin = {
@@ -20,173 +20,173 @@ type Plugin = {
 };
 ```
 
-`id` é a identidade estável guardada no workspace. `source` pode ser uma pasta
-local, um `.zip` local ou a URL de um `.zip`; cada adapter decide quais dessas
-origens consegue materializar. `made` apenas diz se a pasta foi criada ou
-clonada pelo Prometeu e, portanto, se pode ser apagada pelo app.
+`id` is the stable identity stored in the workspace. `source` can be a local
+folder, a local `.zip` or the URL of a `.zip`; each adapter decides which of
+those sources it can materialize. `made` only says whether the folder was
+created or cloned by Prometeu and therefore whether the app may delete it.
 
-Ao instalar um repositório de marketplace, o importador procura, nesta ordem:
+When installing a marketplace repository, the importer looks, in this order,
+for:
 
-- um plugin compatível na raiz;
+- a compatible plugin at the root;
 - `.agents/plugins/marketplace.json`;
 - `.claude-plugin/marketplace.json`;
-- plugins compatíveis um nível abaixo da raiz ou dentro de `plugins/`.
+- compatible plugins one level below the root or inside `plugins/`.
 
-Uma entrada local do marketplace Codex usa
-`{"source":{"source":"local","path":"./plugins/x"}}`; a forma Claude usa
-`{"source":"./plugins/x"}`. Somente caminhos internos ao clone são seguidos.
-Entradas remotas são outra instalação e não fazem o importador atravessar a
-fronteira do repositório.
+A local entry of the Codex marketplace uses
+`{"source":{"source":"local","path":"./plugins/x"}}`; the Claude form uses
+`{"source":"./plugins/x"}`. Only paths internal to the clone are followed.
+Remote entries are another installation and do not make the importer cross the
+repository boundary.
 
-## Seleção por workspace
+## Selection per workspace
 
-`Workspace.plugins` contém IDs do hub e vale para qualquer provider escolhido
-para aquele workspace:
+`Workspace.plugins` contains hub IDs and applies to whichever provider is chosen
+for that workspace:
 
-- `null` preserva o comportamento anterior e não injeta uma seleção;
-- `[]` não injeta nenhum item do hub;
-- uma lista injeta apenas itens ainda presentes no hub;
-- um ID removido do hub é ignorado para que um workspace antigo continue
-  abrindo.
+- `null` preserves the previous behavior and injects no selection;
+- `[]` injects no item from the hub;
+- a list injects only items still present in the hub;
+- an ID removed from the hub is ignored so that an old workspace still opens.
 
-A seleção controla o que o Prometeu injeta. Plugins que a pessoa habilitou
-diretamente no cadastro global do CLI continuam sujeitos às regras daquele
-CLI. No Codex, a configuração real é relida ao preparar cada spawn para que
-essas preferências continuem acompanhando o usuário; somente as entradas dos
-marketplaces reservados `prometeu` e `prometeu-dev` são controladas pelo
-workspace.
+The selection controls what Prometeu injects. Plugins the person enabled
+directly in the CLI's global registry are still subject to that CLI's rules. In
+Codex, the real configuration is re-read while preparing each spawn so those
+preferences keep following the user; only the entries of the reserved `prometeu`
+and `prometeu-dev` marketplaces are controlled by the workspace.
 
-Selecionar é ativar. O pacote deve estar habilitado desde o início da sessão e,
-quando declara hooks, eles precisam estar ativos antes de a primeira resposta.
-Um modo contínuo pode usar `SessionStart` para pôr sua instrução no contexto e
-`UserPromptSubmit` para reforçá-la; não depende de comando, menção à skill ou
-uma segunda ativação.
+Selecting is activating. The package must be enabled from the start of the
+session and, when it declares hooks, they must be active before the first
+answer. A continuous mode may use `SessionStart` to put its instruction in the
+context and `UserPromptSubmit` to reinforce it; it does not depend on a command,
+a mention of the skill or a second activation.
 
-## Pacote portátil
+## Portable package
 
-Uma pasta que deva funcionar nos dois providers contém
-`.claude-plugin/plugin.json`. Ela pode trazer também
-`.codex-plugin/plugin.json`; quando existe, o manifesto nativo funciona como
-overlay para os campos equivalentes. `name` deve ser o mesmo nos dois e usar
-minúsculas e hífens, com no máximo 64 caracteres.
+A folder that must work in both providers contains
+`.claude-plugin/plugin.json`. It may also carry `.codex-plugin/plugin.json`;
+when it exists, the native manifest works as an overlay for the equivalent
+fields. `name` must be the same in both and use lowercase letters and hyphens,
+with at most 64 characters.
 
-Skills, comandos, scripts, assets, MCP e hooks permanecem dentro da mesma
-pasta. Caminhos de manifesto são relativos à raiz do plugin. Quando um pacote
-Claude traz `.mcp.json`, o adapter acrescenta `mcpServers` ao manifesto Codex
-derivado; comandos são migrados pelo próprio Codex para seu mecanismo de
-skills. O Codex também fornece `CLAUDE_PLUGIN_ROOT` aos hooks compatíveis,
-portanto o pacote não precisa duplicar scripts apenas para trocar de provider.
+Skills, commands, scripts, assets, MCP and hooks stay inside the same folder.
+Manifest paths are relative to the plugin's root. When a Claude package brings
+`.mcp.json`, the adapter adds `mcpServers` to the derived Codex manifest;
+commands are migrated by Codex itself to its skill mechanism. Codex also
+provides `CLAUDE_PLUGIN_ROOT` to compatible hooks, so the package does not need
+to duplicate scripts just to switch providers.
 
-Os dois manifests aceitam caminho para um arquivo de hooks, mas seus objetos
-inline não têm exatamente o mesmo envelope: no manifesto Claude o objeto é o
-mapa de eventos; no Codex ele é um arquivo de hooks completo, com esse mapa sob
-`hooks`. Ao criar o overlay derivado, o adapter acrescenta esse envelope sem
-mexer na origem. Um overlay `.codex-plugin/plugin.json` fornecido pelo próprio
-pacote já é nativo e não recebe essa conversão.
+Both manifests accept a path to a hooks file, but their inline objects do not
+have exactly the same envelope: in the Claude manifest the object is the event
+map; in Codex it is a complete hooks file, with that map under `hooks`. When
+creating the derived overlay, the adapter adds that envelope without touching
+the source. A `.codex-plugin/plugin.json` overlay supplied by the package itself
+is already native and does not get that conversion.
 
-`agents/*.md` não é parte do formato de plugin do Codex atual. Pode coexistir
-no pacote e continua funcionando no Claude, mas um fluxo que precise dos dois
-providers deve ser modelado como skill. Essa diferença não é escondida por uma
-conversão silenciosa para a configuração de subagentes do Codex.
+`agents/*.md` is not part of the current Codex plugin format. It may coexist in
+the package and keeps working in Claude, but a flow that needs both providers
+must be modeled as a skill. That difference is not hidden by a silent conversion
+to Codex's subagent configuration.
 
-O criador do Prometeu deve gerar os dois manifests. Pacotes antigos com
-apenas o manifesto Claude continuam portáveis: o adapter escreve o manifesto
-Codex mínimo somente na cópia derivada, sem alterar a origem.
+Prometeu's creator must generate both manifests. Old packages with only the
+Claude manifest stay portable: the adapter writes the minimal Codex manifest
+only in the derived copy, without changing the source.
 
 ## Adapters
 
 ### Claude Code
 
-Cada item escolhido vira `--plugin-dir` para pasta ou `.zip` local e
-`--plugin-url` para URL. O source original é entregue diretamente ao CLI.
+Each chosen item becomes `--plugin-dir` for a folder or a local `.zip` and
+`--plugin-url` for a URL. The original source is handed directly to the CLI.
 
 ### Codex
 
-O Codex recebe somente pastas locais. `.zip` e URL continuam suportados pelo
-Claude, mas uma tentativa de usá-los numa sessão Codex falha antes de iniciar e
-explica qual plugin precisa ser instalado como pasta.
+Codex receives only local folders. `.zip` and URL are still supported by Claude,
+but an attempt to use them in a Codex session fails before starting and explains
+which plugin must be installed as a folder.
 
-Para toda seleção explícita, inclusive `[]`, `plugins.rs`:
+For every explicit selection, including `[]`, `plugins.rs`:
 
-1. deriva de SHA-256 do ID persistido do workspace um home estável em
-   `<root>/codex-workspaces/<workspace-hash>/`; usar o ID mantém separados
-   inclusive dois workspaces que rodam no mesmo clone sem worktree. Tarefas
-   de Ações usam o ID da sessão como escopo, preservando suas ferramentas. Para uma
-   conta gerenciada, usa o subdiretório `<workspace-hash>/<conta>/`, preservando
-   os links dos processos que ainda trabalham com outra conta;
-2. espelha nesse home as entradas do perfil de conta capturado no spawn, exceto
-   arquivos de configuração. Cada conta mantém sua credencial; sessões, skills
-   e cache de plugins continuam compartilhados com a instalação original;
-3. calcula um SHA-256 determinístico de cada pasta de plugin, sem `.git`, e
-   combina uma revisão do formato derivado para que correções do adapter também
-   invalidem snapshots antigos;
-4. copia o pacote para
-   `<home>/marketplace/plugins/<id>`, mescla o manifesto compatível com o
-   overlay nativo e acrescenta o hash à versão como cachebuster;
-5. grava `.agents/plugins/marketplace.json` naquele snapshot de workspace;
-6. reconstrói `<home>/config.toml` a partir da configuração real, preserva o
-   estado de hooks do workspace, desliga entradas antigas do Prometeu e liga
-   somente os IDs atuais;
-7. consulta e instala pelo CLI estável `codex plugin`, sempre com
+1. derives a stable home in `<root>/codex-workspaces/<workspace-hash>/` from the
+   SHA-256 of the workspace's persisted ID; using the ID keeps even two
+   workspaces running in the same clone without a worktree separate. Action
+   tasks use the session ID as the scope, preserving their tools. For a managed
+   account, it uses the `<workspace-hash>/<account>/` subdirectory, preserving
+   the links of processes still working with another account;
+2. mirrors in that home the entries of the account profile captured at spawn,
+   except configuration files. Each account keeps its credential; sessions,
+   skills and the plugin cache stay shared with the original installation;
+3. computes a deterministic SHA-256 of each plugin folder, without `.git`, and
+   combines a revision of the derived format so that adapter fixes also
+   invalidate old snapshots;
+4. copies the package to `<home>/marketplace/plugins/<id>`, merges the
+   compatible manifest with the native overlay and adds the hash to the version
+   as a cachebuster;
+5. writes `.agents/plugins/marketplace.json` in that workspace snapshot;
+6. rebuilds `<home>/config.toml` from the real configuration, preserves the
+   workspace's hook state, turns off old Prometeu entries and turns on only the
+   current IDs;
+7. queries and installs through the stable `codex plugin` CLI, always with
    `CODEX_HOME=<home>`;
-8. inicia o `codex app-server` com o mesmo `CODEX_HOME`.
+8. starts `codex app-server` with the same `CODEX_HOME`.
 
-O marketplace derivado se chama `prometeu` em release e
-`prometeu-dev` em debug, evitando colisão entre os dois estados. Cada
-workspace possui seu snapshot, e preparação e instalação são serializadas
-porque o cache instalado continua compartilhado.
+The derived marketplace is named `prometeu` in release and `prometeu-dev` in
+debug, avoiding a collision between the two states. Each workspace has its own
+snapshot, and preparation and installation are serialized because the installed
+cache stays shared.
 
-Instalar ou atualizar pode escrever no cache global do Codex e no
-`config.toml` derivado. O `config.toml` do home real não é aberto para escrita.
-Remover um item do hub tenta retirar a instalação compartilhada, a entrada de
-cada config derivada e as cópias de marketplace.
+Installing or updating may write in Codex's global cache and in the derived
+`config.toml`. The real home's `config.toml` is not opened for writing. Removing
+an item from the hub attempts to remove the shared installation, the entry in
+each derived config and the marketplace copies.
 
-O isolamento por home é necessário porque o estado `plugins.<id>.enabled` não
-aceita hoje um override confiável por `-c`: o CLI consome o argumento, mas o
-loader de plugins continua usando a camada persistida. Por isso a ativação
-fica numa camada de configuração real, porém descartável, em vez de depender
-de uma flag que não produz o efeito prometido.
+Per-home isolation is necessary because the `plugins.<id>.enabled` state does
+not currently accept a reliable override through `-c`: the CLI consumes the
+argument, but the plugin loader keeps using the persisted layer. That is why
+activation lives in a real, yet disposable, configuration layer instead of
+depending on a flag that does not produce the promised effect.
 
-O armazenamento padrão de login do Codex é `auth.json`. O home derivado liga
-esse arquivo ao perfil da conta e fixa o modo `file` quando a configuração usa o
-padrão ou `auto`, para que refreshes não criem tokens divergentes. Uma escolha
-explícita por `keyring` ou `ephemeral` é preservada; como o próprio Codex trata
-cada `CODEX_HOME` como identidade independente nesses modos, ela pode exigir
-API key no ambiente ou autenticação específica para o home. Perfis gerenciados
-pelo Prometeu usam `file` desde o login, em arquivo privado por conta. A decisão
-está no [ADR 0012](../decisions/0012-provider-accounts.md).
+Codex's default login storage is `auth.json`. The derived home links that file
+to the account's profile and pins the `file` mode when the configuration uses
+the default or `auto`, so that refreshes do not create divergent tokens. An
+explicit choice of `keyring` or `ephemeral` is preserved; since Codex itself
+treats each `CODEX_HOME` as an independent identity in those modes, it may
+require an API key in the environment or authentication specific to that home.
+Profiles managed by Prometeu use `file` from login on, in a private per-account
+file. The decision is in [ADR 0012](../decisions/0012-provider-accounts.md).
 
-## Hooks e confiança
+## Hooks and trust
 
-Escolher um plugin autoriza o código e os hooks daquele pacote, assim como
-passar `--plugin-dir` já autoriza no Claude. Antes de abrir a thread Codex, o
-adapter consulta `hooks/list` e grava no config derivado `enabled = true` e a
-confiança pelo `currentHash`, apenas para hooks cujo `pluginId` pertence à
-seleção atual. Um hook já confiável mas desativado também é religado: a seleção
-do workspace prevalece sobre o estado derivado anterior.
+Choosing a plugin authorizes that package's code and hooks, just as passing
+`--plugin-dir` already authorizes in Claude. Before opening the Codex thread,
+the adapter queries `hooks/list` and writes `enabled = true` and the trust
+through `currentHash` in the derived config, only for hooks whose `pluginId`
+belongs to the current selection. A hook that is already trusted but disabled is
+also re-enabled: the workspace's selection prevails over the previous derived
+state.
 
-Hooks globais, do projeto ou de outro plugin nunca ganham confiança por esse
-fluxo. Se o conteúdo mudar, o novo hash só é aceito quando uma sessão que ainda
-seleciona o plugin abrir. Se um pacote declara hooks e `hooks/list` não os
-atribui ao seu `pluginId`, ou se a gravação da ativação/confiança falha, o
-adapter mostra um erro e não abre a thread. Assim a sessão não pode nascer como
-uma coleção de skills quando a pessoa escolheu um comportamento automático.
+Global, project or other-plugin hooks never gain trust through that flow. If the
+content changes, the new hash is accepted only when a session that still selects
+the plugin opens. If a package declares hooks and `hooks/list` does not assign
+them to its `pluginId`, or if writing the activation/trust fails, the adapter
+shows an error and does not open the thread. That way the session cannot be born
+as a collection of skills when the person chose an automatic behavior.
 
-## Falhas e compatibilidade
+## Failures and compatibility
 
-- falha ao preparar ou instalar um plugin escolhido impede o spawn da sessão;
-- falha ao preparar MCP escolhido também impede o spawn, em vez de iniciar uma
-  conversa silenciosamente sem ferramentas;
-- o home, o marketplace e a cópia em `<root>/codex-workspaces/` são derivados
-  e podem ser reconstruídos a partir do hub, da config real e das origens;
-- remover ou limpar um workspace apaga somente seu home derivado; os links não
-  transformam conta, sessões ou cache compartilhado em ownership do app;
-- mudança no esquema do hub, na semântica de seleção ou nos manifests gerados
-  exige atualização deste contrato e teste de compatibilidade.
+- a failure to prepare or install a chosen plugin prevents the session's spawn;
+- a failure to prepare a chosen MCP also prevents the spawn, instead of silently
+  starting a conversation without tools;
+- the home, the marketplace and the copy in `<root>/codex-workspaces/` are
+  derived and can be rebuilt from the hub, the real config and the sources;
+- removing or cleaning a workspace deletes only its derived home; the links do
+  not turn the account, sessions or shared cache into the app's ownership;
+- a change in the hub's schema, in the selection semantics or in the generated
+  manifests requires updating this contract and a compatibility test.
 
-## Skills independentes
+## Standalone skills
 
-Skills cadastradas no desktop ou instaladas da conta são materializadas em
-`<root>/skills-packages/<id>/`, com os dois manifestos e `skills/<id>/SKILL.md`.
-O hub usa o ID `skill-<id>` e os mesmos seletores de plugins, sem alterar
-configuração global dos CLIs. Veja o [contrato do catálogo](cloud-catalog.md).
+Skills registered on the desktop or installed from the account are materialized
+in `<root>/skills-packages/<id>/`, with both manifests and `skills/<id>/SKILL.md`.
+The hub uses the ID `skill-<id>` and the same plugin selectors, without changing
+the CLIs' global configuration. See the [catalog contract](cloud-catalog.md).

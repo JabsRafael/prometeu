@@ -1,75 +1,81 @@
-# ADR 0019 — Catálogo portátil na conta Prometeu
+# ADR 0019 — Portable catalog in the Prometeu account
 
-Data: 2026-09-06
-Status: Substituído pelo [ADR 0020](0020-personal-catalog-and-local-items.md)
+Date: 2026-09-06
+Status: Superseded by [ADR 0020](0020-personal-catalog-and-local-items.md)
 
-## Contexto
+## Context
 
-Com a conta opcional publicada, o mantenedor passa a usar o Prometeu em dois
-Macs. Plugins, servidores MCP e Ações eram cadastrados por máquina, em
-`plugins.json`, `mcp.json` e `board.actions`. Repetir o cadastro à mão diverge
-com o tempo, e nada dizia qual Mac tinha a versão certa.
+With the optional account published, the maintainer now uses Prometeu on two
+Macs. Plugins, MCP servers and Actions were registered per machine, in
+`plugins.json`, `mcp.json` and `board.actions`. Repeating the registration by
+hand diverges over time, and nothing said which Mac had the right version.
 
-Ao mesmo tempo, a conta continua opcional: o desktop precisa funcionar sem
-rede e sem cadastro. E o SaaS não recebe segredos de providers.
+At the same time, the account stays optional: the desktop must work without a
+network and without registration. And the SaaS receives no provider secrets.
 
-## Opções consideradas
+## Options considered
 
-1. Sincronização bidirecional com merge: cada Mac edita offline e reconcilia
-   depois. Exige resolução de conflitos e uma UI para explicá-los.
-2. Exportar e importar um arquivo à mão. Não diverge menos; só muda quem copia.
-3. O SaaS é o repositório do catálogo; o desktop é cache e materializador.
-   Edição vai primeiro à nuvem; instalação e segredos ficam por Mac.
+1. Bidirectional synchronization with merge: each Mac edits offline and
+   reconciles later. It requires conflict resolution and a UI to explain it.
+2. Exporting and importing a file by hand. It does not diverge any less; it only
+   changes who does the copying.
+3. The SaaS is the catalog's repository; the desktop is a cache and
+   materializer. Editing goes to the cloud first; installation and secrets stay
+   per Mac.
 
-## Decisão
+## Decision
 
-Adotar a opção 3. O SaaS guarda um documento por conta com o que é
-declaração: plugins com endereço (`from` ou URL de `.zip`), a forma de cada
-servidor MCP sem os valores de `env` e `headers`, e o catálogo de Ações
-inteiro. O desktop guarda o documento em `<root>/catalog.json` com a revisão
-lida por último.
+Adopt option 3. The SaaS stores one document per account with what is
+declaration: plugins with an address (`from` or a `.zip` URL), the shape of each
+MCP server without the `env` and `headers` values, and the whole Actions
+catalog. The desktop stores the document in `<root>/catalog.json` with the
+revision read last.
 
-Cada gravação de plugin com endereço, servidor MCP ou Ações vai antes à nuvem
-por `PUT /api/catalog` com a revisão conhecida. A nuvem responde 409 com o
-documento atual quando outro Mac gravou antes; o desktop aplica esse
-documento, refaz a edição em cima e tenta uma vez. Sem resposta da nuvem, a
-edição falha com erro visível e o hub local não muda. Sem conta, nada disso
-acontece e os hubs continuam locais.
+Every write of a plugin with an address, an MCP server or Actions goes to the
+cloud first through `PUT /api/catalog` with the known revision. The cloud
+answers 409 with the current document when another Mac wrote first; the desktop
+applies that document, redoes the edit on top and tries once more. Without a
+response from the cloud, the edit fails with a visible error and the local hub
+does not change. Without an account, none of this happens and the hubs stay
+local.
 
-`cloud_status` com `refresh` e a conclusão do login puxam o documento. Nuvem
-vazia recebe o catálogo deste Mac. Nuvem com catálogo ganha: o que este Mac
-tinha vai uma vez para `<root>/catalog.local.json`. Plugin `.zip` por URL
-entra no hub local sozinho; repositório aparece como "não instalado" até a
-pessoa mandar clonar. Servidor MCP entra com as chaves e valores vazios;
-valores já preenchidos neste Mac sobrevivem a atualizações da forma. Plugin
-apontado para pasta local nunca vai à nuvem e fica marcado "só neste Mac".
+`cloud_status` with `refresh` and the completion of a login pull the document.
+An empty cloud receives this Mac's catalog. A cloud with a catalog wins: what
+this Mac had goes once into `<root>/catalog.local.json`. A `.zip` plugin by URL
+enters the local hub by itself; a repository appears as "not installed" until
+the person asks to clone it. An MCP server enters with empty keys and values;
+values already filled in on this Mac survive updates of the shape. A plugin
+pointing at a local folder never goes to the cloud and is marked "only on this
+Mac".
 
-Sair da conta apaga o cache e mantém o que está instalado. Excluir a conta no
-SaaS apaga o documento junto.
+Signing out deletes the cache and keeps what is installed. Deleting the account
+in the SaaS deletes the document along with it.
 
-## Consequências
+## Consequences
 
-Positivas:
+Positive:
 
-- um cadastro vale para todos os Macs da pessoa, sem merge nem UI de conflito;
-- segredos, clones, `codex-workspaces/` e seleção por workspace continuam
-  por máquina, como antes;
-- a conta segue opcional: sem ela, nenhuma linha de código de rede roda.
+- one registry applies to all of the person's Macs, without merge and without a
+  conflict UI;
+- secrets, clones, `codex-workspaces/` and the per-workspace selection stay per
+  machine, as before;
+- the account stays optional: without it, no line of network code runs.
 
-Negativas:
+Negative:
 
-- com conta e sem rede, cadastrar plugin com endereço, MCP ou Ação falha até a
-  rede voltar; leitura e sessões continuam funcionando;
-- `overrides` de Ações são chaveados pelo id do projeto, que é deste board;
-  em outro Mac ficam sem efeito até um id estável de projeto existir;
-- o documento é gravado inteiro, com limite de 256 KB;
-- uma edição feita no Mac B entre a leitura e a gravação do Mac A custa uma
-  tentativa a mais, nunca uma perda silenciosa.
+- with an account and no network, registering a plugin with an address, an MCP
+  or an Action fails until the network is back; reading and sessions keep
+  working;
+- Actions `overrides` are keyed by the project id, which belongs to this board;
+  on another Mac they have no effect until a stable project id exists;
+- the document is written as a whole, with a 256 KB limit;
+- an edit made on Mac B between Mac A's read and write costs one extra attempt,
+  never a silent loss.
 
-## Evidência
+## Evidence
 
-- `src-tauri/src/catalog.rs`: forma sem segredo, merge dos valores locais e
-  regra de portabilidade em testes unitários;
-- `prometeu-cloud/test/integration/catalog_test.rb`: isolamento por conta,
-  revisão, 409 com documento atual, limites e exclusão em cascata;
+- `src-tauri/src/catalog.rs`: the secret-free shape, merging of local values and
+  the portability rule in unit tests;
+- `prometeu-cloud/test/integration/catalog_test.rb`: per-account isolation,
+  revision, 409 with the current document, limits and cascading deletion;
 - [`contracts/cloud-catalog.md`](../contracts/cloud-catalog.md).

@@ -1,151 +1,155 @@
-# Git do workspace
+# Workspace Git
 
-Status: implementado. O Git executa somente no Mac que possui o workspace.
+Status: implemented. Git runs only on the Mac that owns the workspace.
 
-## Responsabilidades
+## Responsibilities
 
-`src/workspace-changes.ts` controla seleção, rascunhos e apresentação. O backend
-`src-tauri/src/session/git.rs` resolve o repositório pelo workspace e executa Git
-com argumentos separados, sem shell. `src/diff.ts` empilha os arquivos do escopo
-num scroll só, em diff unificado ou lado a lado, tanto em Alterações quanto em
-comparação e commit. As duas apresentações conservam a numeração de cada lado;
-lado a lado alinha os blocos de remoções e adições entre linhas de contexto.
-O viewer existente continua responsável pela edição completa de arquivos,
-acessível por **Abrir arquivo** ou pelo duplo clique no cabeçalho.
+`src/workspace-changes.ts` controls selection, drafts and presentation. The
+backend `src-tauri/src/session/git.rs` resolves the repository from the
+workspace and runs Git with separate arguments, without a shell. `src/diff.ts`
+stacks the scope's files in a single scroll, in a unified or side-by-side diff,
+both in Changes and in comparison and commit. Both presentations keep the line
+numbers of each side; side by side aligns the blocks of removals and additions
+between context lines. The existing viewer is still responsible for full file
+editing, reachable through **Open file** or by double-clicking the header.
 
-O painel mantém repositório, branch e remoto no cabeçalho, com contadores de
-pull/push e um menu de ações. Abas explícitas separam Arquivos locais, Stage,
-Histórico e Comparar. O formulário de commit fica somente em Stage; Arquivos
-locais oferece uma entrada para revisar o índice. Histórico lista commits no
-painel e mostra o selecionado no centro; Comparar mantém a referência editável.
-Os grupos preservam seu estado ao atualizar o Git. Rótulos PT-BR mantêm os termos branch, commit e stage;
-explicações das operações ficam nos tooltips, sem repetir instruções na lista.
+The panel keeps repository, branch and remote in the header, with pull/push
+counters and an action menu. Explicit tabs separate Local files, Stage, History
+and Compare. The commit form lives only in Stage; Local files offers an entry to
+review the index. History lists commits in the panel and shows the selected one
+in the center; Compare keeps the reference editable. The groups preserve their
+state when Git is refreshed. The pt-BR labels keep the terms branch, commit and
+stage; explanations of the operations live in the tooltips, without repeating
+instructions in the list.
 
-Branch, etapa do workspace e status do agente são conceitos independentes.
-Selecionar uma branch não troca o checkout de uma sessão em execução: abre um
-workspace existente ou o lançador, com worktree obrigatório. Branch ocupada em
-uma pasta sem workspace registrado mostra essa localização sem oferecer um
-checkout sobre ela.
+Branch, workspace stage and agent status are independent concepts. Selecting a
+branch does not switch the checkout of a running session: it opens an existing
+workspace or the launcher, with a mandatory worktree. A branch taken in a folder
+without a registered workspace shows that location without offering a checkout
+on top of it.
 
-## Comandos IPC
+## IPC commands
 
-Todos os comandos recebem `id`, identificador de workspace local. Os comandos
-por repositório também recebem `repo`, índice em `Workspace.repos`. O backend
-recusa workspace removido, devolvido, em preparação ou que falhou. Caminhos de
-arquivo são relativos ao repositório selecionado; caminhos absolutos,
-travessias, `.git` e pais que atravessam symlinks para fora são recusados.
+Every command receives `id`, the local workspace identifier. Per-repository
+commands also receive `repo`, an index into `Workspace.repos`. The backend
+refuses a workspace that was removed, returned, is being prepared or failed.
+File paths are relative to the selected repository; absolute paths, traversals,
+`.git` and parents that cross symlinks to the outside are refused.
 
-| Comando | Argumentos adicionais | Retorno |
+| Command | Additional arguments | Return |
 | --- | --- | --- |
-| `workspace_git_status` | nenhum | `GitStatus[]` |
+| `workspace_git_status` | none | `GitStatus[]` |
 | `workspace_git_diff` | `repo`, `scope`, `path?`, `reference?` | `GitDiff` |
-| `workspace_git_action` | `repo`, `operation`, `paths`, `message?`, `expected?`, `remote?` | vazio ou erro |
-| `workspace_git_history` | `repo` | até 100 `GitCommit` |
+| `workspace_git_action` | `repo`, `operation`, `paths`, `message?`, `expected?`, `remote?` | empty or error |
+| `workspace_git_history` | `repo` | up to 100 `GitCommit` |
 | `workspace_git_branches` | `repo` | `GitBranch[]` |
-| `workspace_git_conflict` | `repo`, `path` | versões atual, ours e theirs |
-| `workspace_git_resolve` | `repo`, `path`, `was`, `text` | vazio ou erro |
+| `workspace_git_conflict` | `repo`, `path` | current, ours and theirs versions |
+| `workspace_git_resolve` | `repo`, `path`, `was`, `text` | empty or error |
 
-Os tipos TypeScript ficam em `src/types.ts`. `src/ipc.ts`, o registro Tauri e
-`src/mock.ts` expõem os mesmos comandos. Nenhum campo novo é persistido no
-board; seleção e rascunhos duram enquanto o workspace existe na janela.
+The TypeScript types are in `src/types.ts`. `src/ipc.ts`, the Tauri registry and
+`src/mock.ts` expose the same commands. No new field is persisted in the board;
+selection and drafts last while the workspace exists in the window.
 
-### Status e diffs
+### Status and diffs
 
-`GitStatus` contém identidade (`repo`, `name`, `branch`, `base`), upstream e
-remotos, contadores `ahead`/`behind` em relação ao upstream, `has_head`,
-`merging`, token opaco `index`, grupos `staged`/`changes`/`conflicts` e `error`.
-Cada arquivo tem `path` e `status`. Um arquivo parcialmente preparado aparece
-nos dois grupos, com comparações diferentes. Renomes aparecem como exclusão e
-adição. O contador da aba conta caminhos locais únicos por repositório.
+`GitStatus` contains identity (`repo`, `name`, `branch`, `base`), upstream and
+remotes, `ahead`/`behind` counters relative to the upstream, `has_head`,
+`merging`, the opaque `index` token, the `staged`/`changes`/`conflicts` groups
+and `error`. Each file has `path` and `status`. A partially staged file appears
+in both groups, with different comparisons. Renames appear as a deletion and an
+addition. The tab counter counts unique local paths per repository.
 
-Status usa o formato porcelain delimitado por NUL. Um erro num repositório
-não esconde os outros; a UI mantém o último status conhecido, apresenta o erro
-e desabilita mutações naquele repositório. Projeto pode não ser repositório
-git: o workspace nasce sem worktree e sem branch (`list_branches` responde
-`git: false`, e o lançador trava as duas chavinhas), e o painel apresenta o
-erro do Git como em qualquer repositório que não responde. Respostas antigas
-não podem substituir a seleção de outro workspace ou repositório.
+Status uses the NUL-delimited porcelain format. An error in one repository does
+not hide the others; the UI keeps the last known status, shows the error and
+disables mutations in that repository. A project may not be a git repository:
+the workspace is born without a worktree and without a branch (`list_branches`
+answers `git: false`, and the launcher locks both toggles), and the panel shows
+the Git error as with any repository that does not answer. Old responses cannot
+replace the selection of another workspace or repository.
 
-Sem upstream, os contadores são zero e a ação é **Publicar branch**. Isso não
-significa que os commits estão publicados. HEAD destacado é `branch: null`;
-leitura permanece disponível, mas commit, pull e push ficam bloqueados.
+Without an upstream, the counters are zero and the action is **Publish branch**.
+That does not mean the commits are published. A detached HEAD is
+`branch: null`; reading stays available, but commit, pull and push are blocked.
 
-`GitDiff` contém `base` e `head` resolvidos e arquivos no formato `Change` já
-usado pelo viewer de revisão. Os escopos são:
+`GitDiff` contains the resolved `base` and `head` and files in the `Change`
+format already used by the review viewer. The scopes are:
 
-- `changes`: índice comparado ao worktree, incluindo arquivos não rastreados;
-- `staged`: HEAD comparado ao índice, inclusive antes do primeiro commit;
-- `compare`: merge base da referência escolhida com HEAD, até HEAD;
-- `commit`: primeiro pai até o commit escolhido; commit inicial usa árvore vazia.
+- `changes`: the index compared to the worktree, including untracked files;
+- `staged`: HEAD compared to the index, including before the first commit;
+- `compare`: the merge base of the chosen reference with HEAD, up to HEAD;
+- `commit`: the first parent up to the chosen commit; an initial commit uses the
+  empty tree.
 
-Comparação de branch e histórico excluem mudanças locais. Patches vazios
-podem indicar binário, metadados ou limite de 400.000 bytes; a UI declara essa
-limitação. O diff exibe até 2.500 linhas por arquivo e monta o corpo de cada um
-conforme ele entra na área visível.
+Branch comparison and history exclude local changes. Empty patches may indicate
+a binary file, metadata or the 400,000-byte limit; the UI states that
+limitation. The diff shows up to 2,500 lines per file and builds each file's
+body as it enters the visible area.
 
-Alterações mostra um escopo por vez — `staged` ou `changes`, decidido pela aba
-escolhida mesmo quando vazia —, porque o mesmo arquivo tem dois diffs diferentes.
-Stage e Unstage não trocam essa aba. Clicar num arquivo do escopo já exibido
-rola até ele e abre seu diff se estiver recolhido, sem refazer os outros patches.
-O filtro por caminho afeta a lista e os diffs; **Adicionar tudo ao stage** e
-**Remover tudo do stage** continuam operando sobre todo o escopo, incluindo arquivos
-fora do filtro.
+Changes shows one scope at a time — `staged` or `changes`, decided by the chosen
+tab even when it is empty — because the same file has two different diffs. Stage
+and Unstage do not switch that tab. Clicking a file of the already-displayed
+scope scrolls to it and opens its diff if collapsed, without rebuilding the
+other patches. The path filter affects the list and the diffs; **Stage
+everything** and **Unstage everything** still operate on the whole scope,
+including files outside the filter.
 
-**Revisado** só registra a leitura: não prepara nem descarta conteúdo. A marca
-existente no localStorage continua associada ao workspace, repositório, caminho
-e fingerprint do patch. Mudanças no patch invalidam a marca. O progresso conta
-todos os arquivos do escopo; **Próximo não revisado** limpa o filtro e abre o
-próximo arquivo pendente. Layout e filtro são estado efêmero da janela.
+**Reviewed** only records the reading: it does not stage or discard content. The
+existing mark in localStorage is still associated with the workspace,
+repository, path and patch fingerprint. Changes to the patch invalidate the
+mark. Progress counts every file of the scope; **Next unreviewed** clears the
+filter and opens the next pending file. Layout and filter are ephemeral window
+state.
 
-### Mutações
+### Mutations
 
-`operation` aceita `stage`, `unstage`, `commit`, `fetch`, `pull`, `push` e
-`publish`. Stage opera somente nos caminhos escolhidos, como pathspecs
-literais. Unstage altera o índice e preserva os arquivos, inclusive antes do
-primeiro commit. Não há stage automático ao commitar.
+`operation` accepts `stage`, `unstage`, `commit`, `fetch`, `pull`, `push` and
+`publish`. Stage operates only on the chosen paths, as literal pathspecs.
+Unstage changes the index and preserves the files, including before the first
+commit. There is no automatic staging on commit.
 
-Commit exige mensagem, branch e índice preparado, ou merge pendente sem
-conflitos. O token `expected` identifica HEAD e entradas do índice; mudanças
-observadas entre a leitura e a operação exigem nova revisão. A leitura verifica
-o token antes e depois de montar o status. Git mantém seus próprios locks;
-operações externas e hooks continuam sendo participantes do repositório, não
-processos controlados pela UI. O app serializa suas mutações e recusa outra
-operação enquanto uma está em andamento.
+Commit requires a message, a branch and a prepared index, or a pending merge
+without conflicts. The `expected` token identifies HEAD and the index entries;
+changes observed between the read and the operation require a new review. The
+read checks the token before and after building the status. Git keeps its own
+locks; external operations and hooks are still participants in the repository,
+not processes controlled by the UI. The app serializes its mutations and refuses
+another operation while one is in progress.
 
-Fetch atualiza remotos. Pull exige worktree e índice limpos, agente sem turno
-em execução e avanço fast-forward, sem rebase ou autostash. Push envia apenas
-HEAD à referência de upstream configurada. Publish exige um remoto conhecido e
-configura o upstream da branch. Ambas as ações desativam `followTags`, não
-fazem force-push e não publicam outros branches ou tags. Falhas preservam
-rascunho e seleção; a UI atualiza o status após o resultado.
+Fetch updates remotes. Pull requires a clean worktree and index, an agent with
+no running turn and a fast-forward advance, without rebase or autostash. Push
+sends only HEAD to the configured upstream reference. Publish requires a known
+remote and configures the branch's upstream. Both actions disable `followTags`,
+do not force-push and do not publish other branches or tags. Failures preserve
+the draft and the selection; the UI refreshes the status after the result.
 
-### Conflitos
+### Conflicts
 
-O editor mostra versões de texto sem remover espaços ou quebras de linha.
-O rascunho fica separado do arquivo atual. Resolver compara `was` com o texto
-do disco, recusa alterações concorrentes observadas e marcadores de conflito,
-grava o resultado e prepara o arquivo. Commit não ocorre automaticamente.
-Escolher ours pode deixar o índice igual a HEAD; `merging` permite concluir
-esse merge mesmo sem arquivos preparados.
+The editor shows text versions without removing whitespace or line breaks. The
+draft is kept separate from the current file. Resolving compares `was` with the
+text on disk, refuses observed concurrent changes and conflict markers, writes
+the result and stages the file. A commit does not happen automatically. Choosing
+ours may leave the index equal to HEAD; `merging` allows completing that merge
+even without staged files.
 
-Binários, symlinks e textos acima do limite não passam pelo editor de merge.
-Podem ser resolvidos por ferramentas externas e preparados explicitamente.
-Rebase/cherry-pick e outras operações avançadas continuam usando Git externo;
-a interface não oferece uma ação genérica que conclua esses sequenciadores.
+Binaries, symlinks and texts above the limit do not go through the merge editor.
+They can be resolved with external tools and staged explicitly. Rebase/cherry-pick
+and other advanced operations still use external Git; the interface does not
+offer a generic action that completes those sequencers.
 
-## Compatibilidade e evidência
+## Compatibility and evidence
 
-`workspace_diff` mantém seu formato e comportamento anteriores para
-consumidores existentes. A tela nova usa comandos separados, sem reinterpretar
-silenciosamente o antigo `dirty` como estado de stage. Não há migração de board,
-transcript ou protocolo de colaboração.
+`workspace_diff` keeps its previous format and behavior for existing consumers.
+The new screen uses separate commands, without silently reinterpreting the old
+`dirty` as stage state. There is no board, transcript or collaboration protocol
+migration.
 
-- `src-tauri/src/session/git_tests.rs`: repositórios Git reais, índice parcial,
-  caminhos especiais, commit, remotos locais, conflitos e merge.
-- `src/diff.test.ts`: numeração dos dois lados e alinhamento de substituições,
-  adições e exclusões entre hunks.
-- `e2e/git.spec.ts`: operações e estados da UI sobre o mock em Chromium e WebKit,
-  incluindo revisão independente do stage, filtros, layout e rascunhos por repo.
-- `e2e/critical-flows.spec.ts`: navegação ao viewer, revisão grande e isolamento
-  entre repositórios.
-- `src-tauri/tests/mock.rs`: paridade de comandos IPC.
+- `src-tauri/src/session/git_tests.rs`: real Git repositories, partial index,
+  special paths, commit, local remotes, conflicts and merge.
+- `src/diff.test.ts`: line numbering on both sides and alignment of
+  replacements, additions and deletions between hunks.
+- `e2e/git.spec.ts`: UI operations and states over the mock in Chromium and
+  WebKit, including review independent of the stage, filters, layout and
+  per-repo drafts.
+- `e2e/critical-flows.spec.ts`: navigation to the viewer, a large review and
+  isolation between repositories.
+- `src-tauri/tests/mock.rs`: IPC command parity.
