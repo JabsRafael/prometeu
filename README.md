@@ -182,8 +182,8 @@ explicit. Remote conversations still execute only on the owner's Mac, which
 must stay awake with Prometeu open.
 
 Shared conversation content uses end-to-end encryption. The relay still sees
-routing metadata, and initial key trust uses trust on first use (TOFU). There
-is no forward secrecy. This encryption does not cover content sent to model
+routing metadata, and member keys are trusted as the relay directory reports
+them, including later key changes. There is no forward secrecy. This encryption does not cover content sent to model
 providers or protect a compromised device. See the
 [security design and limits](docs/decisions/0022-end-to-end-encryption.md).
 

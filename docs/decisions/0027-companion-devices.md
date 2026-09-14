@@ -43,8 +43,9 @@ In the client, audiences and mentions still name people. The encrypted channel
 expands each person into their devices when choosing the boxes' recipients, in
 the audience published in the relay and in the mentions. The owner accepts a
 device through the person it belongs to when validating `watch` and `write`. The
-interface chooses the audience and mentions among people (`people()`), while the
-security list shows each device with its code, because the TOFU link is per key.
+interface chooses the audience and mentions among people (`people()`). The
+members list also shows people since [ADR 0041](0041-members-list-shows-people.md);
+keys stay pinned per device, because the TOFU link is per key.
 
 The Cloud's roster keeps the relay's 64 members: people always get in;
 companions take the remaining slots in order of recent use. Each person keeps at

@@ -35,7 +35,8 @@ Start at `docs/README.md` for the complete index.
   observed state. Do not mix the two.
 - The shared session still runs only on the owner's Mac. The relay coordinates
   and persists ciphertext and metadata; content uses E2EE v4 with trust on first
-  contact. The limits are in ADR 0022.
+  contact and automatic adoption of changed keys. The limits are in ADRs 0022
+  and 0042.
 - The relay's source of types and validation is `relay/src/protocol.ts`.
 - Visible interface text goes through i18n. User data and agent output stay in
   their original language.

@@ -28,7 +28,7 @@ async function bootTeam(page: Page) {
   await expect(page.locator("#railbody .navitem.mentions")).toBeVisible();
 }
 
-test("segurança do compartilhamento fixa primeira chave e exige revisão quando dispositivo muda", async ({ page }) => {
+test("compartilhamento adota a chave nova do dispositivo sem pedir revisão", async ({ page }) => {
   await bootTeam(page);
   const settings = async () => {
     await page.locator("#settings").click();
@@ -36,30 +36,18 @@ test("segurança do compartilhamento fixa primeira chave e exige revisão quando
   };
   await settings();
   await expect(page.locator("#settingsView")).toContainText("criptografia ponta a ponta");
-  await page.getByRole("button", { name: "Código de segurança", exact: true }).first().click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog).toContainText("Compare este código");
-  await expect(dialog).toContainText(/[0-9a-f]{4}( [0-9a-f]{4}){15}/);
-  await dialog.getByRole("button", { name: "Fechar", exact: true }).click();
-  await page.reload();
-  await settings();
-  await expect(page.getByRole("button", { name: "Código de segurança", exact: true }).first()).toBeVisible();
-  await expect(page.getByRole("button", { name: "Revisar nova chave", exact: true })).toHaveCount(0);
+  // The list names people, never their devices.
+  await expect(page.locator("#settingsView .members .mem .nm")).toHaveText(["Você (você)", "Marcus Hale", "John Okafor"]);
 
-  // Replacing only the simulated peer's private storage changes that device's
-  // identity; the real client must retain its previous TOFU pin.
+  // Replacing only the simulated peer's private storage changes that device's identity: a reinstall.
   await page.evaluate(() => {
     for (const key of Object.keys(localStorage)) if (key.startsWith("mock:peer-security:")) localStorage.removeItem(key);
   });
   await page.reload();
   await settings();
-  await expect(page.locator("#settingsView")).toContainText("O compartilhamento com esse dispositivo está bloqueado");
-  await page.getByRole("button", { name: "Revisar nova chave", exact: true }).click();
-  await expect(dialog).toContainText("Código anterior:");
-  await expect(dialog).toContainText("Novo código:");
-  await dialog.getByRole("button", { name: "Aceitar nova chave do dispositivo", exact: true }).click();
-  await expect(dialog).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Revisar nova chave", exact: true })).toHaveCount(0);
+  await expect(page.locator("#settingsView .members .mem .nm")).toHaveText(["Você (você)", "Marcus Hale", "John Okafor"]);
+  await expect(page.locator("#settingsView")).not.toContainText("bloquead");
+  // Encrypted collaboration keeps flowing under the new key, with nothing to confirm.
   await expect(page.locator("#railbody .navitem.mentions")).toBeVisible();
 });
 

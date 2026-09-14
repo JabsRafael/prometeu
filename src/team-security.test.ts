@@ -74,31 +74,27 @@ describe("identidades e confiança inicial do time", () => {
     expect(reopened.key("bob")).toBeUndefined();
     await reopened.observe([{ id: "bob", key: bob.publicKey }], "alice");
     expect(reopened.key("bob")).toBe(bob.publicKey);
-    expect(await reopened.code()).toBe(await alpha.code());
-    expect(await reopened.code("bob")).toBe(await alpha.code("bob"));
     expect((await TeamSecurity.load("beta", disk.read, disk.write)).identity).toEqual(beta.identity);
   });
 
-  it("bloqueia substituição conhecida até aceitação persistida", async () => {
+  it("adota chave nova do colega e só a usa depois de persistir", async () => {
     const disk = storage();
     const security = await TeamSecurity.load("team", disk.read, disk.write);
     const old = await generateIdentity();
     const next = await generateIdentity();
     await security.observe([{ id: "bob", key: old.publicKey }], "alice");
-    await security.observe([{ id: "bob", key: next.publicKey }], "alice");
-    expect(security.key("bob")).toBeUndefined();
-    expect(security.changedKeys()).toEqual([{ member: "bob", previous: old.publicKey, next: next.publicKey }]);
     disk.fail(true);
-    await expect(security.accept("bob")).rejects.toThrow("Storage unavailable");
+    await expect(security.observe([{ id: "bob", key: next.publicKey }], "alice")).rejects.toThrow("Storage unavailable");
     expect(security.key("bob")).toBeUndefined();
-    expect(security.changedKeys()).toHaveLength(1);
     disk.fail(false);
-    await security.accept("bob");
+    await security.observe([{ id: "bob", key: next.publicKey }], "alice");
     expect(security.key("bob")).toBe(next.publicKey);
-    expect(security.changedKeys()).toEqual([]);
     const reopened = await TeamSecurity.load("team", disk.read, disk.write);
     await reopened.observe([{ id: "bob", key: next.publicKey }], "alice");
     expect(reopened.key("bob")).toBe(next.publicKey);
+    // Adoption follows the directory in both directions: a key seen again replaces the pin again.
+    await reopened.observe([{ id: "bob", key: old.publicKey }], "alice");
+    expect(reopened.key("bob")).toBe(old.publicKey);
   });
 
   it("bloqueia chave ausente sem apagar vínculo e recusa troca da própria identidade", async () => {
@@ -116,7 +112,6 @@ describe("identidades e confiança inicial do time", () => {
     expect(security.key("bob")).toBe(bob.publicKey);
     await expect(security.observe([{ id: "alice", key: bob.publicKey }], "alice")).rejects.toThrow("Own identity key changed");
     expect(security.key("alice")).toBeUndefined();
-    await expect(security.accept("alice")).rejects.toThrow();
   });
 
   it("não expõe primeira chave quando persistência falha", async () => {
@@ -162,12 +157,11 @@ describe("identidades e confiança inicial do time", () => {
     const reopened = await TeamSecurity.load("team", disk.read, disk.write);
     const impostor = await generateIdentity();
     await reopened.observe([{ id: "bob", key: impostor.publicKey }, { id: "carol", key: carol.publicKey }], "alice");
-    expect(reopened.key("bob")).toBeUndefined();
+    expect(reopened.key("bob")).toBe(impostor.publicKey);
     expect(reopened.key("carol")).toBe(carol.publicKey);
-    expect(reopened.changedKeys()[0].previous).toBe(bob.publicKey);
   });
 
-  it("recusa diretório inválido e invalida aceitação após nova observação", async () => {
+  it("recusa diretório inválido sem expor vínculo observado", async () => {
     const disk = storage();
     const security = await TeamSecurity.load("team", disk.read, disk.write);
     const bob = await generateIdentity();
@@ -177,10 +171,8 @@ describe("identidades e confiança inicial do time", () => {
     expect(security.key("bob")).toBeUndefined();
     await expect(security.observe([{ id: "bob" }, { id: "bob" }], "alice")).rejects.toThrow();
     await security.observe([{ id: "bob", key: next.publicKey }], "alice");
-    const removed = security.observe([], "alice");
-    const accepted = security.accept("bob");
-    await removed;
-    await expect(accepted).rejects.toThrow();
+    expect(security.key("bob")).toBe(next.publicKey);
+    await security.observe([], "alice");
     expect(security.key("bob")).toBeUndefined();
   });
 });

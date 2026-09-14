@@ -1,7 +1,6 @@
 import { DOWN_FRAME_MAX, parseDown, parseUp, type Down, type Member, type Shared, type Up } from "../relay/src/protocol";
 import { fromBack, t } from "./i18n";
 import { TeamChannel, personOf as personIn } from "./team-channel";
-import { fingerprint } from "./team-crypto";
 import { TeamSecurity } from "./team-security";
 import { defaultTransport, type SocketLike, type Transport } from "./team-transport";
 import type { Context, Feature, Gate, Membership, Phase, SecurityStore } from "./team-ports";
@@ -73,22 +72,6 @@ export const people = (): Member[] => members.filter((m) => !m.person)
   .map((m) => ({ ...m, online: m.online || members.some((d) => d.person === m.id && d.online) }));
 /// No socket and no pending retry: the shell may start a connection.
 export const idle = () => !sock && !retry;
-
-/* Security. */
-
-export const securityChanges = () => channel?.security.changedKeys() ?? [];
-export const securityCode = (member?: string) => channel?.security.code(member) ?? Promise.reject(t("err.team.encryption"));
-export async function securityChangeCodes(member: string) {
-  const change = channel?.security.changedKeys().find(c => c.member === member);
-  if (!change) throw t("err.team.encryption");
-  return { previous: await fingerprint(change.previous), next: await fingerprint(change.next) };
-}
-export async function acceptSecurityKey(member: string, expectedKey: string) {
-  await wireQueue;
-  if (!channel || channel.security.changedKeys().find(c => c.member === member)?.next !== expectedKey) throw t("err.team.encryption");
-  await channel.security.accept(member);
-  disconnect(); void reconnect(); changed();
-}
 
 function encryptedWork(bytes: number, work: () => Promise<void>) {
   if (queuedWireBytes + bytes > 16 * 1024 * 1024) {

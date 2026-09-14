@@ -1,21 +1,19 @@
 import { isId, MEMBERS_MAX } from "../relay/src/protocol";
-import { fingerprint, generateIdentity, validateIdentity, validatePublicKey, type Identity } from "./team-crypto";
+import { generateIdentity, validateIdentity, validatePublicKey, type Identity } from "./team-crypto";
 
 type Scope = { identity: Identity; peers: Record<string, string>; receipts?: Record<string, number>; clock?: number;
   sequence?: number; shares?: Record<string, { owner: string; key: string; revision: number; message: string }> };
 type State = { version: 1; scopes: Record<string, unknown> };
-type Change = { member: string; previous: string; next: string };
 type Write = (state: unknown) => Promise<void>;
 
 const record = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
 const dictionary = <T>(source: Record<string, T> = {}): Record<string, T> => Object.assign(Object.create(null), source);
 
-/** TOFU pins survive tickets, reconnects and organization switches. */
+/** Identity pins survive tickets, reconnects and organization switches; a member's new key replaces the pin. */
 export class TeamSecurity {
   readonly identity: Identity;
   private observed = new Map<string, string | undefined>();
-  private changes = new Map<string, Change>();
   private self: string | undefined;
   private pending = Promise.resolve();
 
@@ -107,7 +105,6 @@ export class TeamSecurity {
       // Clear availability before async validation so a bad directory cannot leave
       // previously available keys usable while this observation is being checked.
       this.observed.clear();
-      this.changes.clear();
       if (!isId(self) || !Array.isArray(members) || members.length > MEMBERS_MAX
         || (this.self !== undefined && this.self !== self)) throw new Error("Invalid identity directory");
       this.self = self;
@@ -123,15 +120,17 @@ export class TeamSecurity {
       let added = false;
       for (const [member, key] of observed) {
         if (key === undefined) continue;
-        const previous = member === self ? this.identity.publicKey : peers[member];
-        if (previous !== undefined && previous !== key) {
-          this.changes.set(member, { member, previous, next: key });
-        } else if (member !== self && previous === undefined) {
+        if (member === self) {
+          if (key !== this.identity.publicKey) throw new Error("Own identity key changed");
+          continue;
+        }
+        // A reinstall or a new pairing arrives as a different key. Adopt it silently instead of blocking
+        // content until someone compares codes by hand; the trade-off is in ADR 0042.
+        if (peers[member] !== key) {
           peers[member] = key;
           added = true;
         }
       }
-      if (this.changes.has(self)) throw new Error("Own identity key changed");
       if (Object.keys(peers).length > MEMBERS_MAX) throw new Error("Too many identity peers");
       if (added) await this.save(peers);
     });
@@ -140,29 +139,6 @@ export class TeamSecurity {
   key(member: string): string | undefined {
     const pinned = member === this.self ? this.identity.publicKey : this.current.peers[member];
     return pinned !== undefined && this.observed.get(member) === pinned ? pinned : undefined;
-  }
-
-  changedKeys(): Change[] {
-    return Array.from(this.changes.values(), (change) => ({ ...change }));
-  }
-
-  accept(member: string): Promise<void> {
-    const requested = this.changes.get(member);
-    return this.serialize(async () => {
-      const change = this.changes.get(member);
-      if (!requested || !change || member === this.self || requested.next !== change.next
-        || this.observed.get(member) !== change.next) throw new Error("Identity change no longer available");
-      const peers = dictionary(this.current.peers);
-      peers[member] = change.next;
-      await this.save(peers);
-      this.changes.delete(member);
-    });
-  }
-
-  async code(member?: string): Promise<string> {
-    const key = member === undefined || member === this.self ? this.identity.publicKey : this.current.peers[member];
-    if (!key) throw new Error("Unknown identity peer");
-    return fingerprint(key);
   }
 
   /** Persist before executing remote input; clock rollback fails closed. */

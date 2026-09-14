@@ -28,6 +28,8 @@ each member's first key before sending content. A different key blocks content
 with that member until an explicit acceptance in the settings, where the old and
 new codes can be compared through another channel. There is no manual
 verification badge and no automatic signed transition.
+Since [ADR 0042](0042-automatic-key-rotation.md) the new key is adopted
+automatically and there is no longer a block or a manual acceptance.
 
 The scope includes the origin, the organization/team and the membership;
 persistence also separates local Cloud accounts. Renewing a ticket,
@@ -61,9 +63,9 @@ review; swapping the cipher is not enough.
 
 ## Security limits
 
-- A malicious server at first contact can replace keys. TOFU detects later
-  changes, it does not prove initial honesty. External code comparison is
-  optional. There is no key transparency.
+- A malicious server can replace keys, at first contact and afterwards: since
+  ADR 0042 the change is adopted silently. There is no external code
+  comparison and no key transparency.
 - The relay knows the organization, members, names, workspace/tab IDs,
   recipients, mentions, presence, timestamps, sizes and terminal dimensions. It
   can omit, delay or reorder messages and deny service. The cipher does not
