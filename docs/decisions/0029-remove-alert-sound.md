@@ -1,10 +1,7 @@
-# ADR 0029 — Removal of sound alerts
+# ADR 0029 — Visual pending indicators without sound alerts
 
 Date: 2026-09-08
 Status: Accepted
-
-Supersedes [ADR 0025](0025-completion-sound-per-execution.md) regarding the
-sound.
 
 ## Context
 
@@ -27,6 +24,21 @@ Execution tracking in `alert.ts` remains for the Dock's dot, including
 questions, reading, visibility, background and the workspace count. The
 adapters' and the backend's events stay the same.
 
+Only an accepted local `session.state: busy` arms a completion. Assistant
+activity confirms the execution; a successful or failed `turn.completed`
+without background work schedules the visual indication after one second.
+New activity cancels it. An error may notify without earlier activity;
+interruptions and successful turns without activity do not. Reading or
+answering a request does not re-arm a completed execution. Requests can create
+their own visual pending state. Visible completions are consumed without
+creating a pending indication.
+
+`chat.rs` records accepted input before concurrent responses. Claude and Codex
+normalize background activity into V1 events; child content does not enter the
+main conversation. Ending a background task alone does not count as the main
+agent's completion. The Dock counts workspaces with unread or pending activity,
+plus inbox comments.
+
 ## Consequences
 
 Prometeu no longer offers sound alerts for completions and comments. The person
@@ -42,3 +54,5 @@ formats; therefore no format compatibility test applies.
   questions, completions and comments without creating an audio context.
 - [Interface flows](../../e2e/alerts.spec.ts): no audio on the desk, in the
   workspace and with subagents, plus the removal of the option in Settings.
+- [Conversation ordering](../../src-tauri/src/chat.rs) and
+  [Codex subagent normalization](../../src-tauri/src/codex.rs).

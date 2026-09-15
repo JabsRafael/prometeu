@@ -1,9 +1,7 @@
 # ADR 0017 — Executable Design System components
 
 Date: 2026-09-06
-Status: accepted. Supersedes the separation of behavior from
-[ADR 0016](0016-company-design-system.md). Preserves the contracts of
-[ADR 0011](0011-shared-ui.md).
+Status: Accepted
 
 ## Context
 
@@ -13,10 +11,22 @@ components, including state, events, focus, keyboard, validation and lifecycle.
 
 ## Decision
 
-`@prometeu/design-system` 0.2.0 now owns the DOM primitives, menus, generic
+`packages/design-system`, distributed as `@prometeu/design-system`, owns the
+tokens, SVG brand, DOM primitives, menus, generic
 icons, forms and the styles required by the interactions. `src/ui.ts` and
 `src/menu.ts` on the desktop remain as compatibility re-exports. No component of
 the package imports application modules or provider rules.
+
+The desktop imports the source directly. `src/ui-tokens.css` keeps only desktop
+geometry; shared styles use opt-in classes and preserve token names. Product
+layout, domain rules and translations stay with each consumer. Components
+receive translated text and callbacks. `ui-comfortable` provides 44px controls
+for touch flows.
+
+Dialogs use `dialog.showModal()` with an explicit Tab cycle, restore focus on
+close and place menus in the same layer. New controls reuse these primitives;
+existing screens adopt them when changed. The standalone gallery and browser
+tests document focus, keyboard, validation and failure states.
 
 The package distributes ESM modules, TypeScript types and a browser bundle. The
 TypeScript and Vite already present in the project generate the artifact;

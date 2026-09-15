@@ -1,11 +1,10 @@
 # ADR 0028 — Prometeu on the phone as a web app served by the Cloud
 
 Date: 2026-09-08
-Status: Accepted. Completes stage 2 of
-[ADR 0026](0026-portable-collaboration-core.md) on top of the companion devices
-of [ADR 0027](0027-companion-devices.md).
-Authorship of messages from one's own devices specialized by
-[ADR 0034](0034-mobile-pairing-continuity.md).
+Status: Accepted
+
+Uses the core from [ADR 0026](0026-portable-collaboration-core.md) and companion
+devices from [ADR 0027](0027-companion-devices.md).
 
 ## Context
 
@@ -48,8 +47,9 @@ installable. Login redirects back to `/app`.
 
 This bundle does not create conversations, does not run Git and does not answer
 permission cards; the Mac is still required for that. Remote input reaches the
-agent as a message signed with the person's name, as already happens between
-peers on the desktop.
+agent with the original text when the authenticated sender belongs to the
+owner's person. Other people's messages receive the team's authorship prefix.
+See [ADR 0034](0034-mobile-pairing-continuity.md).
 
 ## Consequences
 
@@ -60,8 +60,9 @@ peers on the desktop.
   `team-security.json`. Clearing the browser's storage creates another device.
   Hardening it with a non-extractable `CryptoKey` in IndexedDB is a separate
   step, noted in the code.
-- The phone only sees workspaces shared by another person or by the person's own
-  Mac, with the Mac awake, the app open and the Cloud and relay available.
+- The phone sees workspaces through the team audience or the owner's explicit
+  [remote control](0030-remote-control.md) permission, with the Mac awake, the
+  app open and the Cloud and relay available.
 - `src/mobile/*` does not import Tauri, IPC, the desktop shell or `chat.ts`;
   `npm run architecture:check` protects that boundary.
 - Extraction into `packages/team-core` stays deferred: the bundle imports the

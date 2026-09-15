@@ -3,9 +3,8 @@
 Date: 2026-09-05
 Status: Accepted
 
-Partially supersedes [ADR 0012](0012-provider-accounts.md) regarding the
-permanence of external profiles and the requirement of one selection per
-provider.
+Complements the local profiles of [ADR 0012](0012-provider-accounts.md) with
+removal and an optional selection per provider.
 
 ## Context
 

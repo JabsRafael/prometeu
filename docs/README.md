@@ -39,56 +39,48 @@ as a short index for agents and `README.md` presents the product.
 - [`contracts/git.md`](contracts/git.md): index, worktree, review and Git operations.
 - [`contracts/persistence.md`](contracts/persistence.md): board and transcripts.
 - [`contracts/relay-v4.md`](contracts/relay-v4.md): encrypted collaboration and TOFU.
-- [`contracts/relay-v3.md`](contracts/relay-v3.md): history of the protocol without E2EE.
 
 ## Decisions
 
-- [Decision index and lifecycle](decisions/README.md).
-- [ADR 0001](decisions/0001-repository-knowledge.md): repository knowledge as the source of truth — Accepted.
-- [ADR 0002](decisions/0002-canonical-conversation-protocol.md): canonical conversation protocol — Accepted; mirror superseded.
-- [ADR 0003](decisions/0003-agent-capabilities.md): capability-driven features — Accepted.
-- [ADR 0004](decisions/0004-prometeu-independent-identity.md): Prometeu's independent identity — Accepted.
-- [ADR 0005](decisions/0005-portable-plugin-marketplace.md): portable marketplace for Claude and Codex — Accepted.
-- [ADR 0006](decisions/0006-explicit-prometheus-import.md): explicit, non-destructive Prometheus import — Accepted; importer removed.
-- [ADR 0007](decisions/0007-persistent-session-comments.md): persistent comments alongside the session — Accepted.
-- [ADR 0008](decisions/0008-explicit-git-index.md): explicit Git index and per-repository operations — Accepted; old diff IPC retention superseded by 0043.
-- [ADR 0009](decisions/0009-reusable-actions.md): reusable commands and agents with local tracking — Accepted.
-- [ADR 0010](decisions/0010-default-code-review.md): Code review included once, editable and removable — Accepted.
-- [ADR 0011](decisions/0011-shared-ui.md): shared interface primitives — Partially superseded by 0016.
-- [ADR 0012](decisions/0012-provider-accounts.md): local accounts and global selection per provider — Accepted.
-- [ADR 0013](decisions/0013-remove-provider-accounts.md): removal of accounts and empty selection — Accepted.
-- [ADR 0014](decisions/0014-optional-cloud-account.md): optional account and separate SaaS — Superseded (stack).
-- [ADR 0015](decisions/0015-cloud-rails.md): SaaS in Rails with the desktop contract preserved — Accepted.
-- [ADR 0016](decisions/0016-company-design-system.md): distributable Design System for the company's products — Partially superseded by 0017.
-- [ADR 0017](decisions/0017-executable-design-system.md): executable components and Rails adapter for the Design System — Accepted.
-- [ADR 0018](decisions/0018-native-file-promises.md): native reception of thumbnails and file promises — Accepted.
-- [ADR 0019](decisions/0019-cloud-catalog.md): portable catalog of plugins, MCP and Actions in the Prometeu account — Superseded by 0020.
-- [ADR 0020](decisions/0020-personal-catalog-and-local-items.md): authoring in the SaaS and explicit sharing of local items — Partially superseded by 0021.
-- [ADR 0021](decisions/0021-cloud-organizations.md): organizations, email invitations and collaboration authorized by the Cloud — Accepted.
-- [ADR 0022](decisions/0022-end-to-end-encryption.md): end-to-end encryption, TOFU and security limits — Accepted; partially superseded by 0042.
-- [ADR 0023](decisions/0023-ordered-publication.md): ordered board publication and conversation delivery — Accepted.
-- [ADR 0024](decisions/0024-typed-ipc.md): command-owned IPC arguments and results — Accepted.
-- [ADR 0025](decisions/0025-completion-sound-per-execution.md): completion sound per accepted execution, independent of reading — Partially superseded by 0029.
-- [ADR 0026](decisions/0026-portable-collaboration-core.md): portable collaboration core and phone access through the relay — Accepted; stages decided in ADRs 0027 and 0028.
-- [ADR 0027](decisions/0027-companion-devices.md): companion devices in the relay with the additive `person` field — Accepted; extended by 0036, partially superseded by 0041.
-- [ADR 0028](decisions/0028-mobile-web-app.md): Prometeu on the phone as a web app served by the Cloud — Accepted.
-- [ADR 0029](decisions/0029-remove-alert-sound.md): removal of sound alerts, preserving visual indicators — Accepted.
-- [ADR 0030](decisions/0030-remote-control.md): personal remote control independent of the team audience — Accepted.
+[Lifecycle and current index](decisions/README.md). Only implemented decisions
+appear below. Retired documents and previous versions remain in Git history;
+compatibility still in use stays documented in the current contracts.
 
-- [ADR 0031](decisions/0031-public-feedback.md): public feedback through the Cloud and GitHub Issues — Superseded by 0032.
-
-- [ADR 0032](decisions/0032-private-feedback.md): private feedback in the Cloud repository — Superseded by 0033.
-- [ADR 0033](decisions/0033-github-feedback-attachments.md): feedback text and images in GitHub — Superseded by 0035.
-- [ADR 0034](decisions/0034-mobile-pairing-continuity.md): relay renewal without disconnection and mobile pairing continuity — Accepted.
-- [ADR 0035](decisions/0035-feedback-requires-account.md): feedback requires a Prometeu account — Accepted.
-- [ADR 0036](decisions/0036-second-mac-as-companion.md): a second Mac on the same account joins as a companion device — Accepted.
-- [ADR 0037](decisions/0037-browser-design-context.md): browser with visual context for the conversation — Accepted.
-- [ADR 0038](decisions/0038-browser-context-chips.md): selected elements as tags in the conversation — Accepted.
-- [ADR 0039](decisions/0039-organization-catalog-on-desktop.md): organization catalogs available on the desktop — Accepted.
-- [ADR 0040](decisions/0040-open-source.md): open source in a single public repository — Accepted; partially supersedes ADR 0004.
-- [ADR 0041](decisions/0041-members-list-shows-people.md): the members list shows people and drops the permanent security code — Accepted.
-- [ADR 0042](decisions/0042-automatic-key-rotation.md): a peer's new key is adopted automatically, with no block or review — Accepted.
-- [ADR 0043](decisions/0043-retire-unused-ipc.md): retire unused desktop IPC commands — Accepted.
+- [ADR 0001](decisions/0001-repository-knowledge.md): Knowledge versioned in the repository.
+- [ADR 0002](decisions/0002-canonical-conversation-protocol.md): Canonical conversation protocol.
+- [ADR 0003](decisions/0003-agent-capabilities.md): Capability-driven features.
+- [ADR 0004](decisions/0004-prometeu-independent-identity.md): Prometeu's independent identity.
+- [ADR 0005](decisions/0005-portable-plugin-marketplace.md): One portable marketplace for Claude and Codex.
+- [ADR 0007](decisions/0007-persistent-session-comments.md): Persistent comments alongside the session.
+- [ADR 0008](decisions/0008-explicit-git-index.md): explicit Git index and per-repository operations.
+- [ADR 0009](decisions/0009-reusable-actions.md): reusable commands and agents responsible for tasks.
+- [ADR 0010](decisions/0010-default-code-review.md): Code review included in the actions registry.
+- [ADR 0012](decisions/0012-provider-accounts.md): Local accounts and global selection per provider.
+- [ADR 0013](decisions/0013-remove-provider-accounts.md): Account removal and empty selection.
+- [ADR 0015](decisions/0015-cloud-rails.md): Optional account in a separate Rails service.
+- [ADR 0017](decisions/0017-executable-design-system.md): Executable Design System components.
+- [ADR 0018](decisions/0018-native-file-promises.md): receiving macOS file promises.
+- [ADR 0020](decisions/0020-personal-catalog-and-local-items.md): Catalog in the SaaS and explicit sharing on the desktop.
+- [ADR 0021](decisions/0021-cloud-organizations.md): Organizations and invitations in the Cloud.
+- [ADR 0022](decisions/0022-end-to-end-encryption.md): end-to-end encryption in collaboration.
+- [ADR 0023](decisions/0023-ordered-publication.md): Serialize snapshot publication and conversation delivery.
+- [ADR 0024](decisions/0024-typed-ipc.md): Command-owned IPC argument and result types.
+- [ADR 0026](decisions/0026-portable-collaboration-core.md): portable collaboration core and phone access through the relay.
+- [ADR 0027](decisions/0027-companion-devices.md): companion devices in the relay.
+- [ADR 0028](decisions/0028-mobile-web-app.md): Prometeu on the phone as a web app served by the Cloud.
+- [ADR 0029](decisions/0029-remove-alert-sound.md): Visual pending indicators without sound alerts.
+- [ADR 0030](decisions/0030-remote-control.md): remote control independent of sharing.
+- [ADR 0034](decisions/0034-mobile-pairing-continuity.md): Mobile pairing continuity.
+- [ADR 0035](decisions/0035-feedback-requires-account.md): Authenticated private feedback through the Cloud.
+- [ADR 0036](decisions/0036-second-mac-as-companion.md): a second Mac as a companion device.
+- [ADR 0037](decisions/0037-browser-design-context.md): browser with visual context for the conversation.
+- [ADR 0038](decisions/0038-browser-context-chips.md): selected elements as tags in the conversation.
+- [ADR 0039](decisions/0039-organization-catalog-on-desktop.md): Organization catalogs available on the desktop.
+- [ADR 0040](decisions/0040-open-source.md): Open source in a single public repository.
+- [ADR 0041](decisions/0041-members-list-shows-people.md): The members list shows people, not devices.
+- [ADR 0042](decisions/0042-automatic-key-rotation.md): A peer's new key is adopted automatically.
+- [ADR 0043](decisions/0043-retire-unused-ipc.md): Retire unused desktop IPC commands.
+- [ADR 0044](decisions/0044-current-documentation.md): Current documentation with history in Git.
 
 ## Quality and operations
 

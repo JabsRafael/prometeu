@@ -3,9 +3,8 @@
 Date: 2026-09-10
 Status: Accepted
 
-Supersedes [ADR 0027](0027-companion-devices.md) regarding how the members list
-is presented in the Settings. The `person` field and the rest of 0027 remain in
-effect.
+Defines the Settings presentation of the device model in
+[ADR 0027](0027-companion-devices.md).
 
 ## Context
 
@@ -16,18 +15,16 @@ interleaved buttons broke the list's alignment. Whoever reads the screen wants
 to know who is in the organization and who is available now, not the inventory
 of each person's devices.
 
-The per-device security code assumes a comparison through another channel
-before the first contact. In practice nobody compares: ADR 0022 already adopts
-trust on first use, and a key change — the case where the comparison matters —
-still blocks sharing and opens the review with both codes.
+Permanent security-code controls also added a second task to a list intended
+for presence. The current trust policy adopts peer key changes automatically,
+as defined in [ADR 0042](0042-automatic-key-rotation.md).
 
 ## Options considered
 
 1. Keep one chip per device and only fix the layout.
 2. Group by person and keep the per-device security code in an expandable
    detail.
-3. Group by person and remove the permanent security code, preserving the
-   review of a changed key.
+3. Group by person and remove the permanent security code.
 
 ## Decision
 
@@ -36,22 +33,24 @@ lending their online state — a person is online when at least one of their
 devices is connected. The per-member code button goes away, along with the
 comparison dialog and the `code()` method of `TeamSecurity`.
 
-The review of a changed key stays unchanged: it remains per device, names the
-device, shows the old and new codes and blocks sharing until acceptance.
+There is no changed-key review. Key persistence and automatic adoption remain
+per device under ADR 0042, independently of the person shown in the list.
 
 ## Consequences
 
 The Organization tab now answers "who is in the organization and who is
 online". The voluntary fingerprint check before the first contact disappears;
-whoever wants to check a new key still has the change review.
+there is no manual key-comparison interface.
 
-There is no change to a persisted format, IPC, the relay protocol or the
-encrypted channel's trust boundary — the roster and the keys remain per device.
+Grouping the list does not change a persisted format, IPC, the relay protocol
+or the encrypted channel's trust boundary: the roster and keys remain per device.
 A format compatibility test therefore does not apply.
 
 ## Evidence
 
 - [Collaboration core](../../src/team-channel.test.ts): companions fold into the
   person for the audience, mentions and box recipients.
-- [Channel security](../../src/team-security.test.ts): a key change blocks
-  sharing until the persisted acceptance.
+- [Settings](../../src/settings.ts): one chip per person, with aggregated
+  online state.
+- [Channel security](../../src/team-security.test.ts): a new peer key is usable
+  only after automatic persistence; replacing the own identity still fails.

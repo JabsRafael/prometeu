@@ -5,9 +5,9 @@ Status: Accepted
 
 ## Context
 
-Today, the model implicitly identifies the provider and parts of the UI compare
-the name `codex` to hide plan mode or plugins. `agent` is an open string both in
-TypeScript and in the Rust state.
+Originally, the model implicitly identified the provider and parts of the UI
+compared the name `codex` to hide plan mode or plugins. `agent` was an open
+string in TypeScript and in the Rust state.
 
 That design works with two known CLIs, but it spreads vendor knowledge around. A
 third provider would require finding every conditional and deciding again which
@@ -27,7 +27,7 @@ Introduce a closed `ProviderId`, `AgentDescriptor`, `AgentModel` and
 The UI and validation use the descriptor's capabilities; only the
 registry/runtime dispatches by `ProviderId`.
 
-The draft contract is in `docs/contracts/agent-runtime.md`.
+The implemented contract is in [agent-runtime.md](../contracts/agent-runtime.md).
 
 ## Implementation
 

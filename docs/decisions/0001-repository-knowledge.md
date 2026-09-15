@@ -24,18 +24,22 @@ Keeping copies in each agent's specific format increases drift.
 
 ## Decision
 
-The `docs/` directory will be the technical source of truth. `ARCHITECTURE.md`
-will be the overall map, `README.md` will keep presenting the product and its
-use, and `AGENTS.md` will be a short index with invariants and essential
+The `docs/` directory is the technical source of truth. `ARCHITECTURE.md`
+is the overall map, `README.md` presents the product and its
+use, and `AGENTS.md` is a short index with invariants and essential
 commands.
 
 Tool-specific files must import or point to `AGENTS.md` and contain only the
-real differences of that tool. Contracts, decisions, quality and operations will
+real differences of that tool. Contracts, decisions, quality and operations
 have their own areas in `docs/`.
 
 Documentation goes through the same versioning and review as the code. A change
 in behavior, contract or decision updates the corresponding documentation in the
 same change.
+
+The checked-out documentation describes the current system. Obsolete decisions
+are removed after their remaining guarantees are consolidated; Git retains the
+history. [ADR 0044](0044-current-documentation.md) defines this lifecycle.
 
 ## Consequences
 

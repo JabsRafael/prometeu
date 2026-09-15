@@ -1,7 +1,9 @@
 # ADR 0030 — remote control independent of sharing
 
 Date: 2026-09-08
-Status: Accepted. Extends [ADR 0027](0027-companion-devices.md) and
+Status: Accepted
+
+Extends [ADR 0027](0027-companion-devices.md) and
 [ADR 0028](0028-mobile-web-app.md), without changing
 [relay v4](../contracts/relay-v4.md).
 

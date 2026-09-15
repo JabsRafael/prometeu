@@ -1,7 +1,8 @@
 # Personal catalog and local items
 
-Status: implemented; decision in [ADR 0020](../decisions/0020-personal-catalog-and-local-items.md),
-which supersedes [ADR 0019](../decisions/0019-cloud-catalog.md).
+Status: implemented; decisions in
+[ADR 0020](../decisions/0020-personal-catalog-and-local-items.md) and
+[ADR 0039](../decisions/0039-organization-catalog-on-desktop.md).
 
 ## Authoring and availability
 

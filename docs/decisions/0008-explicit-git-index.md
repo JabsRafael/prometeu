@@ -1,8 +1,7 @@
 # ADR 0008 — explicit Git index and per-repository operations
 
 Date: 2026-09-05
-Status: Accepted; the retention of the old diff IPC is superseded by
-[ADR 0043](0043-retire-unused-ipc.md).
+Status: Accepted
 
 ## Context
 
@@ -24,7 +23,8 @@ workspace may contain several independent repositories.
 Adopt the second option. The UI stages and commits per repository, and separates
 a local commit from a push. The backend resolves paths from the workspace and
 owns the Git operations; the presentation does not run shell commands. The new
-commands are additive to the existing IPC, described in
+commands use `workspace_git_*`; the mixed-diff IPC has been removed as described
+in [ADR 0043](0043-retire-unused-ipc.md). The current operations are described in
 [`../contracts/git.md`](../contracts/git.md).
 
 Branch selection reuses the launcher and the worktree lifecycle. It does not

@@ -3,7 +3,8 @@
 Status: current contract; decision in
 [ADR 0022](../decisions/0022-end-to-end-encryption.md).
 Executable source: `relay/src/protocol.ts`, imported by the app and the Worker.
-[v3](relay-v3.md) stays documented as history.
+The retired v3 specification is available in Git history. Compatibility with
+its stored data is described below; v3 connections are not supported.
 
 ## Boundary and authentication
 
@@ -74,6 +75,26 @@ decryption; that does not authorize the Worker to receive them on the socket.
 `downForMember` sends only that member's box, including in the `welcome`,
 `notes` and `inbox` aggregates. There are no private keys in the relay.
 
+## Persistent comments
+
+Comments use flat threads: `note` creates a root, `note_reply` replies to an
+open root and `note_resolve` resolves it. Replies inherit the workspace and
+tab. `notes` returns a workspace snapshot; a downstream `note` upserts by ID,
+including a resolved root. The encrypted payload carries text, quote, tab and
+the optional `Piece.key` anchor; a quote provides readable context if the
+excerpt is unavailable and grants no authority.
+
+Mentions create inbox assignments to the root. Opening an assignment navigates
+to the thread; resolving the root removes its assignments for everyone. Any
+collaborator with workspace access can resolve it. The client retains the
+`inbox_read` fallback when `comments: 1` is absent, but still requires the v4
+E2EE handshake. Current relays advertise thread support.
+
+Missing `tab`, `anchor`, `parent` and `resolved` fields normalize to a general,
+open root in the domain parser. This does not import v3 storage or permit
+plaintext on the socket. Thread structure and retention remain visible to the
+relay; content and resolution authenticity use the envelope described above.
+
 ## Authority and replay
 
 The owner uses their board to authorize the snapshot, the live stream and a
@@ -81,7 +102,8 @@ received message. An announcement echoed by the relay does not change the local
 audience. For remote shares, the client persists the owner, key, revision and ID
 of the last accepted announcement; it rejects an owner change and old revisions,
 while allowing the same announcement to be repeated on reconnection. After a
-manual acceptance of a new key, that owner's sequence may restart.
+persisted automatic adoption of a new peer key, that owner's sequence may
+restart. The owner ID cannot change.
 
 Remote messages persist an ID and a deadline before executing. A repetition,
 expiration, write failure and a clock earlier than the last consumption block

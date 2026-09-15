@@ -1,15 +1,9 @@
-# ADR 0035 — Feedback requires a Prometeu account
+# ADR 0035 — Authenticated private feedback through the Cloud
 
 Date: 2026-09-10
-Status: accepted. Supersedes
-[ADR 0033](0033-github-feedback-attachments.md).
+Status: Accepted
 
 ## Context
-
-ADR 0031 opened anonymous submission and ADRs 0032 and 0033 kept that contract
-while changing only the destination and the storage. None of that ever ran in
-production: `POST /api/feedback` never existed in the Cloud and the desktop
-received 404 on every attempt, with the generic send error.
 
 Creating an issue on GitHub requires a token, and there is no anonymous
 creation. Distributing that token in the client would hand it to anyone who
@@ -40,10 +34,26 @@ The endpoint stops answering CORS and preflight. The desktop arrives without
 enabling CORS prevents a third-party page from posting with the cookie of
 whoever is logged in.
 
-The rest of ADR 0033 stays in force: the private repository check, the native
-attachment upload, the issue with the embedded image, the `{ id }` receipt
-without an internal URL, idempotency by ID and no copy of the content in the
-Cloud.
+Before forwarding any content, the Cloud checks through GitHub that the
+configured destination is the expected private repository, defaulting to
+`prometeucorp/prometeu-cloud`. Failure prevents delivery. Chosen images are sent
+through the native `uploads.github.com/user-attachments/assets` endpoint using
+the repository's numeric ID and `Net::HTTP`. When an image is supplied, issue
+creation requires a valid attachment URL to embed in its body. GitHub controls access to
+both text and images; there is no public attachment route or separate reviewer
+list in the Cloud.
+
+The client receives only `{ id }`, without an internal URL. SQLite stores a
+receipt with the ID, content hash, GitHub URLs and attempt timestamps, without
+text or images. Repeating the same ID and content reuses delivery; different
+content with the same ID is rejected. An uncertain issue creation requires
+reconciliation through the `Feedback: <id>` marker, never an automatic retry.
+An attachment URL already recorded can be reused after a failed issue creation.
+
+Only typed text and an explicitly chosen or captured image are sent. Captures
+require review before submission; there is no automatic telemetry or transcript
+upload. Feedback is separate from E2EE collaboration: the Cloud processes the
+request and GitHub stores its content.
 
 ## Consequences
 
@@ -59,6 +69,12 @@ request.
 Resending depends on the form preserved in the client, as before. The per-account
 limit uses the in-memory cache of one Puma process; multiple replicas require a
 shared cache, like the Cloud's other limits.
+
+Reviewers need access to the private GitHub repository. Content removal happens
+there; Cloud backups contain only receipts. An interruption before an upload URL
+is saved can leave an orphan attachment. A rollback must preserve authenticated
+submission and must not restore public attachments or content storage in the
+Cloud. Native capture and real GitHub delivery require a separate smoke test.
 
 ## Evidence
 

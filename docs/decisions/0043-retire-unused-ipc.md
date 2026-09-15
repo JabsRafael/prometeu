@@ -3,8 +3,8 @@
 Date: 2026-09-15
 Status: Accepted
 
-Supersedes [ADR 0008](0008-explicit-git-index.md) only regarding retention of
-the old mixed-diff IPC. Its Git index and per-repository decisions remain in force.
+The Git index and per-repository decisions in
+[ADR 0008](0008-explicit-git-index.md) use the current IPC described here.
 
 ## Context
 

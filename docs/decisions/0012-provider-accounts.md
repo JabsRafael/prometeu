@@ -3,12 +3,9 @@
 Date: 2026-09-05
 Status: Accepted
 
-Partially superseded by [ADR 0013](0013-remove-provider-accounts.md) regarding
-the permanence of external profiles and the requirement of one selection per
-provider.
-
-Partially supersedes [ADR 0005](0005-portable-plugin-marketplace.md) regarding
-the rule of always sharing the authentication of Codex's original home.
+Account removal and an empty selection follow
+[ADR 0013](0013-remove-provider-accounts.md). The plugin layer uses this account
+boundary as described in [ADR 0005](0005-portable-plugin-marketplace.md).
 
 ## Context
 
@@ -29,10 +26,12 @@ processes.
 
 ## Decision
 
-Adopt local profiles and a selection persisted per provider. The login starts in
-Prometeu and uses the CLI's official flow in the browser. The app does not
+Adopt local profiles and an optional selection persisted per provider. The login
+starts in Prometeu and uses the CLI's official flow in the browser. The app does not
 implement its own OAuth server for the agents' subscriptions. Accounts that
-already exist in the terminal remain available as external profiles.
+already exist in the terminal are imported as external profiles only when the
+registry file is absent. Removing them is permanent in the registry; restarting
+does not recreate them or silently choose another account.
 
 A turn ends with the account that started it. The next message may restart the
 process with the new selection, resuming the same transcript. A message received

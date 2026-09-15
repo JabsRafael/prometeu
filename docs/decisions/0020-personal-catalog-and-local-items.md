@@ -1,9 +1,7 @@
 # ADR 0020 — Catalog in the SaaS and explicit sharing on the desktop
 
 Date: 2026-09-07
-Status: Partially superseded by [ADR 0021](0021-cloud-organizations.md)
-(institutional ownership)
-Supersedes: [ADR 0019](0019-cloud-catalog.md)
+Status: Accepted
 
 ## Context
 
@@ -12,16 +10,17 @@ exclusively on the desktop. Connecting an account published the local hubs;
 portable MCPs and plugins could not stay private by choice.
 
 The need is to register MCPs, plugins and skills in the browser, receive them on
-the desktops and combine that set with optional local definitions. Catalogs for
-teams, projects and organizations are a future evolution.
+the desktops and combine that set with optional local definitions. Organization
+catalogs use the same document model under
+[ADR 0021](0021-cloud-organizations.md).
 
 ## Options considered
 
 1. Just add forms to the previous document. It offers no local privacy.
 2. Immediately create organizations, teams, permissions and offline
    synchronization with merge.
-3. Keep the account as the catalog's owner, add web authoring and explicit links
-   between remote definitions and local records.
+3. Keep the account as the personal catalog's owner, add web authoring and
+   explicit links between remote definitions and local records.
 
 ## Decision
 
@@ -55,9 +54,10 @@ through a link map that separates the account's ID from the ID in the local hub.
   skills have independently materialized content.
 - Legacy Actions stay synchronized as before and get no web editor at this
   stage.
-- Future permissions and institutional catalogs require an identity composed of
-  the owner, the catalog and the item. This stage does not simulate those
-  scopes.
+- Personal and organization catalogs have separate ownership and revisions.
+  Direct organization installation follows
+  [ADR 0039](0039-organization-catalog-on-desktop.md); it creates an independent
+  local record and does not subscribe it to later organization edits.
 - A rollback restores the previous code while keeping the JSON and local files.
   An old desktop ignores skills; do not use a rollback as a way to remove new
   data.
