@@ -218,10 +218,13 @@ The project layer comes from a versioned `.prometeu/settings.toml`, so it cannot
 activate on its own. The first time a repository's `[tools]` declares items —
 and again whenever the declared set changes, compared by the SHA-256 of that
 section — Prometeu asks before activating them, and the decision is stored
-app-local on the board, never in the repository. Until the current hash is
-approved, project-declared items are resolved and shown as pending, but are not
-injected, so their hooks are neither enabled nor trusted. Global and workspace
-choices stay the person's explicit action and need no extra approval.
+app-local on the board, never in the repository. The prompt offers approval or
+rejection, and both bind to the hash the backend recomputes at call time. Until
+a decision exists, project-declared items are resolved and shown as pending; a
+rejection keeps them resolved and shown as rejected. Either way they are not
+injected, so their hooks are neither enabled nor trusted, and a rejection also
+quiets the prompt until the declaration changes and re-pends. Global and
+workspace choices stay the person's explicit action and need no extra approval.
 
 ## Failures and compatibility
 

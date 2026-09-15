@@ -191,9 +191,12 @@ launcher's existing use of the primary repository.
 `Board.tool_trust` stores one decision per primary repository:
 `{ repo, hash, approved, at }`. `repo` is the `origin` remote URL when one
 exists and the clone's absolute path otherwise; `hash` is the SHA-256 of the
-declared `[tools]` section. A declaration whose hash differs from the stored one
-is resolved but not injected until the person decides again, and the decision is
-never written into the repository. See
+declared `[tools]` section, recomputed by the backend when the decision is
+recorded. `approved: false` is an explicit rejection: it quiets the prompt but
+keeps the declaration's items out of every spawn, labeled as rejected. A
+declaration whose hash differs from the stored decision — approval or rejection
+— is resolved but not injected, and prompts again, until the person decides;
+the decision is never written into the repository. See
 [`plugin-marketplace.md`](plugin-marketplace.md).
 
 ### Workspace migration

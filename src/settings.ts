@@ -41,8 +41,11 @@ let globalTools: Tools | undefined;
 
 /// Receive each board snapshot; redraw the defaults page when it is open so global picks stay current.
 export function boardChanged(board: Board) {
+  // Board events fire on every agent turn. The settings page only renders the global tool layer,
+  // so redraw just when it changes instead of disturbing an open page on every churn.
+  const unchanged = JSON.stringify(board.tools ?? null) === JSON.stringify(globalTools ?? null);
   globalTools = board.tools;
-  if (!$("settingsView").hidden) draw();
+  if (!unchanged && !$("settingsView").hidden) draw();
 }
 
 export async function init(context: Ctx) {
@@ -244,7 +247,7 @@ function globalToolsRows(): HTMLElement[] {
     head,
     axis("plug", "settings.mcp", "mcp", mcp.label, mcp.openGlobalPicker, (sel) => send({ mcp: sel })),
     axis("puzzle", "settings.plugins", "plugins", plugins.label, plugins.openGlobalPicker, (sel) => send({ plugins: sel })),
-    axis("sparkles", "skill.title", "skills", plugins.label, plugins.openSkillGlobalPicker, (sel) => send({ skills: sel })),
+    axis("sparkles", "skill.title", "skills", (sel) => plugins.label(sel, plugins.SKILL_WORDS), plugins.openSkillGlobalPicker, (sel) => send({ skills: sel })),
   ];
 }
 

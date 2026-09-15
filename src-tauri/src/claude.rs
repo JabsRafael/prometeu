@@ -1168,6 +1168,14 @@ mod launch_tests {
         assert!(!sem.contains(&"--mcp-config".to_string()));
         assert!(!sem.contains(&"--strict-mcp-config".to_string()));
 
+        // A chosen id must exist in the universe: materialization fails instead of silently
+        // starting without the requested server.
+        crate::mcp::store(&[crate::mcp::Server {
+            id: "notion".into(),
+            config: serde_json::json!({ "command": "npx" }),
+            note: String::new(),
+        }])
+        .expect("hub");
         let escolheu = Launch {
             mcp: Some(vec!["notion".into()]),
             ..launch("", "", false)

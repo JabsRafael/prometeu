@@ -134,32 +134,32 @@ export type ProjectTools = {
   file: string | null;
   hash: string;
   tools: Tools;
-  /// True when a declaration exists whose current hash is not approved, so the interface prompts.
+  /// True when a declaration exists whose current hash has no decision yet (approved or rejected),
+  /// so the interface prompts.
   pending: boolean;
   decision: ToolTrust | null;
 };
 
 /// Where an effective item came from (ADR 0043). `inherited` flows down from a layer above,
 /// `added`/`removed` come from this layer's deltas, `pending` is a project-declared item held
-/// back until the person approves its hash, and `cli` is an active MCP server the person's CLI
-/// configuration loads by itself — the visible inherited base of the mcp axis (ADR 0044).
-export type Provenance = "inherited" | "added" | "removed" | "pending" | "cli";
+/// back until the person decides on its hash, `rejected` is a project-declared item the person
+/// refused (it stays visible but is never injected), and `cli` is an active MCP server the
+/// person's CLI configuration loads by itself — the visible inherited base of the mcp axis
+/// (ADR 0044).
+export type Provenance = "inherited" | "added" | "removed" | "pending" | "rejected" | "cli";
 
 /// One ID of the axis universe in a resolved axis, tagged with its origin so the picker can
 /// explain each row.
 export type EffectiveItem = { id: string; provenance: Provenance };
 
 /// The resolved effective set for a workspace, one list per axis. `removed` items stay in the list so
-/// the picker can show what this layer turned off; `pending` items show untrusted project additions.
+/// the picker can show what this layer turned off; `pending` and `rejected` items show project
+/// declarations awaiting or refused by the trust decision.
 export type WorkspaceTools = {
   mcp: EffectiveItem[];
   plugins: EffectiveItem[];
   skills: EffectiveItem[];
 };
-
-/// The effective hub IDs a single layer selects, or null when it inherits. Phase 3 surfaces only the
-/// workspace layer's own `add`; the resolved effective set with provenance arrives with the picker.
-export const selectedIds = (s: Selection | null | undefined): string[] | null => s?.add ?? null;
 
 /// Toggle one hub id in a layer while preserving what the layers above contribute (ADR 0043). Turning
 /// an item on records an `add` and drops any `remove`; turning it off records a `remove` and drops any

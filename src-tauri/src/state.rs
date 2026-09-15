@@ -3,7 +3,7 @@
 //! tab can continue using the same files.
 
 use crate::lock::lock;
-use crate::selection::{Selection, Tools};
+use crate::selection::{Base, Selection, Tools};
 use crate::{paths, AppState};
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc::{channel, Sender};
@@ -416,6 +416,11 @@ pub(crate) fn split_skills(plugins: &mut Option<Selection>, skills: &mut Option<
         add: Vec::new(),
         remove: Vec::new(),
     });
+    // A replacement on the source axis replaces on the destination too; keeping `inherit` would
+    // silently re-add whatever the skills axis used to receive from the layers above.
+    if base == Base::None {
+        target.base = Base::None;
+    }
     for id in moved_add {
         if !target.add.contains(&id) {
             target.add.push(id);
@@ -1099,6 +1104,24 @@ mod tests {
             board.workspaces[0].skills,
             Some(Selection::only(vec!["skill-review".into()]))
         );
+    }
+
+    /// A replacement on the plugins axis propagates to an existing skills axis, so moved skill
+    /// ids do not degrade the replacement into inherit-plus-add.
+    #[test]
+    fn migracao_de_skills_preserva_substituicao_no_destino_existente() {
+        use crate::selection::{Base, Selection};
+        let mut plugins = Some(Selection::only(vec!["skill-a".into()]));
+        let mut skills = Some(Selection {
+            base: Base::Inherit,
+            add: vec!["skill-b".into()],
+            remove: vec![],
+        });
+        split_skills(&mut plugins, &mut skills);
+        assert_eq!(plugins, Some(Selection::only(vec![])));
+        let skills = skills.expect("eixo");
+        assert_eq!(skills.base, Base::None);
+        assert_eq!(skills.add, ["skill-b".to_string(), "skill-a".to_string()]);
     }
 
     /// The global tool layer is absent by default so an old board injects exactly what it used to.

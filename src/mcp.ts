@@ -48,20 +48,24 @@ export const known = (id: string) => hub.some((s) => s.id === id);
 /// the visible inherited base of the workspace picker, cached per workspace because discovery
 /// reads files under the workspace directory.
 const inherited = new Map<string, McpServer[]>();
+/// Workspaces with a discovery in flight, so repeated paints do not stack fetches.
+const inflight = new Set<string>();
 
 export const inheritedOf = (workspace: string) => inherited.get(workspace) ?? [];
 
-/// Fetch the inherited base once per workspace; the announce repaints gated composer buttons. The
-/// cache claims the workspace synchronously so repeated paints do not stack fetches; a failure keeps
-/// the empty base, and opening the picker rediscovers it.
+/// Fetch the inherited base once per workspace; the announce repaints gated composer buttons. A
+/// failure leaves no cache entry, so a later paint retries instead of pinning the empty base;
+/// opening the picker rediscovers it anyway.
 export function loadInherited(workspace: string) {
-  if (inherited.has(workspace)) return;
-  inherited.set(workspace, []);
+  if (inherited.has(workspace) || inflight.has(workspace)) return;
+  inflight.add(workspace);
   void (async () => {
     try {
       inherited.set(workspace, await invoke("mcp_inherited", { id: workspace }));
     } catch {
-      // An unavailable backend leaves the base empty.
+      // An unavailable backend leaves the base uncached for a retry.
+    } finally {
+      inflight.delete(workspace);
     }
     announce();
   })();
@@ -103,12 +107,20 @@ type Pick = {
 export async function openPicker(p: Pick) {
   try {
     inherited.set(p.workspace, await invoke("mcp_inherited", { id: p.workspace }));
+    // Rediscovery may change the base; repaint the gated composer buttons that read the cache.
+    announce();
   } catch {
     // Keep the cached base when the backend cannot rediscover it.
   }
-  const rows: toolPicker.Row[] = hub.map((server) => ({ id: server.id, label: server.id, hint: subtitle(server) }));
+  const rows: toolPicker.Row[] = hub.map((server) => ({
+    id: server.id,
+    label: server.id,
+    hint: subtitle(server),
+    section: t("tools.section.hub"),
+  }));
   for (const server of inheritedOf(p.workspace)) {
-    if (!rows.some((r) => r.id === server.id)) rows.push({ id: server.id, label: server.id, hint: subtitle(server) });
+    if (!rows.some((r) => r.id === server.id))
+      rows.push({ id: server.id, label: server.id, hint: subtitle(server), section: t("tools.section.cli") });
   }
   const current = p.current();
   // Retain ids the registry no longer has so they can still be dropped from the layer.
@@ -132,8 +144,9 @@ export async function openPicker(p: Pick) {
 export function label(sel: Selection | null): string {
   if (!sel) return t("mcp.default");
   if (sel.base === "none") {
+    // Under an explicit none base the layer is a flat list; removals are no-ops there.
     if (!sel.add.length) return t("mcp.zero");
-    if (sel.add.length === 1 && !sel.remove.length) return sel.add[0];
+    if (sel.add.length === 1) return sel.add[0];
     return t("mcp.count", { n: String(sel.add.length) });
   }
   if (sel.add.length === 1 && !sel.remove.length) return sel.add[0];

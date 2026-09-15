@@ -139,18 +139,26 @@ Claude Code's approval of a project `.mcp.json`. The first time a project's
 `[tools]` declares items — and again whenever the declared set changes, by hash —
 Prometeu asks before activating them. The decision is stored app-local on the
 board, keyed by project identity plus the hash of the declared `[tools]` section;
-it is never written into the repository. Until approved, project-declared items
-are resolved but not injected. Global and workspace choices stay the person's
-explicit action and need no extra approval. This keeps the existing rule that
-project hooks never gain trust silently.
+it is never written into the repository. The prompt offers approval or rejection,
+and both are decisions: an approval activates the declaration, while a rejection
+keeps its items resolved but not injected — labeled as rejected in the picker —
+and quiets the prompt until the declaration changes and re-pends. Until a
+decision exists, project-declared items are resolved but not injected and show
+as pending. The decision command binds to the hash the backend recomputes at
+call time, so a verdict always covers the declaration as it stands now. Global
+and workspace choices stay the person's explicit action and need no extra
+approval. This keeps the existing rule that project hooks never gain trust
+silently.
 
 ### Interface
 
 Distributed and contextual. Global defaults live in Settings → Tools; project
 defaults in a project surface (sidebar or project menu); workspace selection in
 the existing pickers. The workspace picker shows the **effective** resolved set
-with per-item provenance — inherited, added, or removed — so the result is
-visible without opening each layer.
+with per-item provenance — inherited, added, removed, pending or rejected
+project declarations, and `cli` for the inherited MCP base of
+[ADR 0044](0044-cli-inherited-mcp-base.md) — so the result is visible without
+opening each layer.
 
 ## Implementation plan
 

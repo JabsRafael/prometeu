@@ -105,17 +105,27 @@ export function openSkillPicker(p: Pick) {
   });
 }
 
-/// Summarize the workspace layer for the button: inherit, a single pick, or its +/- deltas.
-export function label(sel: Selection | null): string {
-  if (!sel) return t("plugin.default");
+/// Wording for one axis label: the inherit text, the zero/count texts for an explicit empty
+/// selection, and the optional prefix stripped from ids before display (skills ride `skill-<id>`).
+export type Words = { def: Key; zero: Key; count: Key; prefix?: string };
+
+const PLUGIN_WORDS: Words = { def: "plugin.default", zero: "plugin.zero", count: "plugin.count" };
+export const SKILL_WORDS: Words = { def: "skill.default", zero: "skill.zero", count: "skill.count", prefix: "skill-" };
+
+/// Summarize the workspace layer for the button: inherit, a single pick, or its +/- deltas. The
+/// skills axis shares this function and passes its own wording.
+export function label(sel: Selection | null, words: Words = PLUGIN_WORDS): string {
+  const bare = (id: string) => (words.prefix ? id.replace(new RegExp(`^${words.prefix}`), "") : id);
+  if (!sel) return t(words.def);
   if (sel.base === "none") {
-    if (!sel.add.length) return t("plugin.zero");
-    if (sel.add.length === 1 && !sel.remove.length) return sel.add[0];
-    return t("plugin.count", { n: String(sel.add.length) });
+    // Under an explicit none base the layer is a flat list; removals are no-ops there.
+    if (!sel.add.length) return t(words.zero);
+    if (sel.add.length === 1) return bare(sel.add[0]);
+    return t(words.count, { n: String(sel.add.length) });
   }
-  if (sel.add.length === 1 && !sel.remove.length) return sel.add[0].replace(/^skill-/, "");
+  if (sel.add.length === 1 && !sel.remove.length) return bare(sel.add[0]);
   const bits = [sel.add.length ? `+${sel.add.length}` : "", sel.remove.length ? `−${sel.remove.length}` : ""].filter(Boolean);
-  return bits.length ? bits.join(" ") : t("plugin.default");
+  return bits.length ? bits.join(" ") : t(words.def);
 }
 
 /// Label for the launcher's flat default preset, a plain id list rather than a layered delta.

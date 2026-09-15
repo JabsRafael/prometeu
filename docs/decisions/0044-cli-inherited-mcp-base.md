@@ -49,9 +49,10 @@ configuration form a **visible inherited base**, and the picker's universe is
 
 - **Discovery.** Per workspace working directory: the `mcpServers` of
   `~/.claude.json` (user scope), the project entry matching the working
-  directory, and the directory's `.mcp.json`. The first occurrence of an ID
-  wins; a hub server shadows a discovered one with the same ID. Discovery is
-  read-only and requires no import.
+  directory, and the directory's `.mcp.json` plus every ancestor directory's,
+  nearest first, as Claude Code walks the tree upward. The first occurrence of
+  an ID wins; a hub server shadows a discovered one with the same ID. Discovery
+  is read-only and requires no import.
 - **Resolution.** `selection.rs` gains `resolve_with_base`, which seeds the
   chain with an implicit `{ base: "inherit", add: <base> }` layer below
   global. `base: "none"` at any layer therefore also replaces the CLI base.
@@ -107,8 +108,10 @@ Negative:
   the chain, a workspace removal drops one ID, `base: "none"` replaces the
   base, and an empty base equals `resolve`.
 - `mcp.rs`: `a_base_herdada_vem_do_usuario_do_projeto_e_do_repositorio` and
-  `o_hub_vence_colisao_no_universo` — discovery scopes, first-occurrence wins,
-  hub shadows a clash.
+  `o_hub_vence_colisao_no_universo` — discovery scopes, ancestor `.mcp.json`
+  files with the nearest winning a clash, first-occurrence wins, hub shadows a
+  clash. `escolhido_ausente_impede_a_materializacao` — a chosen id the registry
+  lost fails the materialization instead of being dropped.
 - `session.rs`: `provenance_classifica_a_base_herdada_do_cli` — `cli`,
   `removed`, an add over the base, and the global replacement clearing it.
 - `claude.rs`: the strict configuration carries the whole effective set for

@@ -109,7 +109,9 @@ The core validates `SessionLaunch` against the capabilities before starting the
 adapter. The adapter must not silently fix an invalid combination. A chosen MCP,
 plugin or skill configuration that cannot be materialized fails before the
 spawn; a declared hook that cannot be activated fails before the thread is
-opened. Starting without the requested behavior is not a valid fallback. The
+opened. A chosen MCP id the registry no longer has is such a case: both adapters
+fail with `err.mcp.missing` instead of quietly dropping it. Starting without the
+requested behavior is not a valid fallback. The
 detailed plugin contract is in
 [`plugin-marketplace.md`](plugin-marketplace.md).
 

@@ -11,7 +11,7 @@ import type { Accounts } from "./statusbar";
 import type { CloudStatus } from "./cloud";
 import type { CatalogState, Kind } from "./catalog";
 import type { Skill } from "./skills";
-import { hasWorktree, selectedIds, type Board, type Change, type Choice, type DockKind, type EffectiveItem, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type ProjectTools, type Pr, type Provenance, type Scripts, type Selection, type Tab, type Tools, type Workspace, type WorkspaceTools } from "./types";
+import { hasWorktree, type Board, type Change, type Choice, type DockKind, type EffectiveItem, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type ProjectTools, type Pr, type Provenance, type Scripts, type Selection, type Tab, type Tools, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
@@ -524,18 +524,54 @@ function resolveWithBase(
   return composeAxis([seed, global, project, workspace], universe);
 }
 
+/// Mirror of the backend `Gate`: whether the declared project layer may activate (ADR 0043).
+type Gate = "trusted" | "pending" | "rejected";
+
+/// Mirror of tool_roots + project_declaration for the browser: fixtures are keyed by workspace id,
+/// and a project id resolves through the declaration stored under one of its workspaces.
+function declaredFor(id: string): ProjectTools {
+  if (projectTools[id]) return projectTools[id];
+  const viaProject = board.workspaces.find((w) => w.project === id && projectTools[w.id]);
+  return viaProject ? projectTools[viaProject.id] : noProjectTools;
+}
+
+/// Mirror of gate_of: a decision binds to the current hash; a rejection quiets the prompt but keeps
+/// the declaration gated, and a changed hash re-pends until the person decides again.
+function gateOf(declared: ProjectTools): Gate {
+  if (!declared.hash) return "trusted";
+  const decision = (board.tool_trust ?? []).find((t) => t.repo === declared.repo && t.hash === declared.hash);
+  if (!decision) return "pending";
+  return decision.approved ? "trusted" : "rejected";
+}
+
+/// The shared layer-resolution inputs for one workspace: the declared project layer (ungated), the
+/// global layer, the workspace's own triple, and the mcp base/universe (ADR 0044).
+function toolLayers(ws: Workspace) {
+  const declared = projectTools[ws.id] ?? noProjectTools;
+  const gate = gateOf(declared);
+  const declaredTools = declared.hash ? declared.tools : { mcp: null, plugins: null, skills: null };
+  const global = board.tools ?? { mcp: null, plugins: null, skills: null };
+  const own = workspaceTools(ws);
+  const mcpIds = mcpHub.map((s) => s.id);
+  // The Claude CLI base joins the universe below the hub; other agents have no inherited servers.
+  const base = ws.agent === "claude" ? cliServers.map((s) => s.id).filter((id) => !mcpIds.includes(id)) : [];
+  const pluginIds = pluginHub.map((p) => p.id);
+  return { gate, declaredTools, global, own, base, mcpUniverse: [...mcpIds, ...base], pluginIds };
+}
+
 /// Mirror of axis_provenance: label every universe ID with where its effective state came from, so
 /// the picker shows the resolved result without reading the layers. Off and untouched IDs are
-/// omitted; CLI-base IDs that stay on are labeled "cli".
+/// omitted; CLI-base IDs that stay on are labeled "cli"; gated project declarations show as
+/// "pending" or "rejected".
 function axisProvenance(
   global: Selection | null,
   project: Selection | null,
-  trusted: boolean,
+  gate: Gate,
   workspace: Selection | null,
   base: string[],
   universe: string[],
 ): EffectiveItem[] {
-  const gated = trusted ? project : null;
+  const gated = gate === "trusted" ? project : null;
   const effective = resolveWithBase(base, global, gated, workspace, universe);
   const declared = composeAxis([null, project, null], universe);
   const items: EffectiveItem[] = [];
@@ -548,7 +584,7 @@ function axisProvenance(
     else if (on && base.includes(id)) provenance = "cli";
     else if (on) provenance = "inherited";
     else if (removed) provenance = "removed";
-    else if (!trusted && declared.includes(id)) provenance = "pending";
+    else if (gate !== "trusted" && declared.includes(id)) provenance = gate === "rejected" ? "rejected" : "pending";
     else continue;
     items.push({ id, provenance });
   }
@@ -855,8 +891,18 @@ const mockCommands: IpcHandlers = {
     }
     if (workspace.tabs.some(t => t.status === "rodando" || t.status === "querendo" || t.pending_prompt)) throw `i18n:${JSON.stringify({ code: "err.actions.busy" })}`;
     const profile = structuredClone(catalog.overrides[workspace.project]?.[action.profile] ?? catalog.profiles.find(p => p.id === action.profile)) as Profile;
-    profile.mcp ??= selectedIds(workspace.mcp);
-    profile.plugins ??= selectedIds(workspace.plugins);
+    // Mirror of resolve_workspace_tools: a profile that leaves an axis unset inherits the resolved
+    // global, project and workspace layers instead of only the workspace's own adds.
+    const l = toolLayers(workspace);
+    const project = l.gate === "trusted" ? l.declaredTools : { mcp: null, plugins: null, skills: null };
+    // Mirror of resolve_axis: an axis nobody declared stays null, preserving the provider's own set.
+    const axis = (g: Selection | null, p: Selection | null, w: Selection | null, base: string[], universe: string[]) =>
+      g === null && p === null && w === null ? null : resolveWithBase(base, g, p, w, universe);
+    const plugins = axis(l.global.plugins, project.plugins, l.own.plugins, [], l.pluginIds);
+    const skills = axis(l.global.skills, project.skills, l.own.skills, [], l.pluginIds);
+    profile.mcp ??= axis(l.global.mcp, project.mcp, l.own.mcp, l.base, l.mcpUniverse);
+    // Mirror of plugin_packages: plugins and standalone skills materialize together.
+    profile.plugins ??= plugins === null && skills === null ? null : [...(plugins ?? []), ...(skills ?? [])];
     const tab: Tab = { id: crypto.randomUUID(), title: profile.name, choice: profile.choice, status: "pronta", note: null, tokens: null,
       task: { command: action.name, profile, paused: false, done: !profile.watch, turns: 0, checked_at: 0, error: null, seen: {}, prs: {} } };
     scrolls.set(tab.id, { text: line({ v: 1, type: "user.message", at: Date.now(), content: [{ kind: "text", text: [action.prompt, args.context].filter(Boolean).join("\n\n") || profile.prompt }] }) + "\n", seq: 1 });
@@ -1594,52 +1640,38 @@ const mockCommands: IpcHandlers = {
     return;
   },
   project_tools(args) {
-    const declared = projectTools[args.id];
-    if (!declared) return noProjectTools;
+    const declared = declaredFor(args.id);
+    if (!declared.hash) return noProjectTools;
+    // The stored decision for the repository, whatever its hash; `pending` follows the current one.
     const decision = (board.tool_trust ?? []).find((t) => t.repo === declared.repo) ?? null;
-    const pending = !(decision && decision.hash === declared.hash && decision.approved);
+    const pending = gateOf(declared) === "pending";
     return { ...declared, pending, decision };
   },
   project_tools_trust(args) {
-    const declared = projectTools[args.id];
-    if (!declared) return;
+    const declared = declaredFor(args.id);
+    // A repository without a declaration has nothing to trust; the command is a no-op.
+    if (!declared.hash) return;
     board.tool_trust ??= [];
     const at = Math.floor(Date.now() / 1000);
     const existing = board.tool_trust.find((t) => t.repo === declared.repo);
     if (existing) {
-      existing.hash = args.hash;
+      existing.hash = declared.hash;
       existing.approved = args.approved;
       existing.at = at;
     } else {
-      board.tool_trust.push({ repo: declared.repo, hash: args.hash, approved: args.approved, at });
+      board.tool_trust.push({ repo: declared.repo, hash: declared.hash, approved: args.approved, at });
     }
     emit("board", board);
     return;
   },
   workspace_tools(args) {
-    const empty: WorkspaceTools = { mcp: [], plugins: [], skills: [] };
     const ws = board.workspaces.find((x) => x.id === args.id);
-    if (!ws) return empty;
-    const declared = projectTools[args.id] ?? noProjectTools;
-    const decision = (board.tool_trust ?? []).find((t) => t.repo === declared.repo) ?? null;
-    // No declaration means the project layer inherits and needs no approval.
-    const hasDeclaration = declared.hash !== "";
-    const trusted = !hasDeclaration || !!(decision && decision.hash === declared.hash && decision.approved);
-    const project = hasDeclaration ? declared.tools : { mcp: null, plugins: null, skills: null };
-    const global = board.tools ?? { mcp: null, plugins: null, skills: null };
-    const own = workspaceTools(ws);
-    const mcpIds = mcpHub.map((s) => s.id);
-    // The Claude CLI base joins the universe below the hub; other agents have no inherited servers.
-    const inheritedIds =
-      ws.agent === "claude"
-        ? cliServers.map((s) => s.id).filter((id) => !mcpIds.includes(id))
-        : [];
-    const mcpUniverse = [...mcpIds, ...inheritedIds];
-    const pluginIds = pluginHub.map((p) => p.id);
+    if (!ws) throw `i18n:${JSON.stringify({ code: "err.session.noWorkspace" })}`;
+    const l = toolLayers(ws);
     return {
-      mcp: axisProvenance(global.mcp, project.mcp, trusted, own.mcp, inheritedIds, mcpUniverse),
-      plugins: axisProvenance(global.plugins, project.plugins, trusted, own.plugins, [], pluginIds),
-      skills: axisProvenance(global.skills, project.skills, trusted, own.skills, [], pluginIds),
+      mcp: axisProvenance(l.global.mcp, l.declaredTools.mcp, l.gate, l.own.mcp, l.base, l.mcpUniverse),
+      plugins: axisProvenance(l.global.plugins, l.declaredTools.plugins, l.gate, l.own.plugins, [], l.pluginIds),
+      skills: axisProvenance(l.global.skills, l.declaredTools.skills, l.gate, l.own.skills, [], l.pluginIds),
     };
   },
   machine() {

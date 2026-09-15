@@ -233,19 +233,28 @@ pub fn action_start(
     context: String,
 ) -> Result<Tab, String> {
     let tab = {
-        let mut board = lock(&state.board);
-        let a = board
-            .actions
-            .commands
-            .iter()
-            .find(|a| a.name == name && a.kind == Kind::Agent)
-            .cloned()
-            .ok_or_else(|| i18n::t("err.actions.missing"))?;
-        let ws = board
-            .workspaces
-            .iter()
-            .find(|w| w.id == workspace)
-            .ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+        // Snapshot phase: the checks and the tool resolution (git subprocesses, CLI configuration
+        // reads) run on clones so the board mutex stays free for transcript events.
+        let (actions, global, trust, a, ws) = {
+            let board = lock(&state.board);
+            let a = board
+                .actions
+                .commands
+                .iter()
+                .find(|a| a.name == name && a.kind == Kind::Agent)
+                .cloned()
+                .ok_or_else(|| i18n::t("err.actions.missing"))?;
+            let Some(ws) = board.workspaces.iter().find(|w| w.id == workspace).cloned() else {
+                return Err(i18n::t("err.session.noWorkspace"));
+            };
+            (
+                board.actions.clone(),
+                board.tools.clone(),
+                board.tool_trust.clone(),
+                a,
+                ws,
+            )
+        };
         if ws.cleaned || ws.archived || ws.preparing || ws.failed.is_some() {
             return Err(i18n::t("err.actions.unavailable"));
         }
@@ -264,9 +273,9 @@ pub fn action_start(
         }) {
             return Err(i18n::t("err.actions.busy"));
         }
-        let resolved = session::resolve_workspace_tools(&board.tools, &board.tool_trust, ws);
+        let resolved = session::resolve_workspace_tools(&global, &trust, &ws);
         let profile = resolve(
-            &board.actions,
+            &actions,
             &ws.project,
             a.profile.as_deref().unwrap_or(""),
             &resolved,
@@ -301,7 +310,7 @@ pub fn action_start(
             }),
             choice: Some(profile.choice.clone()),
             task: Some(Run {
-                command: name,
+                command: name.clone(),
                 profile,
                 paused: false,
                 done: false,
@@ -312,7 +321,30 @@ pub fn action_start(
                 prs: BTreeMap::new(),
             }),
         };
-        let ws = board.workspace_mut(&workspace).unwrap();
+        // Mutation phase: re-validate against the live board, since another action may have
+        // started or finished a tab while this one resolved off the lock.
+        let mut board = lock(&state.board);
+        let ws = board
+            .workspace_mut(&workspace)
+            .ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+        if ws.cleaned || ws.archived || ws.preparing || ws.failed.is_some() {
+            return Err(i18n::t("err.actions.unavailable"));
+        }
+        if let Some(existing) = ws.tabs.iter().find(|t| {
+            t.task
+                .as_ref()
+                .is_some_and(|r| r.command == name && !r.done)
+        }) {
+            if !context.trim().is_empty() {
+                return Err(i18n::t("err.actions.active"));
+            }
+            return Ok(existing.clone());
+        }
+        if ws.tabs.iter().any(|t| {
+            matches!(t.status, Status::Rodando | Status::Querendo) || t.pending_prompt.is_some()
+        }) {
+            return Err(i18n::t("err.actions.busy"));
+        }
         ws.active = Some(tab.id.clone());
         ws.tabs.push(tab.clone());
         tab

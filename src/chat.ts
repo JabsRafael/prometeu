@@ -1372,7 +1372,12 @@ export class ChatView {
       !capabilitiesOf(info.agent).workspaceMcpSelection ||
       !has;
     if (btn.hidden) return;
-    const working = info.status === "rodando" || info.status === "querendo";
+    // Read the status when the picker opens, not when this paint ran, so a session that started
+    // working in between still gets the "applies on the next message" notice.
+    const working = () => {
+      const status = this.ctx.info().status;
+      return status === "rodando" || status === "querendo";
+    };
     btn.innerHTML = `${icon("plug", 13)}<span></span>`;
     btn.querySelector("span")!.textContent = mcp.label(info.mcp);
     btn.classList.toggle("on", !!info.mcp);
@@ -1389,7 +1394,7 @@ export class ChatView {
             this.ctx.say(fromBack(e), true),
           ),
         at: () => ({ x: at.left, y: at.bottom + 4 }),
-        working: () => working,
+        working,
         trust: () => void trust.open(workspace, this.ctx.say),
       });
     };
@@ -1406,7 +1411,10 @@ export class ChatView {
       !has ||
       !capabilitiesOf(info.agent).workspacePluginSelection;
     if (btn.hidden) return;
-    const working = info.status === "rodando" || info.status === "querendo";
+    const working = () => {
+      const status = this.ctx.info().status;
+      return status === "rodando" || status === "querendo";
+    };
     btn.innerHTML = `${icon("puzzle", 13)}<span></span>`;
     btn.querySelector("span")!.textContent = plugins.label(info.plugins);
     btn.classList.toggle("on", !!info.plugins);
@@ -1423,7 +1431,7 @@ export class ChatView {
             this.ctx.say(fromBack(e), true),
           ),
         at: () => ({ x: at.left, y: at.bottom + 4 }),
-        working: () => working,
+        working,
         trust: () => void trust.open(workspace, this.ctx.say),
       });
     };
@@ -1441,11 +1449,14 @@ export class ChatView {
       !has ||
       !capabilitiesOf(info.agent).workspacePluginSelection;
     if (btn.hidden) return;
-    const working = info.status === "rodando" || info.status === "querendo";
+    const working = () => {
+      const status = this.ctx.info().status;
+      return status === "rodando" || status === "querendo";
+    };
     btn.innerHTML = `${icon("sparkles", 13)}<span></span>`;
-    btn.querySelector("span")!.textContent = plugins.label(info.skills);
+    btn.querySelector("span")!.textContent = plugins.label(info.skills, plugins.SKILL_WORDS);
     btn.classList.toggle("on", !!info.skills);
-    btn.title = `${t("skill.title")}: ${plugins.label(info.skills)}`;
+    btn.title = `${t("skill.title")}: ${plugins.label(info.skills, plugins.SKILL_WORDS)}`;
     btn.setAttribute("aria-label", btn.title);
     btn.onclick = () => {
       const at = btn.getBoundingClientRect();
@@ -1458,7 +1469,7 @@ export class ChatView {
             this.ctx.say(fromBack(e), true),
           ),
         at: () => ({ x: at.left, y: at.bottom + 4 }),
-        working: () => working,
+        working,
         trust: () => void trust.open(workspace, this.ctx.say),
       });
     };

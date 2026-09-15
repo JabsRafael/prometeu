@@ -110,7 +110,7 @@ describe("a base herdada do CLI", () => {
     forget();
   });
 
-  it("sem backend, a base fica vazia e o botão continua escondido", async () => {
+  it("sem backend, a base fica vazia, o botão continua escondido e uma paint seguinte tenta de novo", async () => {
     vi.mocked(invoke).mockRejectedValue("mcp.inherited.failed");
     let painted = 0;
     const forget = onChange(() => painted++);
@@ -118,6 +118,10 @@ describe("a base herdada do CLI", () => {
     // The announce still fires so gated buttons repaint with the empty base.
     await vi.waitFor(() => expect(painted).toBe(1));
     expect(inheritedOf("ws-falha")).toEqual([]);
+    // The failure left no cache entry, so a later paint retries the discovery.
+    vi.mocked(invoke).mockResolvedValue([metabase]);
+    loadInherited("ws-falha");
+    await vi.waitFor(() => expect(inheritedOf("ws-falha")).toEqual([metabase]));
     forget();
   });
 });

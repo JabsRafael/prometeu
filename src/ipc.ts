@@ -107,7 +107,7 @@ export type Commands = {
   pr_open: { args: { id: string }; result: void };
   pr_prompt: { args: { id: string }; result: string };
   project_tools: { args: { id: string }; result: T.ProjectTools };
-  project_tools_trust: { args: { id: string; hash: string; approved: boolean }; result: void };
+  project_tools_trust: { args: { id: string; approved: boolean }; result: void };
   pty_buffer: { args: { session: string }; result: number[] };
   pty_resize: { args: { session: string; cols: number; rows: number }; result: void };
   pty_write: { args: { session: string; data: string }; result: void };

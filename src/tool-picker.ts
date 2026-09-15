@@ -12,7 +12,8 @@ import { toggleSelection, type EffectiveItem, type Provenance, type Selection } 
 export type Axis = "mcp" | "plugins" | "skills";
 
 /// One selectable row. `id` is the hub identity used by the selection (skills ride `skill-<id>`).
-export type Row = { id: string; label: string; hint?: string };
+/// `section` groups rows under a disabled header; headers render only when more than one group exists.
+export type Row = { id: string; label: string; hint?: string; section?: string };
 
 export type Pick = {
   workspace: string;
@@ -39,6 +40,7 @@ function badgeFor(p: Provenance | undefined): string | undefined {
   if (p === "cli") return t("tools.prov.cli");
   if (p === "removed") return t("tools.prov.removed");
   if (p === "pending") return t("tools.prov.pending");
+  if (p === "rejected") return t("tools.prov.rejected");
   // An item the person added needs no badge; the checkmark already says it is on.
   return undefined;
 }
@@ -56,7 +58,19 @@ export async function open(p: Pick) {
   const items: menu.Item[] = [];
   if (p.working?.()) items.push({ label: t("tools.appliesNext"), disabled: true }, "sep");
   if (!p.rows.length) items.push({ label: p.noneLabel, disabled: true });
+  // Group headers appear only when the list spans more than one origin, so single-group menus stay flat.
+  const grouped = new Set(p.rows.map((r) => r.section).filter((s) => s !== undefined)).size > 1;
+  let lastSection: string | undefined;
+  let listed = false;
   for (const row of p.rows) {
+    if (grouped && row.section !== lastSection) {
+      lastSection = row.section;
+      if (row.section !== undefined) {
+        if (listed) items.push("sep");
+        items.push({ label: row.section, disabled: true });
+      }
+    }
+    listed = true;
     const seen = provenance.get(row.id);
     // Hub rows trust the resolved provenance; a row the hub no longer has falls back to the layer's add.
     const on = seen !== undefined ? isOn(seen) : (current?.add.includes(row.id) ?? false);
@@ -70,13 +84,25 @@ export async function open(p: Pick) {
       },
     });
   }
-  if (p.rows.length && current) {
+  if (p.rows.length) {
+    // Explicitly start from nothing: unlike reset (which returns the axis to inherit), this writes
+    // an empty `none` layer so the global, project and CLI contributions are all switched off.
+    const empty = current?.base === "none" && !current.add.length;
     items.push("sep", {
-      label: t("tools.reset"),
+      label: t("tools.selectNone"),
+      checked: empty,
       run: () => {
-        void Promise.resolve(p.set(null)).then(() => open(p));
+        void Promise.resolve(p.set({ base: "none", add: [], remove: [] })).then(() => open(p));
       },
     });
+    if (current) {
+      items.push({
+        label: t("tools.reset"),
+        run: () => {
+          void Promise.resolve(p.set(null)).then(() => open(p));
+        },
+      });
+    }
   }
   // A pending project declaration resolves but is not injected until the person approves its hash.
   if (p.trust && items0.some((e) => e.provenance === "pending")) {
@@ -85,7 +111,7 @@ export async function open(p: Pick) {
       run: () => p.trust!(),
     });
   }
-  menu.openAt(p.at(), items);
+  menu.openAt(p.at(), items, "tools");
 }
 
 export type FlatPick = {
@@ -123,5 +149,5 @@ export function openFlat(p: FlatPick) {
       },
     });
   }
-  menu.openAt(p.at(), items);
+  menu.openAt(p.at(), items, "tools");
 }

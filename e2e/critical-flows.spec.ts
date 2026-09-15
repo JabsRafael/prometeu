@@ -1065,6 +1065,10 @@ test("o picker mostra a base herdada do CLI e remove sem importar", async ({ pag
   await expect(menuRow("metabase")).toContainText("herdado do CLI");
   await expect(menuRow("metabase").locator(".mc svg")).toBeVisible();
   await expect(menuRow("n8n")).toContainText("herdado do CLI");
+  // The mixed universe reads as two labeled sections rather than one flat list.
+  const headers = page.locator(".menu .mrow.off");
+  await expect(headers.filter({ hasText: "Cadastrados" })).toHaveCount(1);
+  await expect(headers.filter({ hasText: "Herdados do CLI" })).toHaveCount(1);
 
   // Unchecking a CLI server writes a removal into the workspace layer, keeping inherit as the base.
   await menuRow("metabase").click();
