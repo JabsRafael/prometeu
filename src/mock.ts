@@ -11,7 +11,7 @@ import type { Accounts } from "./statusbar";
 import type { CloudStatus } from "./cloud";
 import type { CatalogState, Kind } from "./catalog";
 import type { Skill } from "./skills";
-import { hasWorktree, type Board, type Change, type Choice, type DockKind, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type Pr, type Scripts, type Tab, type Workspace } from "./types";
+import { hasWorktree, selectedIds, type Board, type Change, type Choice, type DockKind, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type Pr, type Scripts, type Tab, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
@@ -92,6 +92,7 @@ const ws = (
   effort: "high",
   mcp: null,
   plugins: null,
+  skills: null,
   port: 3100,
   issue: null,
   cleaned: false,
@@ -761,8 +762,8 @@ const mockCommands: IpcHandlers = {
     }
     if (workspace.tabs.some(t => t.status === "rodando" || t.status === "querendo" || t.pending_prompt)) throw `i18n:${JSON.stringify({ code: "err.actions.busy" })}`;
     const profile = structuredClone(catalog.overrides[workspace.project]?.[action.profile] ?? catalog.profiles.find(p => p.id === action.profile)) as Profile;
-    profile.mcp ??= workspace.mcp;
-    profile.plugins ??= workspace.plugins;
+    profile.mcp ??= selectedIds(workspace.mcp);
+    profile.plugins ??= selectedIds(workspace.plugins);
     const tab: Tab = { id: crypto.randomUUID(), title: profile.name, choice: profile.choice, status: "pronta", note: null, tokens: null,
       task: { command: action.name, profile, paused: false, done: !profile.watch, turns: 0, checked_at: 0, error: null, seen: {}, prs: {} } };
     scrolls.set(tab.id, { text: line({ v: 1, type: "user.message", at: Date.now(), content: [{ kind: "text", text: [action.prompt, args.context].filter(Boolean).join("\n\n") || profile.prompt }] }) + "\n", seq: 1 });
@@ -1450,7 +1451,13 @@ const mockCommands: IpcHandlers = {
   set_workspace_plugins(args) {
     const target = board.workspaces.find((x) => x.id === args.id);
     if (target) {
-      target.plugins = args.plugins as string[] | null;
+      // Mirror the backend: the picker still sends one combined list, so standalone skills split
+      // onto their own axis and a deselection clears it. See set_workspace_plugins in session.rs.
+      const ids = args.plugins ?? null;
+      const isSkill = (id: string) => id.startsWith("skill-");
+      target.plugins = ids == null ? null : { base: "none", add: ids.filter((id) => !isSkill(id)), remove: [] };
+      const skills = ids?.filter(isSkill) ?? [];
+      target.skills = skills.length ? { base: "none", add: skills, remove: [] } : null;
       target.tabs.forEach((t) => (t.status = "desligada"));
     }
     writes++;
@@ -1477,7 +1484,7 @@ const mockCommands: IpcHandlers = {
   set_workspace_mcp(args) {
     const target = board.workspaces.find((x) => x.id === args.id);
     if (target) {
-      target.mcp = args.mcp as string[] | null;
+      target.mcp = args.mcp == null ? null : { base: "none", add: args.mcp, remove: [] };
       // Changing tools stops tab processes; the next message resumes with the new selection.
       target.tabs.forEach((t) => (t.status = "desligada"));
     }

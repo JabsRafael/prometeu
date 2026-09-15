@@ -1,5 +1,6 @@
 use crate::domain::Pr;
 use crate::lock::lock;
+use crate::selection::{Selection, Tools};
 use crate::state::{publish, Board, Choice, Project, ProviderId, Repo, Status, Tab, Workspace};
 use crate::{chat, dock, i18n, paths, scripts, AppState};
 use std::path::{Path, PathBuf};
@@ -189,7 +190,7 @@ pub fn set_workspace_mcp(
         let Some(ws) = board.workspace_mut(&id) else {
             return;
         };
-        ws.mcp = mcp;
+        ws.mcp = mcp.map(Selection::only);
         ws.tabs.iter().map(|t| t.id.clone()).collect::<Vec<_>>()
     };
     for tab in tabs {
@@ -212,7 +213,11 @@ pub fn set_workspace_plugins(
         let Some(ws) = board.workspace_mut(&id) else {
             return;
         };
-        ws.plugins = plugins;
+        // The plugin selector still carries standalone skills mixed in, so re-derive both axes from
+        // the incoming list; a deselection then takes effect. Phase 6 gives skills their own command.
+        ws.plugins = plugins.map(Selection::only);
+        ws.skills = None;
+        crate::state::split_skills(&mut ws.plugins, &mut ws.skills);
         ws.tabs.iter().map(|t| t.id.clone()).collect::<Vec<_>>()
     };
     for tab in tabs {
@@ -625,6 +630,10 @@ pub struct Launch {
     /// and plugins.rs.
     #[serde(default)]
     pub plugins: Option<Vec<String>>,
+    /// Standalone-skill hub IDs (`skill-<id>`). They share the plugin-package pipeline, so the
+    /// adapters materialize them together with `plugins`. None preserves the CLI's own configuration.
+    #[serde(default)]
+    pub skills: Option<Vec<String>>,
 }
 
 /// Convert a persisted tab choice into launch settings. Plan mode belongs to the initial request
@@ -638,29 +647,133 @@ impl From<Choice> for Launch {
             plan: false,
             mcp: None,
             plugins: None,
+            skills: None,
             ..Default::default()
         }
     }
 }
 
+impl Launch {
+    /// Plugins and standalone skills share the plugin-package pipeline, so a spawn materializes the
+    /// two resolved axes together. `None` on both preserves the CLI's own plugins; otherwise the
+    /// selected packages are the union, in plugin-then-skill order.
+    pub fn plugin_packages(&self) -> Option<Vec<String>> {
+        match (&self.plugins, &self.skills) {
+            (None, None) => None,
+            (plugins, skills) => {
+                let mut merged = plugins.clone().unwrap_or_default();
+                if let Some(skills) = skills {
+                    merged.extend(skills.iter().cloned());
+                }
+                Some(merged)
+            }
+        }
+    }
+}
+
+/// The hub IDs a session injects, one axis at a time, after composing the layers. `None` on an axis
+/// means no layer declared it, so the provider keeps its own configuration; `Some` is the resolved
+/// set to materialize (possibly empty, which injects nothing from the hub).
+#[derive(Default, Debug, PartialEq, Eq)]
+pub(crate) struct ResolvedTools {
+    pub(crate) mcp: Option<Vec<String>>,
+    pub(crate) plugins: Option<Vec<String>>,
+    pub(crate) skills: Option<Vec<String>>,
+}
+
+/// Resolve one axis. When every layer inherits, the axis stays `None` so the provider's own
+/// configuration is preserved; otherwise the composed set is what the session injects.
+fn resolve_axis(
+    global: &Option<Selection>,
+    project: &Option<Selection>,
+    workspace: &Option<Selection>,
+    hub: &[String],
+) -> Option<Vec<String>> {
+    if global.is_none() && project.is_none() && workspace.is_none() {
+        None
+    } else {
+        Some(crate::selection::resolve(global, project, workspace, hub))
+    }
+}
+
+/// Compose the global and workspace layers into the IDs a launch injects, keeping only IDs the hub
+/// still has. The hubs come from the caller so the chain stays testable without disk. The project
+/// layer is gated on trust, which ADR 0043 defers to phase 4, so it contributes nothing yet even
+/// though scripts.rs already parses the repository's `[tools]` table.
+pub(crate) fn resolve_tools(
+    global: &Tools,
+    workspace: &Tools,
+    mcp_hub: &[String],
+    plugin_hub: &[String],
+) -> ResolvedTools {
+    let project = Tools::default();
+    ResolvedTools {
+        mcp: resolve_axis(&global.mcp, &project.mcp, &workspace.mcp, mcp_hub),
+        plugins: resolve_axis(
+            &global.plugins,
+            &project.plugins,
+            &workspace.plugins,
+            plugin_hub,
+        ),
+        // Standalone skills ride the plugin hub as `skill-<id>`, so the skills axis filters too.
+        skills: resolve_axis(&global.skills, &project.skills, &workspace.skills, plugin_hub),
+    }
+}
+
+/// Load the hubs and resolve one workspace's tools. Production spawns call this; tests build a
+/// `ResolvedTools` directly to stay off disk.
+pub(crate) fn resolve_workspace_tools(global: &Tools, ws: &Workspace) -> ResolvedTools {
+    let mcp_hub: Vec<String> = crate::mcp::load().into_iter().map(|s| s.id).collect();
+    let plugin_hub: Vec<String> = crate::plugins::load().into_iter().map(|p| p.id).collect();
+    resolve_tools(global, &ws.tools(), &mcp_hub, &plugin_hub)
+}
+
+impl ResolvedTools {
+    /// Plugins and standalone skills share the plugin-package pipeline, so a spawn materializes the
+    /// two resolved axes together. `None` on both preserves the CLI's own plugins; otherwise the
+    /// selected packages are the union, in plugin-then-skill order.
+    pub(crate) fn plugin_packages(&self) -> Option<Vec<String>> {
+        match (&self.plugins, &self.skills) {
+            (None, None) => None,
+            (plugins, skills) => {
+                let mut merged = plugins.clone().unwrap_or_default();
+                if let Some(skills) = skills {
+                    merged.extend(skills.iter().cloned());
+                }
+                Some(merged)
+            }
+        }
+    }
+}
+
 impl Workspace {
-    /// Default conversations inherit the workspace's model, effort, and tools. Plan mode remains an
-    /// explicit launcher choice.
-    pub fn launch(&self) -> Launch {
+    /// This workspace's three axes as the workspace layer of the tool selection.
+    fn tools(&self) -> Tools {
+        Tools {
+            mcp: self.mcp.clone(),
+            plugins: self.plugins.clone(),
+            skills: self.skills.clone(),
+        }
+    }
+
+    /// Default conversations inherit the workspace's model and effort and carry the already resolved
+    /// tools. Plan mode remains an explicit launcher choice.
+    pub(crate) fn launch(&self, tools: &ResolvedTools) -> Launch {
         Launch {
             agent: self.agent,
             model: self.model.clone(),
             effort: self.effort.clone(),
             plan: false,
-            mcp: self.mcp.clone(),
-            plugins: self.plugins.clone(),
+            mcp: tools.mcp.clone(),
+            plugins: tools.plugins.clone(),
+            skills: tools.skills.clone(),
             ..Default::default()
         }
     }
 
-    /// Resume with the tab's model override or workspace defaults. Ordinary tabs inherit current
-    /// workspace tools; tasks retain their resolved profile, instructions, and permissions.
-    pub fn launch_of(&self, tab: &str) -> Launch {
+    /// Resume with the tab's model override or workspace defaults. Ordinary tabs carry the resolved
+    /// tools; tasks retain their frozen profile, instructions, and permissions.
+    pub(crate) fn launch_of(&self, tab: &str, tools: &ResolvedTools) -> Launch {
         if let Some(run) = self
             .tabs
             .iter()
@@ -681,16 +794,18 @@ impl Workspace {
                 .iter()
                 .find(|t| t.id == tab)
                 .and_then(|t| t.choice.clone()),
+            tools,
         )
     }
 
-    /// Model overrides preserve workspace tool selections for new and resumed tabs.
-    fn launch_with(&self, choice: Option<Choice>) -> Launch {
+    /// Model overrides preserve the resolved tool selection for new and resumed tabs.
+    fn launch_with(&self, choice: Option<Choice>, tools: &ResolvedTools) -> Launch {
         choice.map_or_else(
-            || self.launch(),
+            || self.launch(tools),
             |choice| Launch {
-                mcp: self.mcp.clone(),
-                plugins: self.plugins.clone(),
+                mcp: tools.mcp.clone(),
+                plugins: tools.plugins.clone(),
+                skills: tools.skills.clone(),
                 ..Launch::from(choice)
             },
         )
@@ -703,7 +818,14 @@ impl Workspace {
         if self.tabs.iter().any(|t| t.id == tab && t.task.is_some()) {
             return Err(i18n::t("err.actions.frozen"));
         }
-        if self.launch_of(tab).agent != choice.agent {
+        // The tab is ordinary, so its provider is the model override or the workspace default.
+        let current = self
+            .tabs
+            .iter()
+            .find(|t| t.id == tab)
+            .and_then(|t| t.choice.clone())
+            .map_or(self.agent, |c| c.agent);
+        if current != choice.agent {
             return Err(i18n::t("err.session.otherAgent"));
         }
         let follows = choice.agent == self.agent
@@ -828,7 +950,7 @@ pub fn create_workspace(
         .collect();
     let port = scripts::alloc_port(&root, &taken);
 
-    let ws = Workspace {
+    let mut ws = Workspace {
         id: uuid::Uuid::new_v4().to_string(),
         title: if draft.title.trim().is_empty() {
             branch.clone()
@@ -857,12 +979,16 @@ pub fn create_workspace(
         agent: draft.launch.agent,
         model: draft.launch.model.clone(),
         effort: draft.launch.effort.clone(),
-        mcp: draft.launch.mcp.clone(),
-        plugins: draft.launch.plugins.clone(),
+        // The launcher's explicit selections become the workspace layer; `None` keeps inheriting the
+        // layers above. Standalone skills are normalized onto their own axis below.
+        mcp: draft.launch.mcp.clone().map(Selection::only),
+        plugins: draft.launch.plugins.clone().map(Selection::only),
+        skills: draft.launch.skills.clone().map(Selection::only),
         port,
         active: None,
         tabs: Vec::new(),
     };
+    crate::state::split_skills(&mut ws.plugins, &mut ws.skills);
 
     // Publish the workspace before startup so setup completion can find pending prompts on its
     // tabs.
@@ -943,13 +1069,26 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
         switch_branch(&repo, &branch, &draft.base)?;
     }
 
+    // The first conversation keeps the launcher's model, instructions, and permissions, but its
+    // tool axes resolve through the global and workspace layers like any other spawn.
+    let launch = {
+        let board = lock(&state.board);
+        let mut launch = draft.launch.clone();
+        if let Some(ws) = board.workspaces.iter().find(|w| w.id == id) {
+            let tools = resolve_workspace_tools(&board.tools, ws);
+            launch.mcp = tools.mcp;
+            launch.plugins = tools.plugins;
+            launch.skills = tools.skills;
+        }
+        launch
+    };
     let tab = spawn_tab(
         app,
         &state,
         id,
         "",
         first_message(&draft.prompt, &draft.inject),
-        &draft.launch,
+        &launch,
         // The first conversation uses the launch settings already saved on the workspace, so it
         // needs no tab override.
         None,
@@ -1009,7 +1148,8 @@ pub fn new_tab(
         // Clear choices that match workspace defaults instead of storing duplicate settings.
         let choice =
             choice.filter(|c| c.agent != ws.agent || c.model != ws.model || c.effort != ws.effort);
-        let launch = ws.launch_with(choice.clone());
+        let tools = resolve_workspace_tools(&board.tools, ws);
+        let launch = ws.launch_with(choice.clone(), &tools);
         (launch, choice)
     };
 
@@ -1095,23 +1235,27 @@ pub fn resume_tab(app: AppHandle, state: State<AppState>, tab: String) -> Result
 
 /// Restart the process for resume_tab or the first message sent to a stopped tab through chat_send.
 pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<bool, String> {
-    let (workspace, worktree, launch, cleaned, agent_session) = lock(&state.board)
-        .workspace_of(tab)
-        .map(|w| {
-            let previous = w
-                .tabs
-                .iter()
-                .find(|t| t.id == tab)
-                .and_then(|t| t.agent_session.clone());
-            (
-                w.id.clone(),
-                PathBuf::from(&w.worktree),
-                w.launch_of(tab),
-                w.cleaned,
-                previous,
-            )
-        })
-        .ok_or_else(|| i18n::t("err.session.noTab"))?;
+    let (workspace, worktree, launch, cleaned, agent_session) = {
+        let board = lock(&state.board);
+        board
+            .workspace_of(tab)
+            .map(|w| {
+                let previous = w
+                    .tabs
+                    .iter()
+                    .find(|t| t.id == tab)
+                    .and_then(|t| t.agent_session.clone());
+                let tools = resolve_workspace_tools(&board.tools, w);
+                (
+                    w.id.clone(),
+                    PathBuf::from(&w.worktree),
+                    w.launch_of(tab, &tools),
+                    w.cleaned,
+                    previous,
+                )
+            })
+            .ok_or_else(|| i18n::t("err.session.noTab"))?
+    };
     if cleaned {
         return Err(i18n::t("err.session.cleaned"));
     }
@@ -1583,7 +1727,8 @@ pub fn list_branches(project: String) -> Branches {
 #[cfg(test)]
 mod tests {
     use super::{
-        multi_pr_text, patch_map, pr_text, Choice, Pr, ProviderId, Repo, RepoPr, Tab, Workspace,
+        multi_pr_text, patch_map, pr_text, resolve_tools, Choice, Pr, ProviderId, Repo, RepoPr,
+        ResolvedTools, Tab, Workspace,
     };
     use crate::dock::{is_terminal, multi_setup, quoted};
     use std::path::Path;
@@ -1673,6 +1818,7 @@ mod tests {
             preparing: false,
             mcp: None,
             plugins: None,
+            skills: None,
             failed: None,
             model: String::new(),
             effort: String::new(),
@@ -1876,6 +2022,7 @@ mod tests {
             preparing: false,
             mcp: None,
             plugins: None,
+            skills: None,
             failed: None,
             agent: ProviderId::Claude,
             model: String::new(),
@@ -1904,21 +2051,28 @@ mod tests {
     }
 
     #[test]
-    fn new_and_resumed_tabs_preserve_workspace_tools_with_model_overrides() {
+    fn new_and_resumed_tabs_preserve_resolved_tools_with_model_overrides() {
         for selected in [None, Some(vec![]), Some(vec!["selected".to_string()])] {
             for provider in [ProviderId::Claude, ProviderId::Codex] {
                 let mut ws = bare();
                 ws.model = "workspace-model".into();
                 ws.effort = "high".into();
-                ws.mcp = selected.clone();
-                ws.plugins = selected.clone();
+                // The caller resolves the layers; a tab carries that result whatever its model.
+                let tools = ResolvedTools {
+                    mcp: selected.clone(),
+                    plugins: selected.clone(),
+                    skills: None,
+                };
                 let choice = Choice {
                     agent: provider,
                     model: "tab-model".into(),
                     effort: "medium".into(),
                 };
                 ws.tabs = vec![tab("custom", Some(choice.clone())), tab("inherited", None)];
-                for launch in [ws.launch_with(Some(choice)), ws.launch_of("custom")] {
+                for launch in [
+                    ws.launch_with(Some(choice), &tools),
+                    ws.launch_of("custom", &tools),
+                ] {
                     assert_eq!(launch.agent, provider);
                     assert_eq!(launch.model, "tab-model");
                     assert_eq!(launch.effort, "medium");
@@ -1926,7 +2080,7 @@ mod tests {
                     assert_eq!(launch.plugins, selected);
                     assert!(!launch.plan);
                 }
-                for launch in [ws.launch_with(None), ws.launch_of("inherited")] {
+                for launch in [ws.launch_with(None, &tools), ws.launch_of("inherited", &tools)] {
                     assert_eq!(launch.model, "workspace-model");
                     assert_eq!(launch.effort, "high");
                     assert_eq!(launch.mcp, selected);
@@ -1936,12 +2090,41 @@ mod tests {
         }
     }
 
+    /// A legacy board stored standalone skills inside `plugins`. After migration the skill moves to
+    /// its own axis, yet a spawn still materializes both through the plugin pipeline, so an old
+    /// workspace keeps the tools it had. See ADR 0043 and docs/contracts/persistence.md.
+    #[test]
+    fn ferramentas_legadas_com_skill_migram_e_continuam_materializando() {
+        use crate::selection::{Selection, Tools};
+        use crate::state::split_skills;
+
+        let mut ws = bare();
+        // The pre-migration selection: one plugin and one standalone skill mixed on the plugin axis.
+        ws.plugins = Some(Selection::only(vec!["revisor".into(), "skill-review".into()]));
+        split_skills(&mut ws.plugins, &mut ws.skills);
+        assert_eq!(ws.plugins, Some(Selection::only(vec!["revisor".into()])));
+        assert_eq!(ws.skills, Some(Selection::only(vec!["skill-review".into()])));
+
+        // Both ride the plugin hub, so resolution keeps them and a launch materializes the union in
+        // plugin-then-skill order, exactly as the old single-axis selection did.
+        let hub = vec!["revisor".to_string(), "skill-review".to_string()];
+        let tools = resolve_tools(&Tools::default(), &ws.tools(), &[], &hub);
+        let launch = ws.launch(&tools);
+        assert_eq!(launch.plugins, Some(vec!["revisor".into()]));
+        assert_eq!(launch.skills, Some(vec!["skill-review".into()]));
+        assert_eq!(
+            launch.plugin_packages(),
+            Some(vec!["revisor".into(), "skill-review".into()])
+        );
+    }
+
     #[test]
     fn task_launch_uses_project_override_and_freezes_tools_and_model() {
         use crate::actions::{Catalog, Permission, Profile};
+        use crate::selection::Selection;
         let mut ws = bare();
         ws.project = "project".into();
-        ws.mcp = Some(vec!["original".into()]);
+        ws.mcp = Some(Selection::only(vec!["original".into()]));
         let base = Profile {
             id: "review".into(),
             name: "Revisor".into(),
@@ -1967,7 +2150,13 @@ mod tests {
             .entry("project".into())
             .or_default()
             .insert("review".into(), customized);
-        let profile = crate::actions::resolve(&catalog, &ws.project, "review", &ws).unwrap();
+        // The profile leaves MCP unset, so it freezes the resolved layer the caller supplies.
+        let resolved = ResolvedTools {
+            mcp: Some(vec!["original".into()]),
+            plugins: None,
+            skills: None,
+        };
+        let profile = crate::actions::resolve(&catalog, &ws.project, "review", &resolved).unwrap();
         let mut task = tab("task", None);
         task.task = Some(
             serde_json::from_value(serde_json::json!({
@@ -1977,9 +2166,10 @@ mod tests {
             .unwrap(),
         );
         ws.tabs.push(task);
-        ws.mcp = Some(vec!["changed".into()]);
+        // Changing the workspace afterwards must not reach the frozen task.
+        ws.mcp = Some(Selection::only(vec!["changed".into()]));
         ws.model = "haiku".into();
-        let launch = ws.launch_of("task");
+        let launch = ws.launch_of("task", &ResolvedTools::default());
         assert_eq!(launch.model, "opus");
         assert_eq!(launch.mcp, Some(vec!["original".into()]));
         assert_eq!(launch.plugins, Some(vec![]));
@@ -2008,14 +2198,14 @@ mod tests {
             ),
         ];
 
-        let herda = ws.launch_of("herda");
+        let herda = ws.launch_of("herda", &ResolvedTools::default());
         assert_eq!(
             (herda.model.as_str(), herda.effort.as_str()),
             ("opus[1m]", "high")
         );
         assert_eq!(herda.agent, ProviderId::Claude);
 
-        let propria = ws.launch_of("propria");
+        let propria = ws.launch_of("propria", &ResolvedTools::default());
         assert_eq!(propria.agent, ProviderId::Codex);
         assert_eq!(
             (propria.model.as_str(), propria.effort.as_str()),
@@ -2025,7 +2215,10 @@ mod tests {
         assert!(!propria.plan);
 
         // A tab removed while the request was in flight falls back to workspace defaults.
-        assert_eq!(ws.launch_of("sumiu").model, "opus[1m]");
+        assert_eq!(
+            ws.launch_of("sumiu", &ResolvedTools::default()).model,
+            "opus[1m]"
+        );
     }
 
     /// Retuning persists a tab override; choosing workspace defaults clears it. Reject switching
@@ -2044,7 +2237,7 @@ mod tests {
         };
 
         ws.retune("aberta", choice("sonnet", "medium")).unwrap();
-        let launch = ws.launch_of("aberta");
+        let launch = ws.launch_of("aberta", &ResolvedTools::default());
         assert_eq!(
             (launch.model.as_str(), launch.effort.as_str()),
             ("sonnet", "medium")
@@ -2387,6 +2580,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
             preparing: false,
             mcp: None,
             plugins: None,
+            skills: None,
             failed: None,
             model: String::new(),
             effort: String::new(),

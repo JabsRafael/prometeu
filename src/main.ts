@@ -31,6 +31,7 @@ import * as statusbar from "./statusbar";
 import * as team from "./team";
 import "./style.css";
 import type { Board, Issue, Project, Tab, Workspace } from "./types";
+import { selectedIds } from "./types";
 import * as update from "./update";
 import { $ } from "./util";
 import * as viewer from "./viewer";
@@ -638,8 +639,8 @@ const infoOf = (w: Workspace | undefined, tab: Tab | undefined): Info => ({
   workspace: w?.id ?? null,
   status: tab?.status ?? null,
   task: tab?.task ?? null,
-  mcp: tab?.task ? tab.task.profile.mcp : (w?.mcp ?? null),
-  plugins: tab?.task ? tab.task.profile.plugins : (w?.plugins ?? null),
+  mcp: tab?.task ? tab.task.profile.mcp : selectedIds(w?.mcp),
+  plugins: tab?.task ? tab.task.profile.plugins : selectedIds(w?.plugins),
   pending: tab?.pending_prompt ?? null,
   worktree: w?.worktree ?? null,
   remote: w?.remote ? { name: team.nameOf(w.remote.owner), online: w.remote.online } : null,

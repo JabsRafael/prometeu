@@ -278,8 +278,10 @@ fn launch_args(
     }
     // Inject selected plugins through session flags without modifying the CLI registry. Claude owns
     // name-based deduplication with globally enabled plugins. Without a selection, leave those
-    // defaults intact; Codex materializes its own configuration in its adapter.
-    args.extend(crate::plugins::args_for(launch.plugins.as_ref()));
+    // defaults intact; Codex materializes its own configuration in its adapter. Standalone skills
+    // ride the same plugin-package pipeline, so they materialize together with the plugins.
+    let packages = launch.plugin_packages();
+    args.extend(crate::plugins::args_for(packages.as_ref()));
     Ok(args)
 }
 

@@ -1,7 +1,7 @@
 //! The app owns reusable commands and profiles. Each execution stores a resolved copy; the monitor
 //! queries GitHub without keeping a model turn active.
 use crate::lock::lock;
-use crate::state::{publish, Choice, Status, Tab, Workspace};
+use crate::state::{publish, Choice, Status, Tab};
 use crate::{chat, i18n, session, AppState};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
@@ -182,7 +182,12 @@ pub fn actions_save(
     Ok(())
 }
 
-pub fn resolve(c: &Catalog, project: &str, id: &str, ws: &Workspace) -> Result<Profile, String> {
+pub fn resolve(
+    c: &Catalog,
+    project: &str,
+    id: &str,
+    resolved: &session::ResolvedTools,
+) -> Result<Profile, String> {
     let mut p = c
         .overrides
         .get(project)
@@ -190,11 +195,14 @@ pub fn resolve(c: &Catalog, project: &str, id: &str, ws: &Workspace) -> Result<P
         .or_else(|| c.profiles.iter().find(|p| p.id == id))
         .cloned()
         .ok_or_else(|| i18n::t("err.actions.missing"))?;
+    // A task freezes the tools it starts with, so the caller resolves the layers once and an axis
+    // the profile leaves unset inherits that resolved global and workspace selection.
     if p.mcp.is_none() {
-        p.mcp = ws.mcp.clone();
+        p.mcp = resolved.mcp.clone();
     }
     if p.plugins.is_none() {
-        p.plugins = ws.plugins.clone();
+        // Standalone skills ride the plugin pipeline, so the frozen set carries both axes.
+        p.plugins = resolved.plugin_packages();
     }
     Ok(p)
 }
@@ -256,11 +264,12 @@ pub fn action_start(
         }) {
             return Err(i18n::t("err.actions.busy"));
         }
+        let resolved = session::resolve_workspace_tools(&board.tools, ws);
         let profile = resolve(
             &board.actions,
             &ws.project,
             a.profile.as_deref().unwrap_or(""),
-            ws,
+            &resolved,
         )?;
         validate_profile(&profile)?;
         let git_context = format!(

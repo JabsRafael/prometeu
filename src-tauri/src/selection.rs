@@ -2,10 +2,6 @@
 //! session injects, one axis at a time. Pure (no Tauri, filesystem or network), so the chain is
 //! testable without a board or a repository. See ADR 0043 and docs/contracts/plugin-marketplace.md.
 
-// The board, the settings reader and `session.rs` consume this module in the next phases of ADR
-// 0043; until then only the tests below exercise it.
-#![allow(dead_code)]
-
 use serde::{Deserialize, Serialize};
 
 /// What a layer does with the set inherited from the layers above it.
@@ -41,15 +37,19 @@ impl Selection {
             remove: Vec::new(),
         }
     }
+}
 
-    /// Apply deltas over the inherited set.
-    pub fn over(add: Vec<String>, remove: Vec<String>) -> Selection {
-        Selection {
-            base: Base::Inherit,
-            add,
-            remove,
-        }
-    }
+/// The three independent axes of one layer. Shared by the board's global layer, the `[tools]` table
+/// of the project settings and the workspace triple, so all three deserialize identically. An absent
+/// axis inherits from the layer above it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
+pub struct Tools {
+    #[serde(default)]
+    pub mcp: Option<Selection>,
+    #[serde(default)]
+    pub plugins: Option<Selection>,
+    #[serde(default)]
+    pub skills: Option<Selection>,
 }
 
 /// Resolve one axis across the three layers, in order, and keep only IDs the hub still has, so a
@@ -80,7 +80,7 @@ pub fn resolve(
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve, Base, Selection};
+    use super::{resolve, Base, Selection, Tools};
 
     fn names(ids: &[&str]) -> Vec<String> {
         ids.iter().map(|id| id.to_string()).collect()
@@ -91,7 +91,11 @@ mod tests {
     }
 
     fn delta(add: &[&str], remove: &[&str]) -> Selection {
-        Selection::over(names(add), names(remove))
+        Selection {
+            base: Base::Inherit,
+            add: names(add),
+            remove: names(remove),
+        }
     }
 
     #[test]
@@ -219,12 +223,6 @@ mod tests {
         struct File {
             #[serde(default)]
             tools: Tools,
-        }
-        #[derive(serde::Deserialize, Default)]
-        struct Tools {
-            mcp: Option<Selection>,
-            plugins: Option<Selection>,
-            skills: Option<Selection>,
         }
 
         let parsed: File = toml::from_str(

@@ -114,6 +114,18 @@ export type Plugin = {
   from?: string;
 };
 
+/// One axis of one tool-selection layer. `null` inherits the layers above; `base: "none"` replaces
+/// the inherited set with `add`; `base: "inherit"` applies `add`/`remove` over it. See ADR 0043.
+export type Selection = { base: "none" | "inherit"; add: string[]; remove: string[] };
+
+/// The three independent axes of a tool-selection layer, shared by the board's global layer and the
+/// workspace triple. The project layer lives in the repository's `[tools]` table, not on the board.
+export type Tools = { mcp: Selection | null; plugins: Selection | null; skills: Selection | null };
+
+/// The effective hub IDs a single layer selects, or null when it inherits. Phase 3 surfaces only the
+/// workspace layer's own `add`; the resolved effective set with provenance arrives with the picker.
+export const selectedIds = (s: Selection | null | undefined): string[] | null => s?.add ?? null;
+
 export type Workspace = {
   id: string;
   title: string;
@@ -136,10 +148,14 @@ export type Workspace = {
   /// Workspace model/effort defaults for new or resumed tabs; empty values use CLI defaults.
   model: string;
   effort: string;
-  /// MCP names selected from the hub. Null inherits CLI behavior; an empty list explicitly selects no MCP servers.
-  mcp: string[] | null;
-  /// Plugin names selected from the hub. Null inherits CLI behavior; an empty list selects no additional plugins.
-  plugins: string[] | null;
+  /// MCP selection from the hub, as the workspace layer. Null inherits the layers above and the CLI;
+  /// a replacement with an empty `add` selects no MCP servers. See ADR 0043.
+  mcp: Selection | null;
+  /// Plugin selection from the hub, as the workspace layer, following the MCP inheritance rules.
+  plugins: Selection | null;
+  /// Standalone-skill selection from the hub, as its own axis. Skills still materialize through the
+  /// plugin pipeline. Absent, therefore inherited, on boards saved before the axis existed.
+  skills: Selection | null;
   /// Base of the ten ports reserved for this worktree.
   port: number | null;
   /// The originating Linear issue, when present.
@@ -236,7 +252,7 @@ export type Scripts = {
   port: number | null;
 };
 
-export type Board = { actions?: import("./actions").Catalog; stages: string[]; projects: Project[]; workspaces: Workspace[] };
+export type Board = { actions?: import("./actions").Catalog; tools?: Tools; stages: string[]; projects: Project[]; workspaces: Workspace[] };
 
 /// The authenticated Linear user and organization.
 export type LinearWho = { name: string; email: string; org: string; org_key: string };
