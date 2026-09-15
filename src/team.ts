@@ -96,8 +96,6 @@ export const status = (): TeamStatus => {
   };
 };
 
-export const invite = () => (cfg && !cfg.cloud ? formatInvite(cfg.team, cfg.secret) : null);
-
 /* Lifecycle. */
 
 export async function init() {
@@ -263,58 +261,11 @@ async function adopt(next: TeamConfig) {
   member.notify();
 }
 
-const cleanName = (name: string) => {
-  const n = normalizeName(name);
-  if (!n) throw t("err.team.name");
-  return n;
-};
-
-export async function create(name: string) {
-  const n = cleanName(name);
-  const base = relayOf(null);
-  if (!base) throw t("err.team.noRelay");
-  const { team, secret, member: id, credential } = await member.currentTransport().create(base);
-  await adopt({ relay: relayDraft || null, team, secret, member: id, credential, name: n });
-}
-
-export async function join(code: string, name: string) {
-  const n = cleanName(name);
-  const parsed = parseInvite(code);
-  if (!parsed) throw t("err.team.badCode");
-  const base = relayOf(null);
-  if (!base) throw t("err.team.noRelay");
-  const membership = await member.currentTransport().enroll(base, parsed.team, parsed.secret);
-  await adopt({ relay: relayDraft || null, team: parsed.team, secret: parsed.secret, ...membership, name: n });
-}
-
 export async function leave() {
   if (cfg?.cloud) globalThis.localStorage?.setItem(LEFT_KEY, cfg.team);
   member.reset();
   cfg = null;
   await invoke("team_config_set", { config: null });
-  member.notify();
-}
-
-export async function setName(name: string) {
-  if (!cfg || cfg.cloud) return;
-  const n = cleanName(name);
-  cfg = { ...cfg, name: n };
-  await invoke("team_config_set", { config: cfg });
-  member.send({ t: "me", name: n });
-  member.notify();
-}
-
-export async function setRelay(url: string) {
-  if (cfg?.cloud) return;
-  const u = url.trim().replace(/\/+$/, "");
-  if (u) wsUrl(u);
-  relayDraft = u;
-  if (cfg) {
-    cfg = { ...cfg, relay: u || null };
-    await invoke("team_config_set", { config: cfg });
-    member.disconnect();
-    void activate();
-  }
   member.notify();
 }
 

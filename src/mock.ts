@@ -821,9 +821,6 @@ const mockCommands: IpcHandlers = {
     }))));
     return state;
   },
-  catalog_refresh() {
-    cloudWrite(); emit("catalog", null); return;
-  },
   catalog_share(args) {
     cloudWrite();
     const kind = String(args.kind), id = String(args.id), state = mockCatalog();
@@ -968,17 +965,6 @@ const mockCommands: IpcHandlers = {
   },
   pty_write() {
     return;
-  },
-  // Return one change group per repository, including the second repository's independent changes.
-  workspace_diff(args) {
-    const target = board.workspaces.find((x) => x.id === args.id);
-    return (target?.repos ?? []).map((r, i) => {
-      const files = i === 0 ? changes : changes2;
-      const base = i === 0 ? "origin/main" : "origin/develop";
-      // Only the first repository has unpushed commits, exercising both summary states.
-      const ahead = i === 0 ? 3 : 1;
-      return { name: r.name, base, ahead, unpushed: i === 0 ? 1 : 0, dirty: files.filter((f) => f.dirty).length, files };
-    });
   },
   workspace_git_status(args) {
     const target = board.workspaces.find((workspace) => workspace.id === args.id && !workspace.cleaned);
@@ -1719,9 +1705,6 @@ const mockCommands: IpcHandlers = {
     emit("board", board);
     if (args.prompt.trim()) sayInto(tab.id, args.prompt.trim());
     return tab;
-  },
-  resume_tab() {
-    return true;
   },
   // Simulate delayed Linear login and publish the same status event as the backend.
   linear_status() {

@@ -1019,13 +1019,6 @@ pub fn catalog_state() -> CatalogState {
             .collect(),
     }
 }
-#[tauri::command]
-pub async fn catalog_refresh(app: AppHandle) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || pull(&app))
-        .await
-        .map_err(|_| i18n::t("err.cloud.network"))?
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

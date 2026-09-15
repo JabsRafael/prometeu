@@ -124,7 +124,6 @@ Signing out or losing membership keeps the installed records and files.
 | Command | Arguments | Return |
 | --- | --- | --- |
 | `catalog_state` | none | connected, revision, plugins, mcp, skills and shared |
-| `catalog_refresh` | none | empty; fetches the account's definitions |
 | `catalog_share` | kind, local id | empty; publishes and links |
 | `catalog_copy` | kind, local id, newId | empty; creates a private definition |
 | `catalog_install_plugin` | account id | empty; installs the selected source |
@@ -133,6 +132,10 @@ Signing out or losing membership keeps the installed records and files.
 | `skill_hub` | none | installed Skill[] |
 | `skill_save` | skill, revision | Skill[]; publishes only if linked |
 | `skill_remove` | local id | Skill[]; removes only from this Mac |
+
+Catalog refresh runs through `cloud_status` with `refresh: true`, including
+**Refresh account** and the existing focus/periodic refresh. The unused
+`catalog_refresh` IPC was retired in [ADR 0043](../decisions/0043-retire-unused-ipc.md).
 
 `plugin_save` and `mcp_save` also receive `revision` when editing a shared item.
 New private items do not need a revision. The `catalog` event updates the

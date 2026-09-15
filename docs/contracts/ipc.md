@@ -45,8 +45,10 @@ See [ADR 0024](../decisions/0024-typed-ipc.md).
 - a heavy operation does not block the main thread.
 
 The commands for status, diffs, branches, commits and conflict resolution are in
-[`git.md`](git.md). They are additive: `workspace_diff` keeps the previous
-contract and does not start meaning stage.
+[`git.md`](git.md). The retired `workspace_diff`, `resume_tab` and
+`catalog_refresh` commands are no longer registered; see
+[ADR 0043](../decisions/0043-retire-unused-ipc.md). The desktop frontend and
+backend ship together. Persisted state and relay clients are unaffected.
 
 The `actions_save`, `action_start` and `action_pause` commands are described in
 the [actions contract](actions.md). They use the existing `board` event.
@@ -69,8 +71,9 @@ scopes' internal schema belongs to `team-security.ts`; the payloads stay
 
 The `cloud_status`, `cloud_login_start`, `cloud_login_poll`,
 `cloud_login_cancel` and `cloud_logout` commands are in the
-[account contract](cloud-account.md); `catalog_state` and `catalog_refresh` are
-in the [catalog contract](cloud-catalog.md). They do not return a Bearer or a
+[account contract](cloud-account.md); `catalog_state` is in the
+[catalog contract](cloud-catalog.md). Catalog refresh runs through
+`cloud_status` with `refresh: true`. They do not return a Bearer or a
 password to the webview. `cloud_organizations`, `cloud_relay_ticket` and the
 `remoteControl` and `team` arguments of `set_shared` are in the
 [organizations contract](cloud-organizations.md); only the short ticket crosses

@@ -104,9 +104,6 @@ export function stage(name: string): string {
   return key in PT ? t(key) : name;
 }
 
-/// Format numbers using the active locale's separators.
-export const num = (n: number) => n.toLocaleString(lang);
-
 /// Translate index.html nodes marked data-t and tooltips marked data-t-title without moving their markup into main.ts.
 export function paint(root: ParentNode = document) {
   for (const el of root.querySelectorAll<HTMLElement>("[data-t]")) {

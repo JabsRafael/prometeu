@@ -243,9 +243,9 @@ describe("erro do relay", () => {
 describe("ouvintes", () => {
   it("deixa uma tela removida parar de ouvir mudanças", async () => {
     const changed = vi.fn(); const stop = team.onChange(changed);
-    await team.setName("Primeiro nome");
+    await team.leave();
     expect(changed).toHaveBeenCalledTimes(1);
-    stop(); await team.setName("Segundo nome");
+    stop(); await team.leave();
     expect(changed).toHaveBeenCalledTimes(1);
   });
 });

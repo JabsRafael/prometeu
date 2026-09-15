@@ -138,10 +138,11 @@ offer a generic action that completes those sequencers.
 
 ## Compatibility and evidence
 
-`workspace_diff` keeps its previous format and behavior for existing consumers.
-The new screen uses separate commands, without silently reinterpreting the old
-`dirty` as stage state. There is no board, transcript or collaboration protocol
-migration.
+The screen uses the per-repository `workspace_git_*` commands. The unused
+`workspace_diff` IPC and its mixed-diff implementation were retired in
+[ADR 0043](../decisions/0043-retire-unused-ipc.md). The diff presentation still
+uses its existing view model. There is no board, transcript or collaboration
+protocol migration.
 
 - `src-tauri/src/session/git_tests.rs`: real Git repositories, partial index,
   special paths, commit, local remotes, conflicts and merge.
