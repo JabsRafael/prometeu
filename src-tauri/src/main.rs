@@ -28,6 +28,7 @@ mod paths;
 mod plugins;
 mod pty;
 mod scripts;
+mod selection;
 mod session;
 mod skills;
 mod state;
