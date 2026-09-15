@@ -34,6 +34,7 @@ import * as commands from "./commands";
 import * as notes from "./notes";
 import * as paths from "./paths";
 import { pasteFiles } from "./paste";
+import * as voice from "./voice";
 import * as team from "./team";
 import { pieces, summary, Timeline, touched, type Ask, type Block, type Command, type Item, type Piece, type ToolBlock } from "./timeline";
 import type { Choice, ProviderId, Status } from "./types";
@@ -122,6 +123,7 @@ export class ChatView {
   private attachVersion = 0;
   private disposed = false;
   private cleanup: (() => void)[] = [];
+  private stopVoice?: (discard?: boolean) => void;
   private tl = new Timeline();
   /// Rendered pieces and their DOM nodes in display order.
   private shown: Piece[] = [];
@@ -983,6 +985,7 @@ export class ChatView {
         <div class="composer-tools">
           <!-- Tool selection resumes the same transcript with updated MCP and plugin settings. -->
           <button class="ico sm addfile" hidden></button>
+          <button class="ico sm mic" hidden></button>
           <button class="ghost sm actionsbtn"></button>
           <button class="ghost sm mcpbtn" hidden><span></span></button>
           <button class="ghost sm plugbtn" hidden><span></span></button>
@@ -1021,6 +1024,10 @@ export class ChatView {
     q(".actionsbtn").addEventListener("click", () => this.actionMenu());
     this.cleanup.push(actions.onChange(() => this.paintComposer()));
     q(".addfile").addEventListener("click", () => void this.addFile());
+    q(".mic").innerHTML = icon("mic", 14);
+    q(".mic").hidden = !voice.available();
+    q(".mic").addEventListener("click", () => this.toggleVoice());
+    this.cleanup.push(() => this.stopVoice?.());
     q(".quotesel").addEventListener("click", () => this.quoteSelection());
 
     this.area.addEventListener("input", () => {
@@ -1046,6 +1053,37 @@ export class ChatView {
       const target = this.fileDropTarget();
       if (target) pasteFiles(e, target.put, (error) => this.ctx.say(fromBack(error), true));
     });
+  }
+
+  /// Dictation appends settled speech after whatever is already typed and previews the interim tail. Typing by hand or sending ends it, so a stale transcript never overwrites edits; stopping by the button keeps the last words.
+  private toggleVoice() {
+    if (this.stopVoice) { this.stopVoice(); return; }
+    const mic = this.box.querySelector<HTMLButtonElement>(".mic")!;
+    let base = this.area.value;
+    const typed = () => this.stopVoice?.(true);
+    this.area.addEventListener("input", typed);
+    const paint = (on: boolean) => {
+      mic.classList.toggle("on", on);
+      mic.title = t(on ? "chat.voice.stop" : "chat.voice");
+      mic.setAttribute("aria-label", mic.title);
+      mic.setAttribute("aria-pressed", String(on));
+    };
+    this.stopVoice = voice.listen(
+      (settled, interim) => {
+        base = voice.join(base, settled);
+        this.area.value = voice.join(base, interim);
+        this.keep();
+        this.grow();
+      },
+      (error) => {
+        this.area.removeEventListener("input", typed);
+        this.stopVoice = undefined;
+        paint(false);
+        if (error) this.ctx.say(t("chat.voice.failed", { error }), true);
+        this.area.focus();
+      },
+    );
+    paint(true);
   }
 
   /// The file picker starts in the worktree but allows other local files. Show attachments as removable chips and convert them to mentions on send without altering typed text.
@@ -1119,6 +1157,7 @@ export class ChatView {
 
   private send() {
     if (this.key && drafts.pending.has(this.key)) return;
+    this.stopVoice?.(true);
     // Persist pending configuration before resuming the process with a new prompt.
     settleNow();
     const text = this.area.value.trim();

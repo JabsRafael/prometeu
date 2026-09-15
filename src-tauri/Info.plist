@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Dictation in the composer uses WebKit speech recognition, which macOS gates behind both prompts. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Prometeu uses the microphone to dictate messages to the agent.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>Prometeu transcribes what you say into the message box.</string>
+</dict>
+</plist>

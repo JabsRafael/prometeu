@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit && tsc -p relay && tsc -p packages/design-system --noEmit",
     "build": "npm run design-system:build && npm run typecheck && vite build",
     "app": "sh scripts/app.sh",
+    "app:bundle": "sh scripts/app-bundle.sh",
     "build:app": "tauri build",
     "build:mobile": "vite build --config vite.mobile.config.ts",
     "tauri": "tauri",
