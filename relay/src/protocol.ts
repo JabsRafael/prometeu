@@ -5,7 +5,6 @@ export const PROTO = 4;
 
 /* control limits and validation */
 
-export const ID_MAX = 64;
 export const NAME_MAX = 80;
 export const TITLE_MAX = 256;
 export const URL_MAX = 2 * 1024;

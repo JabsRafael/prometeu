@@ -1,7 +1,8 @@
 # ADR 0008 — explicit Git index and per-repository operations
 
 Date: 2026-09-05
-Status: Accepted
+Status: Accepted; the retention of the old diff IPC is superseded by
+[ADR 0043](0043-retire-unused-ipc.md).
 
 ## Context
 

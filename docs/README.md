@@ -51,7 +51,7 @@ as a short index for agents and `README.md` presents the product.
 - [ADR 0005](decisions/0005-portable-plugin-marketplace.md): portable marketplace for Claude and Codex — Accepted.
 - [ADR 0006](decisions/0006-explicit-prometheus-import.md): explicit, non-destructive Prometheus import — Accepted; importer removed.
 - [ADR 0007](decisions/0007-persistent-session-comments.md): persistent comments alongside the session — Accepted.
-- [ADR 0008](decisions/0008-explicit-git-index.md): explicit Git index and per-repository operations — Accepted.
+- [ADR 0008](decisions/0008-explicit-git-index.md): explicit Git index and per-repository operations — Accepted; old diff IPC retention superseded by 0043.
 - [ADR 0009](decisions/0009-reusable-actions.md): reusable commands and agents with local tracking — Accepted.
 - [ADR 0010](decisions/0010-default-code-review.md): Code review included once, editable and removable — Accepted.
 - [ADR 0011](decisions/0011-shared-ui.md): shared interface primitives — Partially superseded by 0016.
@@ -88,6 +88,7 @@ as a short index for agents and `README.md` presents the product.
 - [ADR 0040](decisions/0040-open-source.md): open source in a single public repository — Accepted; partially supersedes ADR 0004.
 - [ADR 0041](decisions/0041-members-list-shows-people.md): the members list shows people and drops the permanent security code — Accepted.
 - [ADR 0042](decisions/0042-automatic-key-rotation.md): a peer's new key is adopted automatically, with no block or review — Accepted.
+- [ADR 0043](decisions/0043-retire-unused-ipc.md): retire unused desktop IPC commands — Accepted.
 
 ## Quality and operations
 

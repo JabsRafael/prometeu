@@ -17,6 +17,12 @@ it("infers results from command names and forwards arguments and options unchang
   if (false) {
     // @ts-expect-error Command names must exist in the shared contract.
     invoke("missing_command");
+    // @ts-expect-error Catalog refresh uses cloud_status with refresh: true.
+    invoke("catalog_refresh");
+    // @ts-expect-error Sending a message resumes stopped tabs through chat_send.
+    invoke("resume_tab", { tab: "tab" });
+    // @ts-expect-error Git uses the per-repository workspace_git_* commands.
+    invoke("workspace_diff", { id: "workspace" });
     // @ts-expect-error File writes require their full argument object.
     invoke("write_file");
     // @ts-expect-error Misspelled argument names are rejected.

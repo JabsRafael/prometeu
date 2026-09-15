@@ -40,7 +40,7 @@ Status: Proposed
 | [0005](0005-portable-plugin-marketplace.md) | Accepted | portable marketplace for Claude and Codex |
 | [0006](0006-explicit-prometheus-import.md) | Accepted; importer removed | explicit, non-destructive Prometheus import |
 | [0007](0007-persistent-session-comments.md) | Accepted | persistent comments alongside the session |
-| [0008](0008-explicit-git-index.md) | Accepted | explicit Git index and per-repository operations |
+| [0008](0008-explicit-git-index.md) | Accepted; old diff IPC retention superseded by 0043 | explicit Git index and per-repository operations |
 | [0009](0009-reusable-actions.md) | Accepted | reusable commands and agents with local tracking |
 | [0010](0010-default-code-review.md) | Accepted | Code review included once, editable and removable |
 | [0011](0011-shared-ui.md) | Partially superseded by 0016 | shared interface primitives |
@@ -74,3 +74,4 @@ Status: Proposed
 | [0040](0040-open-source.md) | Accepted | open source in a single public repository |
 | [0041](0041-members-list-shows-people.md) | Accepted | the members list shows people and drops the permanent security code |
 | [0042](0042-automatic-key-rotation.md) | Accepted | a peer's new key is adopted automatically, with no block or review |
+| [0043](0043-retire-unused-ipc.md) | Accepted | retire unused desktop IPC commands |

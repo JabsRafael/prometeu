@@ -1,12 +1,10 @@
 //! Read Git state for the changes UI: branch, counters, and structured diffs. Workspace lifecycle
 //! remains in the parent module.
 
-use super::{default_base, git, head_branch, repos_of, worktree_of};
-use crate::lock::lock;
-use crate::state::publish;
+use super::{git, head_branch, worktree_of};
 use crate::AppState;
 use std::path::Path;
-use tauri::{AppHandle, State};
+use tauri::State;
 
 #[derive(serde::Serialize)]
 pub struct FileChange {
@@ -22,91 +20,6 @@ pub struct FileChange {
 #[tauri::command(async)]
 pub fn workspace_branch(state: State<AppState>, id: String) -> Option<String> {
     head_branch(&worktree_of(&state, &id)?)
-}
-
-#[derive(serde::Serialize)]
-pub struct RepoDiff {
-    pub name: String,
-    pub base: String,
-    pub ahead: u32,
-    pub unpushed: u32,
-    pub dirty: u32,
-    pub files: Vec<FileChange>,
-}
-
-#[tauri::command(async)]
-pub fn workspace_diff(app: AppHandle, state: State<AppState>, id: String) -> Vec<RepoDiff> {
-    let mut repos = repos_of(&state, &id);
-
-    let mut learned = false;
-    for repo in &mut repos {
-        if repo.base.is_empty() {
-            repo.base = default_base(Path::new(&repo.path));
-            learned |= !repo.base.is_empty();
-        }
-    }
-    if learned {
-        {
-            let mut board = lock(&state.board);
-            if let Some(workspace) = board.workspace_mut(&id) {
-                for (mine, found) in workspace.repos.iter_mut().zip(&repos) {
-                    if mine.base.is_empty() {
-                        mine.base = found.base.clone();
-                    }
-                }
-            }
-        }
-        publish(&app);
-    }
-
-    std::thread::scope(|scope| {
-        let handles: Vec<_> = repos
-            .iter()
-            .map(|repo| {
-                scope.spawn(move || repo_diff(&repo.name, Path::new(&repo.worktree), &repo.base))
-            })
-            .collect();
-        // A panic while reading one repository must not abort the entire command.
-        handles
-            .into_iter()
-            .filter_map(|handle| handle.join().ok())
-            .collect()
-    })
-}
-
-pub(super) fn repo_diff(name: &str, worktree: &Path, base: &str) -> RepoDiff {
-    let (since, ahead) = ahead_of(worktree, base);
-    let mut files = changes_since(worktree, &since);
-    let uncommitted: std::collections::HashSet<String> =
-        git(worktree, &["diff", "--name-only", "--no-renames", "HEAD"])
-            .lines()
-            .map(str::to_string)
-            .collect();
-    for file in &mut files {
-        file.dirty |= uncommitted.contains(&file.path);
-    }
-    let dirty = files.iter().filter(|file| file.dirty).count() as u32;
-    RepoDiff {
-        name: name.to_string(),
-        base: base.to_string(),
-        ahead,
-        unpushed: unpushed_of(worktree, ahead),
-        dirty,
-        files,
-    }
-}
-
-fn unpushed_of(worktree: &Path, ahead: u32) -> u32 {
-    if git(worktree, &["rev-parse", "--abbrev-ref", "@{upstream}"])
-        .trim()
-        .is_empty()
-    {
-        return ahead;
-    }
-    git(worktree, &["rev-list", "--count", "@{upstream}..HEAD"])
-        .trim()
-        .parse()
-        .unwrap_or(0)
 }
 
 pub(super) fn ahead_of(worktree: &Path, base: &str) -> (String, u32) {

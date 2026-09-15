@@ -41,7 +41,6 @@ export type Commands = {
   catalog_install_plugin: { args: { id: string }; result: void };
   catalog_install_skill: { args: { id: string }; result: void };
   catalog_install_organization_item: { args: { organization: string; kind: Kind; id: string; revision: number | null }; result: void };
-  catalog_refresh: { args: undefined; result: void };
   catalog_share: { args: { kind: Kind; id: string }; result: void };
   catalog_state: { args: undefined; result: CatalogState };
   chat_control: { args: { session: string; frame: ConversationCommandV1 }; result: void };
@@ -115,7 +114,6 @@ export type Commands = {
   remove_workspace: { args: { id: string }; result: void };
   rename_tab: { args: { workspace: string; tab: string; title: string }; result: void };
   rename_workspace: { args: { id: string; title: string }; result: void };
-  resume_tab: { args: { tab: string }; result: boolean };
   reveal: { args: { id: string }; result: void };
   scripts_prompt: { args: { id: string }; result: string };
   set_awake: { args: { on: boolean }; result: void };
@@ -135,7 +133,6 @@ export type Commands = {
   team_security_set: { args: { state: unknown }; result: void };
   usage: { args: undefined; result: Usage };
   workspace_branch: { args: { id: string }; result: string | null };
-  workspace_diff: { args: { id: string }; result: T.RepoDiff[] };
   workspace_git_action: { args: { id: string; repo: number; operation: T.GitAction; paths: string[]; message?: string | null; expected?: string | null; remote?: string | null }; result: void };
   workspace_git_branches: { args: { id: string; repo: number }; result: T.GitBranch[] };
   workspace_git_conflict: { args: { id: string; repo: number; path: string }; result: T.GitConflict };

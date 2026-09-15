@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  decodeBase64Url, encodeBase64Url, fingerprint, generateIdentity, open, seal,
+  decodeBase64Url, encodeBase64Url, generateIdentity, open, seal,
   signIdentity, validateIdentity, validatePublicKey, verifyIdentity,
 } from "./team-crypto";
 
@@ -16,9 +16,6 @@ describe("criptografia ponta a ponta do time", () => {
     const box = await seal(restored, bob.publicKey, context, content);
     expect(await open(bob, alice.publicKey, context, box)).toEqual(content);
     expect(await seal(alice, bob.publicKey, context, content)).not.toEqual(box);
-    expect(await fingerprint(restored.publicKey)).toMatch(/^[a-f0-9]{4}( [a-f0-9]{4}){15}$/);
-    expect(await fingerprint(restored.publicKey)).toBe(await fingerprint(alice.publicKey));
-    expect(await fingerprint(bob.publicKey)).not.toBe(await fingerprint(alice.publicKey));
   });
 
   it("recusa remetente, destinatário e contexto substituídos", async () => {

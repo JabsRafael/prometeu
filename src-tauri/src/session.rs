@@ -11,9 +11,9 @@ pub(crate) mod files;
 pub(crate) mod find;
 pub(crate) mod git;
 
-use diff::{ahead_of, changes_in};
 #[cfg(test)]
-use diff::{patch_map, repo_diff};
+use diff::patch_map;
+use diff::{ahead_of, changes_in};
 
 #[tauri::command]
 pub fn load_board(state: State<AppState>) -> Board {
@@ -1086,14 +1086,7 @@ pub fn rename_tab(
     publish(&app);
 }
 
-/// Resume a stopped tab from its persisted transcript. Return true for a resumed conversation or
-/// false when an empty conversation must start again with the same identity.
-#[tauri::command]
-pub fn resume_tab(app: AppHandle, state: State<AppState>, tab: String) -> Result<bool, String> {
-    revive(&app, &state, &tab)
-}
-
-/// Restart the process for resume_tab or the first message sent to a stopped tab through chat_send.
+/// Restart the process when chat_send receives a message for a stopped tab.
 pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<bool, String> {
     let (workspace, worktree, launch, cleaned, agent_session) = lock(&state.board)
         .workspace_of(tab)
@@ -2114,10 +2107,9 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         }
     }
 
-    /// Compare committed and uncommitted changes against a real base, preserving path
-    /// classifications and commit counts. Without a valid base, report only uncommitted changes.
+    /// Cleanup counts branch commits against the base, independently of local changes.
     #[test]
-    fn o_diff_contra_a_base_junta_commit_e_fora_de_commit() {
+    fn cleanup_counts_commits_against_the_base() {
         let root = std::env::temp_dir().join(format!("prometeu-diff-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
@@ -2153,38 +2145,12 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         std::fs::write(root.join("a.txt"), "a\nb\nc\n").unwrap();
         std::fs::write(root.join("novo.txt"), "n\n").unwrap();
 
-        let d = super::repo_diff("r", &root, "main");
-        assert_eq!(d.ahead, 1);
-        // Without an upstream, every branch commit counts as unpushed.
-        assert_eq!(d.unpushed, 1);
-        assert_eq!(d.dirty, 2);
-        let paths: Vec<&str> = d.files.iter().map(|f| f.path.as_str()).collect();
-        assert_eq!(paths, ["a.txt", "gone.txt", "novo.txt", "z.txt"]);
-        let by = |p: &str| d.files.iter().find(|f| f.path == p).unwrap();
-        assert!(by("a.txt").dirty && by("a.txt").added == 2 && !by("a.txt").new_file);
-        assert!(by("gone.txt").deleted && !by("gone.txt").dirty);
-        assert!(by("z.txt").new_file && !by("z.txt").dirty && by("z.txt").patch.contains("+z"));
-        assert!(by("novo.txt").new_file && by("novo.txt").dirty);
-
-        let sem_base = super::repo_diff("r", &root, "nao-existe");
-        assert_eq!((sem_base.ahead, sem_base.files.len()), (0, 2));
-
-        // After pushing, the same commit no longer counts as unpushed.
-        let remoto =
-            std::env::temp_dir().join(format!("prometeu-diff-remoto-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&remoto);
-        let out = Command::new("git")
-            .args(["init", "-q", "--bare"])
-            .arg(&remoto)
-            .output()
-            .unwrap();
-        assert!(out.status.success());
-        run(&["remote", "add", "origin", &remoto.display().to_string()]);
-        run(&["push", "-q", "-u", "origin", "feat"]);
-        assert_eq!(super::repo_diff("r", &root, "main").unpushed, 0);
+        let (base, ahead) = super::ahead_of(&root, "main");
+        assert_eq!(base, super::git(&root, &["rev-parse", "main"]).trim());
+        assert_eq!(ahead, 1);
+        assert_eq!(super::ahead_of(&root, "nao-existe"), ("HEAD".into(), 0));
 
         let _ = std::fs::remove_dir_all(&root);
-        let _ = std::fs::remove_dir_all(&remoto);
     }
 
     /// Use a local bare remote to prove new branches start from the selected base and respect the

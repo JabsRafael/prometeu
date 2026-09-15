@@ -109,12 +109,6 @@ export async function open(identity: Identity, senderPublic: string, context: re
   }, ct));
 }
 
-export async function fingerprint(publicKey: string): Promise<string> {
-  await validatePublicKey(publicKey);
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", publicBytes(publicKey)));
-  return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("").match(/.{4}/g)!.join(" ");
-}
-
 function identityStatement(context: readonly string[]): Uint8Array<ArrayBuffer> {
   return new Uint8Array(encoder.encode(JSON.stringify(["prometeu-identity-v4", ...context])));
 }
