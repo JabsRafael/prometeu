@@ -52,7 +52,7 @@ pub struct Tools {
     pub skills: Option<Selection>,
 }
 
-/// Resolve one axis across the three layers, in order, and keep only IDs the hub still has, so a
+/// Resolve one axis across the three layers, in order, and keep only IDs the universe has, so a
 /// layer written before a package was removed still resolves. Within a layer `add` comes first and
 /// `remove` has the last word; the order of the inherited set is preserved and additions follow it.
 pub fn resolve(
@@ -61,20 +61,42 @@ pub fn resolve(
     workspace: &Option<Selection>,
     hub: &[String],
 ) -> Vec<String> {
+    compose(&[global, project, workspace], hub)
+}
+
+/// Resolve one axis over an inherited CLI base (ADR 0044). The base ids act as an implicit lowest
+/// layer under global: every layer sees them as the inherited set, so `base: "none"` replaces them
+/// too and a lower layer may remove one without relisting the rest. The universe — hub plus base —
+/// decides which ids survive.
+pub fn resolve_with_base(
+    base: &[String],
+    global: &Option<Selection>,
+    project: &Option<Selection>,
+    workspace: &Option<Selection>,
+    universe: &[String],
+) -> Vec<String> {
+    let seed = (!base.is_empty()).then(|| Selection {
+        base: Base::Inherit,
+        add: base.to_vec(),
+        remove: Vec::new(),
+    });
+    compose(&[&seed, global, project, workspace], universe)
+}
+
+fn compose(layers: &[&Option<Selection>], universe: &[String]) -> Vec<String> {
     let mut ids: Vec<String> = Vec::new();
-    for layer in [global, project, workspace] {
-        let Some(selection) = layer else { continue };
-        if selection.base == Base::None {
+    for layer in layers.iter().flat_map(|layer| layer.as_ref()) {
+        if layer.base == Base::None {
             ids.clear();
         }
-        for id in &selection.add {
+        for id in &layer.add {
             if !ids.contains(id) {
                 ids.push(id.clone());
             }
         }
-        ids.retain(|id| !selection.remove.contains(id));
+        ids.retain(|id| !layer.remove.contains(id));
     }
-    ids.retain(|id| hub.contains(id));
+    ids.retain(|id| universe.contains(id));
     ids
 }
 
@@ -215,6 +237,57 @@ mod tests {
         let json = serde_json::to_string(&Some(replace(&[]))).unwrap();
         assert_eq!(json, r#"{"base":"none","add":[],"remove":[]}"#);
         assert_eq!(serde_json::to_string(&None::<Selection>).unwrap(), "null");
+    }
+
+    /// The CLI-inherited base is the implicit lowest layer: it flows through inheriting layers,
+    /// a workspace removal drops one id, and `base: "none"` replaces it (ADR 0044).
+    #[test]
+    fn a_base_do_cli_participa_da_cadeia() {
+        use super::resolve_with_base;
+        let base = names(&["cli-a", "cli-b"]);
+        let universe = names(&["cli-a", "cli-b", "hub-a"]);
+
+        // With no declared layer the base itself resolves; deciding that nothing is injected when
+        // no layer declares the axis stays with the caller (session::resolve_axis).
+        assert_eq!(
+            resolve_with_base(&base, &None, &None, &None, &universe),
+            names(&["cli-a", "cli-b"])
+        );
+
+        // An inheriting workspace addition keeps the base and appends.
+        let got = resolve_with_base(
+            &base,
+            &None,
+            &None,
+            &Some(delta(&["hub-a"], &[])),
+            &universe,
+        );
+        assert_eq!(got, names(&["cli-a", "cli-b", "hub-a"]));
+
+        // Removing one inherited CLI id does not relist the rest.
+        let got = resolve_with_base(
+            &base,
+            &None,
+            &None,
+            &Some(delta(&[], &["cli-a"])),
+            &universe,
+        );
+        assert_eq!(got, names(&["cli-b"]));
+
+        // A global replacement also replaces the CLI base.
+        let got = resolve_with_base(&base, &Some(replace(&["hub-a"])), &None, &None, &universe);
+        assert_eq!(got, names(&["hub-a"]));
+
+        // Base ids outside the universe are dropped, so a server deleted from the CLI config
+        // resolves away even while a stale removal still references it.
+        let got = resolve_with_base(&names(&["gone"]), &None, &None, &None, &universe);
+        assert_eq!(got, names(&[]));
+
+        // An empty base behaves exactly like resolve.
+        assert_eq!(
+            resolve_with_base(&[], &Some(replace(&["hub-a"])), &None, &None, &universe),
+            resolve(&Some(replace(&["hub-a"])), &None, &None, &universe)
+        );
     }
 
     #[test]

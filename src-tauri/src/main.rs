@@ -199,6 +199,7 @@ fn main() {
             mcp::mcp_save,
             mcp::mcp_remove,
             mcp::mcp_found,
+            session::mcp_inherited,
             mcp::mcp_check,
             mcp::mcp_login,
             mcp::mcp_logout,

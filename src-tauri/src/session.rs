@@ -388,11 +388,11 @@ pub struct WorkspaceTools {
 
 /// Resolve the workspace's effective set with provenance. The project layer is read from the primary
 /// repository and gated on its stored trust decision: an untrusted declaration shows its items as
-/// pending rather than active.
+/// pending rather than active. On the mcp axis of a Claude workspace the CLI-inherited servers join
+/// the universe as the visible base (ADR 0044).
 #[tauri::command]
 pub fn workspace_tools(state: State<AppState>, id: String) -> WorkspaceTools {
     let board = lock(&state.board);
-    let mcp_hub: Vec<String> = crate::mcp::load().into_iter().map(|s| s.id).collect();
     let plugin_hub: Vec<String> = crate::plugins::load().into_iter().map(|p| p.id).collect();
     let Some(ws) = board.workspaces.iter().find(|w| w.id == id) else {
         return WorkspaceTools {
@@ -401,6 +401,7 @@ pub fn workspace_tools(state: State<AppState>, id: String) -> WorkspaceTools {
             skills: Vec::new(),
         };
     };
+    let (mcp_base, mcp_universe) = mcp_base_and_universe(ws);
     let primary = ws.primary();
     let declaration = project_declaration(Path::new(&primary.worktree), Path::new(&primary.path));
     let (project, trusted) = match &declaration {
@@ -417,13 +418,15 @@ pub fn workspace_tools(state: State<AppState>, id: String) -> WorkspaceTools {
             &project.mcp,
             trusted,
             &workspace.mcp,
-            &mcp_hub,
+            &mcp_base,
+            &mcp_universe,
         ),
         plugins: axis_provenance(
             &board.tools.plugins,
             &project.plugins,
             trusted,
             &workspace.plugins,
+            &[],
             &plugin_hub,
         ),
         // Standalone skills ride the plugin hub as `skill-<id>`, so the skills axis filters it too.
@@ -432,9 +435,25 @@ pub fn workspace_tools(state: State<AppState>, id: String) -> WorkspaceTools {
             &project.skills,
             trusted,
             &workspace.skills,
+            &[],
             &plugin_hub,
         ),
     }
+}
+
+/// The CLI-inherited servers of one workspace, absent from the hub, for the composer's picker rows
+/// and button gating (ADR 0044). Discovery reads Claude's configuration, so a Codex workspace has
+/// no inherited base and its rows stay hub-only.
+#[tauri::command]
+pub fn mcp_inherited(state: State<AppState>, id: String) -> Vec<crate::mcp::Server> {
+    let board = lock(&state.board);
+    let Some(ws) = board.workspaces.iter().find(|w| w.id == id) else {
+        return Vec::new();
+    };
+    if ws.agent != ProviderId::Claude {
+        return Vec::new();
+    }
+    crate::mcp::inherited_missing_hub(Path::new(&ws.worktree))
 }
 
 /// Model and effort changes require a process restart; the next message resumes the same transcript
@@ -893,37 +912,49 @@ pub(crate) struct ResolvedTools {
 }
 
 /// Resolve one axis. When every layer inherits, the axis stays `None` so the provider's own
-/// configuration is preserved; otherwise the composed set is what the session injects.
+/// configuration is preserved; otherwise the composed set — over the CLI-inherited base, when one
+/// applies — is what the session injects.
 fn resolve_axis(
     global: &Option<Selection>,
     project: &Option<Selection>,
     workspace: &Option<Selection>,
-    hub: &[String],
+    base: &[String],
+    universe: &[String],
 ) -> Option<Vec<String>> {
     if global.is_none() && project.is_none() && workspace.is_none() {
         None
     } else {
-        Some(crate::selection::resolve(global, project, workspace, hub))
+        Some(crate::selection::resolve_with_base(
+            base, global, project, workspace, universe,
+        ))
     }
 }
 
-/// Compose the three layers into the IDs a launch injects, keeping only IDs the hub still has. The
-/// hubs and the project layer come from the caller so the chain stays testable without disk. The
-/// project layer must already be gated on trust before it reaches here (ADR 0043, phase 4); see
-/// `trusted_project`.
+/// Compose the three layers into the IDs a launch injects, keeping only IDs the universe still has.
+/// The hubs, the mcp inherited base (ADR 0044) and the project layer come from the caller so the
+/// chain stays testable without disk. The project layer must already be gated on trust before it
+/// reaches here (ADR 0043, phase 4); see `trusted_project`.
 pub(crate) fn resolve_tools(
     global: &Tools,
     project: &Tools,
     workspace: &Tools,
-    mcp_hub: &[String],
+    mcp_base: &[String],
+    mcp_universe: &[String],
     plugin_hub: &[String],
 ) -> ResolvedTools {
     ResolvedTools {
-        mcp: resolve_axis(&global.mcp, &project.mcp, &workspace.mcp, mcp_hub),
+        mcp: resolve_axis(
+            &global.mcp,
+            &project.mcp,
+            &workspace.mcp,
+            mcp_base,
+            mcp_universe,
+        ),
         plugins: resolve_axis(
             &global.plugins,
             &project.plugins,
             &workspace.plugins,
+            &[],
             plugin_hub,
         ),
         // Standalone skills ride the plugin hub as `skill-<id>`, so the skills axis filters too.
@@ -931,6 +962,7 @@ pub(crate) fn resolve_tools(
             &global.skills,
             &project.skills,
             &workspace.skills,
+            &[],
             plugin_hub,
         ),
     }
@@ -1018,18 +1050,37 @@ pub(crate) fn resolve_workspace_tools(
     trust: &[ToolTrust],
     ws: &Workspace,
 ) -> ResolvedTools {
-    let mcp_hub: Vec<String> = crate::mcp::load().into_iter().map(|s| s.id).collect();
+    let (mcp_base, mcp_universe) = mcp_base_and_universe(ws);
     let plugin_hub: Vec<String> = crate::plugins::load().into_iter().map(|p| p.id).collect();
     resolve_tools(
         global,
         &trusted_project(trust, ws),
         &ws.tools(),
-        &mcp_hub,
+        &mcp_base,
+        &mcp_universe,
         &plugin_hub,
     )
 }
 
-/// Where one effective hub item came from in the chain, so the picker shows the result without
+/// The mcp axis base and universe of one workspace (ADR 0044): the hub IDs plus the servers the CLI
+/// itself loads for the workspace's working directory. Discovery reads Claude's configuration, so a
+/// Codex workspace keeps the hub-only universe and today's coexistence behavior. A hub entry wins
+/// an ID clash, keeping an imported server Prometeu-managed.
+fn mcp_base_and_universe(ws: &Workspace) -> (Vec<String>, Vec<String>) {
+    let mut universe: Vec<String> = crate::mcp::load().into_iter().map(|s| s.id).collect();
+    if ws.agent != ProviderId::Claude {
+        return (Vec::new(), universe);
+    }
+    let base: Vec<String> = crate::mcp::inherited(Path::new(&ws.worktree))
+        .into_iter()
+        .map(|s| s.id)
+        .filter(|id| !universe.contains(id))
+        .collect();
+    universe.extend(base.iter().cloned());
+    (base, universe)
+}
+
+/// Where one effective item came from in the chain, so the picker shows the result without
 /// opening each layer (ADR 0043). `Removed` and `Pending` items are listed but not injected.
 #[derive(serde::Serialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -1042,37 +1093,46 @@ pub enum Provenance {
     Removed,
     /// Declared by the project but not yet trusted, so resolved yet not injected.
     Pending,
+    /// Active because the person's CLI configuration loads it, not a Prometeu hub choice; the
+    /// visible inherited base of the mcp axis (ADR 0044).
+    Cli,
 }
 
-/// One hub item with its provenance on a single axis.
+/// One item of the axis universe with its provenance.
 #[derive(serde::Serialize)]
 pub struct EffectiveItem {
     pub id: String,
     pub provenance: Provenance,
 }
 
-/// Classify every hub id on one axis for the picker. `project` is the declared layer and `trusted`
-/// says whether it may activate; when untrusted, the items it declares appear as `Pending`. The
-/// workspace layer is the person's own action, so an item it adds is active even while the project
-/// declaration is still pending. Items with no story (off and untouched) are omitted.
+/// Classify every id of the axis universe for the picker. `project` is the declared layer and
+/// `trusted` says whether it may activate; when untrusted, the items it declares appear as
+/// `Pending`. The workspace layer is the person's own action, so an item it adds is active even
+/// while the project declaration is still pending. `base` holds the CLI-inherited ids (ADR 0044):
+/// an active one is labeled `Cli`, and the workspace can drop it with a removal like any inherited
+/// item. Items with no story (off and untouched) are omitted.
 fn axis_provenance(
     global: &Option<Selection>,
     project: &Option<Selection>,
     trusted: bool,
     workspace: &Option<Selection>,
-    hub: &[String],
+    base: &[String],
+    universe: &[String],
 ) -> Vec<EffectiveItem> {
     let gated = if trusted { project.clone() } else { None };
-    let effective = crate::selection::resolve(global, &gated, workspace, hub);
+    let effective = crate::selection::resolve_with_base(base, global, &gated, workspace, universe);
     // What the project layer alone would contribute, to label gated items as pending.
-    let declared = crate::selection::resolve(&None, project, &None, hub);
-    hub.iter()
+    let declared = crate::selection::resolve(&None, project, &None, universe);
+    universe
+        .iter()
         .filter_map(|id| {
             let on = effective.contains(id);
             let added = workspace.as_ref().is_some_and(|s| s.add.contains(id));
             let removed = workspace.as_ref().is_some_and(|s| s.remove.contains(id));
             let provenance = if on && added {
                 Provenance::Added
+            } else if on && base.contains(id) {
+                Provenance::Cli
             } else if on {
                 Provenance::Inherited
             } else if removed {
@@ -2479,7 +2539,14 @@ mod tests {
         // Both ride the plugin hub, so resolution keeps them and a launch materializes the union in
         // plugin-then-skill order, exactly as the old single-axis selection did.
         let hub = vec!["revisor".to_string(), "skill-review".to_string()];
-        let tools = resolve_tools(&Tools::default(), &Tools::default(), &ws.tools(), &[], &hub);
+        let tools = resolve_tools(
+            &Tools::default(),
+            &Tools::default(),
+            &ws.tools(),
+            &[],
+            &[],
+            &hub,
+        );
         let launch = ws.launch(&tools);
         assert_eq!(launch.plugins, Some(vec!["revisor".into()]));
         assert_eq!(launch.skills, Some(vec!["skill-review".into()]));
@@ -2526,7 +2593,14 @@ mod tests {
 
         // Unapproved: the project layer contributes nothing, so no plugin is injected.
         assert_eq!(trusted_project(&[], &ws), Tools::default());
-        let gated = resolve_tools(&Tools::default(), &Tools::default(), &ws.tools(), &[], &hub);
+        let gated = resolve_tools(
+            &Tools::default(),
+            &Tools::default(),
+            &ws.tools(),
+            &[],
+            &[],
+            &hub,
+        );
         assert_eq!(gated.plugins, None);
 
         // Approved for the current hash: the declaration composes and the plugin is injected.
@@ -2541,7 +2615,7 @@ mod tests {
             allowed.plugins,
             Some(Selection::only(vec!["revisor".into()]))
         );
-        let resolved = resolve_tools(&Tools::default(), &allowed, &ws.tools(), &[], &hub);
+        let resolved = resolve_tools(&Tools::default(), &allowed, &ws.tools(), &[], &[], &hub);
         assert_eq!(resolved.plugins, Some(vec!["revisor".into()]));
 
         // A changed declaration re-gates: the stored hash no longer matches, so approval lapses.
@@ -2591,7 +2665,7 @@ mod tests {
             remove: vec!["r".into()],
         });
 
-        let items = axis_provenance(&global, &project, false, &workspace, &hub);
+        let items = axis_provenance(&global, &project, false, &workspace, &[], &hub);
         let prov = |id: &str| items.iter().find(|i| i.id == id).map(|i| i.provenance);
         assert_eq!(prov("g"), Some(Provenance::Inherited));
         assert_eq!(prov("a"), Some(Provenance::Added));
@@ -2601,7 +2675,7 @@ mod tests {
         assert_eq!(prov("off"), None);
 
         // Once trusted, the project item activates and inherits into the effective set.
-        let trusted_items = axis_provenance(&global, &project, true, &workspace, &hub);
+        let trusted_items = axis_provenance(&global, &project, true, &workspace, &[], &hub);
         assert_eq!(
             trusted_items
                 .iter()
@@ -2609,6 +2683,68 @@ mod tests {
                 .map(|i| i.provenance),
             Some(Provenance::Inherited)
         );
+    }
+
+    /// The CLI-inherited base is visible without any layer action: an active base id is labeled
+    /// `Cli`, the workspace may remove it, and an explicit add wins over the base label (ADR 0044).
+    #[test]
+    fn provenance_classifica_a_base_herdada_do_cli() {
+        use super::{axis_provenance, Provenance};
+        use crate::selection::{Base, Selection};
+
+        let universe = vec!["hub-a".into(), "cli-on".into(), "cli-off".into()];
+        let base = vec!["cli-on".into(), "cli-off".into()];
+        let delta = |add: &[&str], remove: &[&str]| Selection {
+            base: Base::Inherit,
+            add: add.iter().map(|id| id.to_string()).collect(),
+            remove: remove.iter().map(|id| id.to_string()).collect(),
+        };
+        let prov = |items: &[super::EffectiveItem], id: &str| {
+            items.iter().find(|i| i.id == id).map(|i| i.provenance)
+        };
+
+        // With no declared layer, every base id is active and labeled as inherited from the CLI;
+        // an untouched hub id stays omitted.
+        let items = axis_provenance(&None, &None, true, &None, &base, &universe);
+        assert_eq!(prov(&items, "cli-on"), Some(Provenance::Cli));
+        assert_eq!(prov(&items, "cli-off"), Some(Provenance::Cli));
+        assert_eq!(prov(&items, "hub-a"), None);
+
+        // A workspace removal drops one inherited server without relisting the rest.
+        let items = axis_provenance(
+            &None,
+            &None,
+            true,
+            &Some(delta(&[], &["cli-off"])),
+            &base,
+            &universe,
+        );
+        assert_eq!(prov(&items, "cli-on"), Some(Provenance::Cli));
+        assert_eq!(prov(&items, "cli-off"), Some(Provenance::Removed));
+
+        // An explicit workspace add over a base id reads as the person's own action.
+        let items = axis_provenance(
+            &None,
+            &None,
+            true,
+            &Some(delta(&["cli-on", "hub-a"], &[])),
+            &base,
+            &universe,
+        );
+        assert_eq!(prov(&items, "cli-on"), Some(Provenance::Added));
+        assert_eq!(prov(&items, "hub-a"), Some(Provenance::Added));
+
+        // A global replacement clears the base, and a base id no layer mentions is omitted.
+        let items = axis_provenance(
+            &Some(Selection::only(vec!["hub-a".into()])),
+            &None,
+            true,
+            &None,
+            &base,
+            &universe,
+        );
+        assert_eq!(prov(&items, "hub-a"), Some(Provenance::Inherited));
+        assert_eq!(prov(&items, "cli-on"), None);
     }
 
     #[test]

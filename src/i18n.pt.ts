@@ -898,6 +898,7 @@ export const PT = {
   "tools.reset": "Herdar padrões",
   "tools.appliesNext": "vale para a próxima mensagem — a conversa em curso mantém as ferramentas com que começou",
   "tools.prov.inherited": "herdado",
+  "tools.prov.cli": "herdado do CLI",
   "tools.prov.removed": "removido aqui",
   "tools.prov.pending": "projeto · aguardando confiança",
   "tools.trust.prompt": "Confiar nas ferramentas do projeto…",

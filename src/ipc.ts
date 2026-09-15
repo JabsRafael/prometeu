@@ -82,6 +82,7 @@ export type Commands = {
   mcp_check: { args: { server: T.McpServer }; result: T.McpCheck };
   mcp_found: { args: undefined; result: T.McpServer[] };
   mcp_hub: { args: undefined; result: T.McpServer[] };
+  mcp_inherited: { args: { id: string }; result: T.McpServer[] };
   mcp_login: { args: { server: T.McpServer }; result: void };
   mcp_logins: { args: undefined; result: string[] };
   mcp_logout: { args: { id: string }; result: void };

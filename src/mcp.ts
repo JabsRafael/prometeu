@@ -44,6 +44,29 @@ export async function load() {
 /// Deleted registry entries remain in persisted workspace choices. Show unavailable selections explicitly so users can remove them.
 export const known = (id: string) => hub.some((s) => s.id === id);
 
+/// Servers discovered from the person's CLI configuration that the hub lacks (ADR 0044). They form
+/// the visible inherited base of the workspace picker, cached per workspace because discovery
+/// reads files under the workspace directory.
+const inherited = new Map<string, McpServer[]>();
+
+export const inheritedOf = (workspace: string) => inherited.get(workspace) ?? [];
+
+/// Fetch the inherited base once per workspace; the announce repaints gated composer buttons. The
+/// cache claims the workspace synchronously so repeated paints do not stack fetches; a failure keeps
+/// the empty base, and opening the picker rediscovers it.
+export function loadInherited(workspace: string) {
+  if (inherited.has(workspace)) return;
+  inherited.set(workspace, []);
+  void (async () => {
+    try {
+      inherited.set(workspace, await invoke("mcp_inherited", { id: workspace }));
+    } catch {
+      // An unavailable backend leaves the base empty.
+    }
+    announce();
+  })();
+}
+
 /// Authenticated state controls the Settings label and sign-in/sign-out action.
 export const signedIn = (id: string) => logins.includes(id);
 
@@ -74,9 +97,19 @@ type Pick = {
 };
 
 /// Provenance-aware MCP picker (ADR 0043): it shows the resolved effective set and writes the
-/// workspace layer as deltas over what the global and project layers already contribute.
-export function openPicker(p: Pick) {
+/// workspace layer as deltas over what the global and project layers already contribute. Rows come
+/// from the hub plus the CLI-inherited base (ADR 0044), so servers Claude Code loads on its own are
+/// visible and removable without importing them first.
+export async function openPicker(p: Pick) {
+  try {
+    inherited.set(p.workspace, await invoke("mcp_inherited", { id: p.workspace }));
+  } catch {
+    // Keep the cached base when the backend cannot rediscover it.
+  }
   const rows: toolPicker.Row[] = hub.map((server) => ({ id: server.id, label: server.id, hint: subtitle(server) }));
+  for (const server of inheritedOf(p.workspace)) {
+    if (!rows.some((r) => r.id === server.id)) rows.push({ id: server.id, label: server.id, hint: subtitle(server) });
+  }
   const current = p.current();
   // Retain ids the registry no longer has so they can still be dropped from the layer.
   for (const id of [...(current?.add ?? []), ...(current?.remove ?? [])]) {

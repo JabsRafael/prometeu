@@ -1001,6 +1001,8 @@ export class ChatView {
     q(".actionsbtn").setAttribute("aria-label", t("actions.title"));
     q(".actionsbtn").addEventListener("click", () => this.actionMenu());
     this.cleanup.push(actions.onChange(() => this.paintComposer()));
+    // The CLI-inherited base arrives asynchronously and can unhide the MCP button (ADR 0044).
+    this.cleanup.push(mcp.onChange(() => this.paintComposer()));
     q(".addfile").addEventListener("click", () => void this.addFile());
     q(".quotesel").addEventListener("click", () => this.quoteSelection());
 
@@ -1354,11 +1356,16 @@ export class ChatView {
 
   /// Tool selection applies at the next spawn or resume; a running session keeps the set it was born
   /// with (ADR 0043), so the picker is available even mid-turn and only states that the change lands on
-  /// the next message. Hide controls without registry entries or an existing layer.
+  /// the next message. Hide controls without registry entries, a CLI-inherited base, or an existing
+  /// layer (ADR 0044).
   private paintMcp(info: Info) {
     const btn = this.box.querySelector<HTMLButtonElement>(".mcpbtn")!;
     if (info.task) { btn.hidden = true; return; }
-    const has = mcp.list().length > 0 || info.mcp !== null;
+    if (info.workspace) mcp.loadInherited(info.workspace);
+    const has =
+      mcp.list().length > 0 ||
+      info.mcp !== null ||
+      (!!info.workspace && mcp.inheritedOf(info.workspace).length > 0);
     btn.hidden =
       !!info.remote ||
       !info.workspace ||
@@ -1374,7 +1381,7 @@ export class ChatView {
     btn.onclick = () => {
       const at = btn.getBoundingClientRect();
       const workspace = info.workspace!;
-      mcp.openPicker({
+      void mcp.openPicker({
         workspace,
         current: () => this.ctx.info().mcp,
         set: (sel) =>

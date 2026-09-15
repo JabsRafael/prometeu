@@ -32,10 +32,11 @@ export type Pick = {
 };
 
 /// Provenance values that mean the item is currently injected.
-const isOn = (p: Provenance | undefined) => p === "inherited" || p === "added";
+const isOn = (p: Provenance | undefined) => p === "inherited" || p === "added" || p === "cli";
 
 function badgeFor(p: Provenance | undefined): string | undefined {
   if (p === "inherited") return t("tools.prov.inherited");
+  if (p === "cli") return t("tools.prov.cli");
   if (p === "removed") return t("tools.prov.removed");
   if (p === "pending") return t("tools.prov.pending");
   // An item the person added needs no badge; the checkmark already says it is on.

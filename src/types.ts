@@ -140,11 +140,13 @@ export type ProjectTools = {
 };
 
 /// Where an effective item came from (ADR 0043). `inherited` flows down from a layer above,
-/// `added`/`removed` come from this layer's deltas, and `pending` is a project-declared item held
-/// back until the person approves its hash.
-export type Provenance = "inherited" | "added" | "removed" | "pending";
+/// `added`/`removed` come from this layer's deltas, `pending` is a project-declared item held
+/// back until the person approves its hash, and `cli` is an active MCP server the person's CLI
+/// configuration loads by itself — the visible inherited base of the mcp axis (ADR 0044).
+export type Provenance = "inherited" | "added" | "removed" | "pending" | "cli";
 
-/// One hub ID in a resolved axis, tagged with its origin so the picker can explain each row.
+/// One ID of the axis universe in a resolved axis, tagged with its origin so the picker can
+/// explain each row.
 export type EffectiveItem = { id: string; provenance: Provenance };
 
 /// The resolved effective set for a workspace, one list per axis. `removed` items stay in the list so

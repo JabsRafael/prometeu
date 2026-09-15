@@ -864,6 +864,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "tools.reset": "Inherit defaults",
   "tools.appliesNext": "applies to the next message — the running conversation keeps the tools it started with",
   "tools.prov.inherited": "inherited",
+  "tools.prov.cli": "inherited from the CLI",
   "tools.prov.removed": "removed here",
   "tools.prov.pending": "project · awaiting trust",
   "tools.trust.prompt": "Trust this project's tools…",

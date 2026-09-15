@@ -1051,6 +1051,37 @@ test("marcar plugins na conversa grava cada mudança e vale para a próxima fala
   await expect(plugbtn).toContainText("+2");
 });
 
+/// Servers Claude Code loads from the person's CLI configuration appear in the picker as the visible
+/// inherited base (ADR 0044), badged as such and removable without importing them first.
+test("o picker mostra a base herdada do CLI e remove sem importar", async ({ page }) => {
+  await boot(page);
+  await openWorkspace(page, "Ola");
+
+  const mcpbtn = page.locator("#chatwrap .mcpbtn");
+  const menuRow = (name: string) => page.locator(".menu .mrow").filter({ hasText: name }).first();
+  await mcpbtn.click();
+  await expect(page.locator(".menu")).toBeVisible();
+  // Discovered CLI servers join the hub rows, checked and badged as inherited from the CLI.
+  await expect(menuRow("metabase")).toContainText("herdado do CLI");
+  await expect(menuRow("metabase").locator(".mc svg")).toBeVisible();
+  await expect(menuRow("n8n")).toContainText("herdado do CLI");
+
+  // Unchecking a CLI server writes a removal into the workspace layer, keeping inherit as the base.
+  await menuRow("metabase").click();
+  await expect(page.locator(".menu")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".menu")).toHaveCount(0);
+  await expect(mcpbtn).toContainText("−1");
+
+  const layer = await page.evaluate(async () => {
+    type Invoke = (command: string) => Promise<Board>;
+    const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+    const board = await invoke("load_board");
+    return board.workspaces.find((w) => w.title === "Ola")!.mcp;
+  });
+  expect(layer).toEqual({ base: "inherit", add: [], remove: ["metabase"] });
+});
+
 /// The desk supports direct replies and preserves panel order, size and collapse state across reloads.
 test("a mesa mostra cada conversa num quadro, responde dali e guarda a ordem", async ({ page }) => {
   await boot(page);

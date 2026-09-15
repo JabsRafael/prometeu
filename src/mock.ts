@@ -498,43 +498,54 @@ const noProjectTools: ProjectTools = {
   decision: null,
 };
 
-/// Mirror of selection::resolve: compose the three layers in order, keeping only hub IDs. Within a
+/// Mirror of selection::compose: apply the layers in order, keeping only universe IDs. Within a
 /// layer `add` comes first and `remove` has the last word. See src-tauri/src/selection.rs.
-function resolveAxis(
-  global: Selection | null,
-  project: Selection | null,
-  workspace: Selection | null,
-  hub: string[],
-): string[] {
+function composeAxis(layers: (Selection | null)[], universe: string[]): string[] {
   let ids: string[] = [];
-  for (const layer of [global, project, workspace]) {
+  for (const layer of layers) {
     if (!layer) continue;
     if (layer.base === "none") ids = [];
     for (const id of layer.add) if (!ids.includes(id)) ids.push(id);
     ids = ids.filter((id) => !layer.remove.includes(id));
   }
-  return ids.filter((id) => hub.includes(id));
+  return ids.filter((id) => universe.includes(id));
 }
 
-/// Mirror of axis_provenance: label every hub ID with where its effective state came from, so the
-/// picker shows the resolved result without reading the layers. Off and untouched IDs are omitted.
+/// Mirror of selection::resolve_with_base: the CLI-inherited base (ADR 0044) seeds the chain as an
+/// implicit inherit layer below the global one. An empty base reduces to plain resolution.
+function resolveWithBase(
+  base: string[],
+  global: Selection | null,
+  project: Selection | null,
+  workspace: Selection | null,
+  universe: string[],
+): string[] {
+  const seed: Selection | null = base.length ? { base: "inherit", add: [...base], remove: [] } : null;
+  return composeAxis([seed, global, project, workspace], universe);
+}
+
+/// Mirror of axis_provenance: label every universe ID with where its effective state came from, so
+/// the picker shows the resolved result without reading the layers. Off and untouched IDs are
+/// omitted; CLI-base IDs that stay on are labeled "cli".
 function axisProvenance(
   global: Selection | null,
   project: Selection | null,
   trusted: boolean,
   workspace: Selection | null,
-  hub: string[],
+  base: string[],
+  universe: string[],
 ): EffectiveItem[] {
   const gated = trusted ? project : null;
-  const effective = resolveAxis(global, gated, workspace, hub);
-  const declared = resolveAxis(null, project, null, hub);
+  const effective = resolveWithBase(base, global, gated, workspace, universe);
+  const declared = composeAxis([null, project, null], universe);
   const items: EffectiveItem[] = [];
-  for (const id of hub) {
+  for (const id of universe) {
     const on = effective.includes(id);
     const added = workspace?.add.includes(id) ?? false;
     const removed = workspace?.remove.includes(id) ?? false;
     let provenance: Provenance;
     if (on && added) provenance = "added";
+    else if (on && base.includes(id)) provenance = "cli";
     else if (on) provenance = "inherited";
     else if (removed) provenance = "removed";
     else if (!trusted && declared.includes(id)) provenance = "pending";
@@ -628,6 +639,13 @@ let mcpHub: McpServer[] = [
   { id: "capim-ds", config: { type: "stdio", command: "npx", args: ["-y", "@capim/ds-mcp"], env: {} }, note: "design system" },
   { id: "notion", config: { type: "http", url: "https://mcp.notion.com/mcp" }, note: "" },
   { id: "linear-server", config: { type: "http", url: "https://mcp.linear.app/mcp" }, note: "capim-backend" },
+];
+
+/// Servers discoverable from the user's Claude configuration; they form the CLI-inherited base of
+/// the workspace picker (ADR 0044) and the import menu.
+const cliServers: McpServer[] = [
+  { id: "metabase", config: { type: "http", url: "https://metabase.exemplo/mcp" }, note: "capim-backend" },
+  { id: "n8n", config: { type: "stdio", command: "npx", args: ["-y", "n8n-mcp"], env: {} }, note: "" },
 ];
 
 /// Count MCP/plugin writes so tests can verify that rapid selections are coalesced.
@@ -1440,10 +1458,13 @@ const mockCommands: IpcHandlers = {
   },
   // Sample servers discoverable from the user's Claude configuration.
   mcp_found() {
-    return [
-      { id: "metabase", config: { type: "http", url: "https://metabase.exemplo/mcp" }, note: "capim-backend" },
-      { id: "n8n", config: { type: "stdio", command: "npx", args: ["-y", "n8n-mcp"], env: {} }, note: "" },
-    ];
+    return cliServers;
+  },
+  // The CLI-inherited base for a Claude workspace, minus servers the hub already has (ADR 0044).
+  mcp_inherited(args) {
+    const ws = board.workspaces.find((x) => x.id === args.id);
+    if (!ws || ws.agent !== "claude") return [];
+    return cliServers.filter((s) => !mcpHub.some((h) => h.id === s.id));
   },
   // Plugin hub behavior mirrors MCP hub editing.
   plugin_hub() {
@@ -1608,11 +1629,17 @@ const mockCommands: IpcHandlers = {
     const global = board.tools ?? { mcp: null, plugins: null, skills: null };
     const own = workspaceTools(ws);
     const mcpIds = mcpHub.map((s) => s.id);
+    // The Claude CLI base joins the universe below the hub; other agents have no inherited servers.
+    const inheritedIds =
+      ws.agent === "claude"
+        ? cliServers.map((s) => s.id).filter((id) => !mcpIds.includes(id))
+        : [];
+    const mcpUniverse = [...mcpIds, ...inheritedIds];
     const pluginIds = pluginHub.map((p) => p.id);
     return {
-      mcp: axisProvenance(global.mcp, project.mcp, trusted, own.mcp, mcpIds),
-      plugins: axisProvenance(global.plugins, project.plugins, trusted, own.plugins, pluginIds),
-      skills: axisProvenance(global.skills, project.skills, trusted, own.skills, pluginIds),
+      mcp: axisProvenance(global.mcp, project.mcp, trusted, own.mcp, inheritedIds, mcpUniverse),
+      plugins: axisProvenance(global.plugins, project.plugins, trusted, own.plugins, [], pluginIds),
+      skills: axisProvenance(global.skills, project.skills, trusted, own.skills, [], pluginIds),
     };
   },
   machine() {
