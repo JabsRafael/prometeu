@@ -275,10 +275,12 @@ where
         Legacy(Vec<String>),
         New(Selection),
     }
-    Ok(Option::<Form>::deserialize(deserializer)?.map(|form| match form {
-        Form::New(selection) => selection,
-        Form::Legacy(ids) => Selection::only(ids),
-    }))
+    Ok(
+        Option::<Form>::deserialize(deserializer)?.map(|form| match form {
+            Form::New(selection) => selection,
+            Form::Legacy(ids) => Selection::only(ids),
+        }),
+    )
 }
 
 impl Workspace {
@@ -336,6 +338,22 @@ impl Workspace {
     }
 }
 
+/// One project-trust decision (ADR 0043). A repository's versioned `[tools]` declaration activates
+/// only after the person approves it for the current hash; a changed hash needs a new decision. The
+/// decision is app-local on the board and never written into the repository, so cloning a project
+/// cannot activate its packages silently. See docs/contracts/persistence.md.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ToolTrust {
+    /// Repository identity: the `origin` remote URL when one exists, else the clone's absolute path.
+    pub repo: String,
+    /// SHA-256 of the declared `[tools]` section, in canonical form.
+    pub hash: String,
+    pub approved: bool,
+    /// Epoch seconds when the decision was recorded.
+    #[serde(default)]
+    pub at: u64,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Board {
     #[serde(default)]
@@ -345,6 +363,11 @@ pub struct Board {
     /// docs/contracts/persistence.md and ADR 0043.
     #[serde(default)]
     pub tools: Tools,
+    /// Per-repository decisions that let a versioned project `[tools]` declaration activate. Empty
+    /// by default, so an old board has approved nothing and project-declared items stay uninjected
+    /// until the person decides. See docs/contracts/persistence.md and ADR 0043.
+    #[serde(default)]
+    pub tool_trust: Vec<ToolTrust>,
     /// Ordered work stages. Position determines each stage's icon.
     #[serde(alias = "columns")]
     pub stages: Vec<String>,
@@ -370,8 +393,18 @@ fn is_placeholder_title(title: &str) -> bool {
 pub(crate) fn split_skills(plugins: &mut Option<Selection>, skills: &mut Option<Selection>) {
     let is_skill = |id: &str| id.starts_with("skill-");
     let Some(source) = plugins else { return };
-    let moved_add: Vec<String> = source.add.iter().filter(|id| is_skill(id)).cloned().collect();
-    let moved_remove: Vec<String> = source.remove.iter().filter(|id| is_skill(id)).cloned().collect();
+    let moved_add: Vec<String> = source
+        .add
+        .iter()
+        .filter(|id| is_skill(id))
+        .cloned()
+        .collect();
+    let moved_remove: Vec<String> = source
+        .remove
+        .iter()
+        .filter(|id| is_skill(id))
+        .cloned()
+        .collect();
     if moved_add.is_empty() && moved_remove.is_empty() {
         return;
     }
@@ -400,6 +433,7 @@ impl Default for Board {
         Board {
             actions: Default::default(),
             tools: Tools::default(),
+            tool_trust: Vec::new(),
             stages: ["Preparando", "Fazendo", "Code review", "Travado", "Feito"]
                 .map(String::from)
                 .to_vec(),
@@ -1075,5 +1109,7 @@ mod tests {
         assert!(board.tools.mcp.is_none());
         assert!(board.tools.plugins.is_none());
         assert!(board.tools.skills.is_none());
+        // An old board has approved no project declaration, so its `[tools]` stays gated.
+        assert!(board.tool_trust.is_empty());
     }
 }

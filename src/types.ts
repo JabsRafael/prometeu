@@ -122,9 +122,55 @@ export type Selection = { base: "none" | "inherit"; add: string[]; remove: strin
 /// workspace triple. The project layer lives in the repository's `[tools]` table, not on the board.
 export type Tools = { mcp: Selection | null; plugins: Selection | null; skills: Selection | null };
 
+/// One project-trust decision (ADR 0043): a repository's versioned `[tools]` activates only after the
+/// person approves its current hash. App-local on the board, never written into the repository, so a
+/// changed declaration re-prompts. `repo` is the origin URL when present, else the clone's path.
+export type ToolTrust = { repo: string; hash: string; approved: boolean; at: number };
+
+/// The project `[tools]` declaration and its trust state, returned by `project_tools`. An empty
+/// `hash` means the primary repository declares nothing, so the layer inherits and needs no approval.
+export type ProjectTools = {
+  repo: string;
+  file: string | null;
+  hash: string;
+  tools: Tools;
+  /// True when a declaration exists whose current hash is not approved, so the interface prompts.
+  pending: boolean;
+  decision: ToolTrust | null;
+};
+
+/// Where an effective item came from (ADR 0043). `inherited` flows down from a layer above,
+/// `added`/`removed` come from this layer's deltas, and `pending` is a project-declared item held
+/// back until the person approves its hash.
+export type Provenance = "inherited" | "added" | "removed" | "pending";
+
+/// One hub ID in a resolved axis, tagged with its origin so the picker can explain each row.
+export type EffectiveItem = { id: string; provenance: Provenance };
+
+/// The resolved effective set for a workspace, one list per axis. `removed` items stay in the list so
+/// the picker can show what this layer turned off; `pending` items show untrusted project additions.
+export type WorkspaceTools = {
+  mcp: EffectiveItem[];
+  plugins: EffectiveItem[];
+  skills: EffectiveItem[];
+};
+
 /// The effective hub IDs a single layer selects, or null when it inherits. Phase 3 surfaces only the
 /// workspace layer's own `add`; the resolved effective set with provenance arrives with the picker.
 export const selectedIds = (s: Selection | null | undefined): string[] | null => s?.add ?? null;
+
+/// Toggle one hub id in a layer while preserving what the layers above contribute (ADR 0043). Turning
+/// an item on records an `add` and drops any `remove`; turning it off records a `remove` and drops any
+/// `add`. The layer's `base` is preserved, defaulting to `inherit` so a first pick never erases the
+/// set flowing down from the global and project layers.
+export function toggleSelection(current: Selection | null, id: string, on: boolean): Selection {
+  const base = current?.base ?? "inherit";
+  const add = (current?.add ?? []).filter((x) => x !== id);
+  const remove = (current?.remove ?? []).filter((x) => x !== id);
+  if (on) add.push(id);
+  else remove.push(id);
+  return { base, add, remove };
+}
 
 export type Workspace = {
   id: string;
@@ -252,7 +298,7 @@ export type Scripts = {
   port: number | null;
 };
 
-export type Board = { actions?: import("./actions").Catalog; tools?: Tools; stages: string[]; projects: Project[]; workspaces: Workspace[] };
+export type Board = { actions?: import("./actions").Catalog; tools?: Tools; tool_trust?: ToolTrust[]; stages: string[]; projects: Project[]; workspaces: Workspace[] };
 
 /// The authenticated Linear user and organization.
 export type LinearWho = { name: string; email: string; org: string; org_key: string };

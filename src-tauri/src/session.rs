@@ -1,7 +1,9 @@
 use crate::domain::Pr;
 use crate::lock::lock;
 use crate::selection::{Selection, Tools};
-use crate::state::{publish, Board, Choice, Project, ProviderId, Repo, Status, Tab, Workspace};
+use crate::state::{
+    publish, Board, Choice, Project, ProviderId, Repo, Status, Tab, ToolTrust, Workspace,
+};
 use crate::{chat, dock, i18n, paths, scripts, AppState};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -175,55 +177,264 @@ pub fn pin_workspace(app: AppHandle, state: State<AppState>, id: String, pinned:
     publish(&app);
 }
 
-/// MCP selections apply at process startup. Stop idle processes so the next message resumes their
-/// transcripts with the new tools. Active turns must finish first; stopping them would lose ongoing
-/// work.
+/// Interpret one tool-axis argument: JSON `null` returns the axis to inherit, an object is the
+/// `Selection`. The workspace and global setters take `Option<Value>` so an absent axis stays
+/// unchanged while an explicit `null` clears it; a bare `Option<Selection>` argument would reject
+/// `null` instead of reading it as inherit.
+fn axis(value: serde_json::Value) -> Option<Selection> {
+    match value {
+        serde_json::Value::Null => None,
+        other => serde_json::from_value::<Selection>(other).ok(),
+    }
+}
+
+/// Persist one workspace tool axis. The change applies at the next spawn or resume; a running session
+/// keeps the set it was born with (ADR 0043), so the picker states that instead of restarting the
+/// process, and this command only writes and republishes.
 #[tauri::command]
 pub fn set_workspace_mcp(
     app: AppHandle,
     state: State<AppState>,
     id: String,
-    mcp: Option<Vec<String>>,
+    mcp: Option<serde_json::Value>,
 ) {
-    let tabs = {
+    {
         let mut board = lock(&state.board);
-        let Some(ws) = board.workspace_mut(&id) else {
-            return;
-        };
-        ws.mcp = mcp.map(Selection::only);
-        ws.tabs.iter().map(|t| t.id.clone()).collect::<Vec<_>>()
-    };
-    for tab in tabs {
-        chat::kill(&state, &tab);
+        if let (Some(ws), Some(value)) = (board.workspace_mut(&id), mcp) {
+            ws.mcp = axis(value);
+        }
     }
     publish(&app);
 }
 
-/// Plugin selections apply at process startup. Restart idle tabs on their next message without
-/// losing their transcripts.
+/// Plugin selection shares the next-spawn application rule. Standalone skills live on their own axis
+/// now, so this no longer re-derives them from a combined list.
 #[tauri::command]
 pub fn set_workspace_plugins(
     app: AppHandle,
     state: State<AppState>,
     id: String,
-    plugins: Option<Vec<String>>,
+    plugins: Option<serde_json::Value>,
 ) {
-    let tabs = {
+    {
         let mut board = lock(&state.board);
-        let Some(ws) = board.workspace_mut(&id) else {
-            return;
-        };
-        // The plugin selector still carries standalone skills mixed in, so re-derive both axes from
-        // the incoming list; a deselection then takes effect. Phase 6 gives skills their own command.
-        ws.plugins = plugins.map(Selection::only);
-        ws.skills = None;
-        crate::state::split_skills(&mut ws.plugins, &mut ws.skills);
-        ws.tabs.iter().map(|t| t.id.clone()).collect::<Vec<_>>()
-    };
-    for tab in tabs {
-        chat::kill(&state, &tab);
+        if let (Some(ws), Some(value)) = (board.workspace_mut(&id), plugins) {
+            ws.plugins = axis(value);
+        }
     }
     publish(&app);
+}
+
+/// Standalone-skill selection, its own axis since ADR 0043. Skills still materialize through the
+/// plugin-package pipeline; only the state and the picker are separate.
+#[tauri::command]
+pub fn set_workspace_skills(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+    skills: Option<serde_json::Value>,
+) {
+    {
+        let mut board = lock(&state.board);
+        if let (Some(ws), Some(value)) = (board.workspace_mut(&id), skills) {
+            ws.skills = axis(value);
+        }
+    }
+    publish(&app);
+}
+
+/// Set the global layer of the tool selection, one axis at a time. An absent axis is unchanged; an
+/// explicit `null` returns it to inherit. The global layer is a board field, so the result reaches the
+/// frontend through the `board` event and the command returns nothing.
+#[tauri::command]
+pub fn set_tools_global(
+    app: AppHandle,
+    state: State<AppState>,
+    mcp: Option<serde_json::Value>,
+    plugins: Option<serde_json::Value>,
+    skills: Option<serde_json::Value>,
+) {
+    {
+        let mut board = lock(&state.board);
+        if let Some(value) = mcp {
+            board.tools.mcp = axis(value);
+        }
+        if let Some(value) = plugins {
+            board.tools.plugins = axis(value);
+        }
+        if let Some(value) = skills {
+            board.tools.skills = axis(value);
+        }
+    }
+    publish(&app);
+}
+
+/// The project `[tools]` declaration and its trust state, for the interface (ADR 0043). `hash` and
+/// `repo` are empty and `tools` inherits when the primary repository declares nothing.
+#[derive(serde::Serialize)]
+pub struct ProjectTools {
+    /// Repository identity that keys the trust decision: `origin` URL or absolute clone path.
+    pub repo: String,
+    /// The settings file that declared the layer, if any.
+    pub file: Option<String>,
+    /// SHA-256 of the declared section; empty when the repository declares nothing.
+    pub hash: String,
+    /// The declared layer; every axis inherits when nothing is declared.
+    pub tools: Tools,
+    /// True when a declaration exists whose current hash is not approved, so the interface prompts.
+    pub pending: bool,
+    /// The stored decision for this repository, if any.
+    pub decision: Option<ToolTrust>,
+}
+
+/// Resolve a workspace or project id to the worktree and clone of the repository whose `[tools]`
+/// governs. A workspace uses its primary repository; a project uses its registered clone for both.
+/// Project and workspace ids never overlap (see `cwd_of`).
+fn tool_roots(board: &Board, id: &str) -> Option<(PathBuf, PathBuf)> {
+    board
+        .workspaces
+        .iter()
+        .find(|w| w.id == id)
+        .map(|w| {
+            let primary = w.primary();
+            (PathBuf::from(primary.worktree), PathBuf::from(primary.path))
+        })
+        .or_else(|| {
+            board
+                .projects
+                .iter()
+                .find(|p| p.id == id)
+                .map(|p| (PathBuf::from(&p.path), PathBuf::from(&p.path)))
+        })
+}
+
+/// Return the `[tools]` declared by the primary repository, the file that declared it, the hash of
+/// that section and the stored decision, so the project surface and the trust dialog can render
+/// without re-deriving them.
+#[tauri::command]
+pub fn project_tools(state: State<AppState>, id: String) -> ProjectTools {
+    let board = lock(&state.board);
+    let declaration =
+        tool_roots(&board, &id).and_then(|(worktree, repo)| project_declaration(&worktree, &repo));
+    let Some(declaration) = declaration else {
+        return ProjectTools {
+            repo: String::new(),
+            file: None,
+            hash: String::new(),
+            tools: Tools::default(),
+            pending: false,
+            decision: None,
+        };
+    };
+    let decision = board
+        .tool_trust
+        .iter()
+        .find(|t| t.repo == declaration.repo)
+        .cloned();
+    let pending = !approved(&board.tool_trust, &declaration.repo, &declaration.hash);
+    ProjectTools {
+        repo: declaration.repo,
+        file: declaration.file,
+        hash: declaration.hash,
+        tools: declaration.tools,
+        pending,
+        decision,
+    }
+}
+
+/// Record the trust decision for a project declaration. The backend derives the repository identity
+/// from `id`; the presentation never supplies it. One decision per repository: approving a new hash
+/// replaces the previous one, and a changed hash leaves the old decision until the person decides
+/// again. The decision is app-local and published through the `board` event.
+#[tauri::command]
+pub fn project_tools_trust(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+    hash: String,
+    approved: bool,
+) {
+    {
+        let mut board = lock(&state.board);
+        let Some(repo) = tool_roots(&board, &id).map(|(_, repo)| repo_identity(&repo)) else {
+            return;
+        };
+        let at = crate::actions::now();
+        match board.tool_trust.iter_mut().find(|t| t.repo == repo) {
+            Some(decision) => {
+                decision.hash = hash;
+                decision.approved = approved;
+                decision.at = at;
+            }
+            None => board.tool_trust.push(ToolTrust {
+                repo,
+                hash,
+                approved,
+                at,
+            }),
+        }
+    }
+    publish(&app);
+}
+
+/// The effective tool selection of one workspace, per axis, each item labeled with where it came
+/// from, so the picker shows the resolved result without reading the three layers (ADR 0043).
+#[derive(serde::Serialize)]
+pub struct WorkspaceTools {
+    pub mcp: Vec<EffectiveItem>,
+    pub plugins: Vec<EffectiveItem>,
+    pub skills: Vec<EffectiveItem>,
+}
+
+/// Resolve the workspace's effective set with provenance. The project layer is read from the primary
+/// repository and gated on its stored trust decision: an untrusted declaration shows its items as
+/// pending rather than active.
+#[tauri::command]
+pub fn workspace_tools(state: State<AppState>, id: String) -> WorkspaceTools {
+    let board = lock(&state.board);
+    let mcp_hub: Vec<String> = crate::mcp::load().into_iter().map(|s| s.id).collect();
+    let plugin_hub: Vec<String> = crate::plugins::load().into_iter().map(|p| p.id).collect();
+    let Some(ws) = board.workspaces.iter().find(|w| w.id == id) else {
+        return WorkspaceTools {
+            mcp: Vec::new(),
+            plugins: Vec::new(),
+            skills: Vec::new(),
+        };
+    };
+    let primary = ws.primary();
+    let declaration = project_declaration(Path::new(&primary.worktree), Path::new(&primary.path));
+    let (project, trusted) = match &declaration {
+        Some(declaration) => (
+            declaration.tools.clone(),
+            approved(&board.tool_trust, &declaration.repo, &declaration.hash),
+        ),
+        None => (Tools::default(), true),
+    };
+    let workspace = ws.tools();
+    WorkspaceTools {
+        mcp: axis_provenance(
+            &board.tools.mcp,
+            &project.mcp,
+            trusted,
+            &workspace.mcp,
+            &mcp_hub,
+        ),
+        plugins: axis_provenance(
+            &board.tools.plugins,
+            &project.plugins,
+            trusted,
+            &workspace.plugins,
+            &plugin_hub,
+        ),
+        // Standalone skills ride the plugin hub as `skill-<id>`, so the skills axis filters it too.
+        skills: axis_provenance(
+            &board.tools.skills,
+            &project.skills,
+            trusted,
+            &workspace.skills,
+            &plugin_hub,
+        ),
+    }
 }
 
 /// Model and effort changes require a process restart; the next message resumes the same transcript
@@ -696,17 +907,17 @@ fn resolve_axis(
     }
 }
 
-/// Compose the global and workspace layers into the IDs a launch injects, keeping only IDs the hub
-/// still has. The hubs come from the caller so the chain stays testable without disk. The project
-/// layer is gated on trust, which ADR 0043 defers to phase 4, so it contributes nothing yet even
-/// though scripts.rs already parses the repository's `[tools]` table.
+/// Compose the three layers into the IDs a launch injects, keeping only IDs the hub still has. The
+/// hubs and the project layer come from the caller so the chain stays testable without disk. The
+/// project layer must already be gated on trust before it reaches here (ADR 0043, phase 4); see
+/// `trusted_project`.
 pub(crate) fn resolve_tools(
     global: &Tools,
+    project: &Tools,
     workspace: &Tools,
     mcp_hub: &[String],
     plugin_hub: &[String],
 ) -> ResolvedTools {
-    let project = Tools::default();
     ResolvedTools {
         mcp: resolve_axis(&global.mcp, &project.mcp, &workspace.mcp, mcp_hub),
         plugins: resolve_axis(
@@ -716,16 +927,167 @@ pub(crate) fn resolve_tools(
             plugin_hub,
         ),
         // Standalone skills ride the plugin hub as `skill-<id>`, so the skills axis filters too.
-        skills: resolve_axis(&global.skills, &project.skills, &workspace.skills, plugin_hub),
+        skills: resolve_axis(
+            &global.skills,
+            &project.skills,
+            &workspace.skills,
+            plugin_hub,
+        ),
     }
 }
 
-/// Load the hubs and resolve one workspace's tools. Production spawns call this; tests build a
-/// `ResolvedTools` directly to stay off disk.
-pub(crate) fn resolve_workspace_tools(global: &Tools, ws: &Workspace) -> ResolvedTools {
+/// The project `[tools]` declaration of a repository, with the identity and hash that key its trust
+/// decision (ADR 0043). `project_declaration` returns `None` when the repository declares nothing,
+/// so an absent layer needs no approval and simply inherits.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ProjectDeclaration {
+    /// Repository identity: the `origin` remote URL when one exists, else the clone's absolute path.
+    pub repo: String,
+    /// SHA-256 of the canonical form of the declared `[tools]` section.
+    pub hash: String,
+    /// The settings file that declared it, surfaced by the interface.
+    pub file: Option<String>,
+    /// The declared layer.
+    pub tools: Tools,
+}
+
+/// Read the primary repository's `[tools]` and derive its trust identity. Returns `None` when the
+/// repository declares no tools, so there is nothing to trust.
+pub(crate) fn project_declaration(worktree: &Path, repo: &Path) -> Option<ProjectDeclaration> {
+    let scripts = crate::scripts::read_for(worktree, repo);
+    if scripts.tools == Tools::default() {
+        return None;
+    }
+    Some(ProjectDeclaration {
+        repo: repo_identity(repo),
+        hash: tools_hash(&scripts.tools),
+        file: scripts.file,
+        tools: scripts.tools,
+    })
+}
+
+/// Identify a repository for trust: its `origin` remote URL when one exists, else the clone's
+/// absolute path. The URL survives a moved clone; the path covers a repository without a remote.
+fn repo_identity(repo: &Path) -> String {
+    let origin = git(repo, &["remote", "get-url", "origin"]);
+    let origin = origin.trim();
+    if !origin.is_empty() {
+        return origin.to_string();
+    }
+    repo.canonicalize()
+        .unwrap_or_else(|_| repo.to_path_buf())
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Hash the declared `[tools]` so a changed declaration re-prompts. Hashing the parsed structure,
+/// not the raw TOML, keeps the decision stable across comments, key order and whitespace.
+fn tools_hash(tools: &Tools) -> String {
+    use sha2::{Digest, Sha256};
+    let canonical = serde_json::to_string(tools).unwrap_or_default();
+    format!("{:x}", Sha256::digest(canonical.as_bytes()))
+}
+
+/// True when the person approved this exact declaration for this repository.
+fn approved(trust: &[ToolTrust], repo: &str, hash: &str) -> bool {
+    trust
+        .iter()
+        .any(|t| t.repo == repo && t.hash == hash && t.approved)
+}
+
+/// The project layer a workspace may inject: the primary repository's declared `[tools]` when its
+/// current hash is approved, otherwise nothing. Until approved, project-declared items stay out of
+/// the composition entirely, so they never reach a spawn (ADR 0043, "Trust").
+fn trusted_project(trust: &[ToolTrust], ws: &Workspace) -> Tools {
+    let primary = ws.primary();
+    let Some(declaration) =
+        project_declaration(Path::new(&primary.worktree), Path::new(&primary.path))
+    else {
+        return Tools::default();
+    };
+    match approved(trust, &declaration.repo, &declaration.hash) {
+        true => declaration.tools,
+        false => Tools::default(),
+    }
+}
+
+/// Load the hubs and resolve one workspace's tools, gating the project layer on its stored trust
+/// decision. Production spawns call this; tests build a `ResolvedTools` directly to stay off disk.
+pub(crate) fn resolve_workspace_tools(
+    global: &Tools,
+    trust: &[ToolTrust],
+    ws: &Workspace,
+) -> ResolvedTools {
     let mcp_hub: Vec<String> = crate::mcp::load().into_iter().map(|s| s.id).collect();
     let plugin_hub: Vec<String> = crate::plugins::load().into_iter().map(|p| p.id).collect();
-    resolve_tools(global, &ws.tools(), &mcp_hub, &plugin_hub)
+    resolve_tools(
+        global,
+        &trusted_project(trust, ws),
+        &ws.tools(),
+        &mcp_hub,
+        &plugin_hub,
+    )
+}
+
+/// Where one effective hub item came from in the chain, so the picker shows the result without
+/// opening each layer (ADR 0043). `Removed` and `Pending` items are listed but not injected.
+#[derive(serde::Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Provenance {
+    /// Active because a layer above the workspace selected it.
+    Inherited,
+    /// Active because the workspace layer added it.
+    Added,
+    /// Inactive because the workspace layer removed an otherwise-inherited item.
+    Removed,
+    /// Declared by the project but not yet trusted, so resolved yet not injected.
+    Pending,
+}
+
+/// One hub item with its provenance on a single axis.
+#[derive(serde::Serialize)]
+pub struct EffectiveItem {
+    pub id: String,
+    pub provenance: Provenance,
+}
+
+/// Classify every hub id on one axis for the picker. `project` is the declared layer and `trusted`
+/// says whether it may activate; when untrusted, the items it declares appear as `Pending`. The
+/// workspace layer is the person's own action, so an item it adds is active even while the project
+/// declaration is still pending. Items with no story (off and untouched) are omitted.
+fn axis_provenance(
+    global: &Option<Selection>,
+    project: &Option<Selection>,
+    trusted: bool,
+    workspace: &Option<Selection>,
+    hub: &[String],
+) -> Vec<EffectiveItem> {
+    let gated = if trusted { project.clone() } else { None };
+    let effective = crate::selection::resolve(global, &gated, workspace, hub);
+    // What the project layer alone would contribute, to label gated items as pending.
+    let declared = crate::selection::resolve(&None, project, &None, hub);
+    hub.iter()
+        .filter_map(|id| {
+            let on = effective.contains(id);
+            let added = workspace.as_ref().is_some_and(|s| s.add.contains(id));
+            let removed = workspace.as_ref().is_some_and(|s| s.remove.contains(id));
+            let provenance = if on && added {
+                Provenance::Added
+            } else if on {
+                Provenance::Inherited
+            } else if removed {
+                Provenance::Removed
+            } else if !trusted && declared.contains(id) {
+                Provenance::Pending
+            } else {
+                return None;
+            };
+            Some(EffectiveItem {
+                id: id.clone(),
+                provenance,
+            })
+        })
+        .collect()
 }
 
 impl ResolvedTools {
@@ -1075,7 +1437,7 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
         let board = lock(&state.board);
         let mut launch = draft.launch.clone();
         if let Some(ws) = board.workspaces.iter().find(|w| w.id == id) {
-            let tools = resolve_workspace_tools(&board.tools, ws);
+            let tools = resolve_workspace_tools(&board.tools, &board.tool_trust, ws);
             launch.mcp = tools.mcp;
             launch.plugins = tools.plugins;
             launch.skills = tools.skills;
@@ -1148,7 +1510,7 @@ pub fn new_tab(
         // Clear choices that match workspace defaults instead of storing duplicate settings.
         let choice =
             choice.filter(|c| c.agent != ws.agent || c.model != ws.model || c.effort != ws.effort);
-        let tools = resolve_workspace_tools(&board.tools, ws);
+        let tools = resolve_workspace_tools(&board.tools, &board.tool_trust, ws);
         let launch = ws.launch_with(choice.clone(), &tools);
         (launch, choice)
     };
@@ -1245,7 +1607,7 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
                     .iter()
                     .find(|t| t.id == tab)
                     .and_then(|t| t.agent_session.clone());
-                let tools = resolve_workspace_tools(&board.tools, w);
+                let tools = resolve_workspace_tools(&board.tools, &board.tool_trust, w);
                 (
                     w.id.clone(),
                     PathBuf::from(&w.worktree),
@@ -2080,7 +2442,10 @@ mod tests {
                     assert_eq!(launch.plugins, selected);
                     assert!(!launch.plan);
                 }
-                for launch in [ws.launch_with(None, &tools), ws.launch_of("inherited", &tools)] {
+                for launch in [
+                    ws.launch_with(None, &tools),
+                    ws.launch_of("inherited", &tools),
+                ] {
                     assert_eq!(launch.model, "workspace-model");
                     assert_eq!(launch.effort, "high");
                     assert_eq!(launch.mcp, selected);
@@ -2100,21 +2465,149 @@ mod tests {
 
         let mut ws = bare();
         // The pre-migration selection: one plugin and one standalone skill mixed on the plugin axis.
-        ws.plugins = Some(Selection::only(vec!["revisor".into(), "skill-review".into()]));
+        ws.plugins = Some(Selection::only(vec![
+            "revisor".into(),
+            "skill-review".into(),
+        ]));
         split_skills(&mut ws.plugins, &mut ws.skills);
         assert_eq!(ws.plugins, Some(Selection::only(vec!["revisor".into()])));
-        assert_eq!(ws.skills, Some(Selection::only(vec!["skill-review".into()])));
+        assert_eq!(
+            ws.skills,
+            Some(Selection::only(vec!["skill-review".into()]))
+        );
 
         // Both ride the plugin hub, so resolution keeps them and a launch materializes the union in
         // plugin-then-skill order, exactly as the old single-axis selection did.
         let hub = vec!["revisor".to_string(), "skill-review".to_string()];
-        let tools = resolve_tools(&Tools::default(), &ws.tools(), &[], &hub);
+        let tools = resolve_tools(&Tools::default(), &Tools::default(), &ws.tools(), &[], &hub);
         let launch = ws.launch(&tools);
         assert_eq!(launch.plugins, Some(vec!["revisor".into()]));
         assert_eq!(launch.skills, Some(vec!["skill-review".into()]));
         assert_eq!(
             launch.plugin_packages(),
             Some(vec!["revisor".into(), "skill-review".into()])
+        );
+    }
+
+    /// A project `[tools]` declaration is gated on trust: it composes only when the person approved
+    /// the current hash, a changed declaration re-gates until approved again, and a rejection never
+    /// activates it (ADR 0043, phase 4).
+    #[test]
+    fn projeto_so_injeta_depois_de_aprovado_e_reprova_quando_o_hash_muda() {
+        use super::{project_declaration, tools_hash, trusted_project};
+        use crate::selection::{Selection, Tools};
+        use crate::state::ToolTrust;
+
+        let root = std::env::temp_dir().join(format!("prometeu-trust-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join(".prometeu")).unwrap();
+        std::fs::write(
+            root.join(".prometeu/settings.toml"),
+            "[tools]\nplugins = { base = \"none\", add = [\"revisor\"] }\n",
+        )
+        .unwrap();
+
+        let mut ws = bare();
+        ws.repo = root.display().to_string();
+        ws.worktree = root.display().to_string();
+        ws.repos.push(Repo {
+            path: root.display().to_string(),
+            name: "trust".into(),
+            worktree: root.display().to_string(),
+            base: String::new(),
+            pr: None,
+        });
+
+        let hub = vec!["revisor".to_string()];
+        let declaration = project_declaration(&root, &root).expect("declaração");
+        assert_eq!(
+            declaration.tools.plugins,
+            Some(Selection::only(vec!["revisor".into()]))
+        );
+
+        // Unapproved: the project layer contributes nothing, so no plugin is injected.
+        assert_eq!(trusted_project(&[], &ws), Tools::default());
+        let gated = resolve_tools(&Tools::default(), &Tools::default(), &ws.tools(), &[], &hub);
+        assert_eq!(gated.plugins, None);
+
+        // Approved for the current hash: the declaration composes and the plugin is injected.
+        let trust = vec![ToolTrust {
+            repo: declaration.repo.clone(),
+            hash: declaration.hash.clone(),
+            approved: true,
+            at: 0,
+        }];
+        let allowed = trusted_project(&trust, &ws);
+        assert_eq!(
+            allowed.plugins,
+            Some(Selection::only(vec!["revisor".into()]))
+        );
+        let resolved = resolve_tools(&Tools::default(), &allowed, &ws.tools(), &[], &hub);
+        assert_eq!(resolved.plugins, Some(vec!["revisor".into()]));
+
+        // A changed declaration re-gates: the stored hash no longer matches, so approval lapses.
+        std::fs::write(
+            root.join(".prometeu/settings.toml"),
+            "[tools]\nplugins = { base = \"none\", add = [\"revisor\", \"outro\"] }\n",
+        )
+        .unwrap();
+        let changed = project_declaration(&root, &root).expect("declaração");
+        assert_ne!(changed.hash, declaration.hash);
+        assert_eq!(trusted_project(&trust, &ws), Tools::default());
+
+        // A recorded rejection does not activate the layer either.
+        let rejected = vec![ToolTrust {
+            repo: declaration.repo.clone(),
+            hash: declaration.hash.clone(),
+            approved: false,
+            at: 0,
+        }];
+        assert_eq!(trusted_project(&rejected, &ws), Tools::default());
+
+        // The hash is stable for the same declaration.
+        assert_eq!(tools_hash(&declaration.tools), declaration.hash);
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// The picker's provenance: a global item is inherited, a workspace add is added, removing an
+    /// inherited item is removed, and an untrusted project item is pending until trusted (ADR 0043).
+    #[test]
+    fn provenance_classifica_cada_item_do_hub() {
+        use super::{axis_provenance, Provenance};
+        use crate::selection::{Base, Selection};
+
+        let hub = vec!["g".into(), "a".into(), "r".into(), "p".into(), "off".into()];
+        let global = Some(Selection::only(vec!["g".into(), "r".into()]));
+        // The project declares `p`; it stays pending until trusted.
+        let project = Some(Selection {
+            base: Base::Inherit,
+            add: vec!["p".into()],
+            remove: vec![],
+        });
+        // The workspace adds `a` and removes the inherited `r`.
+        let workspace = Some(Selection {
+            base: Base::Inherit,
+            add: vec!["a".into()],
+            remove: vec!["r".into()],
+        });
+
+        let items = axis_provenance(&global, &project, false, &workspace, &hub);
+        let prov = |id: &str| items.iter().find(|i| i.id == id).map(|i| i.provenance);
+        assert_eq!(prov("g"), Some(Provenance::Inherited));
+        assert_eq!(prov("a"), Some(Provenance::Added));
+        assert_eq!(prov("r"), Some(Provenance::Removed));
+        assert_eq!(prov("p"), Some(Provenance::Pending));
+        // An off, untouched hub item carries no story and is omitted.
+        assert_eq!(prov("off"), None);
+
+        // Once trusted, the project item activates and inherits into the effective set.
+        let trusted_items = axis_provenance(&global, &project, true, &workspace, &hub);
+        assert_eq!(
+            trusted_items
+                .iter()
+                .find(|i| i.id == "p")
+                .map(|i| i.provenance),
+            Some(Provenance::Inherited)
         );
     }
 

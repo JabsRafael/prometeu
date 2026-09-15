@@ -769,7 +769,10 @@ default = true
                 remove: vec![],
             })
         );
-        assert_eq!(s.tools.plugins, Some(Selection::only(vec!["revisor".into()])));
+        assert_eq!(
+            s.tools.plugins,
+            Some(Selection::only(vec!["revisor".into()]))
+        );
         assert_eq!(s.tools.skills, None);
     }
 

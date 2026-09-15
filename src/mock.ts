@@ -11,7 +11,7 @@ import type { Accounts } from "./statusbar";
 import type { CloudStatus } from "./cloud";
 import type { CatalogState, Kind } from "./catalog";
 import type { Skill } from "./skills";
-import { hasWorktree, selectedIds, type Board, type Change, type Choice, type DockKind, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type Pr, type Scripts, type Tab, type Workspace } from "./types";
+import { hasWorktree, selectedIds, type Board, type Change, type Choice, type DockKind, type EffectiveItem, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type ProjectTools, type Pr, type Provenance, type Scripts, type Selection, type Tab, type Tools, type Workspace, type WorkspaceTools } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
@@ -473,6 +473,81 @@ const scripts: Record<string, Scripts> = {
   },
 };
 const noScripts: Scripts = { file: null, inherited: false, setup: null, runs: [], archive: null, copy: [], port: 3120 };
+
+/// Representative project `[tools]` declarations for the browser, keyed by workspace or project id.
+/// The browser cannot read a repository, so this stands in for the primary repository's declaration;
+/// `pending` and `decision` are recomputed at call time from `board.tool_trust`.
+const projectTools: Record<string, ProjectTools> = {
+  "ui-2231": {
+    repo: "https://github.com/prometeucorp/prometeu.git",
+    file: ".prometeu/settings.toml",
+    hash: "9f1c-demo-hash",
+    tools: { mcp: null, plugins: { base: "none", add: ["ponytail"], remove: [] }, skills: null },
+    pending: true,
+    decision: null,
+  },
+};
+
+/// The empty declaration returned for a repository that declares no `[tools]`.
+const noProjectTools: ProjectTools = {
+  repo: "",
+  file: null,
+  hash: "",
+  tools: { mcp: null, plugins: null, skills: null },
+  pending: false,
+  decision: null,
+};
+
+/// Mirror of selection::resolve: compose the three layers in order, keeping only hub IDs. Within a
+/// layer `add` comes first and `remove` has the last word. See src-tauri/src/selection.rs.
+function resolveAxis(
+  global: Selection | null,
+  project: Selection | null,
+  workspace: Selection | null,
+  hub: string[],
+): string[] {
+  let ids: string[] = [];
+  for (const layer of [global, project, workspace]) {
+    if (!layer) continue;
+    if (layer.base === "none") ids = [];
+    for (const id of layer.add) if (!ids.includes(id)) ids.push(id);
+    ids = ids.filter((id) => !layer.remove.includes(id));
+  }
+  return ids.filter((id) => hub.includes(id));
+}
+
+/// Mirror of axis_provenance: label every hub ID with where its effective state came from, so the
+/// picker shows the resolved result without reading the layers. Off and untouched IDs are omitted.
+function axisProvenance(
+  global: Selection | null,
+  project: Selection | null,
+  trusted: boolean,
+  workspace: Selection | null,
+  hub: string[],
+): EffectiveItem[] {
+  const gated = trusted ? project : null;
+  const effective = resolveAxis(global, gated, workspace, hub);
+  const declared = resolveAxis(null, project, null, hub);
+  const items: EffectiveItem[] = [];
+  for (const id of hub) {
+    const on = effective.includes(id);
+    const added = workspace?.add.includes(id) ?? false;
+    const removed = workspace?.remove.includes(id) ?? false;
+    let provenance: Provenance;
+    if (on && added) provenance = "added";
+    else if (on) provenance = "inherited";
+    else if (removed) provenance = "removed";
+    else if (!trusted && declared.includes(id)) provenance = "pending";
+    else continue;
+    items.push({ id, provenance });
+  }
+  return items;
+}
+
+/// The workspace triple as a `Tools` layer, matching Workspace::tools() in the backend.
+function workspaceTools(ws: Workspace): Tools {
+  return { mcp: ws.mcp, plugins: ws.plugins, skills: ws.skills };
+}
 
 /// Dock keys match Rust: <workspace>:<kind>. Setup finishes on a timer so retained output is available in the browser.
 const docks = new Map<string, boolean>();
@@ -1450,18 +1525,27 @@ const mockCommands: IpcHandlers = {
   },
   set_workspace_plugins(args) {
     const target = board.workspaces.find((x) => x.id === args.id);
-    if (target) {
-      // Mirror the backend: the picker still sends one combined list, so standalone skills split
-      // onto their own axis and a deselection clears it. See set_workspace_plugins in session.rs.
-      const ids = args.plugins ?? null;
-      const isSkill = (id: string) => id.startsWith("skill-");
-      target.plugins = ids == null ? null : { base: "none", add: ids.filter((id) => !isSkill(id)), remove: [] };
-      const skills = ids?.filter(isSkill) ?? [];
-      target.skills = skills.length ? { base: "none", add: skills, remove: [] } : null;
-      target.tabs.forEach((t) => (t.status = "desligada"));
-    }
+    // Mirror the backend `axis()`: an absent argument keeps the current selection, an explicit null
+    // returns the axis to inherit, and an object replaces it. Standalone skills are their own axis.
+    if (target && args.plugins !== undefined) target.plugins = args.plugins;
     writes++;
     // Publish board changes asynchronously so selection feedback cannot depend on an immediate backend echo.
+    setTimeout(() => emit("board", board), 0);
+    return;
+  },
+  set_workspace_skills(args) {
+    const target = board.workspaces.find((x) => x.id === args.id);
+    if (target && args.skills !== undefined) target.skills = args.skills;
+    writes++;
+    setTimeout(() => emit("board", board), 0);
+    return;
+  },
+  set_tools_global(args) {
+    board.tools ??= { mcp: null, plugins: null, skills: null };
+    if (args.mcp !== undefined) board.tools.mcp = args.mcp;
+    if (args.plugins !== undefined) board.tools.plugins = args.plugins;
+    if (args.skills !== undefined) board.tools.skills = args.skills;
+    writes++;
     setTimeout(() => emit("board", board), 0);
     return;
   },
@@ -1483,14 +1567,53 @@ const mockCommands: IpcHandlers = {
   },
   set_workspace_mcp(args) {
     const target = board.workspaces.find((x) => x.id === args.id);
-    if (target) {
-      target.mcp = args.mcp == null ? null : { base: "none", add: args.mcp, remove: [] };
-      // Changing tools stops tab processes; the next message resumes with the new selection.
-      target.tabs.forEach((t) => (t.status = "desligada"));
-    }
+    if (target && args.mcp !== undefined) target.mcp = args.mcp;
     writes++;
     setTimeout(() => emit("board", board), 0);
     return;
+  },
+  project_tools(args) {
+    const declared = projectTools[args.id];
+    if (!declared) return noProjectTools;
+    const decision = (board.tool_trust ?? []).find((t) => t.repo === declared.repo) ?? null;
+    const pending = !(decision && decision.hash === declared.hash && decision.approved);
+    return { ...declared, pending, decision };
+  },
+  project_tools_trust(args) {
+    const declared = projectTools[args.id];
+    if (!declared) return;
+    board.tool_trust ??= [];
+    const at = Math.floor(Date.now() / 1000);
+    const existing = board.tool_trust.find((t) => t.repo === declared.repo);
+    if (existing) {
+      existing.hash = args.hash;
+      existing.approved = args.approved;
+      existing.at = at;
+    } else {
+      board.tool_trust.push({ repo: declared.repo, hash: args.hash, approved: args.approved, at });
+    }
+    emit("board", board);
+    return;
+  },
+  workspace_tools(args) {
+    const empty: WorkspaceTools = { mcp: [], plugins: [], skills: [] };
+    const ws = board.workspaces.find((x) => x.id === args.id);
+    if (!ws) return empty;
+    const declared = projectTools[args.id] ?? noProjectTools;
+    const decision = (board.tool_trust ?? []).find((t) => t.repo === declared.repo) ?? null;
+    // No declaration means the project layer inherits and needs no approval.
+    const hasDeclaration = declared.hash !== "";
+    const trusted = !hasDeclaration || !!(decision && decision.hash === declared.hash && decision.approved);
+    const project = hasDeclaration ? declared.tools : { mcp: null, plugins: null, skills: null };
+    const global = board.tools ?? { mcp: null, plugins: null, skills: null };
+    const own = workspaceTools(ws);
+    const mcpIds = mcpHub.map((s) => s.id);
+    const pluginIds = pluginHub.map((p) => p.id);
+    return {
+      mcp: axisProvenance(global.mcp, project.mcp, trusted, own.mcp, mcpIds),
+      plugins: axisProvenance(global.plugins, project.plugins, trusted, own.plugins, pluginIds),
+      skills: axisProvenance(global.skills, project.skills, trusted, own.skills, pluginIds),
+    };
   },
   machine() {
     return {

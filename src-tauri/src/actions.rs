@@ -264,7 +264,7 @@ pub fn action_start(
         }) {
             return Err(i18n::t("err.actions.busy"));
         }
-        let resolved = session::resolve_workspace_tools(&board.tools, ws);
+        let resolved = session::resolve_workspace_tools(&board.tools, &board.tool_trust, ws);
         let profile = resolve(
             &board.actions,
             &ws.project,
