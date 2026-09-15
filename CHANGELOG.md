@@ -4,6 +4,12 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.7.5] - 2026-09-15
+
+### New
+
+- **team:** Organization tab lists people and adopts a peer's new key automatically
+- **chat:** Dictate messages through the microphone in the message box
 
 ## [0.7.4] - 2026-09-11
 
