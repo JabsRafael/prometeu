@@ -150,10 +150,10 @@ fn slug(text: &str) -> String {
 /// directory's `.mcp.json` plus every ancestor directory's, as the CLI walks the tree upward from
 /// the working directory (ADR 0043). They form the inherited base of the mcp axis, visible in the
 /// picker without importing. IDs keep their original names; the first occurrence of a repeated
-/// name wins, so user scope precedes project scope, the nearest repository file precedes its
-/// ancestors, and the closest definition of a name is the one materialized.
+/// name wins: local scope precedes project scope, then user scope. Within project scope the
+/// nearest repository file precedes its ancestors (ADR 0045).
 pub fn inherited(workdir: &Path) -> Vec<Server> {
-    let claude = read_json(&paths::home().join(".claude.json"));
+    let claude = read_json(&crate::claude::config_file(&crate::claude::user_home()));
     let mut files: Vec<(String, Value)> = Vec::new();
     let mut dir = Some(workdir);
     while let Some(current) = dir {
@@ -183,7 +183,6 @@ fn inherited_from(
         .unwrap_or_else(|| workdir.to_string_lossy().into_owned());
     let mut out: Vec<Server> = Vec::new();
     if let Some(root) = claude {
-        out.extend(servers_in(root, ""));
         // Claude Code keys projects by the resolved working directory; try the given path and its
         // canonical form so a symlinked worktree still matches.
         let projects = root.get("projects").and_then(Value::as_object);
@@ -202,6 +201,9 @@ fn inherited_from(
     }
     for (file_origin, file) in files {
         out.extend(servers_in(file, file_origin));
+    }
+    if let Some(root) = claude {
+        out.extend(servers_in(root, ""));
     }
     let mut unique: Vec<Server> = Vec::new();
     for server in out {
@@ -242,7 +244,7 @@ pub fn inherited_missing_hub(workdir: &Path) -> Vec<Server> {
 /// source labels and name collisions; an empty source represents user configuration for the
 /// frontend to label.
 fn from_claude_json() -> Vec<Server> {
-    let path = paths::home().join(".claude.json");
+    let path = crate::claude::config_file(&crate::claude::user_home());
     let Some(root) = read_json(&path) else {
         return vec![];
     };
@@ -261,7 +263,7 @@ fn from_claude_json() -> Vec<Server> {
 
 /// Read versioned .mcp.json files from repositories listed in ~/.claude.json.
 fn from_repo_files() -> Vec<Server> {
-    let path = paths::home().join(".claude.json");
+    let path = crate::claude::config_file(&crate::claude::user_home());
     let Some(root) = read_json(&path) else {
         return vec![];
     };
@@ -1151,17 +1153,32 @@ mod tests {
             ),
         ];
         let got = inherited_from(Some(&claude), workdir, &files);
-        let ids: Vec<&str> = got.iter().map(|s| s.id.as_str()).collect();
-        assert_eq!(ids, ["do-usuario", "do-projeto", "do-repo", "do-ancestral"]);
-        // The first occurrence keeps its configuration and origin.
-        assert_eq!(got[0].config["url"], "https://u/mcp");
-        assert_eq!(got[0].note, "");
-        assert_eq!(got[1].note, "projeto");
-        // The nearest repository file wins over an ancestor's definition of the same name.
-        assert_eq!(got[2].config["command"], "r");
-        assert_eq!(got[3].note, "dev");
+        let get = |id: &str| got.iter().find(|s| s.id == id).unwrap();
+        assert_eq!(got.len(), 4);
+        assert_eq!(get("do-projeto").config["command"], "p");
+        assert_eq!(get("do-projeto").note, "projeto");
+        assert_eq!(get("do-usuario").config["command"], "conflito");
+        assert_eq!(get("do-repo").config["command"], "r");
+        assert_eq!(get("do-ancestral").note, "dev");
         // Without configuration files the base is empty.
         assert!(inherited_from(None, workdir, &[]).is_empty());
+    }
+
+    #[test]
+    fn local_mcp_shadows_project_and_user_and_materializes_the_same_definition() {
+        let workdir = Path::new("/review/project");
+        let claude = json!({
+            "mcpServers": {"db": {"command":"user"}, "user-only": {"command":"user-only"}},
+            "projects": {"/review/project": {"mcpServers": {"db": {"command":"local"}}}}
+        });
+        let files = vec![(
+            "project".into(),
+            json!({"mcpServers":{"db":{"command":"project"}}}),
+        )];
+        let hub = inherited_from(Some(&claude), workdir, &files);
+        let body = config_body(&hub, &["db".into(), "user-only".into()], |_| None).unwrap();
+        assert_eq!(body["mcpServers"]["db"]["command"], "local");
+        assert_eq!(body["mcpServers"]["user-only"]["command"], "user-only");
     }
 
     /// A hub entry wins an ID clash, so an imported server stays Prometeu-managed.

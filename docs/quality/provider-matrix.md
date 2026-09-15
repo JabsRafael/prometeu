@@ -36,6 +36,8 @@ contractual capability.
 | starting a session | native | adapted to JSON-RPC | `chat.rs`, `codex.rs` |
 | resuming a session | Claude's id/transcript | the app-server's thread | `session.rs`, Rust tests |
 | workspace tools with tab model/effort overrides | same selections for new and resumed tabs | same selections for new and resumed tabs | `session.rs::new_and_resumed_tabs_preserve_workspace_tools_with_model_overrides` |
+| tools in mixed-provider tabs and actions | CLI base follows the effective Claude provider and configured home | hub-only universe even in a Claude workspace | `session.rs::tool_resolution_uses_the_tab_provider_and_configured_claude_home`, `e2e/tools.spec.ts` |
+| tool reset and project trust | null restores inheritance; decisions bind to the displayed hash, including empty declarations | same contract | `session.rs::tool_axis_ipc_preserves_absent_null_and_replacement`, `session.rs::projeto_so_injeta_depois_de_aprovado_e_reprova_quando_o_hash_muda`, `e2e/tools.spec.ts` |
 | ordered prompt, transcript, and live delivery | shared conversation mutex | shared conversation mutex | concurrent delivery, fast-response, and failed-write regressions in `chat.rs` |
 | choosing a model | native through a flag | adapted in `thread/start`/`thread/resume` | `session.rs`, `codex.rs` |
 | effort levels | catalog + fallback | Codex's catalog | `agents.rs`, `launcher.ts` |

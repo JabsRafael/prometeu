@@ -28,6 +28,16 @@ pub fn user_home() -> PathBuf {
         .unwrap_or_else(|| paths::home().join(".claude"))
 }
 
+/// Claude stores MCP definitions beside the default home or inside a configured home.
+pub(crate) fn config_file(home: &Path) -> PathBuf {
+    let nested = home.join(".claude.json");
+    if nested.exists() {
+        nested
+    } else {
+        home.with_extension("json")
+    }
+}
+
 const AUTH_ENV: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -96,11 +106,7 @@ fn prepare_profile_at(base: &Path, home: &Path) -> Result<(), String> {
     }
     // MCP configuration and project trust live outside settings.json. Preserve the profile's login
     // identity without copying the global identity.
-    let source = if base.join(".claude.json").exists() {
-        base.join(".claude.json")
-    } else {
-        base.with_extension("json")
-    };
+    let source = config_file(base);
     if source.exists() {
         let global: Value =
             serde_json::from_str(&std::fs::read_to_string(source).map_err(i18n::io)?)

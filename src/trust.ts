@@ -7,8 +7,9 @@ import { h } from "./util";
 /// Project trust (ADR 0043): a repository's versioned `[tools]` activates only after the person
 /// approves its current hash. The decision is stored app-local on the board, never in the repository,
 /// so a changed declaration re-prompts. This dialog shows what the project declares and records the
-/// choice; the backend recomputes the current hash itself, so the decision always covers the
-/// declaration as it stands now. An undecided declaration resolves but is not injected, and its
+/// choice; the backend compares the displayed hash with the current declaration before recording
+/// any decision, so a changed file cannot gain approval through a stale dialog (ADR 0045).
+/// An undecided declaration resolves but is not injected, and its
 /// items show as pending; a refused one keeps its items visible as rejected and quiets the prompt
 /// until the declaration changes.
 
@@ -16,6 +17,7 @@ import { h } from "./util";
 function axisLine(name: string, sel: Selection | null): HTMLElement | null {
   if (!sel) return null;
   const parts = [
+    sel.base === "none" ? t("tools.trust.replaces") : "",
     sel.add.length ? `${t("tools.trust.adds")} ${sel.add.join(", ")}` : "",
     sel.remove.length ? `${t("tools.trust.removes")} ${sel.remove.join(", ")}` : "",
   ].filter(Boolean);
@@ -40,7 +42,7 @@ export async function open(workspace: string, say: (text: string, isError?: bool
     cancel: t("tools.trust.later"),
     error: fromBack,
     submit: async () => {
-      await invoke("project_tools_trust", { id: workspace, approved: true });
+      await invoke("project_tools_trust", { id: workspace, hash: decl.hash, approved: true });
     },
   });
   dialog.body.append(
@@ -55,7 +57,7 @@ export async function open(workspace: string, say: (text: string, isError?: bool
   );
   // Rejecting records the decision so the prompt stops until the declaration's hash changes.
   const reject = ui.button(t("tools.trust.reject"), () => {
-    void invoke("project_tools_trust", { id: workspace, approved: false })
+    void invoke("project_tools_trust", { id: workspace, hash: decl.hash, approved: false })
       .then(() => dialog.close())
       .catch((e) => say(fromBack(e), true));
   }, "ghost");

@@ -88,8 +88,9 @@ as a short index for agents and `README.md` presents the product.
 - [ADR 0040](decisions/0040-open-source.md): open source in a single public repository — Accepted; partially supersedes ADR 0004.
 - [ADR 0041](decisions/0041-members-list-shows-people.md): the members list shows people and drops the permanent security code — Accepted.
 - [ADR 0042](decisions/0042-automatic-key-rotation.md): a peer's new key is adopted automatically, with no block or review — Accepted.
-- [ADR 0043](decisions/0043-layered-tool-selection.md): layered selection of MCP, plugins and skills across global, project and workspace — Accepted; Authority amended by ADR 0044.
-- [ADR 0044](decisions/0044-cli-inherited-mcp-base.md): the CLI's MCP set is the visible inherited base of the picker — Accepted.
+- [ADR 0043](decisions/0043-layered-tool-selection.md): layered selection of MCP, plugins and skills across global, project and workspace — Accepted; Authority amended by ADR 0044; Trust superseded by ADR 0045.
+- [ADR 0044](decisions/0044-cli-inherited-mcp-base.md): the CLI's MCP set is the visible inherited base of the picker — Accepted; Discovery superseded by ADR 0045.
+- [ADR 0045](decisions/0045-tool-selection-boundaries.md): reviewed tool declarations, effective provider and native IPC patches — Accepted.
 
 ## Quality and operations
 

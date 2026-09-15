@@ -5,7 +5,7 @@ import { fromBack, t, tn, type Key } from "./i18n";
 import * as menu from "./menu";
 import * as catalog from "./catalog";
 import * as toolPicker from "./tool-picker";
-import type { McpCheck, McpServer, McpStep, Selection } from "./types";
+import type { McpCheck, McpServer, McpStep, ProviderId, Selection } from "./types";
 import { $, h, template } from "./util";
 
 /// Present the backend-owned MCP registry in Settings and shared launcher/conversation pickers. Writes replace the whole local snapshot. Keep secrets and persistence in the backend; reopen the existing single-choice menu after each checkbox selection.
@@ -45,27 +45,29 @@ export async function load() {
 export const known = (id: string) => hub.some((s) => s.id === id);
 
 /// Servers discovered from the person's CLI configuration that the hub lacks (ADR 0044). They form
-/// the visible inherited base of the workspace picker, cached per workspace because discovery
+/// the visible inherited base of the workspace picker, cached per workspace and provider because discovery
 /// reads files under the workspace directory.
 const inherited = new Map<string, McpServer[]>();
 /// Workspaces with a discovery in flight, so repeated paints do not stack fetches.
 const inflight = new Set<string>();
 
-export const inheritedOf = (workspace: string) => inherited.get(workspace) ?? [];
+const inheritedKey = (workspace: string, agent?: ProviderId) => `${workspace}\u0000${agent ?? ""}`;
+export const inheritedOf = (workspace: string, agent?: ProviderId) => inherited.get(inheritedKey(workspace, agent)) ?? [];
 
-/// Fetch the inherited base once per workspace; the announce repaints gated composer buttons. A
+/// Fetch the inherited base once per workspace and provider; the announce repaints gated composer buttons. A
 /// failure leaves no cache entry, so a later paint retries instead of pinning the empty base;
 /// opening the picker rediscovers it anyway.
-export function loadInherited(workspace: string) {
-  if (inherited.has(workspace) || inflight.has(workspace)) return;
-  inflight.add(workspace);
+export function loadInherited(workspace: string, agent?: ProviderId) {
+  const key = inheritedKey(workspace, agent);
+  if (inherited.has(key) || inflight.has(key)) return;
+  inflight.add(key);
   void (async () => {
     try {
-      inherited.set(workspace, await invoke("mcp_inherited", { id: workspace }));
+      inherited.set(key, await invoke("mcp_inherited", { id: workspace, agent }));
     } catch {
       // An unavailable backend leaves the base uncached for a retry.
     } finally {
-      inflight.delete(workspace);
+      inflight.delete(key);
     }
     announce();
   })();
@@ -88,14 +90,13 @@ async function refreshLogins() {
 type Pick = {
   /// The workspace whose layer is edited.
   workspace: string;
+  agent?: ProviderId;
   /// The workspace MCP layer; null inherits the global and project layers.
   current: () => Selection | null;
   /// Persist the new layer, or null to return the axis to inherit.
   set: (sel: Selection | null) => Promise<void> | void;
   /// Menu anchor position.
   at: () => { x: number; y: number };
-  /// True while the agent works; the change then lands on the next message rather than restarting.
-  working?: () => boolean;
   /// Opens the project-trust prompt when the project layer has pending items.
   trust?: () => void;
 };
@@ -106,7 +107,7 @@ type Pick = {
 /// visible and removable without importing them first.
 export async function openPicker(p: Pick) {
   try {
-    inherited.set(p.workspace, await invoke("mcp_inherited", { id: p.workspace }));
+    inherited.set(inheritedKey(p.workspace, p.agent), await invoke("mcp_inherited", { id: p.workspace, agent: p.agent }));
     // Rediscovery may change the base; repaint the gated composer buttons that read the cache.
     announce();
   } catch {
@@ -118,7 +119,7 @@ export async function openPicker(p: Pick) {
     hint: subtitle(server),
     section: t("tools.section.hub"),
   }));
-  for (const server of inheritedOf(p.workspace)) {
+  for (const server of inheritedOf(p.workspace, p.agent)) {
     if (!rows.some((r) => r.id === server.id))
       rows.push({ id: server.id, label: server.id, hint: subtitle(server), section: t("tools.section.cli") });
   }
@@ -129,12 +130,12 @@ export async function openPicker(p: Pick) {
   }
   void toolPicker.open({
     workspace: p.workspace,
+    agent: p.agent,
     axis: "mcp",
     rows,
     current: p.current,
     set: p.set,
     at: p.at,
-    working: p.working,
     noneLabel: t("mcp.none"),
     trust: p.trust,
   });

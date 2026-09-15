@@ -105,9 +105,18 @@ describe("a base herdada do CLI", () => {
     loadInherited("ws-base");
     await vi.waitFor(() => expect(inheritedOf("ws-base")).toEqual([metabase]));
     expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(invoke)).toHaveBeenCalledWith("mcp_inherited", { id: "ws-base" });
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("mcp_inherited", { id: "ws-base", agent: undefined });
     expect(painted).toBe(1);
     forget();
+  });
+
+  it("separa a base por provider no mesmo workspace", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce([metabase]).mockResolvedValueOnce([]);
+    loadInherited("mixed", "claude");
+    loadInherited("mixed", "codex");
+    await vi.waitFor(() => expect(inheritedOf("mixed", "claude")).toEqual([metabase]));
+    expect(inheritedOf("mixed", "codex")).toEqual([]);
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("mcp_inherited", { id: "mixed", agent: "codex" });
   });
 
   it("sem backend, a base fica vazia, o botão continua escondido e uma paint seguinte tenta de novo", async () => {

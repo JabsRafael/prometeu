@@ -896,7 +896,7 @@ export const PT = {
 
   "tools.reset": "Herdar padrões",
   "tools.selectNone": "Sem nenhum",
-  "tools.appliesNext": "vale para a próxima mensagem — a conversa em curso mantém as ferramentas com que começou",
+  "tools.appliesNext": "vale ao iniciar uma conversa ou retomar uma conversa parada; processos em execução mantêm as ferramentas atuais",
   "tools.section.hub": "Cadastrados",
   "tools.section.cli": "Herdados do CLI",
   "tools.prov.inherited": "herdado",
@@ -905,6 +905,9 @@ export const PT = {
   "tools.prov.pending": "projeto · aguardando confiança",
   "tools.prov.rejected": "projeto · sem confiança",
   "tools.trust.prompt": "Confiar nas ferramentas do projeto…",
+  "tools.project": "Ferramentas do projeto…",
+  "tools.trust.replaces": "substitui todas as ferramentas herdadas deste eixo",
+  "err.tools.changed": "A declaração mudou. Feche e reabra este diálogo para revisar a versão atual.",
   "tools.trust.title": "Confiar nas ferramentas deste projeto",
   "tools.trust.body": "Este repositório declara ferramentas em .prometeu/settings.toml. Elas só entram nas conversas depois que você aprovar. A decisão fica neste Mac e vale para esta versão exata — se o projeto mudar a declaração, o Prometeu pergunta de novo.",
   "tools.trust.adds": "adiciona",

@@ -54,8 +54,6 @@ type Pick = {
   set: (sel: Selection | null) => Promise<void> | void;
   /// Menu anchor position.
   at: () => { x: number; y: number };
-  /// True while the agent works; the change then lands on the next message rather than restarting.
-  working?: () => boolean;
   /// Opens the project-trust prompt when the project layer has pending items.
   trust?: () => void;
 };
@@ -83,7 +81,6 @@ export function openPicker(p: Pick) {
     current: p.current,
     set: p.set,
     at: p.at,
-    working: p.working,
     noneLabel: t("plugin.none"),
     trust: p.trust,
   });
@@ -99,7 +96,6 @@ export function openSkillPicker(p: Pick) {
     current: p.current,
     set: p.set,
     at: p.at,
-    working: p.working,
     noneLabel: t("skill.none"),
     trust: p.trust,
   });

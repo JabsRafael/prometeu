@@ -1,7 +1,7 @@
 import { invoke } from "./ipc";
 import { t } from "./i18n";
 import * as menu from "./menu";
-import { toggleSelection, type EffectiveItem, type Provenance, type Selection } from "./types";
+import { toggleSelection, type EffectiveItem, type Provenance, type ProviderId, type Selection } from "./types";
 
 /// One provenance-aware tool picker shared by the MCP, plugin and standalone-skill axes (ADR 0043).
 /// It reads the resolved effective set from `workspace_tools`, labels each row with where it came
@@ -17,6 +17,7 @@ export type Row = { id: string; label: string; hint?: string; section?: string }
 
 export type Pick = {
   workspace: string;
+  agent?: ProviderId;
   axis: Axis;
   rows: Row[];
   /// The workspace layer as it stands; null inherits everything from the layers above.
@@ -24,11 +25,9 @@ export type Pick = {
   /// Persist the new workspace layer, or null to return the axis to inherit.
   set: (sel: Selection | null) => Promise<void> | void;
   at: () => { x: number; y: number };
-  /// True while the agent is working, to explain that the change lands on the next message.
-  working?: () => boolean;
   /// Shown when the hub for this axis is empty.
   noneLabel: string;
-  /// Opens the project-trust prompt; offered only while the project layer has pending items.
+  /// Opens the project-trust prompt; offered while the project declaration awaits a decision.
   trust?: () => void;
 };
 
@@ -47,16 +46,21 @@ function badgeFor(p: Provenance | undefined): string | undefined {
 
 export async function open(p: Pick) {
   let items0: EffectiveItem[] = [];
+  let pending = false;
   try {
-    const tools = await invoke("workspace_tools", { id: p.workspace });
+    const [tools, project] = await Promise.all([
+      invoke("workspace_tools", { id: p.workspace, agent: p.agent }),
+      invoke("project_tools", { id: p.workspace }),
+    ]);
     items0 = tools[p.axis];
+    pending = project.pending;
   } catch {
     // An older or unavailable backend resolves nothing; fall back to the workspace's own adds.
   }
   const provenance = new Map(items0.map((e) => [e.id, e.provenance]));
   const current = p.current();
   const items: menu.Item[] = [];
-  if (p.working?.()) items.push({ label: t("tools.appliesNext"), disabled: true }, "sep");
+  items.push({ label: t("tools.appliesNext"), disabled: true }, "sep");
   if (!p.rows.length) items.push({ label: p.noneLabel, disabled: true });
   // Group headers appear only when the list spans more than one origin, so single-group menus stay flat.
   const grouped = new Set(p.rows.map((r) => r.section).filter((s) => s !== undefined)).size > 1;
@@ -105,7 +109,7 @@ export async function open(p: Pick) {
     }
   }
   // A pending project declaration resolves but is not injected until the person approves its hash.
-  if (p.trust && items0.some((e) => e.provenance === "pending")) {
+  if (p.trust && pending) {
     items.push("sep", {
       label: t("tools.trust.prompt"),
       run: () => p.trust!(),

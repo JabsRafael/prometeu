@@ -1356,28 +1356,22 @@ export class ChatView {
 
   /// Tool selection applies at the next spawn or resume; a running session keeps the set it was born
   /// with (ADR 0043), so the picker is available even mid-turn and only states that the change lands on
-  /// the next message. Hide controls without registry entries, a CLI-inherited base, or an existing
+  /// the next spawn. Hide controls without registry entries, a CLI-inherited base, or an existing
   /// layer (ADR 0044).
   private paintMcp(info: Info) {
     const btn = this.box.querySelector<HTMLButtonElement>(".mcpbtn")!;
     if (info.task) { btn.hidden = true; return; }
-    if (info.workspace) mcp.loadInherited(info.workspace);
+    if (info.workspace) mcp.loadInherited(info.workspace, info.agent);
     const has =
       mcp.list().length > 0 ||
       info.mcp !== null ||
-      (!!info.workspace && mcp.inheritedOf(info.workspace).length > 0);
+      (!!info.workspace && mcp.inheritedOf(info.workspace, info.agent).length > 0);
     btn.hidden =
       !!info.remote ||
       !info.workspace ||
       !capabilitiesOf(info.agent).workspaceMcpSelection ||
       !has;
     if (btn.hidden) return;
-    // Read the status when the picker opens, not when this paint ran, so a session that started
-    // working in between still gets the "applies on the next message" notice.
-    const working = () => {
-      const status = this.ctx.info().status;
-      return status === "rodando" || status === "querendo";
-    };
     btn.innerHTML = `${icon("plug", 13)}<span></span>`;
     btn.querySelector("span")!.textContent = mcp.label(info.mcp);
     btn.classList.toggle("on", !!info.mcp);
@@ -1388,13 +1382,13 @@ export class ChatView {
       const workspace = info.workspace!;
       void mcp.openPicker({
         workspace,
+        agent: info.agent,
         current: () => this.ctx.info().mcp,
         set: (sel) =>
           invoke("set_workspace_mcp", { id: workspace, mcp: sel }).catch((e) =>
             this.ctx.say(fromBack(e), true),
           ),
         at: () => ({ x: at.left, y: at.bottom + 4 }),
-        working,
         trust: () => void trust.open(workspace, this.ctx.say),
       });
     };
@@ -1411,10 +1405,6 @@ export class ChatView {
       !has ||
       !capabilitiesOf(info.agent).workspacePluginSelection;
     if (btn.hidden) return;
-    const working = () => {
-      const status = this.ctx.info().status;
-      return status === "rodando" || status === "querendo";
-    };
     btn.innerHTML = `${icon("puzzle", 13)}<span></span>`;
     btn.querySelector("span")!.textContent = plugins.label(info.plugins);
     btn.classList.toggle("on", !!info.plugins);
@@ -1431,7 +1421,6 @@ export class ChatView {
             this.ctx.say(fromBack(e), true),
           ),
         at: () => ({ x: at.left, y: at.bottom + 4 }),
-        working,
         trust: () => void trust.open(workspace, this.ctx.say),
       });
     };
@@ -1449,10 +1438,6 @@ export class ChatView {
       !has ||
       !capabilitiesOf(info.agent).workspacePluginSelection;
     if (btn.hidden) return;
-    const working = () => {
-      const status = this.ctx.info().status;
-      return status === "rodando" || status === "querendo";
-    };
     btn.innerHTML = `${icon("sparkles", 13)}<span></span>`;
     btn.querySelector("span")!.textContent = plugins.label(info.skills, plugins.SKILL_WORDS);
     btn.classList.toggle("on", !!info.skills);
@@ -1469,7 +1454,6 @@ export class ChatView {
             this.ctx.say(fromBack(e), true),
           ),
         at: () => ({ x: at.left, y: at.bottom + 4 }),
-        working,
         trust: () => void trust.open(workspace, this.ctx.say),
       });
     };

@@ -1,7 +1,8 @@
 # ADR 0044 — The CLI's MCP set is the visible inherited base
 
 Date: 2026-09-15
-Status: Accepted
+Status: Accepted — Discovery is superseded by
+[ADR 0045](0045-tool-selection-boundaries.md).
 
 Amends the "Authority" section of
 [ADR 0043](0043-layered-tool-selection.md); the rest of that decision stands.

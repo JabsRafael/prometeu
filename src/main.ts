@@ -29,6 +29,7 @@ import * as session from "./session";
 import * as settings from "./settings";
 import * as statusbar from "./statusbar";
 import * as team from "./team";
+import * as trust from "./trust";
 import "./style.css";
 import type { Board, Issue, Project, Tab, Workspace } from "./types";
 import * as update from "./update";
@@ -98,6 +99,7 @@ const hooks: sidebar.Hooks = {
     invoke("add_project", { path: dir }).catch((e) => say(fromBack(e), true));
   },
   removeProject: (id) => invoke("remove_project", { id }),
+  projectTools: (id) => void trust.open(id, say),
   openProject: (id) => {
     const project = state.projects.find((p) => p.id === id);
     if (project) showProject(project);

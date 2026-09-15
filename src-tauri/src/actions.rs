@@ -186,7 +186,7 @@ pub fn resolve(
     c: &Catalog,
     project: &str,
     id: &str,
-    resolved: &session::ResolvedTools,
+    tools: impl FnOnce(crate::state::ProviderId) -> session::ResolvedTools,
 ) -> Result<Profile, String> {
     let mut p = c
         .overrides
@@ -195,6 +195,8 @@ pub fn resolve(
         .or_else(|| c.profiles.iter().find(|p| p.id == id))
         .cloned()
         .ok_or_else(|| i18n::t("err.actions.missing"))?;
+    // Resolve for the profile's provider, which may differ from the workspace default.
+    let resolved = tools(p.choice.agent);
     // A task freezes the tools it starts with, so the caller resolves the layers once and an axis
     // the profile leaves unset inherits that resolved global and workspace selection.
     if p.mcp.is_none() {
@@ -273,12 +275,11 @@ pub fn action_start(
         }) {
             return Err(i18n::t("err.actions.busy"));
         }
-        let resolved = session::resolve_workspace_tools(&global, &trust, &ws);
         let profile = resolve(
             &actions,
             &ws.project,
             a.profile.as_deref().unwrap_or(""),
-            &resolved,
+            |agent| session::resolve_workspace_tools(&global, &trust, &ws, agent),
         )?;
         validate_profile(&profile)?;
         let git_context = format!(

@@ -2,7 +2,8 @@
 
 Date: 2026-09-14
 Status: Accepted — the "Authority" section is amended by
-[ADR 0044](0044-cli-inherited-mcp-base.md)
+[ADR 0044](0044-cli-inherited-mcp-base.md); Trust is superseded by
+[ADR 0045](0045-tool-selection-boundaries.md).
 
 ## Context
 

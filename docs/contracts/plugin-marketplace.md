@@ -51,7 +51,8 @@ replaced by `add` — or `"inherit"` — `add` and `remove` are applied over it.
 where each layer is persisted is in
 [`persistence.md`](persistence.md).
 
-The resolved list applies to whichever provider is chosen for that workspace:
+The resolved list applies to the effective provider of the tab or action
+profile, including overrides of the workspace default (ADR 0045):
 
 - a terminal inheritance, when no layer declares the axis, injects nothing from
   the hub;
@@ -59,12 +60,15 @@ The resolved list applies to whichever provider is chosen for that workspace:
 - an ID removed from the universe is ignored so that an old layer still
   resolves.
 
-For the `mcp` axis of a Claude workspace the universe is the hub plus the
+For the `mcp` axis of a Claude conversation the universe is the hub plus the
 **CLI-inherited base** ([ADR 0044](../decisions/0044-cli-inherited-mcp-base.md)):
-the servers discovered read-only from `~/.claude.json` (user scope and the
-project entry for the working directory) and from the working directory's
-`.mcp.json`. A hub server shadows a discovered ID; the first discovered
-occurrence wins. The base participates in resolution as an implicit
+the servers discovered read-only using the Claude adapter's configured home
+(`CLAUDE_CONFIG_DIR`, with `~/.claude.json` as the default) and from the working
+directory's `.mcp.json` plus its ancestors. Local definitions take precedence
+over project definitions (nearest first), then user definitions. A hub server
+still shadows a discovered ID; see
+[ADR 0045](../decisions/0045-tool-selection-boundaries.md). The base participates
+in resolution as an implicit
 `{ base: "inherit", add: <base> }` layer below global
 (`selection.rs::resolve_with_base`), so `base: "none"` at any layer also
 replaces it, and a removal of a base ID is an ordinary workspace-layer
@@ -213,6 +217,13 @@ adapter shows an error and does not open the thread. That way the session cannot
 be born as a collection of skills when the person chose an automatic behavior.
 
 ### Project declarations
+
+The dialog submits its displayed hash; the backend recomputes the declaration
+and rejects changed or removed declarations before recording a decision. Both
+approval and rejection require an exact match (ADR 0045). The prompt follows
+the declaration's pending state even if it only removes items or replaces an
+axis with an empty set. Project and workspace menus keep declarations accessible
+after a decision.
 
 The project layer comes from a versioned `.prometeu/settings.toml`, so it cannot
 activate on its own. The first time a repository's `[tools]` declares items —

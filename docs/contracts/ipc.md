@@ -174,32 +174,44 @@ type Selection = null | { base: "none" | "inherit"; add: string[]; remove: strin
   existing `board` event and the command returns nothing on success.
 - `set_workspace_mcp`, `set_workspace_plugins` and `set_workspace_skills`:
   receive `{ id }` plus the axis value as a `Selection`, replacing the previous
-  `string[] | null`. Absent keeps the current value; `null` inherits.
+  `string[] | null`. Absent keeps the current value; `null` inherits. Native
+  handlers inspect the JSON request body so Tauri cannot collapse null into an
+  absent argument; the wire shape is unchanged (ADR 0045).
 - All four setters validate the payload before writing and answer an i18n-coded
   error instead of storing garbage: a malformed `Selection` fails with
   `err.tools.badPayload`, and an id on the wrong axis — a `skill-<id>` package
   on `plugins`, or a plain plugin on `skills` — fails with `err.tools.badAxis`.
-- `workspace_tools`: receives `{ id }` and returns the effective set per axis,
+- `workspace_tools`: receives `{ id, agent? }` and returns the effective set per
+  axis,
   each item with its provenance — inherited, added, removed, or `cli` for the
   MCP servers the person's Claude configuration loads (ADR 0044) — and the
   project-declared items whose trust is pending or was rejected. An unknown
   workspace answers `err.session.noWorkspace`. It exists so the picker shows the
-  result without reading the three layers.
-- `mcp_inherited`: receives `{ id }` of a workspace and returns the MCP servers
+  result without reading the three layers. `agent` selects the displayed tab's
+  provider; omission uses the workspace provider, preserving existing callers.
+- `mcp_inherited`: receives `{ id, agent? }` of a workspace and returns the MCP
+  servers
   discovered from the CLI configuration for its working directory that the hub
-  lacks, empty for other providers. It is the visible inherited base of the
-  workspace picker (ADR 0044).
+  lacks, empty for other providers. The optional provider has the same default
+  as `workspace_tools`; the frontend cache includes both workspace and provider.
+  It is the visible inherited base of the workspace picker (ADR 0044).
 - `project_tools`: receives the `{ id }` of a project or a workspace and returns
   the `[tools]` declared by the primary repository, the settings file that
   declared it, the SHA-256 of that section and the stored decision, if any.
   `pending` is true only while no decision — approval or rejection — exists for
   the current hash, so an explicit rejection quiets the prompt until the
   declaration changes.
-- `project_tools_trust`: receives `{ id, approved }` and records the decision on
-  the board. The backend derives both the repository identity and the current
-  declaration hash from `id`, so a recorded decision always binds to the
-  declaration the command just read; a repository without a declaration is a
-  no-op. One decision per repository: a new verdict replaces the previous one.
+- `project_tools_trust`: receives `{ id, hash, approved }`, where `hash` is the
+  version displayed by the dialog. The backend derives repository identity and
+  current hash from `id`, compares the displayed hash, and records a decision
+  only on a match. A changed or removed declaration returns `err.tools.changed`
+  without writing. Missing hash arguments fail closed. The dialog must reopen
+  before deciding on a new version. One decision per repository: a matching new
+  verdict replaces the previous one. See [ADR 0045](../decisions/0045-tool-selection-boundaries.md).
+
+The trust entry uses `project_tools.pending`, not the presence of pending items.
+Project and workspace menus also open declarations independently of the hub,
+including declarations containing only removals or an empty replacement.
 
 There is no new event: the global layer and the trust decisions are board
 fields, and the workspace layer already was. `Selection` is a typed shape in

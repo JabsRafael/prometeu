@@ -1011,7 +1011,7 @@ test("instala um plugin pelo endereço do repositório", async ({ page }) => {
 
 /// Each tool toggle persists on its own and applies at the next spawn; the picker re-opens showing the
 /// resolved effective set instead of restarting the running session (ADR 0043, phases 6 and 7).
-test("marcar plugins na conversa grava cada mudança e vale para a próxima fala", async ({ page }) => {
+test("marcar plugins na conversa grava cada mudança para o próximo início", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Ola");
 

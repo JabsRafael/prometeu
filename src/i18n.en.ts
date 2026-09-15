@@ -862,7 +862,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
 
   "tools.reset": "Inherit defaults",
   "tools.selectNone": "Select none",
-  "tools.appliesNext": "applies to the next message — the running conversation keeps the tools it started with",
+  "tools.appliesNext": "applies when starting a conversation or resuming a stopped conversation; running processes keep their current tools",
   "tools.section.hub": "Registered",
   "tools.section.cli": "Inherited from the CLI",
   "tools.prov.inherited": "inherited",
@@ -871,6 +871,9 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "tools.prov.pending": "project · awaiting trust",
   "tools.prov.rejected": "project · not trusted",
   "tools.trust.prompt": "Trust this project's tools…",
+  "tools.project": "Project tools…",
+  "tools.trust.replaces": "replaces all inherited tools on this axis",
+  "err.tools.changed": "The declaration changed. Close and reopen this dialog to review the current version.",
   "tools.trust.title": "Trust tools from this project",
   "tools.trust.body": "This repository declares tools in .prometeu/settings.toml. They only enter your conversations after you approve them. The decision stays on this Mac and applies to this exact version — if the project changes the declaration, Prometeu asks again.",
   "tools.trust.adds": "adds",

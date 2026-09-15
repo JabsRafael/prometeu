@@ -82,7 +82,7 @@ export type Commands = {
   mcp_check: { args: { server: T.McpServer }; result: T.McpCheck };
   mcp_found: { args: undefined; result: T.McpServer[] };
   mcp_hub: { args: undefined; result: T.McpServer[] };
-  mcp_inherited: { args: { id: string }; result: T.McpServer[] };
+  mcp_inherited: { args: { id: string; agent?: T.ProviderId | null }; result: T.McpServer[] };
   mcp_login: { args: { server: T.McpServer }; result: void };
   mcp_logins: { args: undefined; result: string[] };
   mcp_logout: { args: { id: string }; result: void };
@@ -107,7 +107,7 @@ export type Commands = {
   pr_open: { args: { id: string }; result: void };
   pr_prompt: { args: { id: string }; result: string };
   project_tools: { args: { id: string }; result: T.ProjectTools };
-  project_tools_trust: { args: { id: string; approved: boolean }; result: void };
+  project_tools_trust: { args: { id: string; hash: string; approved: boolean }; result: void };
   pty_buffer: { args: { session: string }; result: number[] };
   pty_resize: { args: { session: string; cols: number; rows: number }; result: void };
   pty_write: { args: { session: string; data: string }; result: void };
@@ -149,7 +149,7 @@ export type Commands = {
   workspace_git_resolve: { args: { id: string; repo: number; path: string; was: string; text: string }; result: void };
   workspace_git_status: { args: { id: string }; result: T.GitStatus[] };
   workspace_scripts: { args: { id: string }; result: T.Scripts };
-  workspace_tools: { args: { id: string }; result: T.WorkspaceTools };
+  workspace_tools: { args: { id: string; agent?: T.ProviderId | null }; result: T.WorkspaceTools };
   write_file: { args: { id: string; rel: string; text: string; was: string }; result: void };
 };
 

@@ -546,7 +546,7 @@ function gateOf(declared: ProjectTools): Gate {
 
 /// The shared layer-resolution inputs for one workspace: the declared project layer (ungated), the
 /// global layer, the workspace's own triple, and the mcp base/universe (ADR 0044).
-function toolLayers(ws: Workspace) {
+function toolLayers(ws: Workspace, agent = ws.agent) {
   const declared = projectTools[ws.id] ?? noProjectTools;
   const gate = gateOf(declared);
   const declaredTools = declared.hash ? declared.tools : { mcp: null, plugins: null, skills: null };
@@ -554,7 +554,7 @@ function toolLayers(ws: Workspace) {
   const own = workspaceTools(ws);
   const mcpIds = mcpHub.map((s) => s.id);
   // The Claude CLI base joins the universe below the hub; other agents have no inherited servers.
-  const base = ws.agent === "claude" ? cliServers.map((s) => s.id).filter((id) => !mcpIds.includes(id)) : [];
+  const base = agent === "claude" ? cliServers.map((s) => s.id).filter((id) => !mcpIds.includes(id)) : [];
   const pluginIds = pluginHub.map((p) => p.id);
   return { gate, declaredTools, global, own, base, mcpUniverse: [...mcpIds, ...base], pluginIds };
 }
@@ -893,7 +893,7 @@ const mockCommands: IpcHandlers = {
     const profile = structuredClone(catalog.overrides[workspace.project]?.[action.profile] ?? catalog.profiles.find(p => p.id === action.profile)) as Profile;
     // Mirror of resolve_workspace_tools: a profile that leaves an axis unset inherits the resolved
     // global, project and workspace layers instead of only the workspace's own adds.
-    const l = toolLayers(workspace);
+    const l = toolLayers(workspace, profile.choice.agent);
     const project = l.gate === "trusted" ? l.declaredTools : { mcp: null, plugins: null, skills: null };
     // Mirror of resolve_axis: an axis nobody declared stays null, preserving the provider's own set.
     const axis = (g: Selection | null, p: Selection | null, w: Selection | null, base: string[], universe: string[]) =>
@@ -1509,7 +1509,7 @@ const mockCommands: IpcHandlers = {
   // The CLI-inherited base for a Claude workspace, minus servers the hub already has (ADR 0044).
   mcp_inherited(args) {
     const ws = board.workspaces.find((x) => x.id === args.id);
-    if (!ws || ws.agent !== "claude") return [];
+    if (!ws || (args.agent ?? ws.agent) !== "claude") return [];
     return cliServers.filter((s) => !mcpHub.some((h) => h.id === s.id));
   },
   // Plugin hub behavior mirrors MCP hub editing.
@@ -1649,8 +1649,7 @@ const mockCommands: IpcHandlers = {
   },
   project_tools_trust(args) {
     const declared = declaredFor(args.id);
-    // A repository without a declaration has nothing to trust; the command is a no-op.
-    if (!declared.hash) return;
+    if (!declared.hash || args.hash !== declared.hash) throw `i18n:${JSON.stringify({ code: "err.tools.changed" })}`;
     board.tool_trust ??= [];
     const at = Math.floor(Date.now() / 1000);
     const existing = board.tool_trust.find((t) => t.repo === declared.repo);
@@ -1667,7 +1666,7 @@ const mockCommands: IpcHandlers = {
   workspace_tools(args) {
     const ws = board.workspaces.find((x) => x.id === args.id);
     if (!ws) throw `i18n:${JSON.stringify({ code: "err.session.noWorkspace" })}`;
-    const l = toolLayers(ws);
+    const l = toolLayers(ws, args.agent ?? ws.agent);
     return {
       mcp: axisProvenance(l.global.mcp, l.declaredTools.mcp, l.gate, l.own.mcp, l.base, l.mcpUniverse),
       plugins: axisProvenance(l.global.plugins, l.declaredTools.plugins, l.gate, l.own.plugins, [], l.pluginIds),

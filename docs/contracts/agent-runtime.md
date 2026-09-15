@@ -122,9 +122,11 @@ selection is resolved by the core: `session.rs` composes the global layer from
 the board, the project layer from the primary repository's
 `.prometeu/settings.toml` and the workspace layer into the three `SessionLaunch`
 lists, leaving out project-declared items whose hash is not approved yet
-([ADR 0043](../decisions/0043-layered-tool-selection.md)). A tab's
-provider/model/effort override changes its choice while preserving that resolved
-set. Task tabs continue to use their frozen resolved profile. The regressions in
+([ADR 0043](../decisions/0043-layered-tool-selection.md)). Resolution uses the
+effective tab provider, including a new tab's override or
+an action profile's provider, rather than the workspace default. A model/effort
+override within that provider preserves the resolved set. Task tabs continue
+to use their frozen resolved profile. The regressions in
 `session.rs` cover these selections for Claude and Codex.
 
 The resolved set is captured at spawn, following the execution-account rule
