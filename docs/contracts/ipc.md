@@ -159,6 +159,39 @@ Run still require a workspace and answer `err.session.noWorkspace`.
 `workspace_scripts` and `dock_state` already tolerated an id without a workspace
 — they return an empty catalog and no port.
 
+## Tool selection
+
+The global, project and workspace layers of MCP, plugin and skill selection
+([ADR 0043](../decisions/0043-layered-tool-selection.md)) travel as one shape:
+
+```ts
+type Selection = null | { base: "none" | "inherit"; add: string[]; remove: string[] };
+```
+
+- `set_tools_global`: receives `{ mcp?, plugins?, skills? }`, each an optional
+  `Selection`. An absent axis is not changed; `null` returns it to inherit. The
+  global layer is a board field, so the result reaches the frontend through the
+  existing `board` event and the command returns nothing.
+- `set_workspace_mcp`, `set_workspace_plugins` and `set_workspace_skills`:
+  receive `{ id }` plus the axis value as a `Selection`, replacing the previous
+  `string[] | null`. Absent keeps the current value; `null` inherits.
+- `workspace_tools`: receives `{ id }` and returns the effective set per axis,
+  each item with its provenance — inherited, added or removed — and the
+  project-declared items whose trust is still pending. It exists so the picker
+  shows the result without reading the three layers.
+- `project_tools`: receives the `{ id }` of a project or a workspace and returns
+  the `[tools]` declared by the primary repository, the settings file that
+  declared it, the SHA-256 of that section and the stored decision, if any.
+- `project_tools_trust`: receives `{ id, hash, approved }` and records the
+  decision on the board. The backend derives the repository identity from `id`;
+  approving a new hash replaces the previous decision.
+
+There is no new event: the global layer and the trust decisions are board
+fields, and the workspace layer already was. `Selection` is a typed shape in
+`src/types.ts`, and the mock implements every command above. ADR 0043 introduces
+them in its interface phase; the parity test in `src-tauri/tests/mock.rs` is what
+makes each one real.
+
 ## Legacy import
 
 `legacy_import_plan` does not change state. It returns the source, one of the

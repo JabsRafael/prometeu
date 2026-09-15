@@ -1,7 +1,7 @@
 # ADR 0043 — Layered tool selection: global, project and workspace
 
 Date: 2026-09-14
-Status: Proposed
+Status: Accepted
 
 ## Context
 
@@ -219,9 +219,18 @@ Negative:
 
 ## Evidence
 
-Planned, since the decision is Proposed:
+In place:
 
-- `selection.rs` unit tests for the inheritance chain and the delta modes;
+- the contracts of the first phase:
+  [`persistence.md`](../contracts/persistence.md),
+  [`plugin-marketplace.md`](../contracts/plugin-marketplace.md),
+  [`agent-runtime.md`](../contracts/agent-runtime.md) and
+  [`ipc.md`](../contracts/ipc.md);
+- `selection.rs` unit tests for the inheritance chain, the two base modes,
+  fall-through, removal and unknown-ID tolerance.
+
+Pending, following the implementation plan:
+
 - a `session.rs` compatibility test loading a pre-migration board and asserting
   the resolved `SessionLaunch` for Claude and Codex;
 - a `scripts.rs` test for the `[tools]` table and primary-repository selection;
@@ -229,9 +238,9 @@ Planned, since the decision is Proposed:
   both providers;
 - an interface test for the project trust prompt on first declaration and on a
   changed hash;
-- [`plugin-marketplace.md`](../contracts/plugin-marketplace.md) and
-  [`provider-matrix.md`](../quality/provider-matrix.md) updated with the layered
-  behavior and its coverage;
-- the native scope behavior referenced in Context comes from
-  [Claude Code — MCP](https://code.claude.com/docs/en/mcp) and
-  [Claude Code — settings](https://code.claude.com/docs/en/settings).
+- [`provider-matrix.md`](../quality/provider-matrix.md) updated with the layered
+  behavior and its coverage.
+
+The native scope behavior referenced in Context comes from
+[Claude Code — MCP](https://code.claude.com/docs/en/mcp) and
+[Claude Code — settings](https://code.claude.com/docs/en/settings).
