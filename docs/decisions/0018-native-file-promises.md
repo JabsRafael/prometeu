@@ -1,6 +1,6 @@
 # ADR 0018: receiving macOS file promises
 
-Status: accepted.
+Status: Accepted
 
 ## Context
 

@@ -1,8 +1,9 @@
 # ADR 0034 — Mobile pairing continuity
 
 Date: 2026-09-10
-Status: Accepted. Supersedes the mandatory reconnection per lease of
-[ADR 0021](0021-cloud-organizations.md) and specializes the remote authorship of
+Status: Accepted
+
+Defines renewal for [ADR 0021](0021-cloud-organizations.md) and remote authorship for
 [ADR 0028](0028-mobile-web-app.md) for the personal devices of
 [ADR 0030](0030-remote-control.md).
 

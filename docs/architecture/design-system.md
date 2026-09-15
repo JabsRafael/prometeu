@@ -60,7 +60,7 @@ visible.
 The command and agent editors in Actions use the shared fields, selectors,
 checkboxes, disclosures and dialog. The launcher uses the same dropdown; text
 fields in the MCP and plugin hubs use `input` and `field`, including the plugin
-creation request. Worktree cleanup and legacy import also use `formDialog`,
+creation request. Worktree cleanup also uses `formDialog`,
 including its busy-state cancellation guard and shared checkboxes. Their
 application callbacks own progress labels and operation results. Legacy modals
 in the hubs keep the previous lifecycle.

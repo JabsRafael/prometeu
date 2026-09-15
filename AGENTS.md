@@ -75,11 +75,15 @@ A change in a persisted format, IPC, the relay, the conversation protocol, a
 trust boundary or a dependency between layers requires:
 
 - updating the corresponding contract in `docs/contracts/`;
-- adding or replacing an ADR when there is a choice with trade-offs;
+- adding or updating an ADR when there is a choice with trade-offs;
 - including a compatibility test or explaining why it does not apply.
 
-Accepted ADRs are not rewritten to change the decision. Create another ADR and
-mark the previous one as superseded.
+Keep ADRs aligned with the implemented decision. When replacing or removing a
+decision, consolidate the guarantees still in force into its replacement and
+remove the obsolete document and links in the same change. Git preserves the
+history; do not keep superseded instructions in the current documentation.
+Keep ADR numbers stable and never reuse retired numbers. See
+[the decision lifecycle](docs/decisions/README.md).
 
 ## Development and validation
 

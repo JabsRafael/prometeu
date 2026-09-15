@@ -1,7 +1,9 @@
 # ADR 0036 — a second Mac as a companion device
 
 Date: 2026-09-11
-Status: Accepted. Extends [ADR 0027](0027-companion-devices.md) and makes the
+Status: Accepted
+
+Extends [ADR 0027](0027-companion-devices.md) and makes the
 "one active identity per membership" rule of
 [ADR 0022](0022-end-to-end-encryption.md) precise, without changing
 [relay v4](../contracts/relay-v4.md).

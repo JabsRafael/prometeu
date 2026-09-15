@@ -49,7 +49,8 @@ tracking resumable and observable. Skill selection is an instruction, not
 capability isolation.
 
 The contract is in [actions](../contracts/actions.md). Persistence is additive;
-old boards keep an empty catalog and no tasks.
+old boards receive the one-time defaults from
+[ADR 0010](0010-default-code-review.md), without creating tasks.
 
 ## Evidence
 

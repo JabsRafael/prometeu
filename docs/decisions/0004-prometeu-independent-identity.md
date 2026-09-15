@@ -12,8 +12,8 @@ prevent installing both applications side by side to check the new line before
 migrating real data.
 
 The code and the Git history were copied into a new repository. The previous
-ADRs and changelog remain historical records and are not rewritten to pretend
-the new name always existed.
+identity remains visible in Git history and in compatibility tokens that
+existing transcripts still require.
 
 ## Options considered
 
@@ -32,18 +32,19 @@ project configuration and environment variables:
 - configuration in `.prometeu/settings.toml`;
 - public variables with the `PROMETEU_` prefix;
 - branches created with the `prometeu/` prefix;
-- releases published in `prometeucorp/prometeu-releases`.
+- releases published in `prometeucorp/prometeu`, alongside the source, as defined
+  in [ADR 0040](0040-open-source.md).
 
 The application neither reads nor modifies Prometheus data automatically. The
-migration will be a later use case, explicit and idempotent, that creates a
-backup, preserves the source and handles worktrees with Git operations instead
-of moving folders directly.
+temporary importer has been removed. Already-imported boards and transcripts
+remain readable. Cleanup accepts an inherited multi-repository worktree only
+at the path computed by `paths::prometheus_multi_dir`; it does not move folders
+or discover old boards. See [persistence](../contracts/persistence.md).
 
-Prometeu stops writing the rollback projection defined in ADR 0002. There is no
-previous Prometeu version that depends on it. The reader keeps supporting the
-historical `prometheusV1Mirror` and `type: "prometheus"` tokens to allow a
-future import without rewriting transcripts. This decision supersedes only ADR
-0002's temporary mirror policy; the V1 protocol remains.
+Prometeu writes only V1 events. The reader supports the historical
+`prometheusV1Mirror` and `type: "prometheus"` tokens for existing transcripts,
+without emitting a rollback mirror. See
+[ADR 0002](0002-canonical-conversation-protocol.md).
 
 ## Consequences
 
@@ -51,34 +52,21 @@ Positive:
 
 - both products can be installed and run side by side;
 - developing Prometeu does not risk the existing state;
-- a failure in the future migration does not erase the source;
+- already-imported data remains readable without accessing the old state root;
 - new names do not accidentally carry public contracts.
 
 Negative:
 
-- existing data does not appear before the import;
+- data from an installation that was never migrated requires an older importer
+  or a manual migration;
 - `.prometheus` configurations of other repositories must be recreated or
   imported consciously;
 - external integrations, signing and release infrastructure need new
   credentials;
 - the legacy reader still contains two identifiers with the previous name.
 
-Linear's OAuth registration is a temporary exception: the first development
-cycle reuses its previous client id so the feature is not disabled. Before the
-first public release, it must be replaced by a Prometeu registration; until
-then, Linear's consent screen may show the old brand.
-
-Implementation update on 2026-09-04: the exception ended. Prometeu started using
-its own OAuth registration before the first public release, preserving the
-Authorization Code flow with PKCE and the read scope.
-
-Implementation update on 2026-09-04: the later import was implemented by
-[ADR 0006](0006-explicit-prometheus-import.md), keeping the source independent
-and adopting the old worktrees without moving them.
-
-Update on 2026-09-11: [ADR 0040](0040-open-source.md) supersedes the releases
-item. The code is public in `prometeucorp/prometeu` and releases come from that
-same repository; `prometeucorp/prometeu-releases` is archived.
+Linear uses Prometeu's own OAuth registration, with Authorization Code, PKCE
+and the read scope.
 
 ## Evidence
 
@@ -87,3 +75,5 @@ same repository; `prometeucorp/prometeu-releases` is archived.
 - `branch.ts` tests cover the new prefix;
 - conversation tests keep fixtures of the historical tokens;
 - the Tauri configuration defines an independent product, binary and bundle id.
+- `session.rs::check_so_deixa_sair_o_que_ja_entrou_e_esta_limpo` covers cleanup
+  of inherited multi-repository worktrees.

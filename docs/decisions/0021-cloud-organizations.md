@@ -1,14 +1,10 @@
 # ADR 0021 — Organizations and invitations in the Cloud
 
 Date: 2026-09-07
-Status: Accepted; protocol and content boundary extended by
-[ADR 0022](0022-end-to-end-encryption.md).
-The requirement of a personal copy before installing was superseded by
-[ADR 0039](0039-organization-catalog-on-desktop.md).
-The mandatory reconnection when each lease expires was superseded by the renewal
-in [ADR 0034](0034-mobile-pairing-continuity.md).
-Extends [ADR 0015](0015-cloud-rails.md) and supersedes the exclusively personal
-ownership limitation of [ADR 0020](0020-personal-catalog-and-local-items.md).
+Status: Accepted
+
+Complements the optional account in [ADR 0015](0015-cloud-rails.md) and personal
+catalog in [ADR 0020](0020-personal-catalog-and-local-items.md).
 
 ## Context
 
@@ -25,11 +21,14 @@ Active Record, SQLite constraints, signed tokens and Action Mailer. Catalogs
 reuse the revisioned document and the portability validation; sharing between
 catalogs is an explicit, independent copy.
 
-We preserve the relay and the conversation protocol. Single-use individual
-tickets authenticate 60-second leases, with a Cloud query in the handshake. That
-avoids new service secrets, custom JWT signing and a revocation webhook, at the
-cost of renewing connections and snapshots periodically. Traffic stops after the
-deadline even when the Durable Object's alarm is late.
+Single-use individual tickets authenticate 60-second leases, with a Cloud query
+in the handshake and each renewal. Compatible clients renew on the same socket
+without repeating snapshots when the roster is unchanged; reconnection handles
+connection loss or peers without lease renewal. See
+[ADR 0034](0034-mobile-pairing-continuity.md). This avoids custom JWT signing and
+a revocation webhook. Traffic stops after the deadline even when the Durable
+Object's alarm is late. Content uses the v4 encrypted boundary from
+[ADR 0022](0022-end-to-end-encryption.md).
 
 Consent to send a workspace includes the organization and the membership.
 Switching context does not send old work to another group. Legacy teams keep
@@ -42,8 +41,10 @@ emails.
 The desktop stays useful without an account. Institutional collaboration
 requires the Cloud to be available to renew authorization. Revocation has a
 60-second limit. Organizations support the same 64 members as the relay.
-Personal catalogs stay synchronized as before; copying from the organization is
-an explicit adoption, without automatically subscribing to the next edits.
+Personal catalogs stay synchronized as before. Organization definitions are
+available directly in the desktop hubs. Installation creates a local copy
+without automatically subscribing to later edits; a personal catalog copy is
+optional. See [ADR 0039](0039-organization-catalog-on-desktop.md).
 Received code is never activated just by accepting an invitation.
 
 A rollback keeps the expanded schema and the legacy storage. Publication follows

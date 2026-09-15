@@ -1,12 +1,12 @@
 # ADR 0002 — Canonical conversation protocol
 
 Date: 2026-09-03
-Status: Accepted; mirror policy superseded by ADR 0004
+Status: Accepted
 
 ## Context
 
-The frontend reduces Claude's stream-json. The Codex adapter converts JSON-RPC
-into that same format, allowing the timeline, transcript and sharing to be
+The original frontend reduced Claude's stream-json. The Codex adapter converted
+JSON-RPC into that same format, allowing the timeline, transcript and sharing to be
 reused. The solution proved the usefulness of a common representation.
 
 However, the common format belongs to a vendor, is consumed as dynamic JSON and
@@ -17,16 +17,17 @@ another provider have to imitate external concepts or inject their own subtypes.
 
 1. Keep Claude's stream-json as a permanent contract.
 2. Make the frontend know and reduce each protocol separately.
-3. Create canonical Prometheus events and per-provider adapters.
+3. Create canonical Prometeu events and per-provider adapters.
 
 ## Decision
 
 Adopt `ConversationEventV1` and `ConversationCommandV1` as versioned internal
 contracts. Each provider translates input and output at the edge. Timeline,
-persistence and collaboration consume only the Prometheus contract.
+persistence and collaboration consume only the Prometeu contract.
 
-The migration keeps reading legacy transcripts. The contract in force is in
-`docs/contracts/conversation-events-v1.md`.
+Legacy transcripts remain readable without rewriting them. New Prometeu logs
+contain only V1 events, without a rollback mirror. The contract in force is in
+[conversation-events-v1.md](../contracts/conversation-events-v1.md).
 
 ## Consequences
 
@@ -39,7 +40,7 @@ Positive:
 
 Negative:
 
-- there will be a period with reading and a rollback mirror in two formats;
+- the legacy reader remains necessary for existing transcripts;
 - each new event requires a decision on common semantics;
 - translation may lose a provider-specific detail;
 - transcripts and snapshot/live need a careful migration.
@@ -52,8 +53,8 @@ Negative:
 - Rust tests cover the stream-json translation and Codex's direct V1
   translation;
 - the parser and the adapters discard an unknown event in isolation;
-- Codex logs receive a marked legacy mirror, allowing a rollback without
-  rewriting transcripts.
+- Codex logs contain V1 events; replay recognizes historical mirror marks
+  without duplicating conversation items.
 
 ## Detail decisions
 
@@ -62,8 +63,5 @@ Negative:
 - slash commands remain text interpreted by the adapter, with explicit discovery
   through `commands.list`;
 - a translated, presentable notice appears; an unknown external type is a no-op;
-- the `prometheusV1Mirror` mirror is temporary, but removing it requires a new
-  ADR.
-
-ADR 0004 ended the emission of that mirror in Prometeu's independent line. The
-legacy tokens are still accepted only for reading and for a future import.
+- `prometheusV1Mirror` and `type: "prometheus"` remain read-only compatibility
+  tokens for existing transcripts; the app does not emit them.

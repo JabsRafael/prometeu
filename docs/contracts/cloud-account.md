@@ -56,7 +56,7 @@ origin, offline state, public confirmation code and the attempt's local ID. The
 backend builds the approval URL from the configured origin and does not follow
 HTTP redirects. Passwords are typed only on the SaaS page.
 
-`PROMETEU_CLOUD_URL` configures the origin in the app process; the planned
+`PROMETEU_CLOUD_URL` configures the origin in the app process; the
 default is `https://app.prometeu.co`. HTTPS is required outside loopback. The
 origin is persisted alongside the token so that an existing credential is never
 forwarded to another server after a configuration change.

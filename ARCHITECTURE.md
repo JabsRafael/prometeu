@@ -1,7 +1,8 @@
 # Prometeu architecture
 
 This document is the map of the current system. Protocol details live in
-`docs/contracts/`; future decisions appear as ADRs with an explicit status.
+`docs/contracts/`; accepted ADRs describe decisions still in force. Proposals
+declare their status separately; replaced decisions remain in Git history.
 
 ## System goal
 

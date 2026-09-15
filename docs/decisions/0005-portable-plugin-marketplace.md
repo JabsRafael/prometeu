@@ -1,8 +1,7 @@
 # ADR 0005 — One portable marketplace for Claude and Codex
 
 Date: 2026-09-04
-Status: Accepted; authentication sharing partially superseded by
-[ADR 0012](0012-provider-accounts.md).
+Status: Accepted
 
 ## Context
 
@@ -38,14 +37,18 @@ Adopt option 4. The hub and `Workspace.plugins` stay provider-independent.
 
 - Claude receives the source through session flags;
 - Codex receives a local marketplace generated under Prometeu's private root, a
-  copy with a version derived from the content and a stable per-workspace home.
+  copy with a version derived from the content and a home separated by workspace
+  (or task session) and selected account.
 
 The installation lifecycle uses `codex plugin list/add/remove`, instead of the
 app-server's experimental plugin CRUD methods. All of those commands and the
 app-server receive the derived home. Its `config.toml` starts from the real
 configuration, but Prometeu's marketplace, activation and hook trust are written
-only in that copy. The remaining entries — authentication, sessions, skills,
-memory and cache — point to Codex's real home.
+only in that copy. Authentication points to the account captured when the
+process starts; changing selection never repoints a running process's links.
+Sessions, skills, memory and plugin cache stay shared as defined in
+[ADR 0012](0012-provider-accounts.md) and the
+[accounts contract](../contracts/accounts.md).
 
 Do not use a `-c` override for activation. The studied CLI version accepts
 `plugins."id@marketplace".enabled=true` on the command line, but the loader does

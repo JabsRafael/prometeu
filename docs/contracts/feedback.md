@@ -2,8 +2,7 @@
 
 Status: implemented on the desktop, in the Cloud and in the web bundle. Enabling
 it in production depends on configuring the GitHub credential in the Cloud.
-Decisions: [ADR 0035](../decisions/0035-feedback-requires-account.md) and
-[ADR 0033](../decisions/0033-github-feedback-attachments.md).
+Decision: [ADR 0035](../decisions/0035-feedback-requires-account.md).
 
 The widget offers Problem, Idea and Other, a description, an optional image and
 a capture started by the person. The form states that the report will be handled

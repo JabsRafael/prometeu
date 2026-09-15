@@ -1,9 +1,10 @@
 # ADR 0040 — Open source in a single public repository
 
 Date: 2026-09-11
-Status: Accepted. Partially supersedes
-[ADR 0004](0004-prometeu-independent-identity.md) regarding the releases
-repository.
+Status: Accepted
+
+Defines source and release hosting for the independent product in
+[ADR 0004](0004-prometeu-independent-identity.md).
 
 ## Context
 

@@ -192,8 +192,8 @@ replaces them.
 
 `ConversationEventV1` keeps reading the legacy stream-json. There is no
 destructive in-place migration. The reader recognizes and ignores the historical
-`prometheusV1Mirror` mark, needed for a future import of the previous product's
-logs; Prometeu's new logs write only the canonical V1 event.
+`prometheusV1Mirror` mark in existing imported logs; Prometeu's new logs write
+only the canonical V1 event. The app no longer offers an importer.
 
 ## Secrets and logs
 

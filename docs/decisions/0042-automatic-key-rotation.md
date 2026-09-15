@@ -3,29 +3,25 @@
 Date: 2026-09-10
 Status: Accepted
 
-Supersedes [ADR 0022](0022-end-to-end-encryption.md) regarding the block on a
-key change. The rest of 0022 — cipher, scopes, authorization, replay and limits
-— remains in effect. Voids the key review described in
-[ADR 0041](0041-members-list-shows-people.md).
+Defines peer key replacement within the cipher, scopes, authorization, replay
+and limits of [ADR 0022](0022-end-to-end-encryption.md). The members list in
+[ADR 0041](0041-members-list-shows-people.md) has no key-review controls.
 
 ## Context
 
-0022 pins each member's first key and blocks content with that member until
-someone accepts the new key in the Settings. In practice the key changes for
+The previous policy pinned each member's first key and blocked content until
+someone accepted a replacement in Settings. In practice the key changes for
 common reasons: reinstalling Prometeu, formatting the Mac, switching phones,
 pairing another device. Each of these events cuts sharing with that person for
 every peer and requires each one to open the Settings and accept. Whoever lives
 with this learns to click "Accept" without checking anything — the block costs a
 lot and buys no real security.
 
-WhatsApp solves the same problem by adopting the new key and leaving the notice
-off by default.
-
 ## Options considered
 
 1. Keep the block and improve the copy.
 2. Adopt the new key and show a persisted passive notice in the Settings.
-3. Adopt the new key silently, like WhatsApp's default.
+3. Adopt the new key silently.
 
 ## Decision
 

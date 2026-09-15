@@ -37,11 +37,13 @@ Mentions create assignments in **For me**. Opening an assignment does not mean
 finishing work; only resolving the root removes the thread from everyone's
 inbox. Any collaborator who still has access to the workspace can resolve it.
 
-The v3 relay protocol receives optional fields and the additive `note_reply` and
-`note_resolve` frames. The `welcome` announces `comments: 1`; without that
-capability, the app keeps simple comments and hides replies and resolution. In
-that fallback, opening still completes an inbox entry. There is no destructive
-migration: previous notes become open general roots.
+The v4 relay uses `note`, `note_reply` and `note_resolve`, with encrypted
+content and `comments: 1` in the welcome. The client retains a capability
+fallback for a relay without threads: it hides replies and resolution, and
+opening completes an inbox entry. That fallback does not bypass the mandatory
+v4/E2EE handshake. Stored notes without thread fields normalize to open general
+roots; v3 storage is preserved but is not loaded or converted by the v4 client.
+See the [relay contract](../contracts/relay-v4.md).
 
 ## Consequences
 
@@ -51,14 +53,14 @@ Positive:
 - writing to the team does not silently change the destination of the agent's
   box;
 - replies preserve the context and resolution closes the item for everyone;
-- previous v3 data and clients stay readable.
+- old thread fields have defaults without rewriting local transcripts.
 
 Negative:
 
 - the relay now persists thread state and replies;
 - an anchor may become unavailable after retention or a transcript change; the
   quote stays visible in that case;
-- old clients may show replies as independent notes;
+- v3 comments are not available in the v4 client;
 - resolution has no additional roles: access to the workspace is the authority.
 
 ## Evidence

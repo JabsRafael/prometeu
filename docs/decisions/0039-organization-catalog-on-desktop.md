@@ -1,9 +1,10 @@
 # ADR 0039 — Organization catalogs available on the desktop
 
 Date: 2026-09-11
-Status: Accepted. Partially supersedes
-[ADR 0021](0021-cloud-organizations.md) regarding the need to copy items into
-the personal catalog before installing them.
+Status: Accepted
+
+Defines desktop discovery and installation for the organization catalogs in
+[ADR 0021](0021-cloud-organizations.md).
 
 ## Context
 

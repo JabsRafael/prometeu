@@ -1,9 +1,11 @@
 # ADR 0022 — end-to-end encryption in collaboration
 
 Date: 2026-09-07
-Status: Accepted; local implementation, separate publication.
-Extends [ADR 0021](0021-cloud-organizations.md) and supersedes the readable
-content boundary of [relay v3](../contracts/relay-v3.md).
+Status: Accepted
+
+Defines the encrypted content boundary for
+[ADR 0021](0021-cloud-organizations.md). Publication is a separate operational
+step from local implementation and tests.
 
 ## Context
 
@@ -24,19 +26,19 @@ replay control and persistence belong to Prometeu and require their own review.
 Each local scope generates a private identity, independent of tickets and
 enrollment credentials. The relay receives the public key and an ECDSA proof of
 possession bound to the member and to that connection's challenge. Clients pin
-each member's first key before sending content. A different key blocks content
-with that member until an explicit acceptance in the settings, where the old and
-new codes can be compared through another channel. There is no manual
-verification badge and no automatic signed transition.
-Since [ADR 0042](0042-automatic-key-rotation.md) the new key is adopted
-automatically and there is no longer a block or a manual acceptance.
+each member's key before sending content. A changed peer key is persisted and
+adopted automatically, without a block, review, comparable code or signed
+transition, as defined in [ADR 0042](0042-automatic-key-rotation.md). A write
+failure prevents use of the new key. Replacing the scope's own key still fails.
 
 The scope includes the origin, the organization/team and the membership;
 persistence also separates local Cloud accounts. Renewing a ticket,
 reconnecting or restarting does not erase links. There is one active identity
-per membership: a second Mac with another key follows the replacement flow,
-without automatically recovering the private key or the old comments. There is
-no device synchronization.
+per relay member. The first Mac keeps the membership identity; browsers and
+additional Macs join as companion members with their own keys under
+[ADRs 0027](0027-companion-devices.md) and
+[0036](0036-second-mac-as-companion.md). Devices do not synchronize private keys
+or automatically recover old comments addressed to another identity.
 
 The owner is still the authority over their process and the local audience.
 `watch` grants no access. Authenticated audience announcements have persisted
