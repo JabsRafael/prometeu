@@ -176,9 +176,14 @@ type Selection = null | { base: "none" | "inherit"; add: string[]; remove: strin
   receive `{ id }` plus the axis value as a `Selection`, replacing the previous
   `string[] | null`. Absent keeps the current value; `null` inherits.
 - `workspace_tools`: receives `{ id }` and returns the effective set per axis,
-  each item with its provenance — inherited, added or removed — and the
+  each item with its provenance — inherited, added, removed, or `cli` for the
+  MCP servers the person's Claude configuration loads (ADR 0044) — and the
   project-declared items whose trust is still pending. It exists so the picker
   shows the result without reading the three layers.
+- `mcp_inherited`: receives `{ id }` of a workspace and returns the MCP servers
+  discovered from the CLI configuration for its working directory that the hub
+  lacks, empty for other providers. It is the visible inherited base of the
+  workspace picker (ADR 0044).
 - `project_tools`: receives the `{ id }` of a project or a workspace and returns
   the `[tools]` declared by the primary repository, the settings file that
   declared it, the SHA-256 of that section and the stored decision, if any.

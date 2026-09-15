@@ -1,7 +1,8 @@
 # ADR 0043 — Layered tool selection: global, project and workspace
 
 Date: 2026-09-14
-Status: Accepted
+Status: Accepted — the "Authority" section is amended by
+[ADR 0044](0044-cli-inherited-mcp-base.md)
 
 ## Context
 

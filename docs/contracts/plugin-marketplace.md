@@ -55,8 +55,22 @@ The resolved list applies to whichever provider is chosen for that workspace:
 
 - a terminal inheritance, when no layer declares the axis, injects nothing from
   the hub;
-- a list injects only items still present in the hub;
-- an ID removed from the hub is ignored so that an old layer still resolves.
+- a list injects only items still present in the axis universe;
+- an ID removed from the universe is ignored so that an old layer still
+  resolves.
+
+For the `mcp` axis of a Claude workspace the universe is the hub plus the
+**CLI-inherited base** ([ADR 0044](../decisions/0044-cli-inherited-mcp-base.md)):
+the servers discovered read-only from `~/.claude.json` (user scope and the
+project entry for the working directory) and from the working directory's
+`.mcp.json`. A hub server shadows a discovered ID; the first discovered
+occurrence wins. The base participates in resolution as an implicit
+`{ base: "inherit", add: <base> }` layer below global
+(`selection.rs::resolve_with_base`), so `base: "none"` at any layer also
+replaces it, and a removal of a base ID is an ordinary workspace-layer
+`remove`. Base items that stay on carry the `cli` provenance. Codex has no
+discovered base yet; see
+[`provider-matrix.md`](../quality/provider-matrix.md).
 
 Skills leave the plugin axis and become their own, and keep using the same
 plugin-package pipeline: `skills-packages/<id>`, `--plugin-dir` for Claude and
@@ -72,7 +86,13 @@ The selection controls what Prometeu injects. Plugins the person enabled
 directly in the CLI's global registry are still subject to that CLI's rules. In
 Codex, the real configuration is re-read while preparing each spawn so those
 preferences keep following the user; only the entries of the reserved `prometeu`
-and `prometeu-dev` marketplaces are controlled by the workspace.
+and `prometeu-dev` marketplaces are controlled by the workspace. For MCP in
+Claude, when any layer declares the axis the spawn passes
+`--strict-mcp-config` with a private file that materializes the **whole
+effective set**, including the kept CLI-inherited servers, so the resolved list
+is exactly what the CLI loads; when no layer declares it, no strict flag is
+passed and the CLI loads its own defaults — the same set the picker shows
+(ADR 0044 amends the Authority section of ADR 0043).
 
 Selecting is activating. The package must be enabled from the start of the
 session and, when it declares hooks, they must be active before the first
