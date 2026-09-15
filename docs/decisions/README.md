@@ -74,3 +74,4 @@ Status: Proposed
 | [0040](0040-open-source.md) | Accepted | open source in a single public repository |
 | [0041](0041-members-list-shows-people.md) | Accepted | the members list shows people and drops the permanent security code |
 | [0042](0042-automatic-key-rotation.md) | Accepted | a peer's new key is adopted automatically, with no block or review |
+| [0043](0043-layered-tool-selection.md) | Proposed | layered selection of MCP, plugins and skills across global, project and workspace |
