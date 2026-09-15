@@ -21,6 +21,7 @@ import * as mcp from "./mcp";
 import * as catalog from "./catalog";
 import * as skills from "./skills";
 import * as menu from "./menu";
+import * as voice from "./voice";
 import * as plugins from "./plugins";
 import * as news from "./news";
 import * as team from "./team";
@@ -85,7 +86,7 @@ const PAGES: Page[] = [
     id: "geral",
     title: "settings.page.general",
     glyph: "settings",
-    rows: () => [langRow()],
+    rows: () => [langRow(), ...(voice.available() ? [voiceRow()] : [])],
   },
   {
     id: "padroes",
@@ -193,6 +194,37 @@ function langRow(): HTMLElement {
         label: name,
         checked: id === chosen(),
         run: () => choose(id),
+      })),
+    );
+  });
+  row.querySelector(".act")!.append(btn);
+  return row;
+}
+
+/// Dictation language stays independent from the interface: people often read one language and speak another.
+function voiceRow(): HTMLElement {
+  const row = template(
+    "div",
+    "setrow",
+    `<span class="glyph">${icon("mic", 18)}</span><div class="txt"><b></b><span></span></div><div class="act"></div>`,
+  );
+  row.querySelector(".txt b")!.textContent = t("settings.voice");
+  row.querySelector(".txt span")!.textContent = t("settings.voice.body");
+  const options: [string | null, string][] = [
+    [null, t("settings.voice.interface")],
+    ...voice.TAGS.map((tag) => [tag, voice.nameOf(tag)] as [string, string]),
+  ];
+  const label = () => options.find(([id]) => id === voice.chosen())?.[1] ?? voice.chosen()!;
+  const btn = template("button", "ghost md pick", `<span></span>${icon("chevron-down", 12)}`) as HTMLButtonElement;
+  btn.children[0].textContent = label();
+  btn.addEventListener("click", () => {
+    const at = btn.getBoundingClientRect();
+    menu.openAt(
+      { x: at.left, y: at.bottom + 4 },
+      options.map(([id, name]) => ({
+        label: name,
+        checked: id === voice.chosen(),
+        run: () => { voice.choose(id); btn.children[0].textContent = label(); },
       })),
     );
   });

@@ -22,6 +22,7 @@ const PATHS = {
   "chevron-down": '<path d="m6 9 6 6 6-6"/>',
   "chevron-up": '<path d="m18 15-6-6-6 6"/>',
   square: '<rect width="14" height="14" x="5" y="5" rx="2"/>',
+  mic: '<path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/>',
   terminal: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
   coffee:
     '<path d="M10 2v2"/><path d="M14 2v2"/><path d="M6 2v2"/>' +

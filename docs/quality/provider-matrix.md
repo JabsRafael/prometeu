@@ -40,6 +40,7 @@ contractual capability.
 | choosing a model | native through a flag | adapted in `thread/start`/`thread/resume` | `session.rs`, `codex.rs` |
 | effort levels | catalog + fallback | Codex's catalog | `agents.rs`, `launcher.ts` |
 | conversation footer adapted to the width | model and activity separated from the tools; remote control highlighted when active | the same UI | `e2e/composer.spec.ts`, Chromium/WebKit, Portuguese/English and narrow frames |
+| dictation in the message box | independent of the CLI; WebKit recognition | independent of the CLI; WebKit recognition | `voice.test.ts`; a real microphone needs a manual smoke test in the bundled app |
 | initial plan mode | native through permission mode | unavailable | `session.rs`, `launcher.ts` |
 | streaming text | adapted to V1 | adapted to V1 | `conversation.test.ts`, `timeline.test.ts`, `codex.rs` tests |
 | thinking | adapted to V1 | adapted to V1 | `timeline.test.ts`, `codex.rs` tests |

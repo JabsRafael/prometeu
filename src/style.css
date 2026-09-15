@@ -581,7 +581,10 @@ main { flex: 1; min-height: 0; position: relative; }
 .composer .composer-tools button, .composer .remotebtn {
   height: var(--button-height); padding: 0 var(--space-2); gap: 6px; font-size: var(--text-sm); color: var(--fg-2); white-space: nowrap;
 }
-.composer .addfile { width: var(--button-height); padding: 0; }
+.composer .addfile, .composer .mic { width: var(--button-height); padding: 0; }
+.composer .mic.on { color: var(--err); }
+.composer .mic.on .ic { animation: beat 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .composer .mic.on .ic { animation: none; } }
 .composer .mcpbtn span, .composer .plugbtn span { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
 .composer .mcpbtn.on, .composer .plugbtn.on { color: var(--fg); }
 .composer .remotebtn { border-radius: var(--r); }

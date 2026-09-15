@@ -16,6 +16,12 @@ setup = "npm install"
 command = "sh scripts/app.sh"
 default = true
 
+# Build a debug .app and open it through LaunchServices. Only this path can dictate: macOS TCC
+# reads the speech usage description from a bundle the app launched itself, so `tauri dev` hides
+# the microphone. No hot reload.
+[scripts.run.bundle]
+command = "sh scripts/app-bundle.sh"
+
 # Run the same UI in Chrome through src/mock.ts, for browser automation without the Rust backend.
 # WKWebView does not expose CDP.
 # Keep Vite in the background and wait in the foreground so stopping the dock terminates the server. Use

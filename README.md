@@ -36,6 +36,8 @@ optional for local work; model access comes from your own provider account.
 - **Optional collaboration.** Share live conversations and comment on them
   with your team, or continue from your own companion devices. Execution stays
   on the owner's Mac.
+- **Dictation.** Speak into the message box; the transcript appears as you
+  talk, and the dictation language is a preference of its own.
 - **Portuguese and English UI.** Agent output and your content keep their
   original language.
 
@@ -96,6 +98,10 @@ npm run app
 Development state defaults to `~/.prometeu-dev`, separate from the installed
 app's `~/.prometeu`. When launched through a Prometeu workspace, the script
 uses that workspace's name and port to isolate simultaneous development instances.
+
+`npm run app:bundle` builds a debug `.app` and opens it through LaunchServices.
+Use it to test dictation: macOS only honors the speech usage description of a
+bundle the app launched itself, so `npm run app` hides the microphone button.
 
 ### Work on the UI in a browser
 

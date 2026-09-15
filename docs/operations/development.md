@@ -28,6 +28,13 @@ The mock does not prove process lifecycle, filesystem behavior or Rust
 serialization. The Tauri app is not driven by Playwright on macOS because
 WKWebView does not expose CDP.
 
+`npm run app:bundle` builds the app in debug mode as a `.app` and opens it
+through LaunchServices. It is the only way to test dictation on macOS: TCC reads
+`NSSpeechRecognitionUsageDescription` only from a bundle the app launched
+itself, and a binary run by `tauri dev` (or executed directly from inside the
+`.app`) is aborted on the first recognition request. That is why the microphone
+button stays hidden under `npm run app`; there is no hot reload in this mode.
+
 The mock's interactive preview uses a controlled page in an iframe and the app's
 own selection script. The `browser` tests cover Chromium and WebKit; the native
 PNG and AppKit gestures stay outside that proof. See the
