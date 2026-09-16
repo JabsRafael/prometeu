@@ -83,3 +83,6 @@ Status: Proposed
 | [0042](0042-automatic-key-rotation.md) | A peer's new key is adopted automatically |
 | [0043](0043-retire-unused-ipc.md) | Retire unused desktop IPC commands |
 | [0044](0044-current-documentation.md) | Current documentation with history in Git |
+| [0045](0045-layered-tool-selection.md) | Layered selection of MCP, plugins and skills across global, project and workspace |
+| [0046](0046-cli-inherited-mcp-base.md) | CLI MCP set as visible inherited picker base |
+| [0047](0047-tool-selection-boundaries.md) | Reviewed tool declarations, effective provider and native IPC patches |
