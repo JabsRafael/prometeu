@@ -162,6 +162,66 @@ Run still require a workspace and answer `err.session.noWorkspace`.
 `workspace_scripts` and `dock_state` already tolerated an id without a workspace
 — they return an empty catalog and no port.
 
+## Tool selection
+
+The global, project and workspace layers of MCP, plugin and skill selection
+([ADR 0045](../decisions/0045-layered-tool-selection.md)) travel as one shape:
+
+```ts
+type Selection = null | { base: "none" | "inherit"; add: string[]; remove: string[] };
+```
+
+- `set_tools_global`: receives `{ mcp?, plugins?, skills? }`, each an optional
+  `Selection`. An absent axis is not changed; `null` returns it to inherit. The
+  global layer is a board field, so the result reaches the frontend through the
+  existing `board` event and the command returns nothing on success.
+- `set_workspace_mcp`, `set_workspace_plugins` and `set_workspace_skills`:
+  receive `{ id }` plus the axis value as a `Selection`, replacing the previous
+  `string[] | null`. Absent keeps the current value; `null` inherits. Native
+  handlers inspect the JSON request body so Tauri cannot collapse null into an
+  absent argument; the wire shape is unchanged (ADR 0047).
+- All four setters validate the payload before writing and answer an i18n-coded
+  error instead of storing garbage: a malformed `Selection` fails with
+  `err.tools.badPayload`, and an id on the wrong axis — a `skill-<id>` package
+  on `plugins`, or a plain plugin on `skills` — fails with `err.tools.badAxis`.
+- `workspace_tools`: receives `{ id, agent? }` and returns the effective set per
+  axis,
+  each item with its provenance — inherited, added, removed, or `cli` for the
+  MCP servers the person's Claude configuration loads (ADR 0046) — and the
+  project-declared items whose trust is pending or was rejected. An unknown
+  workspace answers `err.session.noWorkspace`. It exists so the picker shows the
+  result without reading the three layers. `agent` selects the displayed tab's
+  provider; omission uses the workspace provider, preserving existing callers.
+- `mcp_inherited`: receives `{ id, agent? }` of a workspace and returns the MCP
+  servers
+  discovered from the CLI configuration for its working directory that the hub
+  lacks, empty for other providers. The optional provider has the same default
+  as `workspace_tools`; the frontend cache includes both workspace and provider.
+  It is the visible inherited base of the workspace picker (ADR 0046).
+- `project_tools`: receives the `{ id }` of a project or a workspace and returns
+  the `[tools]` declared by the primary repository, the settings file that
+  declared it, the SHA-256 of that section and the stored decision, if any.
+  `pending` is true only while no decision — approval or rejection — exists for
+  the current hash, so an explicit rejection quiets the prompt until the
+  declaration changes.
+- `project_tools_trust`: receives `{ id, hash, approved }`, where `hash` is the
+  version displayed by the dialog. The backend derives repository identity and
+  current hash from `id`, compares the displayed hash, and records a decision
+  only on a match. A changed or removed declaration returns `err.tools.changed`
+  without writing. Missing hash arguments fail closed. The dialog must reopen
+  before deciding on a new version. One decision per repository: a matching new
+  verdict replaces the previous one. See [ADR 0047](../decisions/0047-tool-selection-boundaries.md).
+
+The trust entry uses `project_tools.pending`, not the presence of pending items.
+Project and workspace menus also open declarations independently of the hub,
+including declarations containing only removals or an empty replacement.
+
+There is no new event: the global layer and the trust decisions are board
+fields, and the workspace layer already was. `Selection` is a typed shape in
+`src/types.ts`, and the mock implements every command above. ADR 0045 introduces
+them in its interface phase; the parity test in `src-tauri/tests/mock.rs` is what
+makes each one real.
+
 ## Legacy import
 
 `legacy_import_plan` does not change state. It returns the source, one of the

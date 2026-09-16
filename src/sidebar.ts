@@ -34,6 +34,7 @@ export type Hooks = {
   issues: () => number | null;
   addProject: () => void;
   removeProject: (id: string) => void;
+  projectTools: (id: string) => void;
   /// Open clone files without creating a workspace.
   openProject: (id: string) => void;
   newWorkspace: (projectId?: string) => void;
@@ -85,6 +86,7 @@ function wsMenu(ws: Workspace, board: Board, hooks: Hooks, label: HTMLElement, k
       glyph: icon("pencil"),
       run: () => rename.start(label, ws.title, (title) => hooks.rename(ws.id, title), kind),
     },
+    ...(!ws.remote ? [{ label: t("tools.project"), glyph: icon("plug"), run: () => hooks.projectTools(ws.id) } as menu.Item] : []),
     { label: t("ws.menu.copyPath"), glyph: icon("copy"), run: () => hooks.copyPath(ws) },
     { label: t("ws.menu.reveal"), glyph: icon("external-link"), run: () => hooks.reveal(ws.id) },
     "sep",
@@ -222,6 +224,7 @@ function renderRail(board: Board, hooks: Hooks) {
       e.stopPropagation();
       const at = more.getBoundingClientRect();
       menu.openAt({ x: at.left, y: at.bottom + 4 }, [
+        { label: t("tools.project"), glyph: icon("plug"), run: () => hooks.projectTools(project.id) },
         {
           label: t("rail.removeProject"),
           glyph: icon("x"),

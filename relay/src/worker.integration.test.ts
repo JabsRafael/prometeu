@@ -9,7 +9,7 @@ let created: CreatedTeam;
 
 // Closing under a loaded GitHub-hosted runner can exceed expect.poll's 1 s default.
 const closed = (socket: WebSocket) =>
-  expect.poll(() => socket.readyState, { timeout: 5_000 }).toBe(WebSocket.CLOSED);
+  expect.poll(() => socket.readyState, { timeout: 15_000 }).toBe(WebSocket.CLOSED);
 
 const socketResult = (url: string): Promise<{ open: boolean; first?: unknown }> =>
   new Promise((resolve) => {
@@ -30,11 +30,9 @@ const socketResult = (url: string): Promise<{ open: boolean; first?: unknown }> 
       socket.close();
       resolve({ open: true, first });
     });
+    // WebSocket errors are followed by close; resolving only here prevents the next connection from
+    // racing Durable Object cleanup on a loaded runner.
     socket.addEventListener("close", () => {
-      clearTimeout(timer);
-      resolve({ open: false });
-    });
-    socket.addEventListener("error", () => {
       clearTimeout(timer);
       resolve({ open: false });
     });

@@ -81,6 +81,9 @@ compatibility still in use stays documented in the current contracts.
 - [ADR 0042](decisions/0042-automatic-key-rotation.md): A peer's new key is adopted automatically.
 - [ADR 0043](decisions/0043-retire-unused-ipc.md): Retire unused desktop IPC commands.
 - [ADR 0044](decisions/0044-current-documentation.md): Current documentation with history in Git.
+- [ADR 0045](decisions/0045-layered-tool-selection.md): Layered selection of MCP, plugins and skills across global, project and workspace.
+- [ADR 0046](decisions/0046-cli-inherited-mcp-base.md): CLI MCP set as visible inherited picker base.
+- [ADR 0047](decisions/0047-tool-selection-boundaries.md): Reviewed tool declarations, effective provider and native IPC patches.
 
 ## Quality and operations
 
