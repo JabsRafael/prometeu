@@ -1,0 +1,53 @@
+{
+  "session": {
+    "user": {
+      "id": "41001",
+      "name": "Fixture Contributor",
+      "email": "contributor@example.test"
+    }
+  },
+  "signed_out": null,
+  "empty_catalog": {
+    "catalog": null,
+    "revision": null
+  },
+  "catalog": {
+    "catalog": {
+      "plugins": [
+        {
+          "id": "review-tools",
+          "source": "https://example.test/review-tools.git",
+          "note": "Synthetic portable plugin"
+        }
+      ],
+      "mcp": [
+        {
+          "id": "issues",
+          "config": {
+            "url": "https://example.test/mcp",
+            "type": "http",
+            "headers": { "Authorization": "" }
+          },
+          "note": "Credentials stay on each device"
+        }
+      ],
+      "skills": [
+        {
+          "id": "review",
+          "description": "Review a proposed change",
+          "content": "Read the diff and its tests.\nReport concrete regressions."
+        }
+      ],
+      "actions": null
+    },
+    "revision": 0
+  },
+  "legacy_catalog": {
+    "catalog": {
+      "plugins": [],
+      "mcp": [],
+      "actions": null
+    },
+    "revision": 0
+  }
+}

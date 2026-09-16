@@ -26,6 +26,7 @@ export type Block = { kind: "text"; text: string } | { kind: "thinking"; text: s
 
 export type Ask = {
   kind: "ask";
+  requestKind: Extract<AnyConversationEventV1, { type: "request.opened" }>["kind"];
   ts: number;
   id: string;
   tool: string;
@@ -317,6 +318,7 @@ export class Timeline {
     return [
       this.add({
         kind: "ask",
+        requestKind: event.kind,
         ts: event.at,
         id: event.requestId,
         tool: event.tool ?? "",

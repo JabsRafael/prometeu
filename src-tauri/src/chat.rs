@@ -569,17 +569,19 @@ fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool, account: 
                 _ => update(app, id, Some(Status::Rodando), Note::Keep, None),
             }
         }
-        // Approval, AskUserQuestion and ExitPlanMode requests can occur even in bypass mode. The
-        // board records that an answer is required; the UI sends it.
+        // Requests can occur even in bypass mode. Canonical kind determines the interaction;
+        // tool names only describe approvals.
         Some("request.opened") => {
-            let note = match frame["tool"].as_str() {
-                Some("AskUserQuestion") => frame["input"]["questions"][0]["question"]
+            let note = match frame["kind"].as_str() {
+                Some("question") => frame["input"]["questions"][0]["question"]
                     .as_str()
                     .map(str::to_string)
                     .unwrap_or_else(|| i18n::t("note.question")),
-                Some("ExitPlanMode") => i18n::t("note.plan"),
-                Some(tool) => i18n::ta("note.permission", &[("tool", tool.to_string())]),
-                None => i18n::t("note.permissionAny"),
+                Some("plan") => i18n::t("note.plan"),
+                _ => match frame["tool"].as_str() {
+                    Some(tool) => i18n::ta("note.permission", &[("tool", tool.to_string())]),
+                    None => i18n::t("note.permissionAny"),
+                },
             };
             update(app, id, Some(Status::Querendo), Note::Set(note), None);
         }
@@ -1012,24 +1014,21 @@ fn sanitize_remote_control(buffer: &str, frame: &Value) -> Option<Value> {
             let id = bounded(frame.get("requestId")?, 128)?;
             let request = request_in(buffer, id)?;
             let response = frame.get("response")?;
-            let clean = match response.get("outcome")?.as_str()? {
-                "allow"
-                    if request.get("tool_name").and_then(Value::as_str)
-                        != Some("AskUserQuestion") =>
-                {
+            let clean = match (
+                request["kind"].as_str()?,
+                response.get("outcome")?.as_str()?,
+            ) {
+                ("approval" | "plan", "allow") => {
                     json!({ "outcome": "allow" })
                 }
-                "answer"
-                    if request.get("tool_name").and_then(Value::as_str)
-                        == Some("AskUserQuestion") =>
-                {
+                ("question", "answer") => {
                     let answers = answers_for(
                         &request["input"],
                         &json!({ "answers": response.get("answers")? }),
                     )?;
                     json!({ "outcome": "answer", "answers": answers["answers"] })
                 }
-                "deny" => json!({
+                ("approval" | "plan" | "question", "deny") => json!({
                     "outcome": "deny",
                     "message": response
                         .get("message")
@@ -1064,9 +1063,7 @@ fn sanitize_remote_control(buffer: &str, frame: &Value) -> Option<Value> {
             let response = match behavior {
                 "allow" => {
                     let input = request.get("input")?.clone();
-                    let updated = if request.get("tool_name").and_then(Value::as_str)
-                        == Some("AskUserQuestion")
-                    {
+                    let updated = if request["kind"] == "question" {
                         answers_for(&input, answer.get("updatedInput")?)?
                     } else {
                         input
@@ -1106,18 +1103,18 @@ fn request_in(buffer: &str, id: &str) -> Option<Value> {
             return None;
         }
         if frame["v"] == 1 && frame["type"] == "request.opened" && frame["requestId"] == id {
-            return Some(json!({
-                "subtype": "can_use_tool",
-                "tool_name": frame["tool"],
-                "tool_use_id": frame["toolId"],
-                "input": frame["input"],
-            }));
+            return Some(frame);
         }
         if frame["type"] == "control_request"
             && frame["request_id"] == id
             && frame["request"]["subtype"] == "can_use_tool"
         {
-            return Some(frame["request"].clone());
+            let kind = match frame["request"]["tool_name"].as_str() {
+                Some("AskUserQuestion") => "question",
+                Some("ExitPlanMode") => "plan",
+                _ => "approval",
+            };
+            return Some(json!({ "kind": kind, "input": frame["request"]["input"] }));
         }
     }
     None
@@ -1200,7 +1197,10 @@ pub(crate) fn canonical_history(text: &str) -> Vec<Value> {
 
 /// Resolve the native Claude transcript or the app-managed Codex transcript for this conversation.
 pub fn transcript_of(ws: &Workspace, session: &str) -> PathBuf {
-    match ws.agent {
+    match ws
+        .launch_of(session, &crate::session::ResolvedTools::default())
+        .agent
+    {
         crate::state::ProviderId::Codex => paths::chat_log(session),
         crate::state::ProviderId::Claude => paths::transcript(session, Path::new(&ws.worktree)),
     }
@@ -1617,6 +1617,64 @@ mod tests {
             &json!({ "v": 1, "type": "permission.mode.set", "mode": "bypass" })
         )
         .is_none());
+    }
+
+    #[test]
+    fn remote_responses_follow_canonical_kind_not_tool_name() {
+        for (kind, tool) in [
+            ("question", json!("custom_question")),
+            ("question", Value::Null),
+            ("approval", json!("AskUserQuestion")),
+            ("plan", json!("AskUserQuestion")),
+        ] {
+            let buffer = conversation::event(
+                "request.opened",
+                1,
+                json!({
+                    "requestId": "ask", "kind": kind, "tool": tool, "toolId": null,
+                    "input": { "questions": [{ "question": "Color?" }] },
+                }),
+            )
+            .to_string();
+            let respond = |response: Value| json!({ "v": 1, "type": "request.respond", "requestId": "ask", "response": response });
+            let answer = respond(json!({ "outcome": "answer", "answers": { "Color?": "blue" } }));
+            let allow = respond(json!({ "outcome": "allow" }));
+            if kind == "question" {
+                assert_eq!(
+                    sanitize_remote_control(&buffer, &answer),
+                    Some(answer.clone())
+                );
+                assert!(sanitize_remote_control(&buffer, &allow).is_none());
+                let invented =
+                    respond(json!({ "outcome": "answer", "answers": { "Command?": "evil" } }));
+                assert!(sanitize_remote_control(&buffer, &invented).is_none());
+                let mut malicious = answer.clone();
+                malicious["response"]["updatedInput"] = json!({ "command": "evil" });
+                malicious["command"] = json!("evil");
+                assert_eq!(sanitize_remote_control(&buffer, &malicious), Some(answer));
+            } else {
+                assert_eq!(sanitize_remote_control(&buffer, &allow), Some(allow));
+                assert!(sanitize_remote_control(&buffer, &answer).is_none());
+            }
+            let deny = respond(json!({ "outcome": "deny", "message": "No" }));
+            assert_eq!(sanitize_remote_control(&buffer, &deny), Some(deny));
+
+            // Older teammates still send the legacy envelope against canonical requests.
+            let legacy = json!({
+                "type": "control_response", "response": {
+                    "subtype": "success", "request_id": "ask", "response": {
+                        "behavior": "allow", "updatedInput": {
+                            "answers": { "Color?": "blue" }, "command": "evil"
+                        }
+                    }
+                }
+            });
+            let safe = sanitize_remote_control(&buffer, &legacy).unwrap();
+            let input = &safe["response"]["response"]["updatedInput"];
+            assert!(input.get("command").is_none());
+            assert_eq!(input["questions"][0]["question"], "Color?");
+            assert_eq!(input.get("answers").is_some(), kind == "question");
+        }
     }
 }
 

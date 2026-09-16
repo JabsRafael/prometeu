@@ -152,6 +152,11 @@ with empty credentials.
 
 ## Evidence
 
+- [`fixtures/cloud-api.json`](../../fixtures/cloud-api.json): empty, current and
+  legacy documents exercised by the production Rust parser and actual Rails
+  endpoints. Paired tests cover revision conflicts, credential rejection and
+  preservation of skills omitted by older clients. See the
+  [shared fixture workflow](../operations/development.md#shared-cloud-api-fixtures).
 - `src-tauri/src/catalog.rs`: link migration, name collisions, preservation of
   private items and credentials, rejection of malformed documents.
 - `src-tauri/src/skills.rs`: validation, directory isolation, frontmatter, both

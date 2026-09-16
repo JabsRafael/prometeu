@@ -51,7 +51,10 @@ export function boardChanged(board: Board) {
 
 export async function init(context: Ctx) {
   ctx = context;
-  skills.init(ctx.say);
+  skills.init(ctx.say, async () => {
+    await plugins.refresh();
+    await catalog.load();
+  });
   skills.onChange(() => { if (!$("settingsView").hidden) draw(); });
   actions.onChange(() => { if (!$("settingsView").hidden) draw(); });
   listen<LinearStatus>("linear", ({ payload }) => {

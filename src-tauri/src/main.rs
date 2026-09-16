@@ -38,6 +38,7 @@ mod state;
 mod team;
 mod transcript;
 mod usage;
+mod workspace_tools;
 
 use state::Board;
 use std::collections::{HashMap, HashSet};

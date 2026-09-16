@@ -86,6 +86,11 @@ as a companion with the Mac's label; companion tickets accept a desktop or
 browser session. Without `device`, the desktop identifies the membership as
 before. See [ADR 0036](../decisions/0036-second-mac-as-companion.md).
 
+The first-device claim refreshes the membership under a database lock. Concurrent
+claimants observe the same stored `desktop_id`; the losing device becomes a
+companion instead of replacing the primary identity. The Cloud's
+`test/models/membership_test.rb` checks this with simultaneous claims.
+
 The connection has a lease of at most 60 seconds, also limited by the login's
 expiration. An alarm closes expired sockets; entry and exit check the deadline
 even if the alarm is late. After the identity proof, the relay announces

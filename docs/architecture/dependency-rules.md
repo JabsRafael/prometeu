@@ -14,7 +14,7 @@ only to increase the number of layers.
 | --- | --- | --- |
 | presentation | `chat.ts`, `workspace.ts`, `workspace-changes.ts`, `sidebar.ts` | view models, use cases and IPC contracts |
 | derived domain | `timeline.ts`, `relay/src/logic.ts` | domain types and pure functions |
-| application | `session.rs`, coordination in `main.ts` | domain and external ports |
+| application | `workspace_tools.rs`, `session.rs`, coordination in `main.ts` | domain and external ports |
 | adapters | `claude.rs`, `codex.rs`, IPC, relay transport, Git/files | external protocols and core contracts |
 
 The current directories do not literally represent these layers. The table
@@ -31,6 +31,29 @@ serves to decide ownership and dependency direction during incremental changes.
 7. Backend errors cross IPC as codes/data and are translated in the frontend.
 8. Presentation decides visibility through `AgentCapabilities`; provider name
    comparisons stay in the catalog or in the adapters.
+9. Runtime imports between local TypeScript modules are acyclic. Type-only
+   imports can refer back to a caller without creating a runtime dependency.
+
+## Composition and application use cases
+
+Connect features where their caller already coordinates them. For example,
+`settings.ts` supplies the callback that refreshes plugins and the catalog after
+`skills.ts` refreshes its own data. `main.ts` supplies `issues.ts` with the live
+Linear connection callback. Neither feature needs to import its caller or use
+a global event bus to obtain those dependencies.
+
+`src-tauri/src/workspace_tools.rs` validates tool selections and changes one
+workspace axis using explicit board state. It does not access process handles
+or mutate tabs. `session.rs` reads the native IPC body, preserves absent versus
+null arguments, translates validation errors and publishes the board.
+
+Saving a selection is allowed during a turn; existing processes keep their
+captured tools until they stop. The new selection applies at the next spawn or
+resume of a stopped process. Tests exercise validation and preservation of
+sibling tabs without `AppHandle`, `AppState`, a saver or a provider process.
+The board types still come from `state.rs`, so this boundary is not yet a
+standalone crate. See
+[ADR 0050](../decisions/0050-tested-application-boundaries.md).
 
 ## Rules in force for agents
 
@@ -102,11 +125,41 @@ be born in it only when the change already requires the boundary.
 
 The rules are protected by review, focused tests and small fitness functions:
 
-- `npm run architecture:check` blocks per-provider UI conditionals outside the
-  catalog/capability and coupling of the collaboration core to the desktop;
+- `npm run architecture:check` runs dependency-checker fixtures, checks the
+  source graph described below and retains the provider/protocol checks;
 - exhaustive types for `ProviderId` and canonical events;
 - a parity test between IPC commands, Rust handlers and the mock;
 - conformance fixtures per adapter.
 
 Do not introduce a dependency-analysis tool before a concrete rule exists that
 it can actually verify.
+
+### Executable import rules
+
+The checker parses production TypeScript and JavaScript recursively under
+`src/`, `relay/src/` and `packages/design-system/src/`. Tests and declaration
+files are excluded. It uses the TypeScript parser already installed for builds.
+
+- Static imports, re-exports, literal dynamic imports and `require` calls enter
+  the graph. Relative source paths resolve to their local module, including
+  `.js` imports of TypeScript sources and directory index files.
+- Runtime cycles fail. Use explicit `import type` or `export type` for type-only
+  dependencies; mixed value/type imports retain a runtime edge.
+- Collaboration core and mobile modules cannot reach their forbidden desktop
+  dependencies through a helper or barrel. Direct imports of forbidden shell
+  types also fail, but type-only targets are not traversed for runtime effects.
+- Design-system dependencies stay inside that package, including nested files.
+- `timeline.ts`, relay `logic.ts` and relay `protocol.ts`, plus their runtime
+  dependencies, cannot import external runtime packages or use selected ambient
+  names for DOM, storage, network, Worker APIs, timers, `process` or `console`.
+- Computed import paths and unresolved relative source imports fail rather than
+  silently escaping the graph. Asset imports do not create source execution
+  edges.
+
+These checks do not inspect dependency package internals or prove all code is
+pure. Ambient-name checks are conservative syntax checks, not semantic scope
+analysis. TypeScript, focused behavior tests and review remain necessary. The
+provider-name restriction still targets the six presentation modules listed in
+`scripts/check-architecture.mjs`; it is not a blanket ban on provider dispatch.
+Fixtures in `scripts/architecture-dependencies.test.mjs` demonstrate the allowed
+and rejected dependency shapes.

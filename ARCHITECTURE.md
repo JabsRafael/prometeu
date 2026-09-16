@@ -147,6 +147,11 @@ depend on the canonical primitives in `conversation.rs`.
   only validated V1 events.
 - Persisted state changes in the backend and is published to the frontend.
 - Pure rules must stay testable without DOM, Tauri or network.
+- Application use cases receive the state and effects they need. The workspace
+  tool-selection use case in `workspace_tools.rs` is tested without a Tauri
+  application; its commands own error translation and board publication. Saving
+  a selection leaves existing processes intact and applies at the next spawn
+  or resume of a stopped process.
 - The frontend does not access the filesystem or processes directly; it uses IPC.
 - The relay validates every input and enforces the audience on the server; the
   client also authenticates content and enforces the audience, without trusting
@@ -156,6 +161,10 @@ depend on the canonical primitives in `conversation.rs`.
   `ProviderId` stays in the catalog or in the adapters.
   `npm run architecture:check` protects that boundary on the main screens and
   prevents the Codex adapter from emitting legacy stream-json again.
+- Runtime TypeScript imports must remain acyclic. Portable boundaries are
+  checked through intermediate modules as well as direct imports. Feature
+  coordination belongs in composition callbacks, as in settings' skill refresh
+  and the issues feature's Linear connection input.
 - The MCP/plugin hub is shared; files, flags, marketplace, configuration home,
   activation and trust required by a given CLI are materialized only in that
   provider's adapter.
@@ -171,6 +180,7 @@ The detailed rules and the current state of each one are in
 | conversation | `src/chat.ts`, `src/timeline.ts`, `src/chat-presentation.ts`, `src/desk.ts` |
 | agents | `src/agents.ts`, `src/launcher.ts`, `src-tauri/src/agents.rs`, `src-tauri/src/claude.rs`, `src-tauri/src/codex.rs` |
 | workspaces | `src-tauri/src/session.rs`, `src-tauri/src/state.rs` |
+| workspace tool selection | `src-tauri/src/workspace_tools.rs` (use case), `src-tauri/src/session.rs` (Tauri commands) |
 | Git and files | `src/workspace-changes.ts`, `src/diff.ts`, `src/viewer.ts`, `src/csv.ts`, `src-tauri/src/session/git.rs`, `src-tauri/src/session/diff.rs`, `src-tauri/src/session/files.rs` |
 | MCP and plugins | `src/mcp.ts`, `src/plugins.ts`, `src-tauri/src/mcp.rs`, `src-tauri/src/plugins.rs`, `docs/contracts/plugin-marketplace.md` |
 | collaboration | shells `src/team.ts` (desktop) and `src/mobile/` (browser, bundle for the Cloud); core `src/team-member.ts`, `src/team-ports.ts`, features `src/team-owner.ts`, `src/team-viewer.ts`, `src/team-comments.ts`; `src/team-transport.ts`, `src/team-control.ts`, `relay/src/` |
@@ -189,6 +199,9 @@ explicit send to the draft. See the
 - The provider identity is still called `agent` in the persisted format and in
   some payloads for compatibility, even though the type is already `ProviderId`.
 - IPC types and conversation events can still diverge between Rust and TS.
+- The extracted workspace tool use case still shares board types with
+  `state.rs`; separating that module's persistence and publication remains a
+  prerequisite for a standalone backend package.
 
 These points do not authorize a mass reorganization. The accepted sequence is:
 document, introduce tested contracts and only then move implementations.

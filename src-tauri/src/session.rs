@@ -4,6 +4,7 @@ use crate::selection::{Selection, Tools};
 use crate::state::{
     publish, Board, Choice, Project, ProviderId, Repo, Status, Tab, ToolTrust, Workspace,
 };
+use crate::workspace_tools::{self, Axis};
 use crate::{chat, dock, i18n, paths, scripts, AppState};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -178,38 +179,15 @@ pub fn pin_workspace(app: AppHandle, state: State<AppState>, id: String, pinned:
     publish(&app);
 }
 
-/// Which axis a payload selects for; standalone skills ride the plugin hub as `skill-<id>` but
-/// only belong to the skills axis.
-#[derive(Clone, Copy, PartialEq)]
-enum Axis {
-    Mcp,
-    Plugins,
-    Skills,
-}
-
 /// Interpret and validate one tool-axis argument: JSON `null` returns the axis to inherit, an
 /// object must deserialize as a `Selection` carrying only ids of its own axis.
 fn axis(value: serde_json::Value, kind: Axis) -> Result<Option<Selection>, String> {
-    let selection = match value {
-        serde_json::Value::Null => return Ok(None),
-        other @ serde_json::Value::Object(_) => serde_json::from_value::<Selection>(other)
-            .map_err(|_| i18n::t("err.tools.badPayload"))?,
-        _ => return Err(i18n::t("err.tools.badPayload")),
-    };
-    let misplaced = |id: &str| match kind {
-        Axis::Skills => !id.starts_with("skill-"),
-        Axis::Plugins => id.starts_with("skill-"),
-        Axis::Mcp => false,
-    };
-    if selection
-        .add
-        .iter()
-        .chain(&selection.remove)
-        .any(|id| misplaced(id))
-    {
-        return Err(i18n::t("err.tools.badAxis"));
-    }
-    Ok(Some(selection))
+    workspace_tools::selection(value, kind).map_err(|error| {
+        i18n::t(match error {
+            workspace_tools::Invalid::Payload => "err.tools.badPayload",
+            workspace_tools::Invalid::Axis => "err.tools.badAxis",
+        })
+    })
 }
 
 /// Read the JSON body before Option deserialization collapses explicit null and an absent key.
@@ -242,11 +220,8 @@ pub fn set_workspace_mcp(
     request: tauri::ipc::Request<'_>,
 ) -> Result<(), String> {
     let parsed = axis_patch(request.body(), "mcp", Axis::Mcp)?;
-    {
-        let mut board = lock(&state.board);
-        if let (Some(ws), Some(value)) = (board.workspace_mut(&id), parsed) {
-            ws.mcp = value;
-        }
+    if let Some(value) = parsed {
+        workspace_tools::change(&state.board, &id, Axis::Mcp, value);
     }
     publish(&app);
     Ok(())
@@ -262,11 +237,8 @@ pub fn set_workspace_plugins(
     request: tauri::ipc::Request<'_>,
 ) -> Result<(), String> {
     let parsed = axis_patch(request.body(), "plugins", Axis::Plugins)?;
-    {
-        let mut board = lock(&state.board);
-        if let (Some(ws), Some(value)) = (board.workspace_mut(&id), parsed) {
-            ws.plugins = value;
-        }
+    if let Some(value) = parsed {
+        workspace_tools::change(&state.board, &id, Axis::Plugins, value);
     }
     publish(&app);
     Ok(())
@@ -282,11 +254,8 @@ pub fn set_workspace_skills(
     request: tauri::ipc::Request<'_>,
 ) -> Result<(), String> {
     let parsed = axis_patch(request.body(), "skills", Axis::Skills)?;
-    {
-        let mut board = lock(&state.board);
-        if let (Some(ws), Some(value)) = (board.workspace_mut(&id), parsed) {
-            ws.skills = value;
-        }
+    if let Some(value) = parsed {
+        workspace_tools::change(&state.board, &id, Axis::Skills, value);
     }
     publish(&app);
     Ok(())
@@ -2661,6 +2630,46 @@ mod tests {
             tokens: None,
             context_tokens: None,
             choice,
+        }
+    }
+
+    #[test]
+    fn transcript_routing_uses_tab_and_frozen_task_providers() {
+        for (workspace_provider, tab_provider) in [
+            (ProviderId::Claude, ProviderId::Codex),
+            (ProviderId::Codex, ProviderId::Claude),
+        ] {
+            let mut ws = bare();
+            ws.agent = workspace_provider;
+            ws.worktree = "/tmp/prometeu-transcript-routing".into();
+            let choice = Choice {
+                agent: tab_provider,
+                ..Default::default()
+            };
+            let mut task = tab("task", None);
+            task.task = Some(
+                serde_json::from_value(serde_json::json!({
+                    "command": "review", "profile": {
+                        "id": "review", "name": "Review", "prompt": "Review",
+                        "choice": choice, "mcp": null, "plugins": null,
+                        "skills": [], "permission": "ask", "watch": null
+                    }, "paused": false, "done": false, "turns": 0,
+                    "checked_at": 0, "error": null
+                }))
+                .unwrap(),
+            );
+            ws.tabs = vec![tab("custom", Some(choice)), tab("inherited", None), task];
+            for (id, provider) in [
+                ("custom", tab_provider),
+                ("task", tab_provider),
+                ("inherited", workspace_provider),
+            ] {
+                let expected = match provider {
+                    ProviderId::Claude => crate::paths::transcript(id, Path::new(&ws.worktree)),
+                    ProviderId::Codex => crate::paths::chat_log(id),
+                };
+                assert_eq!(crate::chat::transcript_of(&ws, id), expected, "tab {id}");
+            }
         }
     }
 

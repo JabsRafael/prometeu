@@ -7,6 +7,25 @@ const assistant = (id: string, block: unknown, extra = {}) =>
 const ev = (event: unknown) => j({ type: "stream_event", event, parent_tool_use_id: null });
 
 describe("Timeline", () => {
+  it.each([
+    ["question", "custom_question"],
+    ["question", null],
+    ["plan", "custom_plan"],
+    ["plan", null],
+    ["approval", "AskUserQuestion"],
+    ["approval", null],
+  ] as const)("preserves canonical request kind %s with tool %s", (requestKind, tool) => {
+    const timeline = new Timeline();
+    timeline.push(j({
+      v: 1, type: "request.opened", at: 1, requestId: "request", kind: requestKind,
+      toolId: null, tool, input: {},
+    }));
+    expect(timeline.pending).toEqual([{
+      kind: "ask", requestKind, ts: 1, id: "request", tool: tool ?? "",
+      input: {}, toolUseId: null, answered: false,
+    }]);
+  });
+
   it("uma fala, uma resposta em blocos com o mesmo id, um item só", () => {
     const t = new Timeline();
     t.push(j({ type: "user", message: { role: "user", content: "oi" }, timestamp: "2026-08-27T22:12:36.835Z" }));
@@ -108,6 +127,7 @@ describe("Timeline", () => {
       }),
     );
     expect(t.pending.map((a) => a.id)).toEqual(["r1"]);
+    expect(t.pending[0].requestKind).toBe("plan");
     // Overlapping snapshot and live delivery must produce one card.
     t.push(
       j({ type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "ExitPlanMode", input: {} } }),
