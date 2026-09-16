@@ -4,6 +4,18 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.7.6] - 2026-09-16
+
+### New
+
+- **tools:** Complete layered selection with project trust and provenance
+- **tools:** Show the CLI's MCP servers as the picker's inherited base
+
+### Fixes
+
+- **tools:** Harden layered selection after adversarial review
+- **tools:** Preserve inheritance and project trust
+
 ## [0.7.5] - 2026-09-15
 
 ### New
