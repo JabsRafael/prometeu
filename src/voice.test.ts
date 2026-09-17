@@ -21,7 +21,7 @@ const result = (index: number, ...parts: [string, boolean][]) => ({
   results: parts.map(([transcript, isFinal]) => Object.assign([{ transcript }], { isFinal })),
 });
 
-afterEach(() => { vi.unstubAllGlobals(); use("pt-BR"); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); use("pt-BR"); });
 
 it("reports absence instead of throwing when the webview lacks recognition", () => {
   expect(available()).toBe(false);
@@ -75,6 +75,24 @@ it("discards the unsettled tail on request without reporting an error", () => {
   stop(true);
   expect(Fake.last.abort).toHaveBeenCalled();
   expect(end).toHaveBeenCalledWith(undefined);
+});
+
+it("forces cleanup when the engine never ends after stop", () => {
+  class Uncooperative extends Fake {
+    stop = vi.fn();
+    abort = vi.fn();
+  }
+  vi.useFakeTimers();
+  vi.stubGlobal("webkitSpeechRecognition", Uncooperative);
+  const end = vi.fn();
+  const stop = listen(vi.fn(), end);
+
+  stop();
+  expect(end).not.toHaveBeenCalled();
+  vi.advanceTimersByTime(1_000);
+
+  expect(Fake.last.abort).toHaveBeenCalled();
+  expect(end).toHaveBeenCalledTimes(1);
 });
 
 it("joins segments with a single space", () => {
