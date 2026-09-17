@@ -136,6 +136,19 @@ They can be resolved with external tools and staged explicitly. Rebase/cherry-pi
 and other advanced operations still use external Git; the interface does not
 offer a generic action that completes those sequencers.
 
+### Archived worktree cleanup
+
+Archiving and finishing stop workspace processes and run the archive script
+before offering cleanup for that workspace. Cleanup remains a separate choice:
+canceling keeps the worktree, local branch, transcript and archived card.
+
+The scoped offer uses the same `cleanup_list` and `cleanup_worktree` commands as
+the archived-workspaces screen. A safe worktree starts selected. A worktree with
+uncommitted changes or an unmerged branch starts unselected, shows the reason,
+and requires the person to select it before the destructive confirmation can
+run with `force`. Cleanup removes both the worktree and local branch but keeps
+the archived card and transcript. Original clones are never eligible.
+
 ## Compatibility and evidence
 
 The screen uses the per-repository `workspace_git_*` commands. The unused
@@ -153,4 +166,6 @@ protocol migration.
   per-repo drafts.
 - `e2e/critical-flows.spec.ts`: navigation to the viewer, a large review and
   isolation between repositories.
+- `e2e/audit-regressions.spec.ts`: scoped cleanup offers after both archiving
+  and finishing, plus dialog lifetime during deletion.
 - `src-tauri/tests/mock.rs`: IPC command parity.

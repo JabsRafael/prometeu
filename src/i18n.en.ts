@@ -681,6 +681,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   /* ---------- releasing the disk ---------- */
 
   "clean.title": "Clean up worktrees",
+  "clean.offer": "Take this worktree off the disk?",
   "clean.hint": "The folder and the local branch go; the card stays, and the PR stays where it is.",
   "clean.hint.force":
     "A red one you tick goes anyway: the uncommitted changes and the work that never landed go with it, for good.",

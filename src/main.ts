@@ -70,8 +70,13 @@ const hooks: sidebar.Hooks = {
   rename: ws.renameWorkspace,
   // Return to the desk when archiving the active workspace.
   archive: (id, archived) => {
+    const target = state.workspaces.find((workspace) => workspace.id === id);
     if (archived && ws.id() === id) showDesk();
-    invoke("archive_workspace", { id, archived }).catch((e) => say(fromBack(e), true));
+    invoke("archive_workspace", { id, archived })
+      .then(() => {
+        if (archived && target && !target.cleaned && target.worktree !== target.repo) openCleanup(say, id);
+      })
+      .catch((e) => say(fromBack(e), true));
   },
   finish: (id) => ws.finish(id),
   cleanup: () => openCleanup(say),

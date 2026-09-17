@@ -12,12 +12,12 @@ function size(kb: number): string {
   return `${Math.round(mb).toLocaleString(locale())} MB`;
 }
 
-export function openCleanup(say: (text: string, isError?: boolean) => void) {
+export function openCleanup(say: (text: string, isError?: boolean) => void, only?: string) {
   let rows: Cleanable[] = [];
   const marked = new Set<string>();
   let running = false;
   const dialog = formDialog({
-    title: t("clean.title"), save: t("clean.goEmpty"), cancel: t("clean.cancel"), error: fromBack,
+    title: t(only ? "clean.offer" : "clean.title"), save: t("clean.goEmpty"), cancel: t("clean.cancel"), error: fromBack,
     submit: async () => {
       running = true;
       for (const control of list.querySelectorAll("input")) control.disabled = true;
@@ -92,7 +92,7 @@ export function openCleanup(say: (text: string, isError?: boolean) => void) {
   invoke("cleanup_list")
     .then(got => {
       if (!dialog.root.isConnected) return;
-      rows = got.sort((a, b) => b.sizeKb - a.sizeKb);
+      rows = got.filter(row => !only || row.id === only).sort((a, b) => b.sizeKb - a.sizeKb);
       for (const row of rows) if (!row.blocked) marked.add(row.id);
       draw();
     })

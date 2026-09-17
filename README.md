@@ -21,7 +21,8 @@ optional for local work; model access comes from your own provider account.
 
 - **Parallel workspaces.** Use isolated Git worktrees, work with multiple
   repositories, or open an ordinary folder without Git. Each workspace keeps
-  its own conversations and terminals.
+  its own conversations and terminals. Archiving or finishing offers to remove
+  its worktree and local branch after explicit confirmation.
 - **Claude Code and Codex.** Choose a model and effort level, switch provider
   accounts, and resume conversations after an agent process stops.
 - **A desk for ongoing conversations.** Arrange conversations side by side,

@@ -68,6 +68,7 @@ contractual capability.
 | comments in a shared session | adapted after V1 | adapted after V1 | `notes.test.ts`, `team.test.ts`, `relay/src/logic.test.ts`, E2E over the mock |
 | desk with several conversations at once | adapted (the same conversation screen) | adapted (the same conversation screen) | `desk.test.ts`, E2E over the mock |
 | Git: unified/side-by-side review, stage, commit, remotes, branches and conflicts | adapted by the app; independent of the CLI | adapted by the app; independent of the CLI | `session/git_tests.rs`, `diff.test.ts`, `e2e/git.spec.ts` in Chromium/WebKit and a large review in `e2e/critical-flows.spec.ts`; the `git.md` contract |
+| scoped worktree cleanup after archiving or finishing | independent of the CLI | independent of the CLI | `e2e/audit-regressions.spec.ts`, `session.rs` cleanup tests; blocked worktrees require explicit force selection |
 | agents per workspace in the sidebar | each tab's brand and status | each tab's brand and status | sidebar flows in `e2e/critical-flows.spec.ts`; a remote one uses the owner's avatar, without inferring the provider |
 
 ## Rule for a new feature
