@@ -1,3 +1,4 @@
+import { onAgentsChanged } from "./agents";
 import * as actions from "./actions";
 import * as actionSettings from "./action-settings";
 import { invoke } from "./ipc";
@@ -76,6 +77,9 @@ export async function init(context: Ctx) {
   });
   catalog.onChange(() => {
     if (!$("settingsView").hidden) draw();
+  });
+  onAgentsChanged(() => {
+    if (!$("settingsView").hidden && !menu.isOpen() && !document.querySelector("dialog[open]")) draw();
   });
   // Refresh presence without replacing an input the user is editing.
   team.onChange(() => {
@@ -304,14 +308,14 @@ function pickRow(
 
 function modelRow(): HTMLElement {
   const { row, btn } = pickRow("sparkles", "settings.defaults.model", "settings.defaults.model.body");
-  btn.children[0].textContent = modelLabel(defaultModel());
+  btn.children[0].textContent = modelLabel(defaultModel()) || t("models.choose");
   btn.addEventListener("click", () => {
     const at = btn.getBoundingClientRect();
     const blocks = modelGroups();
     const items: menu.Item[] = [];
     blocks.forEach((block, n) => {
       if (n) items.push("sep");
-      if (block.head && blocks.length > 1) items.push({ label: block.head, disabled: true });
+      if (block.head && (blocks.length > 1 || !block.items.length)) items.push({ label: block.head, disabled: true });
       for (const [id, name] of block.items) {
         items.push({
           label: name,

@@ -3,6 +3,8 @@ export type { Group } from "./ui";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   capabilitiesOf,
+  catalogState,
+  onAgentsChanged,
   descriptors,
   effortsOf,
   installed,
@@ -65,11 +67,13 @@ export const agentOf = providerOfModel;
 export function modelGroups(only?: ProviderId): Group[] {
   return installed()
     .filter((provider) => only === undefined || provider.id === only)
-    .map((provider) => ({
-      head: provider.label,
-      items: modelsOf(provider.id).map((model) => [model.id, model.label] as [string, string]),
-    }))
-    .filter((group) => group.items.length > 0);
+    .map((provider) => {
+      const state = catalogState(provider.id);
+      return {
+        head: state === "ready" ? provider.label : `${provider.label} · ${t(`models.${state}`)}`,
+        items: modelsOf(provider.id).map((model) => [model.id, model.label] as [string, string]),
+      };
+    });
 }
 
 /// Clamp effort to a supported level when switching models so the CLI never receives an unsupported value.
@@ -258,7 +262,7 @@ export function openLauncher(board: Board, opts: Open) {
     hint.classList.toggle("bad", !!aviso);
     hint.title = aviso || `${names} · ${onde}`;
     hint.textContent = aviso || onde;
-    $<HTMLButtonElement>("d-go").disabled = !!aviso || receiving > 0;
+    $<HTMLButtonElement>("d-go").disabled = !!aviso || receiving > 0 || !isKnownModel(draft.agent, draft.model);
   };
   drawHint();
 
@@ -374,6 +378,7 @@ export function openLauncher(board: Board, opts: Open) {
       drawMcp();
       drawPlugins();
       drawAttach();
+      drawHint();
       prompt.focus();
     },
   );
@@ -656,7 +661,27 @@ export function openLauncher(board: Board, opts: Open) {
     },
   };
 
+  const forgetAgents = onAgentsChanged(() => {
+    // Preserve the draft until the person explicitly chooses a replacement.
+    if (!draft.model) {
+      draft.model = defaultModel();
+      draft.agent = agentOf(draft.model);
+      draft.effort = defaultEffort(draft.model);
+      conformCapabilities();
+    }
+    drawModel();
+    if (!draft.model) $("d-model").querySelector("span")!.textContent = t("models.choose");
+    drawEffort();
+    drawPlan();
+    drawMcp();
+    drawPlugins();
+    drawAttach();
+    drawHint();
+  });
+  if (!draft.model) $("d-model").querySelector("span")!.textContent = t("models.choose");
+
   const hide = () => {
+    forgetAgents();
     forgetMcp();
     forgetPlugins();
     takeFiles = null;
@@ -664,7 +689,7 @@ export function openLauncher(board: Board, opts: Open) {
     veil.hidden = true;
   };
   const submit = () => {
-    if (taken || receiving) return;
+    if (taken || receiving || !isKnownModel(draft.agent, draft.model)) return;
     // An empty branch tells the backend to use the repository's current checkout.
     if (!draft.newBranch) draft.branch = "";
     draft.prompt = seed ? issueBlock(seed, prompt.value) : prompt.value;

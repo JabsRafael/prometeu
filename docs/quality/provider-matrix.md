@@ -32,7 +32,7 @@ contractual capability.
 | login through the app | the CLI's `auth login` and the browser | the app-server's `account/login/start` and the browser | identity fixtures in `claude.rs` and `codex/account.rs`; OAuth with two real accounts still requires manual validation |
 | switching accounts between turns | resuming the shared transcript | resuming the shared rollout/index | `chat.rs`, profile tests; an authenticated continuation between two real accounts is not yet proven by the suite |
 | quotas per account | stream and internal endpoint | app-server and internal fallback | `usage.rs`, `e2e/accounts.spec.ts` |
-| live model catalog | native through a control request | native through the CLI's cache | `agents.rs` |
+| live model catalog | `list_models`, excludes default/disabled entries | paginated app-server `model/list`, excludes hidden entries | `agents.rs`, `codex/account.rs`, `src/agents.test.ts`, `e2e/models.spec.ts`; loading/error/empty states, refresh and legacy labels; remote freshness remains owned by each CLI |
 | starting a session | native | adapted to JSON-RPC | `chat.rs`, `codex.rs` |
 | resuming a session | Claude's id/transcript | the app-server's thread | `session.rs`, Rust tests |
 | workspace tools with tab model/effort overrides | same selections for new and resumed tabs | same selections for new and resumed tabs | `session.rs::new_and_resumed_tabs_preserve_workspace_tools_with_model_overrides` |

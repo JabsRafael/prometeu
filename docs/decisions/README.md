@@ -86,3 +86,4 @@ Status: Proposed
 | [0045](0045-layered-tool-selection.md) | Layered selection of MCP, plugins and skills across global, project and workspace |
 | [0046](0046-cli-inherited-mcp-base.md) | CLI MCP set as visible inherited picker base |
 | [0047](0047-tool-selection-boundaries.md) | Reviewed tool declarations, effective provider and native IPC patches |
+| [0048](0048-live-model-catalogs.md) | Runtime catalogs own selectable models |

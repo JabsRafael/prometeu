@@ -169,6 +169,23 @@ impl Server {
         }
     }
 
+    fn models(&mut self) -> Result<Vec<crate::agents::Model>, String> {
+        let mut models = Vec::new();
+        let mut cursor = None;
+        let mut seen = std::collections::HashSet::new();
+        loop {
+            let page = self.call("model/list", json!({"cursor":cursor,"includeHidden":false}))?;
+            models.extend(parse_models(&page)?);
+            cursor = match &page["nextCursor"] {
+                Value::Null => return Ok(models),
+                Value::String(next) if !next.is_empty() && seen.insert(next.clone()) => {
+                    Some(next.clone())
+                }
+                _ => return Err(crate::i18n::t("err.models.discovery")),
+            };
+        }
+    }
+
     fn identity(&mut self) -> Result<Identity, String> {
         parse_account(&self.call("account/read", json!({"refreshToken":true}))?)
     }
@@ -183,6 +200,47 @@ fn parse_account(value: &Value) -> Result<Identity, String> {
         email: account["email"].as_str().map(str::to_string),
         plan: account["planType"].as_str().map(str::to_string),
     })
+}
+
+/// Ask the runtime for all picker pages. The CLI owns remote refresh and visibility rules.
+pub fn models() -> Result<Vec<crate::agents::Model>, String> {
+    let profile = accounts::active(crate::state::ProviderId::Codex)?;
+    profile.prepare()?;
+    Server::start(
+        &profile,
+        Duration::from_secs(20),
+        Arc::new(AtomicBool::new(false)),
+    )?
+    .models()
+}
+
+fn parse_models(page: &Value) -> Result<Vec<crate::agents::Model>, String> {
+    page["data"]
+        .as_array()
+        .ok_or_else(|| crate::i18n::t("err.models.discovery"))?
+        .iter()
+        .filter(|model| model["hidden"] != true)
+        .map(|model| {
+            // `model` is the launch identifier; `id` identifies the catalog entry.
+            let id = model["model"]
+                .as_str()
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| crate::i18n::t("err.models.discovery"))?
+                .to_string();
+            let label = model["displayName"].as_str().unwrap_or(&id).to_string();
+            let efforts = model["supportedReasoningEfforts"]
+                .as_array()
+                .map(|levels| {
+                    levels
+                        .iter()
+                        .filter_map(|level| level["reasoningEffort"].as_str())
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            Ok(crate::agents::Model { id, label, efforts })
+        })
+        .collect()
 }
 
 pub fn account_probe(profile: &Profile) -> Result<(Identity, Option<Value>), String> {
@@ -241,6 +299,81 @@ pub fn login(profile: &Profile, cancel: Arc<AtomicBool>) -> Result<Identity, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_catalog_pages_use_launch_ids_and_runtime_visibility() {
+        let mut command = Command::new("python3");
+        command.args(["-u", "-c", r#"
+import sys,json
+def read(): return json.loads(sys.stdin.readline())
+def reply(request,result): print(json.dumps({'id':request['id'],'result':result}),flush=True)
+first=read()
+assert first['method']=='initialize'
+reply(first,{})
+assert read()['method']=='initialized'
+page=read()
+assert page['method']=='model/list'
+assert page['params']=={'cursor':None,'includeHidden':False}
+print(json.dumps({'id':999,'result':{'data':[]}}),flush=True)
+reply(page,{'data':[{'id':'catalog-id','model':'launch-id','displayName':'Live label','hidden':False,'supportedReasoningEfforts':[{'reasoningEffort':'high'},{'reasoningEffort':'ultra'}]},{'model':'hidden','hidden':True}], 'nextCursor':'page-two'})
+page=read()
+assert page['method']=='model/list'
+assert page['params']['cursor']=='page-two'
+reply(page,{'data':[{'model':'new-model'}],'nextCursor':None})
+read()
+"#]);
+        let mut server = Server::from_command(
+            command,
+            Duration::from_secs(5),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+        let models = server.models().unwrap();
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "launch-id");
+        assert_eq!(models[0].label, "Live label");
+        assert_eq!(models[0].efforts, ["high", "ultra"]);
+        assert_eq!(models[1].id, "new-model");
+        assert_eq!(models[1].label, "new-model");
+        assert!(models[1].efforts.is_empty());
+        assert!(parse_models(&json!({"data":[]})).unwrap().is_empty());
+        assert!(parse_models(&json!({})).is_err());
+        assert!(parse_models(&json!({"data":[{"id":"not-a-launch-model"}]})).is_err());
+    }
+
+    #[test]
+    fn model_catalog_rejects_errors_and_repeated_cursors() {
+        for response in [
+            r#"{"error":{"message":"not logged in"}}"#,
+            r#"{"result":{"data":[],"nextCursor":"same"}}"#,
+            r#"{"result":{"data":[],"nextCursor":42}}"#,
+        ] {
+            let mut command = Command::new("python3");
+            command.args([
+                "-u",
+                "-c",
+                r#"
+import sys,json
+first=json.loads(sys.stdin.readline())
+print(json.dumps({'id':first['id'],'result':{}}),flush=True)
+assert json.loads(sys.stdin.readline())['method']=='initialized'
+for line in sys.stdin:
+    request=json.loads(line)
+    response=json.loads(sys.argv[1])
+    response['id']=request['id']
+    print(json.dumps(response),flush=True)
+"#,
+                response,
+            ]);
+            let mut server = Server::from_command(
+                command,
+                Duration::from_secs(5),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .unwrap();
+            assert!(server.models().is_err());
+        }
+    }
 
     #[test]
     #[ignore = "precisa do Codex instalado; não faz login nem envia prompts"]

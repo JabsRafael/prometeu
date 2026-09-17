@@ -290,3 +290,13 @@ returns an error with an i18n code: `feedback.needAccount` without an account or
 on 401, `feedback.rateLimit` at the limit, `feedback.uncertain` with `{id}` on
 uncertain delivery and `feedback.sendError` for the rest. The mock records the
 report and nothing leaves the machine.
+
+## Model catalog commands
+
+`agents` returns installation/capability descriptors with empty model lists.
+`agent_models({ provider: ProviderId })` asynchronously returns `AgentModel[]` or
+rejects; it replaces the internal `claude_models` command for both providers.
+Frontend, Rust registration and browser mock ship together. No stored format or
+relay protocol changes. Discovery semantics live in
+[agent-runtime.md](agent-runtime.md); command parity and catalog tests cover the
+compatibility boundary.

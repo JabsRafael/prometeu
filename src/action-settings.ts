@@ -1,5 +1,5 @@
 import * as actions from "./actions";
-import { descriptor, descriptors, effortsOf, modelLabelOf, modelsOf } from "./agents";
+import { catalogState, isKnownModel, onAgentsChanged, descriptor, descriptors, effortsOf, modelLabelOf, modelsOf } from "./agents";
 import { fromBack, t, type Key } from "./i18n";
 import * as mcp from "./mcp";
 import * as menu from "./menu";
@@ -153,6 +153,7 @@ function profileEditor(old: actions.Profile | null, project: string, redraw: () 
     const prompt = input(profile.prompt, true); prompt.required = true;
     const provider = select(profile.choice.agent, descriptors().map(d => [d.id, `${d.label}${d.installed ? "" : ` · ${t("actions.uninstalled")}`}`]));
     const model = select("", []);
+    const modelStatus = h("p", "ui-hint");
     const effort = select("", []);
     const renderEffort = (value = "") => {
       const options: [string, string][] = [["", t("actions.default")], ...effortsOf(provider.value as ProviderId, model.value).map(e => [e, e] as [string, string])];
@@ -161,11 +162,24 @@ function profileEditor(old: actions.Profile | null, project: string, redraw: () 
     };
     const renderModels = (value = "") => {
       const options: [string, string][] = [["", t("actions.default")], ...modelsOf(provider.value as ProviderId).map(m => [m.id, m.label] as [string, string])];
-      if (value && !options.some(([id]) => id === value)) options.push([value, value]);
-      model.setOptions(options, value); renderEffort();
+      model.setOptions(options, value);
+      if (value && !isKnownModel(provider.value as ProviderId, value)) {
+        // Preserve the stored choice without adding it to selectable menu options.
+        const legacy = new Option(modelLabelOf(value, provider.value as ProviderId), value);
+        legacy.disabled = true;
+        model.native.append(legacy);
+        model.value = value;
+        model.control.querySelector("span")!.textContent = legacy.text;
+      }
+      const state = catalogState(provider.value as ProviderId);
+      modelStatus.textContent = state === "ready" ? "" : t(`models.${state}`);
+      renderEffort(effort.value);
     };
     renderModels(profile.choice.model); renderEffort(profile.choice.effort);
-    provider.onchange = () => renderModels(); model.onchange = () => renderEffort();
+    provider.onchange = () => { renderModels(); renderEffort(); };
+    model.onchange = () => renderEffort();
+    const forget = onAgentsChanged(() => renderModels(model.value));
+    body.closest("dialog")!.addEventListener("close", forget, { once: true });
     const servers = selection("actions.mcp", profile.mcp, mcp.list().map(s => s.id));
     const packages = selection("actions.plugins", profile.plugins, plugins.list().map(p => p.id));
     const skills = input(profile.skills.join(", "));
@@ -186,7 +200,7 @@ function profileEditor(old: actions.Profile | null, project: string, redraw: () 
     tools.toggleAttribute("open", !!profile.mcp?.length || !!profile.plugins?.length || !!profile.skills.length);
     tools.append(servers.root, packages.root,
       field("actions.skills", skills), h("p", "ui-hint", t("actions.skillsHint")));
-    body.append(field("actions.name", name), field("actions.instructions", prompt), models, tools,
+    body.append(field("actions.name", name), field("actions.instructions", prompt), models, modelStatus, tools,
       field("actions.permission", permission.control), watching.label, watchBody, h("p", "ui-hint", t("actions.snapshotHint")));
     return () => {
       const next = structuredClone(actions.catalog());

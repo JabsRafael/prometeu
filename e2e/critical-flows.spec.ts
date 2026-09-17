@@ -309,7 +309,7 @@ test("a barra lateral lista agentes por workspace, acompanha status e abre a aba
   await expect(second.locator(".provider path")).toHaveCount(1);
   await expect(second).toHaveAttribute("title", /Codex/);
   // An unnamed tab displays its model on one line.
-  await expect(first.locator(".lbl")).toHaveText("Opus · 1M");
+  await expect(first.locator(".lbl")).toHaveText("Opus (1M context)");
   await expect(second.locator(".lbl")).toHaveText("GPT-5.6-Sol");
   await expect(first.locator(".note")).toHaveCount(0);
 
@@ -903,7 +903,7 @@ test("trocar o modelo de uma conversa de pé desliga o processo e mantém a aba"
   // Target the workspace composer; hidden desk panels also remain in the DOM.
   const model = page.locator("#chatwrap .composer .mdl");
   const effort = page.locator("#chatwrap .composer .effort");
-  await expect(model).toContainText("Opus · 1M");
+  await expect(model).toContainText("Opus (1M context)");
   await expect(effort).toContainText("Alto");
 
   await model.click();

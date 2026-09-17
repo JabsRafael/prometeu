@@ -1,14 +1,13 @@
 //! Discover installed CLIs and their account-specific model catalogs. The UI shares one
 //! conversation model; provider adapters translate process protocols into canonical events. Query
-//! each CLI's own catalog so new models appear without an app release: Codex uses
-//! models_cache.json, while Claude uses list_models.
+//! each CLI's own catalog so new models appear without an app release.
 
 use crate::paths;
 use crate::state::ProviderId;
 use serde_json::Value;
-use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Command;
+use std::sync::{atomic::AtomicBool, Arc};
 use std::time::Duration;
 
 /// Discover both CLIs through one login shell so user-defined PATH locations are respected without
@@ -116,26 +115,23 @@ pub fn agents() -> Agents {
     Agents {
         providers: vec![
             descriptor(ProviderId::Claude, claude, vec![]),
-            descriptor(
-                ProviderId::Codex,
-                codex,
-                if codex { codex_models() } else { vec![] },
-            ),
+            descriptor(ProviderId::Codex, codex, vec![]),
         ],
     }
 }
 
-/// Query Claude's list_models control request for the same catalog shown by /model. Keep this slow
-/// subprocess separate from basic provider discovery. An empty result allows the launcher to use
-/// its existing fallback for old CLIs or missing responses.
+/// Query the selected account without blocking basic installation discovery.
 #[tauri::command]
-pub async fn claude_models() -> Vec<Model> {
-    tauri::async_runtime::spawn_blocking(ask_claude_models)
-        .await
-        .unwrap_or_default()
+pub async fn agent_models(provider: ProviderId) -> Result<Vec<Model>, String> {
+    tauri::async_runtime::spawn_blocking(move || match provider {
+        ProviderId::Claude => ask_claude_models(),
+        ProviderId::Codex => crate::codex::models(),
+    })
+    .await
+    .map_err(crate::i18n::io)?
 }
 
-fn ask_claude_models() -> Vec<Model> {
+fn ask_claude_models() -> Result<Vec<Model>, String> {
     let mut cmd = Command::new("claude");
     // Catalog discovery must not persist a session or trigger user hooks on every window opening.
     cmd.args([
@@ -149,10 +145,7 @@ fn ask_claude_models() -> Vec<Model> {
         "--settings",
         r#"{"hooks":{}}"#,
     ])
-    .current_dir(paths::home())
-    .stdin(Stdio::piped())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::null());
+    .current_dir(paths::home());
     // Remove inherited CLAUDE_* settings that change nested CLI behavior, while retaining the rest
     // of the environment, including PATH.
     cmd.env_clear();
@@ -161,113 +154,62 @@ fn ask_claude_models() -> Vec<Model> {
             cmd.env(k, v);
         }
     }
-    let Ok(profile) = crate::accounts::active(ProviderId::Claude) else {
-        return vec![];
-    };
-    if profile.prepare().is_err() {
-        return vec![];
-    }
+    let profile = crate::accounts::active(ProviderId::Claude)?;
+    profile.prepare()?;
     profile.apply(&mut cmd);
-    let Ok(mut child) = cmd.spawn() else {
-        return vec![];
-    };
-    let (Some(mut stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
-        let _ = child.kill();
-        return vec![];
-    };
-    let asked = stdin
-        .write_all(
-            b"{\"type\":\"control_request\",\"request_id\":\"models\",\"request\":{\"subtype\":\"list_models\"}}\n",
-        )
-        .is_ok();
-    // Keep stdin open until the response arrives; closing it ends the session.
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if line.contains("\"control_response\"") {
-                let _ = tx.send(parse_claude_models(&line));
-                return;
-            }
+    let mut process = crate::accounts::AuthProcess::spawn(
+        cmd,
+        Duration::from_secs(20),
+        Arc::new(AtomicBool::new(false)),
+    )?;
+    process.send(&serde_json::json!({
+        "type":"control_request", "request_id":"models", "request":{"subtype":"list_models"}
+    }))?;
+    while let Some(line) = process.line()? {
+        let Ok(value) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        if value["type"] == "control_response" && value["response"]["request_id"] == "models" {
+            return parse_claude_models(&line);
         }
-        let _ = tx.send(vec![]);
-    });
-    let models = if asked {
-        rx.recv_timeout(Duration::from_secs(20)).unwrap_or_default()
-    } else {
-        vec![]
-    };
-    let _ = child.kill();
-    let _ = child.wait();
-    models
+    }
+    Err(crate::i18n::t("err.models.discovery"))
 }
 
 /// Exclude the unnamed default entry and disabled model advertisements from selectable catalog
 /// entries.
-fn parse_claude_models(line: &str) -> Vec<Model> {
-    let Ok(v) = serde_json::from_str::<Value>(line) else {
-        return vec![];
-    };
-    v["response"]["response"]["models"]
+fn parse_claude_models(line: &str) -> Result<Vec<Model>, String> {
+    let value: Value = serde_json::from_str(line).map_err(crate::i18n::io)?;
+    let response = &value["response"];
+    if response["subtype"] != "success" {
+        return Err(crate::i18n::t("err.models.discovery"));
+    }
+    let models = response["response"]["models"]
         .as_array()
-        .map(|models| {
-            models
-                .iter()
-                .filter(|m| m["value"].as_str() != Some("default"))
-                .filter(|m| m["disabled"].as_bool() != Some(true))
-                .filter_map(|m| {
-                    let id = m["value"].as_str()?.to_string();
-                    let label = m["displayName"].as_str().unwrap_or(&id).to_string();
-                    let efforts = m["supportedEffortLevels"]
-                        .as_array()
-                        .map(|ls| {
-                            ls.iter()
-                                .filter_map(Value::as_str)
-                                .map(str::to_string)
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    Some(Model { id, label, efforts })
+        .ok_or_else(|| crate::i18n::t("err.models.discovery"))?;
+    models
+        .iter()
+        .filter(|m| m["value"] != "default" && m["disabled"] != true)
+        .map(|m| {
+            let id = m["value"]
+                .as_str()
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| crate::i18n::t("err.models.discovery"))?
+                .to_string();
+            let label = m["displayName"].as_str().unwrap_or(&id).to_string();
+            let efforts = m["supportedEffortLevels"]
+                .as_array()
+                .map(|levels| {
+                    levels
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
                 })
-                .collect()
+                .unwrap_or_default();
+            Ok(Model { id, label, efforts })
         })
-        .unwrap_or_default()
-}
-
-/// Filter Codex's catalog by its own visibility flags. An unavailable CLI or absent cache before
-/// first login returns an empty list.
-fn codex_models() -> Vec<Model> {
-    let Some(home) = home() else {
-        return vec![];
-    };
-    let Ok(raw) = std::fs::read_to_string(home.join("models_cache.json")) else {
-        return vec![];
-    };
-    let Ok(cache) = serde_json::from_str::<Value>(&raw) else {
-        return vec![];
-    };
-    cache["models"]
-        .as_array()
-        .map(|models| {
-            models
-                .iter()
-                .filter(|m| m["visibility"].as_str() == Some("list"))
-                .filter_map(|m| {
-                    let id = m["slug"].as_str()?.to_string();
-                    let label = m["display_name"].as_str().unwrap_or(&id).to_string();
-                    let efforts = m["supported_reasoning_levels"]
-                        .as_array()
-                        .map(|ls| {
-                            ls.iter()
-                                .filter_map(|l| l["effort"].as_str())
-                                .map(str::to_string)
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    Some(Model { id, label, efforts })
-                })
-                .collect()
-        })
-        .unwrap_or_default()
+        .collect()
 }
 
 /// Use the model with the largest priority value for cheap workspace naming; the catalog orders
@@ -323,7 +265,7 @@ mod tests {
             {"value":"haiku","resolvedModel":"claude-haiku-4-5","displayName":"Haiku"},
             {"value":"cc-update-required-1","resolvedModel":"cc-update-required-1","displayName":"Fable 5.1 (disabled)","disabled":true}
         ]}}}"#;
-        let models = parse_claude_models(line);
+        let models = parse_claude_models(line).unwrap();
         assert_eq!(models.len(), 2);
         assert_eq!(models[0].id, "opus[1m]");
         assert_eq!(models[0].label, "Opus (1M context)");
@@ -337,7 +279,7 @@ mod tests {
     #[test]
     #[ignore]
     fn pergunta_o_catalogo_de_verdade() {
-        let models = ask_claude_models();
+        let models = ask_claude_models().unwrap();
         for m in &models {
             println!("{} = {} [{}]", m.id, m.label, m.efforts.join(","));
         }
@@ -346,11 +288,23 @@ mod tests {
 
     #[test]
     fn resposta_estranha_e_catalogo_vazio() {
-        assert!(parse_claude_models("nem json").is_empty());
+        assert!(parse_claude_models("nem json").is_err());
         assert!(parse_claude_models(
             r#"{"type":"control_response","response":{"subtype":"error"}}"#
         )
+        .is_err());
+        assert!(parse_claude_models(
+            r#"{"response":{"subtype":"success","response":{"models":[]}}}"#
+        )
+        .unwrap()
         .is_empty());
+        assert!(
+            parse_claude_models(r#"{"response":{"subtype":"success","response":{}}}"#).is_err()
+        );
+        assert!(parse_claude_models(
+            r#"{"response":{"subtype":"success","response":{"models":[{}]}}}"#
+        )
+        .is_err());
     }
 
     #[test]

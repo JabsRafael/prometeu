@@ -81,7 +81,7 @@ export function dropdown(btn: HTMLButtonElement, groups: () => Group[], get: () 
     const items: menu.Item[] = [];
     blocks.forEach((block, n) => {
       if (n) items.push("sep");
-      if (block.head && blocks.length > 1) items.push({ label: block.head, disabled: true });
+      if (block.head && (blocks.length > 1 || !block.items.length)) items.push({ label: block.head, disabled: true });
       for (const [id, name] of block.items) items.push({
         label: name, checked: id === get(), run: () => { set(id); draw(); btn.focus(); },
       });

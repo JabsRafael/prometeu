@@ -4,7 +4,7 @@ import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import * as alert from "./alert";
-import { installed, loadAgents } from "./agents";
+import { installed, loadAgents, onAgentsChanged } from "./agents";
 import * as appmenu from "./appmenu";
 import type { Info } from "./chat";
 import * as archived from "./archived";
@@ -289,7 +289,7 @@ listen<statusbar.Usage>("usage", ({ payload }) => statusbar.showUsage(payload));
 invoke("usage").then(statusbar.showUsage).catch(() => {});
 listen<statusbar.Accounts>("accounts", ({ payload }) => {
   if (statusbar.showAccounts(payload)) {
-    void loadAgents().then(() => statusbar.showAgents(installed()));
+    void loadAgents();
   }
 });
 invoke("accounts").then(statusbar.showAccounts).catch((error) => say(fromBack(error), true));
@@ -588,8 +588,13 @@ for (const [id, name] of [
 links.init(say);
 feedback.init();
 void update.init(say);
-// Discover installed agents without delaying the UI; the launcher retains Claude compatibility during bootstrap.
-void loadAgents().then(() => statusbar.showAgents(installed()));
+// Refresh catalogs without delaying startup or restarting conversations.
+onAgentsChanged(() => statusbar.showAgents(installed()));
+void loadAgents();
+window.addEventListener("focus", () => { void loadAgents(true); });
+window.setInterval(() => {
+  if (document.visibilityState === "visible") void loadAgents(true);
+}, 300_000);
 // Initialize team state before Settings and sidebar render its data.
 team.onError((m) => say(m, true));
 await team.init();
@@ -686,6 +691,7 @@ team.boardChanged(state);
 alert.boardChanged(state);
 settings.boardChanged(state);
 showDesk();
+onAgentsChanged(draw);
 
 // Show release notes after the initial page renders so the dialog overlays the application.
 void news.init();

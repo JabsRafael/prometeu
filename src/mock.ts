@@ -1335,7 +1335,7 @@ const mockCommands: IpcHandlers = {
     emit("board", board);
     return;
   },
-  // A fixed Codex catalog exercises provider selection without an installed CLI.
+  // Installation discovery stays separate from account-specific model discovery.
   agents() {
     return {
       providers: [
@@ -1360,11 +1360,7 @@ const mockCommands: IpcHandlers = {
           id: "codex",
           label: "Codex",
           installed: true,
-          models: [
-            { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
-            { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
-            { id: "gpt-5.4", label: "GPT-5.4", efforts: ["low", "medium", "high", "xhigh"] },
-          ],
+          models: [],
           capabilities: {
             initialPlanMode: false,
             workspaceMcpSelection: true,
@@ -1380,8 +1376,14 @@ const mockCommands: IpcHandlers = {
       ],
     };
   },
-  // Use the filtered Claude catalog shape. Haiku exposes no effort levels.
-  claude_models() {
+  // Fixed runtime catalogs exercise selection without installed CLIs.
+  agent_models({ provider }) {
+    if (!mockAccounts.active[provider]) throw 'i18n:{"code":"err.account.noActive"}';
+    if (provider === "codex") return [
+      { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+      { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+      { id: "gpt-5.4", label: "GPT-5.4", efforts: ["low", "medium", "high", "xhigh"] },
+    ];
     return [
       { id: "opus[1m]", label: "Opus (1M context)", efforts: ["low", "medium", "high", "xhigh", "max"] },
       { id: "claude-fable-5[1m]", label: "Fable", efforts: ["low", "medium", "high", "xhigh", "max"] },

@@ -47,7 +47,7 @@ export type Commands = {
   chat_control_remote: { args: { session: string; frame: unknown }; result: void };
   chat_send: { args: { session: string; text: string }; result: void };
   chat_snapshot: { args: { session: string }; result: { text: string; seq: number } };
-  claude_models: { args: undefined; result: AgentModel[] };
+  agent_models: { args: { provider: T.ProviderId }; result: AgentModel[] };
   cleanup_list: { args: undefined; result: T.Cleanable[] };
   cleanup_worktree: { args: { id: string; force: boolean }; result: void };
   close_dock: { args: { id: string; kind: T.DockKind }; result: void };

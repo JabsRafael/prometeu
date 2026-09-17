@@ -84,6 +84,7 @@ compatibility still in use stays documented in the current contracts.
 - [ADR 0045](decisions/0045-layered-tool-selection.md): Layered selection of MCP, plugins and skills across global, project and workspace.
 - [ADR 0046](decisions/0046-cli-inherited-mcp-base.md): CLI MCP set as visible inherited picker base.
 - [ADR 0047](decisions/0047-tool-selection-boundaries.md): Reviewed tool declarations, effective provider and native IPC patches.
+- [ADR 0048](decisions/0048-live-model-catalogs.md): Runtime catalogs own selectable models.
 
 ## Quality and operations
 

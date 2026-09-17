@@ -4,6 +4,11 @@ import type * as pt from "./i18n.pt";
 /// Implement every Portuguese catalog key in English. Record rejects missing translations and obsolete keys.
 export const EN: Record<keyof typeof pt.PT, string> = {
   ...FEEDBACK_EN,
+  "models.loading": "Loading models…",
+  "models.empty": "No models available",
+  "models.error": "Could not load models. Check your account and try again.",
+  "models.choose": "Choose a model",
+  "err.models.discovery": "Could not query the agent’s models.",
   "organization.legacy": "This legacy team still works. Manage new organizations and email invitations in Cloud; selecting an organization preserves a backup of this team.",
   "organization.scopeHint": "Choose an organization, then explicitly share each workspace. Switching organizations never shares existing workspaces with new people.",
   "organization.active": "Share workspaces with",

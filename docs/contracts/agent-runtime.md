@@ -36,6 +36,45 @@ coming from disk falls back to the default provider only during persistence
 migration; new code uses exhaustive matching. The JSON field is still called
 `agent` for compatibility, but its normalized value is `"claude" | "codex"`.
 
+## Model discovery
+
+`agents` discovers installations and capabilities quickly, with empty `models`.
+`agent_models({ provider })` returns `AgentModel[]` for the selected account or
+rejects with an error. Providers load independently. The descriptor and persisted
+choices keep their existing shapes; loading, ready, empty and error states live
+only in the frontend catalog.
+
+Claude queries `list_models` through its control protocol, correlates the request
+ID and excludes the unnamed `default` and explicitly disabled advertisements.
+Codex starts an app-server without a thread and requests every `model/list` page
+with `includeHidden: false`. It uses `model` as the launch identifier,
+`displayName` as the label and `supportedReasoningEfforts` as the effort list.
+Hidden models belong outside the picker. Prometeu no longer reads Codex's model
+cache for selection; remote refresh and any runtime fallback remain the CLI's
+responsibility. The naming helper still uses the cache for its separate heuristic.
+
+Both paths use the selected profile, enforce a 20-second deadline and reap the
+process group. Missing accounts, startup errors, timeouts and malformed responses
+are errors, distinct from a successful empty catalog. Partial pagination is never
+published as a complete catalog.
+
+Discovery runs at startup, on account changes, and every five minutes while the
+window is visible. Window focus refreshes a catalog at least five minutes old.
+Concurrent background refreshes coalesce; account changes always invalidate the
+previous generation, so late responses cannot cross accounts. Choices clear while
+refreshing and after failure. Pickers display loading, empty or error messages.
+
+Only advertised models are selectable. Historical Claude aliases provide labels
+for persisted selections only; live labels take precedence. Existing transcripts
+and action profiles retain their provider/model even when retired. Editing an
+unrelated action field preserves that model without adding it to the picker.
+A launcher opened during discovery updates when results arrive and cannot submit
+an unavailable model. No transcript or process is changed by a catalog refresh.
+
+See [ADR 0048](../decisions/0048-live-model-catalogs.md) and the regressions in
+`src/agents.test.ts`, `src-tauri/src/agents.rs`, `src-tauri/src/codex/account.rs`
+and `e2e/models.spec.ts`.
+
 ## Capabilities
 
 ```ts

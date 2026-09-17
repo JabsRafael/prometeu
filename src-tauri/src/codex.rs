@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 use tauri::AppHandle;
 
 mod account;
+pub use account::models;
 pub use account::{account_env, account_probe, login, prepare_profile, user_home};
 
 /// Start codex app-server for a tab. Resume uses the previously returned thread ID; absence starts
