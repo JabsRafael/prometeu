@@ -709,6 +709,7 @@ export const PT = {
   /* Disk cleanup. */
 
   "clean.title": "Limpar worktrees",
+  "clean.offer": "Tirar este worktree do disco?",
   "clean.hint": "A pasta e a branch local saem; o card fica, e o PR continua onde está.",
   "clean.hint.force":
     "Vermelho marcado sai do mesmo jeito: a mudança fora de commit e o que não entrou no alvo vão junto, e não voltam.",

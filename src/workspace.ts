@@ -2,6 +2,7 @@ import * as actions from "./actions";
 import { invoke } from "./ipc";
 import * as sidebar from "./sidebar";
 import * as browser from "./browser";
+import { openCleanup } from "./cleanup";
 import * as diff from "./diff";
 import * as dockbar from "./dockbar";
 import { avatar, icon, stageIcon, wave } from "./icons";
@@ -596,8 +597,13 @@ function askPr(ws: Workspace) {
 
 /// Finish moves work to the final stage and archives it, stopping its agent and docks.
 export function finish(id: string) {
+  const target = ctx.board().workspaces.find((workspace) => workspace.id === id);
   if (openWs === id) ctx.home();
-  invoke("finish_workspace", { id }).catch((e) => ctx.say(fromBack(e), true));
+  invoke("finish_workspace", { id })
+    .then(() => {
+      if (target && !target.remote && !target.cleaned && target.worktree !== target.repo) openCleanup(ctx.say, id);
+    })
+    .catch((e) => ctx.say(fromBack(e), true));
 }
 
 /* Tabs. */
