@@ -50,6 +50,18 @@ export function listen(onText: (settled: string, interim: string) => void, onEnd
   r.interimResults = true;
   r.continuous = true;
   let error: string | undefined;
+  let active = true;
+  let stopping = false;
+  let fallback: ReturnType<typeof setTimeout> | undefined;
+  const finish = () => {
+    if (!active) return;
+    active = false;
+    r.onend = null;
+    r.onresult = null;
+    r.onerror = null;
+    if (fallback) clearTimeout(fallback);
+    onEnd(error);
+  };
   r.onresult = (e) => {
     let settled = "";
     let interim = "";
@@ -62,9 +74,17 @@ export function listen(onText: (settled: string, interim: string) => void, onEnd
   };
   // "aborted" is the user pressing stop; "no-speech" is silence. Neither deserves an error.
   r.onerror = (e) => { if (e.error !== "aborted" && e.error !== "no-speech") error = e.error; };
-  r.onend = () => { r.onend = null; onEnd(error); };
+  r.onend = finish;
   r.start();
-  return (discard = false) => (discard ? r.abort() : r.stop());
+  return (discard = false) => {
+    if (!active) return;
+    if (discard) { try { r.abort(); } finally { finish(); } return; }
+    if (stopping) return;
+    stopping = true;
+    r.stop();
+    // Some webviews never emit `end` after `stop`; allow final results briefly, then force cleanup.
+    if (active) fallback = setTimeout(() => { try { r.abort(); } finally { finish(); } }, 1_000);
+  };
 }
 
 /// Speech segments arrive without a separating space; add one only where neither side has it.
