@@ -4,6 +4,16 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.7.7] - 2026-09-17
+
+### New
+
+- **workspaces:** Offer cleanup after archiving
+
+### Fixes
+
+- **chat:** Stop unresponsive dictation
+
 ## [0.7.6] - 2026-09-16
 
 ### New
