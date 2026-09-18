@@ -177,13 +177,24 @@ describe("updater", () => {
     expect(w.said[w.said.length - 1]).toMatch(/não deu para reiniciar: process\.restart not allowed/);
   });
 
-  it("depois de achar não pergunta de novo, e sem novidade diz a hora", async () => {
-    const w = world(found());
+  it("antes de baixar troca a oferta por uma versão mais nova", async () => {
+    const old = found("0.2.0");
+    const latest = found("0.3.0");
+    const w = world(old);
     const up = updater(w.io);
     await up.look();
-    await up.look();
-    expect(w.io.check).toHaveBeenCalledTimes(1);
+    w.io.check = vi.fn(async () => latest);
 
+    const download = up.click();
+    await tick();
+    expect(up.phase()).toMatchObject({ at: "downloading", update: { version: "0.3.0" } });
+    expect(old.downloads).toBe(0);
+    expect(latest.downloads).toBe(1);
+    latest.finish();
+    await download;
+  });
+
+  it("sem novidade diz a hora", async () => {
     const quiet = world(null);
     const q = updater(quiet.io);
     await q.look();

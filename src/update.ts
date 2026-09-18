@@ -9,7 +9,7 @@ import { $, h, template } from "./util";
 /// Check a public update manifest, verify downloaded bundles with the embedded minisign key, and replace the app after explicit download/restart actions. Sidebar shows actionable updates; Settings always shows version and check status. Both derive from one phase.
 
 /// Check periodically because the app can remain open all day.
-const EVERY = 6 * 60 * 60 * 1000;
+const EVERY = 60 * 60 * 1000;
 
 /// After requesting restart, detect when the app remains running long enough to indicate failure.
 const STUCK = 8_000;
@@ -127,8 +127,8 @@ export type Io = {
   say: (text: string, isError?: boolean) => void;
 };
 
-/// Allow another check only when no download or restart is pending.
-const idle = (phase: Phase) => phase.at === "quiet" || phase.at === "fresh" || phase.at === "failed";
+/// Allow another check while an offered update waits; a newer release may replace it before download.
+const idle = (phase: Phase) => phase.at === "quiet" || phase.at === "fresh" || phase.at === "failed" || phase.at === "found";
 
 export function updater(io: Io) {
   let phase: Phase = { at: "quiet" };
@@ -190,8 +190,10 @@ export function updater(io: Io) {
   };
 
   const click = async () => {
-    if (phase.at === "found") await download(phase.update);
-    else if (phase.at === "ready") await restart(phase.version);
+    if (phase.at === "found") {
+      await look(true);
+      if (phase.at === "found") await download(phase.update);
+    } else if (phase.at === "ready") await restart(phase.version);
     else if (idle(phase)) await look(true);
   };
 
