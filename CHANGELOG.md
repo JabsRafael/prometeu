@@ -4,6 +4,19 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.7.8] - 2026-09-18
+
+### New
+
+- **mcp:** Delegate tasks to agents in isolated workspaces
+- **mcp:** Run workspace scripts and open previews
+- **mcp:** Support external local agents
+
+### Fixes
+
+- **update:** Keep offered release current
+- **relay:** Preserve requests after oversized input
+
 ## [0.7.7] - 2026-09-17
 
 ### New
