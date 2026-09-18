@@ -1,0 +1,758 @@
+//! Local delegation use cases. Ownership is a durable conversation identity; a workspace is only
+//! the environment. This module schedules no work and never grants control over unrelated tabs.
+
+use crate::lock::lock;
+use crate::state::{Board, Status};
+use crate::{chat, conversation, session, AppState};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
+use std::process::Command;
+use tauri::{AppHandle, Manager};
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Execution {
+    pub id: String,
+    pub state: String,
+    pub source: String,
+    pub accepted_at: u64,
+    pub outcome: Option<String>,
+    pub request_hash: Option<String>,
+}
+
+impl Execution {
+    fn new(source: &str) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            state: "queued".into(),
+            source: source.into(),
+            accepted_at: conversation::now(),
+            outcome: None,
+            request_hash: None,
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Delegation {
+    /// The delegated agent and its conversation share one stable identity in this first version.
+    pub id: String,
+    pub owner: String,
+    pub workspace: String,
+    pub task: String,
+    /// Caller-supplied key prevents retrying creation from creating a second worktree.
+    pub request_key: String,
+    pub request_hash: String,
+    pub repository_heads: BTreeMap<String, String>,
+    #[serde(default)]
+    pub permission: Option<crate::actions::Permission>,
+    pub executions: Vec<Execution>,
+    /// None means no authoritative background signal has been observed in this process lifetime.
+    pub background: Option<Vec<Value>>,
+    pub requests: Vec<Value>,
+}
+
+impl Delegation {
+    pub fn reconcile_restart(&mut self, pending: bool) {
+        self.background = None;
+        self.requests.clear();
+        for run in &mut self.executions {
+            if run.state == "running" || (run.state == "queued" && !pending) {
+                run.state = "stopped".into();
+            }
+        }
+    }
+
+    fn observe(&mut self, event: &Value) -> bool {
+        match event["type"].as_str() {
+            Some("session.state") if event["state"] == "busy" => {
+                if self.executions.last().is_none_or(|r| r.state != "queued") {
+                    self.executions.push(Execution::new("conversation"));
+                }
+                self.executions.last_mut().unwrap().state = "running".into();
+            }
+            Some("session.state") if event["state"] == "starting" => {
+                self.background = None;
+                self.requests.clear();
+            }
+            Some("assistant.started")
+                if self
+                    .executions
+                    .last()
+                    .is_none_or(|r| r.state == "completed" || r.state == "stopped") =>
+            {
+                let mut run = Execution::new("background");
+                run.state = "running".into();
+                self.executions.push(run);
+            }
+            Some("turn.completed") => {
+                if let Some(run) = self.executions.last_mut().filter(|r| r.state == "running") {
+                    run.state = "completed".into();
+                    run.outcome = event["outcome"].as_str().map(str::to_string);
+                }
+                self.requests.clear();
+            }
+            Some("background.changed") => {
+                self.background = event["tasks"].as_array().cloned();
+            }
+            Some("request.opened") => {
+                self.requests
+                    .retain(|r| r["requestId"] != event["requestId"]);
+                self.requests.push(event.clone());
+            }
+            Some("request.closed") => {
+                self.requests
+                    .retain(|r| r["requestId"] != event["requestId"]);
+            }
+            _ => return false,
+        }
+        true
+    }
+}
+
+/// Called while the conversation buffer lock establishes event order. Mutate only memory here;
+/// publication and I/O happen after the conversation locks are released.
+pub fn observe(app: &AppHandle, id: &str, event: &Value) {
+    let state = app.state::<AppState>();
+    if let Some(d) = lock(&state.board)
+        .delegations
+        .iter_mut()
+        .find(|d| d.id == id)
+    {
+        d.observe(event);
+    };
+}
+
+pub fn publish_observation(app: &AppHandle, id: &str, event: &Value) {
+    if !matches!(
+        event["type"].as_str(),
+        Some(
+            "session.state"
+                | "assistant.started"
+                | "turn.completed"
+                | "background.changed"
+                | "request.opened"
+                | "request.closed"
+        )
+    ) {
+        return;
+    }
+    let state = app.state::<AppState>();
+    let delegated = lock(&state.board).delegations.iter().any(|d| d.id == id);
+    if delegated {
+        crate::state::publish(app);
+    }
+}
+
+pub fn stopped(state: &AppState, id: &str) {
+    if let Some(d) = lock(&state.board)
+        .delegations
+        .iter_mut()
+        .find(|d| d.id == id)
+    {
+        d.background = None;
+        d.requests.clear();
+        if let Some(run) = d.executions.last_mut().filter(|r| r.state == "running") {
+            run.state = "stopped".into();
+        }
+    }
+}
+
+/// The authenticated caller cannot provide or override its owner identity in tool arguments.
+fn owned<'a>(board: &'a Board, owner: &str, id: &str) -> Result<&'a Delegation, String> {
+    if board.workspace_of(owner).is_none() {
+        return Err("coordinator_unavailable".into());
+    }
+    board
+        .delegations
+        .iter()
+        .find(|d| d.owner == owner && d.id == id)
+        .ok_or_else(|| "delegation_not_found".into())
+}
+
+fn digest(text: &str) -> String {
+    format!("{:x}", Sha256::digest(text.as_bytes()))
+}
+
+fn required<'a>(args: &'a Value, name: &str, max: usize) -> Result<&'a str, String> {
+    args.get(name)
+        .and_then(Value::as_str)
+        .filter(|v| !v.trim().is_empty() && v.len() <= max)
+        .ok_or_else(|| format!("invalid_argument: {name}"))
+}
+
+fn page(args: &Value, key: &str, default: usize, max: usize) -> Result<usize, String> {
+    match args.get(key) {
+        None => Ok(default),
+        Some(value) => value
+            .as_u64()
+            .filter(|n| *n <= max as u64)
+            .map(|n| n as usize)
+            .ok_or_else(|| format!("invalid_argument: {key}")),
+    }
+}
+
+fn summary(board: &Board, d: &Delegation) -> Value {
+    let ws = board.workspaces.iter().find(|w| w.id == d.workspace);
+    let tab = ws.and_then(|w| w.tabs.iter().find(|t| t.id == d.id));
+    json!({
+        "agent_id": d.id, "conversation_id": d.id, "workspace_id": d.workspace,
+        "task": d.task, "execution": d.executions.last(),
+        "workspace": ws.map(|w| json!({"title": w.title, "stage": w.stage,
+            "preparing": w.preparing, "failed": w.failed, "archived": w.archived,
+            "cleaned": w.cleaned, "branch": w.branch})),
+        "conversation_status": tab.map(|t| match t.status {
+            Status::Rodando => "working", Status::Querendo => "waiting_for_input",
+            Status::Pronta => "ready", Status::Desligada => "stopped",
+        }),
+        "pending_message": tab.is_some_and(|t| t.pending_prompt.is_some()),
+        "background": d.background, "pending_requests": d.requests,
+        "available": tab.is_some(),
+    })
+}
+
+fn worker_choice(
+    parent: &crate::state::Workspace,
+    owner: &str,
+    args: &Value,
+) -> Result<(crate::state::ProviderId, String, String), String> {
+    let choice = parent.launch_of(owner, &session::ResolvedTools::default());
+    let provider = match args.get("provider").and_then(Value::as_str) {
+        None => choice.agent,
+        Some("claude") => crate::state::ProviderId::Claude,
+        Some("codex") => crate::state::ProviderId::Codex,
+        _ => return Err("invalid_argument: provider".into()),
+    };
+    let inherit = provider == choice.agent;
+    let model = args
+        .get("model")
+        .map(|_| required(args, "model", 200).map(str::to_string))
+        .transpose()?
+        .unwrap_or_else(|| if inherit { choice.model } else { String::new() });
+    let effort = args
+        .get("effort")
+        .map(|_| required(args, "effort", 64).map(str::to_string))
+        .transpose()?
+        .unwrap_or_else(|| {
+            if inherit {
+                choice.effort
+            } else {
+                String::new()
+            }
+        });
+    Ok((provider, model, effort))
+}
+
+fn previous_creation<'a>(
+    board: &'a Board,
+    owner: &str,
+    key: &str,
+    request_hash: &str,
+) -> Result<Option<&'a Delegation>, String> {
+    let previous = board
+        .delegations
+        .iter()
+        .find(|d| d.owner == owner && d.request_key == key);
+    if previous.is_some_and(|d| d.request_hash != request_hash) {
+        return Err("request_key_conflict".into());
+    }
+    Ok(previous)
+}
+
+fn check_send(workspace: &crate::state::Workspace, delegation: &Delegation) -> Result<(), String> {
+    let tab = workspace
+        .tabs
+        .iter()
+        .find(|t| t.id == delegation.id)
+        .ok_or("conversation_unavailable")?;
+    if workspace.preparing || workspace.cleaned || workspace.archived || workspace.failed.is_some()
+    {
+        return Err("workspace_unavailable".into());
+    }
+    if matches!(tab.status, Status::Rodando | Status::Querendo)
+        || tab.pending_prompt.is_some()
+        || delegation
+            .background
+            .as_ref()
+            .is_some_and(|tasks| !tasks.is_empty())
+    {
+        return Err("conversation_busy: wait for the current execution or interrupt it".into());
+    }
+    Ok(())
+}
+
+fn create(app: &AppHandle, owner: &str, args: &Value) -> Result<Value, String> {
+    let key = required(args, "request_key", 128)?;
+    let task = required(args, "task", 64 * 1024)?;
+    let title = required(args, "title", 200)?;
+    let state = app.state::<AppState>();
+    let (parent, stage) = {
+        let board = lock(&state.board);
+        let parent = board
+            .workspace_of(owner)
+            .ok_or("coordinator_unavailable")?
+            .clone();
+        if let Some(previous) = previous_creation(&board, owner, key, &digest(&args.to_string()))? {
+            return Ok(summary(&board, previous));
+        }
+        (parent, board.stages.first().cloned().unwrap_or_default())
+    };
+    if parent.preparing || parent.cleaned {
+        return Err("coordinator_workspace_unavailable".into());
+    }
+    let (provider, model, effort) = worker_choice(&parent, owner, args)?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let repos = if parent.repos.is_empty() {
+        vec![parent.primary()]
+    } else {
+        parent.repos.clone()
+    };
+    let mut repository_heads = BTreeMap::new();
+    for repo in &repos {
+        let output = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&repo.worktree)
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Err("repository_has_no_commit".into());
+        }
+        repository_heads.insert(
+            repo.path.clone(),
+            String::from_utf8_lossy(&output.stdout).trim().into(),
+        );
+    }
+    let primary = parent.primary();
+    let base = repository_heads
+        .get(&primary.path)
+        .cloned()
+        .ok_or("repository_unavailable")?;
+    let permission = parent
+        .launch_of(owner, &session::ResolvedTools::default())
+        .permission;
+    let delegation = Delegation {
+        id: id.clone(),
+        owner: owner.into(),
+        workspace: String::new(),
+        task: task.into(),
+        request_key: key.into(),
+        request_hash: digest(&args.to_string()),
+        repository_heads,
+        permission,
+        executions: vec![Execution::new("coordinator")],
+        background: None,
+        requests: vec![],
+    };
+    // Repositories come only from the coordinator's environment. The agent cannot choose arbitrary
+    // paths or reuse an existing workspace. Each repository branches from the coordinator's HEAD.
+    let draft: session::Draft = serde_json::from_value(json!({
+        "project": primary.path,
+        "extras": parent.repos.iter().skip(1).map(|r| r.path.clone()).collect::<Vec<_>>(),
+        "branch": format!("delegated-{}", &id[..12]), "base": base,
+        "worktree": true, "title": title, "stage": stage, "prompt": task, "inject": [],
+        "agent": provider, "model": model, "effort": effort, "permission": permission,
+        "mcp": [], "plugins": [], "skills": [],
+    }))
+    .map_err(|e| e.to_string())?;
+    session::create_workspace_owned(app.clone(), app.state(), draft, 80, 24, Some(delegation))?;
+    let board = lock(&state.board);
+    Ok(summary(&board, owned(&board, owner, &id)?))
+}
+
+/// All calls arrive serialized at the local MCP boundary. Work is asynchronous after creation/send.
+pub fn call(app: &AppHandle, owner: &str, name: &str, args: &Value) -> Result<Value, String> {
+    let state = app.state::<AppState>();
+    if lock(&state.board).workspace_of(owner).is_none() {
+        return Err("coordinator_unavailable".into());
+    }
+    if name == "delegate" {
+        return create(app, owner, args);
+    }
+    if name == "list_delegations" {
+        let offset = page(args, "offset", 0, usize::MAX)?;
+        let limit = page(args, "limit", 20, 100)?.max(1);
+        let board = lock(&state.board);
+        let all: Vec<_> = board
+            .delegations
+            .iter()
+            .filter(|d| d.owner == owner)
+            .collect();
+        let items: Vec<_> = all
+            .iter()
+            .skip(offset)
+            .take(limit)
+            .map(|d| summary(&board, d))
+            .collect();
+        return Ok(
+            json!({"items": items, "next_offset": (offset.saturating_add(limit) < all.len()).then_some(offset.saturating_add(limit))}),
+        );
+    }
+    let id = required(args, "agent_id", 128)?;
+    let workspace = {
+        let board = lock(&state.board);
+        let d = owned(&board, owner, id)?.clone();
+        if name == "get_execution" {
+            let execution = required(args, "execution_id", 260)?;
+            return d
+                .executions
+                .iter()
+                .find(|r| r.id == execution)
+                .map(|r| json!({"execution": r}))
+                .ok_or_else(|| "execution_not_found".into());
+        }
+        if name == "get_delegation" {
+            return Ok(summary(&board, &d));
+        }
+        let ws = board
+            .workspaces
+            .iter()
+            .find(|w| w.id == d.workspace)
+            .ok_or("workspace_unavailable")?
+            .clone();
+        ws
+    };
+    match name {
+        "send_message" => {
+            let gate = chat::input_gate(id);
+            let _input = lock(&gate);
+            let (delegation, workspace) = {
+                let board = lock(&state.board);
+                let d = owned(&board, owner, id)?.clone();
+                let ws = board
+                    .workspaces
+                    .iter()
+                    .find(|w| w.id == d.workspace)
+                    .ok_or("workspace_unavailable")?
+                    .clone();
+                (d, ws)
+            };
+            let text = required(args, "text", 64 * 1024)?;
+            let key = required(args, "request_key", 128)?;
+            // Request IDs are scoped to the delegated conversation, separate from its identity.
+            let run_id = format!("{}:{key}", delegation.id);
+            if let Some(run) = delegation.executions.iter().find(|r| r.id == run_id) {
+                if run.request_hash.as_deref() != Some(&digest(text)) {
+                    return Err("request_key_conflict".into());
+                }
+                return Ok(json!({"execution": run}));
+            }
+            check_send(&workspace, &delegation)?;
+            let mut run = Execution::new("coordinator");
+            run.id = run_id.clone();
+            run.request_hash = Some(digest(text));
+            lock(&state.board)
+                .delegations
+                .iter_mut()
+                .find(|d| d.id == id)
+                .unwrap()
+                .executions
+                .push(run);
+            crate::state::publish(app);
+            if let Err(error) = crate::state::persist_now(app) {
+                if let Some(d) = lock(&state.board)
+                    .delegations
+                    .iter_mut()
+                    .find(|d| d.id == id)
+                {
+                    if let Some(run) = d.executions.iter_mut().find(|r| r.id == run_id) {
+                        run.state = "completed".into();
+                        run.outcome = Some("error".into());
+                    }
+                }
+                crate::state::publish(app);
+                return Err(error);
+            }
+            let result = chat::send(app.clone(), app.state(), id.into(), text.into(), true);
+            let mut board = lock(&state.board);
+            let pending = board
+                .tab_mut(id)
+                .is_some_and(|t| t.pending_prompt.is_some());
+            let d = board.delegations.iter_mut().find(|d| d.id == id).unwrap();
+            let run = d.executions.iter_mut().find(|r| r.id == run_id).unwrap();
+            if let Err(error) = result {
+                if !pending {
+                    run.state = "completed".into();
+                    run.outcome = Some("error".into());
+                }
+                drop(board);
+                crate::state::publish(app);
+                // A failed spawn can leave the message in the existing durable pending queue.
+                return Err(format!(
+                    "send_failed: {error}; inspect the delegation before retrying"
+                ));
+            }
+            Ok(json!({"execution": run}))
+        }
+        "interrupt" => {
+            chat::chat_control(
+                app.state(),
+                id.into(),
+                json!({"v": 1, "type": "turn.interrupt"}),
+            )?;
+            Ok(json!({"requested": true}))
+        }
+        "read_conversation" => {
+            let limit = page(args, "limit", 50, 200)?.max(1);
+            let snapshot = chat::snapshot(&state, id);
+            let events = chat::canonical_history(&snapshot.text);
+            let start = events.len().saturating_sub(limit);
+            // Individual tool outputs can be large. Return only a bounded suffix of whole events.
+            let mut bytes = 0;
+            let mut result: Vec<_> = events[start..]
+                .iter()
+                .rev()
+                .take_while(|e| {
+                    bytes += e.to_string().len();
+                    bytes <= 256 * 1024
+                })
+                .cloned()
+                .collect();
+            result.reverse();
+            Ok(
+                json!({"events": result, "truncated": result.len() < events.len(), "seq": snapshot.seq}),
+            )
+        }
+        "list_files" => {
+            let path = args.get("path").and_then(Value::as_str).unwrap_or("");
+            let offset = page(args, "offset", 0, usize::MAX)?;
+            let limit = page(args, "limit", 100, 500)?.max(1);
+            let entries = session::files::list_dir(app.state(), workspace.id, path.into());
+            let next = offset.saturating_add(limit);
+            Ok(
+                json!({"entries": entries.iter().skip(offset).take(limit).collect::<Vec<_>>(),
+                "next_offset": (next < entries.len()).then_some(next)}),
+            )
+        }
+        "read_file" => {
+            let path = required(args, "path", 4096)?;
+            let start = page(args, "start_line", 0, usize::MAX)?;
+            let limit = page(args, "limit", 100, 500)?.max(1);
+            let content = session::files::read_file(app.state(), workspace.id, path.into())?;
+            let lines: Vec<_> = content.lines().collect();
+            let mut bytes = 0;
+            let selected: Vec<_> = lines
+                .iter()
+                .skip(start)
+                .take(limit)
+                .take_while(|line| {
+                    bytes += line.len() + 1;
+                    bytes <= 128 * 1024
+                })
+                .copied()
+                .collect();
+            if selected.is_empty() && start < lines.len() {
+                return Err("line_too_large".into());
+            }
+            let next = start.saturating_add(selected.len());
+            Ok(json!({"text": selected.join("\n"), "start_line": start,
+                "next_line": (next < lines.len()).then_some(next)}))
+        }
+        _ => Err("unknown_tool".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn delegation() -> Delegation {
+        Delegation {
+            id: "worker".into(),
+            owner: "coordinator".into(),
+            workspace: "child".into(),
+            task: "implement a task".into(),
+            request_key: "first".into(),
+            request_hash: "hash".into(),
+            repository_heads: BTreeMap::new(),
+            permission: None,
+            executions: vec![Execution::new("coordinator")],
+            background: None,
+            requests: vec![],
+        }
+    }
+
+    fn board() -> Board {
+        let tab =
+            |id| json!({"id":id,"title":"","status":"pronta","note":null,"pending_prompt":null});
+        let workspace = |id, tabs| {
+            json!({"id":id,"title":"","repo":"/repo","repo_name":"repo",
+            "branch":"main","worktree":"/worktree","stage":"manual stage","tabs":tabs})
+        };
+        serde_json::from_value(json!({"stages":["manual stage"],"workspaces":[
+            workspace("parent", vec![tab("coordinator"),tab("other-coordinator")]),
+            workspace("child", vec![tab("worker"),tab("person-created-tab")])
+        ]}))
+        .unwrap()
+    }
+
+    #[test]
+    fn ownership_is_per_conversation_not_workspace_membership() {
+        let mut board = board();
+        board.delegations.push(delegation());
+        assert!(owned(&board, "coordinator", "worker").is_ok());
+        assert!(owned(&board, "other-coordinator", "worker").is_err());
+        assert!(owned(&board, "coordinator", "person-created-tab").is_err());
+        assert!(owned(&board, "worker", "worker").is_err());
+        assert!(owned(&board, "coordinator", "parent").is_err());
+        board.workspaces[0].tabs.retain(|t| t.id != "coordinator");
+        assert!(owned(&board, "coordinator", "worker").is_err());
+    }
+
+    #[test]
+    fn old_boards_default_to_no_delegations_and_new_boards_roundtrip() {
+        let mut board = board();
+        assert!(board.delegations.is_empty());
+        board.delegations.push(delegation());
+        let mut restored: Board =
+            serde_json::from_value(serde_json::to_value(&board).unwrap()).unwrap();
+        restored.revive();
+        assert!(owned(&restored, "coordinator", "worker").is_ok());
+        assert_eq!(restored.workspaces[1].stage, "manual stage");
+        assert_eq!(restored.delegations[0].request_key, "first");
+    }
+
+    #[test]
+    fn completion_and_background_are_independent_and_unknown_is_not_empty() {
+        let mut d = delegation();
+        let run_id = d.executions[0].id.clone();
+        assert!(d.background.is_none());
+        d.observe(&json!({"type":"session.state","state":"busy"}));
+        d.observe(&json!({"type":"background.changed","tasks":[{"id":"child","description":"review","toolId":null}]}));
+        d.observe(&json!({"type":"turn.completed","outcome":"ok"}));
+        assert_eq!(d.executions[0].id, run_id);
+        assert_eq!(d.executions[0].state, "completed");
+        assert_eq!(d.executions[0].outcome.as_deref(), Some("ok"));
+        assert_eq!(d.background.as_ref().unwrap().len(), 1);
+        d.observe(&json!({"type":"background.changed","tasks":[]}));
+        assert_eq!(d.executions.len(), 1);
+        assert_eq!(d.background, Some(vec![]));
+    }
+
+    #[test]
+    fn requests_and_process_restarts_do_not_invent_completion() {
+        let mut d = delegation();
+        d.observe(&json!({"type":"session.state","state":"busy"}));
+        d.observe(&json!({"type":"request.opened","requestId":"q1","kind":"question"}));
+        d.observe(&json!({"type":"request.opened","requestId":"q1","kind":"question"}));
+        assert_eq!(d.requests.len(), 1);
+        d.observe(&json!({"type":"request.closed","requestId":"q1"}));
+        assert!(d.requests.is_empty());
+        d.reconcile_restart(false);
+        assert_eq!(d.executions[0].state, "stopped");
+        assert!(d.executions[0].outcome.is_none());
+        assert!(d.background.is_none());
+    }
+
+    #[test]
+    fn pending_messages_keep_their_execution_id_when_recovered() {
+        let mut d = delegation();
+        let id = d.executions[0].id.clone();
+        d.reconcile_restart(true);
+        d.observe(&json!({"type":"session.state","state":"starting"}));
+        d.observe(&json!({"type":"session.state","state":"busy"}));
+        assert_eq!(d.executions.len(), 1);
+        assert_eq!(d.executions[0].id, id);
+        assert_eq!(d.executions[0].state, "running");
+    }
+
+    #[test]
+    fn subsequent_person_turns_and_background_continuations_get_distinct_executions() {
+        let mut d = delegation();
+        d.observe(&json!({"type":"session.state","state":"busy"}));
+        d.observe(&json!({"type":"turn.completed","outcome":"interrupted"}));
+        d.observe(&json!({"type":"session.state","state":"busy"}));
+        assert_eq!(d.executions[1].source, "conversation");
+        d.observe(&json!({"type":"turn.completed","outcome":"ok"}));
+        d.observe(&json!({"type":"assistant.started"}));
+        d.observe(&json!({"type":"assistant.started"}));
+        assert_eq!(d.executions.len(), 3);
+        assert_eq!(d.executions[2].source, "background");
+        assert_eq!(d.executions[2].state, "running");
+        assert_ne!(d.executions[0].id, d.executions[1].id);
+    }
+
+    #[test]
+    fn worker_defaults_follow_the_owner_tab_provider_and_model() {
+        let mut board = board();
+        board.workspaces[0].tabs[0].choice = Some(crate::state::Choice {
+            agent: crate::state::ProviderId::Codex,
+            model: "chosen-model".into(),
+            effort: "high".into(),
+        });
+        let (provider, model, effort) =
+            worker_choice(&board.workspaces[0], "coordinator", &json!({})).unwrap();
+        assert_eq!(provider, crate::state::ProviderId::Codex);
+        assert_eq!(model, "chosen-model");
+        assert_eq!(effort, "high");
+        let (provider, model, effort) = worker_choice(
+            &board.workspaces[0],
+            "coordinator",
+            &json!({"provider":"claude"}),
+        )
+        .unwrap();
+        assert_eq!(provider, crate::state::ProviderId::Claude);
+        assert!(model.is_empty() && effort.is_empty());
+        assert!(worker_choice(
+            &board.workspaces[0],
+            "coordinator",
+            &json!({"provider":"unknown"})
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn creation_retries_are_scoped_to_owner_and_reject_changed_arguments() {
+        let mut board = board();
+        board.delegations.push(delegation());
+        assert_eq!(
+            previous_creation(&board, "coordinator", "first", "hash")
+                .unwrap()
+                .unwrap()
+                .id,
+            "worker"
+        );
+        assert!(previous_creation(&board, "coordinator", "first", "changed").is_err());
+        assert!(
+            previous_creation(&board, "other-coordinator", "first", "changed")
+                .unwrap()
+                .is_none()
+        );
+        assert!(previous_creation(&board, "coordinator", "second", "hash")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn send_rejects_busy_questions_pending_input_and_background_without_changing_stage() {
+        let mut workspace = board().workspaces.remove(1);
+        let mut d = delegation();
+        assert!(check_send(&workspace, &d).is_ok());
+        for status in [Status::Rodando, Status::Querendo] {
+            workspace.tabs[0].status = status;
+            assert!(check_send(&workspace, &d).is_err());
+        }
+        workspace.tabs[0].status = Status::Desligada;
+        assert!(check_send(&workspace, &d).is_ok());
+        workspace.tabs[0].pending_prompt = Some("pending".into());
+        assert!(check_send(&workspace, &d).is_err());
+        workspace.tabs[0].pending_prompt = None;
+        d.background = Some(vec![json!({"id":"native-child"})]);
+        assert!(check_send(&workspace, &d).is_err());
+        d.background = Some(vec![]);
+        assert!(check_send(&workspace, &d).is_ok());
+        workspace.archived = true;
+        assert!(check_send(&workspace, &d).is_err());
+        assert_eq!(workspace.stage, "manual stage");
+    }
+
+    #[test]
+    fn pagination_and_message_inputs_are_bounded() {
+        assert!(required(&json!({"text":" "}), "text", 100).is_err());
+        assert!(required(&json!({"text":"12345"}), "text", 4).is_err());
+        assert!(page(&json!({"limit":-1}), "limit", 20, 100).is_err());
+        assert!(page(&json!({"limit":101}), "limit", 20, 100).is_err());
+        assert_eq!(page(&json!({}), "limit", 20, 100).unwrap(), 20);
+        assert_ne!(digest("first message"), digest("changed message"));
+    }
+}

@@ -779,6 +779,8 @@ export const PT = {
   "settings.global.axis": "Sem escolha, nada entra por esta camada.",
   "settings.mcp": "Ferramentas (MCP)",
   "settings.mcp.body": "O que os agentes podem usar. Cada workspace escolhe quais entram.",
+  "mcp.builtin.description": "Integrado ao Prometeu. Delega tarefas em workspaces próprios; ative nas ferramentas da conversa coordenadora.",
+  "err.mcp.builtin": "O MCP integrado do Prometeu não pode ser editado ou removido.",
   "mcp.add": "Cadastrar servidor",
   "mcp.import": "Importar do Claude Code",
   "mcp.import.none": "nada de novo para importar",

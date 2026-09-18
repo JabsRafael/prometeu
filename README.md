@@ -32,6 +32,11 @@ optional for local work; model access comes from your own provider account.
   commit only the index, inspect history, compare branches, and resolve conflicts.
 - **Files, terminals, and browser preview.** Edit code, view PDFs and CSVs,
   run project scripts, and attach selected page elements or screenshots to a prompt.
+- **Delegation through MCP.** The built-in `prometeu` MCP is available but off
+  by default. Select it in the coordinator workspace’s tools to create agents
+  in isolated workspaces, send messages and inspect their runs, background
+  tasks, conversations and files. It controls only agents that conversation
+  created, while the desktop app is open. See the [contract](docs/contracts/embedded-mcp.md).
 - **Tools per workspace.** Select MCP servers, plugins, and skills. Reusable
   actions include an editable code review profile.
 - **Optional collaboration.** Share live conversations and comment on them

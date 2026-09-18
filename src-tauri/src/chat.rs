@@ -17,8 +17,17 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-/// Per-tab conversation memory limit. Tool results can contain whole files; trim only complete JSON
-/// lines.
+/// Serialize accepted input per conversation without blocking sends to unrelated agents.
+pub(crate) fn input_gate(session: &str) -> Arc<Mutex<()>> {
+    type Gates = Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>;
+    static GATES: std::sync::OnceLock<Gates> = std::sync::OnceLock::new();
+    lock(GATES.get_or_init(Mutex::default))
+        .entry(session.into())
+        .or_default()
+        .clone()
+}
+
+/// Per-tab memory limit; trim only complete JSON lines.
 const KEEP: usize = 4 * 1024 * 1024;
 
 /// Grace periods after stdin closes, before escalating to SIGTERM and SIGKILL.
@@ -221,6 +230,7 @@ impl Pump {
             }
             _ => {}
         }
+        crate::delegation::observe(&self.app, &self.id, frame);
         lines.deliver(text, keep(frame), self.log.as_deref(), |seq| {
             if !self.gone.load(Ordering::Relaxed) {
                 let _ = self
@@ -234,6 +244,7 @@ impl Pump {
         if self.gone.load(Ordering::Relaxed) {
             return;
         }
+        crate::delegation::publish_observation(&self.app, &self.id, frame);
         react(&self.app, &self.id, frame, &self.ready, &self.profile.id);
         if frame["type"] == "turn.completed" {
             let state = self.app.state::<AppState>();
@@ -346,7 +357,9 @@ impl Drop for Chat {
 
 /// Removing the conversation drops its process handle and starts shutdown.
 pub fn kill(state: &AppState, id: &str) {
+    crate::embedded_mcp::revoke(id);
     lock(&state.chats).remove(id);
+    crate::delegation::stopped(state, id);
 }
 
 /// Remove inherited `CLAUDE*` variables without clearing caller-supplied environment values.
@@ -485,6 +498,7 @@ pub(crate) fn launch(
             return;
         }
         lock(&state.ready).remove(&id);
+        crate::delegation::stopped(&state, &id);
         // Keep the conversation available for resume after the process stops.
         update(&app, &id, Some(Status::Desligada), Note::Clear, None);
         let _ = app.emit("chat-closed", id);
@@ -756,6 +770,15 @@ fn user(text: &str) -> Value {
 /// Hold chats, then transcript, through the command write and its local events. Incoming output
 /// cannot overtake the user message. Run reactions only after releasing both locks.
 fn write(state: &AppState, session: &str, frame: &Value) -> Result<(), String> {
+    write_mode(state, session, frame, false)
+}
+
+fn write_mode(
+    state: &AppState,
+    session: &str,
+    frame: &Value,
+    idle_only: bool,
+) -> Result<(), String> {
     let (pump, events) = {
         let mut chats = lock(&state.chats);
         let chat = chats
@@ -764,6 +787,9 @@ fn write(state: &AppState, session: &str, frame: &Value) -> Result<(), String> {
             .ok_or_else(|| i18n::t("err.chat.gone"))?;
         let pump = chat.pump.clone();
         let mut lines = lock(&pump.sink);
+        if idle_only && chat.working() {
+            return Err("conversation_busy".into());
+        }
         let previous_turn =
             (frame["type"] == "message.send").then(|| pump.turn.swap(true, Ordering::Relaxed));
         let events = match lines.command(
@@ -804,6 +830,20 @@ pub fn chat_send(
     session: String,
     text: String,
 ) -> Result<(), String> {
+    let gate = input_gate(&session);
+    let _input = lock(&gate);
+    send(app, state, session, text, false)
+}
+
+/// Callers hold the session input gate across validation and reservation so person and MCP sends cannot consume
+/// each other's execution identifiers. The process write checks idleness again under its lock.
+pub(crate) fn send(
+    app: AppHandle,
+    state: State<AppState>,
+    session: String,
+    text: String,
+    idle_only: bool,
+) -> Result<(), String> {
     let text = text.trim().to_string();
     if text.is_empty() {
         return Ok(());
@@ -828,7 +868,12 @@ pub fn chat_send(
     let up = lock(&state.chats).get(&session).is_some_and(|c| c.alive());
     let ready = lock(&state.ready).contains(&session);
     if !queued && up && ready && boundary != AccountBoundary::Wait {
-        say(&state, &session, &text)?;
+        write_mode(
+            &state,
+            &session,
+            &json!({"v":1,"type":"message.send","text":text}),
+            idle_only,
+        )?;
         update(&app, &session, Some(Status::Rodando), Note::Clear, None);
         return Ok(());
     }
@@ -1114,7 +1159,7 @@ fn answers_for(input: &Value, updated: &Value) -> Option<Value> {
 }
 
 /// Append runtime turn state to the snapshot so replay can settle or resume streaming correctly.
-fn snapshot(state: &AppState, session: &str) -> Snapshot {
+pub(crate) fn snapshot(state: &AppState, session: &str) -> Snapshot {
     let (mut text, seq, busy) = match lock(&state.chats).get(session) {
         Some(chat) => {
             let b = lock(&chat.buffer);
@@ -1144,6 +1189,15 @@ fn snapshot(state: &AppState, session: &str) -> Snapshot {
     Snapshot { text, seq }
 }
 
+/// Normalize historical provider lines at the conversation boundary before exposing them to MCP.
+pub(crate) fn canonical_history(text: &str) -> Vec<Value> {
+    let mut legacy = claude::Adapter::default();
+    text.lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .flat_map(|event| legacy.translate(&event))
+        .collect()
+}
+
 /// Resolve the native Claude transcript or the app-managed Codex transcript for this conversation.
 pub fn transcript_of(ws: &Workspace, session: &str) -> PathBuf {
     match ws.agent {
@@ -1162,6 +1216,23 @@ pub fn chat_snapshot(state: State<AppState>, session: String) -> Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_mcp_history_excludes_provider_child_transcripts() {
+        let canonical = json!({"v":1,"type":"turn.completed","at":10,"outcome":"ok"});
+        let text = [
+            json!({"type":"user","message":{"role":"user","content":"main conversation"}}),
+            json!({"type":"user","isSidechain":true,"message":{"role":"user","content":"private child"}}),
+            canonical.clone(),
+        ].iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
+        let history = canonical_history(&text);
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0]["type"], "user.message");
+        assert_eq!(history[1], canonical);
+        assert!(!serde_json::to_string(&history)
+            .unwrap()
+            .contains("private child"));
+    }
 
     #[test]
     fn command_records_busy_user_and_echo_before_concurrent_response() {

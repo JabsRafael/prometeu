@@ -275,3 +275,13 @@ replacing a legacy configuration, `team.rs` writes a private
 companion devices. It is independent of `audience`: an empty list represents
 remote control without a team audience. Turning off the last kind of access also
 clears `shared`, `share_team` and `audience`.
+
+## Delegations
+
+`Board.delegations` defaults to `[]` for older boards. It persists coordinator,
+worker conversation and workspace identities separately, initial task and
+repository commits, idempotency keys/hashes, executions and observations.
+Process restarts preserve ownership and queued IDs with persisted pending input,
+mark other unfinished executions stopped and
+clear live background/request observations. No transcript migration applies.
+See the [embedded MCP contract](embedded-mcp.md) for fields and retry semantics.

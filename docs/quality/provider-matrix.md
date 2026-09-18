@@ -118,3 +118,19 @@ A missing test must not become `true` by similarity between providers.
 
 E2E does not replace the contract: it covers a few expensive paths. Fixtures and
 reducers give fast diagnosis for every combination.
+
+## Built-in delegation MCP
+
+Both Claude and Codex can opt into the bundled `prometeu` MCP and create either
+provider in an isolated workspace. Ownership, execution IDs, busy-send
+rejection, file access and canonical history share the backend implementation.
+Claude receives a private strict MCP file; Codex receives the stdio command
+and private environment wrapper. Workers start with empty MCP/plugin/skill
+selections. Background reporting is limited to each adapter’s existing
+`background.changed` signals; unknown is distinct from an observed empty set.
+
+Evidence: `delegation.rs` and `embedded_mcp.rs` unit tests, built-in
+materialization tests in `mcp.rs`, and the opt-in picker test in
+`e2e/tools.spec.ts`. Browser tests use the catalog mock and do not run models.
+Live model delegation requires installed/authenticated CLIs; automated tests
+do not spend model credits. See the [contract](../contracts/embedded-mcp.md).

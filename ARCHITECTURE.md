@@ -85,6 +85,15 @@ Publication is a separate operational step. See the
 [contract](docs/contracts/cloud-account.md) and
 [ADR 0015](docs/decisions/0015-cloud-rails.md).
 
+## Local delegation
+
+The built-in `prometeu` MCP is available without default activation.
+`embedded_mcp.rs` bridges stdio to the open desktop through a private Unix
+socket; `delegation.rs` authorizes only agents created by the calling
+conversation. Each delegation starts with its own workspace and conversation;
+execution IDs are separate. See the [contract](docs/contracts/embedded-mcp.md)
+and [ADR 0049](docs/decisions/0049-embedded-delegation-mcp.md).
+
 ## Reusable actions
 
 `actions.rs` keeps commands, profiles and runs on top of existing sessions.

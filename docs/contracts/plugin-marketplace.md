@@ -257,3 +257,10 @@ The hub keeps them under the ID `skill-<id>`, and they are chosen on their own
 `skills` axis, which still materializes through the plugin-package pipeline
 above, without changing the CLIs' global configuration. See the
 [catalog contract](cloud-catalog.md).
+
+## Bundled Prometeu MCP
+
+The virtual `prometeu` server is present in the selectable universe, never in
+the implicit CLI base or automatically selected by installation. Its definition
+is app-owned and cannot be edited/removed/shared. Only selected sessions receive
+a private process credential. See [embedded MCP](embedded-mcp.md).

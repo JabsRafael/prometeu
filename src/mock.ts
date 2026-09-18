@@ -672,6 +672,7 @@ function pushLine(tab: string, o: unknown, keep = true) {
 let msgN = 0;
 /// The browser MCP hub supports settings edits without a backend.
 let mcpHub: McpServer[] = [
+  { id: "prometeu", config: { type: "stdio", builtin: true }, note: "" },
   { id: "capim-ds", config: { type: "stdio", command: "npx", args: ["-y", "@capim/ds-mcp"], env: {} }, note: "design system" },
   { id: "notion", config: { type: "http", url: "https://mcp.notion.com/mcp" }, note: "" },
   { id: "linear-server", config: { type: "http", url: "https://mcp.linear.app/mcp" }, note: "capim-backend" },
@@ -1437,6 +1438,7 @@ const mockCommands: IpcHandlers = {
   },
   mcp_save(args) {
     const server = args.server as (typeof mcpHub)[number];
+    if (server.id === "prometeu") throw new Error('i18n:{"code":"err.mcp.builtin"}');
     if (mockCloud().user && mockCatalog().shared[`mcp:${server.id}`]) cloudWrite();
     const at = mcpHub.findIndex((s) => s.id === server.id);
     if (at < 0) mcpHub.push(server);
@@ -1444,6 +1446,7 @@ const mockCommands: IpcHandlers = {
     return mcpHub;
   },
   mcp_remove(args) {
+    if (args.id === "prometeu") throw new Error('i18n:{"code":"err.mcp.builtin"}');
     const state = mockCatalog();
     if (mockCloud().user && state.shared[`mcp:${args.id}`]) {
       cloudWrite(); state.mcp = state.mcp.filter(id => id !== args.id); delete state.shared[`mcp:${args.id}`]; saveMockCatalog(state);

@@ -1172,7 +1172,7 @@ pub(crate) fn resolve_workspace_tools(
 /// Codex conversation keeps the hub-only universe and today's coexistence behavior. A hub entry wins
 /// an ID clash, keeping an imported server Prometeu-managed.
 fn mcp_base_and_universe(ws: &Workspace, agent: ProviderId) -> (Vec<String>, Vec<String>) {
-    let mut universe: Vec<String> = crate::mcp::load().into_iter().map(|s| s.id).collect();
+    let mut universe: Vec<String> = crate::mcp::available().into_iter().map(|s| s.id).collect();
     if agent != ProviderId::Claude {
         return (Vec::new(), universe);
     }
@@ -1385,6 +1385,17 @@ pub fn create_workspace(
     cols: u16,
     rows: u16,
 ) -> Result<Workspace, String> {
+    create_workspace_owned(app, state, draft, cols, rows, None)
+}
+
+pub(crate) fn create_workspace_owned(
+    app: AppHandle,
+    state: State<AppState>,
+    draft: Draft,
+    cols: u16,
+    rows: u16,
+    delegation: Option<crate::delegation::Delegation>,
+) -> Result<Workspace, String> {
     let repo_path = PathBuf::from(expand(&draft.project));
     let repo_name = repo_named(&repo_path)?;
 
@@ -1453,7 +1464,11 @@ pub fn create_workspace(
         }],
         false => std::iter::once((repo_path.clone(), repo_name.clone(), draft.base.clone()))
             .chain(extras.into_iter().map(|(path, name)| {
-                let base = default_base(&path);
+                let base = delegation
+                    .as_ref()
+                    .and_then(|d| d.repository_heads.get(&path.display().to_string()))
+                    .cloned()
+                    .unwrap_or_else(|| default_base(&path));
                 (path, name, base)
             }))
             .map(|(path, name, base)| Repo {
@@ -1523,10 +1538,28 @@ pub fn create_workspace(
     };
     crate::state::split_skills(&mut ws.plugins, &mut ws.skills);
 
-    // Publish the workspace before startup so setup completion can find pending prompts on its
-    // tabs.
-    lock(&state.board).workspaces.push(ws.clone());
+    // Publish ownership atomically with the workspace, before preparation can start the agent.
+    let delegated = delegation.is_some();
+    {
+        let mut board = lock(&state.board);
+        if let Some(mut delegation) = delegation {
+            delegation.workspace = ws.id.clone();
+            board.delegations.push(delegation);
+        }
+        board.workspaces.push(ws.clone());
+    }
     publish(&app);
+
+    if delegated {
+        if let Err(error) = crate::state::persist_now(&app) {
+            if let Some(ws) = lock(&state.board).workspace_mut(&ws.id) {
+                ws.preparing = false;
+                ws.failed = Some(error.clone());
+            }
+            publish(&app);
+            return Err(error);
+        }
+    }
 
     // Generate a better title from the full prompt while filesystem preparation runs. Naming does
     // not require a worktree. Workspaces created from issues retain their issue titles.
@@ -1554,6 +1587,12 @@ fn prepare(app: &AppHandle, id: &str, draft: Draft, cols: u16, rows: u16) {
         };
         ws.preparing = false;
         ws.failed = Some(err);
+        if let Some(d) = board.delegations.iter_mut().find(|d| d.workspace == id) {
+            if let Some(run) = d.executions.last_mut() {
+                run.state = "completed".into();
+                run.outcome = Some("error".into());
+            }
+        }
     }
     publish(app);
 }
@@ -1623,7 +1662,12 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
         }
         launch
     };
-    let tab = spawn_tab(
+    let delegated_id = lock(&state.board)
+        .delegations
+        .iter()
+        .find(|d| d.workspace == id)
+        .map(|d| d.id.clone());
+    let tab = spawn_tab_with_id(
         app,
         &state,
         id,
@@ -1633,6 +1677,7 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
         // The first conversation uses the launch settings already saved on the workspace, so it
         // needs no tab override.
         None,
+        delegated_id,
     )?;
 
     // If the workspace was removed during preparation, stop the newly started agent instead of
@@ -1771,7 +1816,7 @@ pub fn rename_tab(
 
 /// Restart the process when chat_send receives a message for a stopped tab.
 pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<bool, String> {
-    let (workspace, worktree, launch, cleaned, agent_session) = {
+    let (workspace, worktree, mut launch, cleaned, agent_session) = {
         // Snapshot under the lock; tool resolution runs git subprocesses and reads CLI
         // configuration, which must not block board events.
         let (global, trust, snapshot) = {
@@ -1799,6 +1844,9 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
             previous,
         )
     };
+    if let Some(delegation) = lock(&state.board).delegations.iter().find(|d| d.id == tab) {
+        launch.permission = delegation.permission;
+    }
     if cleaned {
         return Err(i18n::t("err.session.cleaned"));
     }
@@ -1849,13 +1897,36 @@ fn spawn_tab(
     launch: &Launch,
     choice: Option<Choice>,
 ) -> Result<Tab, String> {
+    spawn_tab_with_id(
+        app,
+        state,
+        workspace,
+        title,
+        pending_prompt,
+        launch,
+        choice,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_tab_with_id(
+    app: &AppHandle,
+    state: &State<AppState>,
+    workspace: &str,
+    title: &str,
+    pending_prompt: Option<String>,
+    launch: &Launch,
+    choice: Option<Choice>,
+    id: Option<String>,
+) -> Result<Tab, String> {
     let worktree = lock(&state.board)
         .workspaces
         .iter()
         .find(|candidate| candidate.id == workspace)
         .map(|workspace| PathBuf::from(&workspace.worktree))
         .ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
-    let id = uuid::Uuid::new_v4().to_string();
+    let id = id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     // The selected provider determines which CLI runs; the tab identity stays the same.
     let handle = match launch.agent {
         ProviderId::Codex => crate::codex::spawn(app, &id, workspace, &worktree, None, launch)?,

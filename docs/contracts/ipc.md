@@ -290,3 +290,13 @@ returns an error with an i18n code: `feedback.needAccount` without an account or
 on 401, `feedback.rateLimit` at the limit, `feedback.uncertain` with `{id}` on
 uncertain delivery and `feedback.sendError` for the rest. The mock records the
 report and nothing leaves the machine.
+
+## Built-in MCP catalog entry
+
+`mcp_hub`, `mcp_save` and `mcp_remove` return the virtual `prometeu` entry with
+`config: {type: "stdio", builtin: true}` in addition to mutable registry items.
+The built-in cannot be overwritten or removed (`err.mcp.builtin`). It contains
+no executable path or credential. `load_board` includes additive
+`delegations`, defaulting to an empty list in Rust. There are no new IPC
+commands; the browser mock mirrors the catalog and selection behavior, and
+does not execute MCP agents. See [embedded MCP](embedded-mcp.md).
