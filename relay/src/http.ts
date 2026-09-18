@@ -1,5 +1,5 @@
 /** Bound untrusted request bodies while reading, before allocating the full payload. */
-export async function smallJson(req: Request, max: number): Promise<{ value?: unknown; error?: Response }> {
+export async function smallJson(req: Request, max: number): Promise<{ value?: unknown; raw?: string; error?: Response }> {
   const tooBig = () => ({ error: new Response("too big", { status: 413 }) });
   if (Number(req.headers.get("Content-Length") ?? "0") > max) {
     await req.body?.cancel().catch(() => {});
@@ -21,7 +21,8 @@ export async function smallJson(req: Request, max: number): Promise<{ value?: un
       }
       raw += decoder.decode(value, { stream: true });
     }
-    return { value: JSON.parse(raw + decoder.decode()) };
+    raw += decoder.decode();
+    return { value: JSON.parse(raw), raw };
   } catch {
     return { error: new Response("bad", { status: 400 }) };
   } finally {

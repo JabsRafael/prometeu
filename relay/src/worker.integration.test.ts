@@ -1,4 +1,4 @@
-import { createServer, type Server } from "node:http";
+import { createServer, request, type Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { unstable_dev, type Unstable_DevWorker } from "wrangler";
 import { encryptedBinary, encodeLive, encodeSnapshot, parseCreatedTeam, parseMembership, PROTO, type CreatedTeam, type Encrypted, type Share } from "./protocol";
@@ -10,6 +10,34 @@ let created: CreatedTeam;
 // Closing under a loaded GitHub-hosted runner can exceed expect.poll's 1 s default.
 const closed = (socket: WebSocket) =>
   expect.poll(() => socket.readyState, { timeout: 15_000 }).toBe(WebSocket.CLOSED);
+
+// Assert the HTTP rejection itself. Network failures and 500 responses must never count as denied
+// credentials; each probe uses a dedicated connection and consumes its response.
+const upgradeStatus = (url: string): Promise<number> =>
+  new Promise((resolve, reject) => {
+    const target = new URL(url);
+    target.protocol = "http:";
+    const req = request(target.toString(), { agent: false, headers: {
+      Connection: "Upgrade", Upgrade: "websocket",
+      "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+    } });
+    req.on("response", response => {
+      response.on("error", reject);
+      let body = "";
+      response.on("data", chunk => { body += chunk.toString(); });
+      response.on("end", () => {
+        if (response.statusCode! >= 500) reject(new Error(`HTTP ${response.statusCode}: ${body}`));
+        else resolve(response.statusCode!);
+      });
+    });
+    req.on("upgrade", (response, socket) => {
+      socket.destroy();
+      resolve(response.statusCode!);
+    });
+    req.on("error", reject);
+    req.setTimeout(5_000, () => req.destroy(new Error("upgrade response timeout")));
+    req.end();
+  });
 
 const socketResult = (url: string): Promise<{ open: boolean; first?: unknown }> =>
   new Promise((resolve) => {
@@ -80,11 +108,11 @@ describe("relay no runtime do Worker", () => {
 
   it("não aceita mais o segredo coletivo no WebSocket", async () => {
     const base = `ws://${worker.address}:${worker.port}`;
-    const old = await socketResult(`${base}/team/${created.team}?s=${created.secret}&m=${created.member}&n=Alice&p=${PROTO}`);
-    expect(old.open).toBe(false);
+    const old = await upgradeStatus(`${base}/team/${created.team}?s=${created.secret}&m=${created.member}&n=Alice&p=${PROTO}`);
+    expect(old).toBe(401);
   });
 
-  it("rejects streamed enrollment bodies above the byte limit", async () => {
+  it("rejects oversized enrollment streams without breaking the next request", async () => {
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(new TextEncoder().encode(JSON.stringify({ secret: created.secret, padding: "x".repeat(1024) })));
@@ -94,12 +122,19 @@ describe("relay no runtime do Worker", () => {
     const request = { method: "POST", body, duplex: "half" as const };
     const response = await worker.fetch(`/team/${created.team}/enroll`, request);
     expect(response.status).toBe(413);
+    expect(await response.text()).toBe("too big");
+    const next = await worker.fetch(`/team/${created.team}/enroll`, {
+      // Preserve the bounded source: reserializing these ignored numbers would exceed 1 KiB.
+      method: "POST", body: `{"secret":"${created.secret}","padding":[${Array(60).fill("1e20").join(",")}]}`,
+    });
+    expect(next.status).toBe(200);
+    expect(parseMembership(await next.json())).not.toBeNull();
   });
 
   it("liga a credencial ao membro e entrega o welcome", async () => {
     const base = `ws://${worker.address}:${worker.port}`;
-    const swapped = await socketResult(`${base}/team/${created.team}?c=${created.credential}&m=outro_membro&n=Eve&p=${PROTO}`);
-    expect(swapped.open).toBe(false);
+    const swapped = await upgradeStatus(`${base}/team/${created.team}?c=${created.credential}&m=outro_membro&n=Eve&p=${PROTO}`);
+    expect(swapped).toBe(401);
 
     const ok = await socketResult(`${base}/team/${created.team}?c=${created.credential}&m=${created.member}&n=Alice&p=${PROTO}`);
     expect(ok).toMatchObject({ open: true, first: { t: "welcome", you: created.member, e2ee: 1, challenge: expect.any(String) } });
@@ -107,7 +142,7 @@ describe("relay no runtime do Worker", () => {
 
   it("rejects protocol 3 before accepting a socket", async () => {
     const base = `ws://${worker.address}:${worker.port}`;
-    expect((await socketResult(`${base}/team/${created.team}?c=${created.credential}&m=${created.member}&p=3`)).open).toBe(false);
+    expect(await upgradeStatus(`${base}/team/${created.team}?c=${created.credential}&m=${created.member}&p=3`)).toBe(426);
   });
 });
 
@@ -195,8 +230,8 @@ describe("organization sharing through Cloud authorization", () => {
   }
   it("isolates organizations and refuses anonymous or legacy enrollment", async () => {
     const ticket = issue("a", 0);
-    expect((await socketResult(`${base()}/organization/organization2?ticket=${ticket}&p=${PROTO}`)).open).toBe(false);
-    expect((await socketResult(`${base()}/organization/organization1?c=${ticket}&m=owner001&p=${PROTO}`)).open).toBe(false);
+    expect(await upgradeStatus(`${base()}/organization/organization2?ticket=${ticket}&p=${PROTO}`)).toBe(401);
+    expect(await upgradeStatus(`${base()}/organization/organization1?c=${ticket}&m=owner001&p=${PROTO}`)).toBe(401);
     expect((await relay.fetch("/organization/organization1/enroll", { method: "POST" })).status).toBe(404);
   });
   it("shares only with accepted members, ignores spoofed identity and expires active access", async () => {
@@ -204,7 +239,7 @@ describe("organization sharing through Cloud authorization", () => {
     const guestTicket = issue("c", 1, 2_000);
     const guest = await connect(guestTicket, "owner001");
     expect(guest.frames[0]).toMatchObject({ t: "welcome", you: "guest001", members: expect.arrayContaining([{ id: "guest001", name: "Bob", online: true }]) });
-    expect((await socketResult(`${base()}/organization/organization1?ticket=${guestTicket}&p=${PROTO}`)).open).toBe(false);
+    expect(await upgradeStatus(`${base()}/organization/organization1?ticket=${guestTicket}&p=${PROTO}`)).toBe(401);
     guest.socket.send(JSON.stringify({ t: "me", name: "Alice" }));
     owner.socket.send(JSON.stringify({ t: "share", share: await share(owner.identity) }));
     await expect.poll(() => guest.frames.some(frame => frame.t === "share")).toBe(true);
@@ -218,7 +253,7 @@ describe("organization sharing through Cloud authorization", () => {
     await closed(guest.socket);
     const presence = owner.frames.filter(frame => frame.t === "presence").at(-1);
     expect(presence.members.find((member: { id: string }) => member.id === "guest001").name).toBe("Bob");
-    expect((await socketResult(`${base()}/organization/organization1?ticket=${"d".repeat(43)}&p=${PROTO}`)).open).toBe(false);
+    expect(await upgradeStatus(`${base()}/organization/organization1?ticket=${"d".repeat(43)}&p=${PROTO}`)).toBe(401);
     owner.socket.close();
     await closed(owner.socket);
   });

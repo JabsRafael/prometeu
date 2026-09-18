@@ -2,6 +2,7 @@
 
 import { randomToken, sha256, TeamRoom, type Env } from "./room";
 import { parseMembership, type CreatedTeam } from "./protocol";
+import { smallJson } from "./http";
 
 export { TeamRoom };
 
@@ -57,7 +58,12 @@ export default {
       if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
       if (req.method !== "POST") return new Response("method", { status: 405, headers: CORS });
       const stub = env.TEAM.get(env.TEAM.idFromName(enroll[1]));
-      const response = await stub.fetch("https://team/enroll", { method: "POST", headers: req.headers, body: req.body });
+      // Finish reading at the public boundary before forwarding. A downstream early rejection can
+      // otherwise leave fetch reading this request stream after its response has been sent.
+      const parsed = await smallJson(req, 1024);
+      const response = parsed.error ?? await stub.fetch("https://team/enroll", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: parsed.raw,
+      });
       const headers = new Headers(response.headers);
       for (const [key, value] of Object.entries(CORS)) headers.set(key, value);
       headers.set("Cache-Control", "no-store");
