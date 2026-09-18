@@ -118,3 +118,37 @@ A missing test must not become `true` by similarity between providers.
 
 E2E does not replace the contract: it covers a few expensive paths. Fixtures and
 reducers give fast diagnosis for every combination.
+
+## Built-in delegation MCP
+
+Both Claude and Codex can opt into the bundled `prometeu` MCP and create either
+provider in an isolated workspace. Ownership, execution IDs, busy-send
+rejection, file access and canonical history share the backend implementation.
+Claude receives a private strict MCP file; Codex receives the stdio command
+and private environment wrapper. Workers start with empty MCP/plugin/skill
+selections. Background reporting is limited to each adapter’s existing
+`background.changed` signals; unknown is distinct from an observed empty set.
+
+Both providers also use the same configured setup/Run controls, bounded dock
+logs, process/exit status and explicit desktop preview opening. These tools
+accept only an owned `agent_id`; there is no provider-specific execution path
+or arbitrary shell command/URL argument. Setup continues to run on creation.
+Runtime status is ephemeral and does not imply HTTP readiness.
+
+Evidence: `delegation.rs` and `embedded_mcp.rs` unit tests, built-in
+materialization tests in `mcp.rs`, and the opt-in picker test in
+`e2e/tools.spec.ts`. Workspace controls and log limits are tested in
+`delegation.rs`/`embedded_mcp.rs`, real PTY exit/output retention in `pty.rs`, and
+preview navigation in `e2e/browser.spec.ts` on Chromium and WebKit.
+Browser tests use the catalog mock and do not run models.
+Live model delegation requires installed/authenticated CLIs; automated tests
+do not spend model credits. See the [contract](../contracts/embedded-mcp.md).
+
+External local MCP hosts use the same stdio protocol and tools with either worker
+provider, without a coordinator conversation in Prometeu. Registered clients have
+explicit project scope and revocable credentials that survive desktop restart.
+Explicit project delegation defaults to Claude; `provider` can select Codex.
+Evidence: `mcp_access.rs` and `delegation.rs` authorization/compatibility tests,
+and `tests/mcp_client.rs` for real stdio subprocess registration and socket
+rediscovery against a fixture. No live provider or native webview is exercised
+by that subprocess test. See [registration](../contracts/embedded-mcp.md#external-client-registration).

@@ -356,6 +356,9 @@ pub struct ToolTrust {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Board {
+    /// Delegation ownership belongs to conversations, not processes or workspace membership.
+    #[serde(default)]
+    pub delegations: Vec<crate::delegation::Delegation>,
     #[serde(default)]
     pub actions: crate::actions::Catalog,
     /// The global layer of the tool selection, one `Selection` per axis, app-local under the root.
@@ -436,6 +439,7 @@ pub(crate) fn split_skills(plugins: &mut Option<Selection>, skills: &mut Option<
 impl Default for Board {
     fn default() -> Self {
         Board {
+            delegations: Vec::new(),
             actions: Default::default(),
             tools: Tools::default(),
             tool_trust: Vec::new(),
@@ -488,6 +492,15 @@ impl Board {
     /// from filesystem loading because parallel tests must not share environment overrides.
     pub(crate) fn revive(&mut self) {
         self.actions.initialize_defaults();
+        for delegation in &mut self.delegations {
+            let pending = self
+                .workspaces
+                .iter()
+                .find(|w| w.id == delegation.workspace)
+                .and_then(|w| w.tabs.iter().find(|t| t.id == delegation.id))
+                .is_some_and(|t| t.pending_prompt.is_some());
+            delegation.reconcile_restart(pending);
+        }
         // Only legacy workspaces with no project ID reconstruct the catalog. Explicit IDs preserve
         // project removal.
         let legacy_projects: Vec<Project> = self
@@ -640,15 +653,17 @@ pub fn publish(app: &AppHandle) {
 /// Flush the current board before shutdown or before dispatching a persisted task. The publication
 /// lock keeps concurrent snapshots from overtaking this synchronous save.
 pub fn save_now(app: &AppHandle) {
+    if let Err(error) = persist_now(app) {
+        eprintln!("could not persist board: {error}");
+    }
+}
+
+/// Operations that grant durable ownership must not start side effects after a failed save.
+pub(crate) fn persist_now(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let _publication = lock(&state.save.publication);
     let board = Arc::new(lock(&state.board).clone());
-    if let Err(error) = state.save.now(board.clone()) {
-        eprintln!("o saver não confirmou board.json ao sair: {error}");
-        if let Err(error) = board.save() {
-            eprintln!("não gravei board.json ao sair: {error}");
-        }
-    }
+    state.save.now(board.clone()).or_else(|_| board.save())
 }
 
 /// Coalesce frequent agent updates and save the latest board once.

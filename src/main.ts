@@ -289,6 +289,22 @@ listen<[string, string, number]>("chat", ({ payload: [tab, line] }) => alert.cha
 /// React to script exits instead of polling to restore the start action.
 listen<[string, number | null]>("pty-closed", ({ payload: [key] }) => dockbar.closed(key));
 
+/// The local MCP authorizes the exact delegated conversation before requesting desktop navigation.
+listen<{ workspace_id: string; conversation_id: string }>("workspace-preview", async ({ payload }) => {
+  if (!payload || typeof payload.workspace_id !== "string" || typeof payload.conversation_id !== "string") return;
+  try {
+    const board = await invoke("load_board");
+    const target = board.workspaces.find((workspace) => workspace.id === payload.workspace_id);
+    if (!target || target.archived || target.cleaned || target.preparing || target.failed
+      || !target.tabs.some((tab) => tab.id === payload.conversation_id)) return;
+    state = board;
+    await openWorkspace(target, true, payload.conversation_id);
+    if (ws.id() === target.id && session.currentSession() === payload.conversation_id) await ws.showWeb();
+  } catch (error) {
+    say(fromBack(error), true);
+  }
+});
+
 /// Usage updates affect the whole account, so any tab's activity refreshes the status bar.
 listen<statusbar.Usage>("usage", ({ payload }) => statusbar.showUsage(payload));
 invoke("usage").then(statusbar.showUsage).catch(() => {});

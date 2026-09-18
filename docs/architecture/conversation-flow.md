@@ -86,7 +86,9 @@ continue draining into channels while command writes hold publication locks,
 preventing pipe backpressure from deadlocking the child. Queued lines drain
 before the existing EOF cleanup; prolonged stalls can grow queue memory.
 State reactions run after releasing
-the conversation locks. See [ADR 0023](../decisions/0023-ordered-publication.md)
+the conversation locks, except the in-memory delegation execution projection:
+it records canonical order under the buffer lock and publishes afterward.
+See [embedded MCP](../contracts/embedded-mcp.md) for lock ordering. See [ADR 0023](../decisions/0023-ordered-publication.md)
 and concurrency tests in `src-tauri/src/chat.rs`.
 
 The `Timeline` reducer turns V1 events into user items, assistant messages,

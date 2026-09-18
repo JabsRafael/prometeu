@@ -22,6 +22,8 @@ In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
 | Data | Path | Ownership |
 | --- | --- | --- |
 | board | `<root>/board.json` | `state.rs` |
+| external MCP clients | `<root>/mcp-clients/<uuid>.json` | `mcp_access.rs`; private versioned credentials and project scope; see [embedded MCP](embedded-mcp.md) |
+| MCP socket discovery | `<root>/mcp-socket` | `embedded_mcp.rs`; private ephemeral socket path, replaced on startup |
 | board backup | next to `board.json` | `state.rs` |
 | team and credential | `<root>/team.json` | `team.rs` |
 | E2EE identities, TOFU links and replay | `<root>/team-security.json` | `team.rs` (file), `team-security.ts` (internal schema) |
@@ -275,3 +277,13 @@ replacing a legacy configuration, `team.rs` writes a private
 companion devices. It is independent of `audience`: an empty list represents
 remote control without a team audience. Turning off the last kind of access also
 clears `shared`, `share_team` and `audience`.
+
+## Delegations
+
+`Board.delegations` defaults to `[]` for older boards. It persists owner client ID,
+worker conversation and workspace identities separately, initial task and
+repository commits, idempotency keys/hashes, executions and observations.
+Process restarts preserve ownership and queued IDs with persisted pending input,
+mark other unfinished executions stopped and
+clear live background/request observations. No transcript migration applies.
+See the [embedded MCP contract](embedded-mcp.md) for fields and retry semantics.

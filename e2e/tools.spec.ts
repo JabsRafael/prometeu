@@ -129,3 +129,36 @@ test("ferramentas: base do CLI acompanha provider da aba e explica próximo iní
   await row(page, "Herdar padrões").click();
   await expect.poll(() => page.evaluate(async () => (await window.toolTestInvoke!("load_board") as Board).workspaces[0].mcp)).toBeNull();
 });
+
+test("ferramentas: MCP integrado disponível sem ativação automática", async ({ page }) => {
+  await boot(page);
+  const initial = await page.evaluate(async () => {
+    const invoke = window.toolTestInvoke!;
+    const hub = await invoke("mcp_hub") as { id: string; config: Record<string, unknown> }[];
+    const states = await Promise.all(["claude", "codex"].map(agent =>
+      invoke("workspace_tools", { id: "sessao-0929", agent }) as Promise<{ mcp: { id: string }[] }>));
+    return { builtin: hub.find(s => s.id === "prometeu"), selected: states.map(s => s.mcp.some(i => i.id === "prometeu")) };
+  });
+  expect(initial.builtin?.config).toEqual({ type: "stdio", builtin: true });
+  expect(initial.selected).toEqual([false, false]);
+  await openWorkspace(page, "sessao-0929");
+  await page.locator("#chatwrap .mcpbtn").click();
+  await expect(row(page, "prometeu")).toBeVisible();
+  await row(page, "prometeu").click();
+  await expect.poll(() => page.evaluate(async () => {
+    const tools = await window.toolTestInvoke!("workspace_tools", { id: "sessao-0929" }) as { mcp: { id: string; provenance: string }[] };
+    return tools.mcp.find(i => i.id === "prometeu")?.provenance;
+  })).toBe("added");
+  const rejected = await page.evaluate(async () => {
+    const invoke = window.toolTestInvoke!;
+    const blocked: string[] = [];
+    for (const [command, args] of [
+      ["mcp_remove", { id: "prometeu" }],
+      ["mcp_save", { server: { id: "prometeu", config: { command: "echo" }, note: "" } }],
+    ] as const) {
+      try { await invoke(command, args); } catch { blocked.push(command); }
+    }
+    return blocked;
+  });
+  expect(rejected).toEqual(["mcp_remove", "mcp_save"]);
+});

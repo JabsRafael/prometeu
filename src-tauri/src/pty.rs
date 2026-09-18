@@ -26,6 +26,8 @@ pub type OnExit = Box<dyn FnOnce(Option<u32>) + Send>;
 #[derive(Default)]
 pub struct Dock {
     pub on_exit: Option<OnExit>,
+    /// The configured Run entry, retained so callers do not mistake another live script for it.
+    pub script_name: Option<String>,
     /// Write the app's setup-copy header before starting the reader thread so it cannot interleave
     /// with initial process output.
     pub header: Option<String>,
@@ -37,6 +39,7 @@ pub struct Dock {
 pub struct Scroll {
     pub bytes: Vec<u8>,
     pub seq: u64,
+    pub exit_code: Option<u32>,
 }
 
 impl Scroll {
@@ -57,6 +60,7 @@ pub struct Pty {
     writer: Box<dyn Write + Send>,
     /// Retain recent session bytes for restoring the terminal.
     pub buffer: Arc<Mutex<Scroll>>,
+    pub script_name: Option<String>,
     /// Distinguish running processes from retained scrollback entries after exit.
     alive: Arc<AtomicBool>,
     /// Suppress output from a killed or replaced PTY so the old reader cannot contaminate the
@@ -179,11 +183,20 @@ fn open(cmd: CommandBuilder, cols: u16, rows: u16) -> Result<Opened, String> {
         master: pair.master,
         writer,
         buffer: Arc::new(Mutex::new(Scroll::default())),
+        script_name: None,
         alive: Arc::new(AtomicBool::new(true)),
         gone: Arc::new(AtomicBool::new(false)),
         pid,
     };
     Ok((pty, reader, child))
+}
+
+fn reap(child: &mut dyn Child, alive: &AtomicBool, sink: &Mutex<Scroll>) -> Option<u32> {
+    // Clear alive before wait so no later signal can target a reused PID.
+    alive.store(false, Ordering::Relaxed);
+    let code = child.wait().ok().map(|status| status.exit_code());
+    lock(sink).exit_code = code;
+    code
 }
 
 /// Forward numbered output under the dock key while all sessions continue in the background.
@@ -197,8 +210,13 @@ pub fn spawn(
     rows: u16,
     dock: Dock,
 ) -> Result<Pty, String> {
-    let Dock { on_exit, header } = dock;
-    let (pty, mut reader, mut child) = open(cmd, cols, rows)?;
+    let Dock {
+        on_exit,
+        header,
+        script_name,
+    } = dock;
+    let (mut pty, mut reader, mut child) = open(cmd, cols, rows)?;
+    pty.script_name = script_name;
 
     if let Some(text) = header {
         let seq = lock(&pty.buffer).absorb(text.as_bytes());
@@ -226,10 +244,7 @@ pub fn spawn(
                 }
             }
         }
-        // After EOF, reap the exit status. Clear alive before wait so no later signal can target a
-        // reused PID.
-        alive_t.store(false, Ordering::Relaxed);
-        let code = child.wait().ok().map(|s| s.exit_code());
+        let code = reap(child.as_mut(), &alive_t, &sink);
         if !gone_t.load(Ordering::Relaxed) {
             let line = match code {
                 Some(0) => format!(
@@ -293,6 +308,26 @@ pub fn pty_buffer(state: State<AppState>, session: String) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn script_exit_code_and_output_remain_available_after_process_exit() {
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args(["-c", "printf service-output; exit 7"]);
+        let (pty, mut reader, mut child) = open(command, 80, 24).unwrap();
+        assert!(lock(&pty.buffer).exit_code.is_none());
+        let mut chunk = [0; 1024];
+        while let Ok(n) = reader.read(&mut chunk) {
+            if n == 0 {
+                break;
+            }
+            lock(&pty.buffer).absorb(&chunk[..n]);
+        }
+        assert_eq!(reap(child.as_mut(), &pty.alive, &pty.buffer), Some(7));
+        assert!(!pty.alive());
+        let scroll = lock(&pty.buffer);
+        assert_eq!(scroll.exit_code, Some(7));
+        assert_eq!(scroll.bytes, b"service-output");
+    }
 
     /// Sequences identify exactly which chunks a snapshot includes without inspecting byte content.
     #[test]

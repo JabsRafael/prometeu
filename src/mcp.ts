@@ -248,6 +248,8 @@ function serverRow(server: McpServer): HTMLElement {
   const parts = [subtitle(server), signedIn(server.id) ? t("mcp.connected") : "", catalog.tag("mcp", server.id)];
   row.querySelector(".txt span")!.textContent = parts.filter(Boolean).join(" · ");
 
+  if (server.config.builtin === true) return row;
+
   const edit = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
   edit.children[0].textContent = t("mcp.edit");
   edit.addEventListener("click", () => editor(server));
@@ -262,11 +264,12 @@ function serverRow(server: McpServer): HTMLElement {
 
 /// Transport selects the fields and icon: local stdio process or remote URL.
 function kind(server: McpServer): "stdio" | "url" {
-  return typeof server.config.command === "string" ? "stdio" : "url";
+  return server.config.builtin === true || typeof server.config.command === "string" ? "stdio" : "url";
 }
 
 /// Describe the server and its source beneath its name.
 function subtitle(server: McpServer): string {
+  if (server.config.builtin === true) return t("mcp.builtin.description");
   const what =
     kind(server) === "stdio"
       ? [server.config.command, ...((server.config.args as string[]) ?? [])].join(" ")

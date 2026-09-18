@@ -745,6 +745,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "settings.global.axis": "With no choice, nothing enters through this layer.",
   "settings.mcp": "Tools (MCP)",
   "settings.mcp.body": "What agents can use. Each workspace picks which ones are in.",
+  "mcp.builtin.description": "Built into Prometeu. Delegates tasks in separate workspaces; enable it in the coordinator conversation’s tools.",
+  "err.mcp.builtin": "The built-in Prometeu MCP cannot be edited or removed.",
   "mcp.add": "Add server",
   "mcp.import": "Import from Claude Code",
   "mcp.import.none": "nothing new to import",
@@ -1150,6 +1152,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.browser.noBrowser": "could not open the browser",
   "err.dock.unknown": "unknown dock: {kind}",
   "err.dock.noScript": "no {kind} script in {file}",
+  "err.dock.running": "another Run script is active; stop it before starting this one",
 
   "err.mcp.auth.write": "could not store the login: {cause}",
   "err.mcp.auth.noMetadata": "this server does not publish how to authenticate ({url})",

@@ -37,7 +37,7 @@ describe("bounded JSON request bodies", () => {
   it("counts bytes and decodes UTF-8 split across chunks at the exact limit", async () => {
     const bytes = new TextEncoder().encode('{"name":"é"}');
     const chunks = Array.from(bytes, byte => new Uint8Array([byte]));
-    expect(await smallJson(streamed(chunks).request, bytes.length)).toEqual({ value: { name: "é" } });
+    expect(await smallJson(streamed(chunks).request, bytes.length)).toEqual({ value: { name: "é" }, raw: '{"name":"é"}' });
     expect((await smallJson(streamed(chunks).request, bytes.length - 1)).error?.status).toBe(413);
     expect((await smallJson(streamed([new TextEncoder().encode("{")]).request, 1024)).error?.status).toBe(400);
   });

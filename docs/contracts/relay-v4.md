@@ -188,5 +188,14 @@ Incremental UTF-8 decoding preserves characters split across chunks. Invalid
 JSON returns 400; oversized input returns 413. Endpoint schemas, authentication,
 and the v4 WebSocket encryption requirements remain unchanged.
 
+The public enrollment route applies the same bound before forwarding the original bounded
+JSON text to the Durable Object. Forwarding the live request stream would allow
+an early downstream rejection to leave a read pending after the public response,
+causing a runtime error and breaking subsequent requests. The Durable Object
+retains its own bound for internal callers. Keeping the original text avoids
+expanding compact JSON numbers beyond that bound during reserialization.
+
 `http.test.ts` covers cancellation, inaccurate headers, malformed JSON, and
-UTF-8 chunk boundaries; the Worker integration test covers streamed enrollment.
+UTF-8 chunk boundaries. The Worker integration test covers streamed enrollment,
+recovery after 413, explicit 401/426 upgrade rejections and a valid WebSocket
+welcome; transport errors and HTTP 500 never count as authorization rejections.

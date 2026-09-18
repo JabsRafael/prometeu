@@ -11,8 +11,10 @@ mod claude;
 mod cloud;
 mod codex;
 mod conversation;
+mod delegation;
 mod dock;
 mod domain;
+mod embedded_mcp;
 mod feedback;
 mod file_drop;
 mod github;
@@ -21,6 +23,7 @@ mod linear;
 mod lock;
 mod machine;
 mod mcp;
+mod mcp_access;
 mod mcp_auth;
 mod naming;
 mod oauth;
@@ -87,6 +90,23 @@ fn install_crypto() {
 }
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("--prometeu-mcp") {
+        if let Err(error) = embedded_mcp::stdio() {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    if std::env::args().nth(1).as_deref() == Some("--prometeu-mcp-client") {
+        match mcp_access::cli(&std::env::args().skip(2).collect::<Vec<_>>()) {
+            Ok(value) => println!("{}", serde_json::to_string_pretty(&value).unwrap()),
+            Err(error) => {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     install_crypto();
     adopt_login_path();
     tauri::Builder::default()
@@ -238,6 +258,7 @@ fn main() {
             skills::skill_remove,
         ])
         .setup(|app| {
+            embedded_mcp::start(app.handle().clone())?;
             file_drop::install(app.handle())?;
             actions::watch(app.handle().clone());
             machine::watch(app.handle().clone());
@@ -250,6 +271,7 @@ fn main() {
         .run(|app, event| {
             // Flush deferred board writes during shutdown, when no later save can be assumed.
             if matches!(event, tauri::RunEvent::Exit) {
+                embedded_mcp::shutdown();
                 accounts::shutdown();
                 state::save_now(app);
             }

@@ -52,6 +52,27 @@ pub fn load() -> Vec<Server> {
         .unwrap_or_default()
 }
 
+/// Built-ins are virtual catalog entries, never copied into the mutable or cloud registry.
+pub fn available() -> Vec<Server> {
+    let mut servers = load();
+    servers.retain(|s| s.id != crate::embedded_mcp::ID);
+    servers.insert(0, crate::embedded_mcp::builtin());
+    servers
+}
+
+fn for_session(
+    mut servers: Vec<Server>,
+    id: &str,
+    chosen: &[String],
+) -> Result<Vec<Server>, String> {
+    if chosen.iter().any(|name| name == crate::embedded_mcp::ID) {
+        let server = crate::embedded_mcp::materialize(id)?;
+        servers.retain(|s| s.id != server.id);
+        servers.push(server);
+    }
+    Ok(servers)
+}
+
 pub(crate) fn store(servers: &[Server]) -> Result<(), String> {
     let body = serde_json::to_string_pretty(servers).map_err(|e| e.to_string())?;
     paths::write_private(&hub_path(), &body)
@@ -62,7 +83,7 @@ pub(crate) fn store(servers: &[Server]) -> Result<(), String> {
 #[tauri::command(async)]
 pub fn mcp_hub() -> Vec<Server> {
     let _sync = crate::catalog::guard();
-    load()
+    available()
 }
 
 /// Save or replace a server by name, which is also its tool-prefix identity within a session.
@@ -74,6 +95,9 @@ pub fn mcp_save(
 ) -> Result<Vec<Server>, String> {
     let _sync = crate::catalog::guard();
     let id = server.id.trim().to_string();
+    if id == crate::embedded_mcp::ID {
+        return Err(i18n::t("err.mcp.builtin"));
+    }
     if id.is_empty() {
         return Err(i18n::t("err.mcp.noName"));
     }
@@ -89,23 +113,26 @@ pub fn mcp_save(
     }
     servers.sort_by_key(|s| s.id.to_lowercase());
     store(&servers)?;
-    Ok(servers)
+    Ok(available())
 }
 
 #[tauri::command(async)]
 pub fn mcp_remove(app: tauri::AppHandle, id: String) -> Result<Vec<Server>, String> {
     let _sync = crate::catalog::guard();
+    if id == crate::embedded_mcp::ID {
+        return Err(i18n::t("err.mcp.builtin"));
+    }
     crate::catalog::remove_shared(&app, "mcp", &id)?;
     let mut servers = load();
     servers.retain(|s| s.id != id);
     store(&servers)?;
-    Ok(servers)
+    Ok(available())
 }
 
 /// Discover importable CLI configuration absent from the hub without modifying user files.
 #[tauri::command]
 pub fn mcp_found() -> Vec<Server> {
-    let known = load();
+    let known = available();
     let mut found: Vec<Server> = Vec::new();
     for server in from_claude_json().into_iter().chain(from_repo_files()) {
         // Deduplicate identical named configurations across registered entries and discovered
@@ -217,7 +244,7 @@ fn inherited_from(
 /// The mcp universe of one working directory: hub servers plus the CLI-inherited ones (ADR 0046).
 /// A hub entry wins an ID clash, so an imported server stays Prometeu-managed with its own config.
 pub fn universe(workdir: &Path) -> Vec<Server> {
-    merge_universe(load(), inherited(workdir))
+    merge_universe(available(), inherited(workdir))
 }
 
 fn merge_universe(hub: Vec<Server>, inherited: Vec<Server>) -> Vec<Server> {
@@ -233,7 +260,7 @@ fn merge_universe(hub: Vec<Server>, inherited: Vec<Server>) -> Vec<Server> {
 /// The CLI-inherited servers absent from the hub, for the picker's rows and the composer's button
 /// gating. Importing stays optional: these rows are visible and adjustable without it.
 pub fn inherited_missing_hub(workdir: &Path) -> Vec<Server> {
-    let hub = load();
+    let hub = available();
     inherited(workdir)
         .into_iter()
         .filter(|s| !hub.iter().any(|h| h.id == s.id))
@@ -323,9 +350,12 @@ pub fn config_for(
     let path = session_path(id);
     // Refresh OAuth tokens while materializing session configuration, without persisting them in
     // the registry; see mcp_auth.rs.
-    let body =
-        serde_json::to_string_pretty(&config_body(&universe(workdir), chosen, mcp_auth::bearer)?)
-            .map_err(|e| e.to_string())?;
+    let body = serde_json::to_string_pretty(&config_body(
+        &for_session(universe(workdir), id, chosen)?,
+        chosen,
+        mcp_auth::bearer,
+    )?)
+    .map_err(|e| e.to_string())?;
     paths::write_private(&path, &body)
         .map_err(|cause| i18n::ta("err.mcp.session", &[("cause", cause)]))?;
     Ok(Some(path))
@@ -377,7 +407,7 @@ pub fn codex_config(id: &str, chosen: Option<&Vec<String>>) -> Result<Option<Cod
     let Some(chosen) = chosen else {
         return Ok(None);
     };
-    let hub = load();
+    let hub = for_session(available(), id, chosen)?;
     let mut env: Vec<(String, String)> = Vec::new();
     let mut entries: Vec<String> = Vec::new();
     for name in chosen {
@@ -1108,6 +1138,58 @@ mod tests {
         // Only commands with environment overrides need a shell wrapper.
         assert!(table.contains("/bin/sh"), "{table}");
         assert!(table.contains("\"node\",args=[\"s.js\"]"), "{table}");
+    }
+
+    #[test]
+    fn builtin_materializes_for_both_providers_without_persisting_registry_secrets() {
+        if std::env::var_os("PROMETEU_BUILTIN_TEST_CHILD").is_none() {
+            let root =
+                std::env::temp_dir().join(format!("prometeu-builtin-{}", uuid::Uuid::new_v4()));
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "mcp::tests::builtin_materializes_for_both_providers_without_persisting_registry_secrets"])
+                .env("PROMETEU_BUILTIN_TEST_CHILD", "1").env("PROMETEU_ROOT", &root).output().unwrap();
+            std::fs::remove_dir_all(&root).ok();
+            assert!(
+                output.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        use std::os::unix::fs::PermissionsExt;
+        assert!(load().is_empty());
+        assert!(available().iter().any(|s| s.id == "prometeu"));
+        assert!(!hub_path().exists());
+        assert!(codex_config("owner", None).unwrap().is_none());
+        assert!(config_for("owner", None, Path::new("/tmp"))
+            .unwrap()
+            .is_none());
+        let server = crate::embedded_mcp::server_config(
+            "/app/Prometeu".into(),
+            "/tmp/local/socket".into(),
+            "test-credential".into(),
+        );
+        let body = config_body(std::slice::from_ref(&server), &["prometeu".into()], |_| {
+            None
+        })
+        .unwrap();
+        assert_eq!(
+            body["mcpServers"]["prometeu"]["env"]["PROMETEU_MCP_TOKEN"],
+            "test-credential"
+        );
+        let entry = local_entry("owner", &server).unwrap();
+        assert!(entry.contains("--prometeu-mcp"));
+        assert!(!entry.contains("test-credential"));
+        let private = codex_env_path("owner", "prometeu");
+        assert!(std::fs::read_to_string(&private)
+            .unwrap()
+            .contains("test-credential"));
+        assert_eq!(
+            std::fs::metadata(private).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(!hub_path().exists());
     }
 
     /// Without an explicit selection, do not generate a configuration file or change legacy startup
