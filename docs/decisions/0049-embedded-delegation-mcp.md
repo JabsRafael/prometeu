@@ -44,6 +44,29 @@ there is no exactly-once promise across provider/persistence crashes. Main turn
 completion and observed background activity remain separate facts. Workspace
 stage remains the person's decision.
 
+Ordinary input accepted while an execution is running keeps that execution's
+identity until the next observed turn completion. V1 has no correlation between
+accepted messages and provider turns, so counting every overlapping message as
+an independent running execution would leave IDs without a matching terminal.
+Later provider activity uses the existing observed-continuation rule. MCP
+messages remain idle-only, preserving their separate request-key identities.
+This changes no persisted fields or conversation events.
+
+Expose configured setup/Run execution, bounded dock logs and explicit preview
+opening for the same owned agent IDs. Reuse the existing dock, PTY, script
+configuration and workspace navigation instead of adding a shell-command API
+or another process supervisor. Setup still runs automatically on creation;
+explicit calls allow retrying it. Active scripts are reused under the shared
+PTY lock, while a different active Run must be stopped before replacement.
+Runtime status and exit codes remain ephemeral, with no invented success after
+restart. Starting a process does not certify service readiness.
+
+Preview opening deliberately changes the person's visible workspace. A local
+event carries only the authorized workspace/conversation IDs; the desktop owns
+navigation, layout and the URL derived from the reserved port. The MCP result
+acknowledges the request, not page-load completion. No remote preview route,
+arbitrary URL, JavaScript execution or new IPC command is added.
+
 ## Alternatives and consequences
 
 A generic workspace CRUD/IPC bridge was rejected because it exposes unrelated

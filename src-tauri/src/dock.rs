@@ -36,7 +36,7 @@ pub fn open_dock(
     let found = workspace_copy(&state, &id);
     let key = format!("{id}:{kind}");
 
-    if lock(&state.ptys).get(&key).is_some_and(|p| p.alive()) {
+    if kind != "run" && lock(&state.ptys).get(&key).is_some_and(|p| p.alive()) {
         return Ok(key); // Already running; reuse its buffered output.
     }
 
@@ -67,8 +67,8 @@ pub fn open_dock(
     }
 
     let found = scripts_of(&ws);
-    let command = match kind.as_str() {
-        "run" => found.run(name.as_deref()).map(|r| r.command.clone()),
+    let run = match kind.as_str() {
+        "run" => found.run(name.as_deref()),
         other => return Err(i18n::ta("err.dock.unknown", &[("kind", other.to_string())])),
     }
     .ok_or_else(|| {
@@ -83,7 +83,8 @@ pub fn open_dock(
 
     let script = Script {
         kind: &kind,
-        command: &command,
+        command: &run.command,
+        name: Some(&run.name),
         header: None,
     };
     start_script(&app, &state, &ws, script, cols, rows)?;
@@ -114,6 +115,7 @@ pub(crate) fn start_setup(
     }
     let script = Script {
         kind: "setup",
+        name: None,
         command: found.setup.as_deref().unwrap_or("true"),
         header: report,
     };
@@ -139,6 +141,7 @@ fn start_multi_setup(
     })?;
     let script = Script {
         kind: "setup",
+        name: None,
         command: &command,
         header,
     };
@@ -192,6 +195,7 @@ pub(crate) fn quoted(s: &str) -> String {
 /// Dock startup input: tab key, command, and the header written before process output.
 struct Script<'a> {
     kind: &'a str,
+    name: Option<&'a str>,
     command: &'a str,
     header: Option<String>,
 }
@@ -211,14 +215,11 @@ fn start_script(
     }
     let Script {
         kind,
+        name,
         command,
         header,
     } = script;
     let key = format!("{}:{kind}", ws.id);
-    // Replace stopped entries and their old output when starting again.
-    if lock(&state.ptys).get(&key).is_some_and(|p| p.alive()) {
-        return Ok(());
-    }
     // Use a login shell so nvm, rbenv, mise, and similar setup tools see profile exports even when
     // the app starts from Finder.
     let mut cmd = CommandBuilder::new("/bin/sh");
@@ -236,8 +237,27 @@ fn start_script(
         let id = ws.id.clone();
         Box::new(move |code| release_prompts(&app, &id, code)) as pty::OnExit
     });
-    let handle = pty::spawn(app, &key, cmd, cols, rows, pty::Dock { on_exit, header })?;
-    lock(&state.ptys).insert(key, handle);
+    // UI and MCP starts share the check and insertion so a retry cannot spawn a second service.
+    let mut ptys = lock(&state.ptys);
+    if let Some(active) = ptys.get(&key).filter(|p| p.alive()) {
+        if active.script_name.as_deref() != name {
+            return Err(i18n::t("err.dock.running"));
+        }
+        return Ok(());
+    }
+    let handle = pty::spawn(
+        app,
+        &key,
+        cmd,
+        cols,
+        rows,
+        pty::Dock {
+            on_exit,
+            header,
+            script_name: name.map(str::to_string),
+        },
+    )?;
+    ptys.insert(key, handle);
     Ok(())
 }
 

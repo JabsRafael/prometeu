@@ -1152,6 +1152,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.browser.noBrowser": "could not open the browser",
   "err.dock.unknown": "unknown dock: {kind}",
   "err.dock.noScript": "no {kind} script in {file}",
+  "err.dock.running": "another Run script is active; stop it before starting this one",
 
   "err.mcp.auth.write": "could not store the login: {cause}",
   "err.mcp.auth.noMetadata": "this server does not publish how to authenticate ({url})",

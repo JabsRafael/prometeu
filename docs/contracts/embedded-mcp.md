@@ -46,7 +46,9 @@ configuration. The contract limits operations through this MCP.
 - Delegated agent: one task responsibility, with a stable `agent_id`.
 - Conversation: the transcript, identified by `conversation_id`; in this version
   it has the same ID as its delegated agent.
-- Execution: one accepted message/observed turn, with its own `execution.id`.
+- Execution: one coordinator message or observed turn, with its own `execution.id`.
+  Ordinary follow-up input accepted during a running execution retains that ID
+  until the next observed turn completion.
 
 `Board.delegations` stores owner conversation, agent, workspace, initial task,
 creation request key/hash, repository starting commits, executions, last
@@ -67,13 +69,16 @@ identity, arbitrary workspace ID, or arbitrary repository path.
 | --- | --- | --- |
 | `delegate` | `request_key`, `title`, `task`, optional `provider`, `model`, `effort` | Creates one agent and one isolated workspace; returns immediately during preparation. |
 | `list_delegations` | optional `offset`, `limit` (1–100) | Lists only this conversation's delegations. |
-| `get_delegation` | `agent_id` | Returns workspace preparation/failure/manual stage, conversation status, latest execution, background and pending requests. |
+| `get_delegation` | `agent_id` | Returns workspace preparation/failure/manual stage, conversation status, latest execution, background, pending requests and setup/run runtime. |
 | `get_execution` | `agent_id`, `execution_id` | Reads a specific recorded execution. |
 | `send_message` | `agent_id`, `request_key`, `text` | Sends to an idle agent or resumes its stopped process. Returns an execution. |
 | `interrupt` | `agent_id` | Requests interruption of the main turn; does not promise to stop every provider background task. |
 | `read_conversation` | `agent_id`, optional `limit` (1–200) | Returns a bounded tail of canonical V1 events, never another tab's transcript. |
 | `list_files` | `agent_id`, optional relative `path`, `offset`, `limit` (1–500) | Lists entries within the owned workspace. |
 | `read_file` | `agent_id`, relative `path`, optional `start_line`, `limit` (1–500) | Reads text with zero-based line pagination. |
+| `run_workspace_script` | `agent_id`, `kind` (`setup` or `run`), optional `name` | Starts a configured script or reuses the same live script. `name` selects a configured Run entry. |
+| `read_workspace_script_log` | `agent_id`, `kind` (`setup` or `run`), optional `limit_bytes` (1–65,536) | Reads a bounded tail of retained terminal output, with process state and exit code. |
+| `open_workspace_preview` | `agent_id` | Requests opening the delegated conversation and workspace preview in the desktop app. Does not start a service. |
 
 Delegation uses the coordinator's repositories and each repository's committed
 HEAD. Uncommitted changes are not copied. Non-Git directories and repositories
@@ -107,6 +112,48 @@ A failed spawn can retain the existing pending message for ordinary recovery.
 There are no deletion, Git publishing, approval-answer, automatic orchestration,
 or remote-control tools.
 
+## Workspace scripts and preview
+
+Creation already runs the existing setup, including configured file copies and
+multi-repository setup. The explicit setup tool is useful for retries. It
+accepts no script name; Run accepts only names declared in the existing
+repository settings, with the same primary-repository/default selection as the
+desktop. Neither tool accepts shell commands, arbitrary paths or workspace IDs.
+The exact delegated conversation must still exist, and mutations reject
+preparing, failed, archived or cleaned workspaces.
+
+Scripts use the existing dock PTYs, worktree environment and reserved port.
+Starts from the desktop and MCP share the process check and insertion. A live
+script is reused; requesting another Run name while one is alive fails with
+`err.dock.running`. MCP Run refuses to start while setup is running. After a
+script exits, another call explicitly starts it again, replacing its old log;
+script calls have no durable request-key deduplication. Commands return after
+process startup rather than waiting for setup or a long-running service to exit.
+Existing desktop controls stop scripts; archive/removal keep their existing
+cleanup behavior.
+
+`get_delegation.runtime` contains `port`, `url`, `run_names`, and `setup`/`run`
+objects with `state` (`not_started`, `running`, `exited`), `name` and `exit_code`.
+The runtime is `null` if the workspace no longer exists. No retained PTY means
+`not_started`, including after app restart or closing that dock; it does not
+prove that a script has never run. Exit code `null` means no observed exit code,
+not success. Runtime data is process-local and adds no persisted board fields.
+A live process and an allocated URL do not prove HTTP readiness.
+
+Log reads default to the last 16 KiB, capped at 64 KiB of retained bytes. They
+return `text`, `truncated`, `seq`, `running`, `name` and `exit_code`. Text retains
+ANSI escapes and uses lossy UTF-8 decoding at byte boundaries. `seq` belongs to
+the current PTY and is not a durable cursor. The existing 512 KiB scrollback
+limit still applies. Missing logs return `script_not_started`.
+
+Preview opening emits a local `workspace-preview` event to the main webview,
+with the owned workspace and conversation IDs. The desktop rechecks their
+presence and availability, navigates through its existing workspace flow and
+opens the existing embedded preview. It derives the URL from the workspace
+port; the MCP cannot supply a URL or JavaScript. The tool returns `requested`
+and `url`, acknowledging the navigation request rather than page load or server
+readiness. Opening is explicit because it changes the person's visible workspace.
+
 ## Observed execution state
 
 Execution states are `queued`, `running`, `completed`, `stopped`. A completed
@@ -116,6 +163,14 @@ continuation. A process stopping or the app restarting does not invent success. 
 execution with a persisted pending message retains its ID on recovery; other
 unfinished executions become stopped.
 Requests remain for the person to answer in Prometeu.
+
+Accepted ordinary input does not identify a separate provider turn in V1, so
+overlapping input does not create concurrent execution records. The active ID
+keeps its original source and receives the next observed terminal outcome. If
+the provider starts responding again afterward without another accepted input
+event, the existing background-continuation rule creates a separate execution;
+this does not claim which earlier message caused it. MCP sends still reject
+busy conversations and retain a distinct ID for each accepted request key.
 
 Background `null` means no current authoritative observation; `[]` is an
 observed empty set. A successful main turn does not clear background tasks, and
@@ -141,9 +196,12 @@ error. Directory pages reflect the filesystem at call time, not a snapshot.
 ## Evidence
 
 - `delegation.rs` tests ownership, old/new board compatibility, separate
-  execution/background state, restart behavior and input limits.
+  execution/background state, overlapping ordinary input, restart behavior and
+  input limits, workspace availability, preview payloads and bounded script logs.
 - `embedded_mcp.rs` tests handshake, schema enforcement, tool failures,
   notification handling, bounded framing and credential placement.
 - MCP materialization tests cover both provider configuration formats.
 - `e2e/tools.spec.ts` covers built-in availability without default activation.
+- `pty.rs` tests retain real process output and exit status; `e2e/browser.spec.ts`
+  covers the preview navigation event over the browser mock in both engines.
 - Existing `session/files.rs` tests cover path/symlink confinement.

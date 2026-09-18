@@ -2046,6 +2046,8 @@ w.__TAURI_INTERNALS__ = {
 w.mock = {
   usage: (payload: unknown) => emit("usage", payload),
   accountError: (error: string) => emit("account-error", error),
+  /// Mirror the authorized desktop navigation event without running an MCP server in the browser.
+  preview: (workspace_id: string, conversation_id: string) => emit("workspace-preview", { workspace_id, conversation_id }),
   /// Inject a conversation line as if the process emitted it.
   line: (tab: string, o: unknown) => pushLine(tab, o),
   /// Expose the number of MCP/plugin writes received by the mock.

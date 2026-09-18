@@ -3,13 +3,13 @@
 
 use crate::lock::lock;
 use crate::state::{Board, Status};
-use crate::{chat, conversation, session, AppState};
+use crate::{chat, conversation, dock, pty, session, AppState};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::process::Command;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Execution {
@@ -67,7 +67,13 @@ impl Delegation {
     fn observe(&mut self, event: &Value) -> bool {
         match event["type"].as_str() {
             Some("session.state") if event["state"] == "busy" => {
-                if self.executions.last().is_none_or(|r| r.state != "queued") {
+                // Accepted follow-ups do not identify a separate provider turn. Keep the active
+                // execution until its terminal event rather than orphaning its coordinator ID.
+                if self
+                    .executions
+                    .last()
+                    .is_none_or(|r| !matches!(r.state.as_str(), "queued" | "running"))
+                {
                     self.executions.push(Execution::new("conversation"));
                 }
                 self.executions.last_mut().unwrap().state = "running".into();
@@ -210,6 +216,63 @@ fn summary(board: &Board, d: &Delegation) -> Value {
         "background": d.background, "pending_requests": d.requests,
         "available": tab.is_some(),
     })
+}
+
+fn script_kind(args: &Value) -> Result<&str, String> {
+    match args["kind"].as_str() {
+        Some(kind @ ("setup" | "run")) => Ok(kind),
+        _ => Err("invalid_argument: kind".into()),
+    }
+}
+
+fn available_workspace(workspace: &crate::state::Workspace, agent: &str) -> Result<(), String> {
+    if workspace.preparing || workspace.cleaned || workspace.archived || workspace.failed.is_some()
+    {
+        return Err("workspace_unavailable".into());
+    }
+    if !workspace.tabs.iter().any(|tab| tab.id == agent) {
+        return Err("conversation_unavailable".into());
+    }
+    Ok(())
+}
+
+fn script_status(process: Option<&pty::Pty>) -> Value {
+    match process {
+        Some(process) => json!({
+            "state": if process.alive() { "running" } else { "exited" },
+            "exit_code": lock(&process.buffer).exit_code,
+            "name": process.script_name,
+        }),
+        None => json!({"state":"not_started", "exit_code":null, "name":null}),
+    }
+}
+
+fn workspace_runtime(state: &AppState, workspace: &crate::state::Workspace) -> Value {
+    let scripts = dock::scripts_of(workspace);
+    let ptys = lock(&state.ptys);
+    json!({
+        "port": workspace.port,
+        "url": workspace.port.map(|port| format!("http://localhost:{port}")),
+        "run_names": scripts.runs.iter().map(|run| &run.name).collect::<Vec<_>>(),
+        "setup": script_status(ptys.get(&format!("{}:setup", workspace.id))),
+        "run": script_status(ptys.get(&format!("{}:run", workspace.id))),
+    })
+}
+
+fn script_log(scroll: &pty::Scroll, limit: usize) -> Value {
+    let start = scroll.bytes.len().saturating_sub(limit);
+    json!({
+        "text": String::from_utf8_lossy(&scroll.bytes[start..]),
+        "truncated": start > 0,
+        "seq": scroll.seq,
+        "exit_code": scroll.exit_code,
+    })
+}
+
+#[derive(Clone, Serialize)]
+struct PreviewRequest<'a> {
+    workspace_id: &'a str,
+    conversation_id: &'a str,
 }
 
 fn worker_choice(
@@ -402,7 +465,17 @@ pub fn call(app: &AppHandle, owner: &str, name: &str, args: &Value) -> Result<Va
                 .ok_or_else(|| "execution_not_found".into());
         }
         if name == "get_delegation" {
-            return Ok(summary(&board, &d));
+            let mut result = summary(&board, &d);
+            let workspace = board
+                .workspaces
+                .iter()
+                .find(|w| w.id == d.workspace)
+                .cloned();
+            drop(board);
+            result["runtime"] = workspace
+                .map(|workspace| workspace_runtime(&state, &workspace))
+                .unwrap_or(Value::Null);
+            return Ok(result);
         }
         let ws = board
             .workspaces
@@ -413,6 +486,70 @@ pub fn call(app: &AppHandle, owner: &str, name: &str, args: &Value) -> Result<Va
         ws
     };
     match name {
+        "run_workspace_script" => {
+            available_workspace(&workspace, id)?;
+            let kind = script_kind(args)?;
+            let name = args
+                .get("name")
+                .map(|_| required(args, "name", 200))
+                .transpose()?;
+            if kind == "setup" && name.is_some() {
+                return Err("invalid_argument: name is only supported for run".into());
+            }
+            {
+                let ptys = lock(&state.ptys);
+                if kind == "run"
+                    && ptys
+                        .get(&format!("{}:setup", workspace.id))
+                        .is_some_and(|p| p.alive())
+                {
+                    return Err("setup_running: wait for setup to finish".into());
+                }
+            }
+            dock::open_dock(
+                app.clone(),
+                app.state(),
+                workspace.id.clone(),
+                kind.into(),
+                name.map(str::to_string),
+                80,
+                24,
+            )?;
+            let current = lock(&state.board)
+                .workspaces
+                .iter()
+                .find(|w| w.id == workspace.id)
+                .cloned()
+                .ok_or("workspace_unavailable")?;
+            Ok(json!({"runtime": workspace_runtime(&state, &current)}))
+        }
+        "read_workspace_script_log" => {
+            let kind = script_kind(args)?;
+            let limit = page(args, "limit_bytes", 16 * 1024, 64 * 1024)?.max(1);
+            let ptys = lock(&state.ptys);
+            let process = ptys
+                .get(&format!("{}:{kind}", workspace.id))
+                .ok_or("script_not_started")?;
+            let mut result = script_log(&lock(&process.buffer), limit);
+            result["running"] = json!(process.alive());
+            result["name"] = json!(process.script_name);
+            Ok(result)
+        }
+        "open_workspace_preview" => {
+            available_workspace(&workspace, id)?;
+            let port =
+                dock::ensure_port(&app.state(), &workspace.id).ok_or("workspace_has_no_port")?;
+            app.emit_to(
+                "main",
+                "workspace-preview",
+                PreviewRequest {
+                    workspace_id: &workspace.id,
+                    conversation_id: id,
+                },
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(json!({"requested":true, "url":format!("http://localhost:{port}")}))
+        }
         "send_message" => {
             let gate = chat::input_gate(id);
             let _input = lock(&gate);
@@ -587,6 +724,66 @@ mod tests {
     }
 
     #[test]
+    fn workspace_controls_require_an_owned_available_conversation() {
+        let mut board = board();
+        board.delegations.push(delegation());
+        assert!(owned(&board, "other-coordinator", "worker").is_err());
+        let d = owned(&board, "coordinator", "worker").unwrap();
+        let mut workspace = board
+            .workspaces
+            .iter()
+            .find(|w| w.id == d.workspace)
+            .unwrap()
+            .clone();
+        assert!(available_workspace(&workspace, &d.id).is_ok());
+        assert!(available_workspace(&workspace, "missing-tab").is_err());
+        for field in ["preparing", "cleaned", "archived", "failed"] {
+            let mut value = serde_json::to_value(&workspace).unwrap();
+            value[field] = if field == "failed" {
+                json!("setup failed")
+            } else {
+                json!(true)
+            };
+            let blocked = serde_json::from_value(value).unwrap();
+            assert_eq!(
+                available_workspace(&blocked, &d.id),
+                Err("workspace_unavailable".into())
+            );
+        }
+        workspace.tabs.retain(|tab| tab.id != d.id);
+        assert_eq!(
+            available_workspace(&workspace, &d.id),
+            Err("conversation_unavailable".into())
+        );
+        assert_eq!(
+            serde_json::to_value(PreviewRequest {
+                workspace_id: &d.workspace,
+                conversation_id: &d.id,
+            })
+            .unwrap(),
+            json!({"workspace_id":"child", "conversation_id":"worker"})
+        );
+    }
+
+    #[test]
+    fn script_logs_are_bounded_and_preserve_exit_status_without_touching_executions() {
+        let mut scroll = pty::Scroll::default();
+        scroll.absorb(&vec![b'x'; 70 * 1024]);
+        scroll.absorb("\nfailed: café\n".as_bytes());
+        scroll.exit_code = Some(7);
+        let page = script_log(&scroll, 64 * 1024);
+        assert_eq!(page["text"].as_str().unwrap().len(), 64 * 1024);
+        assert!(page["text"].as_str().unwrap().ends_with("failed: café\n"));
+        assert_eq!(page["truncated"], true);
+        assert_eq!(page["seq"], 2);
+        assert_eq!(page["exit_code"], 7);
+        assert_eq!(script_log(&pty::Scroll::default(), 100)["truncated"], false);
+        assert_eq!(script_status(None)["state"], "not_started");
+        assert!(script_kind(&json!({"kind":"terminal"})).is_err());
+        assert_eq!(script_kind(&json!({"kind":"setup"})).unwrap(), "setup");
+    }
+
+    #[test]
     fn ownership_is_per_conversation_not_workspace_membership() {
         let mut board = board();
         board.delegations.push(delegation());
@@ -670,6 +867,39 @@ mod tests {
         assert_eq!(d.executions[2].source, "background");
         assert_eq!(d.executions[2].state, "running");
         assert_ne!(d.executions[0].id, d.executions[1].id);
+    }
+
+    #[test]
+    fn overlapping_person_input_preserves_the_active_execution_until_completion() {
+        for outcome in ["ok", "error", "interrupted"] {
+            let mut d = delegation();
+            let id = d.executions[0].id.clone();
+            d.observe(&json!({"type":"session.state","state":"busy"}));
+            d.observe(&json!({"type":"assistant.started"}));
+            for _ in 0..2 {
+                d.observe(&json!({"type":"session.state","state":"busy"}));
+                d.observe(&json!({"type":"assistant.started"}));
+            }
+            assert_eq!(d.executions.len(), 1);
+            assert_eq!(d.executions[0].id, id);
+            assert_eq!(d.executions[0].source, "coordinator");
+            assert_eq!(d.executions[0].state, "running");
+
+            // Persisted execution identities retain the same completion behavior.
+            let mut d: Delegation =
+                serde_json::from_value(serde_json::to_value(d).unwrap()).unwrap();
+            d.observe(&json!({"type":"turn.completed","outcome":outcome}));
+            assert_eq!(d.executions[0].id, id);
+            assert_eq!(d.executions[0].state, "completed");
+            assert_eq!(d.executions[0].outcome.as_deref(), Some(outcome));
+
+            // A provider that responds again after completion gets a separate observed execution.
+            d.observe(&json!({"type":"assistant.started"}));
+            d.observe(&json!({"type":"turn.completed","outcome":"ok"}));
+            assert_eq!(d.executions.len(), 2);
+            assert_ne!(d.executions[1].id, id);
+            assert!(d.executions.iter().all(|run| run.state == "completed"));
+        }
     }
 
     #[test]

@@ -19,6 +19,12 @@ conversation and the page. The panel button allows reopening it during the
 preview. Leaving the browser or the workspace restores the panel's previous
 visibility.
 
+An explicit local MCP request may navigate to an owned delegated conversation
+and open this same preview through the `workspace-preview` event. The desktop
+rechecks availability and derives the URL from the workspace port; the event
+cannot supply a URL or script. Opening neither starts a service nor certifies
+readiness. See [embedded MCP](embedded-mcp.md).
+
 The chosen width is a maximum, limited by the available space. There is no
 device emulation, user-agent emulation or viewport larger than the native
 surface.

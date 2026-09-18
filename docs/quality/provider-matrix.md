@@ -129,8 +129,17 @@ and private environment wrapper. Workers start with empty MCP/plugin/skill
 selections. Background reporting is limited to each adapter’s existing
 `background.changed` signals; unknown is distinct from an observed empty set.
 
+Both providers also use the same configured setup/Run controls, bounded dock
+logs, process/exit status and explicit desktop preview opening. These tools
+accept only an owned `agent_id`; there is no provider-specific execution path
+or arbitrary shell command/URL argument. Setup continues to run on creation.
+Runtime status is ephemeral and does not imply HTTP readiness.
+
 Evidence: `delegation.rs` and `embedded_mcp.rs` unit tests, built-in
 materialization tests in `mcp.rs`, and the opt-in picker test in
-`e2e/tools.spec.ts`. Browser tests use the catalog mock and do not run models.
+`e2e/tools.spec.ts`. Workspace controls and log limits are tested in
+`delegation.rs`/`embedded_mcp.rs`, real PTY exit/output retention in `pty.rs`, and
+preview navigation in `e2e/browser.spec.ts` on Chromium and WebKit.
+Browser tests use the catalog mock and do not run models.
 Live model delegation requires installed/authenticated CLIs; automated tests
 do not spend model credits. See the [contract](../contracts/embedded-mcp.md).

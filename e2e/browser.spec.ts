@@ -7,12 +7,43 @@ const contextSelector = "#chatwrap .cfiles .browser-context";
 const fileSelector = "#chatwrap .cfiles .injchip:not(.browser-context)";
 type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
 type BrowserTestWindow = Window & {
+  mock: { preview(workspace: string, conversation: string): void };
   __TAURI_INTERNALS__: { invoke: Invoke };
   browserWaiting: boolean;
   browserRelease: () => void;
   browserSent: number;
   browserMessages: { session: string; text: string }[];
 };
+
+test("browser abre workspace e conversa solicitados pelo MCP sem iniciar scripts", async ({ page }) => {
+  const target = await page.evaluate(async () => {
+    const window = globalThis as unknown as BrowserTestWindow;
+    const board = await window.__TAURI_INTERNALS__.invoke("load_board") as Board;
+    return board.workspaces.find((workspace) => workspace.id !== "sessao-0929"
+      && !workspace.archived && !workspace.cleaned && !workspace.preparing && !workspace.failed && workspace.tabs.length)!;
+  });
+  expect(target).toBeTruthy();
+  const conversation = target.tabs.at(-1)!.id;
+  await page.evaluate(({ workspace, conversation }) => {
+    const window = globalThis as unknown as BrowserTestWindow;
+    const invoke = window.__TAURI_INTERNALS__.invoke;
+    window.__TAURI_INTERNALS__.invoke = (command, args) => {
+      if (command === "open_dock") throw new Error("Preview must not start scripts");
+      return invoke(command, args);
+    };
+    window.mock.preview(workspace, conversation);
+  }, { workspace: target.id, conversation });
+  await expect(page.locator(`iframe[data-browser-workspace="${target.id}"]`)).toBeVisible();
+  await expect(page.locator(`#tabbar .tab[data-tab="${conversation}"]`)).toHaveClass(/on/);
+  await expect(page.locator("#chatwrap")).toBeVisible();
+  await expect(page.locator("#msg")).not.toContainText("Preview must not start scripts");
+
+  // A stale or mismatched target must not navigate away from the requested workspace.
+  await page.evaluate(() => {
+    (window as BrowserTestWindow).mock.preview("sessao-0929", "missing-conversation");
+  });
+  await expect(page.locator(`iframe[data-browser-workspace="${target.id}"]`)).toBeVisible();
+});
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 

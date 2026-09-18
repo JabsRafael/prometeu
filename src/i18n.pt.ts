@@ -1197,6 +1197,7 @@ export const PT = {
   "err.browser.noBrowser": "não consegui abrir o navegador",
   "err.dock.unknown": "dock desconhecido: {kind}",
   "err.dock.noScript": "nenhum script de {kind} em {file}",
+  "err.dock.running": "outro script Run está ativo; pare-o antes de iniciar este",
 
   "err.mcp.auth.write": "não deu para guardar o login: {cause}",
   "err.mcp.auth.noMetadata": "este servidor não publica como autenticar ({url})",

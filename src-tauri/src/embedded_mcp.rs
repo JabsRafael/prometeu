@@ -225,7 +225,7 @@ pub fn tools() -> Vec<Value> {
             json!({"request_key":text, "title":text, "task":text, "provider":{"type":"string","enum":["claude","codex"]},"model":text,"effort":text}), &["request_key","title","task"], false),
         tool("list_delegations", "List only agents created by this conversation, including preparation, execution and background status.",
             json!({"offset":index,"limit":{"type":"integer","minimum":1,"maximum":100}}), &[], true),
-        tool("get_delegation", "Inspect an owned agent. Workspace stage, conversation status, executions and provider background tasks are separate. Null background means unknown. Pending questions require the person in Prometeu.",
+        tool("get_delegation", "Inspect an owned agent, including setup/run state, exit codes, configured run names, port and preview URL. Running does not prove HTTP readiness. Workspace stage, conversation status, executions and provider background tasks are separate. Null background means unknown. Pending questions require the person in Prometeu.",
             json!({"agent_id":text}), &["agent_id"], true),
         tool("get_execution", "Read the state of a specific execution of an owned agent. Completion of a turn does not imply that background tasks have stopped.",
             json!({"agent_id":text,"execution_id":text}), &["agent_id","execution_id"], true),
@@ -239,6 +239,12 @@ pub fn tools() -> Vec<Value> {
             json!({"agent_id":text,"path":{"type":"string"},"offset":index,"limit":{"type":"integer","minimum":1,"maximum":500}}), &["agent_id"], true),
         tool("read_file", "Read text within the owned workspace, up to 500 lines and 128 KiB per response. Files are limited to 2 MiB. Line numbers are zero-based.",
             json!({"agent_id":text,"path":text,"start_line":index,"limit":{"type":"integer","minimum":1,"maximum":500}}), &["agent_id","path"], true),
+        tool("run_workspace_script", "Start configured setup or run in an owned workspace. Setup already runs on creation; call setup to retry it. Optional name selects a configured run. Reuses the same live script, rejects a different active run and rejects run during setup. Returns immediately after process startup; poll get_delegation and read_workspace_script_log for results. Calling again after exit starts a new process.",
+            json!({"agent_id":text,"kind":{"type":"string","enum":["setup","run"]},"name":text}), &["agent_id","kind"], false),
+        tool("read_workspace_script_log", "Read a bounded tail of an owned workspace's setup or run output, including ANSI escapes and exit code. Output is retained only during this app lifetime and resets when restarted. seq is process-local, not a pagination cursor.",
+            json!({"agent_id":text,"kind":{"type":"string","enum":["setup","run"]},"limit_bytes":{"type":"integer","minimum":1,"maximum":65536}}), &["agent_id","kind"], true),
+        tool("open_workspace_preview", "Request opening the owned workspace and conversation with its preview in the desktop app. Changes the person's visible workspace. Does not start a server or verify readiness; run the configured script first when needed.",
+            json!({"agent_id":text}), &["agent_id"], false),
     ]
 }
 
@@ -395,7 +401,7 @@ mod tests {
         let reply = protocol
             .reply(request("tools/list", json!({})), |_, _| panic!())
             .unwrap();
-        assert_eq!(reply["result"]["tools"].as_array().unwrap().len(), 9);
+        assert_eq!(reply["result"]["tools"].as_array().unwrap().len(), 12);
         let reply = protocol
             .reply(
                 request(
@@ -475,6 +481,73 @@ mod tests {
             .reply(request("tools/list", json!({})), |_, _| panic!())
             .unwrap();
         assert_eq!(reply["error"]["code"], -32000);
+    }
+
+    #[test]
+    fn workspace_tools_only_accept_configured_script_selectors_and_owned_agent_ids() {
+        let mut protocol = ready();
+        for (name, args) in [
+            (
+                "run_workspace_script",
+                json!({"agent_id":"worker","kind":"setup"}),
+            ),
+            (
+                "run_workspace_script",
+                json!({"agent_id":"worker","kind":"run","name":"web"}),
+            ),
+            (
+                "read_workspace_script_log",
+                json!({"agent_id":"worker","kind":"run","limit_bytes":65536}),
+            ),
+            ("open_workspace_preview", json!({"agent_id":"worker"})),
+        ] {
+            let reply = protocol
+                .reply(
+                    request("tools/call", json!({"name":name,"arguments":args})),
+                    |tool, arguments| {
+                        assert_eq!(tool, name);
+                        assert_eq!(arguments, &args);
+                        Ok(json!({"accepted":true}))
+                    },
+                )
+                .unwrap();
+            assert_eq!(reply["result"]["isError"], false);
+        }
+        for (name, args) in [
+            (
+                "run_workspace_script",
+                json!({"agent_id":"worker","kind":"terminal"}),
+            ),
+            (
+                "run_workspace_script",
+                json!({"agent_id":"worker","kind":"archive"}),
+            ),
+            (
+                "run_workspace_script",
+                json!({"agent_id":"worker","kind":"run","command":"sh arbitrary.sh"}),
+            ),
+            (
+                "read_workspace_script_log",
+                json!({"agent_id":"worker","kind":"run","limit_bytes":65537}),
+            ),
+            (
+                "read_workspace_script_log",
+                json!({"agent_id":"worker","kind":"run","limit_bytes":0}),
+            ),
+            ("open_workspace_preview", json!({"workspace_id":"other"})),
+            (
+                "open_workspace_preview",
+                json!({"agent_id":"worker","url":"https://example.com"}),
+            ),
+        ] {
+            let reply = protocol
+                .reply(
+                    request("tools/call", json!({"name":name,"arguments":args})),
+                    |_, _| panic!("invalid workspace control reached dispatch"),
+                )
+                .unwrap();
+            assert_eq!(reply["error"]["code"], -32602);
+        }
     }
 
     #[test]
