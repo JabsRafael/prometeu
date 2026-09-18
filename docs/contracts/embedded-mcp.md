@@ -27,13 +27,63 @@ contracts.
 
 A private Unix socket in a randomly named 0700 directory under `/tmp` connects
 that subprocess to the open desktop app. Its path stays below macOS's socket
-pathname limit. The socket is 0600; a random process credential binds every
-request to one conversation. Spawning replaces that conversation's credential;
-process removal revokes it; app exit clears all credentials and removes the
-socket. Calls also require a live owner process and an existing owner tab.
-Transport input is limited to 1 MiB; responses to 768 KiB. Socket reads/writes
-have deadlines. The server serializes tool operations; preparation and agent
-execution continue asynchronously. No HTTP listener or relay route is added.
+pathname limit. The socket is 0600. Every request authenticates a client identity;
+conversation context is optional. Internal materialization grants a temporary
+credential with that conversation as context and identity. Spawning replaces it,
+process removal revokes it, and calls require its live process and existing tab.
+External registration grants a persistent client identity with explicit project
+paths and no conversation context. Both use the same tools and application use
+cases; an external client does not need a conversation running in Prometeu.
+
+The private `<root>/mcp-socket` discovery file points to the current socket.
+External stdio hosts resolve it on every tool call, so an existing host can
+reconnect after the desktop restarts. Internal configs retain their explicit
+`PROMETEU_MCP_SOCKET` and process lifetime. App exit removes its socket and
+discovery file, but does not revoke external registrations. Requests while the
+app is closed fail; no daemon is started. Transport input is limited to 1 MiB;
+responses to 768 KiB. Socket reads/writes have deadlines. The server serializes
+tool operations; preparation and execution continue asynchronously. No HTTP
+listener or relay route is added.
+
+## External client registration
+
+Use the installed executable, or the development executable for the development
+app. Both administration and stdio modes run without opening a webview:
+
+```sh
+prometeu_bin=/Applications/Prometeu.app/Contents/MacOS/Prometeu
+"$prometeu_bin" --prometeu-mcp-client projects
+"$prometeu_bin" --prometeu-mcp-client register "my local agent" PROJECT_ID
+"$prometeu_bin" --prometeu-mcp-client list
+"$prometeu_bin" --prometeu-mcp-client revoke CLIENT_ID
+```
+
+`projects` reads the persisted project catalog without changing the board.
+Registration accepts one or more existing project IDs and pins their source
+paths. It returns `client_id` and a ready `mcpServers.prometeu` stdio definition:
+command, args, and environment containing `PROMETEU_ROOT` and
+`PROMETEU_MCP_TOKEN`. Copy that definition into the external host's MCP settings
+using its supported format. Keep the generated configuration private; it carries
+a bearer credential. No provider-specific configuration is edited automatically.
+A client can then call `list_projects`, `delegate` with a returned `project_id`,
+and the existing status, message, file, script and preview tools.
+
+Each registration is a new independent identity. `list` returns IDs, names and
+project paths, never credentials. Revocation removes the registration; the next
+request fails even from an already-connected stdio host. Already accepted work
+continues in Prometeu. Re-registering the same name does not recover ownership
+of the old client's delegations. Registration/revocation are local administration
+commands, never tools offered to agents.
+
+External credentials live in `<root>/mcp-clients/<uuid>.json`, version 1, with
+`name`, `token` and `client: {id, conversation, projects}`. The client ID is
+`client:<uuid>`, the context is null, and projects are allowed source paths.
+Files are atomically written at 0600 inside a 0700 directory. Authentication
+reloads the exact credential file on every call; missing, corrupt or unsupported
+versions fail closed. Tokens never enter the hub or board. The directories are
+additive; older versions ignore them. Rolling back disables external access
+without changing existing internal delegation owners or transcripts. A later
+upgrade can reuse the saved external registrations and ownership.
 
 This is application authorization, not an OS sandbox. Agent processes retain
 the local user's permissions and can access files outside MCP using their
@@ -50,25 +100,28 @@ configuration. The contract limits operations through this MCP.
   Ordinary follow-up input accepted during a running execution retains that ID
   until the next observed turn completion.
 
-`Board.delegations` stores owner conversation, agent, workspace, initial task,
+`Board.delegations` stores owner client ID, agent, workspace, initial task,
 creation request key/hash, repository starting commits, executions, last
 observed background tasks and pending requests. The field defaults to an empty
-list on old boards. No transcript is rewritten. Ownership survives a process
-restart and is never inferred from tab order, the active tab, or workspace
+list on old boards. Legacy owner strings remain conversation client IDs; external
+owners use the `client:` namespace. No transcript is rewritten. Ownership survives
+a process restart and is never inferred from tab order, the active tab, or workspace
 membership. Opening another tab in the delegated workspace grants no authority
 over that tab. Unowned and nonexistent targets both return
-`delegation_not_found`. Deleting the coordinator tab makes its delegations
-inaccessible through MCP; their workspaces remain available to the person.
+`delegation_not_found`. Project scope is checked for every owned target, including
+all repositories in a multi-repository delegation. Deleting an internal
+coordinator tab makes its delegations inaccessible through MCP; their workspaces remain available to the person.
 
 ## Tools
 
-Every target is an `agent_id` returned by `delegate`. No tool accepts an owner
+Every agent target is an `agent_id` returned by `delegate`. No tool accepts an owner
 identity, arbitrary workspace ID, or arbitrary repository path.
 
 | Tool | Inputs | Behavior |
 | --- | --- | --- |
-| `delegate` | `request_key`, `title`, `task`, optional `provider`, `model`, `effort` | Creates one agent and one isolated workspace; returns immediately during preparation. |
-| `list_delegations` | optional `offset`, `limit` (1–100) | Lists only this conversation's delegations. |
+| `list_projects` | optional `offset`, `limit` (1–100) | Lists registered projects within the authenticated client scope, with `project_id` and name. |
+| `delegate` | `request_key`, `title`, `task`, optional `project_id`, `provider`, `model`, `effort` | Creates one agent and one isolated workspace; returns immediately during preparation. |
+| `list_delegations` | optional `offset`, `limit` (1–100) | Lists only this client's delegations within its scope. |
 | `get_delegation` | `agent_id` | Returns workspace preparation/failure/manual stage, conversation status, latest execution, background, pending requests and setup/run runtime. |
 | `get_execution` | `agent_id`, `execution_id` | Reads a specific recorded execution. |
 | `send_message` | `agent_id`, `request_key`, `text` | Sends to an idle agent or resumes its stopped process. Returns an execution. |
@@ -80,12 +133,18 @@ identity, arbitrary workspace ID, or arbitrary repository path.
 | `read_workspace_script_log` | `agent_id`, `kind` (`setup` or `run`), optional `limit_bytes` (1–65,536) | Reads a bounded tail of retained terminal output, with process state and exit code. |
 | `open_workspace_preview` | `agent_id` | Requests opening the delegated conversation and workspace preview in the desktop app. Does not start a service. |
 
-Delegation uses the coordinator's repositories and each repository's committed
-HEAD. Uncommitted changes are not copied. Non-Git directories and repositories
+Without `project_id`, delegation uses the attached conversation's repositories
+and each repository's committed HEAD. Without conversation context, `project_id`
+is required. An explicit project uses the registered source clone's committed
+HEAD and must be within the client's scope; nonexistent and forbidden IDs both
+return `project_not_found`. Project paths cannot be supplied as tool arguments.
+Uncommitted changes are not copied. Non-Git directories and repositories
 without a commit cannot be delegated in this version. Branch names are generated
-by the backend. Provider/model/effort default to the coordinator conversation’s effective
-choice; switching provider without specifying a model uses that provider’s
-default. An action-profile permission policy is copied and retained on resume;
+by the backend. Context-based delegation inherits provider/model/effort from the
+conversation. Explicit project delegation defaults to Claude with CLI defaults,
+and accepts either supported provider. Switching provider without specifying a
+model uses that provider’s default. For context-based delegation, an action-profile
+permission policy is copied and retained on resume;
 ordinary conversations retain the existing default permission behavior.
 Existing workspace creation, worktree rollback and setup scripts
 apply; failed preparation remains visible. Initial workers explicitly select no
@@ -198,6 +257,10 @@ error. Directory pages reflect the filesystem at call time, not a snapshot.
 - `delegation.rs` tests ownership, old/new board compatibility, separate
   execution/background state, overlapping ordinary input, restart behavior and
   input limits, workspace availability, preview payloads and bounded script logs.
+- `mcp_access.rs` tests private credential persistence, scope, corruption and revocation;
+  `delegation.rs` also covers independent clients, project selection and legacy owners.
+- `tests/mcp_client.rs` exercises an external stdio subprocess, CLI registration,
+  socket rediscovery and revocation against a local socket fixture.
 - `embedded_mcp.rs` tests handshake, schema enforcement, tool failures,
   notification handling, bounded framing and credential placement.
 - MCP materialization tests cover both provider configuration formats.

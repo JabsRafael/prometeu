@@ -23,6 +23,7 @@ mod linear;
 mod lock;
 mod machine;
 mod mcp;
+mod mcp_access;
 mod mcp_auth;
 mod naming;
 mod oauth;
@@ -93,6 +94,16 @@ fn main() {
         if let Err(error) = embedded_mcp::stdio() {
             eprintln!("{error}");
             std::process::exit(1);
+        }
+        return;
+    }
+    if std::env::args().nth(1).as_deref() == Some("--prometeu-mcp-client") {
+        match mcp_access::cli(&std::env::args().skip(2).collect::<Vec<_>>()) {
+            Ok(value) => println!("{}", serde_json::to_string_pretty(&value).unwrap()),
+            Err(error) => {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
         }
         return;
     }

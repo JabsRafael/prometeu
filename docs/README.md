@@ -15,7 +15,7 @@ as a short index for agents and `README.md` presents the product.
 
 ## Contracts
 
-- [Embedded MCP and delegation](contracts/embedded-mcp.md): local, opt-in orchestration infrastructure with conversation-owned agents.
+- [Embedded MCP and delegation](contracts/embedded-mcp.md): local, opt-in orchestration infrastructure with client-owned agents and optional conversation context.
 
 - [Browser and visual context](contracts/browser.md): preview, inspection, captures and sending to the draft.
 
@@ -88,7 +88,7 @@ compatibility still in use stays documented in the current contracts.
 - [ADR 0047](decisions/0047-tool-selection-boundaries.md): Reviewed tool declarations, effective provider and native IPC patches.
 - [ADR 0048](decisions/0048-scoped-cleanup-offer.md): scoped worktree cleanup after archiving or finishing.
 
-- [ADR 0049](decisions/0049-embedded-delegation-mcp.md): Built-in MCP for conversation-owned delegation.
+- [ADR 0049](decisions/0049-embedded-delegation-mcp.md): Native MCP for client-owned delegation.
 
 ## Quality and operations
 

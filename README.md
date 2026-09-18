@@ -35,8 +35,10 @@ optional for local work; model access comes from your own provider account.
 - **Delegation through MCP.** The built-in `prometeu` MCP is available but off
   by default. Select it in the coordinator workspace’s tools to create agents
   in isolated workspaces, send messages and inspect their runs, background
-  tasks, conversations and files. It controls only agents that conversation
-  created, while the desktop app is open. See the [contract](docs/contracts/embedded-mcp.md).
+  tasks, conversations and files. External local agents can register a scoped
+  client and use the same MCP while Prometeu is open, without an internal
+  conversation. Each client controls only agents it created, including their
+  setup, Run scripts and preview. See [external registration](docs/contracts/embedded-mcp.md#external-client-registration).
 - **Tools per workspace.** Select MCP servers, plugins, and skills. Reusable
   actions include an editable code review profile.
 - **Optional collaboration.** Share live conversations and comment on them

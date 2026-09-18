@@ -1,4 +1,4 @@
-# ADR 0049 — Built-in MCP for conversation-owned delegation
+# ADR 0049 — Native MCP for client-owned delegation
 
 Date: 2026-09-18
 Status: Accepted
@@ -16,19 +16,30 @@ cannot express ownership because transcripts outlive their processes.
 Ship a virtual `prometeu` MCP in every installation, without adding it to any
 default selection. Existing selectors activate it. The first version creates
 one task-bound agent/conversation and an isolated workspace per delegation.
-Ownership is persisted against the coordinator conversation and the exact
-created conversation. It does not extend to other workspaces, other tabs or
+Ownership is persisted against an authenticated client identity and the exact
+created conversation. Conversation context is optional. Existing internal
+conversation IDs remain valid client identities; external registrations use
+independent `client:<uuid>` identities scoped to explicit source projects. It does not extend to other workspaces, other tabs or
 transitive descendants. Workers explicitly start with empty tool selections;
 further delegation requires a person's tool selection.
 
 Use a stdio mode of the existing executable, bridged to the open desktop app
-through a private Unix socket and a per-process credential. The desktop remains
+through a private Unix socket and a client credential. Internal credentials
+follow the provider process lifetime; external credentials survive app restarts
+and can be revoked through local administration. A private discovery file lets
+external stdio hosts reconnect without changing their configuration. The desktop remains
 the owner of worktrees, processes and state. Provider adapters keep their
 existing MCP materialization; the built-in registry row contains no credential.
 No provider-native config is edited and no relay or Cloud API is added.
 
-`delegation.rs` owns authorization and use cases, `embedded_mcp.rs` owns the
-protocol/transport. Workspace creation remains in `session.rs`. Add an optional
+`mcp_access.rs` owns client identity, project scope and credential administration;
+`delegation.rs` owns resource authorization and use cases; `embedded_mcp.rs` owns
+the common protocol/transport. Neither use cases nor clients depend on a
+provider protocol or frontend conversation. Both internal and external callers
+enter the same dispatcher. Optional conversation context supplies repository,
+model and permission defaults; external calls select an allowed project ID.
+Local CLI registration prints a standard stdio server definition and does not
+edit another application's settings. Credential management is not an agent tool. Workspace creation remains in `session.rs`. Add an optional
 owner record to its internal creation path; allocate the worker conversation ID
 before preparation and persist ownership together with the new workspace.
 Execution IDs remain separate from conversation IDs. Observe canonical events
@@ -76,8 +87,10 @@ boundary for the initial local-only feature. Pure stdio without a bridge could
 not coordinate the already-running desktop state safely.
 
 The shared executable avoids installation dependencies. It requires the desktop
-to stay open, and app restarts require a fresh agent process/credential. The
-socket credential authorizes the MCP API but is not a sandbox against local
+to stay open. Internal callers require a fresh process credential after restart;
+external registrations retain identity and rediscover the new socket. A daemon,
+HTTP listener and separate distribution are unnecessary for local composition.
+The socket credential authorizes the MCP API but is not a sandbox against local
 processes with the user's filesystem permissions.
 
 Persisted delegation records and explicit execution IDs add compatibility and
@@ -91,5 +104,8 @@ separate identities without reinterpreting every existing workspace as an agent.
 See [embedded MCP](../contracts/embedded-mcp.md) and the
 [provider matrix](../quality/provider-matrix.md). Tests cover ownership of exact
 conversations, restart/migration, MCP framing/lifecycle, tool selection and both
-provider materialization paths. The implementation does not require a new IPC
+provider materialization paths, independent external clients, project scope,
+credential revocation and socket rediscovery from an external stdio subprocess.
+The integration test uses a socket fixture; live model execution remains a
+separate manual check. The implementation does not require a new IPC
 command: existing hub and board responses gain additive data.

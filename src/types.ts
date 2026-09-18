@@ -301,6 +301,7 @@ export type Scripts = {
 };
 
 export type DelegationExecution = { id: string; state: string; source: string; accepted_at: number; outcome: string | null; request_hash: string | null };
+// Owner identifies an MCP client; legacy conversation IDs remain valid.
 export type Delegation = { id: string; owner: string; workspace: string; task: string; request_key: string; request_hash: string; repository_heads: Record<string, string>; permission?: "ask" | "auto" | null; executions: DelegationExecution[]; background: import("./conversation").BackgroundTask[] | null; requests: import("./conversation").ConversationEventV1[] };
 
 export type Board = { delegations?: Delegation[]; actions?: import("./actions").Catalog; tools?: Tools; tool_trust?: ToolTrust[]; stages: string[]; projects: Project[]; workspaces: Workspace[] };

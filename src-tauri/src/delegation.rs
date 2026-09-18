@@ -1,7 +1,8 @@
-//! Local delegation use cases. Ownership is a durable conversation identity; a workspace is only
+//! Local delegation use cases. Ownership is a durable client identity; a workspace is only
 //! the environment. This module schedules no work and never grants control over unrelated tabs.
 
 use crate::lock::lock;
+use crate::mcp_access::Client;
 use crate::state::{Board, Status};
 use crate::{chat, conversation, dock, pty, session, AppState};
 use serde::{Deserialize, Serialize};
@@ -166,15 +167,66 @@ pub fn stopped(state: &AppState, id: &str) {
 }
 
 /// The authenticated caller cannot provide or override its owner identity in tool arguments.
-fn owned<'a>(board: &'a Board, owner: &str, id: &str) -> Result<&'a Delegation, String> {
-    if board.workspace_of(owner).is_none() {
-        return Err("coordinator_unavailable".into());
-    }
+fn owned<'a>(board: &'a Board, client: &Client, id: &str) -> Result<&'a Delegation, String> {
+    client.validate(board)?;
     board
         .delegations
         .iter()
-        .find(|d| d.owner == owner && d.id == id)
+        .find(|d| d.owner == client.id && d.id == id && in_scope(board, client, d))
         .ok_or_else(|| "delegation_not_found".into())
+}
+
+fn in_scope(board: &Board, client: &Client, delegation: &Delegation) -> bool {
+    delegation
+        .repository_heads
+        .keys()
+        .all(|path| client.allows(board, path))
+}
+
+/// The context supplies defaults only. Project authority always comes from the authenticated client.
+fn source(
+    board: &Board,
+    client: &Client,
+    args: &Value,
+) -> Result<(Vec<crate::state::Repo>, session::Launch), String> {
+    client.validate(board)?;
+    if args.get("project_id").is_some() {
+        let id = required(args, "project_id", 200)?;
+        let project = board
+            .projects
+            .iter()
+            .find(|project| project.id == id && client.allows(board, &project.path))
+            .ok_or("project_not_found")?;
+        return Ok((
+            vec![crate::state::Repo {
+                path: project.path.clone(),
+                name: project.name.clone(),
+                worktree: project.path.clone(),
+                base: String::new(),
+                pr: None,
+            }],
+            session::Launch::default(),
+        ));
+    }
+    let conversation = client
+        .conversation
+        .as_deref()
+        .ok_or("project_id_required")?;
+    let parent = board
+        .workspace_of(conversation)
+        .ok_or("coordinator_unavailable")?;
+    if parent.preparing || parent.cleaned {
+        return Err("coordinator_workspace_unavailable".into());
+    }
+    let repos = if parent.repos.is_empty() {
+        vec![parent.primary()]
+    } else {
+        parent.repos.clone()
+    };
+    Ok((
+        repos,
+        parent.launch_of(conversation, &session::ResolvedTools::default()),
+    ))
 }
 
 fn digest(text: &str) -> String {
@@ -276,11 +328,9 @@ struct PreviewRequest<'a> {
 }
 
 fn worker_choice(
-    parent: &crate::state::Workspace,
-    owner: &str,
+    choice: session::Launch,
     args: &Value,
 ) -> Result<(crate::state::ProviderId, String, String), String> {
-    let choice = parent.launch_of(owner, &session::ResolvedTools::default());
     let provider = match args.get("provider").and_then(Value::as_str) {
         None => choice.agent,
         Some("claude") => crate::state::ProviderId::Claude,
@@ -345,32 +395,29 @@ fn check_send(workspace: &crate::state::Workspace, delegation: &Delegation) -> R
     Ok(())
 }
 
-fn create(app: &AppHandle, owner: &str, args: &Value) -> Result<Value, String> {
+fn create(app: &AppHandle, client: &Client, args: &Value) -> Result<Value, String> {
     let key = required(args, "request_key", 128)?;
     let task = required(args, "task", 64 * 1024)?;
     let title = required(args, "title", 200)?;
     let state = app.state::<AppState>();
-    let (parent, stage) = {
+    let (repos, choice, stage) = {
         let board = lock(&state.board);
-        let parent = board
-            .workspace_of(owner)
-            .ok_or("coordinator_unavailable")?
-            .clone();
-        if let Some(previous) = previous_creation(&board, owner, key, &digest(&args.to_string()))? {
-            return Ok(summary(&board, previous));
+        client.validate(&board)?;
+        if let Some(previous) =
+            previous_creation(&board, &client.id, key, &digest(&args.to_string()))?
+        {
+            return Ok(summary(&board, owned(&board, client, &previous.id)?));
         }
-        (parent, board.stages.first().cloned().unwrap_or_default())
+        let (repos, choice) = source(&board, client, args)?;
+        (
+            repos,
+            choice,
+            board.stages.first().cloned().unwrap_or_default(),
+        )
     };
-    if parent.preparing || parent.cleaned {
-        return Err("coordinator_workspace_unavailable".into());
-    }
-    let (provider, model, effort) = worker_choice(&parent, owner, args)?;
+    let permission = choice.permission;
+    let (provider, model, effort) = worker_choice(choice, args)?;
     let id = uuid::Uuid::new_v4().to_string();
-    let repos = if parent.repos.is_empty() {
-        vec![parent.primary()]
-    } else {
-        parent.repos.clone()
-    };
     let mut repository_heads = BTreeMap::new();
     for repo in &repos {
         let output = Command::new("git")
@@ -386,17 +433,14 @@ fn create(app: &AppHandle, owner: &str, args: &Value) -> Result<Value, String> {
             String::from_utf8_lossy(&output.stdout).trim().into(),
         );
     }
-    let primary = parent.primary();
+    let primary = repos.first().ok_or("repository_unavailable")?;
     let base = repository_heads
         .get(&primary.path)
         .cloned()
         .ok_or("repository_unavailable")?;
-    let permission = parent
-        .launch_of(owner, &session::ResolvedTools::default())
-        .permission;
     let delegation = Delegation {
         id: id.clone(),
-        owner: owner.into(),
+        owner: client.id.clone(),
         workspace: String::new(),
         task: task.into(),
         request_key: key.into(),
@@ -407,11 +451,11 @@ fn create(app: &AppHandle, owner: &str, args: &Value) -> Result<Value, String> {
         background: None,
         requests: vec![],
     };
-    // Repositories come only from the coordinator's environment. The agent cannot choose arbitrary
-    // paths or reuse an existing workspace. Each repository branches from the coordinator's HEAD.
+    // Source selection enforces client scope before any Git or workspace operation. The agent
+    // cannot choose arbitrary paths or reuse an existing workspace.
     let draft: session::Draft = serde_json::from_value(json!({
         "project": primary.path,
-        "extras": parent.repos.iter().skip(1).map(|r| r.path.clone()).collect::<Vec<_>>(),
+        "extras": repos.iter().skip(1).map(|r| r.path.clone()).collect::<Vec<_>>(),
         "branch": format!("delegated-{}", &id[..12]), "base": base,
         "worktree": true, "title": title, "stage": stage, "prompt": task, "inject": [],
         "agent": provider, "model": model, "effort": effort, "permission": permission,
@@ -420,17 +464,34 @@ fn create(app: &AppHandle, owner: &str, args: &Value) -> Result<Value, String> {
     .map_err(|e| e.to_string())?;
     session::create_workspace_owned(app.clone(), app.state(), draft, 80, 24, Some(delegation))?;
     let board = lock(&state.board);
-    Ok(summary(&board, owned(&board, owner, &id)?))
+    Ok(summary(&board, owned(&board, client, &id)?))
 }
 
 /// All calls arrive serialized at the local MCP boundary. Work is asynchronous after creation/send.
-pub fn call(app: &AppHandle, owner: &str, name: &str, args: &Value) -> Result<Value, String> {
+pub fn call(app: &AppHandle, client: &Client, name: &str, args: &Value) -> Result<Value, String> {
     let state = app.state::<AppState>();
-    if lock(&state.board).workspace_of(owner).is_none() {
-        return Err("coordinator_unavailable".into());
-    }
+    client.validate(&lock(&state.board))?;
     if name == "delegate" {
-        return create(app, owner, args);
+        return create(app, client, args);
+    }
+    if name == "list_projects" {
+        let offset = page(args, "offset", 0, usize::MAX)?;
+        let limit = page(args, "limit", 20, 100)?.max(1);
+        let board = lock(&state.board);
+        let all: Vec<_> = board
+            .projects
+            .iter()
+            .filter(|project| client.allows(&board, &project.path))
+            .collect();
+        let items: Vec<_> = all
+            .iter()
+            .skip(offset)
+            .take(limit)
+            .map(|project| json!({"project_id":project.id,"name":project.name}))
+            .collect();
+        return Ok(
+            json!({"items":items,"next_offset":(offset.saturating_add(limit) < all.len()).then_some(offset.saturating_add(limit))}),
+        );
     }
     if name == "list_delegations" {
         let offset = page(args, "offset", 0, usize::MAX)?;
@@ -439,7 +500,7 @@ pub fn call(app: &AppHandle, owner: &str, name: &str, args: &Value) -> Result<Va
         let all: Vec<_> = board
             .delegations
             .iter()
-            .filter(|d| d.owner == owner)
+            .filter(|d| d.owner == client.id && in_scope(&board, client, d))
             .collect();
         let items: Vec<_> = all
             .iter()
@@ -454,7 +515,7 @@ pub fn call(app: &AppHandle, owner: &str, name: &str, args: &Value) -> Result<Va
     let id = required(args, "agent_id", 128)?;
     let workspace = {
         let board = lock(&state.board);
-        let d = owned(&board, owner, id)?.clone();
+        let d = owned(&board, client, id)?.clone();
         if name == "get_execution" {
             let execution = required(args, "execution_id", 260)?;
             return d
@@ -555,7 +616,7 @@ pub fn call(app: &AppHandle, owner: &str, name: &str, args: &Value) -> Result<Va
             let _input = lock(&gate);
             let (delegation, workspace) = {
                 let board = lock(&state.board);
-                let d = owned(&board, owner, id)?.clone();
+                let d = owned(&board, client, id)?.clone();
                 let ws = board
                     .workspaces
                     .iter()
@@ -727,8 +788,8 @@ mod tests {
     fn workspace_controls_require_an_owned_available_conversation() {
         let mut board = board();
         board.delegations.push(delegation());
-        assert!(owned(&board, "other-coordinator", "worker").is_err());
-        let d = owned(&board, "coordinator", "worker").unwrap();
+        assert!(owned(&board, &Client::conversation("other-coordinator"), "worker").is_err());
+        let d = owned(&board, &Client::conversation("coordinator"), "worker").unwrap();
         let mut workspace = board
             .workspaces
             .iter()
@@ -787,13 +848,70 @@ mod tests {
     fn ownership_is_per_conversation_not_workspace_membership() {
         let mut board = board();
         board.delegations.push(delegation());
-        assert!(owned(&board, "coordinator", "worker").is_ok());
-        assert!(owned(&board, "other-coordinator", "worker").is_err());
-        assert!(owned(&board, "coordinator", "person-created-tab").is_err());
-        assert!(owned(&board, "worker", "worker").is_err());
-        assert!(owned(&board, "coordinator", "parent").is_err());
+        assert!(owned(&board, &Client::conversation("coordinator"), "worker").is_ok());
+        assert!(owned(&board, &Client::conversation("other-coordinator"), "worker").is_err());
+        assert!(owned(
+            &board,
+            &Client::conversation("coordinator"),
+            "person-created-tab"
+        )
+        .is_err());
+        assert!(owned(&board, &Client::conversation("worker"), "worker").is_err());
+        assert!(owned(&board, &Client::conversation("coordinator"), "parent").is_err());
         board.workspaces[0].tabs.retain(|t| t.id != "coordinator");
-        assert!(owned(&board, "coordinator", "worker").is_err());
+        assert!(owned(&board, &Client::conversation("coordinator"), "worker").is_err());
+    }
+
+    #[test]
+    fn independent_clients_use_scoped_projects_without_a_parent_conversation() {
+        let mut board = board();
+        board.projects = serde_json::from_value(json!([
+            {"id":"project", "name":"repo", "path":"/repo"},
+            {"id":"other", "name":"other", "path":"/other"}
+        ]))
+        .unwrap();
+        let client = Client {
+            id: "client:external".into(),
+            conversation: None,
+            projects: vec!["/repo".into()],
+        };
+        let internal = Client::conversation("coordinator");
+        let (repos, _) = source(&board, &internal, &json!({})).unwrap();
+        assert_eq!(repos[0].worktree, "/worktree");
+        assert!(source(&board, &internal, &json!({"project_id":"other"})).is_err());
+        // External authority does not depend on any coordinator tab or process.
+        board.workspaces.remove(0);
+        assert!(source(&board, &client, &json!({})).is_err());
+        assert!(source(&board, &client, &json!({"project_id":"other"})).is_err());
+        assert!(source(&board, &client, &json!({"project_id":"/repo"})).is_err());
+        let (repos, choice) = source(&board, &client, &json!({"project_id":"project"})).unwrap();
+        assert_eq!(repos[0].path, "/repo");
+        assert_eq!(repos[0].worktree, "/repo");
+        assert!(choice.permission.is_none());
+        let (provider, model, _) = worker_choice(choice, &json!({"provider":"codex"})).unwrap();
+        assert_eq!(provider, crate::state::ProviderId::Codex);
+        assert!(model.is_empty());
+        let mut d = delegation();
+        d.owner = client.id.clone();
+        d.repository_heads.insert("/repo".into(), "commit".into());
+        board.delegations.push(d);
+        let restored: Board =
+            serde_json::from_value(serde_json::to_value(&board).unwrap()).unwrap();
+        assert!(owned(&restored, &client, "worker").is_ok());
+        assert!(owned(&restored, &internal, "worker").is_err());
+        let other = Client {
+            id: "client:other".into(),
+            ..client.clone()
+        };
+        assert!(owned(&restored, &other, "worker").is_err());
+        assert!(owned(&restored, &client, "person-created-tab").is_err());
+        let narrowed = Client {
+            projects: vec!["/other".into()],
+            ..client.clone()
+        };
+        assert!(owned(&restored, &narrowed, "worker").is_err());
+        board.projects[0].path = "/replaced".into();
+        assert!(source(&board, &client, &json!({"project_id":"project"})).is_err());
     }
 
     #[test]
@@ -804,7 +922,7 @@ mod tests {
         let mut restored: Board =
             serde_json::from_value(serde_json::to_value(&board).unwrap()).unwrap();
         restored.revive();
-        assert!(owned(&restored, "coordinator", "worker").is_ok());
+        assert!(owned(&restored, &Client::conversation("coordinator"), "worker").is_ok());
         assert_eq!(restored.workspaces[1].stage, "manual stage");
         assert_eq!(restored.delegations[0].request_key, "first");
     }
@@ -910,22 +1028,23 @@ mod tests {
             model: "chosen-model".into(),
             effort: "high".into(),
         });
-        let (provider, model, effort) =
-            worker_choice(&board.workspaces[0], "coordinator", &json!({})).unwrap();
+        let (provider, model, effort) = worker_choice(
+            board.workspaces[0].launch_of("coordinator", &session::ResolvedTools::default()),
+            &json!({}),
+        )
+        .unwrap();
         assert_eq!(provider, crate::state::ProviderId::Codex);
         assert_eq!(model, "chosen-model");
         assert_eq!(effort, "high");
         let (provider, model, effort) = worker_choice(
-            &board.workspaces[0],
-            "coordinator",
+            board.workspaces[0].launch_of("coordinator", &session::ResolvedTools::default()),
             &json!({"provider":"claude"}),
         )
         .unwrap();
         assert_eq!(provider, crate::state::ProviderId::Claude);
         assert!(model.is_empty() && effort.is_empty());
         assert!(worker_choice(
-            &board.workspaces[0],
-            "coordinator",
+            board.workspaces[0].launch_of("coordinator", &session::ResolvedTools::default()),
             &json!({"provider":"unknown"})
         )
         .is_err());

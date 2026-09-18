@@ -1,7 +1,13 @@
 //! Bundled MCP stdio entry point and private local bridge to the running application. Provider
 //! configuration carries a per-process credential; tools never accept a caller identity.
 
-use crate::{delegation, lock::lock, mcp::Server, paths, AppState};
+use crate::{
+    delegation,
+    lock::lock,
+    mcp::Server,
+    mcp_access::{self, Client},
+    paths, AppState,
+};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -18,7 +24,7 @@ const VERSION: &str = "2025-06-18";
 
 struct Runtime {
     directory: PathBuf,
-    credentials: Mutex<HashMap<String, String>>,
+    credentials: Mutex<HashMap<String, Client>>,
     calls: Mutex<()>,
 }
 static RUNTIME: OnceLock<Arc<Runtime>> = OnceLock::new();
@@ -27,20 +33,21 @@ impl Runtime {
     fn grant(&self, session: &str) -> String {
         let token = uuid::Uuid::new_v4().to_string();
         let mut credentials = lock(&self.credentials);
-        credentials.retain(|_, owner| owner != session);
-        credentials.insert(token.clone(), session.into());
+        credentials.retain(|_, client| client.id != session);
+        credentials.insert(token.clone(), Client::conversation(session));
         token
     }
 
-    fn owner(&self, token: &str) -> Result<String, String> {
+    fn owner(&self, token: &str) -> Result<Client, String> {
         lock(&self.credentials)
             .get(token)
             .cloned()
-            .ok_or_else(|| "unauthorized".into())
+            .map(Ok)
+            .unwrap_or_else(|| mcp_access::authenticate(&paths::root(), token))
     }
 
     fn revoke(&self, session: &str) {
-        lock(&self.credentials).retain(|_, owner| owner != session);
+        lock(&self.credentials).retain(|_, client| client.id != session);
     }
 }
 
@@ -71,6 +78,10 @@ pub fn start(app: AppHandle) -> Result<(), String> {
     RUNTIME
         .set(runtime.clone())
         .map_err(|_| "MCP already started")?;
+    paths::write_private(
+        &paths::root().join("mcp-socket"),
+        &runtime.directory.join("socket").to_string_lossy(),
+    )?;
     std::thread::spawn(move || {
         // A stdio bridge makes one local request at a time; accepting sequentially also serializes
         // idempotency checks and mutations from different coordinators.
@@ -101,11 +112,13 @@ fn handle_connection(
     let token = request["token"].as_str().ok_or("unauthorized")?;
     let owner = runtime.owner(token)?;
     let state = app.state::<AppState>();
-    if !lock(&state.chats)
-        .get(&owner)
-        .is_some_and(|chat| chat.alive())
-    {
-        return Err("coordinator_unavailable".into());
+    if let Some(conversation) = &owner.conversation {
+        if !lock(&state.chats)
+            .get(conversation)
+            .is_some_and(|chat| chat.alive())
+        {
+            return Err("coordinator_unavailable".into());
+        }
     }
     let name = request["name"].as_str().ok_or("invalid_tool")?;
     let definition = tools()
@@ -131,6 +144,12 @@ fn handle_connection(
 pub fn shutdown() {
     if let Some(runtime) = RUNTIME.get() {
         lock(&runtime.credentials).clear();
+        let discovery = paths::root().join("mcp-socket");
+        if std::fs::read_to_string(&discovery).ok().as_deref()
+            == runtime.directory.join("socket").to_str()
+        {
+            let _ = std::fs::remove_file(discovery);
+        }
         let _ = std::fs::remove_file(runtime.directory.join("socket"));
         let _ = std::fs::remove_dir(&runtime.directory);
     }
@@ -182,7 +201,9 @@ fn frame(reader: &mut impl BufRead) -> Result<Option<String>, String> {
 }
 
 fn forward(name: &str, args: &Value) -> Result<Value, String> {
-    let socket = std::env::var("PROMETEU_MCP_SOCKET").map_err(|_| "Missing MCP connection")?;
+    let socket = std::env::var("PROMETEU_MCP_SOCKET")
+        .or_else(|_| std::fs::read_to_string(paths::root().join("mcp-socket")))
+        .map_err(|_| "Prometeu is not running")?;
     let token = std::env::var("PROMETEU_MCP_TOKEN").map_err(|_| "Missing MCP credential")?;
     let mut stream = UnixStream::connect(socket).map_err(|_| "Prometeu is not running")?;
     stream
@@ -221,9 +242,11 @@ pub fn tools() -> Vec<Value> {
     let text = json!({"type":"string", "minLength":1});
     let index = json!({"type":"integer", "minimum":0});
     vec![
-        tool("delegate", "Create a task-bound agent in its own isolated workspace using the coordinator's repositories. Returns immediately while preparation runs. Reuse request_key when retrying. Workers receive no MCP, plugins or skills by default.",
-            json!({"request_key":text, "title":text, "task":text, "provider":{"type":"string","enum":["claude","codex"]},"model":text,"effort":text}), &["request_key","title","task"], false),
-        tool("list_delegations", "List only agents created by this conversation, including preparation, execution and background status.",
+        tool("list_projects", "List registered projects this client can use. Pass a returned project_id to delegate when no conversation context is attached.",
+            json!({"offset":index,"limit":{"type":"integer","minimum":1,"maximum":100}}), &[], true),
+        tool("delegate", "Create a task-bound agent in its own isolated workspace using an allowed project_id or the attached conversation's repositories. Returns immediately while preparation runs. Reuse request_key when retrying. Workers receive no MCP, plugins or skills by default.",
+            json!({"request_key":text, "title":text, "task":text, "project_id":text, "provider":{"type":"string","enum":["claude","codex"]},"model":text,"effort":text}), &["request_key","title","task"], false),
+        tool("list_delegations", "List only agents created by this client, including preparation, execution and background status.",
             json!({"offset":index,"limit":{"type":"integer","minimum":1,"maximum":100}}), &[], true),
         tool("get_delegation", "Inspect an owned agent, including setup/run state, exit codes, configured run names, port and preview URL. Running does not prove HTTP readiness. Workspace stage, conversation status, executions and provider background tasks are separate. Null background means unknown. Pending questions require the person in Prometeu.",
             json!({"agent_id":text}), &["agent_id"], true),
@@ -401,7 +424,7 @@ mod tests {
         let reply = protocol
             .reply(request("tools/list", json!({})), |_, _| panic!())
             .unwrap();
-        assert_eq!(reply["result"]["tools"].as_array().unwrap().len(), 12);
+        assert_eq!(reply["result"]["tools"].as_array().unwrap().len(), 13);
         let reply = protocol
             .reply(
                 request(
@@ -572,15 +595,15 @@ mod tests {
         };
         let first = runtime.grant("first");
         let second = runtime.grant("second");
-        assert_eq!(runtime.owner(&first).unwrap(), "first");
-        assert_eq!(runtime.owner(&second).unwrap(), "second");
+        assert_eq!(runtime.owner(&first).unwrap().id, "first");
+        assert_eq!(runtime.owner(&second).unwrap().id, "second");
         assert!(runtime.owner("first").is_err());
         let resumed = runtime.grant("first");
         assert!(runtime.owner(&first).is_err());
-        assert_eq!(runtime.owner(&resumed).unwrap(), "first");
+        assert_eq!(runtime.owner(&resumed).unwrap().id, "first");
         runtime.revoke("first");
         assert!(runtime.owner(&resumed).is_err());
-        assert_eq!(runtime.owner(&second).unwrap(), "second");
+        assert_eq!(runtime.owner(&second).unwrap().id, "second");
     }
 
     #[test]

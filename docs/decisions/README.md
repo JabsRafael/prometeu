@@ -87,4 +87,4 @@ Status: Proposed
 | [0046](0046-cli-inherited-mcp-base.md) | CLI MCP set as visible inherited picker base |
 | [0047](0047-tool-selection-boundaries.md) | Reviewed tool declarations, effective provider and native IPC patches |
 | [0048](0048-scoped-cleanup-offer.md) | Scoped worktree cleanup after archiving or finishing |
-| [0049](0049-embedded-delegation-mcp.md) | Built-in MCP for conversation-owned delegation |
+| [0049](0049-embedded-delegation-mcp.md) | Native MCP for client-owned delegation |

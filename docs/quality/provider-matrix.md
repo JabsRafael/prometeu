@@ -143,3 +143,12 @@ preview navigation in `e2e/browser.spec.ts` on Chromium and WebKit.
 Browser tests use the catalog mock and do not run models.
 Live model delegation requires installed/authenticated CLIs; automated tests
 do not spend model credits. See the [contract](../contracts/embedded-mcp.md).
+
+External local MCP hosts use the same stdio protocol and tools with either worker
+provider, without a coordinator conversation in Prometeu. Registered clients have
+explicit project scope and revocable credentials that survive desktop restart.
+Explicit project delegation defaults to Claude; `provider` can select Codex.
+Evidence: `mcp_access.rs` and `delegation.rs` authorization/compatibility tests,
+and `tests/mcp_client.rs` for real stdio subprocess registration and socket
+rediscovery against a fixture. No live provider or native webview is exercised
+by that subprocess test. See [registration](../contracts/embedded-mcp.md#external-client-registration).
