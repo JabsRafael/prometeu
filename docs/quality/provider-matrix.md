@@ -14,7 +14,7 @@ contractual capability.
 
 | Capability | Claude | Codex | Main evidence |
 | --- | --- | --- | --- |
-| private feedback with an account, image and capture | independent of the CLI | independent of the CLI | `e2e/feedback.spec.ts`, the Cloud's `FeedbackTest` tests; native capture and real GitHub require a manual smoke test |
+| public bug reporting and private feedback with an account, image and capture | independent of the CLI | independent of the CLI | `e2e/feedback.spec.ts`, the Cloud's `FeedbackTest` tests; opening the system browser, native capture and real GitHub require a manual smoke test |
 | organizations, invitations and institutional sharing | the same relay V4; local execution | the same relay V4; local execution | `team-organizations.test.ts`, `worker.integration.test.ts`, `e2e/organizations.spec.ts`, Rails integration/browser |
 | automatic E2EE with TOFU in collaboration | the same HPKE Auth channel; no forward secrecy | the same HPKE Auth channel; no forward secrecy | `team-crypto.test.ts`, `team-security.test.ts`, `team-channel.test.ts`, `worker.integration.test.ts`, E2E comments in Chromium/WebKit |
 | optional Prometeu account in the sidebar | independent of the CLI | independent of the CLI | `cloud.rs`, `e2e/cloud.spec.ts`; no transcript is sent |

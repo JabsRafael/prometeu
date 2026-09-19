@@ -238,8 +238,9 @@ so write what the person using the app sees. See the
 The local commit hook and CI validate commit messages.
 
 GitHub issues are public; remove credentials and private conversation content
-from reports and attachments. The in-app **Feedback** channel requires a
-Prometeu account and delivers reports privately to the Prometeu team. See the
+from reports and attachments. The in-app **Feedback** panel opens a new public
+GitHub issue without copying its draft or capture. Its private channel requires
+a Prometeu account and delivers reports privately to the Prometeu team. See the
 [feedback contract](docs/contracts/feedback.md).
 
 ## Documentation

@@ -172,11 +172,13 @@ Verificações: `e2e/design-system.spec.ts`, `e2e/ui.spec.ts` e
 
 ## Widget de feedback
 
-`feedbackWidget({ labels, submit, capture?, error })` monta uma composição portátil
-com categorias, descrição, upload opcional, miniatura e envio assíncrono.
+`feedbackWidget({ labels, submit, capture?, error, publicIssue? })` monta uma
+composição portátil com link opcional para issue pública, categorias, descrição,
+upload opcional, miniatura e envio assíncrono.
 `submit` recebe `{ kind, description, image?: File }`; `capture` retorna um `File`
-ou `undefined` ao cancelar. Textos chegam traduzidos. O host controla transporte
-e captura. `trigger` expõe o botão para que o host possa colocá-lo em sua própria navegação.
+ou `undefined` ao cancelar. `publicIssue` abre a URL sem copiar dados do formulário.
+Textos chegam traduzidos. O host controla transporte e captura. `trigger` expõe
+o botão para que o host possa colocá-lo em sua própria navegação.
 `destroy()` remove listeners, popover e URLs temporárias.
 
 O widget usa top layer e acompanha o modal ativo para permanecer interativo.

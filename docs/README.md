@@ -19,7 +19,7 @@ as a short index for agents and `README.md` presents the product.
 
 - [Browser and visual context](contracts/browser.md): preview, inspection, captures and sending to the draft.
 
-- [Private feedback](contracts/feedback.md): widget with account, text and images in a private GitHub repository.
+- [Issue reporting and private feedback](contracts/feedback.md): public GitHub issues or account-backed private reports with text and images.
 
 - [Organizations in the Cloud](contracts/cloud-organizations.md): CRUD, invitations, catalogs and relay access.
 

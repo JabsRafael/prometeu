@@ -1,15 +1,20 @@
-# Private feedback
+# Public issues and private feedback
 
 Status: implemented on the desktop, in the Cloud and in the web bundle. Enabling
 it in production depends on configuring the GitHub credential in the Cloud.
 Decision: [ADR 0035](../decisions/0035-feedback-requires-account.md).
 
-The widget offers Problem, Idea and Other, a description, an optional image and
-a capture started by the person. The form states that the report will be handled
-privately by the Prometeu team and asks for a review of sensitive data before
-sending. No transcript, workspace path, email, credential or navigation URL is
-collected automatically. Captures may contain such data: the person reviews the
-thumbnail and can remove or replace the image.
+The widget first offers a link to create a public issue in
+`prometeucorp/prometeu`. The fixed link opens GitHub without copying the private
+form's description or image and remains available without a Prometeu account.
+The person reviews and publishes the issue through GitHub.
+
+The private form offers Problem, Idea and Other, a description, an optional
+image and a capture started by the person. The form states that the report will
+be handled privately by the Prometeu team and asks for a review of sensitive
+data before sending. No transcript, workspace path, email, credential or
+navigation URL is collected automatically. Captures may contain such data: the
+person reviews the thumbnail and can remove or replace the image.
 
 ## HTTP
 
@@ -123,9 +128,10 @@ button that starts the same device authorization as the sidebar. The state is
 checked on every opening: after connecting, reopening shows the form.
 
 The portable composition in `packages/design-system/src/feedback.ts` receives
-texts and callbacks, including `blocked` for that notice. The client in
-`src/feedback-client.ts` owns the resend identity and the transport: `fetch` in
-the browser, with a same-origin cookie, and `feedback_send` on the desktop.
+texts, the optional public issue URL and callbacks, including `blocked` for that
+notice. The client in `src/feedback-client.ts` owns the resend identity and the
+transport: `fetch` in the browser, with a same-origin cookie, and
+`feedback_send` on the desktop.
 The manual popover uses the top layer; inside a modal, it moves to that modal to
 stay interactive. Escape closes the widget first. On the desktop, the "Feedback"
 button sits on the right of the sidebar footer; the panel opens above that

@@ -75,8 +75,10 @@ feedbackWidget({
   labels: {
     trigger: "Feedback", title: "Deixe seu feedback", kind: "Tipo", problem: "Problema", idea: "Ideia", other: "Outro",
     description: "Descrição", attach: "Anexar imagem", capture: "Capturar tela", remove: "Remover imagem",
-    send: "Enviar feedback", close: "Fechar", privacy: "Demonstração local: nenhum dado será enviado.",
+    send: "Enviar feedback privado", close: "Fechar", privacy: "Demonstração local: nenhum dado será enviado.",
+    publicReport: "Reportar bug publicamente", publicReportHint: "Abre uma issue pública no GitHub sem enviar dados automaticamente.",
     invalidImage: "Use PNG, JPEG ou WebP de até 5 MB.", empty: "Escreva seu feedback.", success: "Feedback recebido na demonstração.",
   },
+  publicIssue: "https://github.com/prometeucorp/prometeu/issues/new",
   submit: async () => {}, error: cause => String(cause),
 });
