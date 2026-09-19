@@ -37,16 +37,18 @@ write. Each account contains:
 ```ts
 type Account = {
   id: string;
-  provider: "claude" | "codex";
+  provider: "claude" | "codex" | "gemini";
   email: string | null;
   plan: string | null;
   connected: boolean;
   revision: number;
+  authMethod?: string;
+  keySuffix?: string;
 };
 type Accounts = {
   accounts: Account[];
-  active: { claude?: string; codex?: string };
-  login: { id: string; provider: "claude" | "codex" } | null;
+  active: Partial<Record<ProviderId, string>>;
+  login: { id: string; provider: "claude" | "codex" | "gemini" } | null;
 };
 ```
 
@@ -74,7 +76,8 @@ data retroactively.
 | `accounts` | none | `Accounts` |
 | `account_select` | `{ id }` | `Accounts` |
 | `account_remove` | `{ id }` | `Accounts` |
-| `account_login` | `{ provider, id: string \| null }` | `Accounts` on completion |
+| `account_login` | `{ provider, id: string \| null, method?: string }` | `Accounts` on completion |
+| `account_api_key` | `{ provider, id: string \| null, key: string }` | `Accounts` |
 | `account_login_cancel` | `{ id }` | empty |
 
 `id: null` creates a disconnected profile before starting the login, allowing it
@@ -82,7 +85,8 @@ to be reconnected after a cancellation, an error or an app restart. There is one
 login at a time; the process has a ten-minute deadline and supports cancellation.
 The app terminates the auxiliary process when the operation finishes or fails.
 Tokens, stdout, stderr and provider authentication payloads never cross IPC, the
-transcript or the relay.
+transcript or the relay. API-key entry is the sole exception: the key crosses
+UI → backend once through `account_api_key`, never in the opposite direction.
 
 If the automatic resume fails after the previous turn, `account-error` presents
 the translatable error and the message stays in `pending_prompt`.
@@ -174,3 +178,36 @@ The automated suite does not prove an OAuth round with two real accounts, nor
 the continuation of an authenticated conversation between them. That
 verification requires the person's logins on both providers; fixtures and mocks
 do not replace it.
+
+## Shared account interface
+
+Settings lists every provider, including unavailable installations, and reuses
+the quick switcher's cards and operations. The footer links to that page. A
+provider with multiple methods opens a method dialog; a single browser method
+continues directly. Connecting focuses the new card without selecting it.
+Secondary actions use the shared menu. Removing an active account requires
+confirmation explaining the empty selection; inactive removal remains one step.
+Visible account state, errors and controls use i18n and Design System primitives.
+
+## Gemini
+
+Managed profiles use `GEMINI_CLI_HOME=<root>/accounts/<uuid>`; Gemini stores its
+files below `.gemini/`. The `tmp/` transcript tree is shared with the original
+profile. Credentials are not shared. Child environment variables neutralize
+alternative credentials and forced global encrypted OAuth storage, including
+workspace `.env` values that otherwise replace the chosen account.
+
+Google authentication remains the official CLI flow. Where 0.30.0 cannot obtain
+consent through a non-TTY ACP process, authentication uses an isolated terminal
+for that managed profile. It does not change the terminal user's original login.
+API keys are stored by account UUID in macOS Keychain, accessed through the
+native API rather than command-line arguments. They are injected only into that
+account's child process. Snapshot metadata contains the authentication method
+and backend-computed suffix, never the credential. API-key reconnection requests
+a replacement key. Removal remains deregistration, not credential revocation.
+
+API-key accounts have no quota windows: the footer displays a dash. Google quota
+retrieval and authenticated continuation require real account evidence; missing
+readings are never synthesized as zero percent. See the
+[provider matrix](../quality/provider-matrix.md) and
+[ADR 0051](../decisions/0051-gemini-runtime-and-accounts.md).

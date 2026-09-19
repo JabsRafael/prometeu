@@ -17,6 +17,7 @@ mod domain;
 mod embedded_mcp;
 mod feedback;
 mod file_drop;
+mod gemini;
 mod github;
 mod i18n;
 mod linear;
@@ -133,6 +134,7 @@ fn main() {
             accounts::account_select,
             accounts::account_remove,
             accounts::account_login,
+            accounts::account_api_key,
             accounts::account_login_cancel,
             usage::usage,
             machine::machine,

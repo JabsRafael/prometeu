@@ -1291,13 +1291,20 @@ impl Workspace {
                 ..Launch::from(run.profile.choice.clone())
             };
         }
-        self.launch_with(
+        let mut launch = self.launch_with(
             self.tabs
                 .iter()
                 .find(|t| t.id == tab)
                 .and_then(|t| t.choice.clone()),
             tools,
-        )
+        );
+        if launch.agent == ProviderId::Gemini {
+            if let Some(tab) = self.tabs.iter().find(|t| t.id == tab) {
+                launch.plan = tab.plan;
+                launch.permission = tab.permission;
+            }
+        }
+        launch
     }
 
     /// Model overrides preserve the resolved tool selection for new and resumed tabs.
@@ -1832,6 +1839,10 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
     // Claude conversations without a transcript must restart with their existing ID. Codex instead
     // resumes only when its previously returned thread identity is known.
     let (resume, handle) = match launch.agent {
+        ProviderId::Gemini => (
+            agent_session.is_some(),
+            crate::gemini::spawn(app, tab, &workspace, &worktree, agent_session, &launch)?,
+        ),
         ProviderId::Codex => (
             agent_session.is_some(),
             crate::codex::spawn(app, tab, &workspace, &worktree, agent_session, &launch)?,
@@ -1898,12 +1909,15 @@ fn spawn_tab_with_id(
     let id = id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     // The selected provider determines which CLI runs; the tab identity stays the same.
     let handle = match launch.agent {
+        ProviderId::Gemini => crate::gemini::spawn(app, &id, workspace, &worktree, None, launch)?,
         ProviderId::Codex => crate::codex::spawn(app, &id, workspace, &worktree, None, launch)?,
         ProviderId::Claude => crate::claude::spawn(app, &id, &worktree, false, launch)?,
     };
     lock(&state.chats).insert(id.clone(), handle);
     // The caller publishes the tab before chat::ready_now releases its pending prompt.
     Ok(Tab {
+        plan: launch.agent == ProviderId::Gemini && launch.plan,
+        permission: launch.permission,
         task: None,
         id,
         agent_session: None,
@@ -2620,6 +2634,8 @@ mod tests {
     /// A minimal tab with an optional provider and model choice.
     fn tab(id: &str, choice: Option<Choice>) -> Tab {
         Tab {
+            plan: false,
+            permission: None,
             task: None,
             id: id.into(),
             agent_session: None,
@@ -2631,6 +2647,29 @@ mod tests {
             context_tokens: None,
             choice,
         }
+    }
+
+    #[test]
+    fn gemini_plan_survives_process_loss_until_explicit_approval() {
+        let mut ws = bare();
+        ws.agent = ProviderId::Gemini;
+        let mut saved = serde_json::to_value(tab("planning", None)).unwrap();
+        saved["plan"] = serde_json::json!(true);
+        ws.tabs.push(serde_json::from_value(saved).unwrap());
+        assert!(ws.launch_of("planning", &ResolvedTools::default()).plan);
+        ws.tabs[0].plan = false;
+        ws.tabs[0].permission = Some(crate::actions::Permission::Ask);
+        let saved = serde_json::to_value(&ws.tabs[0]).unwrap();
+        ws.tabs[0] = serde_json::from_value(saved).unwrap();
+        let resumed = ws.launch_of("planning", &ResolvedTools::default());
+        assert!(!resumed.plan);
+        assert!(resumed.permission == Some(crate::actions::Permission::Ask));
+        let mut legacy = serde_json::to_value(&ws.tabs[0]).unwrap();
+        legacy.as_object_mut().unwrap().remove("plan");
+        legacy.as_object_mut().unwrap().remove("permission");
+        let legacy: Tab = serde_json::from_value(legacy).unwrap();
+        assert!(!legacy.plan);
+        assert!(legacy.permission.is_none());
     }
 
     #[test]
@@ -2666,7 +2705,7 @@ mod tests {
             ] {
                 let expected = match provider {
                     ProviderId::Claude => crate::paths::transcript(id, Path::new(&ws.worktree)),
-                    ProviderId::Codex => crate::paths::chat_log(id),
+                    ProviderId::Codex | ProviderId::Gemini => crate::paths::chat_log(id),
                 };
                 assert_eq!(crate::chat::transcript_of(&ws, id), expected, "tab {id}");
             }
@@ -2979,7 +3018,7 @@ mod tests {
                         )
                         .unwrap();
                     }
-                    ProviderId::Codex => {
+                    ProviderId::Codex | ProviderId::Gemini => {
                         crate::mcp::codex_config("test", launch.mcp.as_ref()).unwrap();
                     }
                 }

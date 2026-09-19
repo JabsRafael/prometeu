@@ -168,6 +168,11 @@ pub fn watch(app: AppHandle) {
                 continue;
             }
             match profile.provider {
+                crate::state::ProviderId::Gemini => {
+                    if let Ok(identity) = crate::gemini::account_status(&profile) {
+                        let _ = accounts::set_identity(&app, &profile.id, identity);
+                    }
+                }
                 crate::state::ProviderId::Claude => {
                     if let Ok(identity) = crate::claude::account_status(&profile) {
                         if !accounts::logging_in(&profile.id) {

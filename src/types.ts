@@ -18,6 +18,9 @@ export const stateLabel = (ws: Workspace) =>
 
 export type Tab = {
   task?: import("./actions").TaskRun | null;
+  /// Restart-only runtime choices; older boards omit both.
+  plan?: boolean;
+  permission?: "ask" | "auto" | null;
   id: string;
   /// An unnamed tab displays its model through tabLabel.
   title: string;

@@ -26,7 +26,12 @@ pub struct Identity {
 }
 
 #[derive(Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct Account {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_suffix: Option<String>,
     pub id: String,
     pub provider: ProviderId,
     #[serde(default)]
@@ -48,6 +53,8 @@ impl Default for Registry {
         let accounts = [ProviderId::Claude, ProviderId::Codex]
             .into_iter()
             .map(|provider| Account {
+                auth_method: None,
+                key_suffix: None,
                 id: key(provider).into(),
                 provider,
                 revision: 0,
@@ -108,7 +115,7 @@ impl<'de> Deserialize<'de> for Registry {
             .ok_or_else(|| serde::de::Error::custom("accounts must be an array"))?
         {
             match value.get("provider").and_then(Value::as_str) {
-                Some("claude" | "codex") => accounts
+                Some("claude" | "codex" | "gemini") => accounts
                     .push(serde_json::from_value(value.clone()).map_err(serde::de::Error::custom)?),
                 Some(_) => unknown_accounts.push(value.clone()),
                 None => {
@@ -125,7 +132,7 @@ impl<'de> Deserialize<'de> for Registry {
             .and_then(Value::as_object)
             .ok_or_else(|| serde::de::Error::custom("active must be an object"))?
         {
-            if matches!(provider.as_str(), "claude" | "codex") {
+            if matches!(provider.as_str(), "claude" | "codex" | "gemini") {
                 active.insert(
                     provider.clone(),
                     value
@@ -204,6 +211,7 @@ pub fn key(provider: ProviderId) -> &'static str {
     match provider {
         ProviderId::Claude => "claude",
         ProviderId::Codex => "codex",
+        ProviderId::Gemini => "gemini",
     }
 }
 
@@ -211,6 +219,7 @@ fn provider(value: &str) -> Result<ProviderId, String> {
     match value {
         "claude" => Ok(ProviderId::Claude),
         "codex" => Ok(ProviderId::Codex),
+        "gemini" => Ok(ProviderId::Gemini),
         _ => Err(i18n::t("err.account.provider")),
     }
 }
@@ -254,6 +263,7 @@ fn change(update: impl FnOnce(&mut Registry) -> Result<(), String>) -> Result<()
 
 #[derive(Clone)]
 pub struct Profile {
+    pub auth_method: Option<String>,
     pub id: String,
     pub provider: ProviderId,
     pub home: PathBuf,
@@ -265,6 +275,7 @@ impl Profile {
     fn of(account: &Account) -> Self {
         let managed = account.id != key(account.provider);
         Self {
+            auth_method: account.auth_method.clone(),
             id: account.id.clone(),
             provider: account.provider,
             managed,
@@ -275,6 +286,7 @@ impl Profile {
                 match account.provider {
                     ProviderId::Claude => claude::user_home(),
                     ProviderId::Codex => codex::user_home(),
+                    ProviderId::Gemini => crate::gemini::user_home(),
                 }
             },
         }
@@ -288,14 +300,17 @@ impl Profile {
         match self.provider {
             ProviderId::Claude => claude::prepare_profile(self),
             ProviderId::Codex => codex::prepare_profile(self),
+            ProviderId::Gemini => crate::gemini::prepare_profile(self),
         }
     }
 
-    pub fn apply(&self, command: &mut Command) {
+    pub fn apply(&self, command: &mut Command) -> Result<(), String> {
         match self.provider {
             ProviderId::Claude => claude::account_env(command, self),
             ProviderId::Codex => codex::account_env(command, self),
+            ProviderId::Gemini => return crate::gemini::account_env(command, self),
         }
+        Ok(())
     }
 }
 
@@ -430,6 +445,83 @@ pub fn account_remove(app: AppHandle, id: String) -> Result<Snapshot, String> {
 }
 
 #[tauri::command]
+pub fn account_api_key(
+    app: AppHandle,
+    provider: String,
+    id: Option<String>,
+    key: String,
+) -> Result<Snapshot, String> {
+    if self::provider(&provider)? != ProviderId::Gemini {
+        return Err(i18n::t("err.account.provider"));
+    }
+    let pending = lock(pending());
+    if pending.is_some() {
+        return Err(i18n::t("err.account.busy"));
+    }
+    let id = id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    if uuid::Uuid::parse_str(&id)
+        .map(|v| v.to_string())
+        .ok()
+        .as_deref()
+        != Some(id.as_str())
+    {
+        return Err(i18n::t("err.account.external"));
+    }
+    {
+        let guard = lock(registry());
+        let data = guard.as_ref().map_err(Clone::clone)?;
+        if let Ok(account) = data.find(&id) {
+            if account.provider != ProviderId::Gemini
+                || account.auth_method.as_deref() != Some("apiKey")
+            {
+                return Err(i18n::t("err.account.provider"));
+            }
+        }
+    }
+    if lock(&app.state::<crate::AppState>().chats)
+        .values()
+        .any(|chat| chat.account() == id && chat.working())
+    {
+        return Err(i18n::t("err.account.working"));
+    }
+    let suffix: String = key
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    crate::gemini::update_key(&id, &key, || {
+        change(|data| {
+            if let Some(account) = data.accounts.iter_mut().find(|a| a.id == id) {
+                account.revision += 1;
+                account.identity.connected = true;
+                account.key_suffix = Some(suffix.clone());
+            } else {
+                data.accounts.push(Account {
+                    id: id.clone(),
+                    provider: ProviderId::Gemini,
+                    revision: 1,
+                    identity: Identity {
+                        connected: true,
+                        email: None,
+                        plan: None,
+                    },
+                    auth_method: Some("apiKey".into()),
+                    key_suffix: Some(suffix.clone()),
+                });
+            }
+            Ok(())
+        })
+    })?;
+    drop(pending);
+    crate::usage::forget(&app, &id);
+    publish(&app);
+    accounts()
+}
+
+#[tauri::command]
 pub fn account_login_cancel(id: String) {
     if let Some(login) = lock(pending())
         .as_ref()
@@ -444,8 +536,22 @@ pub async fn account_login(
     app: AppHandle,
     provider: String,
     id: Option<String>,
+    method: Option<String>,
 ) -> Result<Snapshot, String> {
     let provider = self::provider(&provider)?;
+    let method = method.unwrap_or_else(|| {
+        if provider == ProviderId::Gemini {
+            "google"
+        } else {
+            "browser"
+        }
+        .into()
+    });
+    if (provider == ProviderId::Gemini && method != "google")
+        || (provider != ProviderId::Gemini && method != "browser")
+    {
+        return Err(i18n::t("err.account.provider"));
+    }
     let cancel = Arc::new(AtomicBool::new(false));
     let profile = {
         let mut pending = lock(pending());
@@ -458,12 +564,21 @@ pub async fn account_login(
                 if account.provider != provider {
                     return Err(i18n::t("err.account.provider"));
                 }
+                if account
+                    .auth_method
+                    .as_deref()
+                    .is_some_and(|old| old != method)
+                {
+                    return Err(i18n::t("err.account.provider"));
+                }
                 // The app never disconnects or replaces the terminal's account.
                 if account.id == key(provider) {
                     return Err(i18n::t("err.account.external"));
                 }
             } else {
                 data.accounts.push(Account {
+                    auth_method: Some(method.clone()),
+                    key_suffix: None,
                     id: id.clone(),
                     provider,
                     revision: 0,
@@ -496,23 +611,26 @@ pub async fn account_login(
     let handle = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         profile.prepare()?;
-        let identity = match provider {
-            ProviderId::Claude => claude::login(&profile, cancel.clone()),
-            ProviderId::Codex => codex::login(&profile, cancel.clone()),
-        }?;
-        if cancel.load(Ordering::Relaxed) {
-            return Err(i18n::t("err.account.cancelled"));
+        let commit = |identity| {
+            if cancel.load(Ordering::Relaxed) {
+                return Err(i18n::t("err.account.cancelled"));
+            }
+            change(|data| {
+                let account = data
+                    .accounts
+                    .iter_mut()
+                    .find(|account| account.id == profile.id)
+                    .ok_or_else(|| i18n::t("err.account.missing"))?;
+                account.identity = identity;
+                account.revision += 1;
+                Ok(())
+            })
+        };
+        match provider {
+            ProviderId::Gemini => crate::gemini::login(&profile, cancel.clone(), commit)?,
+            ProviderId::Claude => commit(claude::login(&profile, cancel.clone())?)?,
+            ProviderId::Codex => commit(codex::login(&profile, cancel.clone())?)?,
         }
-        change(|data| {
-            let account = data
-                .accounts
-                .iter_mut()
-                .find(|account| account.id == profile.id)
-                .ok_or_else(|| i18n::t("err.account.missing"))?;
-            account.identity = identity;
-            account.revision += 1;
-            Ok(())
-        })?;
         crate::usage::forget(&handle, &profile.id);
         Ok(())
     })
@@ -675,6 +793,8 @@ mod tests {
         assert_eq!(registry.active["codex"], "codex");
         let id = uuid::Uuid::new_v4().to_string();
         registry.accounts.push(Account {
+            auth_method: None,
+            key_suffix: None,
             id: id.clone(),
             provider: ProviderId::Codex,
             revision: 1,
@@ -762,8 +882,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("prometeu-accounts-{}", uuid::Uuid::new_v4()));
         let path = dir.join("accounts.json");
         let future = serde_json::json!({
-            "id": "gemini",
-            "provider": "gemini",
+            "id": "future-provider",
+            "provider": "future-provider",
             "connected": true,
             "email": "future@example.com",
             "plan": { "tier": "ultra" },
@@ -779,7 +899,7 @@ mod tests {
                     },
                     future.clone()
                 ],
-                "active": { "claude": "claude", "gemini": "gemini" }
+                "active": { "claude": "claude", "future-provider": "future-provider" }
             })
             .to_string(),
         )
@@ -807,7 +927,10 @@ mod tests {
 
         let stored = serde_json::to_value(&registry).unwrap();
         assert_eq!(stored["accounts"], serde_json::json!([future]));
-        assert_eq!(stored["active"], serde_json::json!({ "gemini": "gemini" }));
+        assert_eq!(
+            stored["active"],
+            serde_json::json!({ "future-provider": "future-provider" })
+        );
 
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -821,7 +944,7 @@ mod tests {
             &serde_json::json!({
                 "accounts": [
                     { "provider": "claude", "connected": false },
-                    { "provider": "gemini", "payload": { "version": 2 } }
+                    { "provider": "future-provider", "payload": { "version": 2 } }
                 ],
                 "active": {}
             })
@@ -854,5 +977,35 @@ mod tests {
             unsafe { libc::waitpid(pid as libc::pid_t, std::ptr::null_mut(), libc::WNOHANG) },
             -1
         );
+    }
+    #[test]
+    fn gemini_metadata_round_trips_without_autoactivation_or_a_secret() {
+        let mut registry = Registry::default();
+        assert!(!registry.active.contains_key("gemini"));
+        let id = uuid::Uuid::new_v4().to_string();
+        registry.accounts.push(Account {
+            id: id.clone(),
+            provider: ProviderId::Gemini,
+            revision: 1,
+            auth_method: Some("apiKey".into()),
+            key_suffix: Some("1234".into()),
+            identity: Identity {
+                connected: true,
+                email: None,
+                plan: None,
+            },
+        });
+        registry.validate().unwrap();
+        assert!(!registry.active.contains_key("gemini"));
+        registry.select(&id).unwrap();
+        let value = serde_json::to_value(&registry).unwrap();
+        let account = value["accounts"].as_array().unwrap().last().unwrap();
+        assert_eq!(account["authMethod"], "apiKey");
+        assert_eq!(account["keySuffix"], "1234");
+        assert!(account.get("key").is_none());
+        let restored: Registry = serde_json::from_value(value).unwrap();
+        assert!(restored == registry);
+        registry.remove(&id).unwrap();
+        assert!(!registry.active.contains_key("gemini"));
     }
 }

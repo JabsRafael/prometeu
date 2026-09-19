@@ -168,6 +168,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.gemini.history": "Gemini native history could not be loaded.",
   "err.gemini.transport": "Gemini connection failed.",
   "err.gemini.start": "Gemini could not complete this request. Check your account.",
+  "err.gemini.planPending": "Review the pending plan before sending another message.",
   "err.gemini.command": "This command is not supported by Gemini.",
   "err.gemini.key": "Could not access the Gemini API key in Keychain.",
   "account.title": "Accounts",

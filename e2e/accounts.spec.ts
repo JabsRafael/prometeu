@@ -157,6 +157,7 @@ test("contas: configurações compartilham cartões e confirmam remoção ativa"
   await page.getByRole("menuitem", { name: "Remover conta" }).click();
   await confirm.getByRole("button", { name: "Remover conta", exact: true }).click();
   await expect(active).toHaveCount(0);
+  await expect(settings.locator('[data-provider-accounts="codex"] .account-select')).toBeFocused();
   await expect(page.locator('#status [data-provider="codex"]')).toHaveText("—");
 });
 
@@ -190,4 +191,33 @@ test("contas: configurações mostram agente não instalado", async ({ page }) =
   const gemini = page.locator('#settingsView [data-provider-accounts="gemini"]');
   await expect(gemini).toContainText("Instale Gemini");
   await expect(gemini.getByRole("button", { name: "Adicionar conta" })).toBeDisabled();
+});
+
+test("contas: configurações atualizam disponibilidade após descoberta atrasada", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("mock:agentsDelay", "2000");
+    localStorage.setItem("prometeu:configuracoes", "contas");
+  });
+  await page.goto("/");
+  await page.locator("#settings").click();
+  const group = page.locator('#settingsView [data-provider-accounts="gemini"]');
+  await expect(group.getByRole("button", { name: "Adicionar conta" })).toBeEnabled();
+  await expect(group).not.toContainText("Instale Gemini");
+});
+
+
+test("contas: remover última conta sem CLI mantém foco no grupo", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("mock:geminiMissing", "1");
+    localStorage.setItem("mock:accounts", JSON.stringify({ accounts: [
+      { id: "gemini", provider: "gemini", connected: true, revision: 0, authMethod: "google" },
+    ], active: {}, login: null }));
+  });
+  await page.goto("/");
+  await page.locator("#settings").click();
+  await page.locator("#settingsView").getByRole("button", { name: "Contas", exact: true }).click();
+  const group = page.locator('#settingsView [data-provider-accounts="gemini"]');
+  await action(page, group.locator(".uaccount"), "Remover conta");
+  await expect(group.locator(".uaccount")).toHaveCount(0);
+  await expect(group).toBeFocused();
 });

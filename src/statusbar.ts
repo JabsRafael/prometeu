@@ -92,6 +92,7 @@ export function showAccounts(next: Accounts): boolean { return accountUI.update(
 export function showAgents(have: readonly AgentDescriptor[]) {
   agents = [...have];
   draw();
+  accountUI.refreshUsage();
 }
 
 export function showMachine(next: Machine) {

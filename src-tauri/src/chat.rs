@@ -136,6 +136,7 @@ pub struct Snapshot {
 pub enum Wire {
     Claude(claude::Link),
     Codex(Arc<Mutex<codex::Link>>),
+    Gemini(Arc<Mutex<crate::gemini::Link>>),
 }
 
 /// Translate each provider output line into zero or more canonical V1 events.
@@ -303,6 +304,7 @@ impl Chat {
         match &mut self.wire {
             Wire::Claude(link) => link.write(frame, buffer),
             Wire::Codex(link) => lock(link).write(frame),
+            Wire::Gemini(link) => lock(link).write(frame),
         }
     }
 
@@ -338,6 +340,9 @@ impl Drop for Chat {
         self.pump.gone.store(true, Ordering::Relaxed);
         // Claude stdin closes with the Chat. Codex's reader still owns its adapter, so close that
         // stdin explicitly.
+        if let Wire::Gemini(link) = &self.wire {
+            lock(link).close();
+        }
         if let Wire::Codex(link) = &self.wire {
             lock(link).close();
         }
@@ -781,7 +786,7 @@ fn write_mode(
     frame: &Value,
     idle_only: bool,
 ) -> Result<(), String> {
-    let (pump, events) = {
+    let (pump, events, transition) = {
         let mut chats = lock(&state.chats);
         let chat = chats
             .get_mut(session)
@@ -808,11 +813,37 @@ fn write_mode(
             }
         };
         drop(lines);
-        (pump, events)
+        let transition = match &chat.wire {
+            Wire::Gemini(link) => lock(link).take_plan_transition(),
+            _ => None,
+        };
+        (pump, events, transition)
     };
     // Reactions may send another command or lock the board; release both locks first.
     for event in events {
         pump.react(&event);
+    }
+    if let Some(permission) = transition {
+        // Persist the approved mode and continuation before replacing the process. The input gate
+        // around control requests prevents another sender from racing this transition.
+        {
+            let mut board = lock(&state.board);
+            let tab = board
+                .tab_mut(session)
+                .ok_or_else(|| i18n::t("err.chat.gone"))?;
+            tab.plan = false;
+            tab.permission = Some(permission);
+            let continuation = "Execute the approved plan.";
+            tab.pending_prompt = Some(match tab.pending_prompt.take() {
+                Some(queued) => format!("{continuation}\n\n{queued}"),
+                None => continuation.into(),
+            });
+        }
+        publish(&pump.app);
+        let app_state = pump.app.state::<AppState>();
+        // revive closes the previous stdin, suppresses its late output and resumes the same native
+        // session. A failed startup retains pending_prompt for a later retry.
+        crate::session::revive(&pump.app, &app_state, session)?;
     }
     Ok(())
 }
@@ -967,6 +998,8 @@ fn wake(up: bool, ready: bool, setup: bool) -> Wake {
 /// Send local V1 controls, including approvals, interruption and permission mode changes.
 #[tauri::command]
 pub fn chat_control(state: State<AppState>, session: String, frame: Value) -> Result<(), String> {
+    let gate = input_gate(&session);
+    let _input = lock(&gate);
     write(&state, &session, &frame)
 }
 
@@ -978,6 +1011,8 @@ pub fn chat_control_remote(
     session: String,
     frame: Value,
 ) -> Result<(), String> {
+    let gate = input_gate(&session);
+    let _input = lock(&gate);
     let buffer = {
         let chats = lock(&state.chats);
         let chat = chats
@@ -1201,7 +1236,9 @@ pub fn transcript_of(ws: &Workspace, session: &str) -> PathBuf {
         .launch_of(session, &crate::session::ResolvedTools::default())
         .agent
     {
-        crate::state::ProviderId::Codex => paths::chat_log(session),
+        crate::state::ProviderId::Codex | crate::state::ProviderId::Gemini => {
+            paths::chat_log(session)
+        }
         crate::state::ProviderId::Claude => paths::transcript(session, Path::new(&ws.worktree)),
     }
 }

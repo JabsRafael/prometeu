@@ -15,7 +15,7 @@ sequenceDiagram
     participant UI as Frontend
     participant Session as session.rs
     participant Chat as chat.rs
-    participant Adapter as Claude or Codex
+    participant Adapter as Claude, Codex or Gemini
     participant Agent as Agent CLI
 
     UI->>Session: new_tab / chat_send
@@ -72,6 +72,14 @@ application.
 `stream-json` input and normalizes each output line into
 `ConversationEventV1`. The process also writes Claude Code's native transcript,
 which the compatibility reader adapts during replay.
+
+### Gemini
+
+`gemini.rs` maps ACP requests and updates directly to V1 and stores the returned
+session identity. It keeps the native transcript for resume and an app-managed
+V1 projection for display. Replay notifications from `session/load` are consumed
+before accepting a new prompt, without re-emitting historical content. See the
+[runtime contract](../contracts/agent-runtime.md) for version and capability limits.
 
 ### Codex
 

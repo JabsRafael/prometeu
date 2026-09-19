@@ -14,7 +14,7 @@ model name must not be used to rediscover its provider after the catalog has
 been loaded.
 
 ```ts
-type ProviderId = "claude" | "codex";
+type ProviderId = "claude" | "codex" | "gemini";
 
 type AgentModel = {
   id: string;
@@ -22,7 +22,11 @@ type AgentModel = {
   efforts: string[];
 };
 
+type AuthMethod = { id: string; kind: "browser" | "apiKey"; label: string };
+
 type AgentDescriptor = {
+  authMethods: AuthMethod[];
+  unavailableReason?: string | null;
   id: ProviderId;
   label: string;
   installed: boolean;
@@ -34,7 +38,7 @@ type AgentDescriptor = {
 When a provider is added, `ProviderId` grows explicitly. An old or unknown value
 coming from disk falls back to the default provider only during persistence
 migration; new code uses exhaustive matching. The JSON field is still called
-`agent` for compatibility, but its normalized value is `"claude" | "codex"`.
+`agent` for compatibility, but its normalized value is `"claude" | "codex" | "gemini"`.
 
 ## Capabilities
 
@@ -223,3 +227,29 @@ Each provider must demonstrate, when the capability exists:
 
 The living matrix of this evidence is in
 [`../quality/provider-matrix.md`](../quality/provider-matrix.md).
+
+## Gemini CLI 0.30.0
+
+The Gemini adapter uses ACP over stdio (`--experimental-acp`), not one-way
+stream-json. Discovery rejects versions older than 0.30.0 and startup validates
+the protocol handshake. The optional `unavailableReason` is a translated backend
+error for an incompatible installation. Version-specific behavior belongs to
+`gemini.rs`; see [ADR 0051](../decisions/0051-gemini-runtime-and-accounts.md).
+
+The initial catalog uses the CLI aliases `auto`, `pro`, `flash`, `flash-lite`.
+ACP 0.30.0 does not return a model catalog; these aliases do not assert access to
+every resolved model. No effort levels are offered. Session identity comes from
+`session/new` and is retained in `Tab.agent_session` for `session/load`.
+The native transcript resumes the agent; the app-managed V1 log replays the UI.
+History replay must finish before a new prompt and must not duplicate timeline
+items or trigger live completion notifications.
+
+MCP/plugin/skill selection, compaction, context reports, structured user questions
+and attachments are unavailable in this first integration. Selected hub tools
+must fail visibly instead of silently disappearing. Plan mode uses the launch
+flag and profile-local `experimental.plan`; switching to execution restarts and
+loads the same native session.
+
+Authentication methods are data in the descriptor: existing providers advertise
+one browser method; Gemini advertises Google and API key. Presentation chooses
+controls by method kind, never by provider-name conditionals.

@@ -249,6 +249,7 @@ mod tests {
         let home = std::env::temp_dir().join(format!("prometeu-codex-auth-{id}"));
         paths::ensure_private_dir(&home).unwrap();
         let profile = Profile {
+            auth_method: None,
             id,
             provider: crate::state::ProviderId::Codex,
             home: home.clone(),

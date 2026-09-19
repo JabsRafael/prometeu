@@ -20,6 +20,7 @@ pub enum ProviderId {
     #[default]
     Claude,
     Codex,
+    Gemini,
 }
 
 impl<'de> Deserialize<'de> for ProviderId {
@@ -30,6 +31,7 @@ impl<'de> Deserialize<'de> for ProviderId {
         let value = String::deserialize(deserializer)?;
         Ok(match value.as_str() {
             "codex" => Self::Codex,
+            "gemini" => Self::Gemini,
             "" | "claude" => Self::Claude,
             _ => Self::default(),
         })
@@ -88,6 +90,11 @@ pub struct Choice {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Tab {
+    /// Restart-only runtime modes must survive process loss until the person approves execution.
+    #[serde(default)]
+    pub plan: bool,
+    #[serde(default)]
+    pub permission: Option<crate::actions::Permission>,
     #[serde(default)]
     pub task: Option<crate::actions::Run>,
     /// The local session ID, also used by Claude for its transcript.
@@ -524,6 +531,8 @@ impl Board {
             // preparation never completed.
             if ws.tabs.is_empty() && ws.failed.is_none() {
                 ws.tabs.push(Tab {
+                    plan: false,
+                    permission: None,
                     task: None,
                     id: ws.id.clone(),
                     agent_session: None,

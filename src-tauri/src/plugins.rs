@@ -1519,7 +1519,7 @@ fn make(app: &AppHandle, run: u64, dir: &Path, slug: &str, ask: &str) -> Result<
 
     let profile = crate::accounts::active(crate::state::ProviderId::Claude)?;
     profile.prepare()?;
-    profile.apply(&mut cmd);
+    profile.apply(&mut cmd)?;
     let mut child = cmd
         .spawn()
         .map_err(|e| i18n::ta("err.plugin.make", &[("cause", e.to_string())]))?;

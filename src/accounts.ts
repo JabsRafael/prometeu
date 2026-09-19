@@ -69,6 +69,11 @@ async function remove(account: Account) {
     accept: t("account.remove"), cancel: t("account.cancel"),
   })) return;
   await call("account_remove", { id: account.id });
+  requestAnimationFrame(() => {
+    const groups = document.querySelectorAll<HTMLElement>(`[data-provider-accounts="${account.provider}"]`);
+    const group = [...groups].find(node => node.getClientRects().length);
+    if (group) (group.querySelector<HTMLElement>(".account-select:not(:disabled), .account-add button:not(:disabled)") ?? group).focus();
+  });
 }
 
 function apiKey(provider: ProviderId, id: string | null) {
@@ -146,7 +151,7 @@ function card(account: Account): HTMLElement {
 export function render(providers: readonly AgentDescriptor[] = descriptors()): HTMLElement {
   const root = h("div", "accounts-view");
   for (const provider of providers) {
-    const group = h("section", "accounts-provider"); group.dataset.providerAccounts = provider.id;
+    const group = h("section", "accounts-provider"); group.dataset.providerAccounts = provider.id; group.tabIndex = -1; group.setAttribute("aria-label", provider.label);
     const heading = h("div", "uhead");
     const mark = h("span", ""); mark.innerHTML = brand(provider.id);
     heading.append(mark, h("span", "uname", provider.label)); group.append(heading);

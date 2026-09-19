@@ -60,12 +60,23 @@ pub struct AgentCapabilities {
 /// Return both providers even when unavailable, distinguishing missing installations from
 /// temporarily empty catalogs.
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentDescriptor {
     pub id: ProviderId,
     pub label: String,
     pub installed: bool,
     pub models: Vec<Model>,
     pub capabilities: AgentCapabilities,
+    pub auth_methods: Vec<AuthMethod>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unavailable_reason: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+pub struct AuthMethod {
+    pub id: String,
+    pub kind: String,
+    pub label: String,
 }
 
 #[derive(serde::Serialize)]
@@ -93,6 +104,15 @@ fn capabilities(id: ProviderId) -> AgentCapabilities {
             ..common
         },
         ProviderId::Codex => common,
+        ProviderId::Gemini => AgentCapabilities {
+            initial_plan_mode: true,
+            workspace_mcp_selection: false,
+            workspace_plugin_selection: false,
+            compact: false,
+            context_report: false,
+            user_questions: false,
+            ..common
+        },
     }
 }
 
@@ -102,10 +122,37 @@ fn descriptor(id: ProviderId, installed: bool, models: Vec<Model>) -> AgentDescr
         label: match id {
             ProviderId::Claude => "Claude".into(),
             ProviderId::Codex => "Codex".into(),
+            ProviderId::Gemini => "Gemini".into(),
         },
         installed,
         models,
         capabilities: capabilities(id),
+        unavailable_reason: (id == ProviderId::Gemini && !installed)
+            .then(|| crate::i18n::t("err.gemini.version")),
+        auth_methods: match id {
+            ProviderId::Gemini => vec![
+                AuthMethod {
+                    id: "google".into(),
+                    kind: "browser".into(),
+                    label: "Google".into(),
+                },
+                AuthMethod {
+                    id: "apiKey".into(),
+                    kind: "apiKey".into(),
+                    label: "API key".into(),
+                },
+            ],
+            other => vec![AuthMethod {
+                id: "browser".into(),
+                kind: "browser".into(),
+                label: if other == ProviderId::Claude {
+                    "Claude"
+                } else {
+                    "Codex"
+                }
+                .into(),
+            }],
+        },
     }
 }
 
@@ -115,6 +162,18 @@ pub fn agents() -> Agents {
     let (claude, codex) = installed();
     Agents {
         providers: vec![
+            descriptor(
+                ProviderId::Gemini,
+                crate::gemini::installed(),
+                ["auto", "pro", "flash", "flash-lite"]
+                    .into_iter()
+                    .map(|id| Model {
+                        id: id.into(),
+                        label: id.into(),
+                        efforts: vec![],
+                    })
+                    .collect(),
+            ),
             descriptor(ProviderId::Claude, claude, vec![]),
             descriptor(
                 ProviderId::Codex,
@@ -167,7 +226,9 @@ fn ask_claude_models() -> Vec<Model> {
     if profile.prepare().is_err() {
         return vec![];
     }
-    profile.apply(&mut cmd);
+    if profile.apply(&mut cmd).is_err() {
+        return vec![];
+    }
     let Ok(mut child) = cmd.spawn() else {
         return vec![];
     };
@@ -369,5 +430,29 @@ mod tests {
         assert_eq!(json["id"], "codex");
         assert_eq!(json["capabilities"]["initialPlanMode"], false);
         assert_eq!(json["capabilities"]["workspaceMcpSelection"], true);
+    }
+    #[test]
+    fn gemini_advertises_only_supported_controls_and_both_auth_methods() {
+        let g = descriptor(ProviderId::Gemini, false, vec![]);
+        assert!(g.capabilities.initial_plan_mode);
+        assert!(g.capabilities.resume);
+        assert!(g.capabilities.approvals);
+        assert!(!g.capabilities.compact);
+        assert!(!g.capabilities.context_report);
+        assert!(!g.capabilities.user_questions);
+        assert!(!g.capabilities.workspace_mcp_selection);
+        assert!(!g.capabilities.workspace_plugin_selection);
+        let v = serde_json::to_value(g).unwrap();
+        assert_eq!(v["authMethods"][0]["id"], "google");
+        assert_eq!(v["authMethods"][1]["kind"], "apiKey");
+        assert!(v["unavailableReason"]
+            .as_str()
+            .unwrap()
+            .contains("err.gemini.version"));
+        assert_eq!(
+            serde_json::to_value(descriptor(ProviderId::Claude, true, vec![])).unwrap()
+                ["authMethods"][0]["id"],
+            "browser"
+        );
     }
 }

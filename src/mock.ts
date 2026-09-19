@@ -1348,7 +1348,9 @@ const mockCommands: IpcHandlers = {
     return;
   },
   // A fixed Codex catalog exercises provider selection without an installed CLI.
-  agents() {
+  async agents() {
+    const delay = Number(localStorage.getItem("mock:agentsDelay") ?? 0);
+    if (delay) await new Promise(resolve => setTimeout(resolve, delay));
     return {
       providers: [
         {

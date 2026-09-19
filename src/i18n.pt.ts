@@ -166,6 +166,7 @@ export const PT = {
   "err.gemini.history": "Não foi possível carregar o histórico nativo do Gemini.",
   "err.gemini.transport": "A conexão com Gemini falhou.",
   "err.gemini.start": "Gemini não conseguiu concluir a solicitação. Verifique sua conta.",
+  "err.gemini.planPending": "Revise o plano pendente antes de enviar outra mensagem.",
   "err.gemini.command": "Este comando não está disponível no Gemini.",
   "err.gemini.key": "Não foi possível acessar a API key do Gemini no Chaves.",
   "account.title": "Contas",

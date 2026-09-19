@@ -1,0 +1,142 @@
+{
+  "events": [
+    {
+      "at": 0,
+      "providerSession": "native",
+      "type": "session.identity",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "messageId": "fixture-message",
+      "type": "assistant.started",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "kind": "thinking",
+        "text": ""
+      },
+      "index": 0,
+      "messageId": "fixture-message",
+      "type": "assistant.block.started",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "Check the file",
+      "index": 0,
+      "kind": "thinking",
+      "messageId": "fixture-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "kind": "thinking",
+        "text": "Check the file"
+      },
+      "index": 0,
+      "messageId": "fixture-message",
+      "type": "assistant.block",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "kind": "text",
+        "text": ""
+      },
+      "index": 1,
+      "messageId": "fixture-message",
+      "type": "assistant.block.started",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "Update the adapter and test it.",
+      "index": 1,
+      "kind": "text",
+      "messageId": "fixture-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "kind": "text",
+        "text": "Update the adapter and test it."
+      },
+      "index": 1,
+      "messageId": "fixture-message",
+      "type": "assistant.block",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "id": "t1",
+        "input": {
+          "description": "Read file"
+        },
+        "kind": "tool",
+        "name": "Read file"
+      },
+      "index": 2,
+      "messageId": "fixture-message",
+      "type": "assistant.block",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "input": {
+        "description": "Read file"
+      },
+      "kind": "approval",
+      "requestId": "7",
+      "tool": "Read file",
+      "toolId": "t1",
+      "type": "request.opened",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "background": false,
+      "error": false,
+      "output": "file contents",
+      "toolId": "t1",
+      "type": "tool.completed",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "costUsd": null,
+      "durationMs": null,
+      "message": "",
+      "outcome": "ok",
+      "type": "turn.completed",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "input": {
+        "plan": "Update the adapter and test it."
+      },
+      "kind": "plan",
+      "requestId": "gemini-plan-fixture-message",
+      "tool": "ExitPlanMode",
+      "toolId": null,
+      "type": "request.opened",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "commands": [],
+      "type": "commands.updated",
+      "v": 1
+    }
+  ],
+  "provenance": "Deterministic installed Gemini CLI 0.30 source-derived ACP translation; not a live model recording."
+}

@@ -31,9 +31,9 @@ In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
 | cloud catalog cache and links | `<root>/catalog.json` (`catalog.local.json` is a legacy backup) | `catalog.rs`; see the [contract](cloud-catalog.md) |
 | installed skills and packages | `<root>/skills.json`, `<root>/skills-packages/<id>/` | `skills.rs`; see the [catalog](cloud-catalog.md) |
 | accounts and per-provider selection | `<root>/accounts.json` | `accounts.rs` |
-| additional authenticated profiles | `<root>/accounts/<uuid>/` | Claude and Codex adapters |
+| additional authenticated profiles | `<root>/accounts/<uuid>/` | provider adapters |
 | last quota snapshot per account | `<root>/usage.json` | `usage.rs` |
-| Codex V1 transcript | `<root>/chats/<tab>.jsonl` | `chat.rs` |
+| Codex and Gemini V1 transcript | `<root>/chats/<tab>.jsonl` | `chat.rs` |
 | files received through a native promise | `<root>/attachments/<uuid>/<name>` | `file_drop.rs`; private `0700` directory, `0600` file |
 | image pasted from the clipboard | `<root>/attachments/<uuid>/pasted.png` | `file_drop.rs`; same folder and permissions, TIFF converted to PNG |
 | plugin hub | `<root>/plugins.json` | `plugins.rs` |
@@ -249,6 +249,22 @@ not exist until the first message.
 Codex's native rollout is not used by the UI. Prometeu writes the displayed V1
 events in `<root>/chats/<tab>.jsonl`; `Tab.agent_session` stores the opaque
 thread required for `thread/resume`.
+
+### Gemini
+
+Gemini owns the resumable session below its `.gemini/tmp/` tree. Managed profiles
+share that tree through a link. `Tab.agent_session` stores its opaque session ID;
+Prometeu keeps the displayed V1 projection in `<root>/chats/<tab>.jsonl`.
+`Tab.plan` (default `false`) and `Tab.permission` (default `null`, otherwise
+`ask` or `auto`) preserve Gemini launch choices across process loss. Approving a
+plan clears `plan`, records the chosen permission and queues its continuation
+before restart/resume; a failed restart retains the queued message. Other
+providers keep their existing mode handling. The compatibility test is
+`session::tests::gemini_plan_survives_process_loss_until_explicit_approval`.
+Account API keys live in macOS Keychain, not board or accounts JSON. Adding the
+`gemini` identity is additive; unknown board identities retain the historical
+fallback. Account-registry preservation applies only to builds containing that
+compatibility fix, not previously distributed binaries.
 
 ### Compatibility
 
