@@ -710,9 +710,10 @@ export const PT = {
 
   "clean.title": "Limpar worktrees",
   "clean.offer": "Tirar este worktree do disco?",
-  "clean.hint": "A pasta e a branch local saem; o card fica, e o PR continua onde está.",
+  "clean.hint":
+    "A pasta, a branch local e todos os arquivos ignorados dentro dela saem para sempre; o card e o PR ficam.",
   "clean.hint.force":
-    "Vermelho marcado sai do mesmo jeito: a mudança fora de commit e o que não entrou no alvo vão junto, e não voltam.",
+    "Vermelho marcado sai do mesmo jeito: mudanças fora de commit, trabalho que não entrou no alvo e arquivos ignorados vão junto para sempre.",
   "clean.count.one": "{n} arquivado com worktree",
   "clean.count.other": "{n} arquivados com worktree",
   "clean.cancel": "Cancelar",

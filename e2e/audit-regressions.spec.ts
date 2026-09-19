@@ -142,6 +142,7 @@ test("cleanup keeps its dialog open while deleting worktrees", async ({ page }) 
   await page.getByRole("button", { name: /^Arquivados/ }).click();
   await page.locator("#aclean").click();
   const dialog = page.locator("dialog.clean");
+  await expect(dialog).toContainText("todos os arquivos ignorados");
   await expect(dialog.locator("#c-go")).toBeEnabled();
   await hold(page, "cleanup_worktree");
   await dialog.locator("#c-go").click();
