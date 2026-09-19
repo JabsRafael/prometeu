@@ -59,6 +59,16 @@ longer written. The registry accepts empty lists and providers without a
 selection; only a missing file imports the two initial external profiles.
 Restarting does not restore removed accounts.
 
+An older binary keeps account entries from providers it does not recognize as
+opaque JSON, together with their entries in `active`. They remain in the same
+`{ accounts, active }` shape when a recognized account changes, but they are not
+returned through IPC, queried, selected or otherwise used by that binary.
+Recognized providers still receive full validation; forward compatibility does
+not make malformed Claude or Codex entries valid. This preservation starts with
+versions that implement it: if an earlier binary has already rejected or
+overwritten a newer provider's entry, upgrading cannot reconstruct that lost
+data retroactively.
+
 | Command | Arguments | Return |
 | --- | --- | --- |
 | `accounts` | none | `Accounts` |

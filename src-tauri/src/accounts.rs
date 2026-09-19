@@ -4,8 +4,9 @@
 use crate::lock::lock;
 use crate::state::ProviderId;
 use crate::{claude, codex, i18n, paths};
+use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::process::CommandExt;
@@ -34,10 +35,12 @@ pub struct Account {
     pub identity: Identity,
 }
 
-#[derive(Clone, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Registry {
     pub accounts: Vec<Account>,
     pub active: BTreeMap<String, String>,
+    unknown_accounts: Vec<Value>,
+    unknown_active: Map<String, Value>,
 }
 
 impl Default for Registry {
@@ -57,7 +60,89 @@ impl Default for Registry {
                 ("claude".into(), "claude".into()),
                 ("codex".into(), "codex".into()),
             ]),
+            unknown_accounts: Vec::new(),
+            unknown_active: Map::new(),
         }
+    }
+}
+
+impl Serialize for Registry {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut accounts = self
+            .accounts
+            .iter()
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(serde::ser::Error::custom)?;
+        accounts.extend(self.unknown_accounts.iter().cloned());
+        let mut active = self.unknown_active.clone();
+        active.extend(
+            self.active
+                .iter()
+                .map(|(provider, id)| (provider.clone(), Value::String(id.clone()))),
+        );
+        let mut state = serializer.serialize_struct("Registry", 2)?;
+        state.serialize_field("accounts", &accounts)?;
+        state.serialize_field("active", &active)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Registry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        let object = value
+            .as_object()
+            .ok_or_else(|| serde::de::Error::custom("registry must be an object"))?;
+        let mut accounts = Vec::new();
+        let mut unknown_accounts = Vec::new();
+        for value in object
+            .get("accounts")
+            .and_then(Value::as_array)
+            .ok_or_else(|| serde::de::Error::custom("accounts must be an array"))?
+        {
+            match value.get("provider").and_then(Value::as_str) {
+                Some("claude" | "codex") => accounts
+                    .push(serde_json::from_value(value.clone()).map_err(serde::de::Error::custom)?),
+                Some(_) => unknown_accounts.push(value.clone()),
+                None => {
+                    return Err(serde::de::Error::custom(
+                        "account provider must be a string",
+                    ))
+                }
+            }
+        }
+        let mut active = BTreeMap::new();
+        let mut unknown_active = Map::new();
+        for (provider, value) in object
+            .get("active")
+            .and_then(Value::as_object)
+            .ok_or_else(|| serde::de::Error::custom("active must be an object"))?
+        {
+            if matches!(provider.as_str(), "claude" | "codex") {
+                active.insert(
+                    provider.clone(),
+                    value
+                        .as_str()
+                        .ok_or_else(|| serde::de::Error::custom("active account must be a string"))?
+                        .to_owned(),
+                );
+            } else {
+                unknown_active.insert(provider.clone(), value.clone());
+            }
+        }
+        Ok(Self {
+            accounts,
+            active,
+            unknown_accounts,
+            unknown_active,
+        })
     }
 }
 
@@ -143,15 +228,8 @@ fn read(path: &Path) -> Result<Registry, String> {
         }
         Err(error) => return Err(i18n::io(error)),
     };
-    let value: Value = serde_json::from_str(&body).map_err(|_| i18n::t("err.account.store"))?;
-    for account in value["accounts"]
-        .as_array()
-        .ok_or_else(|| i18n::t("err.account.store"))?
-    {
-        provider(account["provider"].as_str().unwrap_or_default())?;
-    }
     let registry: Registry =
-        serde_json::from_value(value).map_err(|_| i18n::t("err.account.store"))?;
+        serde_json::from_str(&body).map_err(|_| i18n::t("err.account.store"))?;
     registry.validate()?;
     Ok(registry)
 }
@@ -288,11 +366,23 @@ fn pending() -> &'static Mutex<Option<Login>> {
     &LOGIN
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
 pub struct Snapshot {
-    #[serde(flatten)]
     registry: Registry,
     login: Option<LoginStatus>,
+}
+
+impl Serialize for Snapshot {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("Snapshot", 3)?;
+        state.serialize_field("accounts", &self.registry.accounts)?;
+        state.serialize_field("active", &self.registry.active)?;
+        state.serialize_field("login", &self.login)?;
+        state.end()
+    }
 }
 
 #[tauri::command]
@@ -664,6 +754,83 @@ mod tests {
         paths::write_private(&path, &serde_json::to_string(&registry).unwrap()).unwrap();
         let restored = read(&path).unwrap();
         assert!(restored == registry);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn cadastro_futuro_sobrevive_ao_round_trip_sem_aparecer_na_interface() {
+        let dir = std::env::temp_dir().join(format!("prometeu-accounts-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("accounts.json");
+        let future = serde_json::json!({
+            "id": "gemini",
+            "provider": "gemini",
+            "connected": true,
+            "email": "future@example.com",
+            "plan": { "tier": "ultra" },
+            "futureField": [1, 2, 3]
+        });
+        paths::write_private(
+            &path,
+            &serde_json::json!({
+                "accounts": [
+                    {
+                        "id": "claude", "provider": "claude", "revision": 0,
+                        "connected": false, "email": null, "plan": null
+                    },
+                    future.clone()
+                ],
+                "active": { "claude": "claude", "gemini": "gemini" }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let mut registry = read(&path).unwrap();
+        assert_eq!(registry.accounts.len(), 1);
+        assert_eq!(registry.active.len(), 1);
+        assert_eq!(
+            serde_json::to_value(Snapshot {
+                registry: registry.clone(),
+                login: None,
+            })
+            .unwrap(),
+            serde_json::json!({
+                "accounts": [{
+                    "id": "claude", "provider": "claude", "revision": 0,
+                    "connected": false, "email": null, "plan": null
+                }],
+                "active": { "claude": "claude" },
+                "login": null
+            })
+        );
+        registry.remove("claude").unwrap();
+
+        let stored = serde_json::to_value(&registry).unwrap();
+        assert_eq!(stored["accounts"], serde_json::json!([future]));
+        assert_eq!(stored["active"], serde_json::json!({ "gemini": "gemini" }));
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn cadastro_futuro_nao_relaxa_validacao_de_conta_conhecida() {
+        let dir = std::env::temp_dir().join(format!("prometeu-accounts-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("accounts.json");
+        paths::write_private(
+            &path,
+            &serde_json::json!({
+                "accounts": [
+                    { "provider": "claude", "connected": false },
+                    { "provider": "gemini", "payload": { "version": 2 } }
+                ],
+                "active": {}
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        assert!(read(&path).is_err());
+
         std::fs::remove_dir_all(dir).unwrap();
     }
 
