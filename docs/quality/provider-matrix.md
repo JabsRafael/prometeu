@@ -31,7 +31,7 @@ contractual capability.
 | removing every account and an empty selection | supported; preserves the CLI's login | supported; preserves the CLI's login | supported; preserves external login | `accounts.rs`, `e2e/accounts.spec.ts`; directories and credentials stay local |
 | login through the app | the CLI's `auth login` and the browser | the app-server's `account/login/start` and the browser | Unavailable; official interactive agy login | identity fixtures in `claude.rs` and `codex/account.rs`; OAuth with two real accounts still requires manual validation |
 | switching accounts between turns | resuming the shared transcript | resuming the shared rollout/index | Unavailable; externally managed identity | `chat.rs`, profile tests; an authenticated continuation between two real accounts is not yet proven by the suite |
-| quotas per account | stream and internal endpoint | app-server and internal fallback | Unavailable; dash | `usage.rs`, `e2e/accounts.spec.ts` |
+| quotas per account | stream and internal endpoint | app-server and internal fallback | Native /usage; used and remaining by model group | `usage.rs`, `e2e/accounts.spec.ts` |
 | live model catalog | native through a control request | native through the CLI's cache | native agy models | `agents.rs` |
 | starting a session | native | adapted to JSON-RPC | native NDJSON; real text smoke passed | `chat.rs`, `codex.rs` |
 | resuming a session | Claude's id/transcript | the app-server's thread | explicit native conversation ID | `session.rs`, Rust tests |
@@ -157,13 +157,14 @@ by that subprocess test. See [registration](../contracts/embedded-mcp.md#externa
 
 The integration targets installed agy 1.2.7, whose native headless protocol is
 separate from Gemini CLI ACP. A real cached-account prompt returned `AGY_OK`;
-`agy models` returned 14 account-visible slugs. Real tool execution, restart/resume
+`agy -p /usage` returned real remaining quotas by model group, with a TSV fixture
+and parser regressions. `agy models` returned 14 account-visible slugs. Real tool execution, restart/resume
 with a remembered marker, and SIGINT passed. Adapter fixtures and tests cover
 text deltas, tools, completion, interruption and explicit native resume.
 The browser mock consumes only the generated V1 fixture.
 
 Prometeu cannot offer agy interactive approval responses, managed multiple
-Google accounts, quotas or a verified direct browser-login API. Initial plan
+Google accounts or a verified direct browser-login API. Initial plan
 mode and hub selections are unavailable. The original issue's complete
 account/approval scope is not concluded by this replacement. External login and
 account switching remain owned by agy; no isolated-profile guarantee is made.

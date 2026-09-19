@@ -168,8 +168,12 @@ pub fn watch(app: AppHandle) {
                 continue;
             }
             match profile.provider {
-                crate::state::ProviderId::Antigravity | crate::state::ProviderId::RetiredGemini => {
+                crate::state::ProviderId::Antigravity => {
+                    if let Some(windows) = crate::antigravity::quota() {
+                        note(&app, &profile.id, windows);
+                    }
                 }
+                crate::state::ProviderId::RetiredGemini => {}
                 crate::state::ProviderId::Claude => {
                     if let Ok(identity) = crate::claude::account_status(&profile) {
                         if !accounts::logging_in(&profile.id) {
@@ -344,7 +348,7 @@ fn codex_api_bucket(rate: &Value, scope: &str, label: Option<&str>) -> Vec<Windo
 
 /// Parse the endpoint's timestamp into Unix seconds, accepting fractional seconds and an offset or
 /// Z without adding a date dependency.
-fn rfc3339(text: &str) -> Option<u64> {
+pub(crate) fn rfc3339(text: &str) -> Option<u64> {
     let (date, rest) = text.split_once('T')?;
     let mut ymd = date.splitn(3, '-').map(|part| part.parse::<i64>().ok());
     let (y, m, d) = (ymd.next()??, ymd.next()??, ymd.next()??);

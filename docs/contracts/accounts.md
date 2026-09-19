@@ -206,7 +206,12 @@ The child uses agy's existing environment and keyring. The app does not isolate
 or change that identity, and cannot guarantee identity continuity if the user
 switches accounts outside the app. The official interactive agy handles login
 and browser consent. There is no proven browser-only login API for Prometeu.
-Quotas are unavailable and display a dash. The catalog reads `agy models`.
+Quotas are read from `agy -p /usage` once per minute without inference. The
+TSV fields are group, window name, remaining percentage, and RFC3339 reset. The
+adapter converts remaining to used (`100 - remaining`) and preserves separate
+model groups in the existing window scope/label fields. Malformed or failed
+queries retain the cache; absent data stays unavailable, never zero. The panel
+displays used and remaining percentages. The catalog reads `agy models`.
 
 Former Gemini accounts and active selections are opaque preserved entries, not
 usable accounts. Their directories, credentials and native histories remain

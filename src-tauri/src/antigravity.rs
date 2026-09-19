@@ -10,10 +10,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-fn discover(arg: &str) -> Option<String> {
+fn discover(args: &[&str]) -> Option<String> {
     use std::os::unix::process::CommandExt;
     let mut child = Command::new("agy")
-        .arg(arg)
+        .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -52,7 +52,7 @@ fn discover(arg: &str) -> Option<String> {
     }
 }
 pub fn installed() -> bool {
-    discover("--version").is_some_and(|version| supported_version(&version))
+    discover(&["--version"]).is_some_and(|version| supported_version(&version))
 }
 fn supported_version(raw: &str) -> bool {
     semver::Version::parse(raw.trim().trim_start_matches('v'))
@@ -106,10 +106,42 @@ fn stderr_line(raw: &str) -> Option<String> {
     }
 }
 pub fn models() -> Vec<crate::agents::Model> {
-    discover("models")
+    discover(&["models"])
         .map(|raw| parse_models(&raw))
         .unwrap_or_default()
 }
+/// Read the CLI's own quota report without creating an inference turn.
+pub fn quota() -> Option<Vec<crate::usage::Window>> {
+    parse_quota(&discover(&["-p", "/usage"])?)
+}
+
+fn parse_quota(raw: &str) -> Option<Vec<crate::usage::Window>> {
+    let mut windows = Vec::new();
+    for line in raw.lines().filter(|line| !line.trim().is_empty()) {
+        let fields: Vec<_> = line.split('\t').map(str::trim).collect();
+        if fields.len() != 4 || fields[0].is_empty() {
+            return None;
+        }
+        let kind = match fields[1] {
+            "Weekly Limit Remaining" => "weekly",
+            "Five Hour Limit Remaining" => "session",
+            _ => return None,
+        };
+        let remaining: f64 = fields[2].strip_suffix('%')?.parse().ok()?;
+        if !remaining.is_finite() || !(0.0..=100.0).contains(&remaining) {
+            return None;
+        }
+        windows.push(crate::usage::Window {
+            kind: kind.into(),
+            pct: 100.0 - remaining,
+            resets: crate::usage::rfc3339(fields[3])?,
+            scope: Some(fields[0].into()),
+            label: Some(fields[0].into()),
+        });
+    }
+    (!windows.is_empty()).then_some(windows)
+}
+
 fn parse_models(raw: &str) -> Vec<crate::agents::Model> {
     let mut seen = std::collections::HashSet::new();
     raw.lines()
@@ -784,6 +816,33 @@ mod tests {
             events.last().unwrap()["message"],
             i18n::t("err.antigravity.permission")
         );
+    }
+
+    #[test]
+    fn native_quota_converts_remaining_to_used_and_preserves_groups() {
+        let windows = parse_quota(include_str!("antigravity/fixtures/usage.tsv")).unwrap();
+        assert_eq!(windows.len(), 4);
+        assert_eq!(
+            windows.iter().map(|w| w.pct).collect::<Vec<_>>(),
+            [41.0, 3.0, 73.0, 100.0]
+        );
+        assert_eq!(windows[0].kind, "weekly");
+        assert_eq!(windows[1].kind, "session");
+        assert_eq!(windows[0].scope.as_deref(), Some("Gemini Models"));
+        assert_eq!(windows[2].scope.as_deref(), Some("Claude and GPT models"));
+        assert_eq!(
+            windows[0].resets,
+            crate::usage::rfc3339("2026-09-23T02:43:13Z").unwrap()
+        );
+        for raw in [
+            "",
+            "authentication required",
+            "Models\tWeekly Limit Remaining\t101%\t2026-09-23T02:43:13Z",
+            "Models\tWeekly Limit Remaining\tNaN%\t2026-09-23T02:43:13Z",
+            "Models\tWeekly Limit Remaining\t2%\tinvalid",
+        ] {
+            assert!(parse_quota(raw).is_none());
+        }
     }
 
     #[test]

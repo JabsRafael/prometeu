@@ -150,7 +150,7 @@ function card(account: Account): HTMLElement {
     content.append(wait);
   } else if (!account.connected && !external) content.append(h("small", "", t("account.disconnected")));
   if (account.plan) content.append(h("div", "account-meta", account.plan));
-  const limits = h("div", "account-quotas"); limits.innerHTML = account.authMethod === "external" ? "—" : quota(account.id);
+  const limits = h("div", "account-quotas"); limits.innerHTML = quota(account.id);
   content.append(limits); root.append(choose, content);
   return root;
 }

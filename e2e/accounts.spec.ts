@@ -173,7 +173,11 @@ test("contas: Antigravity usa a conta externa sem criar login ou ativar automati
   await expect(panel.getByRole("button", { name: "Usar conta do agy" })).toBeDisabled();
   await added.locator(".account-select").click();
   await expect(added.locator(".account-select")).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator('#status [data-provider="antigravity"]')).toHaveText("—");
+  await expect(panel).toContainText("Gemini Models");
+  await expect(panel).toContainText("Claude and GPT models");
+  await expect(panel).toContainText("59% livre");
+  await expect(panel).toContainText("97% livre");
+  await expect(page.locator('#status [data-provider="antigravity"]')).not.toHaveText("—");
 });
 
 test("contas: configurações mostram agente não instalado", async ({ page }) => {

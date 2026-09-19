@@ -846,7 +846,9 @@ const mockCommands: IpcHandlers = {
       if (!mockAccounts.accounts.some(a => a.id === "antigravity")) mockAccounts.accounts.push({
         id: "antigravity", provider: "antigravity", email: null, plan: null, connected: false, revision: 0, authMethod: "external",
       });
-      return accountSnapshot();
+      const snapshot = accountSnapshot();
+      emit("usage", call("usage"));
+      return snapshot;
     }
     let account = mockAccounts.accounts.find((account) => account.id === args.id);
     if (!account) {
@@ -1420,6 +1422,14 @@ const mockCommands: IpcHandlers = {
         windows: [{ kind: "session", pct: 9 + index, resets: now + 2 * 3600 }, { kind: "weekly", pct: 25 + index, resets: now + 4 * 86400 }],
         at: now,
       }])),
+      ...(mockAccounts.accounts.some(a => a.id === "antigravity") ? { antigravity: {
+        windows: [
+          { kind: "weekly", pct: 41, resets: now + 3 * 86400, scope: "Gemini Models", label: "Gemini Models" },
+          { kind: "session", pct: 3, resets: now + 4 * 3600, scope: "Gemini Models", label: "Gemini Models" },
+          { kind: "weekly", pct: 73, resets: now + 6 * 86400, scope: "Claude and GPT models", label: "Claude and GPT models" },
+          { kind: "session", pct: 100, resets: now + 2 * 3600, scope: "Claude and GPT models", label: "Claude and GPT models" },
+        ], at: now,
+      } } : {}),
       claude: {
         windows: [
           { kind: "session", pct: 16, resets: now + 3 * 3600 + 14 * 60 },

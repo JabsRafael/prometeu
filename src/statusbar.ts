@@ -324,7 +324,7 @@ function rows(windows: Window[]): string {
       (w) =>
         `<div class="urow"><span class="ukind">${kind(w.kind)}</span>` +
         meter(w.pct, true) +
-        `<span class="upct">${Math.round(w.pct)}%</span>` +
+        `<span class="upct">${t("status.usage.used", { pct: Math.round(w.pct) })}<small>${t("status.usage.free", { pct: 100 - Math.round(w.pct) })}</small></span>` +
         `<span class="ureset">${t("status.resets", { when: until(w.resets) })}</span></div>`,
     )
     .join("");

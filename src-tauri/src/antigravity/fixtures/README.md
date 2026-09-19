@@ -23,3 +23,7 @@ diagnostic directory, with the application's default launch flags. It preserves
 the `ERROR` tool state and `SUCCESS` result with nonempty `denied_actions`. The
 command was not executed; no denial was bypassed. These events must produce a
 visible permission failure rather than an empty successful turn.
+
+`usage.tsv` records `agy -p /usage`: remaining quotas and reset timestamps by
+model group. It contains no identity or credentials. Tests convert remaining to
+used, preserve groups and reject malformed readings without replacing the cache.

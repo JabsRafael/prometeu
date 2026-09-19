@@ -34,7 +34,10 @@ Keep shared Settings/footer account cards, explicit selection, focus on the new
 card and confirmation for active removal. Antigravity exposes one externally
 managed account, attached explicitly as `antigravity` with method `external`.
 Attaching records a reference, not proof of authentication. The app does not
-read tokens, infer email, claim quotas, or duplicate the global keyring.
+read tokens, infer email, or duplicate the global keyring. Quotas come from the
+native `agy -p /usage` TSV report, polled once per minute. Its remaining
+percentages become canonical used percentages; labels and reset times remain
+per model group. Failed or malformed reads preserve the previous snapshot.
 Login and switching accounts remain in the official agy UI. Its authentication
 has no documented isolated-profile or direct-login interface; HOME redirection
 alone would not isolate the keyring. Managed multiple Google accounts and a

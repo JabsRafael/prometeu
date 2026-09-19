@@ -26,7 +26,8 @@ optional for local work; model access comes from your own provider account.
 - **Claude Code, Codex, and Antigravity CLI.** Choose a model and supported effort
   level, manage accounts in Settings, and resume conversations after an agent
   process stops. Antigravity CLI uses the account already connected in `agy`;
-  app-managed login, quotas, interactive approvals and plan mode are unavailable.
+  quotas are shown by model group. App-managed login, interactive approvals and
+  plan mode are unavailable.
   See the [provider matrix](docs/quality/provider-matrix.md) for validation limits.
 - **A desk for ongoing conversations.** Arrange conversations side by side,
   respond to questions, and follow agent activity without opening each workspace.
