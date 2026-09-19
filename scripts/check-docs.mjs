@@ -14,7 +14,7 @@ function markdownUnder(dir) {
   return files;
 }
 
-const roots = ["README.md", "AGENTS.md", "CLAUDE.md", "ARCHITECTURE.md"]
+const roots = ["README.md", "CONTRIBUTING.md", "AGENTS.md", "CLAUDE.md", "ARCHITECTURE.md"]
   .map((file) => join(root, file))
   .filter(existsSync);
 const docs = markdownUnder(join(root, "docs"));

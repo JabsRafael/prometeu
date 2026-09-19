@@ -29,10 +29,11 @@ sequenceDiagram
     UI->>UI: Timeline.push(line)
 ```
 
-`Launch` gathers agent, model, effort, plan mode, MCP and plugins. A tab can
-override the workspace's agent/model/effort. Ordinary tabs inherit MCP and
-plugins from the workspace. [Tasks](../contracts/actions.md) keep a resolved
-copy of the profile, including MCP, plugins, instructions and permissions.
+`Launch` gathers agent, model, effort, plan mode, MCP, plugins and skills. A tab
+can override the workspace's agent/model/effort. Ordinary tabs resolve tools
+from the global, trusted project and workspace layers for their effective
+provider. [Tasks](../contracts/actions.md) keep a resolved copy of the profile,
+including tools, instructions and permissions.
 
 Materialization belongs to the edge. Claude receives MCP and plugins through
 its own files and flags; Codex receives the MCP table through an override and
@@ -54,6 +55,14 @@ contract is in [`accounts.md`](../contracts/accounts.md).
 Switching models within the same CLI kills the process and preserves the
 session. Switching from Claude to Codex or vice versa requires another tab,
 since their resume mechanisms do not share an identity.
+
+Workspace MCP/plugin/skill changes go through `workspace_tools.rs`. It validates
+the selection and changes only the requested workspace axis, preserving every
+tab and existing process. Saving during a turn is allowed; changes apply at the
+next spawn or resume of a stopped process, not on the next message to an idle
+process. `session.rs` keeps native argument handling, error translation and
+board publication. Validation and state updates are tested without a Tauri
+application.
 
 ## Agent output
 

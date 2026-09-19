@@ -3,17 +3,21 @@ import { fromBack, t } from "./i18n";
 import { h } from "./util";
 import * as ui from "./ui";
 import * as catalog from "./catalog";
-import * as plugins from "./plugins";
 
 export type Skill = { id: string; description: string; content: string };
 let hub: Skill[] = [];
 let say = (_text: string, _bad?: boolean) => {};
+let afterChange = async () => {};
 const watchers = new Set<() => void>();
 export const onChange = (fn: () => void) => { watchers.add(fn); return () => watchers.delete(fn); };
 export const packageIds = () => new Set(hub.map(s => `skill-${s.id}`));
-export function init(report: typeof say) { say = report; void refresh().catch(e => say(fromBack(e), true)); }
+export function init(report: typeof say, onChanged: () => Promise<void>) {
+  say = report;
+  afterChange = onChanged;
+  void refresh().catch(e => say(fromBack(e), true));
+}
 export async function refresh() { hub = await invoke("skill_hub"); for (const fn of watchers) fn(); }
-async function changed() { await refresh(); await plugins.refresh(); await catalog.load(); }
+async function changed() { await refresh(); await afterChange(); }
 
 function row(id: string, description: string, controls: HTMLElement[]) {
   const row = h("div", "setrow");

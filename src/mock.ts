@@ -685,7 +685,7 @@ const cliServers: McpServer[] = [
   { id: "n8n", config: { type: "stdio", command: "npx", args: ["-y", "n8n-mcp"], env: {} }, note: "" },
 ];
 
-/// Count MCP/plugin writes so tests can verify that rapid selections are coalesced.
+/// Count tool-selection writes so tests can verify that each axis persists independently.
 let writes = 0;
 
 /// One progress step from the simulated plugin author.
@@ -2050,7 +2050,7 @@ w.mock = {
   preview: (workspace_id: string, conversation_id: string) => emit("workspace-preview", { workspace_id, conversation_id }),
   /// Inject a conversation line as if the process emitted it.
   line: (tab: string, o: unknown) => pushLine(tab, o),
-  /// Expose the number of MCP/plugin writes received by the mock.
+  /// Expose the number of tool-selection writes received by the mock.
   writes: () => writes,
   /// Expose team state for external UI assertions.
   team: () => ({ status: team.status(), remotes: team.remotes() }),

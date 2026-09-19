@@ -1024,6 +1024,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn shared_cloud_contract_catalogs_use_the_production_parser() {
+        let fixture: Value =
+            serde_json::from_str(include_str!("../../fixtures/cloud-api.json")).unwrap();
+        for name in ["empty_catalog", "catalog", "legacy_catalog"] {
+            let payload = &fixture[name];
+            let (revision, doc) = parse(payload).unwrap();
+            assert_eq!(revision, payload["revision"].as_u64(), "{name}");
+            let mut expected = if payload["catalog"].is_null() {
+                json!({ "plugins": [], "mcp": [], "skills": [], "actions": null })
+            } else {
+                payload["catalog"].clone()
+            };
+            if expected.get("skills").is_none() {
+                expected["skills"] = json!([]);
+            }
+            assert_eq!(serde_json::to_value(doc).unwrap(), expected, "{name}");
+        }
+        let mut invalid_revision = fixture["catalog"].clone();
+        invalid_revision["revision"] = Value::Null;
+        assert!(parse(&invalid_revision).is_err());
+        let mut private_payload = fixture["catalog"].clone();
+        private_payload["catalog"]["mcp"][0]["config"]["headers"]["Authorization"] =
+            json!("synthetic-local-secret");
+        assert!(parse(&private_payload).is_err());
+    }
+
+    #[test]
     fn organization_installation_preserves_private_items_and_personal_catalog() {
         if std::env::var_os("PROMETEU_ORGANIZATION_CATALOG_TEST").is_none() {
             let root =

@@ -1086,6 +1086,66 @@ test("o picker mostra a base herdada do CLI e remove sem importar", async ({ pag
   expect(layer).toEqual({ base: "inherit", add: [], remove: ["metabase"] });
 });
 
+for (const [status, pending] of [
+  ["rodando", null], ["querendo", null], ["pronta", "queued prompt"],
+] as const) {
+  test(`ferramentas: salvar escolhas preserva a aba irmã ${status}/${pending ?? "none"}`, async ({ page }) => {
+    await boot(page);
+    // Create through the normal settings flow so all three pickers share the refreshed registry.
+    await page.locator("#settings").click();
+    await page.locator(".setnavitem", { hasText: "Skills" }).click();
+    await page.getByRole("button", { name: "Criar skill", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Criar skill" });
+    await dialog.getByLabel("Nome da skill").fill("revisao");
+    await dialog.getByLabel("Quando usar esta skill").fill("Antes de entregar código");
+    await dialog.getByLabel("Instruções", { exact: true }).fill("Leia alterações e rode testes.");
+    await dialog.getByRole("button", { name: "Salvar", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await openWorkspace(page, "Ola");
+    const before = await page.evaluate(async ({ status, pending }) => {
+      type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+      const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+      const board = await invoke("load_board") as Board;
+      const workspace = board.workspaces.find(ws => ws.id === "sessao-0929")!;
+      workspace.mcp = { base: "none", add: ["capim-ds"], remove: [] };
+      workspace.plugins = { base: "none", add: ["caveman"], remove: [] };
+      workspace.skills = { base: "none", add: [], remove: [] };
+      for (const tab of workspace.tabs) { tab.pending_prompt = null; tab.status = "pronta"; }
+      const sibling = workspace.tabs.find(tab => tab.id === "t2")!;
+      sibling.status = status;
+      sibling.pending_prompt = pending;
+      await invoke("set_stage", { id: workspace.id, stage: workspace.stage });
+      return workspace;
+    }, { status, pending });
+    const current = () => page.evaluate(async () => {
+      type Invoke = (command: string) => Promise<Board>;
+      const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+      return (await invoke("load_board")).workspaces.find(ws => ws.id === "sessao-0929")!;
+    });
+    const choices = [
+      ["mcp", ".mcpbtn", "notion", "notion"],
+      ["plugins", ".plugbtn", "ponytail", "ponytail"],
+      ["skills", ".skillbtn", "revisao", "skill-revisao"],
+    ] as const;
+    const choose = async (button: string, entry: string) => {
+      await page.locator(`#chatwrap ${button}`).click();
+      await page.locator(".menu .mrow").filter({ hasText: entry }).first().click();
+      await expect(page.locator(".menu")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.locator(".menu")).toHaveCount(0);
+    };
+
+    const expected = structuredClone(before);
+    for (const [field, button, entry, id] of choices) {
+      await choose(button, entry);
+      expected[field]!.add.push(id);
+      // Persist only the selection; even waiting or queued sibling tabs keep their complete state.
+      await expect.poll(current).toEqual(expected);
+    }
+    expect(await page.evaluate(() => (window as unknown as { mock: { writes(): number } }).mock.writes())).toBe(3);
+  });
+}
+
 /// The desk supports direct replies and preserves panel order, size and collapse state across reloads.
 test("a mesa mostra cada conversa num quadro, responde dali e guarda a ordem", async ({ page }) => {
   await boot(page);

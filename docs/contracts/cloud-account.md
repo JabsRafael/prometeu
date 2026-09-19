@@ -30,6 +30,11 @@ required for production; local development can run without email. Sessions have
 a fixed 30-day validity, with server-side revocation; there is no automatic
 renewal.
 
+Puma permits request bodies up to 7 MiB for feedback images. Desktop endpoints
+retain their controller limits: 256 KiB for a catalog PUT and 16 KiB for the
+remaining desktop API. The Cloud's production smoke test checks those routes
+through Puma so the transport cannot silently impose a smaller feature limit.
+
 The site's controls are rendered by the Design System's Rails adapter. Its local
 runtime adds menus, password reveal, optional revocation confirmation and
 double-submit blocking. The CSP allows local scripts with a nonce and does not
@@ -110,6 +115,11 @@ collaboration in the relay; see the
 
 ## Evidence
 
+- [`fixtures/cloud-api.json`](../../fixtures/cloud-api.json): synthetic session
+  and signed-out payloads checked by the real Rails endpoints in
+  `prometeu-cloud/test/integration/desktop_contract_test.rb` and the production
+  profile decoder in `src-tauri/src/cloud.rs`. See the
+  [shared fixture workflow](../operations/development.md#shared-cloud-api-fixtures).
 - `src-tauri/src/cloud.rs`: origin validation and absence of the token in the
   status.
 - `e2e/cloud.spec.ts`: connection, persistence, cancellation, logout, offline

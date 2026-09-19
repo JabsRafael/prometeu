@@ -34,7 +34,10 @@ sent to GitHub.
 `desktop`, `site`, `cloud`. The required description allows up to 4,000
 characters; the optional version up to 40. The optional image accepts PNG, JPEG
 or WebP up to 5 MiB, with strict base64 and a matching signature. The complete
-body has a 7 MiB limit, applied before the Rails parser.
+body has a 7 MiB limit, applied by Puma before the Rails parser. Smaller desktop
+endpoint limits remain in their controllers. The Cloud's production smoke test
+checks that a request containing a 5 MiB image reaches authentication and that
+Puma rejects an oversized request.
 
 There is no CORS and no preflight. An origin other than the public one receives
 403, and requiring `application/json` without enabling CORS prevents a
@@ -56,6 +59,12 @@ GitHub URLs of the attachment and the issue, the timestamp of the issue-creation
 attempt and timestamps. A completed ID returns the same receipt without creating
 another issue. Different content with the same ID receives 409, including when
 only the image changes.
+
+The receipt is refreshed and claimed under a short database lock before the
+issue-creation POST. Concurrent retries either see the completed receipt or
+receive `uncertain`; only the claimant sends the issue. GitHub calls run outside
+the database transaction. `test/models/feedback_concurrency_test.rb` in the Cloud
+checks both single delivery and the transaction boundary with a stub transport.
 
 Before sending any content, `GET /repos/prometeucorp/prometeu-cloud` must
 confirm `private: true` and the expected name. A query failure or a public

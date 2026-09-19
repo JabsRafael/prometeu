@@ -211,6 +211,8 @@ details.
 ## Contribute
 
 Bug reports, documentation improvements, and code contributions are welcome.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and
+[contributor recipes](docs/operations/contributing.md) for common changes.
 
 1. Search [existing issues](https://github.com/prometeucorp/prometeu/issues)
    before opening a report. Include reproduction steps, expected and actual

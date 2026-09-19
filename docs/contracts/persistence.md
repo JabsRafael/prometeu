@@ -41,6 +41,11 @@ In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
 
 Worktrees live in `~/prometeu/worktrees[-dev]/...`, outside the state root.
 
+Transcript lookup uses the tab's resolved provider, including a frozen task
+profile, before falling back to the workspace provider. This is also the rule
+for snapshots after the process stops; mixed-provider tabs retain their own
+transcript paths without a format migration.
+
 Promised files (such as a capture's thumbnail) are materialized by AppKit in a
 new directory per gesture, without overwriting previous attachments. The backend
 only delivers to the UI files that exist inside that directory. They are not

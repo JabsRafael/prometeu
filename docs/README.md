@@ -89,12 +89,15 @@ compatibility still in use stays documented in the current contracts.
 - [ADR 0048](decisions/0048-scoped-cleanup-offer.md): scoped worktree cleanup after archiving or finishing.
 
 - [ADR 0049](decisions/0049-embedded-delegation-mcp.md): Native MCP for client-owned delegation.
+- [ADR 0050](decisions/0050-tested-application-boundaries.md): Tested application boundaries before service extraction.
 
 ## Quality and operations
 
 - [`quality/provider-matrix.md`](quality/provider-matrix.md): support per agent
   and expected evidence.
 - [`operations/development.md`](operations/development.md): environment and tests.
+- [`operations/contributing.md`](operations/contributing.md): recipes for provider,
+  IPC, collaboration and Cloud contract changes; [contribution workflow](../CONTRIBUTING.md).
 - [`operations/release.md`](operations/release.md): CI, versioning and release.
 
 ## Update rule

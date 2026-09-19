@@ -579,6 +579,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn shared_cloud_contract_profile_uses_the_production_decoder() {
+        let fixture: Value =
+            serde_json::from_str(include_str!("../../fixtures/cloud-api.json")).unwrap();
+        let profile = user(&fixture["session"]).unwrap();
+        assert_eq!(
+            serde_json::to_value(profile).unwrap(),
+            fixture["session"]["user"]
+        );
+        assert!(user(&fixture["signed_out"]).is_err());
+    }
+
+    #[test]
     fn organization_socket_uses_only_a_short_lived_ticket_and_validated_origin() {
         let ticket = "t".repeat(43);
         let url = relay_socket_url("https://relay.example", "organization1", &ticket).unwrap();

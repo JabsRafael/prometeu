@@ -1,4 +1,5 @@
 import { readFile, readdir } from "node:fs/promises";
+import { checkDependencies } from "./architecture-dependencies.mjs";
 
 /// ADR 0003 fitness check: presentation consumes capabilities and ProviderId. Provider dispatch belongs
 /// in the catalog or Rust adapters.
@@ -16,39 +17,13 @@ const forbidden = [
   /\bcase\s+["'](?:claude|codex)["']/g,
 ];
 
-const failures = [];
-// Visual primitives must not depend on agent rules or transport.
-const componentRoot = "packages/design-system/src";
-for (const name of await readdir(componentRoot)) {
-  if (!name.endsWith(".ts")) continue;
-  const source = await readFile(`${componentRoot}/${name}`, "utf8");
-  for (const match of source.matchAll(/(?:from|import)\s+["']([^"']+)["']/g)) {
-    if (!/^\.\/[\w-]+\.js$/.test(match[1])) {
-      failures.push(`${componentRoot}/${name}: dependência fora do pacote: ${match[1]}`);
-    }
-  }
+const sources = new Map();
+for (const root of ["src", "relay/src", "packages/design-system/src"]) {
+  const files = (await readdir(root, { recursive: true })).sort()
+    .filter((file) => /\.[cm]?[jt]sx?$/.test(file) && !/\.(?:test|spec|d)\.[cm]?[jt]sx?$/.test(file));
+  for (const file of files) sources.set(`${root}/${file}`, await readFile(`${root}/${file}`, "utf8"));
 }
-// ADR 0026 fitness check: the collaboration core (team-member.ts and team-* features) must compose in any
-// browser. Tauri, IPC and the mock backend belong to the desktop shell in src/team.ts.
-for (const name of await readdir("src")) {
-  if (!/^team-[\w-]+\.ts$/.test(name) || name.endsWith(".test.ts")) continue;
-  const source = await readFile(`src/${name}`, "utf8");
-  for (const match of source.matchAll(/(?:from|import)\s+["']([^"']+)["']/g)) {
-    if (/^@tauri-apps\//.test(match[1]) || /^\.\/(?:ipc|mock|team)$/.test(match[1])) {
-      failures.push(`src/${name}: núcleo de colaboração acoplado ao desktop: ${match[1]}`);
-    }
-  }
-}
-// ADR 0028 fitness check: the browser shell composes the core without the desktop shell, IPC or Tauri.
-for (const name of await readdir("src/mobile")) {
-  if (!name.endsWith(".ts") || name.endsWith(".test.ts")) continue;
-  const source = await readFile(`src/mobile/${name}`, "utf8");
-  for (const match of source.matchAll(/(?:from|import)\s+["']([^"']+)["']/g)) {
-    if (/^@tauri-apps\//.test(match[1]) || /^\.\.\/(?:ipc|mock|team|chat|session|main)$/.test(match[1])) {
-      failures.push(`src/mobile/${name}: shell móvel acoplado ao desktop: ${match[1]}`);
-    }
-  }
-}
+const failures = checkDependencies(sources);
 const actionSettings = await readFile("src/action-settings.ts", "utf8");
 if (!actionSettings.includes('from "./ui"') || /createElement\(["'](?:select|input|textarea)["']\)/.test(actionSettings)) {
   failures.push("src/action-settings.ts: reutilize os controles de src/ui.ts");
@@ -107,10 +82,10 @@ for (const match of chat.matchAll(/Command::new\s*\(\s*"(?:claude|codex)"/g)) {
 
 if (failures.length) {
   console.error(failures.join("\n"));
-  console.error("Mantenha decisões nominais e protocolos externos nas respectivas fronteiras de provider.");
+  console.error("Architecture checks failed. Keep dependencies within the documented boundaries.");
   process.exitCode = 1;
 } else {
   console.log(
-    `${presentation.length} componentes sem condicionais nominais; core e adapters respeitam a fronteira canônica`,
+    `${sources.size} source modules without runtime import cycles; portable dependencies and canonical boundaries checked`,
   );
 }

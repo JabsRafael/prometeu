@@ -107,6 +107,13 @@ type ConversationEventV1 =
 same `messageId` form one visual message. A result for an unknown tool or the
 closing of an unknown request is a no-op; it never breaks the replay.
 
+`request.opened.kind` determines the question, plan or approval interaction and
+the accepted response. The timeline preserves it as `Ask.requestKind`; neither
+rendering nor remote response validation infers it from `tool`, which may be
+unfamiliar or `null`. Legacy transcript adaptation supplies the same canonical
+kind. `src/timeline.test.ts`, `e2e/conversation-requests.spec.ts` and the Rust
+remote-control tests cover those cases without changing the V1 wire format.
+
 `turn.completed` ends the turn and any visual compaction, but it does not end
 background tasks. Cost stays in the common event as an optional number: Claude
 may fill it in and Codex may use `null` without introducing a provider extension

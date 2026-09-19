@@ -1,0 +1,63 @@
+import { expect, test } from "@playwright/test";
+import type { ConversationCommandV1 } from "../src/conversation";
+
+type RequestWindow = Window & {
+  mock: { line(tab: string, event: unknown): void };
+  requestControls: { session: string; frame: ConversationCommandV1 }[];
+  __TAURI_INTERNALS__: { invoke(command: string, args?: Record<string, unknown>): Promise<unknown> };
+};
+
+test("canonical request kind controls question, plan and approval cards independently of tool names", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('.railworkspace[data-workspace="sessao-0929"] > .navitem').click();
+  await expect(page.locator("#wsView")).toBeVisible();
+  await page.evaluate(() => {
+    const w = window as RequestWindow;
+    const invoke = w.__TAURI_INTERNALS__.invoke;
+    w.requestControls = [];
+    w.__TAURI_INTERNALS__.invoke = (command, args) => {
+      if (command === "chat_control") {
+        w.requestControls.push(args as RequestWindow["requestControls"][number]);
+        return Promise.resolve();
+      }
+      return invoke(command, args);
+    };
+  });
+
+  for (const [kind, tool] of [
+    ["question", "custom_question"], ["question", null],
+    ["plan", "custom_plan"], ["plan", null],
+    ["approval", "AskUserQuestion"], ["approval", null],
+  ] as const) {
+    const requestId = `${kind}-${tool ?? "none"}`;
+    await page.evaluate(({ kind, tool, requestId }) => {
+      (window as RequestWindow).mock.line("t1", {
+        v: 1, type: "request.opened", at: 1, requestId, kind, tool, toolId: null,
+        input: kind === "question"
+          ? { questions: [{ question: "Which option?", options: [{ label: "A" }] }] }
+          : {},
+      });
+    }, { kind, tool, requestId });
+
+    const card = page.locator("#chatwrap .ask");
+    await expect(card).toHaveCount(1);
+    if (kind === "question") {
+      await expect(card).toHaveClass(/\bquestion\b/);
+      await card.locator(".opt").click();
+      await card.locator("button.pri").click();
+    } else if (kind === "plan") {
+      await expect(card).toHaveClass(/\bplan\b/);
+      await card.locator("button.outline").click();
+    } else {
+      await expect(card).not.toHaveClass(/\b(question|plan)\b/);
+      await card.locator("button.pri").click();
+    }
+    await expect(card).toHaveCount(0);
+    expect(await page.evaluate(() => (window as RequestWindow).requestControls.pop())).toEqual({
+      session: "t1", frame: {
+        v: 1, type: "request.respond", requestId,
+        response: kind === "question" ? { outcome: "answer", answers: { "Which option?": "A" } } : { outcome: "allow" },
+      },
+    });
+  }
+});

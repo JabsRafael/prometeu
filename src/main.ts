@@ -626,6 +626,7 @@ await settings.init({ say });
 issues.init({
   say,
   board: () => state,
+  connected: () => settings.linear().connected,
   redraw: draw,
   open: (w) => openWorkspace(w),
   create: (issue) => launch(state.workspaces.find((w) => w.id === ws.id())?.project, issue),

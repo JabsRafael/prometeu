@@ -2,7 +2,6 @@ import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import { icon } from "./icons";
 import { fromBack, paint, t } from "./i18n";
-import * as settings from "./settings";
 import type { Board, Issue, Issues, LinearStatus, Workspace } from "./types";
 import { $, empty, h, template } from "./util";
 
@@ -11,6 +10,7 @@ import { $, empty, h, template } from "./util";
 type Ctx = {
   say: (text: string, isError?: boolean) => void;
   board: () => Board;
+  connected: () => boolean;
   /// Notify the sidebar when the issue count changes.
   redraw: () => void;
   open: (ws: Workspace) => void;
@@ -59,19 +59,19 @@ export function init(context: Ctx) {
     ctx.redraw();
     draw();
   });
-  if (settings.linear().connected) void refresh(false);
+  if (ctx.connected()) void refresh(false);
 }
 
 /// Null means Linear is unavailable, so the sidebar hides its count.
-export const count = () => (settings.linear().connected && got ? got.issues.length : null);
+export const count = () => (ctx?.connected() && got ? got.issues.length : null);
 
 /// Launcher data: null means no Linear connection; an empty list while busy means loading.
-export const list = () => (settings.linear().connected ? (got?.issues ?? []) : null);
+export const list = () => (ctx?.connected() ? (got?.issues ?? []) : null);
 export const busy = () => loading;
 
 /// Load only when missing or stale; used when opening the launcher picker.
 export function load(): Promise<void> {
-  if (!settings.linear().connected || loading) return Promise.resolve();
+  if (!ctx?.connected() || loading) return Promise.resolve();
   const old = !got || Date.now() / 1000 - got.fetched_at > STALE / 1000;
   return old ? refresh(false) : Promise.resolve();
 }
@@ -126,7 +126,7 @@ function buildBar() {
     }
   });
   bar.querySelector("#irefresh")!.addEventListener("click", () => {
-    if (settings.linear().connected && !loading) void refresh(true);
+    if (ctx.connected() && !loading) void refresh(true);
   });
 }
 
@@ -139,7 +139,7 @@ function drawMeta() {
       : got
         ? t("issues.updated", { when: ago(got.fetched_at * 1000) })
         : "";
-  ($("irefresh") as HTMLButtonElement).disabled = loading || !settings.linear().connected;
+  ($("irefresh") as HTMLButtonElement).disabled = loading || !ctx.connected();
 }
 
 /* Issue list. */
@@ -158,7 +158,7 @@ function drawList() {
   teams.replaceChildren();
   teams.hidden = true;
 
-  if (!settings.linear().connected) {
+  if (!ctx.connected()) {
     list.append(
       empty(t("issues.off.title"), t("issues.off.body"), [t("issues.off.action"), ctx.toSettings]),
     );

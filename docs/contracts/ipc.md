@@ -53,6 +53,13 @@ backend ship together. Persisted state and relay clients are unaffected.
 The `actions_save`, `action_start` and `action_pause` commands are described in
 the [actions contract](actions.md). They use the existing `board` event.
 
+`set_workspace_mcp`, `set_workspace_plugins` and `set_workspace_skills` return
+empty on success and validate the supplied selection before changing state.
+Saving during a turn preserves every tab and existing process. The selection
+applies at the next spawn or resume of a stopped process; sending another
+message to an idle process alone does not reload tools. The browser mock
+preserves the same validation and state-update behavior.
+
 ## Private E2EE state
 
 - `team_security`: no arguments, returns the security envelope or `null` only

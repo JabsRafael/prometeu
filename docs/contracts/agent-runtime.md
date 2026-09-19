@@ -130,13 +130,23 @@ to use their frozen resolved profile. The regressions in
 `session.rs` cover these selections for Claude and Codex.
 
 The resolved set is captured at spawn, following the execution-account rule
-above: a change at any layer applies at the next spawn or resume and never
-restarts a running session.
+above: a change at any layer applies at the next spawn or resume of a stopped
+process and never restarts a running session. An idle process also keeps its
+captured set; sending another message alone does not reload tools.
 
 `claude.rs::launch_args` owns Claude flags and MCP/plugin/skill materialization;
 `session.rs` resolves application choices and passes `Launch` to the adapter.
 The relocated argument tests preserve existing flags, resume behavior, and
 configuration handling.
+
+The Tauri commands for changing workspace MCP/plugins/skills delegate to
+[`workspace_tools.rs`](../../src-tauri/src/workspace_tools.rs). This application
+boundary validates axis selections and updates explicit board state without
+accessing processes or changing sibling tabs. The commands retain native
+argument handling, error translation and board publication. Tests run without
+a Tauri application and verify invalid payloads, selection changes and tab
+preservation. The extraction preserves the layered IPC and persisted formats;
+see [ADR 0050](../decisions/0050-tested-application-boundaries.md).
 
 ## Conceptual port
 

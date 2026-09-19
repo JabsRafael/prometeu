@@ -17,6 +17,7 @@ turn a divergence into a silent architectural decision.
 ## Documentation map
 
 - `README.md`: product, visible behavior and quick start.
+- `CONTRIBUTING.md`: contribution workflow and links to implementation recipes.
 - `ARCHITECTURE.md`: context, containers, responsibilities and core flows.
 - `docs/architecture/`: details of the flows and dependency rules.
 - `docs/contracts/`: formats that cross processes or layers.
@@ -58,6 +59,8 @@ The complete dependency rules are in
 - `src-tauri/src/claude.rs`: Claude's stream-json adapter.
 - `src-tauri/src/codex.rs`: Codex's JSON-RPC adapter.
 - `src-tauri/src/session.rs`: use cases and workspace/tab lifecycle.
+- `src-tauri/src/workspace_tools.rs`: tool selection validation and workspace updates,
+  with explicit state and effects; Tauri commands stay in `session.rs`.
 - `src-tauri/src/state.rs`: the board's persisted state.
 - `src/team.ts`: the collaboration desktop shell (team.json, organizations,
   Tauri ports, facade).

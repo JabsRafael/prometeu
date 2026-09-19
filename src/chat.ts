@@ -755,8 +755,8 @@ export class ChatView {
       return el;
     }
     const el = h("div", "ask");
-    if (ask.tool === "ExitPlanMode") return this.planCard(el, ask);
-    if (ask.tool === "AskUserQuestion") return this.questionCard(el, ask);
+    if (ask.requestKind === "plan") return this.planCard(el, ask);
+    if (ask.requestKind === "question") return this.questionCard(el, ask);
     return this.permCard(el, ask, i);
   }
 

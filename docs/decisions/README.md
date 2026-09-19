@@ -88,3 +88,4 @@ Status: Proposed
 | [0047](0047-tool-selection-boundaries.md) | Reviewed tool declarations, effective provider and native IPC patches |
 | [0048](0048-scoped-cleanup-offer.md) | Scoped worktree cleanup after archiving or finishing |
 | [0049](0049-embedded-delegation-mcp.md) | Native MCP for client-owned delegation |
+| [0050](0050-tested-application-boundaries.md) | Tested application boundaries before service extraction |
