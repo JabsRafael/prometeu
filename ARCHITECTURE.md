@@ -211,11 +211,12 @@ selects the organization; sharing consent is bound to the enrollment.
 See the [contract](docs/contracts/cloud-organizations.md) and
 [ADR 0021](docs/decisions/0021-cloud-organizations.md).
 
-## Private feedback
+## Public issues and private feedback
 
-The shared widget receives text and images by explicit choice. The Cloud
-forwards text and images to the private issue in `prometeucorp/prometeu-cloud`,
-with no GitHub credentials in the client. SQLite stores only delivery receipts,
-without content. Access to text and attachments belongs to GitHub. It does not
-take part in E2EE sharing.
+The shared widget links to a new public issue in `prometeucorp/prometeu` without
+copying the draft or capture. It also receives private text and images by
+explicit choice. The Cloud forwards text and images to the private issue in
+`prometeucorp/prometeu-cloud`, with no GitHub credentials in the client. SQLite
+stores only delivery receipts, without content. Access to text and attachments
+belongs to GitHub. Private delivery does not take part in E2EE sharing.
 See the [contract and limits](docs/contracts/feedback.md).

@@ -2,7 +2,7 @@ import { h } from "./dom.js";
 import { button, field, input } from "./ui.js";
 
 export type Feedback = { kind: "problem" | "idea" | "other"; description: string; image?: File };
-export type FeedbackLabels = Record<"trigger" | "title" | "kind" | "problem" | "idea" | "other" | "description" | "attach" | "capture" | "remove" | "send" | "close" | "privacy" | "invalidImage" | "empty" | "success", string>;
+export type FeedbackLabels = Record<"trigger" | "title" | "kind" | "problem" | "idea" | "other" | "description" | "attach" | "capture" | "remove" | "send" | "close" | "privacy" | "publicReport" | "publicReportHint" | "invalidImage" | "empty" | "success", string>;
 
 /** Portable feedback composition. The host owns delivery, capture and translated copy. */
 export function feedbackWidget(options: {
@@ -10,6 +10,7 @@ export function feedbackWidget(options: {
   submit: (feedback: Feedback) => Promise<void>;
   capture?: () => Promise<File | undefined>;
   error: (error: unknown) => string;
+  publicIssue?: string;
   /** Checked on every open: while it answers, the panel offers that action instead of the form. */
   blocked?: () => { message: string; label: string; run: () => void } | undefined;
 }) {
@@ -26,6 +27,15 @@ export function feedbackWidget(options: {
   let busy = false;
   const close = () => { if (!busy) { panel.hidden = true; trigger.setAttribute("aria-expanded", "false"); trigger.focus(); } };
   heading.append(h("b", "", labels.title), button(labels.close, close, "ghost"));
+  const publicReport = h("div", "ui-feedback-public");
+  publicReport.hidden = !options.publicIssue;
+  if (options.publicIssue) {
+    const link = h("a", "ui-button outline md", labels.publicReport) as HTMLAnchorElement;
+    link.href = options.publicIssue; link.target = "_blank"; link.rel = "noopener noreferrer";
+    const hint = h("p", "ui-hint", labels.publicReportHint);
+    hint.id = `feedback-public-${crypto.randomUUID()}`; link.setAttribute("aria-describedby", hint.id);
+    publicReport.append(hint, link);
+  }
   let kind: Feedback["kind"] = "problem";
   const kinds = h("div", "ui-feedback-kinds");
   kinds.setAttribute("role", "group"); kinds.setAttribute("aria-label", labels.kind);
@@ -105,7 +115,7 @@ export function feedbackWidget(options: {
   };
   const notice = h("div", "ui-feedback-notice");
   notice.hidden = true;
-  panel.append(heading, notice, form);
+  panel.append(heading, publicReport, notice, form);
   const trigger = button(labels.trigger, () => {
     if (!panel.hidden) return close();
     const stop = options.blocked?.();

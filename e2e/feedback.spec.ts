@@ -20,9 +20,13 @@ test("feedback preserves draft and attachment on failure and retries the same su
   await trigger.click();
   const panel = page.getByRole("dialog", { name: "Deixe seu feedback" });
   await expect(panel).toContainText("tratado em privado");
+  const publicReport = panel.getByRole("link", { name: "Reportar bug publicamente" });
+  await expect(publicReport).toHaveAttribute("href", "https://github.com/prometeucorp/prometeu/issues/new");
+  await expect(publicReport).toHaveAttribute("target", "_blank");
+  await expect(publicReport).toHaveAccessibleDescription(/sem enviar descrição nem captura/);
   const description = panel.getByRole("textbox");
   await expect(description).toBeFocused();
-  const send = panel.getByRole("button", { name: "Enviar feedback" });
+  const send = panel.getByRole("button", { name: "Enviar feedback privado" });
   await description.fill("   "); await send.click();
   expect(await attempts(page)).toHaveLength(0);
   await description.fill("Sugestão de teste <script>não executar</script>");
@@ -36,7 +40,7 @@ test("feedback preserves draft and attachment on failure and retries the same su
   await page.keyboard.press("Escape"); await expect(panel).toBeHidden(); await expect(trigger).toBeFocused();
   await trigger.click(); await send.click();
   await expect(panel.getByRole("status")).toContainText("Feedback enviado");
-  await expect(panel.getByRole("link")).toHaveCount(0);
+  await expect(panel.getByRole("link")).toHaveCount(1);
   const sent = await attempts(page);
   expect(sent).toHaveLength(2);
   expect(sent[1]).toEqual(sent[0]);
@@ -50,6 +54,7 @@ test("feedback without an account offers connecting one instead of the form", as
   await trigger.click();
   const panel = page.getByRole("dialog", { name: "Deixe seu feedback" });
   await expect(panel).toContainText("Conecte sua conta Prometeu");
+  await expect(panel.getByRole("link", { name: "Reportar bug publicamente" })).toBeVisible();
   await expect(panel.getByRole("textbox")).toBeHidden();
   const connect = panel.getByRole("button", { name: "Conectar conta" });
   await expect(connect).toBeFocused();

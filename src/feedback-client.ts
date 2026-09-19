@@ -19,6 +19,7 @@ export function mountFeedback(options: {
   let request: { id: string; body: string } | undefined;
   return feedbackWidget({
     labels,
+    publicIssue: "https://github.com/prometeucorp/prometeu/issues/new",
     error: cause => cause instanceof Error ? cause.message : options.error?.(cause) ?? String(cause),
     capture: options.capture,
     blocked: options.blocked,
