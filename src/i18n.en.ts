@@ -532,7 +532,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "side.review": "Review",
   "side.review.title": "Compare branch commits with the base",
   "side.collapse": "Collapse folders",
-  "side.reveal": "Open the worktree in Finder",
+  "side.reveal": "Open folder in Finder",
   "diff.foldAll": "Collapse all",
   "diff.open": "Double-click opens the file",
   "diff.layout": "Diff layout",

@@ -346,7 +346,7 @@ pub(crate) fn ensure_port(state: &State<AppState>, id: &str) -> Option<u16> {
     Some(port)
 }
 
-/// Reveal the worktree in Finder.
+/// Open the workspace or project root folder in Finder.
 #[tauri::command]
 pub fn reveal(state: State<AppState>, id: String) -> Result<(), String> {
     let root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
