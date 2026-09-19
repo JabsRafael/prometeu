@@ -37,6 +37,29 @@ export function accountName(account: Account) {
   return account.email || t(account.id === account.provider ? "account.terminal" : "account.new");
 }
 
+/// The launcher's preflight follows the same global selection as process creation.
+export function selected(provider: ProviderId): Account | undefined {
+  const id = accounts?.active[provider];
+  return accounts?.accounts.find(account => account.provider === provider && id === account.id);
+}
+
+export function openPicker(provider: ProviderId) {
+  const dialog = formDialog({
+    title: t("account.use"), save: t("account.continue"), cancel: t("account.cancel"), error: fromBack,
+    submit: async () => { if (!selected(provider)) throw new Error(t("launcher.account.required")); },
+    closed: () => forget(),
+  });
+  const draw = () => {
+    const focus = (document.activeElement as HTMLElement | null)?.dataset.focus;
+    dialog.body.replaceChildren(render([descriptor(provider)]));
+    dialog.save.disabled = !selected(provider) || busy || !!accounts?.login;
+    if (focus) dialog.body.querySelector<HTMLElement>(`[data-focus="${CSS.escape(focus)}"]`)?.focus();
+  };
+  const forget = onChange(draw);
+  draw();
+  dialog.open();
+}
+
 function focusAccount(id: string) {
   requestAnimationFrame(() => {
     const nodes = document.querySelectorAll<HTMLElement>(`[data-account="${CSS.escape(id)}"] .account-select`);
@@ -136,7 +159,7 @@ function card(account: Account): HTMLElement {
   actions.dataset.focus = `actions-${account.id}`;
   actions.disabled = busy || !!accounts?.login;
   heading.append(name, actions); content.append(heading);
-  if (active) content.append(h("small", "account-state", t("account.active")));
+  if (active || account.connected || external) content.append(h("small", "account-state", t(active ? "account.active" : "account.use")));
   if (loggingIn) {
     const wait = h("div", "account-wait", t("account.browser")); wait.setAttribute("role", "status");
     wait.append(button(t("account.cancel"), () => run(invoke("account_login_cancel", { id: account.id }))));

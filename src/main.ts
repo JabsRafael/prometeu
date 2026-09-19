@@ -569,7 +569,8 @@ document.addEventListener("keydown", (e) => {
   // preventDefault avoids triggering the same action again through the native menu accelerator.
   const a = e.metaKey || e.ctrlKey ? shortcut(e) : null;
   if (a && act(a)) e.preventDefault();
-  if (e.key === "Escape" && !$("veil").hidden) {
+  // Native dialogs own Escape before the launcher beneath them can be dismissed.
+  if (e.key === "Escape" && !document.querySelector("dialog[open]") && !$("veil").hidden) {
     $("veil").hidden = true;
     $("veil").replaceChildren();
   }

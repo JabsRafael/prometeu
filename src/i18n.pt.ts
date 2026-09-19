@@ -169,6 +169,8 @@ export const PT = {
   "err.gemini.planPending": "Revise o plano pendente antes de enviar outra mensagem.",
   "err.gemini.command": "Este comando não está disponível no Gemini.",
   "err.gemini.key": "Não foi possível acessar a API key do Gemini no Chaves.",
+  "launcher.account.select": "Selecionar conta",
+  "launcher.account.required": "Selecione uma conta para iniciar esta conversa.",
   "account.title": "Contas",
   "account.apiKey": "API key",
   "account.apiKey.help": "A chave fica no Chaves deste Mac e não é exibida novamente.",

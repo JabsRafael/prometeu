@@ -171,6 +171,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.gemini.planPending": "Review the pending plan before sending another message.",
   "err.gemini.command": "This command is not supported by Gemini.",
   "err.gemini.key": "Could not access the Gemini API key in Keychain.",
+  "launcher.account.select": "Select account",
+  "launcher.account.required": "Select an account to start this conversation.",
   "account.title": "Accounts",
   "account.apiKey": "API key",
   "account.apiKey.help": "The key stays in this Mac’s Keychain and is never displayed again.",

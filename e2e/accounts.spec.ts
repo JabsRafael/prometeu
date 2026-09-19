@@ -221,3 +221,53 @@ test("contas: remover última conta sem CLI mantém foco no grupo", async ({ pag
   await expect(group.locator(".uaccount")).toHaveCount(0);
   await expect(group).toBeFocused();
 });
+
+test("contas: launcher preserva o pedido até selecionar uma conta conectada", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("prometeu:model", "pro");
+    localStorage.setItem("mock:accounts", JSON.stringify({ accounts: [
+      { id: "gemini-personal", provider: "gemini", email: "pessoa@exemplo.com", connected: true, revision: 0, authMethod: "google" },
+    ], active: {}, login: null }));
+  });
+  await page.goto("/");
+  await page.locator('#status [data-provider="gemini"]').waitFor();
+  await page.locator("#railbody").getByRole("button", { name: "Criar", exact: true }).click();
+  await page.locator("#d-model").click();
+  await page.getByRole("menuitemcheckbox", { name: "pro", exact: true }).click();
+  const prompt = page.locator("#d-prompt");
+  await prompt.fill("Meu pedido preservado");
+  const workspaceIds = () => page.evaluate(async () => {
+    const backend = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string) => Promise<{ workspaces: { id: string }[] }> } }).__TAURI_INTERNALS__;
+    return (await backend.invoke("load_board")).workspaces.map(workspace => workspace.id);
+  });
+  const before = await workspaceIds();
+  await prompt.press("Enter");
+  const picker = page.getByRole("dialog", { name: "Usar esta conta", exact: true });
+  await expect(picker).toBeVisible();
+  expect(await workspaceIds()).toEqual(before);
+  await expect(prompt).toHaveValue("Meu pedido preservado");
+  await picker.getByRole("button", { name: "Adicionar conta", exact: true }).click();
+  const method = page.getByRole("dialog", { name: "Adicionar conta", exact: true });
+  await expect(method).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(method).toHaveCount(0);
+  await expect(picker).toBeVisible();
+  await expect(prompt).toHaveValue("Meu pedido preservado");
+  await page.keyboard.press("Escape");
+  await expect(picker).toHaveCount(0);
+  await expect(prompt).toBeVisible();
+  await expect(prompt).toHaveValue("Meu pedido preservado");
+  await prompt.press("Enter");
+  await expect(picker).toBeVisible();
+  const account = picker.locator('[data-account="gemini-personal"]');
+  await expect(account).toContainText("Usar esta conta");
+  await expect(account.locator(".account-select")).toHaveAttribute("aria-pressed", "false");
+  await account.locator(".account-select").click();
+  await picker.getByRole("button", { name: "Continuar", exact: true }).click();
+  await expect(picker).toHaveCount(0);
+  await expect(page.locator("#d-account")).toContainText("pessoa@exemplo.com");
+  await expect(prompt).toHaveValue("Meu pedido preservado");
+  await prompt.press("Enter");
+  await expect(page.locator("#veil")).toBeHidden();
+  await expect(page.locator("#crumb")).toContainText("Meu pedido preservado");
+});

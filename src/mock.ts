@@ -1715,6 +1715,7 @@ const mockCommands: IpcHandlers = {
   // Return a preparing workspace immediately, then finish setup on a timer to exercise optimistic creation without Git.
   create_workspace(args) {
     const draft = args.draft;
+    if (!mockAccounts.active[draft.agent]) throw 'i18n:{"code":"err.account.noActive"}';
     const id = `nova-${nextId++}`;
     const repo = String(draft.project).split("/").pop() ?? "repo";
     const fresh = ws(id, draft.project, repo, draft.title || draft.branch, draft.stage, []);

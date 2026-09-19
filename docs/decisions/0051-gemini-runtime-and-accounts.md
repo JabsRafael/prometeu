@@ -36,8 +36,12 @@ selection. Active-account removal confirms the consequences and never selects
 an alternative automatically.
 
 Managed Gemini homes share history, not identity. Google authentication uses the
-CLI's official flow, with a dedicated terminal for consent if non-TTY ACP is
-insufficient. API-key entry is a narrowly scoped amendment to
+CLI's official flow in an app-owned private PTY. Version 0.30.0 refuses
+OAuth consent on pipes; the PTY permits its startup consent without showing a
+Terminal window. The explicit Connect action authorizes only the CLI's known
+browser-opening question, never tool or workspace-trust requests. The CLI opens
+the browser and owns the callback and token exchange; output remains private,
+and cancellation reaps the auxiliary process before credential rollback. API-key entry is a narrowly scoped amendment to
 [ADR 0012](0012-provider-accounts.md): the credential crosses IPC once from UI to
 backend and is stored in macOS Keychain per account UUID through native APIs.
 Only method and suffix return to the UI. No key enters process arguments, board,

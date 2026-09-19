@@ -12,6 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 mod account;
+mod login;
 pub use account::{account_env, account_status, login, prepare_profile, update_key, user_home};
 
 pub fn installed() -> bool {

@@ -87,11 +87,8 @@ pub fn account_status(profile: &Profile) -> Result<Identity, String> {
         plan: None,
     })
 }
-fn quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
-}
-/// The official OAuth consent path requires a TTY in 0.30. Open an isolated Terminal session,
-/// leaving all consent and browser interaction to the CLI, then stop it once credentials exist.
+/// Run the official browser OAuth flow on an app-owned PTY. No terminal window or model session
+/// is opened; the CLI alone owns the URL, callback server, token exchange and credential files.
 pub fn login(
     profile: &Profile,
     cancel: Arc<AtomicBool>,
@@ -104,73 +101,42 @@ pub fn login(
         return Err(i18n::t("err.gemini.version"));
     }
     let credentials = CredentialBackup::new(&profile.home.join(".gemini"))?;
-    let attempt = profile.home.join(format!("login-{}", uuid::Uuid::new_v4()));
-    paths::ensure_private_dir(&attempt).map_err(i18n::io)?;
-    let script = attempt.join("login.command");
-    let wrapper = attempt.join("login.cjs");
-    let guard = TerminalLogin {
-        directory: attempt.clone(),
-    };
-    // Only this wrapper owns the CLI process. The app requests cancellation with a private marker,
-    // never a saved PID, and the child is reaped before credential rollback.
-    paths::write_private(&wrapper, r#"const fs = require('node:fs');
-const path = require('node:path');
-const { spawn } = require('node:child_process');
-const cancel = path.join(__dirname, 'cancel');
-const done = path.join(__dirname, 'done');
-if (fs.existsSync(cancel)) { fs.writeFileSync(done, 'cancelled', {mode:0o600}); process.exit(0); }
-const child = spawn('gemini', [], {stdio:'inherit'});
-let stopping = false;
-let force;
-const stop = () => {
-  if (stopping || child.exitCode !== null || child.signalCode !== null) return;
-  stopping = true;
-  child.kill('SIGTERM');
-  force = setTimeout(() => child.kill('SIGKILL'), 2000);
-};
-const timer = setInterval(() => { if (fs.existsSync(cancel)) stop(); }, 100);
-const finish = () => { clearInterval(timer); clearTimeout(force); fs.writeFileSync(done, 'done', {mode:0o600}); };
-child.on('error', finish);
-child.on('close', finish);
-process.on('SIGTERM', stop);
-process.on('SIGINT', stop);
-"#).map_err(i18n::io)?;
-    let mut text = String::from("#!/bin/sh\n");
-    for key in BLOCKED {
-        text.push_str(&format!("export {key}=''\n"));
-    }
-    text.push_str(&format!("export GEMINI_CLI_HOME={}\nexport GEMINI_CLI_SYSTEM_SETTINGS_PATH={}\nexport PATH={}\ncd {}\nexec node {}\n", quote(&profile.home.display().to_string()), quote(&profile.home.join(".gemini/settings.json").display().to_string()), quote(&std::env::var("PATH").unwrap_or_default()), quote(&profile.home.display().to_string()), quote(&wrapper.display().to_string())));
-    paths::write_private(&script, &text).map_err(i18n::io)?;
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).map_err(i18n::io)?;
-    if !Command::new("open")
-        .args(["-a", "Terminal"])
-        .arg(&script)
-        .status()
-        .map_err(|_| i18n::t("err.account.login"))?
-        .success()
-    {
-        return Err(i18n::t("err.account.login"));
-    }
+    let mut process = super::login::LoginProcess::spawn(login_command(profile)?)?;
     let deadline = Instant::now() + Duration::from_secs(600);
-    let result = loop {
+    let identity = loop {
         if cancel.load(Ordering::Relaxed) {
-            break Err(i18n::t("err.account.cancelled"));
+            return Err(i18n::t("err.account.cancelled"));
         }
         if Instant::now() >= deadline {
-            break Err(i18n::t("err.account.timeout"));
+            return Err(i18n::t("err.account.timeout"));
         }
         let identity = account_status(profile)?;
         if identity.connected && identity.email.is_some() {
-            break Ok(identity);
+            break identity;
         }
-        if attempt.join("done").exists() {
-            break Err(i18n::t("err.account.login"));
-        }
-        std::thread::sleep(Duration::from_millis(200));
+        process.poll(&cancel)?;
     };
-    drop(guard);
-    commit_oauth(credentials, result?, commit)
+    drop(process);
+    commit_oauth(credentials, identity, commit)
+}
+fn login_command(profile: &Profile) -> Result<portable_pty::CommandBuilder, String> {
+    let mut environment = Command::new("gemini");
+    account_env(&mut environment, profile)?;
+    let mut command = portable_pty::CommandBuilder::new("gemini");
+    command.arg("--experimental-acp");
+    command.cwd(&profile.home);
+    for (key, value) in environment.get_envs() {
+        if let Some(value) = value {
+            command.env(key, value);
+        } else {
+            command.env_remove(key);
+        }
+    }
+    // The login has an explicit user action and a private TTY, even if the desktop inherited CI.
+    command.env("CI", "");
+    command.env("GITHUB_ACTIONS", "");
+    command.env("TERM", "xterm-256color");
+    Ok(command)
 }
 fn commit_oauth(
     mut credentials: CredentialBackup,
@@ -181,24 +147,6 @@ fn commit_oauth(
     credentials.commit = true;
     Ok(())
 }
-struct TerminalLogin {
-    directory: PathBuf,
-}
-impl Drop for TerminalLogin {
-    fn drop(&mut self) {
-        let _ = paths::write_private(&self.directory.join("cancel"), "cancel");
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while !self.directory.join("done").exists() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        // Keep cancellation visible if Terminal has not opened yet. A late wrapper exits before
-        // spawning a process. Completed attempts contain no secrets and can be removed together.
-        if self.directory.join("done").exists() {
-            let _ = std::fs::remove_dir_all(&self.directory);
-        }
-    }
-}
-
 struct CredentialBackup {
     files: Vec<(PathBuf, Option<PathBuf>)>,
     commit: bool,
@@ -449,6 +397,58 @@ fn key_transaction<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires Gemini CLI and OAuth network access; intercepts browser without login or credentials"]
+    fn real_cli_requests_browser_login_without_opening_terminal() {
+        assert!(super::super::installed());
+        let home =
+            std::env::temp_dir().join(format!("prometeu-gemini-browser-{}", uuid::Uuid::new_v4()));
+        paths::ensure_private_dir(&home.join(".gemini")).unwrap();
+        paths::ensure_private_dir(&home.join("bin")).unwrap();
+        paths::write_private(&home.join(".gemini/settings.json"),
+            r#"{"security":{"auth":{"selectedType":"oauth-personal"}},"telemetry":{"enabled":false}}"#).unwrap();
+        let opener = home.join("bin/open");
+        paths::write_private(&opener, "#!/bin/sh\ncase \"$1\" in\nhttps://accounts.google.com/*) : > \"$GEMINI_CLI_HOME/browser-requested\" ;;\n*) : > \"$GEMINI_CLI_HOME/unexpected-open\" ;;\nesac\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&opener, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let profile = Profile {
+            id: uuid::Uuid::new_v4().to_string(),
+            provider: crate::state::ProviderId::Gemini,
+            home: home.clone(),
+            managed: true,
+            revision: 0,
+            auth_method: Some("google".into()),
+        };
+        let mut command = login_command(&profile).unwrap();
+        command.env(
+            "PATH",
+            format!(
+                "{}:{}",
+                home.join("bin").display(),
+                std::env::var("PATH").unwrap_or_default()
+            ),
+        );
+        let mut process = super::super::login::LoginProcess::spawn(command).unwrap();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let until = Instant::now() + Duration::from_secs(45);
+        while !home.join("browser-requested").exists()
+            && !home.join("unexpected-open").exists()
+            && Instant::now() < until
+        {
+            process.poll(&cancel).unwrap();
+        }
+        let browser = home.join("browser-requested").exists();
+        let unexpected = home.join("unexpected-open").exists();
+        drop(process);
+        assert!(!home.join(".gemini/oauth_creds.json").exists());
+        std::fs::remove_dir_all(home).unwrap();
+        assert!(browser, "CLI did not request the Google browser flow");
+        assert!(
+            !unexpected,
+            "CLI tried to open something other than the Google auth URL"
+        );
+    }
+
     #[test]
     fn managed_google_env_neutralizes_dotenv_and_fixed_keychain() {
         let p = Profile {

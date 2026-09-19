@@ -167,3 +167,11 @@ The source-derived `src-tauri/src/gemini/fixtures/canonical-events.json` is
 asserted against Rust adapter output and replayed by `src/conversation.test.ts`
 and `e2e/conversation-requests.spec.ts`. It verifies the V1 boundary, but is not
 an authenticated CLI recording.
+
+The browser-login regression in `gemini/account.rs` can run explicitly with
+`cargo test --bin Prometeu real_cli_requests_browser_login_without_opening_terminal -- --ignored`.
+It uses the real CLI with an empty temporary profile, intercepts the system
+browser opener, and verifies that the official Google URL is requested without
+a Terminal window. It does not complete OAuth or use existing credentials.
+`gemini/login.rs` separately verifies consent matching and process teardown;
+`e2e/accounts.spec.ts` covers explicit selection before workspace creation.

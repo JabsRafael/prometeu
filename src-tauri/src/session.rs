@@ -1372,6 +1372,8 @@ pub(crate) fn create_workspace_owned(
     rows: u16,
     delegation: Option<crate::delegation::Delegation>,
 ) -> Result<Workspace, String> {
+    // Reject missing selection before publishing a card or preparing filesystem state.
+    crate::accounts::active(draft.launch.agent)?;
     let repo_path = PathBuf::from(expand(&draft.project));
     let repo_name = repo_named(&repo_path)?;
 

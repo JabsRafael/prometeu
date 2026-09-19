@@ -1142,6 +1142,7 @@ body.noside .side { display: none; }
   flex: none; display: flex; align-items: center; gap: 6px; padding: 12px;
 }
 .sheetbar .pick > .ic:first-child { color: var(--fg-3); }
+.sheetbar #d-account { display: block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Effort bars cycle through levels. Ultra uses a gradient above the highest multi-agent level. */
 .effort { padding: 0 8px 0 7px; gap: 7px; }
 .effort .bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }

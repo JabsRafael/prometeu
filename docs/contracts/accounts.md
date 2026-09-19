@@ -18,7 +18,13 @@ the switch between turns.
 
 Connecting an account does not activate it. The person clicks the account in the
 panel after logging in; the whole card is clickable and its outline indicates the
-selection. Reconnecting increments the revision, making idle processes resume
+selection. Connected inactive cards explicitly offer “Use this account”. The launcher
+shows the selected account and opens these same cards when no account is active,
+preserving the draft until the person selects one. Workspace creation also checks
+the global selection before publishing a card or preparing directories, including
+callers that bypass the launcher. No persisted format changes are involved.
+
+Reconnecting increments the revision, making idle processes resume
 before the next message, even when the ID stays the same. Reconnection is refused
 during a turn that uses that account. Login failures do not change the selection.
 
@@ -170,7 +176,7 @@ accounts; late responses from the previous selection are discarded.
 - `src/agents.test.ts`: late catalog response.
 - `e2e/accounts.spec.ts`: selection persisted per provider, cancellation,
   reconnection, removal of every account, login failure, old registry without
-  nicknames and email escaping.
+  nicknames, email escaping, and launcher draft preservation before explicit account selection.
 - The `perfil_vazio_nao_herda_login_do_terminal` tests, run separately, query
   the real CLIs without login or prompts.
 
@@ -197,9 +203,14 @@ profile. Credentials are not shared. Child environment variables neutralize
 alternative credentials and forced global encrypted OAuth storage, including
 workspace `.env` values that otherwise replace the chosen account.
 
-Google authentication remains the official CLI flow. Where 0.30.0 cannot obtain
-consent through a non-TTY ACP process, authentication uses an isolated terminal
-for that managed profile. It does not change the terminal user's original login.
+Google authentication remains the official CLI flow. The app runs an auxiliary
+`gemini --experimental-acp` process on a private PTY because 0.30.0 requires
+interactive browser consent. Clicking Connect authorizes that one known consent
+prompt; other prompts are never answered. Only the browser is shown. The CLI
+owns its OAuth URL, callback and credentials, and no model session or prompt is
+created. PTY output is bounded and private, never displayed, persisted or sent
+over IPC. Cancellation terminates and reaps the process before restoring any
+previous credentials. It does not change the terminal user's original login.
 API keys are stored by account UUID in macOS Keychain, accessed through the
 native API rather than command-line arguments. They are injected only into that
 account's child process. Snapshot metadata contains the authentication method
