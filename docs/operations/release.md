@@ -8,10 +8,12 @@ The repository uses Conventional Commits in English:
 type(scope): description
 ```
 
-`feat`, `fix` and `perf` appear in the changelog. During the 0.x series, normal
-changes bump the patch and breaking changes bump the minor according to
-`cliff.toml`. The description is the public release line: write what the person
-sees, in lowercase and without a trailing period.
+`feat`, `fix` and `perf` appear in the changelog. Features bump the minor;
+backwards-compatible fixes, performance changes and reverts bump the patch. The
+largest required bump wins when a release mixes them. During the 0.x series,
+breaking changes also bump the minor; after 1.0 they bump the major. These rules
+live in `cliff.toml`. The description is the public release line: write what the
+person sees, in lowercase and without a trailing period.
 
 The `.githooks/commit-msg` hook validates locally and the `commits` job checks
 every commit of the PR.

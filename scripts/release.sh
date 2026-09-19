@@ -8,8 +8,8 @@
 # This script controls version, changelog and tag. CI builds and signs a draft release in this
 # repository. Install and review its DMG before publishing.
 # The updater accepts only newer versions; publishing a bad release requires another release to recover.
-# Conventional Commits supply git-cliff, CHANGELOG.md and release notes. While versions remain 0.x,
-# feat/fix bump patch and breaking changes bump minor; see cliff.toml.
+# Conventional Commits supply git-cliff, CHANGELOG.md and release notes. Features bump minor; fixes
+# bump patch. While versions remain 0.x, breaking changes also bump minor; see cliff.toml.
 # Signing keys stay in ~/.tauri/prometeu.key, with the password in Keychain and CI copies in repository
 # Secrets. Losing both copies prevents updating existing installations; retain a secure backup.
 set -eu

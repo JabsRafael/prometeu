@@ -4,18 +4,6 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
-## [0.7.9] - 2026-09-19
-
-### New
-
-- **feedback:** Add public bug reporting
-
-### Fixes
-
-- **chat:** Preserve request kinds and per-tab transcripts
-- **cleanup:** Warn before deleting ignored files
-- **files:** Clarify the finder button tooltip
-
 ## [0.7.8] - 2026-09-18
 
 ### New
@@ -612,4 +600,3 @@ commits by git-cliff, and each release's notes on GitHub are its section.
 - Arrastar card entre colunas volta a funcionar
 - Marcar o package-lock junto com o package.json
 - Modelo, esforço e plan mode no rodapé, e sempre solto
-

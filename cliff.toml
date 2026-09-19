@@ -64,7 +64,7 @@ commit_parsers = [
 ]
 
 [bump]
-# During 0.x, feat and fix bump patch while breaking changes bump minor. Moving to 1.0 requires an
-# explicit decision.
-features_always_bump_minor = false
+# Features bump minor and fixes bump patch. During 0.x, breaking changes also bump minor. Moving to
+# 1.0 requires an explicit decision.
+features_always_bump_minor = true
 breaking_always_bump_major = false
