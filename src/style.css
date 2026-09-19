@@ -1900,3 +1900,8 @@ body.noside .side { display: none; }
 .webmeta { font-size: 11px; color: var(--fg-3); margin: 8px 0; }
 .webcode { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
 .webcode pre { margin: 0; padding: 8px; font-size: 11px; line-height: 1.5; max-height: 160px; overflow: auto; background: var(--bg); border: 1px solid var(--line-raised); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* The same account cards serve Settings and the quick switcher. */
+.accounts-view { display: grid; gap: 20px; }
+.setpage .accounts-view { width: min(100%, 560px); }
+.account-state { color: var(--accent); }

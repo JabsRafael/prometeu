@@ -317,7 +317,7 @@ listen<string>("account-error", ({ payload }) => say(fromBack(payload), true));
 
 /// Machine resource updates arrive every three seconds only when values change.
 listen<statusbar.Machine>("machine", ({ payload }) => statusbar.showMachine(payload));
-statusbar.init({ say });
+statusbar.init({ say, accounts: () => { settings.showAccounts(); showSettings(); } });
 invoke("machine").then(statusbar.showMachine).catch(() => {});
 
 /* File drops into conversations and terminals. */

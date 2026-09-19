@@ -838,12 +838,13 @@ const mockCommands: IpcHandlers = {
   },
   account_login(args) {
     if (mockAccounts.login) throw 'i18n:{"code":"err.account.busy"}';
-    if (!["claude", "codex"].includes(args.provider)) throw 'i18n:{"code":"err.account.provider"}';
+    if (!["claude", "codex", "gemini"].includes(args.provider)) throw 'i18n:{"code":"err.account.provider"}';
     let account = mockAccounts.accounts.find((account) => account.id === args.id);
     if (!account) {
       account = { id: crypto.randomUUID(), provider: args.provider, email: null, plan: null, connected: false, revision: 0 };
       mockAccounts.accounts.push(account);
     }
+    account.authMethod = args.method ?? "browser";
     const connecting = account;
     mockAccounts.login = { id: connecting.id, provider: connecting.provider };
     accountSnapshot();
@@ -865,6 +866,16 @@ const mockCommands: IpcHandlers = {
       const timer = setTimeout(() => finish(localStorage.getItem("mock:accountLoginError") ? "err.account.login" : undefined), 1000);
       cancelAccountLogin = () => { clearTimeout(timer); finish("err.account.cancelled"); };
     });
+  },
+  account_api_key(args) {
+    if (mockAccounts.login) throw 'i18n:{"code":"err.account.busy"}';
+    if (args.provider !== "gemini") throw 'i18n:{"code":"err.account.provider"}';
+    if (!args.key.trim()) throw 'i18n:{"code":"err.account.login"}';
+    let account = mockAccounts.accounts.find(a => a.id === args.id);
+    if (account && (account.provider !== args.provider || account.id === account.provider)) throw 'i18n:{"code":"err.account.external"}';
+    if (!account) { account = { id: crypto.randomUUID(), provider: args.provider, email: null, plan: null, connected: false, revision: 0 }; mockAccounts.accounts.push(account); }
+    account.authMethod = "apiKey"; account.keySuffix = args.key.slice(-4); account.connected = true; account.revision++;
+    return accountSnapshot();
   },
   account_login_cancel(args) {
     if (mockAccounts.login?.id === args.id) cancelAccountLogin?.();
@@ -1343,6 +1354,7 @@ const mockCommands: IpcHandlers = {
         {
           id: "claude",
           label: "Claude",
+          authMethods: [{ id: "browser", kind: "browser", label: "Claude" }],
           installed: true,
           models: [],
           capabilities: {
@@ -1360,6 +1372,7 @@ const mockCommands: IpcHandlers = {
         {
           id: "codex",
           label: "Codex",
+          authMethods: [{ id: "browser", kind: "browser", label: "Codex" }],
           installed: true,
           models: [
             { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
@@ -1378,6 +1391,13 @@ const mockCommands: IpcHandlers = {
             attachments: true,
           },
         },
+        {
+          id: "gemini", label: "Gemini", installed: localStorage.getItem("mock:geminiMissing") !== "1",
+          authMethods: [{ id: "google", kind: "browser", label: "Google" }, { id: "apiKey", kind: "apiKey", label: "API key" }],
+          models: ["auto", "pro", "flash", "flash-lite"].map(id => ({ id, label: id, efforts: [] })),
+          capabilities: { initialPlanMode: true, resume: true, approvals: true, attachments: false,
+            workspaceMcpSelection: false, workspacePluginSelection: false, compact: false, contextReport: false, userQuestions: false },
+        },
       ],
     };
   },
@@ -1394,7 +1414,7 @@ const mockCommands: IpcHandlers = {
   usage() {
     const now = Math.floor(Date.now() / 1000);
     return {
-      ...Object.fromEntries(mockAccounts.accounts.filter((account) => account.id !== account.provider && account.connected).map((account, index) => [account.id, {
+      ...Object.fromEntries(mockAccounts.accounts.filter((account) => account.id !== account.provider && account.connected && account.authMethod !== "apiKey").map((account, index) => [account.id, {
         windows: [{ kind: "session", pct: 9 + index, resets: now + 2 * 3600 }, { kind: "weekly", pct: 25 + index, resets: now + 4 * 86400 }],
         at: now,
       }])),

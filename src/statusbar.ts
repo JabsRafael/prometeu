@@ -1,9 +1,14 @@
+import * as accountUI from "./accounts";
+import { accounts } from "./accounts";
+export type { Account, Accounts } from "./accounts";
+import type { Accounts } from "./accounts";
+import { button } from "./ui";
 import { openCleanup } from "./cleanup";
 import type { AgentDescriptor } from "./agents";
 import { brand, icon } from "./icons";
 import { fromBack, t } from "./i18n";
 import * as menu from "./menu";
-import { invoke, type IpcCall } from "./ipc";
+import { invoke } from "./ipc";
 import type { Board, ProviderId } from "./types";
 import { $ } from "./util";
 
@@ -12,20 +17,6 @@ import { $ } from "./util";
 export type Window = { kind: string; pct: number; resets: number; scope?: string; label?: string };
 export type Agent = { windows: Window[]; at: number };
 export type Usage = Record<string, Agent>;
-export type Account = {
-  id: string;
-  provider: ProviderId;
-  email: string | null;
-  plan: string | null;
-  connected: boolean;
-  revision: number;
-};
-export type Accounts = {
-  accounts: Account[];
-  active: Partial<Record<ProviderId, string>>;
-  login: { id: string; provider: ProviderId } | null;
-};
-
 export type Proc = { kind: string; name: string; detail: string; rss: number; cpu: number; hist: number[] };
 export type Port = { id: string; title: string; port: number };
 export type Machine = { rss: number; cpu: number; procs: Proc[]; terms: number; ports: Port[] };
@@ -35,11 +26,10 @@ const WARN = 75;
 const HOT = 90;
 
 let usage: Usage = {};
-let accounts: Accounts | null = null;
-let accountAction = false;
 let usageProvider: ProviderId | null = null;
 /// Start with the historical Claude fallback until installed providers are discovered.
-let agents: Pick<AgentDescriptor, "id" | "label">[] = [{ id: "claude", label: "Claude" }];
+let agents: AgentDescriptor[] = [];
+let manageAccounts = () => {};
 let machine: Machine = { rss: 0, cpu: 0, procs: [], terms: 0, ports: [] };
 let say: (text: string, isError?: boolean) => void = () => {};
 
@@ -63,7 +53,10 @@ function read(): Awake {
   }
 }
 
-export function init(hooks: { say: (text: string, isError?: boolean) => void }) {
+export function init(hooks: { say: (text: string, isError?: boolean) => void; accounts: () => void }) {
+  manageAccounts = hooks.accounts;
+  accountUI.init({ say: hooks.say, quota: id => usage[id]?.windows.length ? windowsPanel(usage[id]) : `<div class="uempty">${t("status.usage.none")}</div>` });
+  accountUI.onChange(() => { draw(); if (open === "usage") fill(); });
   say = hooks.say;
   hold();
 }
@@ -90,28 +83,14 @@ const holding = () => awake === "on" || (awake === "agent" && working);
 export function showUsage(next: Usage) {
   usage = next;
   draw();
-  if (open === "usage") fill();
+  accountUI.refreshUsage();
 }
 
-export function showAccounts(next: Accounts): boolean {
-  const selected = (data: Accounts | null) => data && JSON.stringify(
-    data.accounts.filter((account) => data.active[account.provider] === account.id)
-      .map(({ id, revision }) => [id, revision]),
-  );
-  const changed = selected(accounts) !== selected(next);
-  accounts = next;
-  draw();
-  if (open === "usage") fill();
-  return changed;
-}
-
-function accountName(account: Account): string {
-  return account.email || t(account.id === account.provider ? "account.terminal" : "account.new");
-}
+export function showAccounts(next: Accounts): boolean { return accountUI.update(next); }
 
 /// Installed provider CLIs on this machine.
 export function showAgents(have: readonly AgentDescriptor[]) {
-  agents = have.map(({ id, label }) => ({ id, label }));
+  agents = [...have];
   draw();
 }
 
@@ -231,11 +210,11 @@ export function close() {
 }
 
 function onDown(e: MouseEvent) {
-  if (!(e.target as HTMLElement).closest(".upop")) close();
+  if (!(e.target as HTMLElement).closest(".upop, .ui-dialog, [role=menu]")) close();
 }
 
 function onKey(e: KeyboardEvent) {
-  if (e.key !== "Escape") return;
+  if (e.key !== "Escape" || document.querySelector("dialog[open], [role=menu]")) return;
   e.stopPropagation();
   close();
 }
@@ -298,8 +277,11 @@ function fill() {
   const focused = panel.contains(document.activeElement) ? document.activeElement as HTMLElement : null;
   const focusKey = focused?.dataset.focus;
   const scroll = panel.scrollTop;
-  panel.innerHTML = open === "usage" ? usagePanel() : open === "res" ? resPanel() : portPanel();
-  if (open === "usage") bindAccounts();
+  panel.innerHTML = open === "usage" ? "" : open === "res" ? resPanel() : portPanel();
+  if (open === "usage") {
+    panel.replaceChildren(accountUI.render(agents.filter(agent => !usageProvider || agent.id === usageProvider)));
+    panel.append(button(t("account.manage"), () => { close(); manageAccounts(); }));
+  }
   if (focusKey) {
     const next = panel.querySelector<HTMLElement>(`[data-focus="${CSS.escape(focusKey)}"]`);
     (next ?? panel).focus({ preventScroll: true });
@@ -323,97 +305,6 @@ function fill() {
 
 const head = (title: string, aside = "") =>
   `<div class="uhead">${title}<span class="spacer"></span><span class="uaside">${aside}</span></div>`;
-
-function usagePanel(): string {
-  return (
-    agents.filter((agent) => !usageProvider || agent.id === usageProvider).map((agent) => {
-      if (!accounts) return head(t("status.usage")) + card(agent, usage[agent.id]);
-      const list = accounts.accounts.filter((account) => account.provider === agent.id);
-      return head(brand(agent.id) + `<span class="uname">${esc(agent.label)}</span>`) +
-        (!list.length ? `<div class="uempty">${t("account.empty")}</div>` : "") +
-        list.map(accountCard).join("") +
-        `<div class="account-add"><button data-add="${agent.id}" data-focus="add-${agent.id}" ${accounts.login || accountAction ? "disabled" : ""}>${icon("plus", 13)}${t("account.add")}</button></div>`;
-    }).join("")
-  );
-}
-
-function accountCard(account: Account): string {
-  const active = accounts?.active[account.provider] === account.id;
-  const external = account.id === account.provider;
-  const loggingIn = accounts?.login?.id === account.id;
-  const data = usage[account.id];
-  const disabled = accountAction || loggingIn || (!account.connected && !external);
-  const state = t(loggingIn ? "account.connecting" : active ? "account.active" : account.connected || external ? "account.use" : "account.disconnected");
-  const details = loggingIn || (!account.connected && !external) ? state : "";
-  const meta = [account.plan, data?.windows.length ? ago(data.at) : null].filter(Boolean).join(" · ");
-  return `<section class="uaccount${active ? " active" : ""}" data-account="${esc(account.id)}">` +
-    `<button class="account-select" data-select="${esc(account.id)}" data-focus="select-${esc(account.id)}" title="${esc(accountName(account))} · ${state}" aria-label="${esc(accountName(account))}" aria-pressed="${active}" ${disabled ? "disabled" : ""}></button>` +
-    `<div class="account-content"><div class="account-heading"><strong title="${esc(accountName(account))}">${esc(accountName(account))}</strong>` +
-    `<button class="account-remove ico" data-remove="${esc(account.id)}" data-focus="remove-${esc(account.id)}" title="${t("account.remove")}" aria-label="${t("account.remove")}" ${accounts?.login || accountAction ? "disabled" : ""}>${icon("trash", 13)}</button>` +
-    `</div>` +
-    (details ? `<small>${esc(details)}</small>` : "") +
-    (loggingIn ? `<div class="account-wait" role="status">${t("account.browser")} <button data-cancel="${esc(account.id)}">${t("account.cancel")}</button></div>` : "") +
-    `<div class="account-meta"><span class="uwhen" title="${esc(meta)}">${esc(meta)}</span>` +
-    (!external ? `<button class="account-reconnect" data-login="${esc(account.id)}" data-focus="login-${esc(account.id)}" ${accounts?.login || accountAction ? "disabled" : ""}>${t("account.reconnect")}</button>` : "") + `</div>` +
-    (data?.windows.length ? windowsPanel(data) : `<div class="uempty">${t("status.usage.none")}</div>`) +
-    `</div></section>`;
-}
-
-function bindAccounts() {
-  if (!panel) return;
-  for (const button of panel.querySelectorAll<HTMLButtonElement>("[data-select]")) {
-    button.addEventListener("click", () => void accountCall("account_select", { id: button.dataset.select! }));
-  }
-  for (const button of panel.querySelectorAll<HTMLButtonElement>("[data-login]")) {
-    button.addEventListener("click", () => {
-      const account = accounts?.accounts.find((account) => account.id === button.dataset.login);
-      if (account) void accountCall("account_login", { provider: account.provider, id: account.id });
-    });
-  }
-  for (const button of panel.querySelectorAll<HTMLButtonElement>("[data-remove]")) {
-    button.addEventListener("click", () => void accountCall("account_remove", { id: button.dataset.remove! }));
-  }
-  for (const button of panel.querySelectorAll<HTMLButtonElement>("[data-cancel]")) {
-    button.addEventListener("click", () => {
-      button.disabled = true;
-      void invoke("account_login_cancel", { id: button.dataset.cancel! }).catch((error) => say(fromBack(error), true));
-    });
-  }
-  for (const button of panel.querySelectorAll<HTMLButtonElement>("[data-add]")) {
-    button.addEventListener("click", () => {
-      const provider = agents.find(agent => agent.id === button.dataset.add)?.id;
-      if (provider) void accountCall("account_login", { provider, id: null });
-    });
-  }
-}
-
-async function accountCall(...call: IpcCall<"account_select" | "account_login" | "account_remove">) {
-  if (accountAction) return;
-  accountAction = true;
-  fill();
-  try {
-    const next = await invoke(...call);
-    showAccounts(next);
-    if (call[0] === "account_remove") panel?.focus({ preventScroll: true });
-    if (call[0] === "account_login") {
-      say(t("account.connected"));
-    }
-  } catch (error) {
-    say(fromBack(error), true);
-  } finally {
-    accountAction = false;
-    if (open === "usage") fill();
-  }
-}
-
-/// Show each provider's quota windows and reading time, or explain missing data.
-function card(agent: Pick<AgentDescriptor, "id" | "label">, data?: Agent): string {
-  const head =
-    `<div class="uagent">${brand(agent.id)}<span class="uname">${agent.label}</span>` +
-    `<span class="uwhen">${data ? ago(data.at) : ""}</span></div>`;
-  if (!data?.windows.length) return head + `<div class="uempty">${t("status.usage.none")}</div>`;
-  return head + windowsPanel(data);
-}
 
 function windowsPanel(data: Agent): string {
   return data.windows.some((window) => window.scope)

@@ -5,6 +5,7 @@ import { checkDependencies } from "./architecture-dependencies.mjs";
 /// in the catalog or Rust adapters.
 const presentation = [
   "src/chat.ts",
+  "src/accounts.ts",
   "src/launcher.ts",
   "src/main.ts",
   "src/settings.ts",
@@ -13,8 +14,8 @@ const presentation = [
 ];
 
 const forbidden = [
-  /(?:===|!==)\s*["'](?:claude|codex)["']|["'](?:claude|codex)["']\s*(?:===|!==)/g,
-  /\bcase\s+["'](?:claude|codex)["']/g,
+  /(?:===|!==)\s*["'](?:claude|codex|gemini)["']|["'](?:claude|codex|gemini)["']\s*(?:===|!==)/g,
+  /\bcase\s+["'](?:claude|codex|gemini)["']/g,
 ];
 
 const sources = new Map();
@@ -75,7 +76,7 @@ for (const pattern of [
 }
 
 const chat = await readFile("src-tauri/src/chat.rs", "utf8");
-for (const match of chat.matchAll(/Command::new\s*\(\s*"(?:claude|codex)"/g)) {
+for (const match of chat.matchAll(/Command::new\s*\(\s*"(?:claude|codex|gemini)"/g)) {
   const line = chat.slice(0, match.index).split("\n").length;
   failures.push(`src-tauri/src/chat.rs:${line}: processo de provider fora do adapter: ${match[0]}`);
 }

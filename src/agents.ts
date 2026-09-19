@@ -19,7 +19,11 @@ export type AgentCapabilities = {
   attachments: boolean;
 };
 
+export type AuthMethod = { id: string; kind: "browser" | "apiKey"; label: string };
+
 export type AgentDescriptor = {
+  authMethods: AuthMethod[];
+  unavailableReason?: string | null;
   id: ProviderId;
   label: string;
   installed: boolean;
@@ -55,6 +59,7 @@ const BOOTSTRAP: AgentDescriptor[] = [
   {
     id: "claude",
     label: "Claude",
+    authMethods: [{ id: "browser", kind: "browser", label: "Claude" }],
     installed: true,
     models: [],
     capabilities: NO_CAPABILITIES,
@@ -62,8 +67,14 @@ const BOOTSTRAP: AgentDescriptor[] = [
   {
     id: "codex",
     label: "Codex",
+    authMethods: [{ id: "browser", kind: "browser", label: "Codex" }],
     installed: false,
     models: [],
+    capabilities: NO_CAPABILITIES,
+  },
+  {
+    id: "gemini", label: "Gemini", installed: false, models: [],
+    authMethods: [{ id: "google", kind: "browser", label: "Google" }, { id: "apiKey", kind: "apiKey", label: "API key" }],
     capabilities: NO_CAPABILITIES,
   },
 ];

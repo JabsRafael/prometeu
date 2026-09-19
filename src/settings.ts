@@ -1,3 +1,4 @@
+import * as accountUI from "./accounts";
 import * as actions from "./actions";
 import * as actionSettings from "./action-settings";
 import { invoke } from "./ipc";
@@ -40,6 +41,11 @@ let status: LinearStatus = { connected: false, who: null, busy: false };
 
 export async function init(context: Ctx) {
   ctx = context;
+  accountUI.onChange(() => { if (!$("settingsView").hidden && open === "contas") {
+    const focus = document.activeElement instanceof HTMLElement ? document.activeElement.dataset.focus : undefined;
+    draw();
+    if (focus) $("settingsView").querySelector<HTMLElement>(`[data-focus="${CSS.escape(focus)}"]`)?.focus({ preventScroll: true });
+  } });
   skills.init(ctx.say, async () => {
     await plugins.refresh();
     await catalog.load();
@@ -85,6 +91,7 @@ export const linear = () => status;
 type Page = { id: string; title: Key; glyph: Parameters<typeof icon>[0]; rows: () => HTMLElement[] };
 
 const PAGES: Page[] = [
+  { id: "contas", title: "account.title", glyph: "users", rows: () => [accountUI.render()] },
   {
     id: "geral",
     title: "settings.page.general",
@@ -135,7 +142,8 @@ const PAGES: Page[] = [
 
 /// Remember the last settings page on this Mac.
 const PAGE_KEY = "prometeu:configuracoes";
-let open = localStorage.getItem(PAGE_KEY) ?? PAGES[0].id;
+let open = localStorage.getItem(PAGE_KEY) ?? "geral";
+export function showAccounts() { open = "contas"; localStorage.setItem(PAGE_KEY, open); }
 
 export function draw() {
   const view = $("settingsView");

@@ -81,3 +81,9 @@ describe("ConversationEventV1", () => {
     expect(before.commands).toEqual(during.commands);
   });
 });
+
+it("accepts canonical usage for Gemini without accepting unknown provider names", () => {
+  const event = { v: 1, type: "usage.updated", at: 1, provider: "gemini", usage: { windows: [] } };
+  expect(parseConversationEvent(event)).toEqual(event);
+  expect(parseConversationEvent({ ...event, provider: "unknown" })).toBeNull();
+});
