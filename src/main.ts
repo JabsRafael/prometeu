@@ -257,7 +257,6 @@ listen<Board>("board", ({ payload }) => {
   actions.update(state);
   team.boardChanged(state);
   alert.boardChanged(state);
-  settings.boardChanged(state);
   refresh();
 });
 
@@ -706,7 +705,6 @@ state = await invoke("load_board");
 actions.update(state);
 team.boardChanged(state);
 alert.boardChanged(state);
-settings.boardChanged(state);
 showDesk();
 
 // Show release notes after the initial page renders so the dialog overlays the application.
