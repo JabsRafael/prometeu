@@ -4,7 +4,7 @@
 
 <h1 align="center">Prometeu</h1>
 
-Prometeu is an open-source macOS app for working with Claude Code, Codex, and Gemini CLI.
+Prometeu is an open-source macOS app for working with Claude Code, Codex, and Antigravity CLI.
 Organize parallel tasks into workspaces, give each task its own Git worktree,
 and keep conversations, files, terminals, and code review in one place.
 
@@ -23,10 +23,11 @@ optional for local work; model access comes from your own provider account.
   repositories, or open an ordinary folder without Git. Each workspace keeps
   its own conversations and terminals. Archiving or finishing offers to remove
   its worktree and local branch after explicit confirmation.
-- **Claude Code, Codex, and Gemini CLI.** Choose a model and supported effort
+- **Claude Code, Codex, and Antigravity CLI.** Choose a model and supported effort
   level, manage accounts in Settings, and resume conversations after an agent
-  process stops. Gemini CLI 0.30.0 or newer supports Google and API-key profiles;
-  see the [provider matrix](docs/quality/provider-matrix.md) for validation limits.
+  process stops. Antigravity CLI uses the account already connected in `agy`;
+  app-managed login, quotas, interactive approvals and plan mode are unavailable.
+  See the [provider matrix](docs/quality/provider-matrix.md) for validation limits.
 - **A desk for ongoing conversations.** Arrange conversations side by side,
   respond to questions, and follow agent activity without opening each workspace.
   Your workspace stage stays separate from the agent's status.
@@ -63,8 +64,8 @@ The published download is for **macOS on Apple Silicon**.
 1. Download `Prometeu_aarch64.dmg` from the
    [latest release](https://github.com/prometeucorp/prometeu/releases/latest).
 2. Open the disk image and move Prometeu to Applications.
-3. Install Claude Code, Codex, or Gemini CLI (minimum 0.30.0). The corresponding
-   `claude`, `codex`, or `gemini` command must be available in your shell.
+3. Install Claude Code, Codex, or Antigravity CLI (minimum 1.2.7). The corresponding
+   `claude`, `codex`, or `agy` command must be available in your shell.
 4. Authenticate with your provider through its CLI or the account panel in
    Prometeu.
 
@@ -93,7 +94,7 @@ For the desktop app:
   [package.json](package.json).
 - Rust installed through rustup. The backend pins **1.88.0**, with rustfmt
   and Clippy, in [rust-toolchain.toml](src-tauri/rust-toolchain.toml).
-- Claude Code, Codex, or Gemini CLI installed and authenticated to exercise real sessions.
+- Claude Code, Codex, or Antigravity CLI installed and authenticated to exercise real sessions.
 
 ### Run the desktop app
 
@@ -187,7 +188,7 @@ This lets you keep private setup commands outside version control.
 
 ## Local data and optional Cloud features
 
-Local work does not require a Prometeu account. App state and Codex/Gemini conversation
+Local work does not require a Prometeu account. App state and Codex/Antigravity conversation
 transcripts live under `~/.prometeu`; Claude Code maintains its own transcripts.
 See the [persistence contract](docs/contracts/persistence.md) for paths and
 ownership.
@@ -250,7 +251,7 @@ a Prometeu account and delivers reports privately to the Prometeu team. See the
 - [Documentation index](docs/README.md): contracts, decisions, and operations.
 - [Architecture](ARCHITECTURE.md): system boundaries and code ownership.
 - [Development guide](docs/operations/development.md): environment and testing.
-- [Provider matrix](docs/quality/provider-matrix.md): Claude Code, Codex, and Gemini CLI support.
+- [Provider matrix](docs/quality/provider-matrix.md): Claude Code, Codex, and Antigravity CLI support.
 - [Design system](docs/architecture/design-system.md): shared UI components.
 - [Architecture decisions](docs/decisions/README.md): accepted decisions and history.
 - [Release guide](docs/operations/release.md): maintainer release workflow.

@@ -20,7 +20,9 @@ pub enum ProviderId {
     #[default]
     Claude,
     Codex,
-    Gemini,
+    Antigravity,
+    #[serde(rename = "gemini")]
+    RetiredGemini,
 }
 
 impl<'de> Deserialize<'de> for ProviderId {
@@ -31,7 +33,8 @@ impl<'de> Deserialize<'de> for ProviderId {
         let value = String::deserialize(deserializer)?;
         Ok(match value.as_str() {
             "codex" => Self::Codex,
-            "gemini" => Self::Gemini,
+            "antigravity" => Self::Antigravity,
+            "gemini" => Self::RetiredGemini,
             "" | "claude" => Self::Claude,
             _ => Self::default(),
         })
@@ -767,6 +770,13 @@ where
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn removed_gemini_identity_never_becomes_another_runtime() {
+        let provider: super::ProviderId = serde_json::from_str("\"gemini\"").unwrap();
+        assert_eq!(provider, super::ProviderId::RetiredGemini);
+        assert_eq!(serde_json::to_string(&provider).unwrap(), "\"gemini\"");
+    }
+
     use super::*;
 
     #[test]

@@ -70,6 +70,7 @@ pub struct AgentDescriptor {
     pub auth_methods: Vec<AuthMethod>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unavailable_reason: Option<String>,
+    pub account_notice: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -104,8 +105,9 @@ fn capabilities(id: ProviderId) -> AgentCapabilities {
             ..common
         },
         ProviderId::Codex => common,
-        ProviderId::Gemini => AgentCapabilities {
-            initial_plan_mode: true,
+        ProviderId::Antigravity | ProviderId::RetiredGemini => AgentCapabilities {
+            initial_plan_mode: false,
+            approvals: false,
             workspace_mcp_selection: false,
             workspace_plugin_selection: false,
             compact: false,
@@ -122,26 +124,23 @@ fn descriptor(id: ProviderId, installed: bool, models: Vec<Model>) -> AgentDescr
         label: match id {
             ProviderId::Claude => "Claude".into(),
             ProviderId::Codex => "Codex".into(),
-            ProviderId::Gemini => "Gemini".into(),
+            ProviderId::Antigravity => "Antigravity".into(),
+            ProviderId::RetiredGemini => "Gemini CLI".into(),
         },
         installed,
         models,
         capabilities: capabilities(id),
-        unavailable_reason: (id == ProviderId::Gemini && !installed)
-            .then(|| crate::i18n::t("err.gemini.version")),
+        unavailable_reason: (id == ProviderId::Antigravity && !installed)
+            .then(|| crate::i18n::t("err.antigravity.version")),
+        account_notice: (id == ProviderId::Antigravity)
+            .then(|| crate::i18n::t("account.external.notice")),
         auth_methods: match id {
-            ProviderId::Gemini => vec![
-                AuthMethod {
-                    id: "google".into(),
-                    kind: "browser".into(),
-                    label: "Google".into(),
-                },
-                AuthMethod {
-                    id: "apiKey".into(),
-                    kind: "apiKey".into(),
-                    label: "API key".into(),
-                },
-            ],
+            ProviderId::RetiredGemini => vec![],
+            ProviderId::Antigravity => vec![AuthMethod {
+                id: "external".into(),
+                kind: "external".into(),
+                label: crate::i18n::t("account.external.attach"),
+            }],
             other => vec![AuthMethod {
                 id: "browser".into(),
                 kind: "browser".into(),
@@ -163,16 +162,9 @@ pub fn agents() -> Agents {
     Agents {
         providers: vec![
             descriptor(
-                ProviderId::Gemini,
-                crate::gemini::installed(),
-                ["auto", "pro", "flash", "flash-lite"]
-                    .into_iter()
-                    .map(|id| Model {
-                        id: id.into(),
-                        label: id.into(),
-                        efforts: vec![],
-                    })
-                    .collect(),
+                ProviderId::Antigravity,
+                crate::antigravity::installed(),
+                crate::antigravity::models(),
             ),
             descriptor(ProviderId::Claude, claude, vec![]),
             descriptor(
@@ -432,23 +424,23 @@ mod tests {
         assert_eq!(json["capabilities"]["workspaceMcpSelection"], true);
     }
     #[test]
-    fn gemini_advertises_only_supported_controls_and_both_auth_methods() {
-        let g = descriptor(ProviderId::Gemini, false, vec![]);
-        assert!(g.capabilities.initial_plan_mode);
+    fn antigravity_advertises_only_supported_controls_and_external_account() {
+        let g = descriptor(ProviderId::Antigravity, false, vec![]);
+        assert!(!g.capabilities.initial_plan_mode);
         assert!(g.capabilities.resume);
-        assert!(g.capabilities.approvals);
+        assert!(!g.capabilities.approvals);
         assert!(!g.capabilities.compact);
         assert!(!g.capabilities.context_report);
         assert!(!g.capabilities.user_questions);
         assert!(!g.capabilities.workspace_mcp_selection);
         assert!(!g.capabilities.workspace_plugin_selection);
         let v = serde_json::to_value(g).unwrap();
-        assert_eq!(v["authMethods"][0]["id"], "google");
-        assert_eq!(v["authMethods"][1]["kind"], "apiKey");
+        assert_eq!(v["authMethods"][0]["id"], "external");
+        assert_eq!(v["authMethods"].as_array().unwrap().len(), 1);
         assert!(v["unavailableReason"]
             .as_str()
             .unwrap()
-            .contains("err.gemini.version"));
+            .contains("err.antigravity.version"));
         assert_eq!(
             serde_json::to_value(descriptor(ProviderId::Claude, true, vec![])).unwrap()
                 ["authMethods"][0]["id"],

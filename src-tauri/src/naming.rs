@@ -80,7 +80,7 @@ fn ask(prompt: &str, launch: &Launch) -> Option<String> {
             )
         }
         crate::state::ProviderId::Claude => ask_claude(prompt),
-        crate::state::ProviderId::Gemini => None,
+        crate::state::ProviderId::Antigravity | crate::state::ProviderId::RetiredGemini => None,
     }
 }
 

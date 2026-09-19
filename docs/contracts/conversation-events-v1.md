@@ -2,7 +2,7 @@
 
 Status: contract in force since 2026-09-03.
 
-Claude, Codex and Gemini have different external protocols. The adapters translate them
+Claude, Codex and Antigravity have different external protocols. The adapters translate them
 into events and commands owned by Prometeu before the buffer, IPC, new
 persistence or collaboration. The contract's executable sources are
 `src/conversation.ts` and `src-tauri/src/conversation.rs`.
@@ -156,7 +156,7 @@ type ConversationEphemeralV1 =
       commands: Array<{ name: string; description: string; hint: string }>;
     })
   | (EventBase<"usage.updated"> & {
-      provider: "claude" | "codex" | "gemini";
+      provider: "claude" | "codex" | "antigravity";
       usage: unknown;
     });
 ```

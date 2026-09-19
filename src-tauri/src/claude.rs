@@ -1020,7 +1020,6 @@ mod account_tests {
         let home = std::env::temp_dir().join(format!("prometeu-claude-auth-{id}"));
         paths::ensure_private_dir(&home).unwrap();
         let profile = accounts::Profile {
-            auth_method: None,
             id,
             provider: crate::state::ProviderId::Claude,
             home: home.clone(),

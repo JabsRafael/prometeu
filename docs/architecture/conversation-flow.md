@@ -15,7 +15,7 @@ sequenceDiagram
     participant UI as Frontend
     participant Session as session.rs
     participant Chat as chat.rs
-    participant Adapter as Claude, Codex or Gemini
+    participant Adapter as Claude, Codex or Antigravity
     participant Agent as Agent CLI
 
     UI->>Session: new_tab / chat_send
@@ -73,13 +73,13 @@ application.
 `ConversationEventV1`. The process also writes Claude Code's native transcript,
 which the compatibility reader adapts during replay.
 
-### Gemini
+### Antigravity
 
-`gemini.rs` maps ACP requests and updates directly to V1 and stores the returned
-session identity. It keeps the native transcript for resume and an app-managed
-V1 projection for display. Replay notifications from `session/load` are consumed
-before accepting a new prompt, without re-emitting historical content. See the
-[runtime contract](../contracts/agent-runtime.md) for version and capability limits.
+`antigravity.rs` converts native agy NDJSON directly to V1. It retains the
+conversation ID for explicit resume and uses the existing external account.
+There is no ACP handshake or replay barrier; presentation replays only its V1
+log. Interactive approvals and plan transitions are unavailable. SIGINT targets
+the process group; process loss is followed by native conversation resume.
 
 ### Codex
 

@@ -115,7 +115,7 @@ impl<'de> Deserialize<'de> for Registry {
             .ok_or_else(|| serde::de::Error::custom("accounts must be an array"))?
         {
             match value.get("provider").and_then(Value::as_str) {
-                Some("claude" | "codex" | "gemini") => accounts
+                Some("claude" | "codex" | "antigravity") => accounts
                     .push(serde_json::from_value(value.clone()).map_err(serde::de::Error::custom)?),
                 Some(_) => unknown_accounts.push(value.clone()),
                 None => {
@@ -132,7 +132,7 @@ impl<'de> Deserialize<'de> for Registry {
             .and_then(Value::as_object)
             .ok_or_else(|| serde::de::Error::custom("active must be an object"))?
         {
-            if matches!(provider.as_str(), "claude" | "codex" | "gemini") {
+            if matches!(provider.as_str(), "claude" | "codex" | "antigravity") {
                 active.insert(
                     provider.clone(),
                     value
@@ -157,7 +157,10 @@ impl Registry {
     fn validate(&self) -> Result<(), String> {
         let mut ids = std::collections::HashSet::new();
         for account in &self.accounts {
-            if !ids.insert(&account.id)
+            if (account.provider == ProviderId::Antigravity
+                && (account.id != "antigravity"
+                    || account.auth_method.as_deref() != Some("external")))
+                || !ids.insert(&account.id)
                 || (account.id != key(account.provider)
                     && uuid::Uuid::parse_str(&account.id)
                         .map(|id| id.to_string())
@@ -211,7 +214,8 @@ pub fn key(provider: ProviderId) -> &'static str {
     match provider {
         ProviderId::Claude => "claude",
         ProviderId::Codex => "codex",
-        ProviderId::Gemini => "gemini",
+        ProviderId::Antigravity => "antigravity",
+        ProviderId::RetiredGemini => "gemini",
     }
 }
 
@@ -219,7 +223,7 @@ fn provider(value: &str) -> Result<ProviderId, String> {
     match value {
         "claude" => Ok(ProviderId::Claude),
         "codex" => Ok(ProviderId::Codex),
-        "gemini" => Ok(ProviderId::Gemini),
+        "antigravity" => Ok(ProviderId::Antigravity),
         _ => Err(i18n::t("err.account.provider")),
     }
 }
@@ -263,7 +267,6 @@ fn change(update: impl FnOnce(&mut Registry) -> Result<(), String>) -> Result<()
 
 #[derive(Clone)]
 pub struct Profile {
-    pub auth_method: Option<String>,
     pub id: String,
     pub provider: ProviderId,
     pub home: PathBuf,
@@ -275,7 +278,6 @@ impl Profile {
     fn of(account: &Account) -> Self {
         let managed = account.id != key(account.provider);
         Self {
-            auth_method: account.auth_method.clone(),
             id: account.id.clone(),
             provider: account.provider,
             managed,
@@ -286,7 +288,7 @@ impl Profile {
                 match account.provider {
                     ProviderId::Claude => claude::user_home(),
                     ProviderId::Codex => codex::user_home(),
-                    ProviderId::Gemini => crate::gemini::user_home(),
+                    ProviderId::Antigravity | ProviderId::RetiredGemini => paths::home(),
                 }
             },
         }
@@ -300,7 +302,9 @@ impl Profile {
         match self.provider {
             ProviderId::Claude => claude::prepare_profile(self),
             ProviderId::Codex => codex::prepare_profile(self),
-            ProviderId::Gemini => crate::gemini::prepare_profile(self),
+            ProviderId::Antigravity | ProviderId::RetiredGemini => {
+                Err(i18n::t("err.account.external"))
+            }
         }
     }
 
@@ -308,13 +312,19 @@ impl Profile {
         match self.provider {
             ProviderId::Claude => claude::account_env(command, self),
             ProviderId::Codex => codex::account_env(command, self),
-            ProviderId::Gemini => return crate::gemini::account_env(command, self),
+            ProviderId::Antigravity if !self.managed => {}
+            ProviderId::Antigravity | ProviderId::RetiredGemini => {
+                return Err(i18n::t("err.account.external"))
+            }
         }
         Ok(())
     }
 }
 
 pub fn active(provider: ProviderId) -> Result<Profile, String> {
+    if provider == ProviderId::RetiredGemini {
+        return Err(i18n::t("err.provider.retired"));
+    }
     let guard = lock(registry());
     let data = guard.as_ref().map_err(Clone::clone)?;
     Ok(Profile::of(
@@ -445,83 +455,6 @@ pub fn account_remove(app: AppHandle, id: String) -> Result<Snapshot, String> {
 }
 
 #[tauri::command]
-pub fn account_api_key(
-    app: AppHandle,
-    provider: String,
-    id: Option<String>,
-    key: String,
-) -> Result<Snapshot, String> {
-    if self::provider(&provider)? != ProviderId::Gemini {
-        return Err(i18n::t("err.account.provider"));
-    }
-    let pending = lock(pending());
-    if pending.is_some() {
-        return Err(i18n::t("err.account.busy"));
-    }
-    let id = id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    if uuid::Uuid::parse_str(&id)
-        .map(|v| v.to_string())
-        .ok()
-        .as_deref()
-        != Some(id.as_str())
-    {
-        return Err(i18n::t("err.account.external"));
-    }
-    {
-        let guard = lock(registry());
-        let data = guard.as_ref().map_err(Clone::clone)?;
-        if let Ok(account) = data.find(&id) {
-            if account.provider != ProviderId::Gemini
-                || account.auth_method.as_deref() != Some("apiKey")
-            {
-                return Err(i18n::t("err.account.provider"));
-            }
-        }
-    }
-    if lock(&app.state::<crate::AppState>().chats)
-        .values()
-        .any(|chat| chat.account() == id && chat.working())
-    {
-        return Err(i18n::t("err.account.working"));
-    }
-    let suffix: String = key
-        .chars()
-        .rev()
-        .take(4)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
-    crate::gemini::update_key(&id, &key, || {
-        change(|data| {
-            if let Some(account) = data.accounts.iter_mut().find(|a| a.id == id) {
-                account.revision += 1;
-                account.identity.connected = true;
-                account.key_suffix = Some(suffix.clone());
-            } else {
-                data.accounts.push(Account {
-                    id: id.clone(),
-                    provider: ProviderId::Gemini,
-                    revision: 1,
-                    identity: Identity {
-                        connected: true,
-                        email: None,
-                        plan: None,
-                    },
-                    auth_method: Some("apiKey".into()),
-                    key_suffix: Some(suffix.clone()),
-                });
-            }
-            Ok(())
-        })
-    })?;
-    drop(pending);
-    crate::usage::forget(&app, &id);
-    publish(&app);
-    accounts()
-}
-
-#[tauri::command]
 pub fn account_login_cancel(id: String) {
     if let Some(login) = lock(pending())
         .as_ref()
@@ -539,17 +472,38 @@ pub async fn account_login(
     method: Option<String>,
 ) -> Result<Snapshot, String> {
     let provider = self::provider(&provider)?;
-    let method = method.unwrap_or_else(|| {
-        if provider == ProviderId::Gemini {
-            "google"
-        } else {
-            "browser"
+    if provider == ProviderId::Antigravity {
+        if method.as_deref().is_some_and(|m| m != "external")
+            || id.as_deref().is_some_and(|id| id != "antigravity")
+        {
+            return Err(i18n::t("err.account.external"));
         }
-        .into()
-    });
-    if (provider == ProviderId::Gemini && method != "google")
-        || (provider != ProviderId::Gemini && method != "browser")
-    {
+        if !crate::antigravity::installed() {
+            return Err(i18n::t("err.antigravity.version"));
+        }
+        let pending = lock(pending());
+        if pending.is_some() {
+            return Err(i18n::t("err.account.busy"));
+        }
+        change(|data| {
+            if !data.accounts.iter().any(|a| a.id == "antigravity") {
+                data.accounts.push(Account {
+                    id: "antigravity".into(),
+                    provider,
+                    revision: 0,
+                    auth_method: Some("external".into()),
+                    key_suffix: None,
+                    identity: Identity::default(),
+                });
+            }
+            Ok(())
+        })?;
+        drop(pending);
+        publish(&app);
+        return accounts();
+    }
+    let method = method.unwrap_or_else(|| "browser".into());
+    if method != "browser" {
         return Err(i18n::t("err.account.provider"));
     }
     let cancel = Arc::new(AtomicBool::new(false));
@@ -627,7 +581,9 @@ pub async fn account_login(
             })
         };
         match provider {
-            ProviderId::Gemini => crate::gemini::login(&profile, cancel.clone(), commit)?,
+            ProviderId::Antigravity | ProviderId::RetiredGemini => {
+                return Err(i18n::t("err.account.external"))
+            }
             ProviderId::Claude => commit(claude::login(&profile, cancel.clone())?)?,
             ProviderId::Codex => commit(codex::login(&profile, cancel.clone())?)?,
         }
@@ -979,33 +935,42 @@ mod tests {
         );
     }
     #[test]
-    fn gemini_metadata_round_trips_without_autoactivation_or_a_secret() {
+    fn external_antigravity_registration_is_explicit_and_removable() {
         let mut registry = Registry::default();
-        assert!(!registry.active.contains_key("gemini"));
-        let id = uuid::Uuid::new_v4().to_string();
+        assert!(!registry.active.contains_key("antigravity"));
         registry.accounts.push(Account {
-            id: id.clone(),
-            provider: ProviderId::Gemini,
-            revision: 1,
-            auth_method: Some("apiKey".into()),
-            key_suffix: Some("1234".into()),
-            identity: Identity {
-                connected: true,
-                email: None,
-                plan: None,
-            },
+            id: "antigravity".into(),
+            provider: ProviderId::Antigravity,
+            revision: 0,
+            auth_method: Some("external".into()),
+            key_suffix: None,
+            identity: Identity::default(),
         });
         registry.validate().unwrap();
-        assert!(!registry.active.contains_key("gemini"));
-        registry.select(&id).unwrap();
-        let value = serde_json::to_value(&registry).unwrap();
-        let account = value["accounts"].as_array().unwrap().last().unwrap();
-        assert_eq!(account["authMethod"], "apiKey");
-        assert_eq!(account["keySuffix"], "1234");
-        assert!(account.get("key").is_none());
-        let restored: Registry = serde_json::from_value(value).unwrap();
+        assert!(!registry.active.contains_key("antigravity"));
+        registry.select("antigravity").unwrap();
+        let restored: Registry =
+            serde_json::from_value(serde_json::to_value(&registry).unwrap()).unwrap();
         assert!(restored == registry);
-        registry.remove(&id).unwrap();
-        assert!(!registry.active.contains_key("gemini"));
+        registry.remove("antigravity").unwrap();
+        assert!(!registry.active.contains_key("antigravity"));
+    }
+
+    #[test]
+    fn retired_gemini_credentials_are_preserved_but_never_exposed_or_selected() {
+        let value = serde_json::json!({"accounts":[{"id":"old-gemini","provider":"gemini","authMethod":"apiKey","keySuffix":"1234"}],"active":{"gemini":"old-gemini"}});
+        let mut registry: Registry = serde_json::from_value(value.clone()).unwrap();
+        registry.validate().unwrap();
+        assert!(registry.accounts.is_empty());
+        assert!(registry.select("old-gemini").is_err());
+        let snapshot = serde_json::to_value(Snapshot {
+            registry: registry.clone(),
+            login: None,
+        })
+        .unwrap();
+        assert_eq!(snapshot["accounts"], serde_json::json!([]));
+        assert_eq!(snapshot["active"], serde_json::json!({}));
+        assert_eq!(serde_json::to_value(registry).unwrap(), value);
+        assert!(provider("gemini").is_err());
     }
 }

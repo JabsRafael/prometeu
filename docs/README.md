@@ -91,7 +91,7 @@ compatibility still in use stays documented in the current contracts.
 - [ADR 0049](decisions/0049-embedded-delegation-mcp.md): Native MCP for client-owned delegation.
 - [ADR 0050](decisions/0050-tested-application-boundaries.md): Tested application boundaries before service extraction.
 
-- [ADR 0051](decisions/0051-gemini-runtime-and-accounts.md): Gemini ACP and account authentication methods.
+- [ADR 0052](decisions/0052-antigravity-runtime.md): Replace Gemini CLI with Antigravity.
 
 ## Quality and operations
 

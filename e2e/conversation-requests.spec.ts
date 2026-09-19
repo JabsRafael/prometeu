@@ -94,9 +94,9 @@ test("plan approval waits for the execution permission change", async ({ page })
 });
 
 
-test("Gemini adapter fixture renders through the browser mock", async ({ page }) => {
+test("Antigravity adapter fixture renders through the browser mock", async ({ page }) => {
   const fixture: { events: unknown[] } = JSON.parse(readFileSync(
-    new URL("../src-tauri/src/gemini/fixtures/canonical-events.json", import.meta.url), "utf8",
+    new URL("../src-tauri/src/antigravity/fixtures/canonical-events.json", import.meta.url), "utf8",
   ));
   await page.goto("/");
   await page.locator('.railworkspace[data-workspace="sessao-0929"] > .navitem').click();
@@ -104,20 +104,19 @@ test("Gemini adapter fixture renders through the browser mock", async ({ page })
   await page.evaluate(events => {
     for (const event of events) (window as RequestWindow).mock.line("t1", event);
   }, fixture.events);
-  await expect(page.locator("#chatwrap")).toContainText("Update the adapter and test it.");
-  await expect(page.locator("#chatwrap .ask")).toHaveCount(1);
-  await expect(page.locator("#chatwrap .ask.plan")).toBeVisible();
+  await expect(page.locator("#chatwrap")).toContainText("AGY_TOOL_OK");
+  await expect(page.locator("#chatwrap .ask")).toHaveCount(0);
 });
 
 
-test("Gemini runtime failures use the interface language", async ({ page }) => {
+test("Antigravity runtime failures use the interface language", async ({ page }) => {
   await page.goto("/");
   await page.locator('.railworkspace[data-workspace="sessao-0929"] > .navitem').click();
   await expect(page.locator("#wsView")).toBeVisible();
   await page.evaluate(() => (window as RequestWindow).mock.line("t1", {
     v: 1, type: "turn.completed", at: 1, outcome: "error", durationMs: null, costUsd: null,
-    message: 'i18n:{"code":"err.gemini.start","args":{}}',
+    message: 'i18n:{"code":"err.antigravity.result","args":{}}',
   }));
-  await expect(page.locator("#chatwrap")).toContainText("Gemini não conseguiu concluir a solicitação.");
+  await expect(page.locator("#chatwrap")).toContainText("Antigravity não concluiu a solicitação.");
   await expect(page.locator("#chatwrap")).not.toContainText("i18n:");
 });

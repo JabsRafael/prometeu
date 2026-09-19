@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import type { IpcCommand, IpcHandlers } from "./ipc";
 import { emptyCatalog, initializeDefaults, type Catalog, type Profile } from "./actions";
 /// Browser backend for sample data. Loaded only when window.__TAURI_INTERNALS__ is absent; never loaded in Tauri.
@@ -838,7 +839,15 @@ const mockCommands: IpcHandlers = {
   },
   account_login(args) {
     if (mockAccounts.login) throw 'i18n:{"code":"err.account.busy"}';
-    if (!["claude", "codex", "gemini"].includes(args.provider)) throw 'i18n:{"code":"err.account.provider"}';
+    if (!["claude", "codex", "antigravity"].includes(args.provider)) throw 'i18n:{"code":"err.account.provider"}';
+    if (args.provider === "antigravity") {
+      if ((args.method && args.method !== "external") || (args.id && args.id !== "antigravity")) throw 'i18n:{"code":"err.account.external"}';
+      if (localStorage.getItem("mock:antigravityMissing") === "1") throw 'i18n:{"code":"err.antigravity.version"}';
+      if (!mockAccounts.accounts.some(a => a.id === "antigravity")) mockAccounts.accounts.push({
+        id: "antigravity", provider: "antigravity", email: null, plan: null, connected: false, revision: 0, authMethod: "external",
+      });
+      return accountSnapshot();
+    }
     let account = mockAccounts.accounts.find((account) => account.id === args.id);
     if (!account) {
       account = { id: crypto.randomUUID(), provider: args.provider, email: null, plan: null, connected: false, revision: 0 };
@@ -866,16 +875,6 @@ const mockCommands: IpcHandlers = {
       const timer = setTimeout(() => finish(localStorage.getItem("mock:accountLoginError") ? "err.account.login" : undefined), 1000);
       cancelAccountLogin = () => { clearTimeout(timer); finish("err.account.cancelled"); };
     });
-  },
-  account_api_key(args) {
-    if (mockAccounts.login) throw 'i18n:{"code":"err.account.busy"}';
-    if (args.provider !== "gemini") throw 'i18n:{"code":"err.account.provider"}';
-    if (!args.key.trim()) throw 'i18n:{"code":"err.account.login"}';
-    let account = mockAccounts.accounts.find(a => a.id === args.id);
-    if (account && (account.provider !== args.provider || account.id === account.provider)) throw 'i18n:{"code":"err.account.external"}';
-    if (!account) { account = { id: crypto.randomUUID(), provider: args.provider, email: null, plan: null, connected: false, revision: 0 }; mockAccounts.accounts.push(account); }
-    account.authMethod = "apiKey"; account.keySuffix = args.key.slice(-4); account.connected = true; account.revision++;
-    return accountSnapshot();
   },
   account_login_cancel(args) {
     if (mockAccounts.login?.id === args.id) cancelAccountLogin?.();
@@ -1394,10 +1393,11 @@ const mockCommands: IpcHandlers = {
           },
         },
         {
-          id: "gemini", label: "Gemini", installed: localStorage.getItem("mock:geminiMissing") !== "1",
-          authMethods: [{ id: "google", kind: "browser", label: "Google" }, { id: "apiKey", kind: "apiKey", label: "API key" }],
-          models: ["auto", "pro", "flash", "flash-lite"].map(id => ({ id, label: id, efforts: [] })),
-          capabilities: { initialPlanMode: true, resume: true, approvals: true, attachments: false,
+          id: "antigravity", label: "Antigravity", installed: localStorage.getItem("mock:antigravityMissing") !== "1",
+          authMethods: [{ id: "external", kind: "external", label: t("account.external.attach") }],
+          accountNotice: t("account.external.notice"),
+          models: [{ id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)", efforts: [] }],
+          capabilities: { initialPlanMode: false, resume: true, approvals: false, attachments: true,
             workspaceMcpSelection: false, workspacePluginSelection: false, compact: false, contextReport: false, userQuestions: false },
         },
       ],

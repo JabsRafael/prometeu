@@ -3,7 +3,7 @@ import { invoke, type IpcCall } from "./ipc";
 import { brand } from "./icons";
 import { fromBack, t } from "./i18n";
 import type { ProviderId } from "./types";
-import { button, confirmDialog, field, formDialog, input, menuButton, select } from "./ui";
+import { button, confirmDialog, field, formDialog, menuButton, select } from "./ui";
 import { h } from "./util";
 
 export type Account = {
@@ -33,7 +33,7 @@ export function update(next: Accounts): boolean {
   return selectionChanged;
 }
 export function accountName(account: Account) {
-  if (account.keySuffix) return `${t("account.apiKey")} · ${account.keySuffix}`;
+  if (account.authMethod === "external") return t("account.external.name", { provider: descriptor(account.provider).label });
   return account.email || t(account.id === account.provider ? "account.terminal" : "account.new");
 }
 
@@ -69,15 +69,15 @@ function focusAccount(id: string) {
   });
 }
 
-async function call(...args: IpcCall<"account_select" | "account_login" | "account_remove" | "account_api_key">) {
+async function call(...args: IpcCall<"account_select" | "account_login" | "account_remove">) {
   if (busy || accounts?.login) throw new Error(t("err.account.busy"));
   busy = true; changed();
   try {
     const before = new Set(accounts?.accounts.map(a => a.id));
     const next = await invoke(...args);
     update(next);
-    if (args[0] === "account_login" || args[0] === "account_api_key") {
-      say(t("account.connected"));
+    if (args[0] === "account_login") {
+      say(t(args[1].method === "external" ? "account.external.added" : "account.connected"));
       const added = next.accounts.find(a => !before.has(a.id));
       const id = added?.id ?? args[1].id;
       if (id) focusAccount(id);
@@ -99,24 +99,8 @@ async function remove(account: Account) {
   });
 }
 
-function apiKey(provider: ProviderId, id: string | null) {
-  const secret = input("");
-  secret.type = "password"; secret.required = true; secret.autocomplete = "off";
-  const dialog = formDialog({
-    title: t(id ? "account.reconnect" : "account.add"), save: t("account.connect"), cancel: t("account.cancel"),
-    error: fromBack, closed: () => { secret.value = ""; },
-    submit: async () => {
-      const key = secret.value;
-      secret.value = "";
-      await call("account_api_key", { provider, id, key });
-    },
-  });
-  dialog.body.append(field(t("account.apiKey"), secret, t("account.apiKey.help")));
-  dialog.open();
-}
 function start(provider: ProviderId, method: AuthMethod, id: string | null) {
-  if (method.kind === "apiKey") apiKey(provider, id);
-  else run(call("account_login", { provider, id, method: method.id }));
+  run(call("account_login", { provider, id, method: method.id }));
 }
 export function add(provider: ProviderId, id: string | null = null) {
   const methods = descriptor(provider).authMethods ?? [];
@@ -125,7 +109,7 @@ export function add(provider: ProviderId, id: string | null = null) {
   if (previous) return start(provider, previous, id);
   if (methods.length === 1) return start(provider, methods[0], id);
   if (!methods.length) return;
-  const method = select(methods[0].id, methods.map(m => [m.id, m.kind === "apiKey" ? t("account.apiKey") : m.label]));
+  const method = select(methods[0].id, methods.map(m => [m.id, m.label]));
   let selected: AuthMethod | undefined;
   const dialog = formDialog({
     title: t("account.add"), save: t("account.continue"), cancel: t("account.cancel"), error: fromBack,
@@ -166,7 +150,7 @@ function card(account: Account): HTMLElement {
     content.append(wait);
   } else if (!account.connected && !external) content.append(h("small", "", t("account.disconnected")));
   if (account.plan) content.append(h("div", "account-meta", account.plan));
-  const limits = h("div", "account-quotas"); limits.innerHTML = quota(account.id);
+  const limits = h("div", "account-quotas"); limits.innerHTML = account.authMethod === "external" ? "—" : quota(account.id);
   content.append(limits); root.append(choose, content);
   return root;
 }
@@ -179,12 +163,14 @@ export function render(providers: readonly AgentDescriptor[] = descriptors()): H
     const mark = h("span", ""); mark.innerHTML = brand(provider.id);
     heading.append(mark, h("span", "uname", provider.label)); group.append(heading);
     if (!provider.installed) group.append(h("p", "ui-hint", provider.unavailableReason ? fromBack(provider.unavailableReason) : t("account.install", { provider: provider.label })));
+    if (provider.accountNotice) group.append(h("p", "ui-hint", fromBack(provider.accountNotice)));
     const list = accounts?.accounts.filter(a => a.provider === provider.id) ?? [];
     if (!list.length) group.append(h("div", "uempty", t("account.empty")));
     group.append(...list.map(card));
-    const addButton = button(t("account.add"), () => add(provider.id));
+    const external = provider.authMethods.some(method => method.kind === "external");
+    const addButton = button(t(external ? "account.external.attach" : "account.add"), () => add(provider.id));
     addButton.dataset.focus = `add-${provider.id}`;
-    addButton.disabled = !provider.installed || busy || !!accounts?.login;
+    addButton.disabled = !provider.installed || busy || !!accounts?.login || (external && !!list.length) || !provider.authMethods.length;
     const footer = h("div", "account-add"); footer.append(addButton); group.append(footer); root.append(group);
   }
   return root;

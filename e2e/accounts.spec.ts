@@ -161,36 +161,29 @@ test("contas: configurações compartilham cartões e confirmam remoção ativa"
   await expect(page.locator('#status [data-provider="codex"]')).toHaveText("—");
 });
 
-test("contas: Gemini conecta API key uma vez, sem ativar nem persistir o segredo", async ({ page }) => {
+test("contas: Antigravity usa a conta externa sem criar login ou ativar automaticamente", async ({ page }) => {
   await page.goto("/");
-  const panel = await openAccounts(page, "gemini");
-  await panel.getByRole("button", { name: "Adicionar conta" }).click();
-  let dialog = page.getByRole("dialog", { name: "Adicionar conta" });
-  await dialog.getByRole("button", { name: "Método de autenticação" }).click();
-  await page.getByRole("menuitemcheckbox", { name: "API key" }).click();
-  await dialog.getByRole("button", { name: "Continuar" }).click();
-  dialog = page.getByRole("dialog", { name: "Adicionar conta" });
-  const secret = "test-private-api-key-1234";
-  await dialog.getByLabel("API key", { exact: true }).fill(secret);
-  await dialog.getByRole("button", { name: "Conectar", exact: true }).click();
-  const added = panel.locator(".uaccount", { hasText: "API key · 1234" });
+  const panel = await openAccounts(page, "antigravity");
+  await panel.getByRole("button", { name: "Usar conta do agy" }).click();
+  const added = panel.locator('[data-account="antigravity"]');
+  await expect(added).toContainText("Conta do Antigravity");
   await expect(added.locator(".account-select")).toHaveAttribute("aria-pressed", "false");
   await expect(added.locator(".account-select")).toBeFocused();
-  expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain(secret);
+  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await expect(panel.getByRole("button", { name: "Usar conta do agy" })).toBeDisabled();
   await added.locator(".account-select").click();
-  await expect(page.locator('#status [data-provider="gemini"]')).toHaveText("—");
-  await action(page, added, "Reconectar");
-  await expect(page.getByRole("dialog", { name: "Reconectar" }).getByLabel("API key", { exact: true })).toHaveValue("");
+  await expect(added.locator(".account-select")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('#status [data-provider="antigravity"]')).toHaveText("—");
 });
 
 test("contas: configurações mostram agente não instalado", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("mock:geminiMissing", "1"));
+  await page.addInitScript(() => localStorage.setItem("mock:antigravityMissing", "1"));
   await page.goto("/");
   const panel = await openAccounts(page);
   await panel.getByRole("button", { name: "Gerenciar contas" }).click();
-  const gemini = page.locator('#settingsView [data-provider-accounts="gemini"]');
-  await expect(gemini).toContainText("Instale Gemini");
-  await expect(gemini.getByRole("button", { name: "Adicionar conta" })).toBeDisabled();
+  const antigravity = page.locator('#settingsView [data-provider-accounts="antigravity"]');
+  await expect(antigravity).toContainText("Instale Antigravity");
+  await expect(antigravity.getByRole("button", { name: "Usar conta do agy" })).toBeDisabled();
 });
 
 test("contas: configurações atualizam disponibilidade após descoberta atrasada", async ({ page }) => {
@@ -200,23 +193,23 @@ test("contas: configurações atualizam disponibilidade após descoberta atrasad
   });
   await page.goto("/");
   await page.locator("#settings").click();
-  const group = page.locator('#settingsView [data-provider-accounts="gemini"]');
-  await expect(group.getByRole("button", { name: "Adicionar conta" })).toBeEnabled();
-  await expect(group).not.toContainText("Instale Gemini");
+  const group = page.locator('#settingsView [data-provider-accounts="antigravity"]');
+  await expect(group.getByRole("button", { name: "Usar conta do agy" })).toBeEnabled();
+  await expect(group).not.toContainText("Instale Antigravity");
 });
 
 
 test("contas: remover última conta sem CLI mantém foco no grupo", async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem("mock:geminiMissing", "1");
+    localStorage.setItem("mock:antigravityMissing", "1");
     localStorage.setItem("mock:accounts", JSON.stringify({ accounts: [
-      { id: "gemini", provider: "gemini", connected: true, revision: 0, authMethod: "google" },
+      { id: "antigravity", provider: "antigravity", connected: true, revision: 0, authMethod: "external" },
     ], active: {}, login: null }));
   });
   await page.goto("/");
   await page.locator("#settings").click();
   await page.locator("#settingsView").getByRole("button", { name: "Contas", exact: true }).click();
-  const group = page.locator('#settingsView [data-provider-accounts="gemini"]');
+  const group = page.locator('#settingsView [data-provider-accounts="antigravity"]');
   await action(page, group.locator(".uaccount"), "Remover conta");
   await expect(group.locator(".uaccount")).toHaveCount(0);
   await expect(group).toBeFocused();
@@ -224,16 +217,16 @@ test("contas: remover última conta sem CLI mantém foco no grupo", async ({ pag
 
 test("contas: launcher preserva o pedido até selecionar uma conta conectada", async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem("prometeu:model", "pro");
+    localStorage.setItem("prometeu:model", "gemini-3.8-flash-high");
     localStorage.setItem("mock:accounts", JSON.stringify({ accounts: [
-      { id: "gemini-personal", provider: "gemini", email: "pessoa@exemplo.com", connected: true, revision: 0, authMethod: "google" },
+      { id: "antigravity", provider: "antigravity", email: "pessoa@exemplo.com", connected: true, revision: 0, authMethod: "external" },
     ], active: {}, login: null }));
   });
   await page.goto("/");
-  await page.locator('#status [data-provider="gemini"]').waitFor();
+  await page.locator('#status [data-provider="antigravity"]').waitFor();
   await page.locator("#railbody").getByRole("button", { name: "Criar", exact: true }).click();
   await page.locator("#d-model").click();
-  await page.getByRole("menuitemcheckbox", { name: "pro", exact: true }).click();
+  await page.getByRole("menuitemcheckbox", { name: "Gemini 3.8 Flash (High)", exact: true }).click();
   const prompt = page.locator("#d-prompt");
   await prompt.fill("Meu pedido preservado");
   const workspaceIds = () => page.evaluate(async () => {
@@ -246,26 +239,19 @@ test("contas: launcher preserva o pedido até selecionar uma conta conectada", a
   await expect(picker).toBeVisible();
   expect(await workspaceIds()).toEqual(before);
   await expect(prompt).toHaveValue("Meu pedido preservado");
-  await picker.getByRole("button", { name: "Adicionar conta", exact: true }).click();
-  const method = page.getByRole("dialog", { name: "Adicionar conta", exact: true });
-  await expect(method).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(method).toHaveCount(0);
-  await expect(picker).toBeVisible();
-  await expect(prompt).toHaveValue("Meu pedido preservado");
   await page.keyboard.press("Escape");
   await expect(picker).toHaveCount(0);
   await expect(prompt).toBeVisible();
   await expect(prompt).toHaveValue("Meu pedido preservado");
   await prompt.press("Enter");
   await expect(picker).toBeVisible();
-  const account = picker.locator('[data-account="gemini-personal"]');
+  const account = picker.locator('[data-account="antigravity"]');
   await expect(account).toContainText("Usar esta conta");
   await expect(account.locator(".account-select")).toHaveAttribute("aria-pressed", "false");
   await account.locator(".account-select").click();
   await picker.getByRole("button", { name: "Continuar", exact: true }).click();
   await expect(picker).toHaveCount(0);
-  await expect(page.locator("#d-account")).toContainText("pessoa@exemplo.com");
+  await expect(page.locator("#d-account")).toContainText("Conta do Antigravity");
   await expect(prompt).toHaveValue("Meu pedido preservado");
   await prompt.press("Enter");
   await expect(page.locator("#veil")).toBeHidden();

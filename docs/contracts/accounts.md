@@ -43,7 +43,7 @@ write. Each account contains:
 ```ts
 type Account = {
   id: string;
-  provider: "claude" | "codex" | "gemini";
+  provider: "claude" | "codex" | "antigravity";
   email: string | null;
   plan: string | null;
   connected: boolean;
@@ -54,7 +54,7 @@ type Account = {
 type Accounts = {
   accounts: Account[];
   active: Partial<Record<ProviderId, string>>;
-  login: { id: string; provider: "claude" | "codex" | "gemini" } | null;
+  login: { id: string; provider: "claude" | "codex" | "antigravity" } | null;
 };
 ```
 
@@ -83,7 +83,6 @@ data retroactively.
 | `account_select` | `{ id }` | `Accounts` |
 | `account_remove` | `{ id }` | `Accounts` |
 | `account_login` | `{ provider, id: string \| null, method?: string }` | `Accounts` on completion |
-| `account_api_key` | `{ provider, id: string \| null, key: string }` | `Accounts` |
 | `account_login_cancel` | `{ id }` | empty |
 
 `id: null` creates a disconnected profile before starting the login, allowing it
@@ -91,8 +90,7 @@ to be reconnected after a cancellation, an error or an app restart. There is one
 login at a time; the process has a ten-minute deadline and supports cancellation.
 The app terminates the auxiliary process when the operation finishes or fails.
 Tokens, stdout, stderr and provider authentication payloads never cross IPC, the
-transcript or the relay. API-key entry is the sole exception: the key crosses
-UI → backend once through `account_api_key`, never in the opposite direction.
+transcript or the relay. There is no API-key entry command.
 
 If the automatic resume fails after the previous turn, `account-error` presents
 the translatable error and the message stays in `pending_prompt`.
@@ -195,30 +193,21 @@ Secondary actions use the shared menu. Removing an active account requires
 confirmation explaining the empty selection; inactive removal remains one step.
 Visible account state, errors and controls use i18n and Design System primitives.
 
-## Gemini
+## Antigravity
 
-Managed profiles use `GEMINI_CLI_HOME=<root>/accounts/<uuid>`; Gemini stores its
-files below `.gemini/`. The `tmp/` transcript tree is shared with the original
-profile. Credentials are not shared. Child environment variables neutralize
-alternative credentials and forced global encrypted OAuth storage, including
-workspace `.env` values that otherwise replace the chosen account.
+`account_login` with provider `antigravity` and method `external` explicitly
+attaches the single external profile, ID `antigravity`; it does not perform
+OAuth or change selection. `connected: false` and null identity fields mean
+identity was not probed, not that the CLI account was rejected. External cards
+remain selectable. A removed external profile is not recreated on startup.
+No managed UUID profiles or API-key method are accepted for this provider.
 
-Google authentication remains the official CLI flow. The app runs an auxiliary
-`gemini --experimental-acp` process on a private PTY because 0.30.0 requires
-interactive browser consent. Clicking Connect authorizes that one known consent
-prompt; other prompts are never answered. Only the browser is shown. The CLI
-owns its OAuth URL, callback and credentials, and no model session or prompt is
-created. PTY output is bounded and private, never displayed, persisted or sent
-over IPC. Cancellation terminates and reaps the process before restoring any
-previous credentials. It does not change the terminal user's original login.
-API keys are stored by account UUID in macOS Keychain, accessed through the
-native API rather than command-line arguments. They are injected only into that
-account's child process. Snapshot metadata contains the authentication method
-and backend-computed suffix, never the credential. API-key reconnection requests
-a replacement key. Removal remains deregistration, not credential revocation.
+The child uses agy's existing environment and keyring. The app does not isolate
+or change that identity, and cannot guarantee identity continuity if the user
+switches accounts outside the app. The official interactive agy handles login
+and browser consent. There is no proven browser-only login API for Prometeu.
+Quotas are unavailable and display a dash. The catalog reads `agy models`.
 
-API-key accounts have no quota windows: the footer displays a dash. Google quota
-retrieval and authenticated continuation require real account evidence; missing
-readings are never synthesized as zero percent. See the
-[provider matrix](../quality/provider-matrix.md) and
-[ADR 0051](../decisions/0051-gemini-runtime-and-accounts.md).
+Former Gemini accounts and active selections are opaque preserved entries, not
+usable accounts. Their directories, credentials and native histories remain
+untouched. See [ADR 0052](../decisions/0052-antigravity-runtime.md).

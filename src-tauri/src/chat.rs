@@ -136,7 +136,7 @@ pub struct Snapshot {
 pub enum Wire {
     Claude(claude::Link),
     Codex(Arc<Mutex<codex::Link>>),
-    Gemini(Arc<Mutex<crate::gemini::Link>>),
+    Antigravity(Arc<Mutex<crate::antigravity::Link>>),
 }
 
 /// Translate each provider output line into zero or more canonical V1 events.
@@ -304,7 +304,15 @@ impl Chat {
         match &mut self.wire {
             Wire::Claude(link) => link.write(frame, buffer),
             Wire::Codex(link) => lock(link).write(frame),
-            Wire::Gemini(link) => lock(link).write(frame),
+            Wire::Antigravity(link) => {
+                if frame["v"] == 1 && frame["type"] == "turn.interrupt" {
+                    let events = lock(link).interrupted();
+                    crate::pty::signal_group(self.pid, &self.alive, libc::SIGINT);
+                    Ok(events)
+                } else {
+                    lock(link).write(frame)
+                }
+            }
         }
     }
 
@@ -324,6 +332,10 @@ impl Chat {
         &self.pump.profile.id
     }
 
+    fn waits_for_turn(&self) -> bool {
+        matches!(&self.wire, Wire::Antigravity(_)) && self.working()
+    }
+
     pub fn working(&self) -> bool {
         self.pump.turn.load(Ordering::Relaxed)
     }
@@ -340,7 +352,7 @@ impl Drop for Chat {
         self.pump.gone.store(true, Ordering::Relaxed);
         // Claude stdin closes with the Chat. Codex's reader still owns its adapter, so close that
         // stdin explicitly.
-        if let Wire::Gemini(link) = &self.wire {
+        if let Wire::Antigravity(link) = &self.wire {
             lock(link).close();
         }
         if let Wire::Codex(link) = &self.wire {
@@ -704,6 +716,12 @@ fn setup_running(state: &AppState, session: &str) -> bool {
 /// Send the tab's queued prompt once. An optional prefix reports setup failure in the same message.
 pub fn send_prompt(app: &AppHandle, session: &str, prefix: Option<String>) {
     let state = app.state::<AppState>();
+    if lock(&state.chats)
+        .get(session)
+        .is_some_and(Chat::waits_for_turn)
+    {
+        return;
+    }
     {
         let mut board = lock(&state.board);
         let Some(prompt) = board
@@ -786,7 +804,7 @@ fn write_mode(
     frame: &Value,
     idle_only: bool,
 ) -> Result<(), String> {
-    let (pump, events, transition) = {
+    let (pump, events) = {
         let mut chats = lock(&state.chats);
         let chat = chats
             .get_mut(session)
@@ -813,37 +831,11 @@ fn write_mode(
             }
         };
         drop(lines);
-        let transition = match &chat.wire {
-            Wire::Gemini(link) => lock(link).take_plan_transition(),
-            _ => None,
-        };
-        (pump, events, transition)
+        (pump, events)
     };
     // Reactions may send another command or lock the board; release both locks first.
     for event in events {
         pump.react(&event);
-    }
-    if let Some(permission) = transition {
-        // Persist the approved mode and continuation before replacing the process. The input gate
-        // around control requests prevents another sender from racing this transition.
-        {
-            let mut board = lock(&state.board);
-            let tab = board
-                .tab_mut(session)
-                .ok_or_else(|| i18n::t("err.chat.gone"))?;
-            tab.plan = false;
-            tab.permission = Some(permission);
-            let continuation = "Execute the approved plan.";
-            tab.pending_prompt = Some(match tab.pending_prompt.take() {
-                Some(queued) => format!("{continuation}\n\n{queued}"),
-                None => continuation.into(),
-            });
-        }
-        publish(&pump.app);
-        let app_state = pump.app.state::<AppState>();
-        // revive closes the previous stdin, suppresses its late output and resumes the same native
-        // session. A failed startup retains pending_prompt for a later retry.
-        crate::session::revive(&pump.app, &app_state, session)?;
     }
     Ok(())
 }
@@ -900,7 +892,10 @@ pub(crate) fn send(
     };
     let up = lock(&state.chats).get(&session).is_some_and(|c| c.alive());
     let ready = lock(&state.ready).contains(&session);
-    if !queued && up && ready && boundary != AccountBoundary::Wait {
+    let waiting = lock(&state.chats)
+        .get(&session)
+        .is_some_and(Chat::waits_for_turn);
+    if !queued && up && ready && !waiting && boundary != AccountBoundary::Wait {
         write_mode(
             &state,
             &session,
@@ -1236,9 +1231,9 @@ pub fn transcript_of(ws: &Workspace, session: &str) -> PathBuf {
         .launch_of(session, &crate::session::ResolvedTools::default())
         .agent
     {
-        crate::state::ProviderId::Codex | crate::state::ProviderId::Gemini => {
-            paths::chat_log(session)
-        }
+        crate::state::ProviderId::Codex
+        | crate::state::ProviderId::Antigravity
+        | crate::state::ProviderId::RetiredGemini => paths::chat_log(session),
         crate::state::ProviderId::Claude => paths::transcript(session, Path::new(&ws.worktree)),
     }
 }

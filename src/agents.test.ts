@@ -89,9 +89,9 @@ describe("catálogo de agentes", () => {
   });
 });
 
-it("keeps Gemini unavailable when discovery fails instead of advertising unsupported controls", async () => {
+it("keeps Antigravity unavailable when discovery fails instead of advertising unsupported controls", async () => {
   mocks.invoke.mockRejectedValue(new Error("offline"));
   await loadAgents();
-  expect(capabilitiesOf("gemini").resume).toBe(false);
-  expect(installed().map(p => p.id)).not.toContain("gemini");
+  expect(capabilitiesOf("antigravity").resume).toBe(false);
+  expect(installed().map(p => p.id)).not.toContain("antigravity");
 });

@@ -21,7 +21,7 @@ flowchart LR
     ui <--> back[Tauri backend — Rust]
     back <--> claude[Claude Code CLI]
     back <--> codex[Codex app-server]
-    back <--> gemini[Gemini CLI ACP]
+    back <--> agy[Antigravity CLI NDJSON]
     back <--> local[Git, files and local processes]
     ui <--> relay[Relay — Cloudflare Worker + Durable Object]
     relay <--> peer[Another member's Prometeu]
@@ -40,7 +40,7 @@ identity is accepted by the server directory (TOFU). See
 | Frontend | TypeScript + Vite | interaction, presentation, timeline, ephemeral UI state | process lifecycle and filesystem rules |
 | Backend | Rust + Tauri | persisted state, processes, Git, files, IPC and agent translation | visual rules and interface translation |
 | Claude adapter | `claude.rs` | convert V1 commands to stream-json and stream-json to V1 events | DOM, board state or relay |
-| Gemini adapter | `gemini.rs` | convert ACP to V1; isolate accounts and native history | DOM, board state or relay |
+| Antigravity adapter | `antigravity.rs` | convert native NDJSON to V1; resume native history | DOM, board state or relay |
 | Codex adapter | `codex.rs` | convert V1 commands to JSON-RPC and JSON-RPC to V1 events | DOM, board state or relay |
 | Relay | Worker + Durable Object | enrollment, presence, audience, comments and forwarding | agent execution or worktree access |
 | Web mock | `src/mock.ts` | answer the same IPC for UI development and E2E | replace the Rust backend tests |
@@ -54,7 +54,7 @@ The conversation uses a contract owned by Prometeu:
 Claude stream-json ─> claude.rs ───────────┐
                                            ├─> ConversationEventV1 ─> Pump/relay ─> timeline.ts ─> chat.ts
 Codex JSON-RPC ─> codex.rs ────────────────┤
-Gemini ACP ─────> gemini.rs ───────────────┘
+Antigravity ────> antigravity.rs ───────────────┘
 ```
 
 `chat.rs` stores and numbers V1 lines, emits updates and keeps the process
@@ -114,7 +114,7 @@ resumes the session when there is news. See the
   tabs, choices and metadata.
 - The logical session is the transcript. The process is disposable and can be
   resumed.
-- Claude writes its own transcript; Prometeu writes the translated Codex and Gemini lines
+- Claude writes its own transcript; Prometeu writes the translated Codex and Antigravity lines
   in `~/.prometeu/chats/`.
 - Agent accounts and the global selection live in `<root>/accounts.json`;
   `accounts.rs` coordinates the local profiles and the adapters run the
@@ -224,8 +224,8 @@ stores only delivery receipts, without content. Access to text and attachments
 belongs to GitHub. Private delivery does not take part in E2EE sharing.
 See the [contract and limits](docs/contracts/feedback.md).
 
-Gemini uses the same conversation boundary with version-checked ACP and a
-separate managed account profile. Its Google/API-key methods are descriptor
-metadata shared by Settings and the footer. Native sessions and V1 presentation
-logs have separate responsibilities; see
-[ADR 0051](docs/decisions/0051-gemini-runtime-and-accounts.md).
+Antigravity uses the same conversation boundary with native streaming NDJSON.
+It references the account already connected in agy; no isolated Google profile
+or API-key entry is offered. Native sessions and V1 presentation logs have
+separate responsibilities. Retired Gemini boards remain readable but cannot
+run; see [ADR 0052](docs/decisions/0052-antigravity-runtime.md).

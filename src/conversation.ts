@@ -96,7 +96,7 @@ export type ConversationEphemeralV1 =
     })
   | (EventBase<"session.identity"> & { providerSession: string })
   | (EventBase<"commands.updated"> & { commands: SlashCommand[] })
-  | (EventBase<"usage.updated"> & { provider: "claude" | "codex" | "gemini"; usage: unknown });
+  | (EventBase<"usage.updated"> & { provider: "claude" | "codex" | "antigravity"; usage: unknown });
 
 export type AnyConversationEventV1 = ConversationEventV1 | ConversationEphemeralV1;
 
@@ -212,7 +212,7 @@ export function parseConversationEvent(value: unknown): AnyConversationEventV1 |
           )
         );
       case "usage.updated":
-        return (event.provider === "claude" || event.provider === "codex" || event.provider === "gemini") && "usage" in event;
+        return (event.provider === "claude" || event.provider === "codex" || event.provider === "antigravity") && "usage" in event;
       default:
         return false;
     }

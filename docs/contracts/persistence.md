@@ -33,7 +33,7 @@ In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
 | accounts and per-provider selection | `<root>/accounts.json` | `accounts.rs` |
 | additional authenticated profiles | `<root>/accounts/<uuid>/` | provider adapters |
 | last quota snapshot per account | `<root>/usage.json` | `usage.rs` |
-| Codex and Gemini V1 transcript | `<root>/chats/<tab>.jsonl` | `chat.rs` |
+| Codex and Antigravity V1 transcript | `<root>/chats/<tab>.jsonl` | `chat.rs` |
 | files received through a native promise | `<root>/attachments/<uuid>/<name>` | `file_drop.rs`; private `0700` directory, `0600` file |
 | image pasted from the clipboard | `<root>/attachments/<uuid>/pasted.png` | `file_drop.rs`; same folder and permissions, TIFF converted to PNG |
 | plugin hub | `<root>/plugins.json` | `plugins.rs` |
@@ -250,21 +250,16 @@ Codex's native rollout is not used by the UI. Prometeu writes the displayed V1
 events in `<root>/chats/<tab>.jsonl`; `Tab.agent_session` stores the opaque
 thread required for `thread/resume`.
 
-### Gemini
+### Antigravity and retired Gemini sessions
 
-Gemini owns the resumable session below its `.gemini/tmp/` tree. Managed profiles
-share that tree through a link. `Tab.agent_session` stores its opaque session ID;
-Prometeu keeps the displayed V1 projection in `<root>/chats/<tab>.jsonl`.
-`Tab.plan` (default `false`) and `Tab.permission` (default `null`, otherwise
-`ask` or `auto`) preserve Gemini launch choices across process loss. Approving a
-plan clears `plan`, records the chosen permission and queues its continuation
-before restart/resume; a failed restart retains the queued message. Other
-providers keep their existing mode handling. The compatibility test is
-`session::tests::gemini_plan_survives_process_loss_until_explicit_approval`.
-Account API keys live in macOS Keychain, not board or accounts JSON. Adding the
-`gemini` identity is additive; unknown board identities retain the historical
-fallback. Account-registry preservation applies only to builds containing that
-compatibility fix, not previously distributed binaries.
+Antigravity owns native history. `Tab.agent_session` stores its opaque
+`conversation_id`, resumed with `--conversation`; Prometeu stores V1 in
+`<root>/chats/<tab>.jsonl`. Provider ID `antigravity` is distinct from `gemini`.
+Old `gemini` board values retain that identity and read their existing V1 logs,
+but cannot start a process. They never fall back to Claude or acquire agy IDs.
+Legacy plan/permission fields have no execution effect. Old Gemini account
+entries and selections remain opaque on disk; no secrets or histories are
+removed. Compatibility tests live in `state.rs` and `accounts.rs`.
 
 ### Compatibility
 

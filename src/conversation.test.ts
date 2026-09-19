@@ -1,4 +1,4 @@
-import geminiFixture from "../src-tauri/src/gemini/fixtures/canonical-events.json?raw";
+import antigravityFixture from "../src-tauri/src/antigravity/fixtures/canonical-events.json?raw";
 import { describe, expect, it } from "vitest";
 import { parseConversationEvent } from "./conversation";
 import { LegacyConversationAdapter } from "./conversation-legacy";
@@ -83,28 +83,25 @@ describe("ConversationEventV1", () => {
   });
 });
 
-it("accepts canonical usage for Gemini without accepting unknown provider names", () => {
-  const event = { v: 1, type: "usage.updated", at: 1, provider: "gemini", usage: { windows: [] } };
+it("accepts canonical usage for Antigravity without accepting unknown provider names", () => {
+  const event = { v: 1, type: "usage.updated", at: 1, provider: "antigravity", usage: { windows: [] } };
   expect(parseConversationEvent(event)).toEqual(event);
   expect(parseConversationEvent({ ...event, provider: "unknown" })).toBeNull();
 });
 
 
-it("accepts and reduces every event emitted by the Gemini adapter fixture", () => {
-  const fixture: { events: unknown[] } = JSON.parse(geminiFixture);
+it("accepts and reduces every event emitted by the Antigravity adapter fixture", () => {
+  const fixture: { events: unknown[] } = JSON.parse(antigravityFixture);
   const timeline = new Timeline();
   for (const event of fixture.events) {
     expect(parseConversationEvent(event), JSON.stringify(event)).not.toBeNull();
     timeline.push(JSON.stringify(event));
   }
   const assistants = timeline.items.filter(item => item.kind === "assistant");
-  expect(assistants).toHaveLength(1);
-  expect(assistants[0]).toMatchObject({ streaming: false, blocks: [
-    { kind: "thinking", text: "Check the file" },
-    { kind: "text", text: "Update the adapter and test it." },
-    { kind: "tool", name: "Read file" },
-  ] });
-  expect(timeline.items.filter(item => item.kind === "ask" && !item.answered)).toMatchObject([
-    { requestKind: "plan", input: { plan: "Update the adapter and test it." } },
-  ]);
+  expect(assistants.length).toBeGreaterThan(0);
+  expect(assistants.every(item => !item.streaming)).toBe(true);
+  expect(assistants.flatMap(item => item.blocks)).toEqual(expect.arrayContaining([
+    expect.objectContaining({ kind: "tool", name: "run_command" }),
+  ]));
+  expect(timeline.items.filter(item => item.kind === "ask")).toHaveLength(0);
 });
