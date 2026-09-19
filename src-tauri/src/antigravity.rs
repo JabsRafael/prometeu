@@ -60,6 +60,9 @@ fn supported_version(raw: &str) -> bool {
 }
 fn failure_message(raw: &str) -> String {
     let lower = raw.to_ascii_lowercase();
+    if lower.contains("permission check failed") || lower.contains("user denied permission") {
+        return i18n::t("err.antigravity.permission");
+    }
     if [
         "authentication required",
         "not authenticated",
@@ -335,7 +338,7 @@ impl Link {
         let Some(index) = v["step_index"].as_u64() else {
             return vec![];
         };
-        if !matches!(v["state"].as_str(), Some("ACTIVE" | "DONE")) {
+        if !matches!(v["state"].as_str(), Some("ACTIVE" | "DONE" | "ERROR")) {
             return vec![];
         }
         if !matches!(v["step_type"].as_str(), Some("agent_response" | "tool")) {
@@ -369,7 +372,7 @@ impl Link {
                     json!({"messageId":id,"index":0,"kind":"text","delta":delta}),
                 ));
             }
-            if v["state"] == "DONE" {
+            if matches!(v["state"].as_str(), Some("DONE" | "ERROR")) {
                 out.push(event(
                     "assistant.block",
                     json!({"messageId":id,"index":0,"block":{"kind":"text","text":step.text}}),
@@ -391,14 +394,15 @@ impl Link {
                 ));
                 step.block = Some(block);
             }
-            if v["state"] == "DONE" {
-                let error = !info["error"].is_null();
+            if matches!(v["state"].as_str(), Some("DONE" | "ERROR")) {
+                let error = v["state"] == "ERROR" || !info["error"].is_null();
                 let output = info["output"]
                     .as_str()
+                    .filter(|text| !text.is_empty())
                     .map(str::to_owned)
                     .unwrap_or_else(|| {
                         if error {
-                            i18n::t("err.antigravity.result")
+                            failure_message(info["error"]["message"].as_str().unwrap_or(""))
                         } else {
                             String::new()
                         }
@@ -409,7 +413,7 @@ impl Link {
                 ));
             }
         }
-        step.done = v["state"] == "DONE";
+        step.done = matches!(v["state"].as_str(), Some("DONE" | "ERROR"));
         out
     }
     fn result(&mut self, v: &Value) -> Vec<Value> {
@@ -432,18 +436,21 @@ impl Link {
                 out.push(event("assistant.block", json!({"messageId":format!("antigravity:result:{}",self.turn_id),"index":0,"block":{"kind":"text","text":text}})));
             }
         }
+        let denied = v["denied_actions"]
+            .as_array()
+            .is_some_and(|actions| !actions.is_empty());
         let outcome = if self.user_interrupted
             || matches!(status, "CANCELED" | "INTERRUPTED")
             || (status == "ERROR" && v["error"].as_str() == Some("interrupted"))
         {
             "interrupted"
-        } else if status == "SUCCESS" {
+        } else if status == "SUCCESS" && !denied {
             "ok"
         } else {
             "error"
         };
         // Native duration and token totals are cumulative, so measure the accepted turn locally.
-        out.push(event("turn.completed", json!({"outcome":outcome,"message":if outcome == "error" {failure_message(v["error"].as_str().unwrap_or(""))} else {String::new()},"durationMs":self.started.elapsed().as_millis() as u64,"costUsd":null})));
+        out.push(event("turn.completed", json!({"outcome":outcome,"message":if outcome == "error" {if denied {i18n::t("err.antigravity.permission")} else {failure_message(v["error"].as_str().unwrap_or(""))}} else {String::new()},"durationMs":self.started.elapsed().as_millis() as u64,"costUsd":null})));
         self.busy = false;
         if outcome == "error" {
             self.failed = true;
@@ -664,6 +671,10 @@ mod tests {
                 include_str!("antigravity/fixtures/interrupted.ndjson"),
                 "fixture-interrupted",
             ),
+            (
+                include_str!("antigravity/fixtures/permission-denied.ndjson"),
+                "fixture-denied",
+            ),
         ] {
             // Each recording starts a separate process; resume preserves the original step IDs.
             let mut link = Link::new(
@@ -749,6 +760,31 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn native_permission_denial_is_not_an_empty_success() {
+        let (mut link, _) = link();
+        send(&mut link, "fixture prompt");
+        let events: Vec<Value> = include_str!("antigravity/fixtures/permission-denied.ndjson")
+            .lines()
+            .flat_map(|line| link.on_line(line))
+            .collect();
+        let completed: Vec<_> = events
+            .iter()
+            .filter(|e| e["type"] == "tool.completed")
+            .collect();
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0]["error"], true);
+        assert_eq!(
+            completed[0]["output"],
+            i18n::t("err.antigravity.permission")
+        );
+        assert_eq!(events.last().unwrap()["outcome"], "error");
+        assert_eq!(
+            events.last().unwrap()["message"],
+            i18n::t("err.antigravity.permission")
+        );
+    }
+
     #[test]
     fn unsupported_controls_do_not_reach_native_stdin() {
         let (mut link, output) = link();

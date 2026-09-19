@@ -248,7 +248,9 @@ the process group; the next prompt can restart and resume after process loss.
 
 Headless control messages and approvals are unsupported. Default launch obeys
 agy policy: file reads/writes in the workspace may be allowed while shell
-commands requiring approval are soft-denied. Only explicit Auto task permission
+commands requiring approval are soft-denied. Tool state `ERROR` is terminal.
+A result containing `denied_actions` is an error even if the native status is
+`SUCCESS`; the translated permission message is shown without leaking raw errors. Only explicit Auto task permission
 uses `--dangerously-skip-permissions`. Initial plan mode, hub tool selection,
 compaction, context reports and structured questions are unavailable. Nonempty
 hub selections fail at the adapter boundary. Local attachment paths remain text.

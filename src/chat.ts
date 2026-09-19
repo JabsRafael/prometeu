@@ -716,7 +716,7 @@ export class ChatView {
       if (input.childElementCount) technical.append(input);
       if (block.result !== null) {
         const out = h("pre", "tout");
-        out.textContent = capError(block.result);
+        out.textContent = capError(fromBack(block.result));
         technical.append(out);
       }
       if (technical.childElementCount) {

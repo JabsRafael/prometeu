@@ -17,3 +17,9 @@ independent interrupted conversation receives a distinct fixture identity. Event
 timestamps and turn durations are zeroed for deterministic comparison. Regenerate it with
 `PROMETEU_UPDATE_ANTIGRAVITY_FIXTURE=1 cargo test antigravity::tests::canonical_events_match_cross_language_fixture`
 from `src-tauri/`.
+
+`permission-denied.ndjson` minimizes a real 1.2.7 recording in a dedicated empty
+diagnostic directory, with the application's default launch flags. It preserves
+the `ERROR` tool state and `SUCCESS` result with nonempty `denied_actions`. The
+command was not executed; no denial was bypassed. These events must produce a
+visible permission failure rather than an empty successful turn.

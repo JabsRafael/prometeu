@@ -105,6 +105,8 @@ test("Antigravity adapter fixture renders through the browser mock", async ({ pa
     for (const event of events) (window as RequestWindow).mock.line("t1", event);
   }, fixture.events);
   await expect(page.locator("#chatwrap")).toContainText("AGY_TOOL_OK");
+  await expect(page.locator("#chatwrap")).toContainText("Antigravity recusou uma ferramenta que exige aprovação.");
+  await expect(page.locator("#chatwrap")).not.toContainText("i18n:");
   await expect(page.locator("#chatwrap .ask")).toHaveCount(0);
 });
 
