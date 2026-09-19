@@ -157,8 +157,9 @@ does not produce those projections in new logs.
 ## Root of the file commands
 
 `list_dir`, `read_file`, `read_bytes`, `write_file`, `find_paths` and `reveal`
-receive in `id` the workspace **or** the project. A workspace resolves in the
-worktree; a project resolves in the registered clone's folder, which is what
+receive in `id` the workspace **or** the project. A workspace resolves in its
+working directory: a dedicated worktree, the clone itself, or the common parent
+of multiple worktrees. A project resolves in the registered clone's folder, which is what
 supports reading and editing a repository with no workspace on it at all. The
 two id spaces do not collide, and `session.rs::cwd_of` is the only function that
 performs that resolution — `dock.rs` imports it instead of repeating the rule. A

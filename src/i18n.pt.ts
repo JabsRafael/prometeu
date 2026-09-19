@@ -554,7 +554,7 @@ export const PT = {
   "side.review": "Revisar",
   "side.review.title": "Comparar os commits da branch com a base",
   "side.collapse": "Recolher pastas",
-  "side.reveal": "Abrir o worktree no Finder",
+  "side.reveal": "Abrir pasta no Finder",
   "diff.foldAll": "Recolher todos",
   "diff.open": "Clique duplo abre o arquivo",
   "diff.layout": "Layout do diff",
