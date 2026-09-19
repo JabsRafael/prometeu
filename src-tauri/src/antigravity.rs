@@ -162,7 +162,8 @@ fn launch_args(resume: Option<&str>, launch: &Launch) -> Result<Vec<String>, Str
             args.extend([flag.into(), value.into()]);
         }
     }
-    if launch.permission == Some(crate::actions::Permission::Auto) {
+    // Ordinary conversations use automatic execution; explicit Ask task profiles retain their policy.
+    if launch.permission != Some(crate::actions::Permission::Ask) {
         args.push("--dangerously-skip-permissions".into());
     }
     Ok(args)
@@ -638,7 +639,7 @@ mod tests {
             .any(|a| a == ["--conversation", "native-session"]));
         assert!(args.windows(2).any(|a| a == ["--model", "native-model"]));
         assert!(args.windows(2).any(|a| a == ["--effort", "high"]));
-        assert!(!args.iter().any(|a| a == "--dangerously-skip-permissions"));
+        assert!(args.iter().any(|a| a == "--dangerously-skip-permissions"));
         launch.permission = Some(crate::actions::Permission::Ask);
         assert!(!launch_args(None, &launch)
             .unwrap()

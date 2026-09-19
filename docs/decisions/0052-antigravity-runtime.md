@@ -22,7 +22,11 @@ or invent effort levels. Interrupt the child process group with SIGINT.
 
 Expose only verified capabilities. Headless agy does not accept interactive
 approval responses; tools needing approval are soft-denied by its own policy.
-Only an explicit Auto task permission adds `--dangerously-skip-permissions`.
+Ordinary conversations and Auto task profiles use `--dangerously-skip-permissions`.
+This default was explicitly approved after a real default-mode command was denied:
+headless agy cannot obtain interactive approval. Explicit Ask task profiles still
+preserve the CLI policy. The setting applies on process creation and resume,
+without rewriting global agy preferences.
 Plan transitions, app-selected MCP/plugins/skills, compaction, context reports
 and structured questions are unavailable. Nonempty hub selections fail visibly.
 

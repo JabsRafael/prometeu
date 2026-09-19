@@ -246,12 +246,12 @@ context. The app replays its own V1 log, never raw agy messages. SIGINT interrup
 the process group; the next prompt can restart and resume after process loss.
 `agy models` supplies slugs and labels; effort choices are not synthesized.
 
-Headless control messages and approvals are unsupported. Default launch obeys
-agy policy: file reads/writes in the workspace may be allowed while shell
-commands requiring approval are soft-denied. Tool state `ERROR` is terminal.
+Headless control messages and approvals are unsupported. Ordinary conversations
+use automatic execution (`--dangerously-skip-permissions`), matching the existing
+Claude conversation default. Explicit Ask task profiles preserve agy policy;
+commands requiring approval may be soft-denied. Tool state `ERROR` is terminal.
 A result containing `denied_actions` is an error even if the native status is
-`SUCCESS`; the translated permission message is shown without leaking raw errors. Only explicit Auto task permission
-uses `--dangerously-skip-permissions`. Initial plan mode, hub tool selection,
+`SUCCESS`; the translated permission message is shown without leaking raw errors. Auto task profiles also use automatic execution. Initial plan mode, hub tool selection,
 compaction, context reports and structured questions are unavailable. Nonempty
 hub selections fail at the adapter boundary. Local attachment paths remain text.
 
