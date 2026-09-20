@@ -7,7 +7,8 @@ import * as diff from "./diff";
 import * as dockbar from "./dockbar";
 import { avatar, icon, stageIcon, wave } from "./icons";
 import { fromBack, stage as stageName, t, tn } from "./i18n";
-import { agentOf, fitsEffort, modelGroups, modelLabel } from "./launcher";
+import { fitsEffort, modelLabel } from "./model-choice";
+import { openModelPicker } from "./model-picker";
 import * as menu from "./menu";
 import * as notes from "./notes";
 import * as rename from "./rename";
@@ -793,27 +794,15 @@ function appendFileTabs(bar: HTMLElement, fs: Files) {
 
 /// New-tab model selection can cross providers; changing an existing conversation's model stays within its resumable provider.
 function pickModel(at: HTMLElement, ws: Workspace) {
-  const box = at.getBoundingClientRect();
-  const blocks = modelGroups();
-  const items: menu.Item[] = [];
-  blocks.forEach((block, n) => {
-    if (n) items.push("sep");
-    if (block.head && blocks.length > 1) items.push({ label: block.head, disabled: true });
-    for (const [id, name] of block.items) {
-      items.push({
-        label: name,
-        checked: id === ws.model,
-        // Clamp inherited effort to the selected model's supported ladder.
-        run: () => {
-          const agent = agentOf(id);
-          void newTab("", { agent, model: id, effort: fitsEffort(id, ws.effort, agent) });
-        },
-      });
-    }
+  openModelPicker(at, {
+    current: { agent: ws.agent, model: ws.model },
+    select: choice => {
+      const effort = fitsEffort(choice.model, ws.effort, choice.agent);
+      if (effort !== ws.effort) ctx.say(t("models.effortAdjusted"));
+      void newTab("", { ...choice, effort });
+    },
+    terminal: dockbar.newTerm,
   });
-  // Offer terminal creation in the existing plus menu instead of adding a competing creation button.
-  items.push("sep", { label: t("dock.new"), glyph: icon("terminal", 14), run: dockbar.newTerm });
-  menu.openAt({ x: box.left, y: box.bottom + 4 }, items);
 }
 
 /// Resolve the current tab label when renaming because selection may have rebuilt the original button.

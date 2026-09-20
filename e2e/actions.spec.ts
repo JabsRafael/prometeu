@@ -52,7 +52,8 @@ test("perfil por projeto inicia tarefa em outra aba e permite pausar acompanhame
   const dialog = page.getByRole("dialog", { name: "Configurar agente" });
   await dialog.getByLabel("Nome do agente", { exact: true }).fill("Revisor do njord");
   await dialog.getByLabel("Modelo", { exact: true }).click();
-  await page.getByRole("menuitemcheckbox", { name: "Sonnet", exact: true }).click();
+  await page.locator(".ui-search-picker-choice", { hasText: "Sonnet" }).first().click();
+  await expect(dialog.getByLabel("Modelo", { exact: true })).toContainText("Sonnet");
   await dialog.locator("summary", { hasText: "MCP, plugins e skills" }).click();
   await dialog.getByLabel("Skills a usar (nomes separados por vírgula)").fill("code-review, pr");
   await dialog.getByLabel("Herdar seleção do workspace").first().uncheck();
@@ -131,4 +132,30 @@ test("Code review já vem pronto e a remoção não é desfeita ao reabrir", asy
   await settings(page);
   await expect(page.locator(".action-command")).toHaveCount(0);
   await expect(page.locator(".action-profile")).toHaveCount(0);
+});
+
+
+test("model picker: editar instruções preserva modelo e esforço históricos do perfil", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+    const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+    const board = await invoke("load_board") as Board;
+    const profile = board.actions.profiles[0];
+    profile.choice = { agent: "codex", model: "retired-model", effort: "retired-effort" };
+    await invoke("actions_save", { catalog: board.actions });
+  });
+  await settings(page);
+  await page.locator(".action-profile").first().getByRole("button", { name: "Editar", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Configurar agente" });
+  await expect(dialog.getByLabel("Modelo", { exact: true })).toContainText("retired-model");
+  await dialog.getByLabel("Prompt e instruções do agente", { exact: true }).fill("Preserve minha seleção anterior.");
+  await dialog.getByRole("button", { name: "Salvar", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  const choice = await page.evaluate(async () => {
+    type Invoke = (command: string) => Promise<Board>;
+    const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+    return (await invoke("load_board")).actions.profiles[0].choice;
+  });
+  expect(choice).toEqual({ agent: "codex", model: "retired-model", effort: "retired-effort" });
 });

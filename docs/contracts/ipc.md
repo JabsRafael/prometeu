@@ -60,6 +60,21 @@ applies at the next spawn or resume of a stopped process; sending another
 message to an idle process alone does not reload tools. The browser mock
 preserves the same validation and state-update behavior.
 
+## Model catalogs
+
+`agents` returns installation/capability descriptors with empty `models` lists.
+`agent_models` accepts `{ agent: ProviderId }` and returns
+`{ models: AgentModel[], fetchedAt: number }`, independently for each provider.
+`AgentModel.additional` defaults to false when absent. Failures reject with an
+object `{ code: string }` in the `err.modelsCatalog.*` namespace, never raw CLI
+output. The catalog UI translates these errors, distinguishes an empty success
+and retains the last known list only within the current account generation.
+
+The former `claude_models` command is replaced; frontend, backend and mock ship
+together, so no cross-version IPC support is required. The persisted board and
+relay are unchanged. Native discovery, timeouts and freshness are specified in
+[the runtime contract](agent-runtime.md#model-discovery).
+
 ## Private E2EE state
 
 - `team_security`: no arguments, returns the security envelope or `null` only

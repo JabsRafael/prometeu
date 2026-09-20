@@ -1,15 +1,14 @@
 //! Discover installed CLIs and their account-specific model catalogs. The UI shares one
 //! conversation model; provider adapters translate process protocols into canonical events. Query
 //! each CLI's own catalog so new models appear without an app release: Codex uses
-//! models_cache.json, while Claude uses list_models.
+//! app-server model/list, while Claude uses list_models.
 
-use crate::paths;
 use crate::state::ProviderId;
 use serde_json::Value;
-use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
-use std::time::Duration;
+
+mod catalog;
+pub use catalog::{CatalogError, ModelCatalog};
 
 /// Discover both CLIs through one login shell so user-defined PATH locations are respected without
 /// paying the shell startup cost twice.
@@ -34,12 +33,14 @@ fn home() -> Option<PathBuf> {
 }
 
 /// A model as exposed to the launcher.
-#[derive(serde::Serialize, Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Model {
     pub id: String,
     pub label: String,
     /// Supported effort levels prevent the launcher from offering values the CLI rejects.
     pub efforts: Vec<String>,
+    #[serde(default)]
+    pub additional: bool,
 }
 
 /// Provider-independent features exposed to the app. Serde maps contract field names to camelCase.
@@ -57,8 +58,7 @@ pub struct AgentCapabilities {
     pub attachments: bool,
 }
 
-/// Return both providers even when unavailable, distinguishing missing installations from
-/// temporarily empty catalogs.
+/// Return every supported provider even when its installation is unavailable.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentDescriptor {
@@ -155,7 +155,7 @@ fn descriptor(id: ProviderId, installed: bool, models: Vec<Model>) -> AgentDescr
     }
 }
 
-/// Discover CLIs and the selected account's catalog. The UI queries again after account changes.
+/// Discover installations independently of account-specific model catalogs.
 #[tauri::command]
 pub fn agents() -> Agents {
     let (claude, codex) = installed();
@@ -164,163 +164,20 @@ pub fn agents() -> Agents {
             descriptor(
                 ProviderId::Antigravity,
                 crate::antigravity::installed(),
-                crate::antigravity::models(),
+                vec![],
             ),
             descriptor(ProviderId::Claude, claude, vec![]),
-            descriptor(
-                ProviderId::Codex,
-                codex,
-                if codex { codex_models() } else { vec![] },
-            ),
+            descriptor(ProviderId::Codex, codex, vec![]),
         ],
     }
 }
 
-/// Query Claude's list_models control request for the same catalog shown by /model. Keep this slow
-/// subprocess separate from basic provider discovery. An empty result allows the launcher to use
-/// its existing fallback for old CLIs or missing responses.
+/// Query the selected account without creating a conversation or performing inference.
 #[tauri::command]
-pub async fn claude_models() -> Vec<Model> {
-    tauri::async_runtime::spawn_blocking(ask_claude_models)
+pub async fn agent_models(agent: ProviderId) -> Result<ModelCatalog, CatalogError> {
+    tauri::async_runtime::spawn_blocking(move || catalog::fetch(agent))
         .await
-        .unwrap_or_default()
-}
-
-fn ask_claude_models() -> Vec<Model> {
-    let mut cmd = Command::new("claude");
-    // Catalog discovery must not persist a session or trigger user hooks on every window opening.
-    cmd.args([
-        "-p",
-        "--verbose",
-        "--input-format",
-        "stream-json",
-        "--output-format",
-        "stream-json",
-        "--no-session-persistence",
-        "--settings",
-        r#"{"hooks":{}}"#,
-    ])
-    .current_dir(paths::home())
-    .stdin(Stdio::piped())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::null());
-    // Remove inherited CLAUDE_* settings that change nested CLI behavior, while retaining the rest
-    // of the environment, including PATH.
-    cmd.env_clear();
-    for (k, v) in std::env::vars() {
-        if !k.starts_with("CLAUDE") {
-            cmd.env(k, v);
-        }
-    }
-    let Ok(profile) = crate::accounts::active(ProviderId::Claude) else {
-        return vec![];
-    };
-    if profile.prepare().is_err() {
-        return vec![];
-    }
-    if profile.apply(&mut cmd).is_err() {
-        return vec![];
-    }
-    let Ok(mut child) = cmd.spawn() else {
-        return vec![];
-    };
-    let (Some(mut stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
-        let _ = child.kill();
-        return vec![];
-    };
-    let asked = stdin
-        .write_all(
-            b"{\"type\":\"control_request\",\"request_id\":\"models\",\"request\":{\"subtype\":\"list_models\"}}\n",
-        )
-        .is_ok();
-    // Keep stdin open until the response arrives; closing it ends the session.
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if line.contains("\"control_response\"") {
-                let _ = tx.send(parse_claude_models(&line));
-                return;
-            }
-        }
-        let _ = tx.send(vec![]);
-    });
-    let models = if asked {
-        rx.recv_timeout(Duration::from_secs(20)).unwrap_or_default()
-    } else {
-        vec![]
-    };
-    let _ = child.kill();
-    let _ = child.wait();
-    models
-}
-
-/// Exclude the unnamed default entry and disabled model advertisements from selectable catalog
-/// entries.
-fn parse_claude_models(line: &str) -> Vec<Model> {
-    let Ok(v) = serde_json::from_str::<Value>(line) else {
-        return vec![];
-    };
-    v["response"]["response"]["models"]
-        .as_array()
-        .map(|models| {
-            models
-                .iter()
-                .filter(|m| m["value"].as_str() != Some("default"))
-                .filter(|m| m["disabled"].as_bool() != Some(true))
-                .filter_map(|m| {
-                    let id = m["value"].as_str()?.to_string();
-                    let label = m["displayName"].as_str().unwrap_or(&id).to_string();
-                    let efforts = m["supportedEffortLevels"]
-                        .as_array()
-                        .map(|ls| {
-                            ls.iter()
-                                .filter_map(Value::as_str)
-                                .map(str::to_string)
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    Some(Model { id, label, efforts })
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Filter Codex's catalog by its own visibility flags. An unavailable CLI or absent cache before
-/// first login returns an empty list.
-fn codex_models() -> Vec<Model> {
-    let Some(home) = home() else {
-        return vec![];
-    };
-    let Ok(raw) = std::fs::read_to_string(home.join("models_cache.json")) else {
-        return vec![];
-    };
-    let Ok(cache) = serde_json::from_str::<Value>(&raw) else {
-        return vec![];
-    };
-    cache["models"]
-        .as_array()
-        .map(|models| {
-            models
-                .iter()
-                .filter(|m| m["visibility"].as_str() == Some("list"))
-                .filter_map(|m| {
-                    let id = m["slug"].as_str()?.to_string();
-                    let label = m["display_name"].as_str().unwrap_or(&id).to_string();
-                    let efforts = m["supported_reasoning_levels"]
-                        .as_array()
-                        .map(|ls| {
-                            ls.iter()
-                                .filter_map(|l| l["effort"].as_str())
-                                .map(str::to_string)
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    Some(Model { id, label, efforts })
-                })
-                .collect()
-        })
-        .unwrap_or_default()
+        .map_err(|_| CatalogError::new("failed"))?
 }
 
 /// Use the model with the largest priority value for cheap workspace naming; the catalog orders
@@ -361,6 +218,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn catalog_models_publish_additional_visibility() {
+        let models = catalog::parse_claude(&serde_json::json!({"response":{"subtype":"success","response":{"models":[{"value":"opus","displayName":"Opus"}]}}})).unwrap();
+        assert_eq!(
+            serde_json::to_value(&models[0]).unwrap()["additional"],
+            false
+        );
+    }
+
+    #[test]
     fn ultracode_vira_ultra() {
         assert_eq!(effort("ultracode"), "ultra");
         assert_eq!(effort("max"), "max");
@@ -376,34 +242,13 @@ mod tests {
             {"value":"haiku","resolvedModel":"claude-haiku-4-5","displayName":"Haiku"},
             {"value":"cc-update-required-1","resolvedModel":"cc-update-required-1","displayName":"Fable 5.1 (disabled)","disabled":true}
         ]}}}"#;
-        let models = parse_claude_models(line);
+        let models = catalog::parse_claude(&serde_json::from_str(line).unwrap()).unwrap();
         assert_eq!(models.len(), 2);
         assert_eq!(models[0].id, "opus[1m]");
         assert_eq!(models[0].label, "Opus (1M context)");
         assert_eq!(models[0].efforts, ["low", "medium", "high", "xhigh", "max"]);
         assert_eq!(models[1].id, "haiku");
         assert!(models[1].efforts.is_empty());
-    }
-
-    /// Query a real Claude installation. This ignored test needs the CLI and takes seconds: cargo
-    /// test -- --ignored pergunta.
-    #[test]
-    #[ignore]
-    fn pergunta_o_catalogo_de_verdade() {
-        let models = ask_claude_models();
-        for m in &models {
-            println!("{} = {} [{}]", m.id, m.label, m.efforts.join(","));
-        }
-        assert!(!models.is_empty());
-    }
-
-    #[test]
-    fn resposta_estranha_e_catalogo_vazio() {
-        assert!(parse_claude_models("nem json").is_empty());
-        assert!(parse_claude_models(
-            r#"{"type":"control_response","response":{"subtype":"error"}}"#
-        )
-        .is_empty());
     }
 
     #[test]

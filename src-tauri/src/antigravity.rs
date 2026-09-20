@@ -105,10 +105,17 @@ fn stderr_line(raw: &str) -> Option<String> {
         None
     }
 }
-pub fn models() -> Vec<crate::agents::Model> {
-    discover(&["models"])
-        .map(|raw| parse_models(&raw))
-        .unwrap_or_default()
+pub(crate) fn parse_catalog(
+    raw: &str,
+) -> Result<Vec<crate::agents::Model>, crate::agents::CatalogError> {
+    let models = parse_models(raw);
+    if raw
+        .lines()
+        .any(|line| !line.trim().is_empty() && parse_models(line).is_empty())
+    {
+        return Err(crate::agents::CatalogError::new("invalid"));
+    }
+    Ok(models)
 }
 /// Read the CLI's own quota report without creating an inference turn.
 pub fn quota() -> Option<Vec<crate::usage::Window>> {
@@ -161,6 +168,7 @@ fn parse_models(raw: &str) -> Vec<crate::agents::Model> {
                 id: id.into(),
                 label: label.into(),
                 efforts: vec![],
+                additional: false,
             })
         })
         .collect()
@@ -546,6 +554,20 @@ mod tests {
             json!({"event":"result","result":{"conversation_id":"native","status":status,"response":text,"duration_seconds":900,"usage":{"input_tokens":90000},"error":"secret-token"}}),
         )
     }
+    #[test]
+    fn model_catalog_distinguishes_empty_and_invalid_output() {
+        assert!(parse_catalog("").unwrap().is_empty());
+        assert_eq!(
+            parse_catalog("unexpected output").unwrap_err().code,
+            "err.modelsCatalog.invalid"
+        );
+        assert!(parse_catalog("custom-model\tCustom Model\ninvalid line\n").is_err());
+        let models = parse_catalog("custom-model\tCustom Model\n").unwrap();
+        assert_eq!(models[0].id, "custom-model");
+        assert!(models[0].efforts.is_empty());
+        assert!(!models[0].additional);
+    }
+
     #[test]
     fn prompts_before_init_reject_busy_until_completion_and_instructions_only_once() {
         let (mut link, output) = link();

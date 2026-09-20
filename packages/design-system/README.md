@@ -184,3 +184,30 @@ o botão para que o host possa colocá-lo em sua própria navegação.
 O widget usa top layer e acompanha o modal ativo para permanecer interativo.
 Não limpa o formulário em erro. PNG, JPEG e WebP têm limite de 5 MiB.
 A galeria demonstra envio local; `e2e/feedback.spec.ts` cobre integração desktop.
+
+## Searchable collections
+
+`searchablePicker(anchor, options)` opens a constrained panel in the shared menu
+lifetime (`menu.isOpen`, `menu.close`, `menu.onClose`). It joins the anchor's
+open dialog when present. `options` supplies translated `label`,
+`searchPlaceholder`, `empty`, `items`, `select(key)`, optional `status`,
+`refresh: { label, run }`, `additional: { label, checked, change }`, and `closed`.
+Items contain stable `key`, `label`, optional `detail`, `searchText`, `group`,
+`checked`, `disabled`, and `secondary: { label, pressed, run }`. The secondary
+button is independent of selection and exposes `aria-pressed`; the caller owns
+its updated state and accessible action label.
+
+The returned `update(items, status?)` preserves the search query and focused
+item/action by key, falling back to search if that item disappears. Search is
+case- and accent-insensitive: every whitespace-separated term must match across
+label, detail and searchText, in any order. The search
+input receives initial focus; arrows navigate choices, Enter selects, Home/End
+navigate while a choice is focused, and Tab reaches secondary/footer controls.
+Escape closes the picker before its parent dialog. Outside interaction, blur,
+or `close()` release the shared menu lifetime. Call `close()` before removing
+the host. This component does not load data or store preferences.
+
+The standalone gallery demonstrates 100 choices, disabled and selected items,
+secondary actions, refresh, additional choices and use inside a dialog.
+`e2e/search-picker.spec.ts` checks keyboard search, accents, independent actions,
+update focus preservation and a narrow dialog in Chromium and WebKit.

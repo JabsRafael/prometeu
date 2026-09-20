@@ -2,7 +2,7 @@ import * as actions from "./actions";
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { capabilitiesOf } from "./agents";
+import { capabilitiesOf, onCatalogChange } from "./agents";
 import { encodeBrowserContext, type BrowserContext } from "./browser-context";
 import type { ConversationCommandV1, RequestResponse } from "./conversation";
 import { icon } from "./icons";
@@ -25,7 +25,8 @@ import {
   toolLabel,
   wantsCard,
 } from "./chat-presentation";
-import { effortStep, fitsEffort, modelGroups, modelLabel, nextEffort } from "./launcher";
+import { effortStep, fitsEffort, modelLabel } from "./model-choice";
+import { openModelPicker, openEffortPicker } from "./model-picker";
 import { md } from "./markdown";
 import * as mcp from "./mcp";
 import * as menu from "./menu";
@@ -153,6 +154,7 @@ export class ChatView {
       this.paintComposer();
     };
     this.cleanup.push(team.onChange(teamChanged));
+    this.cleanup.push(onCatalogChange(() => this.paintComposer()));
     const selectionChanged = () => this.paintQuoteButton();
     document.addEventListener("selectionchange", selectionChanged);
     this.cleanup.push(() => document.removeEventListener("selectionchange", selectionChanged));
@@ -1332,7 +1334,7 @@ export class ChatView {
   /// Present resolved model and effort beneath the composer. Local idle tabs can change within their provider, persisting the choice and restarting on the next prompt. Remote views show labels only; changing providers requires another tab because resume identities differ.
   private paintWith(info: Info) {
     const el = this.box.querySelector<HTMLElement>(".with")!;
-    const label = info.model ? modelLabel(info.model, info.agent) : "";
+    const label = modelLabel(info.model, info.agent);
     el.hidden = !label;
     if (el.hidden) return;
     const working = info.status === "rodando" || info.status === "querendo";
@@ -1356,42 +1358,36 @@ export class ChatView {
     bars.querySelector<HTMLElement>(".el")!.textContent = step.label;
     bars.querySelectorAll(".bars i").forEach((bar, n) => bar.classList.toggle("lit", n <= step.step));
     bars.disabled = fixed || working;
-    bars.onclick = () =>
-      this.retune(info, {
-        agent: info.agent,
-        model: info.model,
-        effort: nextEffort(info.model, info.effort, info.agent),
+    bars.onclick = () => {
+      const origin = this.key, version = this.attachVersion;
+      openEffortPicker(bars, info, info.effort, effort => {
+        if (this.key !== origin || this.attachVersion !== version) return;
+        this.retune(info, { agent: info.agent, model: info.model, effort });
       });
+    };
   }
 
-  /// Restrict model choices to the conversation's provider and clamp effort to the new model's ladder.
+  /// Existing transcript identities can only resume within the same provider.
   private pickModel(at: HTMLElement, info: Info) {
-    const box = at.getBoundingClientRect();
-    const blocks = modelGroups(info.agent);
-    const items: menu.Item[] = [];
-    blocks.forEach((block, n) => {
-      if (n) items.push("sep");
-      if (block.head && blocks.length > 1) items.push({ label: block.head, disabled: true });
-      for (const [id, name] of block.items) {
-        items.push({
-          label: name,
-          checked: id === info.model,
-          run: () =>
-            this.retune(info, {
-              agent: info.agent,
-              model: id,
-              effort: fitsEffort(id, info.effort, info.agent),
-            }),
-        });
-      }
+    const origin = this.key, version = this.attachVersion;
+    openModelPicker(at, {
+      current: info,
+      only: info.agent,
+      select: choice => {
+        if (this.key !== origin || this.attachVersion !== version) return;
+        const effort = fitsEffort(choice.model, info.effort, choice.agent);
+        if (effort !== info.effort) this.ctx.say(t("models.effortAdjusted"));
+        this.retune(info, { ...choice, effort });
+      },
     });
-    menu.openAt({ x: box.left, y: box.bottom + 4 }, items);
   }
 
   /// Persist changed tab choices and stop their process; identical choices require no restart.
   private retune(info: Info, choice: Choice) {
     if (choice.model === info.model && choice.effort === info.effort) return;
-    if (!info.workspace || !this.key) return;
+    const current = this.ctx.info();
+    if (!info.workspace || !this.key || current.workspace !== info.workspace || current.remote || current.task ||
+      current.status === "rodando" || current.status === "querendo" || current.agent !== choice.agent) return;
     void invoke("set_tab_choice", { id: info.workspace, tab: this.key, choice }).catch((e) =>
       this.ctx.say(fromBack(e), true),
     );

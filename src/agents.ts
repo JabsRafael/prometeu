@@ -5,6 +5,7 @@ export type AgentModel = {
   id: string;
   label: string;
   efforts: string[];
+  additional?: boolean;
 };
 
 export type AgentCapabilities = {
@@ -32,7 +33,7 @@ export type AgentDescriptor = {
   capabilities: AgentCapabilities;
 };
 
-/// Stable Claude Code aliases label older boards and keep the launcher usable if live catalog discovery fails.
+/// Historical aliases label saved choices only; they never establish availability.
 const CLAUDE_FALLBACK_MODELS: AgentModel[] = [
   { id: "fable", label: "Fable", efforts: [] },
   { id: "fable[1m]", label: "Fable · 1M", efforts: [] },
@@ -85,82 +86,93 @@ const RETIRED: AgentDescriptor = {
   unavailableReason: 'i18n:{"code":"err.provider.retired"}',
   capabilities: NO_CAPABILITIES,
 };
+export type ModelCatalog = { models: AgentModel[]; fetchedAt: number };
+export type CatalogState = {
+  status: "idle" | "loading" | "ready" | "error";
+  fetchedAt: number | null;
+  error: string | null;
+};
 let catalog = BOOTSTRAP;
 let generation = 0;
+const states = new Map<ProviderId, CatalogState>();
+const pending = new Map<ProviderId, Promise<void>>();
+const listeners = new Set<() => void>();
+export function onCatalogChange(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+function changed() { for (const listener of listeners) listener(); }
+export function catalogOf(provider: ProviderId): CatalogState {
+  return states.get(provider) ?? { status: "idle", fetchedAt: null, error: null };
+}
 
-/// Reload on startup and account changes; late Claude catalog results must not replace a newer selection.
+/// Account changes invalidate outstanding work before discovering installations. No catalog is
+/// reused across account generations; each provider's slow query completes independently.
 export async function loadAgents() {
   const current = ++generation;
+  pending.clear();
+  states.clear();
+  catalog = catalog.map(provider => ({ ...provider, models: [] }));
+  changed();
   try {
     const discovered = await invoke("agents");
     if (current !== generation) return;
-    if (discovered.providers.length) catalog = discovered.providers;
+    catalog = discovered.providers.length ? discovered.providers.map(p => ({ ...p, models: [] })) : BOOTSTRAP;
   } catch {
     if (current !== generation) return;
     catalog = BOOTSTRAP;
   }
+  changed();
+  for (const provider of installed()) void refreshModels(provider.id, true);
+}
 
-  if (descriptor("claude").installed) {
-    void invoke("claude_models")
-      .then((models) => {
-        if (current !== generation || !models.length) return;
-        catalog = catalog.map((provider) =>
-          provider.id === "claude" ? { ...provider, models } : provider,
-        );
-      })
-      .catch(() => {});
-  }
+const CATALOG_TTL = 5 * 60_000;
+const CATALOG_ERRORS = new Set(["err.modelsCatalog.noAccount", "err.modelsCatalog.unavailable", "err.modelsCatalog.timeout", "err.modelsCatalog.invalid", "err.modelsCatalog.failed"]);
+export function refreshModels(provider: ProviderId, force = false): Promise<void> {
+  const running = pending.get(provider);
+  if (running) return running;
+  if (!descriptor(provider).installed) return Promise.resolve();
+  const previous = catalogOf(provider);
+  if (!force && previous.status === "ready" && previous.fetchedAt !== null && Date.now() - previous.fetchedAt < CATALOG_TTL) return Promise.resolve();
+  const current = generation;
+  states.set(provider, { ...previous, status: "loading", error: null });
+  const task = Promise.resolve().then(() => invoke("agent_models", { agent: provider })).then(result => {
+    if (current !== generation) return;
+    catalog = catalog.map(item => item.id === provider ? { ...item, models: result.models } : item);
+    states.set(provider, { status: "ready", fetchedAt: result.fetchedAt, error: null });
+  }).catch((error: unknown) => {
+    if (current !== generation) return;
+    const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "err.modelsCatalog.failed";
+    states.set(provider, { ...previous, status: "error", error: CATALOG_ERRORS.has(code) ? code : "err.modelsCatalog.failed" });
+  }).finally(() => {
+    if (current !== generation) return;
+    pending.delete(provider);
+    changed();
+  });
+  pending.set(provider, task);
+  changed();
+  return task;
 }
 
 export const descriptors = (): readonly AgentDescriptor[] => catalog;
-
-export const installed = (): AgentDescriptor[] => catalog.filter((provider) => provider.installed);
-
+export const installed = (): AgentDescriptor[] => catalog.filter(provider => provider.installed);
 export function descriptor(id: ProviderId): AgentDescriptor {
-  return catalog.find((provider) => provider.id === id) ?? BOOTSTRAP.find((provider) => provider.id === id) ?? RETIRED;
+  return catalog.find(provider => provider.id === id) ?? BOOTSTRAP.find(provider => provider.id === id) ?? RETIRED;
 }
-
 export const capabilitiesOf = (id: ProviderId): AgentCapabilities => descriptor(id).capabilities;
-
-/// Only Claude has fallback aliases. Installed Codex remains available without models until its CLI supplies a catalog.
-export function modelsOf(id: ProviderId): readonly AgentModel[] {
-  const models = descriptor(id).models;
-  return models.length || id !== "claude" ? models : CLAUDE_FALLBACK_MODELS;
+export const modelsOf = (id: ProviderId): readonly AgentModel[] => descriptor(id).models;
+export const modelOf = (model: string, provider: ProviderId): AgentModel | undefined => modelsOf(provider).find(candidate => candidate.id === model);
+export function modelLabelOf(model: string, provider: ProviderId): string {
+  return modelOf(model, provider)?.label ?? (provider === "claude" ? CLAUDE_FALLBACK_MODELS.find(candidate => candidate.id === model)?.label : undefined) ?? model;
 }
-
-/// Resolve provider identity only when selecting from a catalog. Persisted selections already carry their provider.
-export function providerOfModel(model: string): ProviderId {
-  return catalog.find((provider) => provider.models.some((candidate) => candidate.id === model))?.id ?? "claude";
+export const isKnownModel = (provider: ProviderId, model: string): boolean => modelOf(model, provider) !== undefined;
+export const effortsOf = (provider: ProviderId, model: string): readonly string[] => modelOf(model, provider)?.efforts ?? [];
+/// Old Codex choices used the application's spelling; new choices use the CLI's native values.
+export const nativeEffort = (provider: ProviderId, effort: string): string => provider === "codex" && effort === "ultracode" ? "ultra" : effort;
+/// Legacy preferences lacked provider identity. Migrate only when the result cannot be confused.
+export function legacyProvider(model: string): ProviderId | undefined {
+  const matches = installed().filter(provider => isKnownModel(provider.id, model));
+  if (matches.length === 1) return matches[0].id;
+  if (matches.length === 0 && CLAUDE_FALLBACK_MODELS.some(candidate => candidate.id === model)) return "claude";
+  return undefined;
 }
-
-export function modelOf(model: string, provider?: ProviderId): AgentModel | undefined {
-  if (provider) return modelsOf(provider).find((candidate) => candidate.id === model);
-  return (
-    CLAUDE_FALLBACK_MODELS.find((candidate) => candidate.id === model) ??
-    catalog.flatMap((item) => item.models).find((candidate) => candidate.id === model)
-  );
-}
-
-/// Stable alias labels take precedence over changing CLI display names; newly discovered models use their catalog label.
-export function modelLabelOf(model: string, provider?: ProviderId): string {
-  const legacy = CLAUDE_FALLBACK_MODELS.find((candidate) => candidate.id === model);
-  if (legacy && (provider === undefined || provider === "claude")) return legacy.label;
-  return modelOf(model, provider)?.label ?? model;
-}
-
-export function isKnownModel(provider: ProviderId, model: string): boolean {
-  if (provider === "claude" && CLAUDE_FALLBACK_MODELS.some((candidate) => candidate.id === model)) {
-    return true;
-  }
-  return descriptor(provider).models.some((candidate) => candidate.id === model);
-}
-
-/// The UI canonicalizes the top effort as ultracode. Codex calls it ultra; Claude uses xhigh plus application orchestration. Keep this provider metadata at the catalog boundary.
-export function effortsOf(provider: ProviderId, model: string): readonly string[] {
-  const efforts = modelOf(model, provider)?.efforts ?? [];
-  if (!efforts.length) return [];
-  if (provider === "codex") return efforts.map((effort) => (effort === "ultra" ? "ultracode" : effort));
-  return efforts.includes("xhigh") ? [...new Set([...efforts, "ultracode"])] : efforts;
-}
-
-export const usesNativeUltraLabel = (provider: ProviderId): boolean => provider === "codex";

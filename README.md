@@ -29,6 +29,10 @@ optional for local work; model access comes from your own provider account.
   quotas are shown by model group. App-managed login, interactive approvals and
   plan mode are unavailable.
   See the [provider matrix](docs/quality/provider-matrix.md) for validation limits.
+  Search models by name or agent, pin favorites, and select the effort directly.
+  Catalogs refresh from each CLI; failed refreshes are visible and extra Codex
+  models are available through “Show additional models”.
+
 - **A desk for ongoing conversations.** Arrange conversations side by side,
   respond to questions, and follow agent activity without opening each workspace.
   Your workspace stage stays separate from the agent's status.

@@ -91,3 +91,4 @@ Status: Proposed
 | [0050](0050-tested-application-boundaries.md) | Tested application boundaries before service extraction |
 | [0051](0051-git-project-catalog.md) | Git projects in portable catalogs |
 | [0052](0052-antigravity-runtime.md) | Replace Gemini CLI with Antigravity |
+| [0053](0053-live-model-selection.md) | Live model catalogs and explicit selection identity |

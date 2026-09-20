@@ -605,7 +605,7 @@ for (const [id, name] of [
 links.init(say);
 feedback.init();
 void update.init(say);
-// Discover installed agents without delaying the UI; the launcher retains Claude compatibility during bootstrap.
+// Discover installations without waiting for their independently loaded model catalogs.
 void loadAgents().then(() => statusbar.showAgents(installed()));
 // Initialize team state before Settings and sidebar render its data.
 team.onError((m) => say(m, true));

@@ -1,6 +1,6 @@
 import { invoke as tauriInvoke, type InvokeOptions } from "@tauri-apps/api/core";
 import type * as T from "./types";
-import type { AgentDescriptor, AgentModel } from "./agents";
+import type { AgentDescriptor, ModelCatalog } from "./agents";
 import type { Catalog } from "./actions";
 import type { CatalogState, Kind } from "./catalog";
 import type { CloudStatus } from "./cloud";
@@ -48,7 +48,7 @@ export type Commands = {
   chat_control_remote: { args: { session: string; frame: unknown }; result: void };
   chat_send: { args: { session: string; text: string }; result: void };
   chat_snapshot: { args: { session: string }; result: { text: string; seq: number } };
-  claude_models: { args: undefined; result: AgentModel[] };
+  agent_models: { args: { agent: T.ProviderId }; result: ModelCatalog };
   cleanup_list: { args: undefined; result: T.Cleanable[] };
   cleanup_worktree: { args: { id: string; force: boolean }; result: void };
   close_dock: { args: { id: string; kind: T.DockKind }; result: void };

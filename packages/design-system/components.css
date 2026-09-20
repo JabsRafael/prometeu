@@ -150,3 +150,21 @@ textarea.ui-input { resize: vertical; min-height: 112px; line-height: 1.5; }
 .ui-feedback-kinds [aria-pressed=true] { border-color: var(--accent); color: var(--accent); }
 
 .ui-feedback button:disabled { opacity: .5; cursor: wait; }
+
+/* Search and footer stay fixed while the collection scrolls independently. */
+.ui-search-picker { box-sizing: border-box; width: 380px; min-width: 0; max-width: calc(100vw - 16px); max-height: min(480px, calc(100dvh - 16px)); gap: var(--space-2); padding: var(--space-2); }
+.ui-search-picker-search { flex: none; width: 100%; box-sizing: border-box; }
+.ui-search-picker-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.ui-search-picker-row { display: flex; align-items: stretch; border-radius: var(--r); }
+.ui-search-picker-choice { display: flex; align-items: center; flex: 1; min-width: 0; min-height: 38px; padding: var(--space-2); border: 0; border-radius: var(--r); background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
+.ui-search-picker-choice:hover, .ui-search-picker-choice:focus-visible { background: var(--bg-raised-3); }
+.ui-search-picker-choice:focus-visible { outline: 2px solid var(--tab-line); outline-offset: -2px; }
+.ui-search-picker-choice:disabled { opacity: .5; cursor: default; }
+.ui-search-picker-text { display: flex; flex: 1; min-width: 0; flex-direction: column; overflow-wrap: anywhere; gap: 2px; }
+.ui-search-picker-check { flex: none; width: 18px; color: var(--accent); }
+.ui-search-picker-secondary { flex: none; align-self: center; font-size: 20px; }
+.ui-search-picker-secondary[aria-pressed=true] { color: var(--accent); }
+.ui-search-picker-group { padding: var(--space-2); color: var(--fg-2); font-size: 11px; }
+.ui-search-picker-status { white-space: pre-line; flex: none; padding: 0 var(--space-2); overflow-wrap: anywhere; }
+.ui-search-picker-status:empty, .ui-search-picker-footer:empty { display: none; }
+.ui-search-picker-footer { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--line-raised); }

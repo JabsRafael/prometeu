@@ -1,4 +1,4 @@
-import { avatar, button, input, field, checkbox, select, password, card, badge, notice, disclosure, menuButton, formDialog, confirmDialog } from "./dist/index.js";
+import { avatar, button, input, field, checkbox, select, password, card, badge, notice, disclosure, menuButton, formDialog, confirmDialog, searchablePicker } from "./dist/index.js";
 
 const examples = document.querySelector("#examples");
 const output = notice("Interaja com os componentes para ver seus estados.");
@@ -82,3 +82,34 @@ feedbackWidget({
   publicIssue: "https://github.com/prometeucorp/prometeu/issues/new",
   submit: async () => {}, error: cause => String(cause),
 });
+
+
+function pickerExample() {
+  const selected = notice("Nenhuma opção escolhida");
+  const starred = new Set();
+  let picker;
+  const items = () => Array.from({ length: 100 }, (_, n) => ({
+    key: String(n), label: `Opção ${String(n).padStart(3, "0")}`,
+    detail: n === 0 ? "Descrição com acentuação · Café · Codex" : `Detalhe ${n}`,
+    group: n < 5 ? "Recentes" : "Todas as opções", checked: n === 2, disabled: n === 98,
+    secondary: { label: `${starred.has(n) ? "Desfavoritar" : "Favoritar"} Opção ${String(n).padStart(3, "0")}`,
+      pressed: starred.has(n), run: () => {
+        if (starred.has(n)) starred.delete(n); else starred.add(n);
+        picker.update(items());
+      } },
+  }));
+  const trigger = button("Buscar opção", () => {
+    picker = searchablePicker(trigger, {
+      label: "Opções disponíveis", searchPlaceholder: "Buscar opções", empty: "Nenhuma opção encontrada",
+      items: items(), select: key => { selected.textContent = `Escolhida: Opção ${String(key).padStart(3, "0")}`; },
+      refresh: { label: "Atualizar opções", run: () => picker.update(items(), "Catálogo atualizado") },
+      additional: { label: "Mostrar opções adicionais", checked: false,
+        change: checked => picker.update(checked ? [...items(), { key: "extra", label: "Opção adicional" }] : items()) },
+    });
+  });
+  return [trigger, selected];
+}
+examples.append(card("Busca em listas extensas", ...pickerExample(), button("Busca em diálogo", () => {
+  const dialog = formDialog({ title: "Exemplo de busca", save: "Salvar", cancel: "Cancelar", submit: async () => {}, error: String });
+  dialog.body.append(...pickerExample()); dialog.open();
+})));

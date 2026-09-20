@@ -98,6 +98,36 @@ and exercises the same cryptographic channel.
 Tests: `src/team-security.test.ts` and the `src-tauri/src/team.rs` tests.
 Network contract and limits: [relay v4](relay-v4.md).
 
+## Model selection preferences
+
+These preferences live in desktop webview localStorage, not the board or relay:
+
+- `prometeu:model-choice`: JSON `{ agent: ProviderId, model: string }`.
+- `prometeu:model-favorites`: JSON array of the same pairs, deduplicated by both
+  fields. Favorites are local to this installation and shared by desktop pickers.
+- `prometeu:effort`: native effort string; empty means provider default.
+
+The old `prometeu:model` string remains untouched. When the new choice is absent,
+wait for successful discovery of all installed agents and migrate only an
+unambiguous model/provider association;
+known historical Claude aliases can still identify old Claude preferences.
+An ambiguous or unrecognized legacy value requires explicit selection. A new
+installation defaults to the first installed provider's native model default.
+Malformed preference JSON is ignored. Removing a model from a catalog does not
+remove its saved default, favorite, tab choice or profile choice. Favorites that
+are unavailable in the current account remain stored but are not selectable.
+
+Historical Codex `ultracode` effort is read as `ultra`; new selections write native
+values. Historical unsupported efforts stay visible and are not rewritten merely
+by opening or saving an unrelated profile field. Explicit model changes retain
+only supported effort; otherwise they select the provider default and explain
+the adjustment. `Choice` and `SessionLaunch` retain their existing wire shapes.
+An unavailable saved model or unsupported effort cannot start a new workspace
+until explicitly corrected; its saved preference and existing conversations are
+not rewritten. Catalogs and freshness state are memory-only and are invalidated on account
+changes. Tests: `src/model-choice.test.ts`, `src/agents.test.ts`, and
+`e2e/model-picker.spec.ts`, with action profile compatibility in `e2e/actions.spec.ts`.
+
 ## Board
 
 `Board` contains projects, stages, workspaces and the optional `actions`
