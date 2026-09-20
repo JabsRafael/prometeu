@@ -19,6 +19,7 @@ export type Item =
     };
 
 let root: HTMLElement | null = null;
+let panelKey: ((event: KeyboardEvent) => void) | undefined;
 let afterClose: (() => void) | undefined;
 /// The mouse or keyboard selection activated by Enter.
 let sel: HTMLElement | null = null;
@@ -38,6 +39,7 @@ export function close() {
   const restore = keyboardFocus && root?.contains(document.activeElement);
   root?.remove();
   root = null;
+  panelKey = undefined;
   const done = afterClose;
   afterClose = undefined;
   done?.();
@@ -63,6 +65,8 @@ function onKey(e: KeyboardEvent) {
     e.preventDefault();
     e.stopPropagation();
     close();
+  } else if (panelKey) {
+    panelKey(e);
   } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     e.preventDefault();
     e.stopPropagation();
@@ -131,6 +135,24 @@ export function openAt(at: Where, items: Item[], cls?: string, onClosed?: () => 
   document.addEventListener("keydown", onKey, true);
   window.addEventListener("blur", close);
   if (focus) root.focus();
+}
+
+/** Join the shared menu lifetime with a panel that owns its internal keyboard interaction. */
+export function openPanel(anchor: HTMLElement, panel: HTMLElement, key: (event: KeyboardEvent) => void, closed: () => void) {
+  close();
+  root = panel; keyboardFocus = true; previousFocus = anchor; panelKey = key;
+  afterClose = closed;
+  (anchor.closest("dialog[open]") ?? document.body).append(panel);
+  const reposition = () => {
+    if (root !== panel) return;
+    const at = anchor.getBoundingClientRect();
+    place(panel, at.left, at.bottom + 4);
+  };
+  reposition();
+  document.addEventListener("mousedown", onDown, true);
+  document.addEventListener("keydown", onKey, true);
+  window.addEventListener("blur", close);
+  return reposition;
 }
 
 function place(el: HTMLElement, x: number, y: number, above = false) {

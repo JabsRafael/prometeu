@@ -97,3 +97,20 @@ feature's real flows on both engines. The architectural check prevents `ui.ts`
 from depending on domain modules and prevents Actions from recreating native
 selectors. The existing web and E2E tests protect the launcher, menus and hubs
 during adoption.
+
+## Searchable selection
+
+`searchablePicker` composes through the shared menu lifetime and can open inside
+an existing modal. It accepts translated labels, stable item keys, groups,
+details, optional secondary actions, status text, refresh and a filter checkbox.
+It does not own domain catalogs or persistence. Its update method preserves the
+query, scroll and focused action; the model picker subscribes to catalog changes
+and supplies updated entries. Model favorites are secondary buttons, never
+nested interactive content inside a selectable button.
+
+The search input receives focus on open. Arrow keys move among enabled choices;
+Tab reaches the current choice, its secondary action and footer controls without
+requiring traversal of the whole catalog. Escape closes the picker before the
+parent dialog and restores trigger focus. Both standalone gallery and
+`e2e/search-picker.spec.ts` cover a 100-entry list, accent-insensitive filtering,
+independent star actions, dynamic updates and narrow dialogs in Chromium/WebKit.

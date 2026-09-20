@@ -129,7 +129,7 @@ fn main() {
             actions::action_pause,
             i18n::set_lang,
             agents::agents,
-            agents::claude_models,
+            agents::agent_models,
             accounts::accounts,
             accounts::account_select,
             accounts::account_remove,

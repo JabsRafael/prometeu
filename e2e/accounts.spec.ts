@@ -230,7 +230,7 @@ test("contas: launcher preserva o pedido até selecionar uma conta conectada", a
   await page.locator('#status [data-provider="antigravity"]').waitFor();
   await page.locator("#railbody").getByRole("button", { name: "Criar", exact: true }).click();
   await page.locator("#d-model").click();
-  await page.getByRole("menuitemcheckbox", { name: "Gemini 3.8 Flash (High)", exact: true }).click();
+  await page.locator(".ui-search-picker-choice", { hasText: "Gemini 3.8 Flash (High)" }).click();
   const prompt = page.locator("#d-prompt");
   await prompt.fill("Meu pedido preservado");
   const workspaceIds = () => page.evaluate(async () => {

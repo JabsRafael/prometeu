@@ -268,3 +268,5 @@ export function card(title: string, ...content: HTMLElement[]) {
   root.append(h("h2", "", title), ...content);
   return root;
 }
+
+export { searchablePicker, type SearchPickerItem, type SearchPickerOptions } from "./search-picker.js";

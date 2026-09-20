@@ -1,18 +1,10 @@
 import * as accounts from "./accounts";
-import { button, dropdown, type Group } from "./ui";
+import { button, dropdown } from "./ui";
 export type { Group } from "./ui";
 import { open } from "@tauri-apps/plugin-dialog";
-import {
-  capabilitiesOf,
-  descriptors,
-  effortsOf,
-  installed,
-  isKnownModel,
-  modelLabelOf,
-  modelsOf,
-  providerOfModel,
-  usesNativeUltraLabel,
-} from "./agents";
+import { capabilitiesOf, catalogOf, descriptor, effortsOf, isKnownModel, nativeEffort, onCatalogChange } from "./agents";
+import { choiceLabel, defaultChoice, defaultEffort, effortStep, fitsEffort } from "./model-choice";
+import { openModelPicker, openEffortPicker } from "./model-picker";
 import { freshBranch } from "./branch";
 import { avatar, icon } from "./icons";
 import { paint, t } from "./i18n";
@@ -42,11 +34,11 @@ export type Draft = {
   inject: string[];
   /// An originating Linear issue supplies the workspace title, branch, and initial prompt.
   issue: IssueRef | null;
-  /// Derive the provider from the selected model's catalog association.
+  /// Keep provider identity explicit because model IDs can overlap.
   agent: ProviderId;
-  /// Choose a discovered provider model explicitly for the whole workspace rather than offering a CLI-default choice.
+  /// Empty model inherits the selected provider’s native default.
   model: string;
-  /// Always choose an effort for new workspaces; empty legacy values omit the override.
+  /// Empty effort inherits the provider default.
   effort: string;
   /// Start only the first conversation in plan mode until its plan is approved.
   plan: boolean;
@@ -59,82 +51,11 @@ export type Draft = {
 
 /// Workspace agents use unattended permissions; no launcher toggle changes that behavior.
 
-/// Model selection also chooses its provider; no separate provider control is needed.
-export const agentOf = providerOfModel;
-
-/// Share model groups between launcher and tab controls. Restrict existing conversations to their provider because resume identities are not interchangeable across CLIs.
-export function modelGroups(only?: ProviderId): Group[] {
-  return installed()
-    .filter((provider) => only === undefined || provider.id === only)
-    .map((provider) => ({
-      head: provider.label,
-      items: modelsOf(provider.id).map((model) => [model.id, model.label] as [string, string]),
-    }))
-    .filter((group) => group.items.length > 0);
-}
-
-/// Clamp effort to a supported level when switching models so the CLI never receives an unsupported value.
-export function fitsEffort(model: string, effort: string, provider = providerOfModel(model)): string {
-  const stairs = ladderOf(model, provider);
-  if (stairs.some(([id]) => id === effort)) return effort;
-  return stairs[stairs.length - 1]?.[0] ?? "high";
-}
-
-/// Default to the first installed provider's model instead of selecting an unavailable CLI.
-const fallbackModel = () =>
-  installed().flatMap((provider) => modelsOf(provider.id))[0]?.id ?? "";
-
-/// Cycle supported effort levels with one click, wrapping after the last. New launchers choose an explicit effort; ultracode adds application orchestration where supported.
-const EFFORTS: [string, string][] = [
-  ["low", t("effort.low")],
-  ["medium", t("effort.medium")],
-  ["high", t("effort.high")],
-  ["xhigh", t("effort.xhigh")],
-  ["max", t("effort.max")],
-  ["ultracode", t("effort.ultracode")],
-];
-
-/// Normalize provider effort catalogs for presentation, including application orchestration above Claude xhigh. Preserve the fallback ladder when no catalog levels are published.
-function ladderOf(model: string, provider = providerOfModel(model)): [string, string][] {
-  const accepted = effortsOf(provider, model);
-  if (!accepted.length) return EFFORTS;
-  return EFFORTS.filter(([id]) => accepted.includes(id)).map(([id, name]) => [
-    id,
-    id === "ultracode" ? t(usesNativeUltraLabel(provider) ? "effort.ultra" : "effort.ultracode") : name,
-  ]);
-}
-
-/// Use the same readable model label in launcher and conversation footers.
-export function modelLabel(model: string, provider?: ProviderId): string {
-  return modelLabelOf(model, provider);
-}
-
-/// Cycle within the model's effort ladder; unknown values start at its first level.
-export function nextEffort(model: string, effort: string, provider = providerOfModel(model)): string {
-  const stairs = ladderOf(model, provider);
-  const step = stairs.findIndex(([id]) => id === effort);
-  return stairs[(step + 1) % stairs.length]?.[0] ?? effort;
-}
-
-/// Expose the current effort position and ladder length for the indicator; unknown values light no bars.
-export function effortStep(
-  model: string,
-  effort: string,
-  provider = providerOfModel(model),
-): { label: string; step: number; total: number } | null {
-  const stairs = ladderOf(model, provider);
-  const step = stairs.findIndex(([id]) => id === effort);
-  if (step === -1) return null;
-  return { label: stairs[step][1], step, total: stairs.length };
-}
-
 /// Persist worktree preference across launches. Plan mode belongs to one task and is not remembered.
 const WORKTREE_KEY = "prometeu:worktree";
 const BRANCH_KEY = "prometeu:branch-nova";
 
 /// Model, effort, MCP, and plugin defaults are explicit Settings choices. Launcher changes affect only the new workspace. Retain existing storage keys for compatibility with older remembered choices.
-const MODEL_KEY = "prometeu:model";
-const EFFORT_KEY = "prometeu:effort";
 const MCP_KEY = "prometeu:mcp";
 const PLUGIN_KEY = "prometeu:plugins";
 
@@ -161,6 +82,8 @@ export function openLauncher(board: Board, opts: Open) {
   const project = preset ?? board.projects[0].id;
   let seed = opts.seed;
 
+  const initialChoice = defaultChoice();
+  let needsChoice = initialChoice === null;
   const draft: Draft = {
     project,
     extras: [],
@@ -174,16 +97,14 @@ export function openLauncher(board: Board, opts: Open) {
     prompt: "",
     inject: [],
     issue: seed ? { id: seed.id, identifier: seed.identifier, title: seed.title, url: seed.url } : null,
-    agent: "claude",
-    model: defaultModel(),
+    agent: initialChoice?.agent ?? "claude",
+    model: initialChoice?.model ?? "",
     effort: "",
     plan: false,
     mcp: defaultMcp(),
     plugins: defaultPlugins(),
   };
-  draft.effort = defaultEffort(draft.model);
-  // The catalog associates the default model with its provider.
-  draft.agent = agentOf(draft.model);
+  draft.effort = defaultEffort(draft);
   const conformCapabilities = () => {
     const capabilities = capabilitiesOf(draft.agent);
     if (!capabilities.initialPlanMode) draft.plan = false;
@@ -236,6 +157,16 @@ export function openLauncher(board: Board, opts: Open) {
 
   const nameOf = (id: string) => board.projects.find((p) => p.id === id)?.name ?? "";
   const projectName = () => nameOf(draft.project);
+  const choiceProblem = () => {
+    if (needsChoice) return t("models.choose");
+    if (!descriptor(draft.agent).installed) return t("models.unavailable");
+    const pending = ["idle", "loading"].includes(catalogOf(draft.agent).status);
+    if (draft.model && !isKnownModel(draft.agent, draft.model)) return t(pending ? "models.loading" : "models.unavailable");
+    if (draft.effort && !effortsOf(draft.agent, draft.model).includes(nativeEffort(draft.agent, draft.effort))) {
+      return pending ? t("models.loading") : t("models.unavailableEffort", { effort: draft.effort });
+    }
+    return "";
+  };
   // Disable creation while another workspace owns the branch at a conflicting path, preserving the typed request.
   let taken: Workspace | null = null;
   let receiving = 0;
@@ -255,11 +186,11 @@ export function openLauncher(board: Board, opts: Open) {
       draft.newBranch && draft.worktree
         ? branchTaken(board, [draft.project, ...draft.extras], draft.branch)
         : null;
-    const aviso = taken ? t("launcher.hint.taken", { ws: taken.title }) : "";
+    const aviso = taken ? t("launcher.hint.taken", { ws: taken.title }) : choiceProblem();
     hint.classList.toggle("bad", !!aviso);
     hint.title = aviso || `${names} · ${onde}`;
     hint.textContent = aviso || onde;
-    $<HTMLButtonElement>("d-go").disabled = !!aviso || receiving > 0;
+    $<HTMLButtonElement>("d-go").disabled = !!aviso || receiving > 0 || needsChoice;
   };
   drawHint();
 
@@ -372,51 +303,56 @@ export function openLauncher(board: Board, opts: Open) {
       $("d-inj").replaceChildren();
     }
   };
-  const drawModel = dropdown(
-    $("d-model"),
-    modelGroups,
-    () => draft.model,
-    (id) => {
-      draft.model = id;
-      draft.agent = agentOf(id);
-      // Changing provider/model may invalidate current capabilities and effort.
+  const modelButton = $<HTMLButtonElement>("d-model");
+  let effortAdjusted = false;
+  const drawModel = () => {
+    modelButton.querySelector("span")!.textContent = needsChoice ? t("models.choose") : choiceLabel(draft);
+  };
+  modelButton.addEventListener("click", () => openModelPicker(modelButton, {
+    current: draft,
+    select: choice => {
+      const previousEffort = draft.effort;
+      Object.assign(draft, choice);
+      needsChoice = false;
       conformCapabilities();
-      draft.effort = fits(draft.effort);
-      drawEffort();
-      drawPlan();
-      drawMcp();
-      drawPlugins();
-      drawAttach();
-      drawAccount();
+      draft.effort = fitsEffort(draft.model, draft.effort, draft.agent);
+      effortAdjusted = previousEffort !== draft.effort;
+      drawModel(); drawEffort(); drawPlan(); drawMcp(); drawPlugins(); drawAttach(); drawAccount(); drawHint();
       prompt.focus();
     },
-  );
-
-  // Cycle only efforts supported by the selected model; unsupported choices would fail at the CLI.
+  }));
   const effort = $<HTMLButtonElement>("d-effort");
   const drawEffort = () => {
-    const stairs = ladder();
-    const step = Math.max(0, stairs.findIndex(([id]) => id === draft.effort));
-    const ultra = stairs[step][0] === "ultracode";
-    effort.querySelector(".el")!.textContent = stairs[step][1];
-    effort.querySelectorAll(".bars i").forEach((bar, n) => bar.classList.toggle("lit", n <= step));
-    effort.classList.toggle("ultra", ultra);
-    effort.title = t(ultra ? "launcher.effort.ultra" : "launcher.effort.title");
+    const step = effortStep(draft.model, draft.effort, draft.agent);
+    effort.hidden = !step || needsChoice;
+    if (step) {
+      effort.querySelector(".el")!.textContent = step.label;
+      effort.querySelectorAll(".bars i").forEach((bar, n) => bar.classList.toggle("lit", n <= step.step));
+    }
+    effort.classList.toggle("ultra", draft.effort === "ultracode");
+    effort.title = effortAdjusted ? t("models.effortAdjusted") : t("launcher.effort.title");
+    modelButton.title = effortAdjusted ? t("models.effortAdjusted") : t("launcher.model.title");
   };
-  effort.addEventListener("click", () => {
-    const stairs = ladder();
-    const step = stairs.findIndex(([id]) => id === draft.effort);
-    draft.effort = stairs[(step + 1) % stairs.length][0];
+  effort.addEventListener("click", () => openEffortPicker(effort, draft, draft.effort, value => {
+    draft.effort = value;
+    effortAdjusted = false;
     drawEffort();
+    drawHint();
     prompt.focus();
+  }));
+  const forgetCatalog = onCatalogChange(() => {
+    if (needsChoice) {
+      const resolved = defaultChoice();
+      if (resolved) {
+        Object.assign(draft, resolved);
+        draft.effort = defaultEffort(resolved);
+        needsChoice = false;
+        conformCapabilities();
+        drawPlan(); drawMcp(); drawPlugins(); drawAttach(); drawAccount(); drawHint();
+      }
+    }
+    drawModel(); drawEffort(); drawHint();
   });
-
-  /// The current model's supported effort ladder.
-  const ladder = () => ladderOf(draft.model, draft.agent);
-
-  const fits = (level: string) => fitsEffort(draft.model, level, draft.agent);
-
-  draft.effort = fits(draft.effort);
   drawEffort();
   drawModel();
 
@@ -671,6 +607,7 @@ export function openLauncher(board: Board, opts: Open) {
   };
 
   const hide = () => {
+    forgetCatalog();
     forgetAccounts();
     forgetMcp();
     forgetPlugins();
@@ -679,7 +616,7 @@ export function openLauncher(board: Board, opts: Open) {
     veil.hidden = true;
   };
   const submit = () => {
-    if (taken || receiving) return;
+    if (taken || receiving || choiceProblem()) return;
     if (!accounts.selected(draft.agent)) { accounts.openPicker(draft.agent); return; }
     // An empty branch tells the backend to use the repository's current checkout.
     if (!draft.newBranch) draft.branch = "";
@@ -849,33 +786,6 @@ function store(key: string, ids: string[] | null) {
   if (ids === null) localStorage.removeItem(key);
   else localStorage.setItem(key, JSON.stringify(ids));
 }
-
-/// Validate the saved model against installed catalogs; fall back to the first model when its alias or provider is unavailable.
-export function defaultModel(): string {
-  const saved = localStorage.getItem(MODEL_KEY) ?? "";
-  const provider = providerOfModel(saved);
-  const known = descriptors().some(
-    (candidate) => candidate.id === provider && candidate.installed && isKnownModel(candidate.id, saved),
-  );
-  return known ? saved : fallbackModel();
-}
-
-export function setDefaultModel(id: string) {
-  localStorage.setItem(MODEL_KEY, id);
-}
-
-/// Clamp the shared default effort to the selected model's supported ladder.
-export function defaultEffort(model: string): string {
-  const saved = localStorage.getItem(EFFORT_KEY) ?? "";
-  return fitsEffort(model, EFFORTS.some(([id]) => id === saved) ? saved : "high");
-}
-
-export function setDefaultEffort(id: string) {
-  localStorage.setItem(EFFORT_KEY, id);
-}
-
-/// Expose the model effort ladder to Settings and other controls outside the launcher.
-export const effortLadder = ladderOf;
 
 /// Prepend the complete originating issue to user instructions in the initial prompt.
 export function issueBlock(issue: Issue, extra: string): string {

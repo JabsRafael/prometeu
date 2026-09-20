@@ -153,7 +153,7 @@ test("arraste de arquivo no lançador preserva texto e não duplica anexos", asy
 test("arraste de arquivo no terminal escreve caminho escapado no pty correto", async ({ page }) => {
   await page.locator('#tiles .tile[data-tab="t1"] .topen').click();
   await page.locator(".tabadd .caret").click();
-  await page.locator(".menu .mrow", { hasText: "Terminal novo" }).click();
+  await page.locator(".ui-search-picker-choice", { hasText: "Terminal novo" }).click();
   await expect(page.locator("#termview .xterm")).toBeVisible();
   await page.evaluate(() => {
     const w = window as unknown as {

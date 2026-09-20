@@ -1398,21 +1398,30 @@ const mockCommands: IpcHandlers = {
           id: "antigravity", label: "Antigravity", installed: localStorage.getItem("mock:antigravityMissing") !== "1",
           authMethods: [{ id: "external", kind: "external", label: t("account.external.attach") }],
           accountNotice: t("account.external.notice"),
-          models: [{ id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)", efforts: [] }],
+          models: [],
           capabilities: { initialPlanMode: false, resume: true, approvals: false, attachments: true,
             workspaceMcpSelection: false, workspacePluginSelection: false, compact: false, contextReport: false, userQuestions: false },
         },
       ],
     };
   },
-  // Use the filtered Claude catalog shape. Haiku exposes no effort levels.
-  claude_models() {
-    return [
+  async agent_models({ agent }) {
+    const delay = Number(localStorage.getItem(`mock:catalogDelay:${agent}`) ?? 0);
+    if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+    const error = localStorage.getItem(`mock:catalogError:${agent}`);
+    if (error) throw { code: error };
+    const custom = localStorage.getItem(`mock:modelCatalog:${agent}`);
+    const models = custom ? JSON.parse(custom) : agent === "claude" ? [
       { id: "opus[1m]", label: "Opus (1M context)", efforts: ["low", "medium", "high", "xhigh", "max"] },
       { id: "claude-fable-5[1m]", label: "Fable", efforts: ["low", "medium", "high", "xhigh", "max"] },
       { id: "sonnet", label: "Sonnet", efforts: ["low", "medium", "high", "xhigh", "max"] },
       { id: "haiku", label: "Haiku", efforts: [] },
-    ];
+    ] : agent === "codex" ? [
+      { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+      { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+      { id: "gpt-5.4", label: "GPT-5.4", efforts: ["low", "medium", "high", "xhigh"] },
+    ] : agent === "antigravity" ? [{ id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)", efforts: [] }] : [];
+    return { models, fetchedAt: Date.now() };
   },
   // Sample provider quotas keep usage indicators visible in the browser.
   usage() {

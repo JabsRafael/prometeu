@@ -1,5 +1,7 @@
 import * as actions from "./actions";
-import { descriptor, descriptors, effortsOf, modelLabelOf, modelsOf } from "./agents";
+import { descriptor, modelLabelOf, onCatalogChange } from "./agents";
+import { effortStep, fitsEffort, modelLabel } from "./model-choice";
+import { openModelPicker, openEffortPicker } from "./model-picker";
 import { fromBack, t, type Key } from "./i18n";
 import * as mcp from "./mcp";
 import * as menu from "./menu";
@@ -7,7 +9,6 @@ import { icon } from "./icons";
 import * as plugins from "./plugins";
 import { h } from "./util";
 import * as ui from "./ui";
-import type { ProviderId } from "./types";
 
 let scope = "";
 const button = (key: Key, run: () => void) => ui.button(t(key), run);
@@ -151,21 +152,33 @@ function profileEditor(old: actions.Profile | null, project: string, redraw: () 
   sheet(t("actions.profileEditor"), body => {
     const name = input(profile.name); name.required = true;
     const prompt = input(profile.prompt, true); prompt.required = true;
-    const provider = select(profile.choice.agent, descriptors().map(d => [d.id, `${d.label}${d.installed ? "" : ` · ${t("actions.uninstalled")}`}`]));
-    const model = select("", []);
-    const effort = select("", []);
-    const renderEffort = (value = "") => {
-      const options: [string, string][] = [["", t("actions.default")], ...effortsOf(provider.value as ProviderId, model.value).map(e => [e, e] as [string, string])];
-      if (value && !options.some(([id]) => id === value)) options.push([value, value]);
-      effort.setOptions(options, value);
+    const choice = { ...profile.choice };
+    const model = ui.button("", () => openModelPicker(model, {
+      current: choice,
+      select: selected => {
+        const effort = fitsEffort(selected.model, choice.effort, selected.agent);
+        const adjusted = effort !== choice.effort;
+        Object.assign(choice, selected, { effort });
+        model.title = adjusted ? t("models.effortAdjusted") : "";
+        renderChoice();
+      },
+    }));
+    const effort = ui.button("", () => openEffortPicker(effort, choice, choice.effort, value => {
+      choice.effort = value;
+      model.title = "";
+      renderChoice();
+    }));
+    model.className = effort.className = "outline md pick";
+    const effortField = field("actions.effort", effort);
+    const renderChoice = () => {
+      model.textContent = `${descriptor(choice.agent).label} · ${modelLabel(choice.model, choice.agent)}`;
+      const step = effortStep(choice.model, choice.effort, choice.agent);
+      effortField.hidden = !step;
+      effort.textContent = step?.label ?? "";
     };
-    const renderModels = (value = "") => {
-      const options: [string, string][] = [["", t("actions.default")], ...modelsOf(provider.value as ProviderId).map(m => [m.id, m.label] as [string, string])];
-      if (value && !options.some(([id]) => id === value)) options.push([value, value]);
-      model.setOptions(options, value); renderEffort();
-    };
-    renderModels(profile.choice.model); renderEffort(profile.choice.effort);
-    provider.onchange = () => renderModels(); model.onchange = () => renderEffort();
+    renderChoice();
+    const forgetCatalog = onCatalogChange(renderChoice);
+    body.closest("dialog")!.addEventListener("close", forgetCatalog, { once: true });
     const servers = selection("actions.mcp", profile.mcp, mcp.list().map(s => s.id));
     const packages = selection("actions.plugins", profile.plugins, plugins.list().map(p => p.id));
     const skills = input(profile.skills.join(", "));
@@ -181,7 +194,7 @@ function profileEditor(old: actions.Profile | null, project: string, redraw: () 
     const ci = checkbox("actions.ci", profile.watch?.ci ?? true);
     watchBody.append(field("actions.interval", interval), comments.label, ci.label, field("actions.limit", limit), h("p", "ui-hint", t("actions.watchHint")));
     const models = h("div", "ui-columns");
-    models.append(field("actions.provider", provider.control), field("actions.model", model.control), field("actions.effort", effort.control));
+    models.append(field("actions.model", model), effortField);
     const tools = ui.disclosure(t("actions.tools"));
     tools.toggleAttribute("open", !!profile.mcp?.length || !!profile.plugins?.length || !!profile.skills.length);
     tools.append(servers.root, packages.root,
@@ -191,7 +204,7 @@ function profileEditor(old: actions.Profile | null, project: string, redraw: () 
     return () => {
       const next = structuredClone(actions.catalog());
       const result: actions.Profile = { ...profile, name: name.value.trim(), prompt: prompt.value.trim(),
-        choice: { agent: provider.value as ProviderId, model: model.value, effort: effort.value },
+        choice: { ...choice },
         mcp: servers.get(), plugins: packages.get(), skills: skills.value.split(",").map(s => s.trim()).filter(Boolean),
         permission: permission.value as actions.Profile["permission"],
         watch: watching.control.checked ? { interval_seconds: Number(interval.value), max_turns: Number(limit.value), comments: comments.control.checked, ci: ci.control.checked } : null,

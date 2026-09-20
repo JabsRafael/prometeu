@@ -93,6 +93,8 @@ compatibility still in use stays documented in the current contracts.
 
 - [ADR 0052](decisions/0052-antigravity-runtime.md): Replace Gemini CLI with Antigravity.
 
+- [ADR 0053](decisions/0053-live-model-selection.md): Live model catalogs and explicit selection identity.
+
 ## Quality and operations
 
 - [`quality/provider-matrix.md`](quality/provider-matrix.md): support per agent

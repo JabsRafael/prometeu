@@ -5,19 +5,10 @@ import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import { avatar, icon } from "./icons";
 import { LANGS, choose, chosen, fromBack, fromSystem, t, type Key, type Lang } from "./i18n";
-import {
-  defaultEffort,
-  defaultMcp,
-  defaultModel,
-  defaultPlugins,
-  effortLadder,
-  modelGroups,
-  modelLabel,
-  setDefaultEffort,
-  setDefaultMcp,
-  setDefaultModel,
-  setDefaultPlugins,
-} from "./launcher";
+import { defaultMcp, defaultPlugins, setDefaultMcp, setDefaultPlugins } from "./launcher";
+import { choiceLabel, defaultChoice, defaultEffort, effortStep, fitsEffort, setDefaultChoice, setDefaultEffort } from "./model-choice";
+import { openModelPicker, openEffortPicker } from "./model-picker";
+import { onCatalogChange } from "./agents";
 import * as mcp from "./mcp";
 import * as catalog from "./catalog";
 import * as skills from "./skills";
@@ -41,6 +32,7 @@ let status: LinearStatus = { connected: false, who: null, busy: false };
 
 export async function init(context: Ctx) {
   ctx = context;
+  onCatalogChange(() => { if (!$("settingsView").hidden) { paintDefaultModel(); paintDefaultEffort(); } });
   accountUI.onChange(() => { if (!$("settingsView").hidden && open === "contas") {
     const focus = document.activeElement instanceof HTMLElement ? document.activeElement.dataset.focus : undefined;
     draw();
@@ -270,52 +262,52 @@ function pickRow(
   return { row, btn };
 }
 
+let defaultEffortAdjusted = false;
+let paintDefaultModel = () => {};
+let paintDefaultEffort = () => {};
 function modelRow(): HTMLElement {
   const { row, btn } = pickRow("sparkles", "settings.defaults.model", "settings.defaults.model.body");
-  btn.children[0].textContent = modelLabel(defaultModel());
+  paintDefaultModel = () => {
+    const choice = defaultChoice();
+    btn.children[0].textContent = choice ? choiceLabel(choice) : t("models.choose");
+    btn.title = defaultEffortAdjusted ? t("models.effortAdjusted") : "";
+  };
+  paintDefaultModel();
   btn.addEventListener("click", () => {
-    const at = btn.getBoundingClientRect();
-    const blocks = modelGroups();
-    const items: menu.Item[] = [];
-    blocks.forEach((block, n) => {
-      if (n) items.push("sep");
-      if (block.head && blocks.length > 1) items.push({ label: block.head, disabled: true });
-      for (const [id, name] of block.items) {
-        items.push({
-          label: name,
-          checked: id === defaultModel(),
-          run: () => {
-            setDefaultModel(id);
-            // The new model can change available effort levels, so redraw both rows.
-            draw();
-          },
-        });
-      }
+    const choice = defaultChoice();
+    openModelPicker(btn, {
+      current: choice ?? { agent: "claude", model: "" },
+      select: selected => {
+        const previous = choice ? defaultEffort(choice) : "";
+        const effort = fitsEffort(selected.model, previous, selected.agent);
+        setDefaultChoice(selected);
+        setDefaultEffort(effort);
+        defaultEffortAdjusted = effort !== previous;
+        paintDefaultModel(); paintDefaultEffort();
+      },
     });
-    menu.openAt({ x: at.left, y: at.bottom + 4 }, items);
   });
   return row;
 }
 
-/// The default effort follows the default model; the launcher adjusts it for another model.
 function effortRow(): HTMLElement {
   const { row, btn } = pickRow("signal", "settings.defaults.effort", "settings.defaults.effort.body");
-  const stairs = effortLadder(defaultModel());
-  const now = defaultEffort(defaultModel());
-  btn.children[0].textContent = stairs.find(([id]) => id === now)?.[1] ?? now;
+  paintDefaultEffort = () => {
+    const choice = defaultChoice();
+    const now = choice ? defaultEffort(choice) : "";
+    const step = choice ? effortStep(choice.model, now, choice.agent) : null;
+    row.hidden = !step;
+    btn.children[0].textContent = step?.label ?? "";
+  };
+  paintDefaultEffort();
   btn.addEventListener("click", () => {
-    const at = btn.getBoundingClientRect();
-    menu.openAt(
-      { x: at.left, y: at.bottom + 4 },
-      stairs.map(([id, name]) => ({
-        label: name,
-        checked: id === now,
-        run: () => {
-          setDefaultEffort(id);
-          draw();
-        },
-      })),
-    );
+    const choice = defaultChoice();
+    if (!choice) return;
+    openEffortPicker(btn, choice, defaultEffort(choice), effort => {
+      setDefaultEffort(effort);
+      defaultEffortAdjusted = false;
+      paintDefaultModel(); paintDefaultEffort();
+    });
   });
   return row;
 }

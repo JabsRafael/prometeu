@@ -193,7 +193,7 @@ test("a barra lateral preserva conversa e terminal ao sair de um arquivo do proj
   await expect(conversation).toHaveClass(/\bon\b/);
 
   await page.locator("#tabbar .tabadd .caret").click();
-  await page.locator(".menu .mrow", { hasText: "Terminal novo" }).click();
+  await page.locator(".ui-search-picker-choice", { hasText: "Terminal novo" }).click();
   await expect(page.locator("#termview")).toBeVisible();
   await expect(conversation).toBeVisible();
   await conversation.click();
@@ -309,7 +309,7 @@ test("a barra lateral lista agentes por workspace, acompanha status e abre a aba
   await expect(second.locator(".provider path")).toHaveCount(1);
   await expect(second).toHaveAttribute("title", /Codex/);
   // An unnamed tab displays its model on one line.
-  await expect(first.locator(".lbl")).toHaveText("Opus · 1M");
+  await expect(first.locator(".lbl")).toHaveText("Opus (1M context)");
   await expect(second.locator(".lbl")).toHaveText("GPT-5.6-Sol");
   await expect(first.locator(".note")).toHaveCount(0);
 
@@ -889,7 +889,7 @@ test("escolher um GPT mantém o seletor de plugins do lançador", async ({ page 
   await expect(page.locator("#d-plugins")).toBeVisible();
 
   await page.locator("#d-model").click();
-  await page.locator(".menu .mrow", { hasText: "GPT-5.6-Sol" }).first().click();
+  await page.locator(".ui-search-picker-choice", { hasText: "GPT-5.6-Sol" }).first().click();
   await expect(page.locator("#d-plugins")).toBeVisible();
   await expect(page.locator("#d-mcp")).toBeVisible();
 });
@@ -903,12 +903,12 @@ test("trocar o modelo de uma conversa de pé desliga o processo e mantém a aba"
   // Target the workspace composer; hidden desk panels also remain in the DOM.
   const model = page.locator("#chatwrap .composer .mdl");
   const effort = page.locator("#chatwrap .composer .effort");
-  await expect(model).toContainText("Opus · 1M");
+  await expect(model).toContainText("Opus (1M context)");
   await expect(effort).toContainText("Alto");
 
   await model.click();
-  await expect(page.locator(".menu .mrow", { hasText: "GPT-5.6-Sol" })).toHaveCount(0);
-  await page.locator(".menu .mrow", { hasText: "Sonnet" }).first().click();
+  await expect(page.locator(".ui-search-picker-choice", { hasText: "GPT-5.6-Sol" })).toHaveCount(0);
+  await page.locator(".ui-search-picker-choice", { hasText: "Sonnet" }).first().click();
 
   await expect(model).toContainText("Sonnet");
   await expect(page.locator("#chatwrap .composer textarea")).toHaveAttribute(
@@ -920,6 +920,7 @@ test("trocar o modelo de uma conversa de pé desliga o processo e mantém a aba"
   await expect(page.locator('#tabbar .tab[data-tab="t2"]')).toContainText("Sonnet 2");
 
   await effort.click();
+  await page.getByRole("menuitemcheckbox", { name: "Muito alto", exact: true }).click();
   await expect(effort).toContainText("Muito alto");
 });
 
@@ -1395,7 +1396,7 @@ test("terminal livre é aba do centro e o Setup fica no painel da direita", asyn
 
   // The add dropdown opens each new shell in another center tab.
   await page.locator(".tabadd .caret").click();
-  await page.locator(".menu .mrow", { hasText: "Terminal novo" }).click();
+  await page.locator(".ui-search-picker-choice", { hasText: "Terminal novo" }).click();
   const tab = page.locator("#tabbar .tab").filter({ hasText: "Terminal" }).first();
   await expect(tab).toHaveClass(/on/);
   await expect(page.locator("#termview")).toBeVisible();

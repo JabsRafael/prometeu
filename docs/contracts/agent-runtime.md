@@ -20,6 +20,7 @@ type AgentModel = {
   id: string;
   label: string;
   efforts: string[];
+  additional?: boolean; // Absent means visible in the standard picker.
 };
 
 type AuthMethod = { id: string; kind: "browser" | "external"; label: string };
@@ -41,6 +42,49 @@ coming from disk falls back to the default provider only during persistence
 migration; new code uses exhaustive matching. The recognized retired `gemini`
 value is retained without fallback and cannot execute. The JSON field is still called
 `agent` for compatibility, but its normalized value is `"claude" | "codex" | "antigravity" | "gemini"`.
+
+## Model discovery
+
+`agents` discovers installations and capabilities, returning empty model lists.
+`agent_models({ agent })` independently queries the selected account and returns
+`{ models: AgentModel[], fetchedAt: number }`, with a Unix millisecond timestamp.
+Failures reject with `{ code }` from `err.modelsCatalog.noAccount`, `unavailable`,
+`timeout`, `invalid`, or `failed`; successful empty lists are distinct from errors.
+No raw vendor response or credentials cross this boundary.
+
+Claude uses `list_models`, excluding disabled entries and the unnamed default.
+Codex uses app-server `initialize`, `initialized`, and every `model/list` page
+with `includeHidden: true`; `model` is the launch identifier, `hidden` maps to
+`additional`, and native reasoning levels are preserved. The CLI cache is not a
+picker source. Antigravity uses `agy models`; its labels do not imply effort
+support. Discovery sends no inference prompt, is bounded to twenty seconds per
+query and reaps its subprocess group on success, failure or timeout.
+
+Frontend refresh runs at startup/account changes, and on picker opening after
+five minutes, with a manual refresh override. Concurrent requests per provider
+are coalesced. Account changes clear catalog generations and discard late
+responses. Failed refreshes retain only the current generation's last successful
+catalog in memory, visibly marked stale; no catalog survives an app restart.
+Successful refreshes replace the list, including removals and empty results.
+
+Model choices always carry `{ agent, model }`; names are never used to recover
+provider identity except for explicit legacy preference migration. Historical
+Claude aliases label old choices but cannot establish availability. Unknown saved
+choices remain readable, without becoming new selectable models. New workspaces
+require explicit correction of unavailable saved models or unsupported efforts.
+Refresh alone
+never mutates a workspace, tab or action profile.
+
+Effort menus contain the provider default (empty string in persisted choices)
+and exactly the native advertised levels. Unknown level names remain usable.
+Switching models retains a supported effort or resets it to the native default
+with a visible indication. Empty levels hide the control unless a historical
+nonempty value needs correction. Claude no longer receives a synthesized
+`ultracode` option; historical Codex `ultracode` is interpreted as native `ultra`.
+Invalid historical choices remain visible until explicitly edited.
+
+See [ADR 0053](../decisions/0053-live-model-selection.md) and the
+[preference format](persistence.md#model-selection-preferences).
 
 ## Capabilities
 

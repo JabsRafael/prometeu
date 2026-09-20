@@ -35,8 +35,8 @@ The implemented contract is in [agent-runtime.md](../contracts/agent-runtime.md)
 - Board loading accepts `agent: ""` and normalizes the next write to
   `agent: "claude"`; unknown values also fall back to the default during the
   migration.
-- `src-tauri/src/agents.rs` produces `AgentDescriptor[]` with the catalog and
-  capabilities; `src/agents.ts` is the boundary consumed by the UI.
+- `src-tauri/src/agents.rs` produces `AgentDescriptor[]` with installation status and
+  capabilities; `agent_models` supplies live catalogs separately (ADR 0053); `src/agents.ts` is the boundary consumed by the UI.
 - Launcher, conversation and status bar use descriptors/capabilities. Nominal
   dispatch stays only in the catalog and in the adapters.
 - `scripts/check-architecture.mjs` fails if the main screens start deciding by
