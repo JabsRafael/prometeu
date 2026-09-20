@@ -18,6 +18,7 @@ contractual capability.
 | organizations, invitations and institutional sharing | the same relay V4; local execution | the same relay V4; local execution | `team-organizations.test.ts`, `worker.integration.test.ts`, `e2e/organizations.spec.ts`, Rails integration/browser |
 | automatic E2EE with TOFU in collaboration | the same HPKE Auth channel; no forward secrecy | the same HPKE Auth channel; no forward secrecy | `team-crypto.test.ts`, `team-security.test.ts`, `team-channel.test.ts`, `worker.integration.test.ts`, E2E comments in Chromium/WebKit |
 | optional Prometeu account in the sidebar | independent of the CLI | independent of the CLI | `cloud.rs`, `e2e/cloud.spec.ts`; no transcript is sent |
+| Git project catalog, batch clone and local registration | independent of the CLI; no setup | independent of the CLI; no setup | `catalog/projects.rs`, `e2e/projects.spec.ts`, Cloud `projects_catalog_test.rb` |
 | catalog of plugins, MCP and Actions in the account | independent of the CLI | independent of the CLI | `catalog.rs`, `catalog_test.rb`; secrets and installation stay per Mac |
 | the organization's plugins, MCPs and skills | explicit local installation in the hub | the same UI and installation; existing adapters | `catalog.rs`, `e2e/cloud.spec.ts`, `organizations_test.rb`; it requires no personal copy and does not activate automatically |
 | Actions form with shared components | the same UI | the same UI; options come from the catalog | `e2e/ui.spec.ts`, `e2e/actions.spec.ts`, Chromium and WebKit |

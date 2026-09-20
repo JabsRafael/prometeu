@@ -1,0 +1,46 @@
+# ADR 0051 — Git projects in portable catalogs
+
+Date: 2026-09-19
+Status: Accepted
+
+## Context
+
+People repeat Git clones and project registration on each Mac. The account and
+organization catalogs already distribute portable definitions with revisions.
+
+## Decision
+
+Add `projects` to the existing catalog document and browser tabs. Each definition
+contains a stable name, remote Git source and optional description. Reuse catalog
+authorization, revision checks, local cache and board project registration.
+
+The desktop offers multiple selection and one destination directory. It clones
+each selected project into its named subdirectory and registers successful clones.
+It can instead link an existing repository after checking its root and origin.
+Retries preserve completed projects; conflicting folders remain untouched.
+
+Cloning uses Git installed on the Mac and local authentication. HTTPS and SSH are
+the only accepted transports; credentials, local paths and executable transport
+helpers cannot enter the document. Git hooks are disabled during clone. Prometeu
+does not execute setup, install dependencies or select tools during registration.
+
+## Consequences
+
+Cloud stores definitions, never source files or Git credentials. Local project
+paths live in board state and catalog installation links. Losing a definition,
+membership or account connection never removes registered projects or files.
+
+Older documents decode with an empty projects collection. Older desktop PUTs
+that omit projects preserve stored definitions; an explicit empty collection
+removes them. Publish Cloud support before the new desktop. Rolling back the
+desktop preserves definitions; rolling back Cloud code requires a version that
+still accepts stored projects. No schema migration is needed.
+
+Existing catalog synchronization serializes installation operations. Large clones
+can delay catalog refresh, as plugin installations already do. No background job
+system or automatic setup is introduced.
+
+The [catalog contract](../contracts/cloud-catalog.md) specifies wire behavior.
+[Rust tests](../../src-tauri/src/catalog/projects.rs) use a local Git upload-pack
+fixture; [browser tests](../../e2e/projects.spec.ts) cover selection, partial
+failure, retry and existing-folder registration in Chromium and WebKit.

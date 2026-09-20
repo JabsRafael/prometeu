@@ -23,6 +23,7 @@ import * as skills from "./skills";
 import * as menu from "./menu";
 import * as voice from "./voice";
 import * as plugins from "./plugins";
+import * as projects from "./projects";
 import * as news from "./news";
 import * as team from "./team";
 import type { LinearStatus } from "./types";
@@ -112,6 +113,7 @@ const PAGES: Page[] = [
     glyph: "puzzle",
     rows: () => plugins.settingsRows(),
   },
+  { id: "projects", title: "projects.title", glyph: "folder", rows: () => projects.settingsRows(ctx.say) },
   { id: "skills", title: "skill.title", glyph: "sparkles", rows: () => skills.settingsRows() },
   {
     id: "integracoes",

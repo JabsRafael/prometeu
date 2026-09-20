@@ -90,6 +90,7 @@ compatibility still in use stays documented in the current contracts.
 
 - [ADR 0049](decisions/0049-embedded-delegation-mcp.md): Native MCP for client-owned delegation.
 - [ADR 0050](decisions/0050-tested-application-boundaries.md): Tested application boundaries before service extraction.
+- [ADR 0051](decisions/0051-git-project-catalog.md): Git projects in portable catalogs.
 
 ## Quality and operations
 

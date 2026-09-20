@@ -35,24 +35,28 @@ pub fn add_project(
     path: String,
 ) -> Result<Project, String> {
     let path = PathBuf::from(expand(&path));
+    let project = register_project(&mut lock(&state.board), &path);
+    publish(&app);
+    Ok(project)
+}
+
+/// Both local folders and catalog clones use the same board registration.
+pub(crate) fn register_project(board: &mut Board, path: &Path) -> Project {
     let id = path.display().to_string();
+    if let Some(project) = board.projects.iter().find(|p| p.path == id) {
+        return project.clone();
+    }
     let project = Project {
         id: id.clone(),
         name: path
             .file_name()
             .and_then(|s| s.to_str())
             .unwrap_or("repo")
-            .to_string(),
-        path: id.clone(),
+            .into(),
+        path: id,
     };
-    {
-        let mut board = lock(&state.board);
-        if !board.projects.iter().any(|p| p.id == id) {
-            board.projects.push(project.clone());
-        }
-    }
-    publish(&app);
-    Ok(project)
+    board.projects.push(project.clone());
+    project
 }
 
 #[tauri::command]

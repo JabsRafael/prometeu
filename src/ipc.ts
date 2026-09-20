@@ -42,6 +42,7 @@ export type Commands = {
   catalog_install_skill: { args: { id: string }; result: void };
   catalog_install_organization_item: { args: { organization: string; kind: Kind; id: string; revision: number | null }; result: void };
   catalog_share: { args: { kind: Kind; id: string }; result: void };
+  catalog_install_project: { args: { organization?: string | null; id: string; revision: number | null; directory: string; existing: boolean }; result: T.Project };
   catalog_state: { args: undefined; result: CatalogState };
   chat_control: { args: { session: string; frame: ConversationCommandV1 }; result: void };
   chat_control_remote: { args: { session: string; frame: unknown }; result: void };

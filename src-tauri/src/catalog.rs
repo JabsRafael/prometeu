@@ -11,6 +11,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
+pub(crate) mod projects;
+
 static SYNC: Mutex<()> = Mutex::new(());
 
 /// Coordinate synchronization with commands that modify local hubs.
@@ -30,6 +32,8 @@ pub struct Portable {
 pub struct Doc {
     #[serde(default)]
     pub plugins: Vec<Portable>,
+    #[serde(default)]
+    pub projects: Vec<Portable>,
     #[serde(default)]
     pub mcp: Vec<mcp::Server>,
     #[serde(default)]
@@ -103,6 +107,7 @@ impl Doc {
             .map(|p| ("plugins", p.id.clone()))
             .chain(self.mcp.iter().map(|s| ("mcp", s.id.clone())))
             .chain(self.skills.iter().map(|s| ("skills", s.id.clone())))
+            .chain(self.projects.iter().map(|p| ("projects", p.id.clone())))
             .collect()
     }
 }
@@ -127,6 +132,7 @@ pub struct CatalogState {
     connected: bool,
     revision: Option<u64>,
     plugins: Vec<CatalogPlugin>,
+    projects: Vec<projects::CatalogProject>,
     mcp: Vec<String>,
     skills: Vec<CatalogSkill>,
     shared: BTreeMap<String, String>,
@@ -331,6 +337,9 @@ fn validate(doc: &Doc) -> Result<(), String> {
         || keys.iter().collect::<BTreeSet<_>>().len() != keys.len()
     {
         return Err(invalid());
+    }
+    for item in &doc.projects {
+        projects::validate(item)?;
     }
     for item in &doc.skills {
         skills::validate(item)?;
@@ -901,7 +910,7 @@ fn install_organization_item(
 }
 
 #[tauri::command(async)]
-pub fn catalog_state() -> CatalogState {
+pub fn catalog_state(app: AppHandle) -> CatalogState {
     let _sync = guard();
     let connected = cloud::connected();
     let cache = if connected {
@@ -914,7 +923,12 @@ pub fn catalog_state() -> CatalogState {
     let servers = mcp::load();
     let mut organization_items = Vec::new();
     for org in &cache.organizations {
-        for (kind, id) in org.doc.keys() {
+        for (kind, id) in org
+            .doc
+            .keys()
+            .into_iter()
+            .filter(|(kind, _)| *kind != "projects")
+        {
             let local = org.links.get(&key(kind, &id));
             let (description, installed) = match kind {
                 "plugins" => {
@@ -1004,8 +1018,10 @@ pub fn catalog_state() -> CatalogState {
             Some((key(kind, local), id.into()))
         })
         .collect();
+    let projects = projects::state(&cache, &lock(&app.state::<AppState>().board));
     CatalogState {
         connected,
+        projects,
         revision: cache.revision,
         plugins,
         skills,
@@ -1036,6 +1052,9 @@ mod tests {
             } else {
                 payload["catalog"].clone()
             };
+            if expected.get("projects").is_none() {
+                expected["projects"] = json!([]);
+            }
             if expected.get("skills").is_none() {
                 expected["skills"] = json!([]);
             }
