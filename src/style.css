@@ -1205,7 +1205,7 @@ body.noside .side { display: none; }
 .launcher .injchip > button { flex: none; }
 .launcher-settings { background: var(--bg-side); border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--space-4); }
 .launcher-settings h2 { margin-bottom: var(--space-1); }
-.launcher-account.ui-button { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); width: 100%; height: auto; padding: 0; border: 0; text-align: left; }
+.launcher-account.ui-button { display: flex; justify-content: space-between; gap: var(--space-3); width: 100%; height: auto; padding: var(--space-1) var(--space-2); border: 0; text-align: left; }
 .launcher-account-name { min-width: 0; white-space: normal; overflow-wrap: anywhere; color: var(--fg); font-size: 12px; line-height: 1.6; }
 .launcher-account-change { flex: none; color: var(--fg-2); font-size: 11px; line-height: 1.8; }
 .launcher #d-account-field .ui-hint { font-size: 11px; }
