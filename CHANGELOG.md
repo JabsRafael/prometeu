@@ -4,6 +4,23 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.9.0] - 2026-09-20
+
+### New
+
+- **accounts:** Manage authentication methods in shared account settings
+- **gemini:** Run conversations with isolated google and api key accounts
+- **antigravity:** Replace the discontinued gemini cli integration
+- **antigravity:** Show account quota usage by model group
+- **projects:** Clone and register catalog repositories
+
+### Fixes
+
+- **accounts:** Preserve unknown provider entries
+- **gemini:** Open google login directly in the browser
+- **antigravity:** Explain denied commands instead of reporting success
+- **antigravity:** Allow automatic execution in ordinary conversations
+
 ## [0.8.0] - 2026-09-19
 
 ### New
