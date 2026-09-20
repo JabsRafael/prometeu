@@ -88,3 +88,10 @@ describe("catálogo de agentes", () => {
     expect(capabilitiesOf("claude").initialPlanMode).toBe(true);
   });
 });
+
+it("keeps Antigravity unavailable when discovery fails instead of advertising unsupported controls", async () => {
+  mocks.invoke.mockRejectedValue(new Error("offline"));
+  await loadAgents();
+  expect(capabilitiesOf("antigravity").resume).toBe(false);
+  expect(installed().map(p => p.id)).not.toContain("antigravity");
+});

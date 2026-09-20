@@ -3,6 +3,7 @@
 mod accounts;
 mod actions;
 mod agents;
+mod antigravity;
 mod awake;
 mod browser;
 mod catalog;

@@ -60,12 +60,24 @@ pub struct AgentCapabilities {
 /// Return both providers even when unavailable, distinguishing missing installations from
 /// temporarily empty catalogs.
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentDescriptor {
     pub id: ProviderId,
     pub label: String,
     pub installed: bool,
     pub models: Vec<Model>,
     pub capabilities: AgentCapabilities,
+    pub auth_methods: Vec<AuthMethod>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unavailable_reason: Option<String>,
+    pub account_notice: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+pub struct AuthMethod {
+    pub id: String,
+    pub kind: String,
+    pub label: String,
 }
 
 #[derive(serde::Serialize)]
@@ -93,6 +105,16 @@ fn capabilities(id: ProviderId) -> AgentCapabilities {
             ..common
         },
         ProviderId::Codex => common,
+        ProviderId::Antigravity | ProviderId::RetiredGemini => AgentCapabilities {
+            initial_plan_mode: false,
+            approvals: false,
+            workspace_mcp_selection: false,
+            workspace_plugin_selection: false,
+            compact: false,
+            context_report: false,
+            user_questions: false,
+            ..common
+        },
     }
 }
 
@@ -102,10 +124,34 @@ fn descriptor(id: ProviderId, installed: bool, models: Vec<Model>) -> AgentDescr
         label: match id {
             ProviderId::Claude => "Claude".into(),
             ProviderId::Codex => "Codex".into(),
+            ProviderId::Antigravity => "Antigravity".into(),
+            ProviderId::RetiredGemini => "Gemini CLI".into(),
         },
         installed,
         models,
         capabilities: capabilities(id),
+        unavailable_reason: (id == ProviderId::Antigravity && !installed)
+            .then(|| crate::i18n::t("err.antigravity.version")),
+        account_notice: (id == ProviderId::Antigravity)
+            .then(|| crate::i18n::t("account.external.notice")),
+        auth_methods: match id {
+            ProviderId::RetiredGemini => vec![],
+            ProviderId::Antigravity => vec![AuthMethod {
+                id: "external".into(),
+                kind: "external".into(),
+                label: crate::i18n::t("account.external.attach"),
+            }],
+            other => vec![AuthMethod {
+                id: "browser".into(),
+                kind: "browser".into(),
+                label: if other == ProviderId::Claude {
+                    "Claude"
+                } else {
+                    "Codex"
+                }
+                .into(),
+            }],
+        },
     }
 }
 
@@ -115,6 +161,11 @@ pub fn agents() -> Agents {
     let (claude, codex) = installed();
     Agents {
         providers: vec![
+            descriptor(
+                ProviderId::Antigravity,
+                crate::antigravity::installed(),
+                crate::antigravity::models(),
+            ),
             descriptor(ProviderId::Claude, claude, vec![]),
             descriptor(
                 ProviderId::Codex,
@@ -167,7 +218,9 @@ fn ask_claude_models() -> Vec<Model> {
     if profile.prepare().is_err() {
         return vec![];
     }
-    profile.apply(&mut cmd);
+    if profile.apply(&mut cmd).is_err() {
+        return vec![];
+    }
     let Ok(mut child) = cmd.spawn() else {
         return vec![];
     };
@@ -369,5 +422,29 @@ mod tests {
         assert_eq!(json["id"], "codex");
         assert_eq!(json["capabilities"]["initialPlanMode"], false);
         assert_eq!(json["capabilities"]["workspaceMcpSelection"], true);
+    }
+    #[test]
+    fn antigravity_advertises_only_supported_controls_and_external_account() {
+        let g = descriptor(ProviderId::Antigravity, false, vec![]);
+        assert!(!g.capabilities.initial_plan_mode);
+        assert!(g.capabilities.resume);
+        assert!(!g.capabilities.approvals);
+        assert!(!g.capabilities.compact);
+        assert!(!g.capabilities.context_report);
+        assert!(!g.capabilities.user_questions);
+        assert!(!g.capabilities.workspace_mcp_selection);
+        assert!(!g.capabilities.workspace_plugin_selection);
+        let v = serde_json::to_value(g).unwrap();
+        assert_eq!(v["authMethods"][0]["id"], "external");
+        assert_eq!(v["authMethods"].as_array().unwrap().len(), 1);
+        assert!(v["unavailableReason"]
+            .as_str()
+            .unwrap()
+            .contains("err.antigravity.version"));
+        assert_eq!(
+            serde_json::to_value(descriptor(ProviderId::Claude, true, vec![])).unwrap()
+                ["authMethods"][0]["id"],
+            "browser"
+        );
     }
 }

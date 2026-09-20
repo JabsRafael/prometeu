@@ -92,6 +92,8 @@ compatibility still in use stays documented in the current contracts.
 - [ADR 0050](decisions/0050-tested-application-boundaries.md): Tested application boundaries before service extraction.
 - [ADR 0051](decisions/0051-git-project-catalog.md): Git projects in portable catalogs.
 
+- [ADR 0052](decisions/0052-antigravity-runtime.md): Replace Gemini CLI with Antigravity.
+
 ## Quality and operations
 
 - [`quality/provider-matrix.md`](quality/provider-matrix.md): support per agent

@@ -313,7 +313,7 @@ listen<string>("account-error", ({ payload }) => say(fromBack(payload), true));
 
 /// Machine resource updates arrive every three seconds only when values change.
 listen<statusbar.Machine>("machine", ({ payload }) => statusbar.showMachine(payload));
-statusbar.init({ say });
+statusbar.init({ say, accounts: () => { settings.showAccounts(); showSettings(); } });
 invoke("machine").then(statusbar.showMachine).catch(() => {});
 
 /* File drops into conversations and terminals. */
@@ -565,7 +565,8 @@ document.addEventListener("keydown", (e) => {
   // preventDefault avoids triggering the same action again through the native menu accelerator.
   const a = e.metaKey || e.ctrlKey ? shortcut(e) : null;
   if (a && act(a)) e.preventDefault();
-  if (e.key === "Escape" && !$("veil").hidden) {
+  // Native dialogs own Escape before the launcher beneath them can be dismissed.
+  if (e.key === "Escape" && !document.querySelector("dialog[open]") && !$("veil").hidden) {
     $("veil").hidden = true;
     $("veil").replaceChildren();
   }

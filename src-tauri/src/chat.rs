@@ -136,6 +136,7 @@ pub struct Snapshot {
 pub enum Wire {
     Claude(claude::Link),
     Codex(Arc<Mutex<codex::Link>>),
+    Antigravity(Arc<Mutex<crate::antigravity::Link>>),
 }
 
 /// Translate each provider output line into zero or more canonical V1 events.
@@ -303,6 +304,15 @@ impl Chat {
         match &mut self.wire {
             Wire::Claude(link) => link.write(frame, buffer),
             Wire::Codex(link) => lock(link).write(frame),
+            Wire::Antigravity(link) => {
+                if frame["v"] == 1 && frame["type"] == "turn.interrupt" {
+                    let events = lock(link).interrupted();
+                    crate::pty::signal_group(self.pid, &self.alive, libc::SIGINT);
+                    Ok(events)
+                } else {
+                    lock(link).write(frame)
+                }
+            }
         }
     }
 
@@ -322,6 +332,10 @@ impl Chat {
         &self.pump.profile.id
     }
 
+    fn waits_for_turn(&self) -> bool {
+        matches!(&self.wire, Wire::Antigravity(_)) && self.working()
+    }
+
     pub fn working(&self) -> bool {
         self.pump.turn.load(Ordering::Relaxed)
     }
@@ -338,6 +352,9 @@ impl Drop for Chat {
         self.pump.gone.store(true, Ordering::Relaxed);
         // Claude stdin closes with the Chat. Codex's reader still owns its adapter, so close that
         // stdin explicitly.
+        if let Wire::Antigravity(link) = &self.wire {
+            lock(link).close();
+        }
         if let Wire::Codex(link) = &self.wire {
             lock(link).close();
         }
@@ -699,6 +716,12 @@ fn setup_running(state: &AppState, session: &str) -> bool {
 /// Send the tab's queued prompt once. An optional prefix reports setup failure in the same message.
 pub fn send_prompt(app: &AppHandle, session: &str, prefix: Option<String>) {
     let state = app.state::<AppState>();
+    if lock(&state.chats)
+        .get(session)
+        .is_some_and(Chat::waits_for_turn)
+    {
+        return;
+    }
     {
         let mut board = lock(&state.board);
         let Some(prompt) = board
@@ -869,7 +892,10 @@ pub(crate) fn send(
     };
     let up = lock(&state.chats).get(&session).is_some_and(|c| c.alive());
     let ready = lock(&state.ready).contains(&session);
-    if !queued && up && ready && boundary != AccountBoundary::Wait {
+    let waiting = lock(&state.chats)
+        .get(&session)
+        .is_some_and(Chat::waits_for_turn);
+    if !queued && up && ready && !waiting && boundary != AccountBoundary::Wait {
         write_mode(
             &state,
             &session,
@@ -967,6 +993,8 @@ fn wake(up: bool, ready: bool, setup: bool) -> Wake {
 /// Send local V1 controls, including approvals, interruption and permission mode changes.
 #[tauri::command]
 pub fn chat_control(state: State<AppState>, session: String, frame: Value) -> Result<(), String> {
+    let gate = input_gate(&session);
+    let _input = lock(&gate);
     write(&state, &session, &frame)
 }
 
@@ -978,6 +1006,8 @@ pub fn chat_control_remote(
     session: String,
     frame: Value,
 ) -> Result<(), String> {
+    let gate = input_gate(&session);
+    let _input = lock(&gate);
     let buffer = {
         let chats = lock(&state.chats);
         let chat = chats
@@ -1201,7 +1231,9 @@ pub fn transcript_of(ws: &Workspace, session: &str) -> PathBuf {
         .launch_of(session, &crate::session::ResolvedTools::default())
         .agent
     {
-        crate::state::ProviderId::Codex => paths::chat_log(session),
+        crate::state::ProviderId::Codex
+        | crate::state::ProviderId::Antigravity
+        | crate::state::ProviderId::RetiredGemini => paths::chat_log(session),
         crate::state::ProviderId::Claude => paths::transcript(session, Path::new(&ws.worktree)),
     }
 }

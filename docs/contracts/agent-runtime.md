@@ -14,7 +14,7 @@ model name must not be used to rediscover its provider after the catalog has
 been loaded.
 
 ```ts
-type ProviderId = "claude" | "codex";
+type ProviderId = "claude" | "codex" | "antigravity" | "gemini";
 
 type AgentModel = {
   id: string;
@@ -22,7 +22,12 @@ type AgentModel = {
   efforts: string[];
 };
 
+type AuthMethod = { id: string; kind: "browser" | "external"; label: string };
+
 type AgentDescriptor = {
+  authMethods: AuthMethod[];
+  unavailableReason?: string | null;
+  accountNotice?: string | null;
   id: ProviderId;
   label: string;
   installed: boolean;
@@ -33,8 +38,9 @@ type AgentDescriptor = {
 
 When a provider is added, `ProviderId` grows explicitly. An old or unknown value
 coming from disk falls back to the default provider only during persistence
-migration; new code uses exhaustive matching. The JSON field is still called
-`agent` for compatibility, but its normalized value is `"claude" | "codex"`.
+migration; new code uses exhaustive matching. The recognized retired `gemini`
+value is retained without fallback and cannot execute. The JSON field is still called
+`agent` for compatibility, but its normalized value is `"claude" | "codex" | "antigravity" | "gemini"`.
 
 ## Capabilities
 
@@ -223,3 +229,33 @@ Each provider must demonstrate, when the capability exists:
 
 The living matrix of this evidence is in
 [`../quality/provider-matrix.md`](../quality/provider-matrix.md).
+
+## Antigravity CLI
+
+`antigravity.rs` adapts `agy` 1.2.7+ native NDJSON to V1. Startup uses
+`--input-format stream-json --output-format stream-json`; each prompt is an
+`event: user` with text content. `init` records native identity, `step_update`
+emits text/tool events, and `result` completes the turn. A final response must
+not duplicate streamed deltas. Usage/duration counters from agy are cumulative;
+the adapter measures local turn duration rather than claiming per-turn totals.
+Pending follow-ups stay in the board until completion; the adapter never advances
+a private queue before the core records the previous turn completion.
+
+`Tab.agent_session` stores `conversation_id`; `--conversation` resumes native
+context. The app replays its own V1 log, never raw agy messages. SIGINT interrupts
+the process group; the next prompt can restart and resume after process loss.
+`agy models` supplies slugs and labels; effort choices are not synthesized.
+
+Headless control messages and approvals are unsupported. Ordinary conversations
+use automatic execution (`--dangerously-skip-permissions`), matching the existing
+Claude conversation default. Explicit Ask task profiles preserve agy policy;
+commands requiring approval may be soft-denied. Tool state `ERROR` is terminal.
+A result containing `denied_actions` is an error even if the native status is
+`SUCCESS`; the translated permission message is shown without leaking raw errors. Auto task profiles also use automatic execution. Initial plan mode, hub tool selection,
+compaction, context reports and structured questions are unavailable. Nonempty
+hub selections fail at the adapter boundary. Local attachment paths remain text.
+
+Authentication methods remain descriptor data: Claude/Codex advertise browser;
+Antigravity advertises `external`, with `accountNotice` explaining limits. The
+old Gemini identity is a retired persistence marker; any execution refuses with
+`err.provider.retired`. See [ADR 0052](../decisions/0052-antigravity-runtime.md).

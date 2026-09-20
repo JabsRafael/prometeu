@@ -549,7 +549,7 @@ export class ChatView {
 
   /// Present technical failures concisely while retaining full diagnostic output.
   private errorCard(text: string): HTMLElement {
-    const value = text.trim() || t("chat.result.error");
+    const value = fromBack(text).trim() || t("chat.result.error");
     if (!value.includes("\n") && value.length <= 180) {
       const el = h("div", "sys err");
       el.textContent = value;
@@ -716,7 +716,7 @@ export class ChatView {
       if (input.childElementCount) technical.append(input);
       if (block.result !== null) {
         const out = h("pre", "tout");
-        out.textContent = capError(block.result);
+        out.textContent = capError(fromBack(block.result));
         technical.append(out);
       }
       if (technical.childElementCount) {
@@ -768,12 +768,11 @@ export class ChatView {
     go.title = t("chat.plan.go.title");
     go.addEventListener("click", () => {
       // Approving a plan also enables bypass before resuming so its first tool does not immediately ask again.
-      this.control({
+      void this.control({
         v: 1,
         type: "permission.mode.set",
         mode: "bypass",
-      });
-      this.respond(ask, { outcome: "allow" });
+      }).then(sent => { if (sent) this.respond(ask, { outcome: "allow" }); });
     });
     const asking = h("button", "outline md", t("chat.plan.ask"));
     asking.title = t("chat.plan.ask.title");
@@ -914,12 +913,11 @@ export class ChatView {
     yes.addEventListener("click", () => this.respond(ask, { outcome: "allow" }));
     const always = h("button", "outline md", t("chat.perm.always"));
     always.addEventListener("click", () => {
-      this.control({
+      void this.control({
         v: 1,
         type: "permission.mode.set",
         mode: "bypass",
-      });
-      this.respond(ask, { outcome: "allow" });
+      }).then(sent => { if (sent) this.respond(ask, { outcome: "allow" }); });
     });
     const no = h("button", "ghost md", t("chat.perm.no"));
     no.addEventListener("click", () => this.respond(ask, { outcome: "deny", message: t("chat.perm.denied") }));
@@ -935,10 +933,16 @@ export class ChatView {
   }
 
   /// Send canonical control locally or through the relay to the owner's Mac.
-  private control(frame: ConversationCommandV1) {
-    if (!this.key) return;
-    if (this.remote) team.write(JSON.stringify(frame));
-    else invoke("chat_control", { session: this.key, frame }).catch((e) => this.ctx.say(fromBack(e), true));
+  private async control(frame: ConversationCommandV1): Promise<boolean> {
+    if (!this.key) return false;
+    try {
+      if (this.remote) return await team.write(JSON.stringify(frame));
+      await invoke("chat_control", { session: this.key, frame });
+      return true;
+    } catch (error) {
+      this.ctx.say(fromBack(error), true);
+      return false;
+    }
   }
 
   private interrupt() {

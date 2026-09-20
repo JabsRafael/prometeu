@@ -15,7 +15,7 @@ sequenceDiagram
     participant UI as Frontend
     participant Session as session.rs
     participant Chat as chat.rs
-    participant Adapter as Claude or Codex
+    participant Adapter as Claude, Codex or Antigravity
     participant Agent as Agent CLI
 
     UI->>Session: new_tab / chat_send
@@ -72,6 +72,14 @@ application.
 `stream-json` input and normalizes each output line into
 `ConversationEventV1`. The process also writes Claude Code's native transcript,
 which the compatibility reader adapts during replay.
+
+### Antigravity
+
+`antigravity.rs` converts native agy NDJSON directly to V1. It retains the
+conversation ID for explicit resume and uses the existing external account.
+There is no ACP handshake or replay barrier; presentation replays only its V1
+log. Interactive approvals and plan transitions are unavailable. SIGINT targets
+the process group; process loss is followed by native conversation resume.
 
 ### Codex
 

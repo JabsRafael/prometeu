@@ -1295,13 +1295,20 @@ impl Workspace {
                 ..Launch::from(run.profile.choice.clone())
             };
         }
-        self.launch_with(
+        let mut launch = self.launch_with(
             self.tabs
                 .iter()
                 .find(|t| t.id == tab)
                 .and_then(|t| t.choice.clone()),
             tools,
-        )
+        );
+        if launch.agent == ProviderId::Antigravity {
+            if let Some(tab) = self.tabs.iter().find(|t| t.id == tab) {
+                launch.plan = tab.plan;
+                launch.permission = tab.permission;
+            }
+        }
+        launch
     }
 
     /// Model overrides preserve the resolved tool selection for new and resumed tabs.
@@ -1369,6 +1376,8 @@ pub(crate) fn create_workspace_owned(
     rows: u16,
     delegation: Option<crate::delegation::Delegation>,
 ) -> Result<Workspace, String> {
+    // Reject missing selection before publishing a card or preparing filesystem state.
+    crate::accounts::active(draft.launch.agent)?;
     let repo_path = PathBuf::from(expand(&draft.project));
     let repo_name = repo_named(&repo_path)?;
 
@@ -1836,6 +1845,11 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
     // Claude conversations without a transcript must restart with their existing ID. Codex instead
     // resumes only when its previously returned thread identity is known.
     let (resume, handle) = match launch.agent {
+        ProviderId::RetiredGemini => return Err(i18n::t("err.provider.retired")),
+        ProviderId::Antigravity => (
+            agent_session.is_some(),
+            crate::antigravity::spawn(app, tab, &workspace, &worktree, agent_session, &launch)?,
+        ),
         ProviderId::Codex => (
             agent_session.is_some(),
             crate::codex::spawn(app, tab, &workspace, &worktree, agent_session, &launch)?,
@@ -1902,12 +1916,18 @@ fn spawn_tab_with_id(
     let id = id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     // The selected provider determines which CLI runs; the tab identity stays the same.
     let handle = match launch.agent {
+        ProviderId::Antigravity => {
+            crate::antigravity::spawn(app, &id, workspace, &worktree, None, launch)?
+        }
+        ProviderId::RetiredGemini => return Err(i18n::t("err.provider.retired")),
         ProviderId::Codex => crate::codex::spawn(app, &id, workspace, &worktree, None, launch)?,
         ProviderId::Claude => crate::claude::spawn(app, &id, &worktree, false, launch)?,
     };
     lock(&state.chats).insert(id.clone(), handle);
     // The caller publishes the tab before chat::ready_now releases its pending prompt.
     Ok(Tab {
+        plan: launch.agent == ProviderId::Antigravity && launch.plan,
+        permission: launch.permission,
         task: None,
         id,
         agent_session: None,
@@ -2624,6 +2644,8 @@ mod tests {
     /// A minimal tab with an optional provider and model choice.
     fn tab(id: &str, choice: Option<Choice>) -> Tab {
         Tab {
+            plan: false,
+            permission: None,
             task: None,
             id: id.into(),
             agent_session: None,
@@ -2640,6 +2662,8 @@ mod tests {
     #[test]
     fn transcript_routing_uses_tab_and_frozen_task_providers() {
         for (workspace_provider, tab_provider) in [
+            (ProviderId::Claude, ProviderId::RetiredGemini),
+            (ProviderId::RetiredGemini, ProviderId::Antigravity),
             (ProviderId::Claude, ProviderId::Codex),
             (ProviderId::Codex, ProviderId::Claude),
         ] {
@@ -2670,7 +2694,9 @@ mod tests {
             ] {
                 let expected = match provider {
                     ProviderId::Claude => crate::paths::transcript(id, Path::new(&ws.worktree)),
-                    ProviderId::Codex => crate::paths::chat_log(id),
+                    ProviderId::Codex | ProviderId::Antigravity | ProviderId::RetiredGemini => {
+                        crate::paths::chat_log(id)
+                    }
                 };
                 assert_eq!(crate::chat::transcript_of(&ws, id), expected, "tab {id}");
             }
@@ -2983,7 +3009,7 @@ mod tests {
                         )
                         .unwrap();
                     }
-                    ProviderId::Codex => {
+                    ProviderId::Codex | ProviderId::Antigravity | ProviderId::RetiredGemini => {
                         crate::mcp::codex_config("test", launch.mcp.as_ref()).unwrap();
                     }
                 }

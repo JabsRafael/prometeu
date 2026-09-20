@@ -31,9 +31,9 @@ In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
 | cloud catalog cache and links | `<root>/catalog.json` (`catalog.local.json` is a legacy backup) | `catalog.rs`; see the [contract](cloud-catalog.md) |
 | installed skills and packages | `<root>/skills.json`, `<root>/skills-packages/<id>/` | `skills.rs`; see the [catalog](cloud-catalog.md) |
 | accounts and per-provider selection | `<root>/accounts.json` | `accounts.rs` |
-| additional authenticated profiles | `<root>/accounts/<uuid>/` | Claude and Codex adapters |
+| additional authenticated profiles | `<root>/accounts/<uuid>/` | provider adapters |
 | last quota snapshot per account | `<root>/usage.json` | `usage.rs` |
-| Codex V1 transcript | `<root>/chats/<tab>.jsonl` | `chat.rs` |
+| Codex and Antigravity V1 transcript | `<root>/chats/<tab>.jsonl` | `chat.rs` |
 | files received through a native promise | `<root>/attachments/<uuid>/<name>` | `file_drop.rs`; private `0700` directory, `0600` file |
 | image pasted from the clipboard | `<root>/attachments/<uuid>/pasted.png` | `file_drop.rs`; same folder and permissions, TIFF converted to PNG |
 | plugin hub | `<root>/plugins.json` | `plugins.rs` |
@@ -253,6 +253,17 @@ not exist until the first message.
 Codex's native rollout is not used by the UI. Prometeu writes the displayed V1
 events in `<root>/chats/<tab>.jsonl`; `Tab.agent_session` stores the opaque
 thread required for `thread/resume`.
+
+### Antigravity and retired Gemini sessions
+
+Antigravity owns native history. `Tab.agent_session` stores its opaque
+`conversation_id`, resumed with `--conversation`; Prometeu stores V1 in
+`<root>/chats/<tab>.jsonl`. Provider ID `antigravity` is distinct from `gemini`.
+Old `gemini` board values retain that identity and read their existing V1 logs,
+but cannot start a process. They never fall back to Claude or acquire agy IDs.
+Legacy plan/permission fields have no execution effect. Old Gemini account
+entries and selections remain opaque on disk; no secrets or histories are
+removed. Compatibility tests live in `state.rs` and `accounts.rs`.
 
 ### Compatibility
 

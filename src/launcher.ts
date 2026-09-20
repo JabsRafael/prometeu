@@ -1,4 +1,5 @@
-import { dropdown, type Group } from "./ui";
+import * as accounts from "./accounts";
+import { button, dropdown, type Group } from "./ui";
 export type { Group } from "./ui";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -350,6 +351,18 @@ export function openLauncher(board: Board, opts: Open) {
 
   /* Model, effort, and plan controls. */
 
+  const accountButton = button("", () => accounts.openPicker(draft.agent));
+  accountButton.id = "d-account";
+  accountButton.className = "ghost pick";
+  hint.before(accountButton);
+  const drawAccount = () => {
+    const account = accounts.selected(draft.agent);
+    accountButton.textContent = account ? accounts.accountName(account) : t("launcher.account.select");
+    accountButton.title = t(account ? "account.use" : "launcher.account.required");
+  };
+  const forgetAccounts = accounts.onChange(drawAccount);
+  drawAccount();
+
   // Return focus to the prompt after changing secondary launch choices.
   const drawAttach = () => {
     const supported = capabilitiesOf(draft.agent).attachments;
@@ -374,6 +387,7 @@ export function openLauncher(board: Board, opts: Open) {
       drawMcp();
       drawPlugins();
       drawAttach();
+      drawAccount();
       prompt.focus();
     },
   );
@@ -657,6 +671,7 @@ export function openLauncher(board: Board, opts: Open) {
   };
 
   const hide = () => {
+    forgetAccounts();
     forgetMcp();
     forgetPlugins();
     takeFiles = null;
@@ -665,6 +680,7 @@ export function openLauncher(board: Board, opts: Open) {
   };
   const submit = () => {
     if (taken || receiving) return;
+    if (!accounts.selected(draft.agent)) { accounts.openPicker(draft.agent); return; }
     // An empty branch tells the backend to use the repository's current checkout.
     if (!draft.newBranch) draft.branch = "";
     draft.prompt = seed ? issueBlock(seed, prompt.value) : prompt.value;

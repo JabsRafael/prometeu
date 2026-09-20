@@ -1142,6 +1142,7 @@ body.noside .side { display: none; }
   flex: none; display: flex; align-items: center; gap: 6px; padding: 12px;
 }
 .sheetbar .pick > .ic:first-child { color: var(--fg-3); }
+.sheetbar #d-account { display: block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Effort bars cycle through levels. Ultra uses a gradient above the highest multi-agent level. */
 .effort { padding: 0 8px 0 7px; gap: 7px; }
 .effort .bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
@@ -1595,11 +1596,12 @@ body.noside .side { display: none; }
   white-space: nowrap; font-size: 10px; font-weight: 600; color: var(--fg-3);
 }
 .urow {
-  display: grid; grid-template-columns: 54px minmax(56px, 1fr) 34px auto;
-  align-items: center; gap: 8px; height: 22px;
+  display: grid; grid-template-columns: 54px minmax(56px, 1fr) 64px auto;
+  align-items: center; gap: 8px; min-height: 34px;
   font-size: 11px; color: var(--fg-2);
 }
 .upct { text-align: right; font-variant-numeric: tabular-nums; color: var(--fg); }
+.upct small { display: block; color: var(--fg-3); font-size: 10px; white-space: nowrap; }
 .ureset { color: var(--fg-3); white-space: nowrap; }
 .uhead { display: flex; align-items: baseline; }
 .uaside { font-size: 11px; font-weight: 400; color: var(--fg-3); font-variant-numeric: tabular-nums; }
@@ -1900,3 +1902,8 @@ body.noside .side { display: none; }
 .webmeta { font-size: 11px; color: var(--fg-3); margin: 8px 0; }
 .webcode { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
 .webcode pre { margin: 0; padding: 8px; font-size: 11px; line-height: 1.5; max-height: 160px; overflow: auto; background: var(--bg); border: 1px solid var(--line-raised); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* The same account cards serve Settings and the quick switcher. */
+.accounts-view { display: grid; gap: 20px; }
+.setpage .accounts-view { width: min(100%, 560px); }
+.account-state { color: var(--accent); }

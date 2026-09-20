@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import type { ConversationCommandV1 } from "../src/conversation";
 
@@ -60,4 +61,64 @@ test("canonical request kind controls question, plan and approval cards independ
       },
     });
   }
+});
+
+
+test("plan approval waits for the execution permission change", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('.railworkspace[data-workspace="sessao-0929"] > .navitem').click();
+  await expect(page.locator("#wsView")).toBeVisible();
+  await page.evaluate(() => {
+    const w = window as RequestWindow & { releasePermission: () => void };
+    const invoke = w.__TAURI_INTERNALS__.invoke;
+    w.requestControls = [];
+    w.__TAURI_INTERNALS__.invoke = (command, args) => {
+      if (command === "chat_control") {
+        w.requestControls.push(args as RequestWindow["requestControls"][number]);
+        if ((args?.frame as ConversationCommandV1).type === "permission.mode.set") {
+          return new Promise(resolve => { w.releasePermission = () => resolve(undefined); });
+        }
+        return Promise.resolve();
+      }
+      return invoke(command, args);
+    };
+    w.mock.line("t1", { v: 1, type: "request.opened", at: 1, requestId: "plan-order",
+      kind: "plan", tool: "ExitPlanMode", toolId: null, input: {} });
+  });
+  await page.locator("#chatwrap .ask.plan button.pri").first().click();
+  expect(await page.evaluate(() => (window as RequestWindow).requestControls.map(c => c.frame.type)))
+    .toEqual(["permission.mode.set"]);
+  await page.evaluate(() => (window as unknown as { releasePermission: () => void }).releasePermission());
+  await expect.poll(() => page.evaluate(() => (window as RequestWindow).requestControls.map(c => c.frame.type)))
+    .toEqual(["permission.mode.set", "request.respond"]);
+});
+
+
+test("Antigravity adapter fixture renders through the browser mock", async ({ page }) => {
+  const fixture: { events: unknown[] } = JSON.parse(readFileSync(
+    new URL("../src-tauri/src/antigravity/fixtures/canonical-events.json", import.meta.url), "utf8",
+  ));
+  await page.goto("/");
+  await page.locator('.railworkspace[data-workspace="sessao-0929"] > .navitem').click();
+  await expect(page.locator("#wsView")).toBeVisible();
+  await page.evaluate(events => {
+    for (const event of events) (window as RequestWindow).mock.line("t1", event);
+  }, fixture.events);
+  await expect(page.locator("#chatwrap")).toContainText("AGY_TOOL_OK");
+  await expect(page.locator("#chatwrap")).toContainText("Antigravity recusou uma ferramenta que exige aprovação.");
+  await expect(page.locator("#chatwrap")).not.toContainText("i18n:");
+  await expect(page.locator("#chatwrap .ask")).toHaveCount(0);
+});
+
+
+test("Antigravity runtime failures use the interface language", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('.railworkspace[data-workspace="sessao-0929"] > .navitem').click();
+  await expect(page.locator("#wsView")).toBeVisible();
+  await page.evaluate(() => (window as RequestWindow).mock.line("t1", {
+    v: 1, type: "turn.completed", at: 1, outcome: "error", durationMs: null, costUsd: null,
+    message: 'i18n:{"code":"err.antigravity.result","args":{}}',
+  }));
+  await expect(page.locator("#chatwrap")).toContainText("Antigravity não concluiu a solicitação.");
+  await expect(page.locator("#chatwrap")).not.toContainText("i18n:");
 });

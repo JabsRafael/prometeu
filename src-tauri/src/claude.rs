@@ -208,7 +208,7 @@ pub fn spawn(
     }
     let mut cmd = Command::new("claude");
     cmd.args(args).current_dir(worktree);
-    profile.apply(&mut cmd);
+    profile.apply(&mut cmd)?;
     let seed = paths::transcript(id, worktree);
     let wire = |stdin| {
         let mut adapter = Adapter::default();

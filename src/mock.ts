@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import type { IpcCommand, IpcHandlers } from "./ipc";
 import { emptyCatalog, initializeDefaults, type Catalog, type Profile } from "./actions";
 /// Browser backend for sample data. Loaded only when window.__TAURI_INTERNALS__ is absent; never loaded in Tauri.
@@ -838,12 +839,23 @@ const mockCommands: IpcHandlers = {
   },
   account_login(args) {
     if (mockAccounts.login) throw 'i18n:{"code":"err.account.busy"}';
-    if (!["claude", "codex"].includes(args.provider)) throw 'i18n:{"code":"err.account.provider"}';
+    if (!["claude", "codex", "antigravity"].includes(args.provider)) throw 'i18n:{"code":"err.account.provider"}';
+    if (args.provider === "antigravity") {
+      if ((args.method && args.method !== "external") || (args.id && args.id !== "antigravity")) throw 'i18n:{"code":"err.account.external"}';
+      if (localStorage.getItem("mock:antigravityMissing") === "1") throw 'i18n:{"code":"err.antigravity.version"}';
+      if (!mockAccounts.accounts.some(a => a.id === "antigravity")) mockAccounts.accounts.push({
+        id: "antigravity", provider: "antigravity", email: null, plan: null, connected: false, revision: 0, authMethod: "external",
+      });
+      const snapshot = accountSnapshot();
+      emit("usage", call("usage"));
+      return snapshot;
+    }
     let account = mockAccounts.accounts.find((account) => account.id === args.id);
     if (!account) {
       account = { id: crypto.randomUUID(), provider: args.provider, email: null, plan: null, connected: false, revision: 0 };
       mockAccounts.accounts.push(account);
     }
+    account.authMethod = args.method ?? "browser";
     const connecting = account;
     mockAccounts.login = { id: connecting.id, provider: connecting.provider };
     accountSnapshot();
@@ -1365,12 +1377,15 @@ const mockCommands: IpcHandlers = {
     return;
   },
   // A fixed Codex catalog exercises provider selection without an installed CLI.
-  agents() {
+  async agents() {
+    const delay = Number(localStorage.getItem("mock:agentsDelay") ?? 0);
+    if (delay) await new Promise(resolve => setTimeout(resolve, delay));
     return {
       providers: [
         {
           id: "claude",
           label: "Claude",
+          authMethods: [{ id: "browser", kind: "browser", label: "Claude" }],
           installed: true,
           models: [],
           capabilities: {
@@ -1388,6 +1403,7 @@ const mockCommands: IpcHandlers = {
         {
           id: "codex",
           label: "Codex",
+          authMethods: [{ id: "browser", kind: "browser", label: "Codex" }],
           installed: true,
           models: [
             { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
@@ -1406,6 +1422,14 @@ const mockCommands: IpcHandlers = {
             attachments: true,
           },
         },
+        {
+          id: "antigravity", label: "Antigravity", installed: localStorage.getItem("mock:antigravityMissing") !== "1",
+          authMethods: [{ id: "external", kind: "external", label: t("account.external.attach") }],
+          accountNotice: t("account.external.notice"),
+          models: [{ id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)", efforts: [] }],
+          capabilities: { initialPlanMode: false, resume: true, approvals: false, attachments: true,
+            workspaceMcpSelection: false, workspacePluginSelection: false, compact: false, contextReport: false, userQuestions: false },
+        },
       ],
     };
   },
@@ -1422,10 +1446,18 @@ const mockCommands: IpcHandlers = {
   usage() {
     const now = Math.floor(Date.now() / 1000);
     return {
-      ...Object.fromEntries(mockAccounts.accounts.filter((account) => account.id !== account.provider && account.connected).map((account, index) => [account.id, {
+      ...Object.fromEntries(mockAccounts.accounts.filter((account) => account.id !== account.provider && account.connected && account.authMethod !== "apiKey").map((account, index) => [account.id, {
         windows: [{ kind: "session", pct: 9 + index, resets: now + 2 * 3600 }, { kind: "weekly", pct: 25 + index, resets: now + 4 * 86400 }],
         at: now,
       }])),
+      ...(mockAccounts.accounts.some(a => a.id === "antigravity") ? { antigravity: {
+        windows: [
+          { kind: "weekly", pct: 41, resets: now + 3 * 86400, scope: "Gemini Models", label: "Gemini Models" },
+          { kind: "session", pct: 3, resets: now + 4 * 3600, scope: "Gemini Models", label: "Gemini Models" },
+          { kind: "weekly", pct: 73, resets: now + 6 * 86400, scope: "Claude and GPT models", label: "Claude and GPT models" },
+          { kind: "session", pct: 100, resets: now + 2 * 3600, scope: "Claude and GPT models", label: "Claude and GPT models" },
+        ], at: now,
+      } } : {}),
       claude: {
         windows: [
           { kind: "session", pct: 16, resets: now + 3 * 3600 + 14 * 60 },
@@ -1721,6 +1753,7 @@ const mockCommands: IpcHandlers = {
   // Return a preparing workspace immediately, then finish setup on a timer to exercise optimistic creation without Git.
   create_workspace(args) {
     const draft = args.draft;
+    if (!mockAccounts.active[draft.agent]) throw 'i18n:{"code":"err.account.noActive"}';
     const id = `nova-${nextId++}`;
     const repo = String(draft.project).split("/").pop() ?? "repo";
     const fresh = ws(id, draft.project, repo, draft.title || draft.branch, draft.stage, []);

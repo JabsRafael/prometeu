@@ -19,7 +19,12 @@ export type AgentCapabilities = {
   attachments: boolean;
 };
 
+export type AuthMethod = { id: string; kind: "browser" | "external"; label: string };
+
 export type AgentDescriptor = {
+  authMethods: AuthMethod[];
+  unavailableReason?: string | null;
+  accountNotice?: string | null;
   id: ProviderId;
   label: string;
   installed: boolean;
@@ -55,6 +60,7 @@ const BOOTSTRAP: AgentDescriptor[] = [
   {
     id: "claude",
     label: "Claude",
+    authMethods: [{ id: "browser", kind: "browser", label: "Claude" }],
     installed: true,
     models: [],
     capabilities: NO_CAPABILITIES,
@@ -62,12 +68,23 @@ const BOOTSTRAP: AgentDescriptor[] = [
   {
     id: "codex",
     label: "Codex",
+    authMethods: [{ id: "browser", kind: "browser", label: "Codex" }],
     installed: false,
     models: [],
     capabilities: NO_CAPABILITIES,
   },
+  {
+    id: "antigravity", label: "Antigravity", installed: false, models: [],
+    authMethods: [{ id: "external", kind: "external", label: "Antigravity" }],
+    capabilities: NO_CAPABILITIES,
+  },
 ];
 
+const RETIRED: AgentDescriptor = {
+  id: "gemini", label: "Gemini CLI", installed: false, models: [], authMethods: [],
+  unavailableReason: 'i18n:{"code":"err.provider.retired"}',
+  capabilities: NO_CAPABILITIES,
+};
 let catalog = BOOTSTRAP;
 let generation = 0;
 
@@ -100,7 +117,7 @@ export const descriptors = (): readonly AgentDescriptor[] => catalog;
 export const installed = (): AgentDescriptor[] => catalog.filter((provider) => provider.installed);
 
 export function descriptor(id: ProviderId): AgentDescriptor {
-  return catalog.find((provider) => provider.id === id) ?? BOOTSTRAP.find((provider) => provider.id === id)!;
+  return catalog.find((provider) => provider.id === id) ?? BOOTSTRAP.find((provider) => provider.id === id) ?? RETIRED;
 }
 
 export const capabilitiesOf = (id: ProviderId): AgentCapabilities => descriptor(id).capabilities;

@@ -18,7 +18,13 @@ the switch between turns.
 
 Connecting an account does not activate it. The person clicks the account in the
 panel after logging in; the whole card is clickable and its outline indicates the
-selection. Reconnecting increments the revision, making idle processes resume
+selection. Connected inactive cards explicitly offer “Use this account”. The launcher
+shows the selected account and opens these same cards when no account is active,
+preserving the draft until the person selects one. Workspace creation also checks
+the global selection before publishing a card or preparing directories, including
+callers that bypass the launcher. No persisted format changes are involved.
+
+Reconnecting increments the revision, making idle processes resume
 before the next message, even when the ID stays the same. Reconnection is refused
 during a turn that uses that account. Login failures do not change the selection.
 
@@ -37,16 +43,18 @@ write. Each account contains:
 ```ts
 type Account = {
   id: string;
-  provider: "claude" | "codex";
+  provider: "claude" | "codex" | "antigravity";
   email: string | null;
   plan: string | null;
   connected: boolean;
   revision: number;
+  authMethod?: string;
+  keySuffix?: string;
 };
 type Accounts = {
   accounts: Account[];
-  active: { claude?: string; codex?: string };
-  login: { id: string; provider: "claude" | "codex" } | null;
+  active: Partial<Record<ProviderId, string>>;
+  login: { id: string; provider: "claude" | "codex" | "antigravity" } | null;
 };
 ```
 
@@ -59,12 +67,22 @@ longer written. The registry accepts empty lists and providers without a
 selection; only a missing file imports the two initial external profiles.
 Restarting does not restore removed accounts.
 
+An older binary keeps account entries from providers it does not recognize as
+opaque JSON, together with their entries in `active`. They remain in the same
+`{ accounts, active }` shape when a recognized account changes, but they are not
+returned through IPC, queried, selected or otherwise used by that binary.
+Recognized providers still receive full validation; forward compatibility does
+not make malformed Claude or Codex entries valid. This preservation starts with
+versions that implement it: if an earlier binary has already rejected or
+overwritten a newer provider's entry, upgrading cannot reconstruct that lost
+data retroactively.
+
 | Command | Arguments | Return |
 | --- | --- | --- |
 | `accounts` | none | `Accounts` |
 | `account_select` | `{ id }` | `Accounts` |
 | `account_remove` | `{ id }` | `Accounts` |
-| `account_login` | `{ provider, id: string \| null }` | `Accounts` on completion |
+| `account_login` | `{ provider, id: string \| null, method?: string }` | `Accounts` on completion |
 | `account_login_cancel` | `{ id }` | empty |
 
 `id: null` creates a disconnected profile before starting the login, allowing it
@@ -72,7 +90,7 @@ to be reconnected after a cancellation, an error or an app restart. There is one
 login at a time; the process has a ten-minute deadline and supports cancellation.
 The app terminates the auxiliary process when the operation finishes or fails.
 Tokens, stdout, stderr and provider authentication payloads never cross IPC, the
-transcript or the relay.
+transcript or the relay. There is no API-key entry command.
 
 If the automatic resume fails after the previous turn, `account-error` presents
 the translatable error and the message stays in `pending_prompt`.
@@ -156,7 +174,7 @@ accounts; late responses from the previous selection are discarded.
 - `src/agents.test.ts`: late catalog response.
 - `e2e/accounts.spec.ts`: selection persisted per provider, cancellation,
   reconnection, removal of every account, login failure, old registry without
-  nicknames and email escaping.
+  nicknames, email escaping, and launcher draft preservation before explicit account selection.
 - The `perfil_vazio_nao_herda_login_do_terminal` tests, run separately, query
   the real CLIs without login or prompts.
 
@@ -164,3 +182,37 @@ The automated suite does not prove an OAuth round with two real accounts, nor
 the continuation of an authenticated conversation between them. That
 verification requires the person's logins on both providers; fixtures and mocks
 do not replace it.
+
+## Shared account interface
+
+Settings lists every provider, including unavailable installations, and reuses
+the quick switcher's cards and operations. The footer links to that page. A
+provider with multiple methods opens a method dialog; a single browser method
+continues directly. Connecting focuses the new card without selecting it.
+Secondary actions use the shared menu. Removing an active account requires
+confirmation explaining the empty selection; inactive removal remains one step.
+Visible account state, errors and controls use i18n and Design System primitives.
+
+## Antigravity
+
+`account_login` with provider `antigravity` and method `external` explicitly
+attaches the single external profile, ID `antigravity`; it does not perform
+OAuth or change selection. `connected: false` and null identity fields mean
+identity was not probed, not that the CLI account was rejected. External cards
+remain selectable. A removed external profile is not recreated on startup.
+No managed UUID profiles or API-key method are accepted for this provider.
+
+The child uses agy's existing environment and keyring. The app does not isolate
+or change that identity, and cannot guarantee identity continuity if the user
+switches accounts outside the app. The official interactive agy handles login
+and browser consent. There is no proven browser-only login API for Prometeu.
+Quotas are read from `agy -p /usage` once per minute without inference. The
+TSV fields are group, window name, remaining percentage, and RFC3339 reset. The
+adapter converts remaining to used (`100 - remaining`) and preserves separate
+model groups in the existing window scope/label fields. Malformed or failed
+queries retain the cache; absent data stays unavailable, never zero. The panel
+displays used and remaining percentages. The catalog reads `agy models`.
+
+Former Gemini accounts and active selections are opaque preserved entries, not
+usable accounts. Their directories, credentials and native histories remain
+untouched. See [ADR 0052](../decisions/0052-antigravity-runtime.md).

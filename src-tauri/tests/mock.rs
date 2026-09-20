@@ -46,6 +46,7 @@ fn mocked() -> BTreeSet<String> {
     handlers
         .lines()
         .filter_map(|line| line.strip_prefix("  ")?.split_once('('))
+        .map(|(name, args)| (name.strip_prefix("async ").unwrap_or(name), args))
         .filter(|(name, _)| name.chars().all(|c| c.is_ascii_lowercase() || c == '_'))
         .map(|(name, _)| name.to_string())
         .collect()

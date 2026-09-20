@@ -80,6 +80,7 @@ fn ask(prompt: &str, launch: &Launch) -> Option<String> {
             )
         }
         crate::state::ProviderId::Claude => ask_claude(prompt),
+        crate::state::ProviderId::Antigravity | crate::state::ProviderId::RetiredGemini => None,
     }
 }
 
@@ -109,7 +110,7 @@ fn ask_codex(prompt: &str, model: &str) -> Option<String> {
 
     let profile = crate::accounts::active(crate::state::ProviderId::Codex).ok()?;
     profile.prepare().ok()?;
-    profile.apply(&mut cmd);
+    profile.apply(&mut cmd).ok()?;
     let child = cmd.spawn().ok();
     let title = child
         .and_then(|mut c| wait(&mut c).then(|| std::fs::read_to_string(&out).ok()))
@@ -147,7 +148,7 @@ fn ask_claude(prompt: &str) -> Option<String> {
 
     let profile = crate::accounts::active(crate::state::ProviderId::Claude).ok()?;
     profile.prepare().ok()?;
-    profile.apply(&mut cmd);
+    profile.apply(&mut cmd).ok()?;
     let mut child = cmd.spawn().ok()?;
     child.stdin.take()?.write_all(prompt.as_bytes()).ok()?;
     if !wait(&mut child) {

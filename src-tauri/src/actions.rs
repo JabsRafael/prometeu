@@ -297,6 +297,8 @@ pub fn action_start(
             .collect::<Vec<_>>()
             .join("\n\n");
         let tab = Tab {
+            plan: false,
+            permission: None,
             id: uuid::Uuid::new_v4().to_string(),
             agent_session: None,
             title: profile.name.clone(),

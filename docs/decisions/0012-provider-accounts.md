@@ -7,6 +7,9 @@ Account removal and an empty selection follow
 [ADR 0013](0013-remove-provider-accounts.md). The plugin layer uses this account
 boundary as described in [ADR 0005](0005-portable-plugin-marketplace.md).
 
+The external Antigravity account extends this decision through
+[ADR 0052](0052-antigravity-runtime.md); global selection remains unchanged.
+
 ## Context
 
 A person may have several Claude and Codex subscriptions. The footer already

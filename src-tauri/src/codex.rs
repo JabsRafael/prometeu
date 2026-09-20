@@ -41,7 +41,7 @@ pub fn spawn(
         &profile,
     )?;
     let mut cmd = Command::new("codex");
-    profile.apply(&mut cmd);
+    profile.apply(&mut cmd)?;
     cmd.args(["app-server", "--enable", "default_mode_request_user_input"]);
     cmd.args(["-c", "suppress_unstable_features_warning=true"]);
     if let Some(home) = &selected_plugins.home {

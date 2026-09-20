@@ -1,0 +1,238 @@
+{
+  "events": [
+    {
+      "at": 0,
+      "providerSession": "fixture-session",
+      "type": "session.identity",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "commands": [],
+      "type": "commands.updated",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "id": "antigravity:fixture-session:2",
+        "input": {
+          "CommandLine": "echo AGY_TOOL_OK"
+        },
+        "kind": "tool",
+        "name": "run_command"
+      },
+      "index": 0,
+      "messageId": "antigravity:fixture-session:2",
+      "type": "assistant.block",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "background": false,
+      "error": false,
+      "output": "AGY_TOOL_OK\r\n",
+      "toolId": "antigravity:fixture-session:2",
+      "type": "tool.completed",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "messageId": "antigravity:fixture-session:3",
+      "type": "assistant.started",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "kind": "text",
+        "text": ""
+      },
+      "index": 0,
+      "messageId": "antigravity:fixture-session:3",
+      "type": "assistant.block.started",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "AG",
+      "index": 0,
+      "kind": "text",
+      "messageId": "antigravity:fixture-session:3",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "Y_TOOL_OK",
+      "index": 0,
+      "kind": "text",
+      "messageId": "antigravity:fixture-session:3",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "\n",
+      "index": 0,
+      "kind": "text",
+      "messageId": "antigravity:fixture-session:3",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "kind": "text",
+        "text": "AGY_TOOL_OK\n"
+      },
+      "index": 0,
+      "messageId": "antigravity:fixture-session:3",
+      "type": "assistant.block",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "costUsd": null,
+      "durationMs": 0,
+      "message": "",
+      "outcome": "ok",
+      "type": "turn.completed",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "providerSession": "fixture-session",
+      "type": "session.identity",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "commands": [],
+      "type": "commands.updated",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "messageId": "antigravity:fixture-session:6",
+      "type": "assistant.started",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "kind": "text",
+        "text": ""
+      },
+      "index": 0,
+      "messageId": "antigravity:fixture-session:6",
+      "type": "assistant.block.started",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "AGY_TOOL_OK",
+      "index": 0,
+      "kind": "text",
+      "messageId": "antigravity:fixture-session:6",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "\n",
+      "index": 0,
+      "kind": "text",
+      "messageId": "antigravity:fixture-session:6",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "kind": "text",
+        "text": "AGY_TOOL_OK\n"
+      },
+      "index": 0,
+      "messageId": "antigravity:fixture-session:6",
+      "type": "assistant.block",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "costUsd": null,
+      "durationMs": 0,
+      "message": "",
+      "outcome": "ok",
+      "type": "turn.completed",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "providerSession": "fixture-interrupted",
+      "type": "session.identity",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "commands": [],
+      "type": "commands.updated",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "costUsd": null,
+      "durationMs": 0,
+      "message": "",
+      "outcome": "interrupted",
+      "type": "turn.completed",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "providerSession": "fixture-denied",
+      "type": "session.identity",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "commands": [],
+      "type": "commands.updated",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "id": "antigravity:fixture-denied:2",
+        "input": {
+          "CommandLine": "pwd && ls -la"
+        },
+        "kind": "tool",
+        "name": "run_command"
+      },
+      "index": 0,
+      "messageId": "antigravity:fixture-denied:2",
+      "type": "assistant.block",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "background": false,
+      "error": true,
+      "output": "i18n:{\"code\":\"err.antigravity.permission\"}",
+      "toolId": "antigravity:fixture-denied:2",
+      "type": "tool.completed",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "costUsd": null,
+      "durationMs": 0,
+      "message": "i18n:{\"code\":\"err.antigravity.permission\"}",
+      "outcome": "error",
+      "type": "turn.completed",
+      "v": 1
+    }
+  ],
+  "provenance": "Canonical V1 conversion of the recorded Antigravity CLI 1.2.7 tool, native resume, and SIGINT NDJSON fixtures. Timestamps and turn durations are zeroed; the independent interrupted conversation has a distinct fixture identity."
+}

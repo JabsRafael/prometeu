@@ -90,3 +90,4 @@ Status: Proposed
 | [0049](0049-embedded-delegation-mcp.md) | Native MCP for client-owned delegation |
 | [0050](0050-tested-application-boundaries.md) | Tested application boundaries before service extraction |
 | [0051](0051-git-project-catalog.md) | Git projects in portable catalogs |
+| [0052](0052-antigravity-runtime.md) | Replace Gemini CLI with Antigravity |

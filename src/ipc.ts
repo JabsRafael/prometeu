@@ -14,7 +14,7 @@ import type { TeamConfig, Organization } from "./team";
 
 /** The frontend and browser mock share this contract. Rust remains the wire authority. */
 export type Commands = {
-  account_login: { args: { provider: T.ProviderId; id?: string | null }; result: Accounts };
+  account_login: { args: { provider: T.ProviderId; id?: string | null; method?: string }; result: Accounts };
   account_login_cancel: { args: { id: string }; result: void };
   account_remove: { args: { id: string }; result: Accounts };
   account_select: { args: { id: string }; result: Accounts };
