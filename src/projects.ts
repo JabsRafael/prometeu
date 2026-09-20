@@ -11,7 +11,9 @@ export type CatalogProject = {
 };
 
 export function settingsRows(say: (text: string, bad?: boolean) => void): HTMLElement[] {
-  return [h("p", "ui-hint", t("projects.hint")), button(t("projects.add"), () => openProjects(say))];
+  const add = button(t("projects.add"), () => openProjects(say));
+  add.id = "projects-add";
+  return [h("p", "ui-hint", t("projects.hint")), add];
 }
 
 export function openProjects(say: (text: string, bad?: boolean) => void) {

@@ -1,9 +1,9 @@
 import { descriptor, descriptors, type AgentDescriptor, type AuthMethod } from "./agents";
 import { invoke, type IpcCall } from "./ipc";
-import { brand } from "./icons";
+import { brand, icon } from "./icons";
 import { fromBack, t } from "./i18n";
 import type { ProviderId } from "./types";
-import { button, confirmDialog, field, formDialog, menuButton, select } from "./ui";
+import { avatar, badge, button, confirmDialog, field, formDialog, menuButton, select } from "./ui";
 import { h } from "./util";
 
 export type Account = {
@@ -49,6 +49,8 @@ export function openPicker(provider: ProviderId) {
     submit: async () => { if (!selected(provider)) throw new Error(t("launcher.account.required")); },
     closed: () => forget(),
   });
+  dialog.root.classList.add("account-dialog");
+  dialog.root.querySelector(".sheettop")!.append(h("p", "ui-hint", t("account.selection.help", { provider: descriptor(provider).label })));
   const draw = () => {
     const focus = (document.activeElement as HTMLElement | null)?.dataset.focus;
     dialog.body.replaceChildren(render([descriptor(provider)]));
@@ -127,7 +129,7 @@ function card(account: Account): HTMLElement {
   const root = h("section", `uaccount${active ? " active" : ""}`);
   root.dataset.account = account.id;
   const choose = button("", () => run(call("account_select", { id: account.id })));
-  choose.className = "account-select";
+  choose.classList.add("account-select");
   choose.dataset.focus = `select-${account.id}`;
   choose.setAttribute("aria-label", accountName(account));
   choose.setAttribute("aria-pressed", String(active));
@@ -135,6 +137,16 @@ function card(account: Account): HTMLElement {
   const content = h("div", "account-content");
   const heading = h("div", "account-heading");
   const name = h("strong", "", accountName(account)); name.title = accountName(account);
+  const identity = h("div", "account-identity");
+  identity.append(name);
+  const meta = h("div", "account-meta");
+  if (account.plan) meta.append(h("span", "", account.plan));
+  if (active || account.connected || external) {
+    const state = badge(t(active ? "account.active" : "account.use"), active);
+    state.classList.add("account-state");
+    meta.append(state);
+  } else if (!loggingIn) meta.append(h("span", "", t("account.disconnected")));
+  identity.append(meta);
   const actions = menuButton("…", () => [
     ...(!external ? [{ label: t("account.reconnect"), run: () => add(account.provider, account.id) }] : []),
     { label: t("account.remove"), danger: true, run: () => run(remove(account)) },
@@ -142,20 +154,18 @@ function card(account: Account): HTMLElement {
   actions.setAttribute("aria-label", t("account.actions"));
   actions.dataset.focus = `actions-${account.id}`;
   actions.disabled = busy || !!accounts?.login;
-  heading.append(name, actions); content.append(heading);
-  if (active || account.connected || external) content.append(h("small", "account-state", t(active ? "account.active" : "account.use")));
+  heading.append(avatar(), identity, actions); content.append(heading);
   if (loggingIn) {
     const wait = h("div", "account-wait", t("account.browser")); wait.setAttribute("role", "status");
     wait.append(button(t("account.cancel"), () => run(invoke("account_login_cancel", { id: account.id }))));
     content.append(wait);
-  } else if (!account.connected && !external) content.append(h("small", "", t("account.disconnected")));
-  if (account.plan) content.append(h("div", "account-meta", account.plan));
+  }
   const limits = h("div", "account-quotas"); limits.innerHTML = quota(account.id);
   content.append(limits); root.append(choose, content);
   return root;
 }
 
-export function render(providers: readonly AgentDescriptor[] = descriptors()): HTMLElement {
+export function render(providers: readonly AgentDescriptor[] = descriptors(), manage?: () => void): HTMLElement {
   const root = h("div", "accounts-view");
   for (const provider of providers) {
     const group = h("section", "accounts-provider"); group.dataset.providerAccounts = provider.id; group.tabIndex = -1; group.setAttribute("aria-label", provider.label);
@@ -163,15 +173,30 @@ export function render(providers: readonly AgentDescriptor[] = descriptors()): H
     const mark = h("span", ""); mark.innerHTML = brand(provider.id);
     heading.append(mark, h("span", "uname", provider.label)); group.append(heading);
     if (!provider.installed) group.append(h("p", "ui-hint", provider.unavailableReason ? fromBack(provider.unavailableReason) : t("account.install", { provider: provider.label })));
-    if (provider.accountNotice) group.append(h("p", "ui-hint", fromBack(provider.accountNotice)));
     const list = accounts?.accounts.filter(a => a.provider === provider.id) ?? [];
     if (!list.length) group.append(h("div", "uempty", t("account.empty")));
     group.append(...list.map(card));
+    if (provider.accountNotice) group.append(h("p", "account-notice ui-hint", fromBack(provider.accountNotice)));
     const external = provider.authMethods.some(method => method.kind === "external");
-    const addButton = button(t(external ? "account.external.attach" : "account.add"), () => add(provider.id));
-    addButton.dataset.focus = `add-${provider.id}`;
-    addButton.disabled = !provider.installed || busy || !!accounts?.login || (external && !!list.length) || !provider.authMethods.length;
-    const footer = h("div", "account-add"); footer.append(addButton); group.append(footer); root.append(group);
+    const footer = h("div", "account-add");
+    if (external && list.length) {
+      const attached = h("span", "account-attached");
+      attached.innerHTML = icon("check", 14);
+      attached.append(document.createTextNode(t("account.external.attached")));
+      footer.append(attached);
+    } else {
+      const addButton = button(t(external ? "account.external.attach" : "account.add"), () => add(provider.id));
+      addButton.insertAdjacentHTML("afterbegin", icon("plus", 14));
+      addButton.dataset.focus = `add-${provider.id}`;
+      addButton.disabled = !provider.installed || busy || !!accounts?.login || !provider.authMethods.length;
+      footer.append(addButton);
+    }
+    if (manage) {
+      const manageButton = button(t("account.manage"), manage, "ghost");
+      manageButton.dataset.focus = `manage-${provider.id}`;
+      footer.append(manageButton);
+    }
+    group.append(footer); root.append(group);
   }
   return root;
 }

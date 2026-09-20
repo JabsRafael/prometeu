@@ -149,7 +149,10 @@ export function formDialog(options: {
   dialog.setAttribute("aria-label", options.title);
   const form = document.createElement("form");
   const header = h("div", "sheettop");
-  header.append(h("b", "", options.title));
+  const title = h("b", "", options.title);
+  title.tabIndex = -1;
+  title.setAttribute("autofocus", "");
+  header.append(title);
   const body = h("div", "ui-form-body");
   const footer = h("div", "sheetbar ui-form-footer");
   const error = h("span", "ui-hint ui-error");
@@ -158,7 +161,12 @@ export function formDialog(options: {
     if (!dialog.isConnected) return;
     menu.close(); dialog.close(); dialog.remove();
     options.closed?.();
-    if (previousFocus?.isConnected) previousFocus.focus();
+    let target = previousFocus;
+    if (target && !target.isConnected) {
+      target = target.id ? document.getElementById(target.id)
+        : target.dataset.focus ? document.querySelector<HTMLElement>(`[data-focus="${CSS.escape(target.dataset.focus)}"]`) : null;
+    }
+    target?.focus();
   };
   const save = button(options.save, () => {}, options.variant ?? "pri");
   save.type = "submit";
@@ -183,8 +191,8 @@ export function formDialog(options: {
     const controls = Array.from(form.querySelectorAll<HTMLElement>("button, input, textarea, select, summary, [tabindex]"))
       .filter(node => !node.matches(":disabled") && node.tabIndex >= 0 && node.getClientRects().length);
     const first = controls[0], last = controls[controls.length - 1];
-    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === title)) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && (document.activeElement === last || document.activeElement === title)) { event.preventDefault(); first?.focus(); }
   });
   return {
     root: dialog, body, save, close,
@@ -192,7 +200,10 @@ export function formDialog(options: {
       if (dialog.isConnected) return;
       previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       document.body.append(dialog); dialog.showModal();
-      body.querySelector<HTMLElement>("input, textarea, button")?.focus();
+      const first = body.querySelector<HTMLElement>('input:not([type="hidden"]):enabled, textarea:enabled, button:enabled, select:enabled');
+      // Start typing in forms; action and selection dialogs start at their title.
+      if (first?.matches('textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"])')) first.focus();
+      else title.focus();
     },
   };
 }

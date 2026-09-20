@@ -101,6 +101,25 @@ test("design system entrega menu, submenu, senha e formulário com recuperação
   await expect(trigger).toBeFocused();
 });
 
+test("design system opens confirmations without highlighting actions and keeps keyboard focus", async ({ page }) => {
+  await page.goto(`${baseURL}/index.html`);
+  const trigger = page.getByRole("button", { name: "Excluir conta", exact: true });
+  for (const keyboard of [false, true]) {
+    if (keyboard) await trigger.press("Enter"); else await trigger.click();
+    const dialog = page.getByRole("dialog", { name: "Excluir conta?", exact: true });
+    await expect(dialog.locator(".sheettop b")).toBeFocused();
+    await expect(dialog.locator("button:focus-visible")).toHaveCount(0);
+    await page.keyboard.press("Shift+Tab");
+    await expect(dialog.getByRole("button", { name: "Excluir", exact: true })).toBeFocused();
+    await page.keyboard.press("Tab");
+    const cancel = dialog.getByRole("button", { name: "Cancelar", exact: true });
+    await expect(cancel).toBeFocused();
+    await expect(cancel).toHaveCSS("outline-style", "solid");
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
+  }
+});
+
 test("design system pode montar, desmontar e remontar melhorias sem duplicar controles", async ({ page }) => {
   await page.goto(`${baseURL}/index.html`);
   const result = await page.evaluate(async () => {

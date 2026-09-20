@@ -1,5 +1,5 @@
 import * as accounts from "./accounts";
-import { button, dropdown } from "./ui";
+import { button, checkbox, dropdown, field, input } from "./ui";
 export type { Group } from "./ui";
 import { open } from "@tauri-apps/plugin-dialog";
 import { capabilitiesOf, catalogOf, descriptor, effortsOf, isKnownModel, nativeEffort, onCatalogChange } from "./agents";
@@ -14,7 +14,7 @@ import * as plugins from "./plugins";
 import * as menu from "./menu";
 import { invoke } from "./ipc";
 import { pasteFiles } from "./paste";
-import { template } from "./util";
+import { h, template } from "./util";
 import { branchTaken, type Board, type Issue, type IssueRef, type ProviderId, type Workspace } from "./types";
 
 export type Draft = {
@@ -115,44 +115,97 @@ export function openLauncher(board: Board, opts: Open) {
   conformCapabilities();
 
   const sheet = document.createElement("div");
-  sheet.className = "sheet";
+  sheet.className = "sheet launcher";
+  sheet.setAttribute("role", "dialog");
+  sheet.setAttribute("aria-labelledby", "d-title");
   sheet.innerHTML = `
-    <div class="sheettop">
-      <span class="who"><span id="d-avatar"></span><button id="d-project" class="ghost pick"><span></span>${icon("chevron-down", 12)}</button><button id="d-more" class="ico sm" data-t-title="launcher.addRepo">${icon("plus", 14)}</button></span>
-      <button id="d-base" class="ghost base" data-t-title="launcher.base.title">
-        ${icon("git-branch", 12)}<span id="d-basename"></span>${icon("chevron-down", 12)}
-      </button>
-      <button id="d-issuebtn" class="ghost base empty" data-t-title="launcher.issue.title">
-        ${icon("linear", 12)}<span></span>${icon("chevron-down", 12)}
-      </button>
-      <span class="spacer"></span>
-      <button id="d-nb" class="ghost sw" role="switch">
-        <span data-t="launcher.newBranch"></span><i class="knob"></i>
-      </button>
-      <button id="d-wt" class="ghost sw" role="switch">
-        <span data-t="launcher.worktree"></span><i class="knob"></i>
-      </button>
-    </div>
+    <header class="launcher-heading">
+      <div><h1 id="d-title" data-t="project.newWorkspace"></h1><p data-t="launcher.subtitle"></p></div>
+      <span id="d-avatar"></span>
+    </header>
     <div class="picker" id="d-picker" hidden></div>
     <div class="picker" id="d-ipicker" hidden></div>
-    <textarea id="d-prompt" rows="6"></textarea>
-    <div class="attach" id="d-repos" hidden></div>
-    <div class="attach" id="d-issue" hidden></div>
-    <div class="attach" id="d-inj" hidden></div>
-    <div class="sheetbar">
-      <button id="d-model" class="ghost pick" data-t-title="launcher.model.title">${icon("sparkles", 14)}<span></span>${icon("chevron-down", 12)}</button>
-      <button id="d-effort" class="ghost effort"><span class="bars"><i></i><i></i><i></i><i></i><i></i></span><span class="el"></span></button>
-      <button id="d-plan" class="ghost">${icon("map", 14)}<span data-t="launcher.plan"></span></button>
-      <button id="d-mcp" class="ghost pick" data-t-title="mcp.title">${icon("plug", 14)}<span></span></button>
-      <button id="d-plugins" class="ghost pick" data-t-title="plugin.title">${icon("puzzle", 14)}<span></span></button>
-      <span class="hint" id="d-hint"></span>
-      <button id="d-add" class="ico" data-t-title="launcher.attach">${icon("paperclip", 16)}</button>
-      <button id="d-go" class="pri"><span data-t="launcher.go"></span> <kbd>↵</kbd></button>
-    </div>`;
+    <div class="launcher-scroll"><div class="launcher-body">
+      <section class="launcher-brief">
+        <h2><label for="d-prompt" data-t="launcher.prompt"></label></h2>
+        <div class="launcher-prompt" id="d-prompt-box">
+          <div class="attach" id="d-inj" hidden></div>
+          <div class="launcher-attachments" id="d-attachments"></div>
+        </div>
+        <section class="launcher-repository" aria-labelledby="d-repository-title">
+          <h2 id="d-repository-title" data-t="git.repository"></h2>
+          <div class="launcher-fields" id="d-repository-fields"></div>
+          <div class="launcher-switches" id="d-switches"></div>
+          <p class="ui-hint" id="d-repo-hint"></p>
+          <div id="d-issue-field"></div>
+          <div class="attach" id="d-issue" hidden></div>
+          <div id="d-extra-repositories"></div>
+          <div class="attach" id="d-repos" hidden></div>
+        </section>
+      </section>
+      <aside class="launcher-settings" aria-labelledby="d-settings-title">
+        <h2 id="d-settings-title" data-t="launcher.agentTools"></h2>
+        <div id="d-model-field"></div><div id="d-effort-field"></div><div id="d-plan-field"></div>
+        <div id="d-account-field"></div>
+        <section class="launcher-tools" id="d-tools" aria-labelledby="d-tools-title">
+          <h3 id="d-tools-title" data-t="launcher.tools"></h3>
+          <div id="d-mcp-field"></div><div id="d-plugins-field"></div>
+        </section>
+      </aside>
+    </div></div>
+    <footer class="sheetbar launcher-footer">
+      <span class="hint" id="d-hint" role="status"></span>
+      <div class="launcher-actions" id="d-actions"></div>
+    </footer>`;
   paint(sheet);
 
   const $ = <T extends HTMLElement>(id: string) => sheet.querySelector(`#${id}`) as T;
-  const prompt = $<HTMLTextAreaElement>("d-prompt");
+  const pick = (id: string) => {
+    const control = button("");
+    control.id = id;
+    control.className = "ui-select pick";
+    control.append(h("span", ""));
+    control.insertAdjacentHTML("beforeend", icon("chevron-down", 12));
+    return control;
+  };
+  const projectButton = pick("d-project");
+  const baseButton = pick("d-base");
+  baseButton.querySelector("span")!.id = "d-basename";
+  $("d-repository-fields").append(field(t("launcher.project"), projectButton), field(t("launcher.base.label"), baseButton));
+  $("d-issue-field").append(field(t("launcher.issue.label"), pick("d-issuebtn")));
+  $("d-model-field").append(field(t("actions.model"), pick("d-model")));
+  const effortButton = pick("d-effort");
+  effortButton.classList.add("effort");
+  effortButton.querySelector("span")!.className = "el";
+  effortButton.insertAdjacentHTML("afterbegin", '<span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>');
+  $("d-effort-field").append(field(t("models.effort"), effortButton));
+  $("d-mcp-field").append(field(t("launcher.mcp"), pick("d-mcp")));
+  $("d-plugins-field").append(field(t("launcher.plugins"), pick("d-plugins")));
+  const worktree = checkbox(t("launcher.worktree"), draft.worktree);
+  worktree.control.id = "d-wt";
+  const newBranch = checkbox(t("launcher.newBranch"), draft.newBranch);
+  newBranch.control.id = "d-nb";
+  $("d-switches").append(worktree.label, newBranch.label);
+  const planMode = checkbox(t("launcher.plan.start"), draft.plan);
+  planMode.control.id = "d-plan";
+  $("d-plan-field").append(planMode.label);
+  const moreButton = button(t("launcher.addRepo.label"), undefined, "ghost");
+  moreButton.id = "d-more";
+  moreButton.insertAdjacentHTML("afterbegin", icon("plus", 14));
+  $("d-extra-repositories").append(moreButton);
+  const prompt = input("", true);
+  prompt.id = "d-prompt";
+  $("d-prompt-box").prepend(prompt);
+  const attach = button(t("launcher.attach.label"), undefined, "ghost");
+  attach.id = "d-add";
+  attach.title = t("launcher.attach");
+  attach.insertAdjacentHTML("afterbegin", icon("paperclip", 14));
+  $("d-attachments").append(attach);
+  const cancel = button(t("account.cancel"), () => hide(), "ghost");
+  const create = button(t("launcher.go"), undefined, "pri");
+  create.id = "d-go";
+  create.append(h("kbd", "", "↵"));
+  $("d-actions").append(cancel, create);
   const hint = $("d-hint");
 
   const nameOf = (id: string) => board.projects.find((p) => p.id === id)?.name ?? "";
@@ -243,8 +296,8 @@ export function openLauncher(board: Board, opts: Open) {
   /* Worktree and branch controls. */
 
   // Support a dedicated worktree with a branch, a new branch in the clone, or the current clone unchanged. A worktree without its own branch is invalid.
-  const wt = $<HTMLButtonElement>("d-wt");
-  const nb = $<HTMLButtonElement>("d-nb");
+  const wt = worktree.control;
+  const nb = newBranch.control;
 
   // Disable branch/worktree controls for non-Git directories after reference discovery confirms their status.
   let isGit = true;
@@ -254,41 +307,48 @@ export function openLauncher(board: Board, opts: Open) {
       [wt, draft.worktree],
       [nb, draft.newBranch],
     ] as const) {
-      el.classList.toggle("on", on);
-      el.setAttribute("aria-checked", String(on));
+      el.checked = on;
     }
     nb.disabled = draft.worktree || !isGit;
     nb.title = t(!isGit ? "launcher.noGit" : draft.worktree ? "launcher.nb.locked" : "launcher.nb.off");
     wt.disabled = !!git || draft.extras.length > 0 || !isGit;
     wt.title = t(!isGit ? "launcher.noGit" : draft.extras.length ? "launcher.wt.locked" : draft.worktree ? "launcher.wt.on" : "launcher.wt.off");
+    $("d-repo-hint").textContent = t(!isGit ? "launcher.noGit" : draft.worktree ? "launcher.wt.on" : draft.newBranch ? "launcher.wt.off" : "launcher.nb.off");
     // No new branch means no base selection.
     baseBtn.disabled = !draft.newBranch || !branches.length;
     if (!draft.newBranch) basePick.close();
     drawHint();
   };
 
-  wt.addEventListener("click", () => {
-    draft.worktree = !draft.worktree;
+  wt.addEventListener("change", () => {
+    draft.worktree = wt.checked;
     if (draft.worktree) draft.newBranch = true;
     localStorage.setItem(WORKTREE_KEY, draft.worktree ? "1" : "0");
     localStorage.setItem(BRANCH_KEY, draft.newBranch ? "1" : "0");
     drawSwitches();
   });
-  nb.addEventListener("click", () => {
-    draft.newBranch = !draft.newBranch;
+  nb.addEventListener("change", () => {
+    draft.newBranch = nb.checked;
     localStorage.setItem(BRANCH_KEY, draft.newBranch ? "1" : "0");
     drawSwitches();
   });
 
   /* Model, effort, and plan controls. */
 
-  const accountButton = button("", () => accounts.openPicker(draft.agent));
+  const accountButton = button("", () => accounts.openPicker(draft.agent), "ghost");
   accountButton.id = "d-account";
-  accountButton.className = "ghost pick";
-  hint.before(accountButton);
+  accountButton.classList.add("launcher-account");
+  const accountName = h("span", "launcher-account-name");
+  accountButton.append(accountName, h("span", "launcher-account-change", t("launcher.account.change")));
+  const accountField = field(t("launcher.account.label"), accountButton);
+  const accountMeta = h("p", "ui-hint");
+  accountField.append(accountMeta);
+  $("d-account-field").append(accountField);
   const drawAccount = () => {
     const account = accounts.selected(draft.agent);
-    accountButton.textContent = account ? accounts.accountName(account) : t("launcher.account.select");
+    accountName.textContent = account ? accounts.accountName(account) : t("launcher.account.select");
+    accountMeta.textContent = account ? [account.plan, t("launcher.account.active")].filter(Boolean).join(" · ") : "";
+    accountMeta.hidden = !account;
     accountButton.title = t(account ? "account.use" : "launcher.account.required");
   };
   const forgetAccounts = accounts.onChange(drawAccount);
@@ -325,6 +385,7 @@ export function openLauncher(board: Board, opts: Open) {
   const drawEffort = () => {
     const step = effortStep(draft.model, draft.effort, draft.agent);
     effort.hidden = !step || needsChoice;
+    $("d-effort-field").hidden = effort.hidden;
     if (step) {
       effort.querySelector(".el")!.textContent = step.label;
       effort.querySelectorAll(".bars i").forEach((bar, n) => bar.classList.toggle("lit", n <= step.step));
@@ -356,15 +417,15 @@ export function openLauncher(board: Board, opts: Open) {
   drawEffort();
   drawModel();
 
-  const plan = $<HTMLButtonElement>("d-plan");
+  const plan = planMode.control;
   const drawPlan = () => {
     plan.hidden = !capabilitiesOf(draft.agent).initialPlanMode;
-    plan.classList.toggle("on", draft.plan);
-    plan.setAttribute("aria-pressed", String(draft.plan));
+    $("d-plan-field").hidden = plan.hidden;
+    plan.checked = draft.plan;
     plan.title = t(draft.plan ? "launcher.plan.on" : "launcher.plan.off");
   };
-  plan.addEventListener("click", () => {
-    draft.plan = !draft.plan;
+  plan.addEventListener("change", () => {
+    draft.plan = plan.checked;
     drawPlan();
     prompt.focus();
   });
@@ -379,6 +440,8 @@ export function openLauncher(board: Board, opts: Open) {
       (!mcp.list().length && draft.mcp === null);
     mcpBtn.querySelector("span")!.textContent = mcp.flatLabel(draft.mcp);
     mcpBtn.classList.toggle("on", !!draft.mcp?.length);
+    $("d-mcp-field").hidden = mcpBtn.hidden;
+    $("d-tools").hidden = $("d-mcp-field").hidden && $("d-plugins-field").hidden;
   };
   mcpBtn.addEventListener("click", () => {
     const at = mcpBtn.getBoundingClientRect();
@@ -402,6 +465,8 @@ export function openLauncher(board: Board, opts: Open) {
       (!plugins.list().length && draft.plugins === null);
     plugBtn.querySelector("span")!.textContent = plugins.flatLabel(draft.plugins);
     plugBtn.classList.toggle("on", !!draft.plugins?.length);
+    $("d-plugins-field").hidden = plugBtn.hidden;
+    $("d-tools").hidden = $("d-mcp-field").hidden && $("d-plugins-field").hidden;
   };
   plugBtn.addEventListener("click", () => {
     const at = plugBtn.getBoundingClientRect();
@@ -482,7 +547,7 @@ export function openLauncher(board: Board, opts: Open) {
     draft.branch = (draft.project === project ? git?.branch : undefined) || issue?.branch_name || freshBranch(branches);
     draft.title = issue ? `${issue.identifier} · ${issue.title}` : "";
     prompt.placeholder = t(issue ? "launcher.prompt.issue" : "launcher.prompt");
-    issueBtn.querySelector("span")!.textContent = issue?.identifier ?? t("launcher.issue");
+    issueBtn.querySelector("span")!.textContent = issue?.identifier ?? t("launcher.issue.none");
     issueBtn.classList.toggle("empty", !issue);
     issueBox.hidden = !issue;
     issueBox.replaceChildren();
@@ -564,6 +629,12 @@ export function openLauncher(board: Board, opts: Open) {
       if (p.isOpen() && !p.contains(e.target as Node)) p.close();
     }
   });
+  // Dismiss anchored menus on a scroll gesture, not on the browser scrolling a focused trigger into view.
+  for (const event of ["wheel", "touchmove"]) {
+    sheet.querySelector(".launcher-scroll")!.addEventListener(event, () => {
+      basePick.close(); issuePick.close(); menu.close();
+    }, { passive: true });
+  }
 
   // Keep attachments visible between the prompt and footer because they belong to the first message.
   const injList = $("d-inj");
@@ -607,6 +678,7 @@ export function openLauncher(board: Board, opts: Open) {
   };
 
   const hide = () => {
+    menu.close();
     forgetCatalog();
     forgetAccounts();
     forgetMcp();
@@ -615,6 +687,12 @@ export function openLauncher(board: Board, opts: Open) {
     veil.replaceChildren();
     veil.hidden = true;
   };
+  sheet.addEventListener("keydown", event => {
+    if (event.key === "Escape" && !document.querySelector("dialog[open]")) {
+      event.stopPropagation();
+      hide();
+    }
+  });
   const submit = () => {
     if (taken || receiving || choiceProblem()) return;
     if (!accounts.selected(draft.agent)) { accounts.openPicker(draft.agent); return; }
@@ -630,7 +708,7 @@ export function openLauncher(board: Board, opts: Open) {
   $("d-go").addEventListener("click", submit);
   // Enter creates; Shift-Enter inserts a newline.
   prompt.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       submit();
     }
@@ -713,10 +791,15 @@ function picker(o: {
     const sheet = el.offsetParent as HTMLElement;
     const edge = 12;
     const width = Math.min(420, sheet.clientWidth - edge * 2);
-    el.style.left = `${Math.max(edge, Math.min(btn.offsetLeft, sheet.clientWidth - width - edge))}px`;
+    const anchor = btn.getBoundingClientRect();
+    const bounds = sheet.getBoundingClientRect();
+    el.style.left = `${Math.max(edge, Math.min(anchor.left - bounds.left, sheet.clientWidth - width - edge))}px`;
     el.style.width = `${width}px`;
     const foot = sheet.querySelector<HTMLElement>(".sheetbar")!;
-    el.style.maxHeight = `${Math.min(320, foot.offsetTop - el.offsetTop)}px`;
+    const top = sheet.querySelector<HTMLElement>(".launcher-heading")!.offsetHeight + edge;
+    const height = Math.min(320, foot.offsetTop - top - edge);
+    el.style.top = `${Math.max(top, Math.min(anchor.bottom - bounds.top + 4, foot.offsetTop - height - edge))}px`;
+    el.style.maxHeight = `${height}px`;
     btn.classList.add("open");
     draw();
     find.focus();

@@ -609,7 +609,7 @@ test("mantém os controles do lançador dentro da caixa com branch base longa", 
   await page.locator("#railbody").getByRole("button", { name: "Criar", exact: true }).click();
   await expect(page.locator("#d-basename")).toHaveText(branch);
 
-  const bounds = await page.locator(".sheettop").evaluate((top) => {
+  const bounds = await page.locator(".launcher-repository").evaluate((top) => {
     const branchName = top.querySelector<HTMLElement>("#d-basename")!;
     const worktree = top.querySelector<HTMLElement>("#d-wt")!;
     const topRect = top.getBoundingClientRect();
@@ -622,7 +622,7 @@ test("mantém os controles do lançador dentro da caixa com branch base longa", 
   });
 
   expect(bounds.worktreeRight).toBeLessThanOrEqual(bounds.topRight);
-  expect(bounds.branchContentWidth).toBeGreaterThan(bounds.branchWidth);
+  expect(bounds.branchContentWidth).toBeLessThanOrEqual(bounds.branchWidth);
 });
 
 test("envia uma pergunta, responde o card e devolve o controle ao chat", async ({ page }) => {
