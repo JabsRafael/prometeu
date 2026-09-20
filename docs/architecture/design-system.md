@@ -55,15 +55,41 @@ not change the workspace while the dialog is open. While submission is pending,
 Escape and cancellation leave the dialog open so progress and failures remain
 visible.
 
+Shared dialogs use consistent header/body spacing, content-sized buttons and
+grouped footer actions. Text-entry forms focus their first field; dialogs that
+start with actions or selection focus the title so no button appears selected
+on opening. Tab still reaches the controls with a visible focus indicator, and
+Shift+Tab from the title reaches the last enabled control. The standalone
+gallery's confirmation demonstrates this initial state; tests cover it in
+`e2e/design-system.spec.ts` and the Projects flow in `e2e/projects.spec.ts`.
+An opener replaced during a background refresh keeps focus restoration through
+its stable `id` or `data-focus` key.
+
 ## Adoption
 
 The command and agent editors in Actions use the shared fields, selectors,
-checkboxes, disclosures and dialog. The launcher uses the same dropdown; text
+checkboxes, disclosures and dialog. The launcher composes shared fields,
+buttons, text input and checkboxes into a task/repository column and an
+agent/tools column. Narrow windows stack the columns in a scrolling body;
+the branch summary and creation actions remain in a separate, visible footer.
+Model search, favorites and native effort selection use the existing pickers.
+Account identities wrap instead of truncating; account popovers share one row
+for adding and managing accounts, and the account dialog keeps its footer
+visible while its cards scroll. These compositions are covered in
+[`e2e/launcher-layout.spec.ts`](../../e2e/launcher-layout.spec.ts), including
+Portuguese/English and Chromium/WebKit. Text
 fields in the MCP and plugin hubs use `input` and `field`, including the plugin
 creation request. Worktree cleanup also uses `formDialog`,
 including its busy-state cancellation guard and shared checkboxes. Their
 application callbacks own progress labels and operation results. Legacy modals
 in the hubs keep the previous lifecycle.
+
+Browser mock screenshots: [workspace](../images/ui/workspace.png),
+[narrow workspace](../images/ui/workspace-narrow.png),
+[account popover](../images/ui/accounts.png),
+[account selector](../images/ui/account-dialog.png),
+[model picker](../images/ui/model-picker.png), and
+[Projects dialog](../images/ui/projects-dialog.png).
 
 New controls and changes to existing controls must reuse this base. If behavior
 is missing, add it to the corresponding primitive and show the state in the
@@ -106,7 +132,10 @@ details, optional secondary actions, status text, refresh and a filter checkbox.
 It does not own domain catalogs or persistence. Its update method preserves the
 query, scroll and focused action; the model picker subscribes to catalog changes
 and supplies updated entries. Model favorites are secondary buttons, never
-nested interactive content inside a selectable button.
+nested interactive content inside a selectable button. Rows grow with wrapped
+model names and descriptions; square favorite buttons keep their focus indicator
+inside the scroll area. `e2e/model-picker.spec.ts` covers these bounds in the
+desktop composition, including narrow windows.
 
 The search input receives focus on open. Arrow keys move among enabled choices;
 Tab reaches the current choice, its secondary action and footer controls without

@@ -38,7 +38,10 @@ for (const [agent, model, locale, remoteLabel, busyLabel] of [
     }, locale);
     await page.goto("/");
     await expect(page.locator("#tiles .tile").first()).toBeVisible();
-    await page.locator('.railworkspace[data-workspace="sessao-0929"] > .navitem').click();
+    // Cloud discovery can rebuild the sidebar between pointer down and click; desk tiles stay mounted.
+    await page.locator('#tiles .tile[data-tab="t1"] .topen').click();
+    // Wait for the initial snapshot before emitting live state, or its ready state can overwrite busy.
+    await expect(page.locator("#chatwrap .feed .turn").first()).toBeVisible();
     await page.evaluate(async choice => {
       const w = window as ComposerWindow;
       const { invoke } = w.__TAURI_INTERNALS__;

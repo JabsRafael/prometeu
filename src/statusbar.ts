@@ -2,7 +2,6 @@ import * as accountUI from "./accounts";
 import { accounts } from "./accounts";
 export type { Account, Accounts } from "./accounts";
 import type { Accounts } from "./accounts";
-import { button } from "./ui";
 import { openCleanup } from "./cleanup";
 import type { AgentDescriptor } from "./agents";
 import { brand, icon } from "./icons";
@@ -280,8 +279,7 @@ function fill() {
   const scroll = panel.scrollTop;
   panel.innerHTML = open === "usage" ? "" : open === "res" ? resPanel() : portPanel();
   if (open === "usage") {
-    panel.replaceChildren(accountUI.render(agents.filter(agent => !usageProvider || agent.id === usageProvider)));
-    panel.append(button(t("account.manage"), () => { close(); manageAccounts(); }));
+    panel.replaceChildren(accountUI.render(agents.filter(agent => !usageProvider || agent.id === usageProvider), () => { close(); manageAccounts(); }));
   }
   if (focusKey) {
     const next = panel.querySelector<HTMLElement>(`[data-focus="${CSS.escape(focusKey)}"]`);
@@ -324,7 +322,8 @@ function rows(windows: Window[]): string {
       (w) =>
         `<div class="urow"><span class="ukind">${kind(w.kind)}</span>` +
         meter(w.pct, true) +
-        `<span class="upct">${t("status.usage.used", { pct: Math.round(w.pct) })}<small>${t("status.usage.free", { pct: 100 - Math.round(w.pct) })}</small></span>` +
+        `<span class="upct">${t("status.usage.used", { pct: Math.round(w.pct) })}</span>` +
+        `<span class="ufree">${t("status.usage.free", { pct: 100 - Math.round(w.pct) })}</span>` +
         `<span class="ureset">${t("status.resets", { when: until(w.resets) })}</span></div>`,
     )
     .join("");

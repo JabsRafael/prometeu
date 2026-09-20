@@ -193,6 +193,17 @@ Secondary actions use the shared menu. Removing an active account requires
 confirmation explaining the empty selection; inactive removal remains one step.
 Visible account state, errors and controls use i18n and Design System primitives.
 
+The cards keep the complete identity visible with wrapping, place the plan and
+selection state together, and show each quota on its own meter with usage and
+reset labels. Popovers place Add account and Manage accounts in the same footer
+row when space permits. Once the external agy profile is attached, attachment
+status replaces the redundant disabled attachment button; removing it makes
+the attachment action available again. The selector uses the same cards inside
+a scrolling dialog body with fixed confirmation actions. Selection, login and
+removal semantics remain unchanged; this presentation needs no format migration.
+`e2e/launcher-layout.spec.ts` covers narrow layouts, long identities and the
+selector's focus restoration in Chromium and WebKit.
+
 ## Antigravity
 
 `account_login` with provider `antigravity` and method `external` explicitly

@@ -71,6 +71,39 @@ test("model picker reveals additional models explicitly", async ({ page }) => {
   await expect(page.locator("#d-model")).toContainText("Additional native model");
 });
 
+test("model picker wraps descriptions and keeps favorites inside their rows", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("mock:modelCatalog:codex", JSON.stringify([
+    { id: "native-model-with-a-long-identifier-for-the-provider", label: "Native model with a long name and an extended context window", efforts: [] },
+    { id: "short", label: "Short model", efforts: [] },
+  ])));
+  await launcher(page);
+  await picker(page).getByRole("searchbox").fill("Codex");
+  await picker(page).getByRole("button", { name: /^Favoritar Native model/ }).click();
+  await expect(picker(page).getByRole("button", { name: /^Remover Native model/ }).first()).toHaveAttribute("aria-pressed", "true");
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 800 });
+    expect(await picker(page).locator(".ui-search-picker-list").evaluate(list => {
+      const bounds = list.getBoundingClientRect();
+      return list.scrollWidth <= list.clientWidth && [...list.querySelectorAll(".ui-search-picker-row")].every(row => {
+        const area = row.getBoundingClientRect();
+        return [...row.querySelectorAll(".ui-search-picker-text, .ui-search-picker-secondary")].every(control => {
+          const box = control.getBoundingClientRect();
+          return box.top >= area.top && box.bottom <= area.bottom && box.left >= bounds.left && box.right <= bounds.right
+            && control.scrollWidth <= control.clientWidth;
+        });
+      });
+    })).toBe(true);
+    const star = picker(page).getByRole("button", { name: /^Remover Native model/ }).first();
+    await picker(page).getByRole("searchbox").focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Tab");
+    await expect(star).toBeFocused();
+    await expect(star).toHaveCSS("outline-style", "solid");
+    const size = (await star.boundingBox())!;
+    expect(size.width).toBe(size.height);
+  }
+});
+
 test("model picker failed refresh preserves stale catalog and conversation state", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#railbody .navitem.sub").first()).toBeVisible();

@@ -170,7 +170,8 @@ test("contas: Antigravity usa a conta externa sem criar login ou ativar automati
   await expect(added.locator(".account-select")).toHaveAttribute("aria-pressed", "false");
   await expect(added.locator(".account-select")).toBeFocused();
   await expect(page.getByRole("dialog")).toHaveCount(1);
-  await expect(panel.getByRole("button", { name: "Usar conta do agy" })).toBeDisabled();
+  await expect(panel.getByRole("button", { name: "Usar conta do agy" })).toHaveCount(0);
+  await expect(panel).toContainText("Conta do agy adicionada");
   await added.locator(".account-select").click();
   await expect(added.locator(".account-select")).toHaveAttribute("aria-pressed", "true");
   await expect(panel).toContainText("Gemini Models");

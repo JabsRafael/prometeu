@@ -18,6 +18,28 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole("button", { name: "Adicionar neste Mac" }).click();
 });
 
+test("Git projects open without a selected button and keep compact actions readable", async ({ page }) => {
+  const dialog = page.getByRole("dialog", { name: "Projetos", exact: true });
+  const local = dialog.getByRole("button", { name: "Adicionar pasta local", exact: true });
+  await expect(dialog.locator(".sheettop b")).toBeFocused();
+  await expect(dialog.locator("button:focus-visible")).toHaveCount(0);
+  await page.keyboard.press("Tab");
+  await expect(local).toBeFocused();
+  await expect(local).toHaveCSS("outline-style", "solid");
+  expect((await local.boundingBox())!.width).toBeLessThan((await dialog.boundingBox())!.width / 2);
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 480 });
+    expect(await dialog.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+    const save = dialog.getByRole("button", { name: "Adicionar neste Mac", exact: true });
+    await expect(save).toBeVisible();
+    const bounds = (await save.boundingBox())!;
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(480);
+  }
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Adicionar neste Mac", exact: true })).toBeFocused();
+});
+
 test("Git projects clone in a batch, retain success and retry only failures", async ({ page }) => {
   const dialog = page.getByRole("dialog", { name: "Projetos", exact: true });
   const personal = dialog.getByRole("checkbox", { name: /personal-app/ });

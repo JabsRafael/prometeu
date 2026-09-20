@@ -83,6 +83,11 @@ button), `open`, and `close`. Consumers can compose content and adjust labels or
 availability through these elements while the shared form owns validation,
 focus, busy state, and cancellation. A pending submit blocks Escape and cancel;
 a rejected submit keeps the dialog open and displays its error.
+The first text field receives focus when the dialog opens. Dialogs starting
+with actions or selection focus the title, avoiding a preselected-looking
+button while keeping keyboard focus indicators and navigation intact.
+If the opener is replaced while the dialog is open, its stable `id` or
+`data-focus` key lets the dialog restore focus to the replacement.
 
 As primitivas recebem texto, não templates HTML. Rótulos, ajuda e erros usam
 `textContent`. O slot `glyph` dos menus aceita somente SVG produzido pelo

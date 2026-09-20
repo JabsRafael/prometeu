@@ -43,7 +43,8 @@ test("controle remoto no rodapé persiste sem compartilhar com a organização",
   });
   await page.goto("/");
   await expect(page.locator("#tiles .tile").first()).toBeVisible();
-  await page.locator('.railworkspace[data-workspace="sessao-0929"] > .navitem').click();
+  // Cloud discovery can rebuild the sidebar during a click; use the stable desk entry point.
+  await page.locator('#tiles .tile[data-tab="t1"] .topen').click();
   const control = page.locator("#chatwrap").getByRole("button", { name: "Controle remoto", exact: true });
   await expect(control).toBeVisible();
   await expect(control).toHaveAttribute("aria-pressed", "false");
@@ -56,7 +57,7 @@ test("controle remoto no rodapé persiste sem compartilhar com a organização",
 
   await page.reload();
   await expect(page.locator("#tiles .tile").first()).toBeVisible();
-  await page.locator('.railworkspace[data-workspace="sessao-0929"] > .navitem').click();
+  await page.locator('#tiles .tile[data-tab="t1"] .topen').click();
   await expect(control).toHaveAttribute("aria-pressed", "true");
   await control.click();
   await expect(control).toHaveAttribute("aria-pressed", "false");
