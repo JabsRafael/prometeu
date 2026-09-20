@@ -31,7 +31,7 @@ const mockCatalog = (): CatalogState => JSON.parse(localStorage.getItem("mock:ca
   skills: [{ id: "revisao-cloud", description: "Revisar alterações", content: "Leia o diff e relate bugs.", local_id: "revisao-cloud", installed: false }],
   shared: { "plugins:caveman": "caveman", "plugins:revisor": "revisor", "mcp:notion": "notion", "skills:revisao-cloud": "revisao-cloud" },
 };
-type MockOrganizationCatalog = { id: string; name: string; revision?: number; plugins: Pick<Plugin, "id" | "source" | "note">[]; mcp: McpServer[]; skills: Skill[]; links: Record<string, string> };
+type MockOrganizationCatalog = { id: string; name: string; revision?: number; plugins: Pick<Plugin, "id" | "source" | "note">[]; mcp: McpServer[]; skills: Skill[]; projects?: { id: string; source: string; note: string }[]; links: Record<string, string> };
 const mockOrganizations = (): MockOrganizationCatalog[] => JSON.parse(localStorage.getItem("mock:organizationCatalogs") ?? "[]");
 function cloudWrite() {
   if (!mockCloud().user) throw 'i18n:{"code":"err.catalog.disconnected"}';
@@ -965,6 +965,11 @@ const mockCommands: IpcHandlers = {
   catalog_state() {
     if (!mockCloud().user) return { connected: false, revision: null, plugins: [], mcp: [], skills: [], shared: {} };
     const state = mockCatalog();
+    state.projects = (state.projects ?? []).filter(p => !p.organization).map(p => ({ ...p, revision: state.revision, organization: null, organization_name: null }));
+    for (const org of mockOrganizations()) {
+      state.projects.push(...(org.projects ?? []).map(p => ({ ...p, organization: org.id, organization_name: org.name, revision: org.revision ?? 0, local_path: org.links[`projects:${p.id}`] ?? null })));
+    }
+    state.projects = state.projects.map(p => ({ ...p, local_path: board.projects.some(local => local.path === p.local_path) ? p.local_path : null }));
     state.plugins = state.plugins.map(p => ({ ...p, installed: pluginHub.some(local => local.id === p.local_id) }));
     state.skills = state.skills.map(s => ({ ...s, installed: skillHub.some(local => local.id === s.local_id) }));
     state.organization_items = mockOrganizations().flatMap(org => (["plugins", "mcp", "skills"] as Kind[]).flatMap(kind => org[kind].map(item => ({
@@ -973,6 +978,29 @@ const mockCommands: IpcHandlers = {
       installed: (kind === "plugins" ? pluginHub : kind === "mcp" ? mcpHub : skillHub).some(local => local.id === org.links[`${kind}:${item.id}`]),
     }))));
     return state;
+  },
+  catalog_install_project(args) {
+    cloudWrite();
+    const state = mockCatalog();
+    const organizations = mockOrganizations();
+    const org = args.organization ? organizations.find(org => org.id === args.organization) : null;
+    if (args.organization && !org) throw 'i18n:{"code":"err.catalog.invalid"}';
+    if ((org ? org.revision ?? 0 : state.revision) !== args.revision) throw 'i18n:{"code":"err.catalog.conflict"}';
+    const item = (org ? org.projects ?? [] : state.projects ?? []).find(item => item.id === args.id);
+    if (!item) throw 'i18n:{"code":"err.catalog.invalid"}';
+    if (localStorage.getItem("mock:projectFail") === args.id) throw 'i18n:{"code":"err.project.access","args":{"cause":"git@example.test: Permission denied (publickey)."}}';
+    const path = args.existing ? args.directory : `${args.directory}/${args.id}`;
+    const project = board.projects.find(project => project.path === path) ?? { id: path, path, name: path.split("/").pop()! };
+    if (!board.projects.includes(project)) board.projects.push(project);
+    if (org) {
+      org.links[`projects:${args.id}`] = path;
+      localStorage.setItem("mock:organizationCatalogs", JSON.stringify(organizations));
+    } else {
+      state.projects!.find(item => item.id === args.id)!.local_path = path;
+      localStorage.setItem("mock:catalog", JSON.stringify(state));
+    }
+    emit("board", board); emit("catalog", null);
+    return project;
   },
   catalog_share(args) {
     cloudWrite();
@@ -2007,7 +2035,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     case "plugin:dialog|open":
       return args.options?.multiple
         ? ["/Users/gustavo/dev/njord/docs/spec.md", "/Users/gustavo/Desktop/tela.png"]
-        : null;
+        : localStorage.getItem("mock:directory");
 
     // There is no app bundle version in the browser. Version zero prevents release notes from opening automatically.
     case "plugin:app|version":

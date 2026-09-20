@@ -4,11 +4,14 @@ import { fromBack, t } from "./i18n";
 import { button, field, formDialog, input, confirmDialog } from "./ui";
 import { h } from "./util";
 
+import type { CatalogProject } from "./projects";
+
 export type Kind = "plugins" | "mcp" | "skills";
 export type CatalogPlugin = { id: string; source: string; note: string; local_id: string; installed: boolean; source_changed: boolean };
 export type CatalogSkill = { id: string; description: string; content: string; local_id: string; installed: boolean };
 export type OrganizationItem = { organization: string; organization_name: string; revision: number | null; kind: Kind; id: string; description: string; installed: boolean };
 export type CatalogState = {
+  projects?: CatalogProject[];
   connected: boolean;
   revision: number | null;
   plugins: CatalogPlugin[];

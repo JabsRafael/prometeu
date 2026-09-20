@@ -153,6 +153,20 @@ and WebKit against the browser mock; it does not drive the native Tauri app.
 Changes to native behavior also need a manual desktop check. See the
 [development guide](docs/operations/development.md) for details.
 
+## Add projects from your catalog
+
+Register Git sources once in the Cloud's **Projects** tab, in your personal or
+organization catalog. In the desktop, open **Settings / Projects** or **Add
+project** in the sidebar. Select projects, choose a destination folder and click
+**Add to this Mac**. Each successful clone appears in the project list. Failed
+rows retain their errors and can be retried without repeating completed clones.
+
+**Link existing folder** registers an existing clone after checking its Git
+origin. **Add local folder** remains available without an account. Cloning uses
+your Mac's Git authentication and does not run setup or install dependencies.
+Deleting catalog definitions preserves local repositories. See the
+[catalog contract](docs/contracts/cloud-catalog.md).
+
 ## Configure project scripts
 
 Projects can define workspace lifecycle commands in `.prometeu/settings.toml`.

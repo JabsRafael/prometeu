@@ -2,7 +2,7 @@ import * as actions from "./actions";
 import * as cloud from "./cloud";
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { openProjects } from "./projects";
 import * as alert from "./alert";
 import { installed, loadAgents } from "./agents";
 import * as appmenu from "./appmenu";
@@ -98,11 +98,7 @@ const hooks: sidebar.Hooks = {
   toIssues: () => showIssues(),
   toArchived: () => showArchived(),
   issues: () => issues.count(),
-  addProject: async () => {
-    const dir = await open({ directory: true, title: t("say.pickRepo") });
-    if (typeof dir !== "string") return;
-    invoke("add_project", { path: dir }).catch((e) => say(fromBack(e), true));
-  },
+  addProject: () => openProjects(say),
   removeProject: (id) => invoke("remove_project", { id }),
   projectTools: (id) => void trust.open(id, say),
   openProject: (id) => {

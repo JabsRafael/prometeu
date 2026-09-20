@@ -39,6 +39,10 @@ In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
 | plugin hub | `<root>/plugins.json` | `plugins.rs` |
 | derived Codex home/marketplace | `<root>/codex-workspaces/<workspace-hash>/[<account>/]` | `plugins.rs`; rebuildable |
 
+Catalog project installation reuses board Project records and stores local paths
+in `catalog.json` installation links. No credentials or paths enter the Cloud
+document; see [Git projects](cloud-catalog.md#git-projects).
+
 Worktrees live in `~/prometeu/worktrees[-dev]/...`, outside the state root.
 
 Transcript lookup uses the tab's resolved provider, including a frozen task
