@@ -251,6 +251,7 @@ fn main() {
             catalog::catalog_state,
             catalog::catalog_share,
             catalog::catalog_copy,
+            catalog::projects::catalog_install_project,
             catalog::catalog_install_plugin,
             catalog::catalog_install_skill,
             catalog::catalog_install_organization_item,

@@ -7,7 +7,7 @@ Status: implemented; decisions in
 ## Authoring and availability
 
 The browser offers `/catalog`, with creation, editing and deletion of the
-authenticated account's MCPs, plugins and skills. Each desktop merges those
+authenticated account's MCPs, plugins, skills and Git projects. Each desktop merges those
 definitions with its own items. Creating or installing an item on the desktop is
 local by default, even when there is an account. Connecting never publishes the
 whole hub.
@@ -45,13 +45,14 @@ type Doc = {
   plugins: { id: string; source: string; note: string }[];
   mcp: { id: string; config: object; note: string }[];
   skills: { id: string; description: string; content: string }[];
+  projects: { id: string; source: string; note: string }[];
   actions: Catalog | null;
 };
 ```
 
-`skills` is additive: old documents omit the collection. The API preserves
-existing skills when an old desktop sends a PUT without that key. Sending
-`skills: []` removes its definitions. Previous Actions keep the existing
+`skills` and `projects` are additive: old documents omit these collections. The API
+preserves each existing collection when an old desktop sends a PUT without its
+key. Sending `skills: []` or `projects: []` removes that collection's definitions. Previous Actions keep the existing
 contract; they still have no editor in the SaaS and no individual sharing
 control.
 
@@ -59,7 +60,7 @@ control.
 | --- | --- | --- |
 | `GET /api/catalog` | desktop Bearer | `{ catalog: Doc or null, revision: number or null }` |
 | `PUT /api/catalog` | desktop Bearer | `{ catalog: Doc, revision }`; returns the document and revision |
-| `/catalog` and `/catalog/:kind` | browser cookie and CSRF | item CRUD in `plugins`, `mcp` or `skills` |
+| `/catalog` and `/catalog/:kind` | browser cookie and CSRF | item CRUD in `plugins`, `mcp`, `skills` or `projects` |
 
 `revision: null` means the first write. A different revision returns 409,
 without writing. The browser keeps the draft for review; the desktop updates its
@@ -125,6 +126,7 @@ Signing out or losing membership keeps the installed records and files.
 | Command | Arguments | Return |
 | --- | --- | --- |
 | `catalog_state` | none | connected, revision, plugins, mcp, skills and shared |
+| `catalog_install_project` | organization (nullable), id, revision, directory, existing | registered Project; rechecks current membership, revision and source before clone or link |
 | `catalog_share` | kind, local id | empty; publishes and links |
 | `catalog_copy` | kind, local id, newId | empty; creates a private definition |
 | `catalog_install_plugin` | account id | empty; installs the selected source |
@@ -143,6 +145,61 @@ New private items do not need a revision. The `catalog` event updates the
 interface's hubs and markers. `plugins` and `skills` in the state include
 `local_id` and `installed`; plugins also include `source_changed`. `shared` maps
 `<type>:<local id>` to the ID in the account.
+
+## Git projects
+
+Projects are authored in the personal or organization browser catalog. Members
+can read organization projects; owners and administrators can edit them. The
+desktop's Projects settings page and sidebar Add project action open a selector
+with personal and organization definitions. Choose several projects and a parent
+directory once. Each successful clone is registered immediately; failures remain
+selected with their individual errors. Each failed row highlights the reason
+and shows the Git diagnostic (up to 4096 characters). Authentication failures
+explain how to check the Mac’s Git account, SSH key or token. A missing repository
+can mean a wrong address or missing access; the UI preserves that distinction.
+Other failures retain their diagnostic without claiming an access problem. URL
+credentials, query strings and authorization headers are removed from details;
+diagnostics remain local and are never sent to Cloud. Retrying does not repeat successful rows.
+Local folder registration remains available without an account.
+
+Project IDs match `[A-Za-z0-9][A-Za-z0-9_.-]{0,127}` and become clone directory
+names. Sources accept HTTPS without user information, SSH with the `git` user,
+`git@host:path`, and GitHub `owner/repo` or `github.com/owner/repo`. They reject
+credentials, query strings, fragments, local paths, traversal, percent encoding
+and other Git transports. `note` allows 2000 bytes and source allows 4096 bytes.
+The shared [fixtures](../../fixtures/cloud-api.json) cover accepted and rejected
+sources and old documents. Rails and the production Rust parser consume them.
+
+`catalog_state.projects` contains each portable definition plus nullable
+`organization`, `organization_name`, `revision` and `local_path`. The path is
+shown only while its directory and board registration exist. The desktop may
+omit this additive state field on older versions.
+
+`catalog_install_project` fetches the current account or organization document
+and rejects a changed revision or definition before touching files. A conflict
+refreshes the cache; reopen the selector to review the current definitions. With
+`existing: false`, `directory` is the chosen parent. With `existing: true`, it
+is the existing repository root. A matching root and origin can be registered
+again without resetting changes or making another clone. Origin comparison
+normalizes GitHub shorthand, scp syntax and an optional `.git` suffix; changing
+between HTTPS and SSH requires the catalog source to match the local origin.
+An unrelated directory, nested repository subdirectory or different origin is
+rejected. Git clones into a temporary sibling directory and moves the completed
+clone into the reserved destination. Failures remove only that temporary clone
+and empty reservation; existing files are preserved. Incomplete clones never
+become registered projects on a retry.
+
+Registration uses the existing board Project format. Personal and organization
+cache `links` store `projects:<catalog id>` to the local path. These installation
+links do not publish filesystem state or change catalog revisions. Definition
+removal, sign-out and membership revocation preserve local files and registered
+projects. Updates do not pull or replace an installed clone.
+
+Cloning uses local Git credentials, disables terminal password prompts and Git
+hooks, and allows only HTTPS and SSH transports. It does not run project setup,
+install dependencies or configure skills, MCPs or plugins. Native credential
+helpers and SSH authentication require a configured Mac; browser tests simulate
+cloning, while Rust tests exercise real Git against a local upload-pack fixture.
 The additive `organization_items` field contains `{ organization,
 organization_name, revision, kind, id, description, installed }`. The frontend
 tolerates its absence. The installation queries the organization's catalog

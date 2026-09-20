@@ -37,6 +37,7 @@ for (const [agent, model, locale, remoteLabel, busyLabel] of [
       ]));
     }, locale);
     await page.goto("/");
+    await expect(page.locator("#tiles .tile").first()).toBeVisible();
     await page.locator('.railworkspace[data-workspace="sessao-0929"] > .navitem').click();
     await page.evaluate(async choice => {
       const w = window as ComposerWindow;
