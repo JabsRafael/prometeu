@@ -4,6 +4,17 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.10.0] - 2026-09-20
+
+### New
+
+- **models:** Add searchable live catalogs and favorites
+
+### Fixes
+
+- **ui:** Improve workspace and dialog layouts
+- **ui:** Align accounts and space model favorites
+
 ## [0.9.0] - 2026-09-20
 
 ### New
