@@ -173,7 +173,11 @@ fn parse_models(raw: &str) -> Vec<crate::agents::Model> {
         })
         .collect()
 }
-fn launch_args(resume: Option<&str>, launch: &Launch) -> Result<Vec<String>, String> {
+fn launch_args(
+    resume: Option<&str>,
+    worktree: &Path,
+    launch: &Launch,
+) -> Result<Vec<String>, String> {
     if launch.plan
         || [&launch.mcp, &launch.plugins, &launch.skills]
             .iter()
@@ -193,6 +197,8 @@ fn launch_args(resume: Option<&str>, launch: &Launch) -> Result<Vec<String>, Str
     .into_iter()
     .map(str::to_owned)
     .collect();
+    // agy resolves its workspace from native session state, not from the process cwd.
+    args.extend(["--add-dir".into(), worktree.display().to_string()]);
     for (flag, value) in [
         ("--conversation", resume.unwrap_or("")),
         ("--model", launch.model.as_str()),
@@ -216,7 +222,7 @@ pub fn spawn(
     resume: Option<String>,
     launch: &Launch,
 ) -> Result<chat::Chat, String> {
-    let args = launch_args(resume.as_deref(), launch)?;
+    let args = launch_args(resume.as_deref(), cwd, launch)?;
     if !installed() {
         return Err(i18n::t("err.antigravity.version"));
     }
@@ -682,33 +688,41 @@ mod tests {
     }
     #[test]
     fn launch_preserves_native_resume_and_permission_defaults() {
+        let worktree = Path::new("/tmp/prometeu-worktree");
         let mut launch = Launch {
             model: "native-model".into(),
             effort: "high".into(),
             ..Launch::default()
         };
-        let args = launch_args(Some("native-session"), &launch).unwrap();
+        let args = launch_args(Some("native-session"), worktree, &launch).unwrap();
+        assert!(args
+            .windows(2)
+            .any(|a| a == ["--add-dir", "/tmp/prometeu-worktree"]));
         assert!(args
             .windows(2)
             .any(|a| a == ["--conversation", "native-session"]));
         assert!(args.windows(2).any(|a| a == ["--model", "native-model"]));
         assert!(args.windows(2).any(|a| a == ["--effort", "high"]));
         assert!(args.iter().any(|a| a == "--dangerously-skip-permissions"));
+        assert!(launch_args(None, worktree, &launch)
+            .unwrap()
+            .windows(2)
+            .any(|a| a == ["--add-dir", "/tmp/prometeu-worktree"]));
         launch.permission = Some(crate::actions::Permission::Ask);
-        assert!(!launch_args(None, &launch)
+        assert!(!launch_args(None, worktree, &launch)
             .unwrap()
             .iter()
             .any(|a| a == "--dangerously-skip-permissions"));
         launch.permission = Some(crate::actions::Permission::Auto);
-        assert!(launch_args(None, &launch)
+        assert!(launch_args(None, worktree, &launch)
             .unwrap()
             .iter()
             .any(|a| a == "--dangerously-skip-permissions"));
         launch.plan = true;
-        assert!(launch_args(None, &launch).is_err());
+        assert!(launch_args(None, worktree, &launch).is_err());
         launch.plan = false;
         launch.mcp = Some(vec!["selected".into()]);
-        assert!(launch_args(None, &launch).is_err());
+        assert!(launch_args(None, worktree, &launch).is_err());
     }
     #[test]
     fn canonical_events_match_cross_language_fixture() {
