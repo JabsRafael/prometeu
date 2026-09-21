@@ -51,7 +51,9 @@ const view = (): Board => {
 
 /// Clear transient header notices automatically. Messages ending in an ellipsis remain until their operation clears them.
 let fade = 0;
+let messageVersion = 0;
 function say(text: string, isError = false) {
+  messageVersion++;
   $("msg").textContent = text;
   $("msg").classList.toggle("err", isError);
   clearTimeout(fade);
@@ -604,7 +606,13 @@ for (const [id, name] of [
 }
 
 links.init(say);
-initCodeCopy(say);
+initCodeCopy(() => {
+  const version = messageVersion;
+  return (message, isError) => {
+    // A delayed copy confirmation must not replace a newer application status.
+    if (isError || version === messageVersion) say(message, isError);
+  };
+});
 feedback.init();
 void update.init(say);
 // Discover installations without waiting for their independently loaded model catalogs.

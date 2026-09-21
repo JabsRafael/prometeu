@@ -62,4 +62,20 @@ test("rodapé da conversa: copia blocos completos sem formatação e permite ten
   await page.evaluate(() => (window as unknown as { finishCopy: () => void }).finishCopy());
   await expect(page.locator("#msg")).toHaveText("Código copiado");
   await expect(page.locator("#msg")).not.toHaveClass(/err/);
+
+  // A newer operational error keeps its text and severity after a delayed copy succeeds.
+  await expect(retry).toBeEnabled();
+  await retry.click();
+  await expect(retry).toBeDisabled();
+  await page.evaluate(() => {
+    const state = window as unknown as {
+      finishCopy: () => void;
+      mock: { accountError: (message: string) => void };
+    };
+    state.mock.accountError("Newer operational error");
+    state.finishCopy();
+  });
+  await expect(retry).toHaveAccessibleName("Código copiado");
+  await expect(page.locator("#msg")).toHaveText("Newer operational error");
+  await expect(page.locator("#msg")).toHaveClass(/err/);
 });

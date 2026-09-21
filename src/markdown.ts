@@ -50,10 +50,11 @@ export function md(src: string): string {
 }
 
 /// Delegate clicks so streamed markdown replacements need no new listeners.
-export function initCodeCopy(report: (message: string, isError?: boolean) => void) {
+export function initCodeCopy(createReport: () => (message: string, isError?: boolean) => void) {
   document.addEventListener("click", async (event) => {
     const control = (event.target as Element | null)?.closest<HTMLButtonElement>("button.md-code-copy");
     if (!control || control.disabled) return;
+    const report = createReport();
     control.disabled = true;
     try {
       await navigator.clipboard.writeText(control.dataset.code ?? "");

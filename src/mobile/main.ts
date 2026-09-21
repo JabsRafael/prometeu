@@ -36,7 +36,7 @@ const view = new MobileView(root, config, { selectOrganization: select });
 viewer.setSink({ live: (tab, bytes) => view.live(tab, bytes), reset: (tab, bytes) => view.reset(tab, bytes) });
 member.onChange(() => view.changed());
 member.onError((text) => view.toast(text));
-initCodeCopy(message => view.toast(message));
+initCodeCopy(() => message => view.toast(message));
 
 function select(id: string) {
   const organization = config.organizations.find((o) => o.id === id);
