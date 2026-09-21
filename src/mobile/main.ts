@@ -1,5 +1,6 @@
 import "./mobile.css";
 import { use } from "../i18n";
+import { initCodeCopy } from "../markdown";
 import * as comments from "../team-comments";
 import * as member from "../team-member";
 import * as viewer from "../team-viewer";
@@ -35,6 +36,7 @@ const view = new MobileView(root, config, { selectOrganization: select });
 viewer.setSink({ live: (tab, bytes) => view.live(tab, bytes), reset: (tab, bytes) => view.reset(tab, bytes) });
 member.onChange(() => view.changed());
 member.onError((text) => view.toast(text));
+initCodeCopy(() => message => view.toast(message));
 
 function select(id: string) {
   const organization = config.organizations.find((o) => o.id === id);
