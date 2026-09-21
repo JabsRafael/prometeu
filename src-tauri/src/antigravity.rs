@@ -198,6 +198,7 @@ fn launch_args(
     .map(str::to_owned)
     .collect();
     // agy resolves its workspace from native session state, not from the process cwd.
+    let worktree = std::path::absolute(worktree).map_err(i18n::io)?;
     args.extend(["--add-dir".into(), worktree.display().to_string()]);
     for (flag, value) in [
         ("--conversation", resume.unwrap_or("")),
@@ -708,6 +709,14 @@ mod tests {
             .unwrap()
             .windows(2)
             .any(|a| a == ["--add-dir", "/tmp/prometeu-worktree"]));
+        let relative = launch_args(None, Path::new("relative-worktree"), &launch).unwrap();
+        let relative = relative
+            .windows(2)
+            .find(|a| a[0] == "--add-dir")
+            .map(|a| Path::new(&a[1]))
+            .unwrap();
+        assert!(relative.is_absolute());
+        assert!(relative.ends_with("relative-worktree"));
         launch.permission = Some(crate::actions::Permission::Ask);
         assert!(!launch_args(None, worktree, &launch)
             .unwrap()
