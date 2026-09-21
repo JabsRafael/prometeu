@@ -17,6 +17,8 @@ Remove the Gemini CLI adapter, private-PTY login and API-key IPC. Adapt agy's
 native streaming input/output exclusively to V1 in `antigravity.rs`. Keep
 `conversation_id` in `agent_session`; resume with `--conversation`. Native
 history belongs to agy, while the app owns the V1 presentation transcript.
+Pass the absolute worktree through `--add-dir` on every process creation and resume
+because agy restores workspace state from its native conversation instead of process cwd.
 Read the model catalog from `agy models`; do not translate Gemini CLI aliases
 or invent effort levels. Interrupt the child process group with SIGINT.
 
@@ -63,7 +65,8 @@ made outside Prometeu. No relay format or implementation change is needed.
 
 - [Google transition notice](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/).
 - [Official headless protocol](https://www.antigravity.google/docs/cli/headless/).
-- `antigravity.rs`: adapter, native fixtures and launch-policy tests.
+- `antigravity.rs`: adapter, native fixtures and launch-policy tests, including
+  explicit worktree scope on creation and resume.
 - `accounts.rs` and `state.rs`: retired account/board compatibility tests.
 - `e2e/accounts.spec.ts`: external attachment, selection, focus and removal.
 - [Provider matrix](../quality/provider-matrix.md): verification limits.

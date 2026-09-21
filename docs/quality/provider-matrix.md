@@ -163,7 +163,9 @@ separate from Gemini CLI ACP. A real cached-account prompt returned `AGY_OK`;
 `agy -p /usage` returned real remaining quotas by model group, with a TSV fixture
 and parser regressions. `agy models` returned 14 account-visible slugs. Real tool execution, restart/resume
 with a remembered marker, and SIGINT passed. Adapter fixtures and tests cover
-text deltas, tools, completion, interruption and explicit native resume.
+text deltas, tools, completion, interruption, explicit native resume and the
+`--add-dir` worktree argument on both creation and resume. Future real-runtime
+verification must assert the tool's working directory, not only tool success.
 The browser mock consumes only the generated V1 fixture.
 
 Prometeu cannot offer agy interactive approval responses, managed multiple
