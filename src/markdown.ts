@@ -50,13 +50,14 @@ export function md(src: string): string {
 }
 
 /// Delegate clicks so streamed markdown replacements need no new listeners.
-export function initCodeCopy(report: (message: string) => void) {
+export function initCodeCopy(report: (message: string, isError?: boolean) => void) {
   document.addEventListener("click", async (event) => {
     const control = (event.target as Element | null)?.closest<HTMLButtonElement>("button.md-code-copy");
     if (!control || control.disabled) return;
     control.disabled = true;
     try {
       await navigator.clipboard.writeText(control.dataset.code ?? "");
+      report(t("chat.codeCopied"));
       control.innerHTML = icon("check", 14);
       control.title = t("chat.codeCopied");
       control.setAttribute("aria-label", control.title);
@@ -66,7 +67,7 @@ export function initCodeCopy(report: (message: string) => void) {
         control.setAttribute("aria-label", control.title);
       }, 1200);
     } catch {
-      report(t("chat.copyCodeFailed"));
+      report(t("chat.copyCodeFailed"), true);
     } finally {
       control.disabled = false;
     }

@@ -16,9 +16,12 @@ test("rodapé da conversa: copia blocos completos sem formatação e permite ten
       if (state.rejectCopy) throw new Error("Clipboard denied");
       state.copied.push(text);
     } });
-    state.mock.line("t1", { type: "assistant", message: {
-      id: "copy-code", role: "assistant",
-      content: [{ type: "text", text: sources.map((text, i) => `\`\`\`${["typescript", "diff", ""][i]}\n${text}\n\`\`\``).join("\n\n") }],
+    state.mock.line("t1", { type: "stream_event", event: {
+      type: "message_start", message: { id: "copy-code" },
+    } });
+    state.mock.line("t1", { type: "stream_event", event: {
+      type: "content_block_start", index: 0,
+      content_block: { type: "text", text: sources.map((text, i) => `\`\`\`${["typescript", "diff", ""][i]}\n${text}\n\`\`\``).join("\n\n") },
     } });
   }, sources);
   const blocks = page.locator("#chatwrap .md-code-block").filter({ hasText: /const text|old|plain/ });
@@ -38,4 +41,25 @@ test("rodapé da conversa: copia blocos completos sem formatação e permite ten
   await expect(page.getByText("Não foi possível copiar o código", { exact: true })).toBeVisible();
   await expect(retry).toHaveAttribute("aria-label", "Copiar código");
   await expect(retry).toBeEnabled();
+
+  // Keep the clipboard pending while a real text delta replaces the original button.
+  await page.evaluate(() => {
+    const state = window as unknown as { finishCopy: () => void };
+    Object.defineProperty(navigator.clipboard, "writeText", { configurable: true, value: () =>
+      new Promise<void>(resolve => { state.finishCopy = resolve; }),
+    });
+  });
+  const original = await retry.elementHandle();
+  await retry.click();
+  await expect(retry).toBeDisabled();
+  await page.evaluate(() => {
+    const state = window as unknown as { mock: { line: (tab: string, line: unknown) => void } };
+    state.mock.line("t1", { type: "stream_event", event: {
+      type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "\n\nStreaming update" },
+    } });
+  });
+  await expect.poll(() => original!.evaluate(node => node.isConnected)).toBe(false);
+  await page.evaluate(() => (window as unknown as { finishCopy: () => void }).finishCopy());
+  await expect(page.locator("#msg")).toHaveText("Código copiado");
+  await expect(page.locator("#msg")).not.toHaveClass(/err/);
 });

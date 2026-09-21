@@ -604,7 +604,7 @@ for (const [id, name] of [
 }
 
 links.init(say);
-initCodeCopy(message => say(message, true));
+initCodeCopy(say);
 feedback.init();
 void update.init(say);
 // Discover installations without waiting for their independently loaded model catalogs.
