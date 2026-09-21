@@ -4,6 +4,12 @@
 
 <h1 align="center">Prometeu</h1>
 
+<p align="center">
+  <a href="https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source">
+    <img src="https://www.greptile.com/badge.svg" alt="Greptile: The War on Bugs">
+  </a>
+</p>
+
 Prometeu is an open-source macOS app for working with Claude Code, Codex, and Antigravity CLI.
 Organize parallel tasks into workspaces, give each task its own Git worktree,
 and keep conversations, files, terminals, and code review in one place.
