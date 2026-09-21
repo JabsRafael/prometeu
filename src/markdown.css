@@ -1,0 +1,7 @@
+.md-code-block {
+  min-width: 0; margin: 6px 0 10px;
+  background: var(--bg-side); border: 1px solid var(--line); border-radius: var(--r-lg);
+}
+.md-code-toolbar { display: flex; justify-content: flex-end; padding: 4px 6px 0; }
+.md-code-toolbar .md-code-copy { padding: 4px; }
+.md .md-code-block pre.code, .m-md .md-code-block pre.code { margin: 0; border: 0; background: none; padding: 6px 12px 10px; }

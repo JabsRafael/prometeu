@@ -13,3 +13,13 @@ describe("markdown não confiável", () => {
     expect(md("[site](https://example.com/a)")).toContain('href="https://example.com/a"');
   });
 });
+
+describe("code blocks", () => {
+  it("adds copy controls only to blocks and escapes their source", () => {
+    const html = md('```html\n<img title="x"> & test\n```\n\n`inline`');
+    expect(html.match(/class="ui-button ghost sm md-code-copy"/g)).toHaveLength(1);
+    expect(html).toContain('data-code="&lt;img title=&quot;x&quot;&gt; &amp; test"');
+    expect(html).not.toContain('<img');
+    expect(md('```diff\n-old\n+new\n```')).toContain('class="code tdiff"');
+  });
+});

@@ -16,6 +16,7 @@ import * as dock from "./dock";
 import * as dockbar from "./dockbar";
 import { icon } from "./icons";
 import * as links from "./links";
+import { initCodeCopy } from "./markdown";
 import * as feedback from "./feedback";
 import { current, fromBack, paint, t } from "./i18n";
 import * as issues from "./issues";
@@ -603,6 +604,7 @@ for (const [id, name] of [
 }
 
 links.init(say);
+initCodeCopy(message => say(message, true));
 feedback.init();
 void update.init(say);
 // Discover installations without waiting for their independently loaded model catalogs.
