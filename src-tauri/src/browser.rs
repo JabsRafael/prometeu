@@ -35,6 +35,93 @@ fn allowed(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https")
 }
 
+#[cfg(target_os = "macos")]
+mod media {
+    use block2::DynBlock;
+    use objc2::runtime::{AnyClass, AnyObject, ClassBuilder, Sel};
+    use objc2::{sel, MainThreadMarker};
+    use objc2_web_kit::{
+        WKFrameInfo, WKMediaCaptureType, WKPermissionDecision, WKSecurityOrigin, WKWebView,
+    };
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    const CLASS: &std::ffi::CStr = c"PrometeuRunWebViewUIDelegate";
+
+    extern "C-unwind" fn deny(
+        _delegate: &AnyObject,
+        _selector: Sel,
+        _webview: &WKWebView,
+        _origin: &WKSecurityOrigin,
+        _frame: &WKFrameInfo,
+        _capture_type: WKMediaCaptureType,
+        decision: &DynBlock<dyn Fn(WKPermissionDecision)>,
+    ) {
+        decision.call((WKPermissionDecision::Deny,));
+    }
+
+    fn restricted_class(superclass: &AnyClass) -> Option<&'static AnyClass> {
+        if let Some(class) = AnyClass::get(CLASS) {
+            return (class.superclass() == Some(superclass)).then_some(class);
+        }
+        let mut class = ClassBuilder::new(CLASS, superclass)?;
+        unsafe {
+            class.add_method(
+                sel!(webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:),
+                deny as extern "C-unwind" fn(_, _, _, _, _, _, _),
+            );
+        }
+        Some(class.register())
+    }
+
+    fn install(delegate: &AnyObject) -> bool {
+        let current = delegate.class();
+        if current.name() == CLASS {
+            return true;
+        }
+        restricted_class(current)
+            .is_some_and(|class| unsafe { AnyObject::set_class(delegate, class) == current })
+    }
+
+    /// Wry grants media capture by default. Change only this child view's delegate class, retaining
+    /// inherited upload and new-window behavior while overriding microphone and camera requests.
+    pub fn restrict(view: &tauri::Webview) -> bool {
+        let (send, receive) = mpsc::sync_channel(1);
+        if view
+            .with_webview(move |platform| unsafe {
+                let webview: &WKWebView = &*platform.inner().cast();
+                let installed = MainThreadMarker::new()
+                    .and_then(|_| webview.UIDelegate())
+                    .and_then(|delegate| {
+                        let object: &AnyObject = AsRef::<AnyObject>::as_ref(&*delegate);
+                        install(object).then_some(())
+                    })
+                    .is_some();
+                let _ = send.try_send(installed);
+            })
+            .is_err()
+        {
+            return false;
+        }
+        receive.recv_timeout(Duration::from_secs(3)) == Ok(true)
+    }
+
+    #[test]
+    fn restricted_delegate_overrides_media_capture() {
+        use objc2::runtime::NSObject;
+        use objc2::ClassType;
+
+        let delegate = NSObject::new();
+        assert!(install(&delegate));
+        assert_eq!(delegate.class().superclass(), Some(NSObject::class()));
+        assert!(delegate
+            .class()
+            .instance_method(sel!(webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:))
+            .is_some());
+        assert!(install(&delegate));
+    }
+}
+
 /// Open only HTTP or HTTPS URLs in the system browser. Other schemes could open local files or
 /// arbitrary applications.
 pub(crate) fn browse(url: &Url) -> Result<(), String> {
@@ -67,23 +154,32 @@ pub fn browser_open(app: AppHandle, state: State<AppState>, id: String) -> Resul
     let url = format!("http://localhost:{port}");
     let fail = || i18n::ta("err.session.openFailed", &[("path", url.clone())]);
     if let Some(view) = app.get_webview(&label(&id)) {
+        #[cfg(target_os = "macos")]
+        if !media::restrict(&view) {
+            let _ = view.close();
+            return Err(fail());
+        }
         view.show().map_err(|_| fail())?;
         return Ok(port);
     }
     let window = app.get_window("main").ok_or_else(fail)?;
     let parsed = Url::parse(&url).map_err(|_| fail())?;
+    #[cfg(target_os = "macos")]
+    let initial = Url::parse("about:blank").expect("valid blank URL");
+    #[cfg(not(target_os = "macos"))]
+    let initial = parsed.clone();
     // on_navigation includes subframes without identifying the main frame, so permit navigation by
     // scheme rather than host. Redirecting off-site frames would open a browser tab for every ad or
     // login iframe. Track main-frame page loads, and poll browser_url for SPA history changes.
     let of = id.clone();
-    window
+    let view = window
         .add_child(
-            WebviewBuilder::new(label(&id), WebviewUrl::External(parsed))
+            WebviewBuilder::new(label(&id), WebviewUrl::External(initial))
                 // Keep page uploads in WebKit. Only the main webview receives chat attachments.
                 .disable_drag_drop_handler()
-                .on_navigation(allowed)
+                .on_navigation(|url| allowed(url) || url.as_str() == "about:blank")
                 .on_page_load(move |view, payload| {
-                    if matches!(payload.event(), PageLoadEvent::Started) {
+                    if matches!(payload.event(), PageLoadEvent::Started) && allowed(payload.url()) {
                         let _ = view.emit("browser:url", (of.clone(), payload.url().to_string()));
                     }
                 })
@@ -97,6 +193,17 @@ pub fn browser_open(app: AppHandle, state: State<AppState>, id: String) -> Resul
             LogicalSize::new(0.0, 0.0),
         )
         .map_err(|_| fail())?;
+    #[cfg(target_os = "macos")]
+    {
+        if !media::restrict(&view) {
+            let _ = view.close();
+            return Err(fail());
+        }
+        if view.navigate(parsed).is_err() {
+            let _ = view.close();
+            return Err(fail());
+        }
+    }
     Ok(port)
 }
 
