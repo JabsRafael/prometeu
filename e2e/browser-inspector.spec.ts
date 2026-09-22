@@ -39,7 +39,7 @@ test.beforeEach(async ({ page }) => {
   await page.addScriptTag({ path: inspectorPath });
 });
 
-test("browser seleciona elemento real sem navegar e entrega HTML, estilos e coordenadas uma vez", async ({ page }) => {
+test("browser seleciona elemento real sem navegar e entrega HTML, estilos e coordenadas uma vez", { tag: "@webkit" }, async ({ page }) => {
   const target = page.locator('[id="cta:primary"]');
   const box = (await target.boundingBox())!;
   await enable(page);
@@ -65,7 +65,7 @@ test("browser seleciona elemento real sem navegar e entrega HTML, estilos e coor
   await expect(page).toHaveURL("http://inspector.test/#next");
 });
 
-test("browser cancela com Escape, preserva cliques normais e remove listeners ao reinjetar", async ({ page }) => {
+test("browser cancela com Escape, preserva cliques normais e remove listeners ao reinjetar", { tag: "@webkit" }, async ({ page }) => {
   await enable(page);
   await page.locator("a").hover();
   await page.keyboard.press("Escape");
@@ -85,7 +85,7 @@ test("browser cancela com Escape, preserva cliques normais e remove listeners ao
   await expect(page.locator("[data-prometeu-inspector]")).toHaveCount(0);
 });
 
-test("browser remove scripts, handlers e valores privados sem alterar página original", async ({ page }) => {
+test("browser remove scripts, handlers e valores privados sem alterar página original", { tag: "@webkit" }, async ({ page }) => {
   await page.locator("main").evaluate((main) => {
     main.innerHTML = `<section id="form" style="padding:30px">
       <script>privateScript = 'script-secret'</script><style>.secret { color: red }</style>
@@ -107,7 +107,7 @@ test("browser remove scripts, handlers e valores privados sem alterar página or
   await expect(page.locator("textarea")).toHaveValue("textarea-secret");
 });
 
-test("browser atualiza destaque após scroll e resize sem modificar layout", async ({ page }) => {
+test("browser atualiza destaque após scroll e resize sem modificar layout", { tag: "@webkit" }, async ({ page }) => {
   await page.locator("main").evaluate((main) => {
     main.replaceChildren();
     main.style.cssText = "position:sticky;top:20px;width:50vw;height:100px;background:lightgray";
@@ -130,7 +130,7 @@ test("browser atualiza destaque após scroll e resize sem modificar layout", asy
   expect(selected.viewport).toEqual({ width: 1000, height: 800 });
 });
 
-test("browser seleciona Shadow DOM aberto e resolve IDs repetidos com índices", async ({ page }) => {
+test("browser seleciona Shadow DOM aberto e resolve IDs repetidos com índices", { tag: "@webkit" }, async ({ page }) => {
   await page.locator("main").evaluate((main) => {
     main.innerHTML = '<div id="host"></div>';
     main.firstElementChild!.attachShadow({ mode: "open" }).innerHTML =
@@ -144,23 +144,7 @@ test("browser seleciona Shadow DOM aberto e resolve IDs repetidos com índices",
   expect(selected.tag).toBe("button");
 });
 
-test("browser limita conteúdo capturado e exclui próprio destaque ao selecionar ancestral", async ({ page }) => {
-  await page.locator("main").evaluate((main) => {
-    main.innerHTML = `<div id="large">${"a".repeat(16000)}</div>`;
-  });
-  await enable(page);
-  await page.locator("#large").click();
-  const selected = (await takeSelection(page))!;
-  expect(selected.text).toHaveLength(2000);
-  expect(selected.html).toHaveLength(12000);
-  await enable(page);
-  await page.mouse.click(1, 1);
-  const ancestor = (await takeSelection(page))!;
-  expect(ancestor.tag).toBe("html");
-  expect(ancestor.html).not.toContain("data-prometeu-inspector");
-});
-
-test("browser preserva Unicode nos limites de texto, HTML, seletor e estilos", async ({ page }) => {
+test("browser limita a captura sem quebrar Unicode nem incluir o próprio destaque", async ({ page }) => {
   await page.locator("main").evaluate((main) => {
     const target = document.createElement("div");
     target.id = `${"x".repeat(998)}😀`;
@@ -179,9 +163,18 @@ test("browser preserva Unicode nos limites de texto, HTML, seletor e estilos", a
   expect(selected.styles["font-family"].length).toBeLessThanOrEqual(1000);
   // JSON.stringify escapes lone surrogates, while valid emoji remain complete characters.
   expect(JSON.stringify(selected)).not.toMatch(/\\u[dD][89a-fA-F][0-9a-fA-F]{2}/);
+  // Keep the ancestor below the HTML limit so truncation cannot hide an unremoved overlay.
+  await page.locator("main").evaluate(main => main.replaceChildren());
+  await enable(page);
+  await page.mouse.move(1, 1);
+  await expect(page.locator("[data-prometeu-inspector]")).toBeVisible();
+  await page.mouse.click(1, 1);
+  const ancestor = (await takeSelection(page))!;
+  expect(ancestor.tag).toBe("html");
+  expect(ancestor.html).not.toContain("data-prometeu-inspector");
 });
 
-test("browser invalida PNG após scroll, resize, reflow ou cancelamento sem perder contexto textual", async ({ page }) => {
+test("browser invalida PNG após scroll, resize, reflow ou cancelamento sem perder contexto textual", { tag: "@webkit" }, async ({ page }) => {
   const current = () => page.evaluate(() => (window as InspectorWindow).__prometeuInspector.selectionCurrent());
   const select = async () => {
     await page.locator("a").scrollIntoViewIfNeeded();

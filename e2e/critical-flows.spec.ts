@@ -28,7 +28,7 @@ async function bootTeam(page: Page) {
   await expect(page.locator("#railbody .navitem.mentions")).toBeVisible();
 }
 
-test("compartilhamento adota a chave nova do dispositivo sem pedir revisão", async ({ page }) => {
+test("compartilhamento adota a chave nova do dispositivo sem pedir revisão", { tag: "@webkit" }, async ({ page }) => {
   await bootTeam(page);
   const settings = async () => {
     await page.locator("#settings").click();
@@ -51,7 +51,7 @@ test("compartilhamento adota a chave nova do dispositivo sem pedir revisão", as
   await expect(page.locator("#railbody .navitem.mentions")).toBeVisible();
 });
 
-test("comentário fica ao lado da sessão até alguém resolver", async ({ page }) => {
+test("comentário fica ao lado da sessão até alguém resolver", { tag: "@webkit" }, async ({ page }) => {
   await bootTeam(page);
 
   // Opening the context does not resolve the pending comment.
@@ -166,7 +166,7 @@ test("clicar no projeto abre os arquivos do clone, sem workspace", async ({ page
   await expect(page.locator("#railbody .navitem.sub", { hasText: "Tela igual ao Conductor" })).toHaveCount(0);
 });
 
-test("a barra lateral preserva conversa e terminal ao sair de um arquivo do projeto", async ({ page }) => {
+test("a barra lateral preserva conversa e terminal ao sair de um arquivo do projeto", { tag: "@webkit" }, async ({ page }) => {
   await boot(page);
   const project = page.locator("#railbody .group", { hasText: "njord", hasNotText: "+" });
   await project.locator("span").nth(1).click();
@@ -197,6 +197,11 @@ test("a barra lateral preserva conversa e terminal ao sair de um arquivo do proj
   await expect(page.locator("#termview")).toBeVisible();
   await expect(conversation).toBeVisible();
   await conversation.click();
+  await expect(composer).toBeVisible();
+  const terminal = page.locator("#tabbar .tab", { hasText: "Terminal" });
+  await terminal.click();
+  await terminal.locator(".tabx").click();
+  await expect(terminal).toHaveCount(0);
   await expect(composer).toBeVisible();
 
   // History restores each root's own files and drafts.
@@ -229,66 +234,6 @@ test("remove projeto sem apagar seus workspaces", async ({ page }) => {
   await expect(project).toHaveCount(0);
   await expect(page.locator("#railbody .group", { hasText: "Sem projeto" })).toBeVisible();
   await expect(page.locator("#railbody .navitem.sub", { hasText: "Ola" })).toBeVisible();
-});
-
-test("workspace com mais de um repo mora em Conjuntos, não no projeto", async ({ page }) => {
-  await boot(page);
-
-  const set = page.locator("#railbody .group", { hasText: "prometeu + njord" });
-  await expect(set).toBeVisible();
-  await expect(set.locator(".avatar.multi.n2 i")).toHaveText(["P", "N"]);
-  await expect(set.locator(".ico")).toHaveCount(0);
-  await expect(page.locator("#railbody .sect", { hasText: "Conjuntos" })).toBeVisible();
-
-  await expect(page.locator("#railbody .navitem.sub", { hasText: "Contratação pelo portal" })).toHaveCount(1);
-  await expect(set.locator("xpath=following-sibling::*[1]").locator(".navitem.sub .lbl")).toHaveText("Contratação pelo portal");
-});
-
-test("separa a cota geral das janelas próprias de um modelo Codex", async ({ page }) => {
-  await boot(page);
-  const usage = page.locator('#status .uchip[title="Cotas"]');
-  await expect(usage).toHaveCount(2);
-  await usage.nth(1).click();
-
-  const panel = page.locator(".upop.usage");
-  const general = panel.locator(".ugroup", { hasText: "Geral" });
-  const spark = panel.locator(".ugroup", { hasText: "GPT-5.3-Codex-Spark" });
-  await expect(general).toBeVisible();
-  await expect(general.locator("xpath=following-sibling::*[1]")).toContainText("7 dias");
-  await expect(spark).toBeVisible();
-  await expect(spark.locator("xpath=following-sibling::*[1]")).toContainText("5 horas");
-  await expect(spark.locator("xpath=following-sibling::*[2]")).toContainText("7 dias");
-});
-
-test("o topo local fica estável e não trata workspace comum como compartilhado", async ({ page }) => {
-  await boot(page);
-  const railWorkspace = page.locator("#railbody .navitem.sub", { hasText: "Ola" });
-  await expect(railWorkspace.locator(".rail-status")).toHaveAttribute("aria-label", "pronta");
-  await expect(railWorkspace.locator(".wsbranch")).toHaveText("prometeu/sessao-0929");
-  await expect(railWorkspace.locator(".st")).toHaveCount(0);
-  await expect(railWorkspace).toHaveAttribute("title", /njord/);
-  await expect(railWorkspace).not.toHaveAttribute("title", /Fazendo/);
-  await expect(railWorkspace).not.toHaveAttribute("title", /Pronta|Rodando|Desligada/);
-  await openWorkspace(page, "Ola");
-
-  // An unshared workspace has no permanent collaboration toolbar state. Sharing appears in its menu only
-  // after team setup.
-  await expect(page.locator("#msg")).toBeHidden();
-  await expect(page.locator("#share")).toBeHidden();
-  await expect(page.locator("#wsmore")).toBeVisible();
-  await page.locator("#wsmore").click();
-  await expect(page.locator(".menu .mrow", { hasText: "Definir etapa" })).toBeVisible();
-  await page.keyboard.press("Escape");
-
-  // Board redraws preserve the identity node instead of recreating it for every agent tool event.
-  await page.locator("#crumb .nm").evaluate((el) => (el.dataset.stable = "yes"));
-  await page.evaluate(async () => {
-    type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
-    const invoke = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__.invoke;
-    await invoke("set_stage", { id: "sessao-0929", stage: "Fazendo" });
-  });
-  await expect(page.locator("#crumb .nm")).toHaveAttribute("data-stable", "yes");
-  await expect(page.locator("#msg")).toBeHidden();
 });
 
 test("a barra lateral lista agentes por workspace, acompanha status e abre a aba escolhida", async ({ page }) => {
@@ -515,7 +460,7 @@ test("recolhe a saída técnica de uma ferramenta que falhou", async ({ page }) 
   await expect(tool.locator(".tout")).toContainText("apply_patch verification failed");
 });
 
-test("cria um workspace pelo launcher e acompanha o preparo até a conversa", async ({ page }) => {
+test("cria um workspace pelo launcher e acompanha o preparo até a conversa", { tag: "@webkit" }, async ({ page }) => {
   await boot(page);
 
   await page.locator("#railbody").getByRole("button", { name: "Criar", exact: true }).click();
@@ -625,7 +570,7 @@ test("mantém os controles do lançador dentro da caixa com branch base longa", 
   expect(bounds.branchContentWidth).toBeLessThanOrEqual(bounds.branchWidth);
 });
 
-test("envia uma pergunta, responde o card e devolve o controle ao chat", async ({ page }) => {
+test("envia uma pergunta, responde o card e devolve o controle ao chat", { tag: "@webkit" }, async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Ola");
 
@@ -694,32 +639,6 @@ test("arquivo solto na conversa vira anexo mesmo com a posição final imprecisa
   const bubble = page.locator("#chatwrap .turn.user .bubble").last();
   await expect(bubble).toContainText("Compare com esta captura");
   expect(await bubble.textContent()).toBe('@"/Users/eu/Desktop/Captura de Tela.png"\n\nCompare com esta captura');
-});
-
-/// Recently accessed files rank first when multiple paths match equally.
-test("o arquivo que o agente acabou de ler sobe na lista do @", async ({ page }) => {
-  await boot(page);
-  await openWorkspace(page, "Ola");
-
-  const composer = page.locator("#chatwrap .composer textarea");
-  await composer.fill("veja @waha");
-  await expect(page.locator(".menu .mrow").first()).toContainText("app/adapters/waha.rb");
-
-  // An agent read updates mention ranking ahead of another equally matching path.
-  await composer.fill("");
-  await page.evaluate(() => {
-    const mock = (window as unknown as { mock: { line: (tab: string, line: unknown) => void } }).mock;
-    mock.line("t1", {
-      type: "assistant",
-      message: {
-        id: "m-recency",
-        role: "assistant",
-        content: [{ type: "tool_use", id: "tu-recency", name: "Read", input: { file_path: "app/adapters/transcriber.rb" } }],
-      },
-    });
-  });
-  await composer.fill("veja @adapters");
-  await expect(page.locator(".menu .mrow").first()).toContainText("app/adapters/transcriber.rb");
 });
 
 /// A large multi-repository diff mounts only rows near the viewport, avoiding thousands of offscreen DOM
@@ -832,7 +751,7 @@ test("escrever no arquivo aberto sobrevive ao redesenho do quadro e salva", asyn
 });
 
 /// Double-clicking a file or activating its explicit diff button opens the full file in the viewer.
-test("Git abre o arquivo pelo duplo clique e pelo botão do diff", async ({ page }) => {
+test("Git abre o arquivo pelo duplo clique e pelo botão do diff", { tag: "@webkit" }, async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Ola");
 
@@ -882,18 +801,6 @@ test("Git mantém repositórios limpos e isola o stage de cada repositório", as
   await expect(page.locator('.git-repository .avatar')).toHaveText("P");
 });
 
-/// MCP and plugin selection belongs to the workspace and remains visible across provider changes.
-test("escolher um GPT mantém o seletor de plugins do lançador", async ({ page }) => {
-  await boot(page);
-  await page.locator("#railbody").getByRole("button", { name: "Criar", exact: true }).click();
-  await expect(page.locator("#d-plugins")).toBeVisible();
-
-  await page.locator("#d-model").click();
-  await page.locator(".ui-search-picker-choice", { hasText: "GPT-5.6-Sol" }).first().click();
-  await expect(page.locator("#d-plugins")).toBeVisible();
-  await expect(page.locator("#d-mcp")).toBeVisible();
-});
-
 /// Retuning preserves the tab, restarts its process and uses the selected effort. Model choices remain
 /// within the current provider because resume identities are incompatible.
 test("trocar o modelo de uma conversa de pé desliga o processo e mantém a aba", async ({ page }) => {
@@ -924,231 +831,64 @@ test("trocar o modelo de uma conversa de pé desliga o processo e mantém a aba"
   await expect(effort).toContainText("Muito alto");
 });
 
-test("o filtro por time corta a lista de issues e as contagens seguem a busca", async ({ page }) => {
+test("ferramentas: salvar escolhas preserva a aba irmã com mensagem pendente", async ({ page }) => {
   await boot(page);
-  await page.evaluate(async () => {
-    type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
-    const invoke = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__.invoke;
-    await invoke("linear_connect");
-  });
-  await page.locator("#railbody .navitem", { hasText: "Issues" }).click();
-  await expect(page.locator("#issuesView")).toBeVisible();
-
-  const pills = page.locator("#iteams .tpill");
-  await expect(pills).toHaveCount(3, { timeout: 10_000 });
-  await expect(pills.first()).toHaveClass(/\bon\b/);
-  await expect(page.locator("#ilist .irow")).toHaveCount(7);
-
-  // Selecting a team filters its issues.
-  await pills.filter({ hasText: "INF" }).click();
-  await expect(page.locator("#ilist .irow")).toHaveCount(2);
-  await expect(page.locator("#ilist .irow .iid").first()).toContainText("INF-");
-
-  // Search updates team counts without replacing the team filters or current selection.
-  await page.locator("#ibar input").fill("runner");
-  await expect(pills).toHaveCount(3);
-  await expect(pills.filter({ hasText: "INF" })).toHaveClass(/\bon\b/);
-  await expect(pills.filter({ hasText: "MOA" })).toContainText("0");
-  await expect(page.locator("#ilist .irow")).toHaveCount(1);
-
-  // Selecting all teams restores matching issues across teams.
-  await page.locator("#ibar input").fill("linear");
-  await expect(page.locator("#ilist .iempty")).toBeVisible();
-  await pills.first().click();
-  await expect(page.locator("#ilist .irow")).toHaveCount(1);
-});
-
-/// Test plugin creation from request through streamed agent output to its final catalog entry.
-test("cria um plugin pelo Prometeu e ele entra na lista", async ({ page }) => {
-  await boot(page);
+  // Create through the normal settings flow so all three pickers share the refreshed registry.
   await page.locator("#settings").click();
-  await page.locator(".setnavitem", { hasText: "Plugins" }).click();
-  await page.locator(".setrow.head button", { hasText: "Criar plugin" }).click();
-
-  await page.locator(".sheet.hubedit input").fill("Diário do dia");
-  await page.locator(".sheet.hubedit textarea").fill("Um comando que resume o dia num arquivo datado.");
-  await page.locator(".sheetbar button", { hasText: "Criar" }).click();
-
-  // Show live generation output and hide the editable request while the agent works.
-  await expect(page.locator(".sheet.hubedit .mstep").first()).toBeVisible();
-  await expect(page.locator(".sheet.hubedit textarea")).toHaveCount(0);
-  await expect(page.locator(".sheet.hubedit .mstep", { hasText: "plugin.json" })).toBeVisible();
-
-  // Completion closes the sheet and registers the plugin from its managed Prometeu directory.
-  await expect(page.locator(".sheet.hubedit")).toHaveCount(0);
-  const row = page.locator(".setrow", { hasText: "diario-do-dia" });
-  await expect(row).toBeVisible();
-  await expect(row).toContainText("~/.prometeu/plugins/diario-do-dia");
-});
-
-/// Installing a repository with multiple plugins asks which entries to register.
-test("instala um plugin pelo endereço do repositório", async ({ page }) => {
-  await boot(page);
-  await page.locator("#settings").click();
-  await page.locator(".setnavitem", { hasText: "Plugins" }).click();
-
-  await page.locator(".setrow.head button", { hasText: "Instalar plugin" }).click();
-  await page.locator(".sheet.hubedit input").fill("gbrancaglione/exemplo");
-  await page.locator(".sheetbar button", { hasText: "Instalar" }).click();
-
-  // A single-plugin repository installs directly and closes the sheet.
-  await expect(page.locator(".sheet.hubedit")).toHaveCount(0);
-  const row = page.locator(".setrow", { hasText: "exemplo" });
-  await expect(row).toContainText("github.com/gbrancaglione/exemplo");
-  await expect(row.locator("button", { hasText: "Atualizar" })).toBeVisible();
-
-  // For multi-plugin repositories, install only checked entries.
-  await page.locator(".setrow.head button", { hasText: "Instalar plugin" }).click();
-  await page.locator(".sheet.hubedit input").fill("acme/muitos-plugins");
-  await page.locator(".sheetbar button", { hasText: "Instalar" }).click();
-  await expect(page.locator(".mpickrow")).toHaveCount(2);
-  await page.locator(".mpickrow", { hasText: "muitos-plugins-dois" }).locator("input").uncheck();
-  await page.locator(".sheetbar button", { hasText: "Adicionar" }).click();
-
-  await expect(page.locator(".sheet.hubedit")).toHaveCount(0);
-  await expect(page.locator(".setrow", { hasText: "muitos-plugins-um" })).toBeVisible();
-  await expect(page.locator(".setrow", { hasText: "muitos-plugins-dois" })).toHaveCount(0);
-});
-
-/// Each tool toggle persists on its own and applies at the next spawn; the picker re-opens showing the
-/// resolved effective set instead of restarting the running session (ADR 0045, phases 6 and 7).
-test("marcar plugins na conversa grava cada mudança para o próximo início", async ({ page }) => {
-  await boot(page);
+  await page.locator(".setnavitem", { hasText: "Skills" }).click();
+  await page.getByRole("button", { name: "Criar skill", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Criar skill" });
+  await dialog.getByLabel("Nome da skill").fill("revisao");
+  await dialog.getByLabel("Quando usar esta skill").fill("Antes de entregar código");
+  await dialog.getByLabel("Instruções", { exact: true }).fill("Leia alterações e rode testes.");
+  await dialog.getByRole("button", { name: "Salvar", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
   await openWorkspace(page, "Ola");
-
-  // Target the workspace composer; hidden desk panels also remain in the DOM.
-  const plugbtn = page.locator("#chatwrap .plugbtn");
-  const mcpbtn = page.locator("#chatwrap .mcpbtn");
-  const menuRow = (name: string) => page.locator(".menu .mrow").filter({ hasText: name }).first();
-  const reopen = async () => {
-    // The picker closes on click and re-opens after the write resolves; wait for it, then dismiss it.
+  const before = await page.evaluate(async () => {
+    type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+    const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+    const board = await invoke("load_board") as Board;
+    const workspace = board.workspaces.find(ws => ws.id === "sessao-0929")!;
+    workspace.mcp = { base: "none", add: ["capim-ds"], remove: [] };
+    workspace.plugins = { base: "none", add: ["caveman"], remove: [] };
+    workspace.skills = { base: "none", add: [], remove: [] };
+    for (const tab of workspace.tabs) { tab.pending_prompt = null; tab.status = "pronta"; }
+    const sibling = workspace.tabs.find(tab => tab.id === "t2")!;
+    sibling.status = "pronta";
+    sibling.pending_prompt = "queued prompt";
+    await invoke("set_stage", { id: workspace.id, stage: workspace.stage });
+    return workspace;
+  });
+  const current = () => page.evaluate(async () => {
+    type Invoke = (command: string) => Promise<Board>;
+    const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+    return (await invoke("load_board")).workspaces.find(ws => ws.id === "sessao-0929")!;
+  });
+  const choices = [
+    ["mcp", ".mcpbtn", "notion", "notion"],
+    ["plugins", ".plugbtn", "ponytail", "ponytail"],
+    ["skills", ".skillbtn", "revisao", "skill-revisao"],
+  ] as const;
+  const choose = async (button: string, entry: string) => {
+    await page.locator(`#chatwrap ${button}`).click();
+    await page.locator(".menu .mrow").filter({ hasText: entry }).first().click();
     await expect(page.locator(".menu")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.locator(".menu")).toHaveCount(0);
   };
 
-  await plugbtn.click();
-  await menuRow("caveman").click();
-  await reopen();
-
-  await plugbtn.click();
-  await menuRow("ponytail").click();
-  // Both picks survive the re-open: the resolved provenance marks each row as on.
-  await expect(page.locator(".menu")).toBeVisible();
-  await expect(menuRow("caveman").locator(".mc svg")).toBeVisible();
-  await expect(menuRow("ponytail").locator(".mc svg")).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.locator(".menu")).toHaveCount(0);
-
-  // Two deltas over the inherited base summarize as "+2", and each toggle saved on its own.
-  await expect(plugbtn).toContainText("+2");
-  expect(await page.evaluate(() => (window as unknown as { mock: { writes: () => number } }).mock.writes())).toBe(2);
-
-  // The MCP axis is independent: a single pick shows its own id and leaves the plugin label intact.
-  await mcpbtn.click();
-  await menuRow("capim-ds").click();
-  await reopen();
-  await expect(mcpbtn).toContainText("capim-ds");
-  await expect(plugbtn).toContainText("+2");
+  const expected = structuredClone(before);
+  for (const [field, button, entry, id] of choices) {
+    await choose(button, entry);
+    expected[field]!.add.push(id);
+    // The UI preserves the queued draft; workspace_tools.rs covers the full state/selection matrix.
+    await expect.poll(current).toEqual(expected);
+  }
+  expect(await page.evaluate(() => (window as unknown as { mock: { writes(): number } }).mock.writes())).toBe(3);
 });
-
-/// Servers Claude Code loads from the person's CLI configuration appear in the picker as the visible
-/// inherited base (ADR 0046), badged as such and removable without importing them first.
-test("o picker mostra a base herdada do CLI e remove sem importar", async ({ page }) => {
-  await boot(page);
-  await openWorkspace(page, "Ola");
-
-  const mcpbtn = page.locator("#chatwrap .mcpbtn");
-  const menuRow = (name: string) => page.locator(".menu .mrow").filter({ hasText: name }).first();
-  await mcpbtn.click();
-  await expect(page.locator(".menu")).toBeVisible();
-  // Discovered CLI servers join the hub rows, checked and badged as inherited from the CLI.
-  await expect(menuRow("metabase")).toContainText("herdado do CLI");
-  await expect(menuRow("metabase").locator(".mc svg")).toBeVisible();
-  await expect(menuRow("n8n")).toContainText("herdado do CLI");
-  // The mixed universe reads as two labeled sections rather than one flat list.
-  const headers = page.locator(".menu .mrow.off");
-  await expect(headers.filter({ hasText: "Cadastrados" })).toHaveCount(1);
-  await expect(headers.filter({ hasText: "Herdados do CLI" })).toHaveCount(1);
-
-  // Unchecking a CLI server writes a removal into the workspace layer, keeping inherit as the base.
-  await menuRow("metabase").click();
-  await expect(page.locator(".menu")).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.locator(".menu")).toHaveCount(0);
-  await expect(mcpbtn).toContainText("−1");
-
-  const layer = await page.evaluate(async () => {
-    type Invoke = (command: string) => Promise<Board>;
-    const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
-    const board = await invoke("load_board");
-    return board.workspaces.find((w) => w.title === "Ola")!.mcp;
-  });
-  expect(layer).toEqual({ base: "inherit", add: [], remove: ["metabase"] });
-});
-
-for (const [status, pending] of [
-  ["rodando", null], ["querendo", null], ["pronta", "queued prompt"],
-] as const) {
-  test(`ferramentas: salvar escolhas preserva a aba irmã ${status}/${pending ?? "none"}`, async ({ page }) => {
-    await boot(page);
-    // Create through the normal settings flow so all three pickers share the refreshed registry.
-    await page.locator("#settings").click();
-    await page.locator(".setnavitem", { hasText: "Skills" }).click();
-    await page.getByRole("button", { name: "Criar skill", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "Criar skill" });
-    await dialog.getByLabel("Nome da skill").fill("revisao");
-    await dialog.getByLabel("Quando usar esta skill").fill("Antes de entregar código");
-    await dialog.getByLabel("Instruções", { exact: true }).fill("Leia alterações e rode testes.");
-    await dialog.getByRole("button", { name: "Salvar", exact: true }).click();
-    await expect(dialog).toHaveCount(0);
-    await openWorkspace(page, "Ola");
-    const before = await page.evaluate(async ({ status, pending }) => {
-      type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
-      const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
-      const board = await invoke("load_board") as Board;
-      const workspace = board.workspaces.find(ws => ws.id === "sessao-0929")!;
-      workspace.mcp = { base: "none", add: ["capim-ds"], remove: [] };
-      workspace.plugins = { base: "none", add: ["caveman"], remove: [] };
-      workspace.skills = { base: "none", add: [], remove: [] };
-      for (const tab of workspace.tabs) { tab.pending_prompt = null; tab.status = "pronta"; }
-      const sibling = workspace.tabs.find(tab => tab.id === "t2")!;
-      sibling.status = status;
-      sibling.pending_prompt = pending;
-      await invoke("set_stage", { id: workspace.id, stage: workspace.stage });
-      return workspace;
-    }, { status, pending });
-    const current = () => page.evaluate(async () => {
-      type Invoke = (command: string) => Promise<Board>;
-      const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
-      return (await invoke("load_board")).workspaces.find(ws => ws.id === "sessao-0929")!;
-    });
-    const choices = [
-      ["mcp", ".mcpbtn", "notion", "notion"],
-      ["plugins", ".plugbtn", "ponytail", "ponytail"],
-      ["skills", ".skillbtn", "revisao", "skill-revisao"],
-    ] as const;
-    const choose = async (button: string, entry: string) => {
-      await page.locator(`#chatwrap ${button}`).click();
-      await page.locator(".menu .mrow").filter({ hasText: entry }).first().click();
-      await expect(page.locator(".menu")).toBeVisible();
-      await page.keyboard.press("Escape");
-      await expect(page.locator(".menu")).toHaveCount(0);
-    };
-
-    const expected = structuredClone(before);
-    for (const [field, button, entry, id] of choices) {
-      await choose(button, entry);
-      expected[field]!.add.push(id);
-      // Persist only the selection; even waiting or queued sibling tabs keep their complete state.
-      await expect.poll(current).toEqual(expected);
-    }
-    expect(await page.evaluate(() => (window as unknown as { mock: { writes(): number } }).mock.writes())).toBe(3);
-  });
-}
 
 /// The desk supports direct replies and preserves panel order, size and collapse state across reloads.
-test("a mesa mostra cada conversa num quadro, responde dali e guarda a ordem", async ({ page }) => {
+test("a mesa mostra cada conversa num quadro, responde dali e guarda a ordem", { tag: "@webkit" }, async ({ page }) => {
   await boot(page);
   const tiles = page.locator("#tiles .tile");
   await expect(tiles).toHaveCount(6);
@@ -1220,33 +960,6 @@ test("a mesa mostra cada conversa num quadro, responde dali e guarda a ordem", a
   await expect(page.locator("#wsView")).toBeVisible();
   await expect(page.locator("#tabbar .tab.on")).toHaveAttribute("data-tab", "t2");
   await expect(page.locator("#deskView")).toBeHidden();
-});
-
-/// Dropping a file on the desk attaches it only to the panel beneath the pointer.
-test("arquivo solto num quadro da mesa vira anexo daquela conversa", async ({ page }) => {
-  await boot(page);
-  const tile = page.locator('#tiles .tile[data-tab="t3"]');
-  const composer = tile.locator(".composer textarea");
-  await composer.fill("Olha esta captura");
-  const at = (await tile.locator(".feed").boundingBox())!;
-
-  const path = "/Users/eu/Desktop/Captura de Tela.png";
-  await page.evaluate(({ path, x, y }) => {
-    const mock = (window as unknown as {
-      mock: { drop: (paths: string[], x: number, y: number, dropX: number, dropY: number) => void };
-    }).mock;
-    mock.drop([path], x, y, x, y);
-  }, { path, x: at.x + at.width / 2, y: at.y + at.height / 2 });
-
-  await expect(tile.locator(".cfiles .injchip")).toHaveCount(1);
-  await expect(tile.locator(".cfiles .injchip")).toContainText("Captura de Tela.png");
-  await expect(page.locator('#tiles .tile[data-tab="t1"] .cfiles .injchip')).toHaveCount(0);
-  await expect(composer).toHaveValue("Olha esta captura");
-
-  await composer.press("Enter");
-  const bubble = tile.locator(".turn.user .bubble").last();
-  await expect(bubble).toContainText("Olha esta captura");
-  expect(await bubble.textContent()).toBe('@"/Users/eu/Desktop/Captura de Tela.png"\n\nOlha esta captura');
 });
 
 /// The first prompt can arrive live and in the initial snapshot. Sequence filtering must prevent
@@ -1381,65 +1094,4 @@ test("a mesa mantém rascunho e anexo ao abrir o workspace", async ({ page }) =>
   await expect(page.locator("#wsView")).toBeVisible();
   await expect(page.locator("#chatwrap .composer textarea")).toHaveValue(draft);
   await expect(page.locator("#chatwrap .cfiles .injchip")).toContainText("contexto.txt");
-});
-
-/// Setup and Run stay in the side panel. Free terminals occupy center tabs and can remain alive
-/// simultaneously.
-test("terminal livre é aba do centro e o Setup fica no painel da direita", async ({ page }) => {
-  await boot(page);
-  await openWorkspace(page, "Ola");
-
-  // Opening a workspace selects its conversation and displays Setup on the right.
-  await expect(page.locator("#chatwrap")).toBeVisible();
-  await expect(page.locator("#termview")).toBeHidden();
-  await expect(page.locator("#dockstrip .docktab.on")).toHaveText("Setup");
-
-  // The add dropdown opens each new shell in another center tab.
-  await page.locator(".tabadd .caret").click();
-  await page.locator(".ui-search-picker-choice", { hasText: "Terminal novo" }).click();
-  const tab = page.locator("#tabbar .tab").filter({ hasText: "Terminal" }).first();
-  await expect(tab).toHaveClass(/on/);
-  await expect(page.locator("#termview")).toBeVisible();
-  await expect(page.locator("#chatwrap")).toBeHidden();
-  // Opening a terminal preserves Setup in the side panel.
-  await expect(page.locator("#dockstrip .docktab")).toHaveText(["Setup", "Run"]);
-  await expect(page.locator("#dock")).toBeVisible();
-
-  // Returning to the conversation keeps the terminal running.
-  await page.locator('#tabbar .tab[data-tab="t1"]').click();
-  await expect(page.locator("#chatwrap")).toBeVisible();
-  await expect(page.locator("#termview")).toBeHidden();
-  await expect(tab).toBeVisible();
-
-  // Closing the last terminal returns the center to the conversation.
-  await tab.hover();
-  await tab.locator(".tabx").click();
-  await expect(page.locator("#tabbar .tab").filter({ hasText: "Terminal" })).toHaveCount(0);
-  await expect(page.locator("#chatwrap")).toBeVisible();
-});
-
-/// Changes opens only when requested and stays closed after dismissal, even while the agent keeps
-/// editing.
-test("a aba de Mudanças só existe depois que você a abre", async ({ page }) => {
-  await boot(page);
-  await openWorkspace(page, "Contratação pelo portal");
-
-  const tab = page.locator("#tabbar .tab").filter({ hasText: "Alterações" });
-  // An initially dirty worktree shows a Changes count without opening a Changes tab.
-  await expect(page.locator("#diffcount")).not.toBeEmpty();
-  await expect(tab).toHaveCount(0);
-
-  // The next Changes click opens the central diff and creates its tab.
-  await page.locator("#tab-diff").click();
-  await page.locator("#tab-diff").click();
-  await expect(page.locator("#diffview")).toBeVisible();
-  await expect(tab).toHaveCount(1);
-
-  await tab.hover();
-  await tab.locator(".tabx").click();
-  await expect(tab).toHaveCount(0);
-  await expect(page.locator("#chatwrap")).toBeVisible();
-  // Further dirty state does not reopen a dismissed Changes tab.
-  await expect(page.locator("#diffcount")).not.toBeEmpty();
-  await expect(tab).toHaveCount(0);
 });

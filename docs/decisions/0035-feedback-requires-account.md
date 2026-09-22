@@ -82,9 +82,10 @@ Cloud. Native capture and real GitHub delivery require a separate smoke test.
 the browser's cookie, the per-account limit, the private repository check, the
 upload, the issue with the marker, idempotency, conflict, uncertain delivery,
 the absence of content in the table and the refusal of a foreign origin.
-[`e2e/feedback.spec.ts`](../../e2e/feedback.spec.ts) covers the notice without
-an account, connecting from the panel, the draft preserved on error and
-resending the same report.
+[`e2e/feedback.spec.ts`](../../e2e/feedback.spec.ts) covers the draft preserved
+on error and resending the same report. The panel's account-connection shortcut
+has no dedicated browser scenario; authentication is enforced by the Cloud
+tests above.
 
 References: [contract](../contracts/feedback.md),
 [optional account](../contracts/cloud-account.md).

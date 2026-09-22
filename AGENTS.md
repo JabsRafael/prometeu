@@ -106,6 +106,10 @@ During implementation, run the test closest to the change first. Before
 finishing a cross-cutting change, prefer `npm run check`. If a check cannot run,
 say exactly which one and why.
 
+Follow the [E2E scope policy](docs/operations/development.md#e2e-scope) before
+adding or expanding browser tests. A visible behavior change does not by itself
+justify E2E coverage.
+
 The browser uses `src/mock.ts`; the Tauri app uses the Rust backend. New IPC
 commands must exist in both paths and in the typed registry in `src/ipc.ts`.
 

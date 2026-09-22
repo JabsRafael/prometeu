@@ -26,7 +26,8 @@ hierarchy or interface for every feature.
 5. Add sanitized adapter fixtures and assertions for event order, request/answer
    correlation and unknown events. Follow the fixture rules in the
    [development guide](development.md#capturing-agent-fixtures). Add reducer and
-   browser coverage when the visible behavior changes.
+   integration coverage for changed behavior; add or expand browser coverage only
+   when it meets the [E2E scope policy](development.md#e2e-scope).
 6. Update the [provider matrix](../quality/provider-matrix.md) with the exact
    tests proving support. Its conformance table is a target, not a claim that
    every scenario already has a fixture.

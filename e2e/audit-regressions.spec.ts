@@ -50,7 +50,7 @@ async function openEditor(page: Page) {
   await openFile(page, "CLAUDE.md");
 }
 
-test("file saving preserves edits made while the write is pending", async ({ page }) => {
+test("file saving preserves edits made while the write is pending", { tag: "@webkit" }, async ({ page }) => {
   await openEditor(page);
   await page.locator("#vtext").fill("submitted text");
   await hold(page, "write_file");
@@ -68,7 +68,7 @@ test("file saving preserves edits made while the write is pending", async ({ pag
   await expect(page.locator("#vsave")).toBeHidden();
 });
 
-test("finishing a save preserves another file's selection and draft", async ({ page }) => {
+test("finishing a save preserves another file's selection and draft", { tag: "@webkit" }, async ({ page }) => {
   await openEditor(page);
   await page.locator("#vtext").fill("submitted text");
   await hold(page, "write_file");

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("rodapé da conversa: copia blocos completos sem formatação e permite tentar novamente", async ({ page }) => {
+test("rodapé da conversa: copia blocos completos sem formatação e permite tentar novamente", { tag: "@webkit" }, async ({ page }) => {
   await page.goto("/");
   await page.locator("#railbody .navitem.sub .lbl").getByText("Ola", { exact: true }).click();
   const sources = ['const text = "<tag> & café";\n  console.log(text);', '-old\n+new', 'plain\n  indented'];

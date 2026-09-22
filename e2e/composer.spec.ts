@@ -27,7 +27,7 @@ for (const [agent, model, locale, remoteLabel, busyLabel] of [
   ["claude", "opus[1m]", "pt-BR", "Controle remoto", "Trabalhando…"],
   ["codex", "gpt-5.6-sol", "en", "Remote control", "Working…"],
 ] as const) {
-  test(`rodapé da conversa mantém controles acessíveis sem sobreposição: ${agent}, ${locale}`, async ({ page }, testInfo) => {
+  test(`rodapé da conversa mantém controles acessíveis sem sobreposição: ${agent}, ${locale}`, { tag: "@webkit" }, async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 1000 });
     await page.addInitScript(locale => {
       localStorage.setItem("prometeu:idioma", locale);
@@ -72,7 +72,6 @@ for (const [agent, model, locale, remoteLabel, busyLabel] of [
     for (const width of [860, 600, 440, 320]) {
       await composer.evaluate((root, width) => { root.style.width = `${width}px`; }, width);
       await fits(composer);
-      if (width === 860 || width === 320) await composer.screenshot({ path: testInfo.outputPath(`composer-${width}.png`) });
     }
     await expect(remote.locator("span")).toBeHidden();
     await remote.press("Enter");

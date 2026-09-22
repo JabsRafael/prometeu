@@ -51,8 +51,7 @@ formats; therefore no format compatibility test applies.
 ## Evidence
 
 - [Pending-item tests](../../src/alert.test.ts): Dock counting and reading,
-  questions, completions and comments without creating an audio context.
-- [Interface flows](../../e2e/alerts.spec.ts): no audio on the desk, in the
-  workspace and with subagents, plus the removal of the option in Settings.
+  questions, completions and comments; every case asserts that no audio context
+  was created.
 - [Conversation ordering](../../src-tauri/src/chat.rs) and
   [Codex subagent normalization](../../src-tauri/src/codex.rs).

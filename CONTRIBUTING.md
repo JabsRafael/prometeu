@@ -16,7 +16,8 @@ not contain credentials or private conversations.
    IPC, collaboration and Cloud changes.
 4. Keep the change focused. Update affected contracts and tests in the same PR.
    Follow the [decision lifecycle](docs/decisions/README.md) when changing an
-   architectural choice.
+   architectural choice and the [E2E scope policy](docs/operations/development.md#e2e-scope)
+   when adding or expanding browser tests.
 5. Run the closest tests first, then `npm run check` for a code PR. Report any
    check you cannot run and why. Browser tests use the mock; native changes need
    a desktop check too.

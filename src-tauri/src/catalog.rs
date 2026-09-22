@@ -1339,6 +1339,27 @@ mod tests {
     }
 
     #[test]
+    fn mcp_equivalence_ignores_object_order_but_preserves_command_args_and_secrets() {
+        let local = mcp::Server {
+            id: "order-test".into(),
+            note: "Local".into(),
+            config: json!({"type":"stdio", "command":"npx", "args":["-y", "server"], "env":{"FIRST":"local-secret", "SECOND":"another-secret"}, "headers":{"Authorization":"Bearer local"}}),
+        };
+        let mut item = mcp::Server {
+            id: local.id.clone(),
+            note: "Team".into(),
+            config: json!({"headers":{"Authorization":""}, "env":{"SECOND":"", "FIRST":""}, "args":["-y", "server"], "command":"npx", "type":"stdio"}),
+        };
+        assert!(same_mcp(&item, &local));
+        assert_eq!(merge(&item.config, &local.config), local.config);
+        item.config["args"] = json!(["server", "-y"]);
+        assert!(!same_mcp(&item, &local));
+        item.config["args"] = local.config["args"].clone();
+        item.config["command"] = json!("other");
+        assert!(!same_mcp(&item, &local));
+    }
+
+    #[test]
     fn segredo_fica_no_mac_e_volta_no_merge() {
         let local = mcp::Server {
             id: "x".into(),

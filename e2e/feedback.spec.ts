@@ -48,28 +48,7 @@ test("feedback preserves draft and attachment on failure and retries the same su
   await expect(description).toHaveValue(""); await expect(panel.getByRole("img")).toBeHidden();
 });
 
-test("feedback without an account offers connecting one instead of the form", async ({ page }) => {
-  await page.goto("/");
-  const trigger = page.getByRole("button", { name: "Feedback", exact: true });
-  await trigger.click();
-  const panel = page.getByRole("dialog", { name: "Deixe seu feedback" });
-  await expect(panel).toContainText("Conecte sua conta Prometeu");
-  await expect(panel.getByRole("link", { name: "Reportar bug publicamente" })).toBeVisible();
-  await expect(panel.getByRole("textbox")).toBeHidden();
-  const connect = panel.getByRole("button", { name: "Conectar conta" });
-  await expect(connect).toBeFocused();
-  await connect.click();
-  // Connecting runs the same device authorization as the account button in the sidebar.
-  await expect(page.locator(".cloud-account").getByRole("status")).toHaveText("ABCD-EFGH");
-  await page.evaluate(() => localStorage.setItem("mock:cloudApproved", "1"));
-  await expect(page.locator(".cloud-account")).toContainText("Gustavo Brancaglione");
-  await page.keyboard.press("Escape");
-  await trigger.click();
-  await expect(panel.getByRole("textbox")).toBeVisible();
-  await expect(panel).not.toContainText("Conecte sua conta Prometeu");
-});
-
-test("feedback stays usable above modal dialogs, captures a preview and fits mobile", async ({ page }) => {
+test("feedback stays usable above modal dialogs with image drop, capture and a narrow viewport", { tag: "@webkit" }, async ({ page }) => {
   await page.addInitScript(signedIn());
   await page.goto("/");
   const trigger = page.getByRole("button", { name: "Feedback", exact: true });
@@ -81,6 +60,18 @@ test("feedback stays usable above modal dialogs, captures a preview and fits mob
   });
   const panel = page.getByRole("dialog", { name: "Deixe seu feedback" });
   await panel.getByRole("textbox").fill("Falha no modal");
+  const transfer = await page.evaluateHandle(([base64]) => {
+    const data = new DataTransfer();
+    data.items.add(new File([Uint8Array.from(atob(base64), char => char.charCodeAt(0))], "dropped.png", { type: "image/png" }));
+    return data;
+  }, [png.toString("base64")]);
+  await panel.dispatchEvent("dragover", { dataTransfer: transfer });
+  await expect(panel).toHaveClass(/ui-feedback-dropping/);
+  await panel.dispatchEvent("drop", { dataTransfer: transfer });
+  await expect(panel).not.toHaveClass(/ui-feedback-dropping/);
+  await expect(panel.getByRole("img")).toBeVisible();
+  await panel.getByRole("button", { name: "Remover imagem" }).click();
+  await expect(panel.getByRole("img")).toBeHidden();
   await panel.getByRole("button", { name: "Capturar tela" }).click();
   await expect(panel.getByRole("img")).toBeVisible();
   await panel.getByRole("button", { name: "Remover imagem" }).click();
@@ -96,38 +87,9 @@ test("feedback stays usable above modal dialogs, captures a preview and fits mob
   await expect(panel.getByRole("textbox")).toHaveValue("Falha no modal");
 });
 
-test("feedback accepts a dropped image", async ({ page }) => {
-  await page.addInitScript(signedIn());
-  await page.goto("/");
-  await page.getByRole("button", { name: "Feedback", exact: true }).click();
-  const panel = page.getByRole("dialog", { name: "Deixe seu feedback" });
-  const transfer = await page.evaluateHandle(([base64]) => {
-    const data = new DataTransfer();
-    data.items.add(new File([Uint8Array.from(atob(base64), char => char.charCodeAt(0))], "dropped.png", { type: "image/png" }));
-    return data;
-  }, [png.toString("base64")]);
-  await panel.dispatchEvent("dragover", { dataTransfer: transfer });
-  await expect(panel).toHaveClass(/ui-feedback-dropping/);
-  await panel.dispatchEvent("drop", { dataTransfer: transfer });
-  await expect(panel).not.toHaveClass(/ui-feedback-dropping/);
-  await expect(panel.getByRole("img")).toBeVisible();
-});
-
-test("desktop feedback accepts a native file drop intercepted by Tauri", async ({ page }) => {
-  await page.addInitScript(signedIn());
-  await page.goto("/");
-  await page.getByRole("button", { name: "Feedback", exact: true }).click();
-  const panel = page.getByRole("dialog", { name: "Deixe seu feedback" });
-  const box = (await panel.boundingBox())!;
-  await page.evaluate(({ x, y }) => {
-    (window as unknown as { mock: { drop(paths: string[], x: number, y: number): void } })
-      .mock.drop(["/Users/eu/Desktop/Captura de Tela.png"], x, y);
-  }, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
-  await expect(panel.getByRole("img")).toBeVisible();
-});
-
 // Control IPC completion explicitly so attachment races do not depend on timers.
 async function deferredImages(page: Page) {
+  await expect(page.getByRole("button", { name: "Feedback", exact: true })).toBeVisible();
   await page.evaluate(() => {
     const host = window as unknown as {
       __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> };
@@ -203,33 +165,27 @@ test("feedback ignores stale image errors and recovers from the current load fai
   await expect(panel.getByRole("img")).toHaveAttribute("src", preview!);
 });
 
-for (const action of ["upload", "drop", "remove", "close", "capture"] as const) {
-  test(`feedback cancels a pending native image on ${action}`, async ({ page }) => {
-    await page.addInitScript(signedIn());
-    await page.goto("/");
-    const images = await deferredImages(page);
-    const trigger = page.getByRole("button", { name: "Feedback", exact: true });
-    await trigger.click();
-    const panel = page.getByRole("dialog", { name: "Deixe seu feedback" });
-    const upload = panel.getByLabel("Anexar imagem", { exact: false });
-    await upload.setInputFiles({ name: "kept.png", mimeType: "image/png", buffer: png });
-    await images.drop("/pending.png");
-    if (action === "upload") await upload.setInputFiles({ name: "replacement.png", mimeType: "image/png", buffer: png });
-    if (action === "drop") await panel.evaluate((node, data) => {
-      const transfer = new DataTransfer();
-      transfer.items.add(new File([Uint8Array.from(atob(data), char => char.charCodeAt(0))], "replacement.png", { type: "image/png" }));
-      node.dispatchEvent(new DragEvent("drop", { dataTransfer: transfer, bubbles: true }));
-    }, png.toString("base64"));
-    if (action === "remove") await panel.getByRole("button", { name: "Remover imagem" }).click();
-    if (action === "close") { await page.keyboard.press("Escape"); await trigger.click(); }
-    if (action === "capture") await panel.getByRole("button", { name: "Capturar tela" }).click();
-    await expect(panel.getByRole("button", { name: "Enviar feedback privado" })).toBeEnabled();
-    const preview = await panel.locator("img").getAttribute("src");
-    await images.finish("/pending.png");
-    expect(await panel.locator("img").getAttribute("src")).toBe(preview);
-    await expect(panel.getByRole("alert", { includeHidden: true })).toBeEmpty();
-  });
-}
+test("feedback ignores a pending image after closing and reopening the draft", async ({ page }) => {
+  await page.addInitScript(signedIn());
+  await page.goto("/");
+  const images = await deferredImages(page);
+  const trigger = page.getByRole("button", { name: "Feedback", exact: true });
+  await trigger.click();
+  const panel = page.getByRole("dialog", { name: "Deixe seu feedback" });
+  await panel.getByRole("textbox").fill("Rascunho preservado");
+  await panel.getByLabel("Anexar imagem", { exact: false }).setInputFiles({ name: "kept.png", mimeType: "image/png", buffer: png });
+  const preview = await panel.locator("img").getAttribute("src");
+  await images.drop("/pending.png");
+  await expect(panel.getByRole("button", { name: "Enviar feedback privado" })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await trigger.click();
+  await expect(panel.getByRole("button", { name: "Enviar feedback privado" })).toBeEnabled();
+  await expect(panel.locator("img")).toHaveAttribute("src", preview!);
+  await images.finish("/pending.png");
+  await expect(panel.locator("img")).toHaveAttribute("src", preview!);
+  await expect(panel.getByRole("textbox")).toHaveValue("Rascunho preservado");
+  await expect(panel.getByRole("alert", { includeHidden: true })).toBeEmpty();
+});
 
 function attempts(page: Page) {
   return page.evaluate(() => JSON.parse(localStorage.getItem("mock:feedbackAttempts") ?? "[]") as Record<string, unknown>[]);

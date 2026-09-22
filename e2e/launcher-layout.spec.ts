@@ -24,47 +24,48 @@ async function inside(locator: Locator, container: Locator) {
   expect(item.y + item.height).toBeLessThanOrEqual(bounds.y + bounds.height + 1);
 }
 
-for (const locale of ["pt-BR", "en"]) {
-  for (const [width, height] of [[1280, 800], [650, 800], [390, 720], [1024, 480]]) {
-    test(`launcher layout: readable settings and fixed actions at ${width}×${height} in ${locale}`, async ({ page }) => {
-      await page.setViewportSize({ width, height });
-      await seed(page, locale);
-      await page.locator("#railbody").getByRole("button", { name: locale === "en" ? "Create" : "Criar", exact: true }).click();
-      const scroll = page.locator(".launcher-scroll");
-      const footer = page.locator(".launcher-footer");
-      await expect(page.locator("#d-model")).toContainText("GPT-5.6-Sol");
-      const footerTop = (await footer.boundingBox())!.y;
-      if (width === 1280) expect(await scroll.evaluate(el => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1);
-      for (const id of ["d-project", "d-base", "d-issuebtn", "d-model", "d-effort", "d-account", "d-mcp", "d-plugins"]) {
-        const control = page.locator(`#${id}`);
-        await control.scrollIntoViewIfNeeded();
-        await inside(control, scroll);
-        expect(await control.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
-        expect((await footer.boundingBox())!.y).toBe(footerTop);
-      }
-      await inside(page.locator("#d-go"), footer);
-      expect((await footer.boundingBox())!.y + (await footer.boundingBox())!.height).toBeLessThanOrEqual(height);
-      await expect(page.locator(".launcher-account-name")).toHaveText(email);
-      expect(await scroll.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+// Cover the two-column and stacked layouts without a locale/viewport matrix.
+for (const [width, height, locale] of [
+  [1280, 800, "pt-BR"], [390, 720, "en"],
+] as const) {
+  test(`launcher layout: readable settings and fixed actions at ${width}×${height} in ${locale}`, { tag: "@webkit" }, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await seed(page, locale);
+    await page.locator("#railbody").getByRole("button", { name: locale === "en" ? "Create" : "Criar", exact: true }).click();
+    const scroll = page.locator(".launcher-scroll");
+    const footer = page.locator(".launcher-footer");
+    await expect(page.locator("#d-model")).toContainText("GPT-5.6-Sol");
+    const footerTop = (await footer.boundingBox())!.y;
+    if (width === 1280) expect(await scroll.evaluate(el => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1);
+    for (const id of ["d-project", "d-base", "d-issuebtn", "d-model", "d-effort", "d-account", "d-mcp", "d-plugins"]) {
+      const control = page.locator(`#${id}`);
+      await control.scrollIntoViewIfNeeded();
+      await inside(control, scroll);
+      expect(await control.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+      expect((await footer.boundingBox())!.y).toBe(footerTop);
+    }
+    await inside(page.locator("#d-go"), footer);
+    expect((await footer.boundingBox())!.y + (await footer.boundingBox())!.height).toBeLessThanOrEqual(height);
+    await expect(page.locator(".launcher-account-name")).toHaveText(email);
+    expect(await scroll.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
 
-      await page.locator("#d-account").click();
-      const dialog = page.locator(".account-dialog");
-      await expect(dialog).toBeVisible();
-      await expect(dialog.locator("strong")).toHaveText(email);
-      await inside(dialog.locator(".ui-form-footer .pri"), dialog);
-      expect(await dialog.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
-      await page.keyboard.press("Escape");
-      await expect(page.locator("#d-account")).toBeFocused();
+    await page.locator("#d-account").click();
+    const dialog = page.locator(".account-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator("strong")).toHaveText(email);
+    await inside(dialog.locator(".ui-form-footer .pri"), dialog);
+    expect(await dialog.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#d-account")).toBeFocused();
 
-      await page.locator("#d-model").click();
-      await expect(page.locator(".ui-search-picker")).toBeVisible();
-      await page.keyboard.press("Escape");
-      await expect(page.locator("#d-model")).toBeFocused();
-      await expect(page.locator(".launcher")).toBeVisible();
-      await page.keyboard.press("Escape");
-      await expect(page.locator("#veil")).toBeHidden();
-    });
-  }
+    await page.locator("#d-model").click();
+    await expect(page.locator(".ui-search-picker")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#d-model")).toBeFocused();
+    await expect(page.locator(".launcher")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#veil")).toBeHidden();
+  });
 }
 
 test("launcher layout: native branch controls preserve worktree and multiple-repository rules", async ({ page }) => {
@@ -83,23 +84,4 @@ test("launcher layout: native branch controls preserve worktree and multiple-rep
   await expect(page.locator("#d-nb")).toBeDisabled();
   await page.getByTitle("Tirar prometeu deste workspace", { exact: true }).click();
   await expect(page.locator("#d-wt")).toBeEnabled();
-});
-
-test("launcher layout: account popover wraps identity and keeps actions in one row", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 760 });
-  await seed(page, "pt-BR");
-  await page.locator('#status [data-provider="codex"]').click();
-  const panel = page.locator(".upop.usage");
-  const name = panel.locator("strong");
-  await expect(name).toHaveText(email);
-  expect(await name.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
-  expect(await panel.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
-  const add = panel.getByRole("button", { name: "Adicionar conta", exact: true });
-  const manage = panel.getByRole("button", { name: "Gerenciar contas", exact: true });
-  const addBox = (await add.boundingBox())!;
-  const manageBox = (await manage.boundingBox())!;
-  expect(Math.abs(addBox.y - manageBox.y)).toBeLessThanOrEqual(2);
-  expect(manageBox.x - (addBox.x + addBox.width)).toBeGreaterThanOrEqual(12);
-  await inside(add, panel);
-  await inside(manage, panel);
 });

@@ -29,7 +29,7 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator(".m-tool")).toBeVisible();
 });
 
-test("mobile contém comandos e mensagens longas e mantém envio acessível", async ({ page }) => {
+test("mobile contém comandos e mensagens longas e mantém envio acessível", { tag: "@webkit" }, async ({ page }) => {
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 });
     expect(await page.evaluate(() => {
@@ -73,7 +73,7 @@ test("mobile contém comandos e mensagens longas e mantém envio acessível", as
   expect(expanded!.y + expanded!.height).toBeLessThanOrEqual(410);
 });
 
-test("mobile preserva rascunho quando envio falha ou Mac desconecta", async ({ page }) => {
+test("mobile preserva rascunho quando envio falha ou Mac desconecta", { tag: "@webkit" }, async ({ page }) => {
   const box = page.getByRole("textbox", { name: "Escreva para o agente…", exact: true });
   const send = page.getByRole("button", { name: "Enviar", exact: true });
   await box.fill("Faz o merge");
@@ -93,7 +93,7 @@ test("mobile preserva rascunho quando envio falha ou Mac desconecta", async ({ p
   await expect(page.locator(".m-connection")).toContainText("offline");
 });
 
-test("mobile mostra contexto do navegador como tag e preserva conversa ao fechar detalhes", async ({ page }) => {
+test("mobile mostra contexto do navegador como tag e preserva conversa ao fechar detalhes", { tag: "@webkit" }, async ({ page }) => {
   const message = page.locator(".m-user").filter({ hasText: "Ajuste este elemento no celular." });
   await expect(message).toHaveText("Ajuste este elemento no celular. Elemento selecionado Mantenha o texto do botão.");
   await expect(message).not.toContainText(/prometeu-browser-element|"selector"|<button|mobile-browser-context\.png/);

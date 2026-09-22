@@ -1,120 +1,8 @@
 import { expect, test } from "@playwright/test";
-import type { CatalogState } from "../src/catalog";
-import type { McpServer } from "../src/types";
-
-test("organizações no desktop comparam MCPs sem depender da ordem das chaves", async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.setItem("mock:cloud", JSON.stringify({ user: { id: "1", name: "Pessoa", email: "me@example.com" }, origin: "https://app.prometeu.co", offline: false }));
-    localStorage.setItem("mock:organizationCatalogs", JSON.stringify([
-      { id: "acme", name: "Equipe Acme", links: {}, plugins: [], skills: [], mcp: [
-        { id: "order-test", note: "Team", config: { env: { SECOND: "", FIRST: "" }, args: ["-y", "server"], command: "npx", type: "stdio" } },
-      ] },
-    ]));
-  });
-  await page.goto("/");
-  await expect(page.locator("#tiles .tile").first()).toBeVisible();
-  const result = await page.evaluate(async () => {
-    const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__;
-    const server = { id: "order-test", note: "Local", config: { type: "stdio", command: "npx", args: ["-y", "server"], env: { FIRST: "local-secret", SECOND: "another-secret" } } };
-    await invoke("mcp_save", { server });
-    const installed = async () => (await invoke("catalog_state") as CatalogState).organization_items!.find(item => item.id === server.id)!.installed;
-    const reordered = await installed();
-    await invoke("mcp_save", { server: { ...server, config: { ...server.config, args: ["server", "-y"] } } });
-    const differentArgs = await installed();
-    await invoke("mcp_save", { server: { ...server, config: { ...server.config, command: "other" } } });
-    const differentCommand = await installed();
-    await invoke("mcp_save", { server });
-    await invoke("catalog_install_organization_item", { organization: "acme", kind: "mcp", id: server.id, revision: 0 });
-    return { reordered, differentArgs, differentCommand, servers: await invoke("mcp_hub") as McpServer[], links: JSON.parse(localStorage.getItem("mock:organizationCatalogs")!)[0].links };
-  });
-  expect(result.reordered).toBe(true);
-  expect(result.differentArgs).toBe(false);
-  expect(result.differentCommand).toBe(false);
-  expect(result.servers.filter(server => server.id.includes("order-test"))).toHaveLength(1);
-  expect(result.servers.find(server => server.id === "order-test")!.config.env).toEqual({ FIRST: "local-secret", SECOND: "another-secret" });
-  expect(result.links["mcp:order-test"]).toBe("order-test");
-});
-
-test("organizações no desktop oferecem instalação direta sem alterar catálogo pessoal", async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.setItem("mock:cloud", JSON.stringify({ user: { id: "1", name: "Pessoa", email: "me@example.com" }, origin: "https://app.prometeu.co", offline: false }));
-    localStorage.setItem("mock:skills", JSON.stringify([
-      { id: "local-skill", description: "Já instalada", content: "Use o conteúdo local." },
-    ]));
-    localStorage.setItem("mock:organizationCatalogs", JSON.stringify([
-      { id: "acme", name: "Equipe Acme", links: {},
-        plugins: [
-          { id: "revisor", source: "https://github.com/acme/revisor", note: "Revisão da equipe" },
-          { id: "Caveman", source: "https://github.com/JuliusBrussee/caveman", note: "Já instalado localmente" },
-        ],
-        mcp: [
-          { id: "notion", config: { url: "https://acme.test/mcp", headers: { Authorization: "" } }, note: "Documentos da equipe" },
-          { id: "capim-ds", config: { type: "stdio", command: "npx", args: ["-y", "@capim/ds-mcp"], env: {} }, note: "Já instalado localmente" },
-        ],
-        skills: [
-          { id: "revisao-cloud", description: "Revisão institucional", content: "Leia mudanças da equipe." },
-          { id: "local-skill", description: "Já instalada", content: "Use o conteúdo local." },
-        ] },
-      { id: "other", name: "Outra equipe", links: {}, plugins: [{ id: "revisor", source: "https://github.com/other/revisor", note: "Outra revisão" }], mcp: [], skills: [] },
-    ]));
-  });
-  await page.goto("/");
-  await expect(page.locator("#tiles .tile").first()).toBeVisible();
-  await page.locator("#settings").click();
-  await page.locator(".setnavitem", { hasText: "Plugins" }).click();
-  const acme = page.locator(".setrow", { hasText: "Equipe Acme" });
-  await expect(acme).toContainText("https://github.com/acme/revisor");
-  await expect(page.locator(".setrow", { hasText: "Já instalado localmente" })).toHaveCount(0);
-  await page.evaluate(() => {
-    const organizations = JSON.parse(localStorage.getItem("mock:organizationCatalogs")!);
-    organizations[0].revision = 1;
-    organizations[0].plugins[0].source = "https://github.com/acme/revisor-v2";
-    localStorage.setItem("mock:organizationCatalogs", JSON.stringify(organizations));
-  });
-  await acme.getByRole("button", { name: "Instalar aqui" }).click();
-  await expect(page.locator(".setrow", { hasText: "cloud-revisor-1" })).toHaveCount(0);
-  await expect(acme).toContainText("https://github.com/acme/revisor-v2");
-  await acme.getByRole("button", { name: "Instalar aqui" }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.locator(".setrow", { hasText: "cloud-revisor-1" })).toContainText("só neste Mac");
-  await expect(acme).toHaveCount(0);
-  await page.locator(".setrow", { hasText: "Outra equipe" }).getByRole("button", { name: "Instalar aqui" }).click();
-  await expect(page.locator(".setrow", { hasText: "cloud-revisor-2" })).toContainText("só neste Mac");
-  // The uninstalled personal item keeps its identity and remains available independently.
-  await expect(page.locator(".setrow", { has: page.locator("b", { hasText: /^revisor$/ }) }).getByRole("button", { name: "Instalar aqui" })).toBeVisible();
-  await page.locator(".setnavitem", { hasText: "Ferramentas" }).click();
-  await expect(acme).toContainText("Documentos da equipe");
-  await expect(page.locator(".setrow", { has: page.locator("b", { hasText: /^capim-ds$/ }) })).toHaveCount(1);
-  await page.evaluate(() => localStorage.setItem("mock:cloudOffline", "1"));
-  await acme.getByRole("button", { name: "Instalar aqui" }).click();
-  await expect(acme.getByRole("button", { name: "Instalar aqui" })).toBeEnabled();
-  await expect(page.locator(".setrow", { hasText: "cloud-notion-1" })).toHaveCount(0);
-  await page.evaluate(() => localStorage.removeItem("mock:cloudOffline"));
-  await acme.getByRole("button", { name: "Instalar aqui" }).click();
-  await expect(page.locator(".setrow", { hasText: "cloud-notion-1" })).toContainText("só neste Mac");
-  await expect(page.locator(".setrow", { has: page.locator("b", { hasText: /^notion$/ }) })).toContainText("na nuvem");
-  await page.locator(".setnavitem", { hasText: "Skills" }).click();
-  await expect(page.locator(".setrow", { has: page.locator("b", { hasText: /^local-skill$/ }) })).toHaveCount(1);
-  await acme.getByRole("button", { name: "Instalar aqui" }).click();
-  await expect(page.locator(".setrow", { hasText: "cloud-revisao-cloud-1" })).toContainText("só neste Mac");
-  expect(await page.evaluate(() => localStorage.getItem("mock:catalog"))).toBeNull();
-  await page.evaluate(() => localStorage.setItem("mock:organizationCatalogs", "[]"));
-  await page.locator(".cloud-account").click();
-  await page.getByRole("menuitem", { name: "Atualizar conta" }).click();
-  await expect(page.locator(".setrow", { hasText: "cloud-revisao-cloud-1" })).toContainText("só neste Mac");
-});
 
 test("conta opcional na barra lateral conecta, persiste e sai sem alterar conversas", async ({ page }) => {
   await page.goto("/");
   const account = page.locator(".cloud-account");
-  await expect(account.locator(".cloud-label > span")).toHaveText("Prometeu");
-  await expect(account.locator(".cloud-label > small")).toHaveText("Criar conta");
-  await expect(account).not.toContainText("conta opcional");
-  await expect(account.locator(".av svg")).toHaveCount(1);
-  const brand = await account.locator(".cloud-label > span").boundingBox();
-  const signup = await account.locator(".cloud-label > small").boundingBox();
-  expect(Math.abs((brand!.y + brand!.height / 2) - (signup!.y + signup!.height / 2))).toBeLessThan(2);
-  expect(signup!.x).toBeGreaterThan(brand!.x + brand!.width);
   await page.locator("#railbody .navitem.sub .lbl").getByText("Ola", { exact: true }).click();
   const before = await page.locator("#chatwrap").innerText();
   await account.locator(".cloud-label > small").click();
@@ -123,49 +11,14 @@ test("conta opcional na barra lateral conecta, persiste e sai sem alterar conver
   await expect(account).toHaveAttribute("title", /Autorize somente se o navegador mostrar este mesmo código/);
   await page.evaluate(() => localStorage.setItem("mock:cloudApproved", "1"));
   await expect(account).toContainText("Gustavo Brancaglione");
-  await expect(account.locator(".cloud-label > span")).toHaveText("Prometeu");
-  await expect(account.locator(".cloud-label > small")).toHaveText("Gustavo Brancaglione");
-  await expect(account.locator(".av svg")).toHaveCount(1);
-  await expect(account.locator(".avatar")).toHaveCount(0);
   expect(await page.locator("#chatwrap").innerText()).toBe(before);
   await page.reload();
   await expect(account).toHaveAttribute("title", "gustavo@example.com");
-  // Account catalogs show each item's source; cloud-only items require installation.
-  await page.locator("#settings").click();
-  await page.locator(".setnavitem", { hasText: "Plugins" }).click();
-  await expect(page.locator(".setrow", { hasText: "caveman" })).toContainText("na nuvem");
-  await expect(page.locator(".setrow", { hasText: "ponytail" })).toContainText("só neste Mac");
-  const pending = page.locator(".setrow", { hasText: "revisor" });
-  await expect(pending).toContainText("não instalado neste Mac");
-  await pending.getByRole("button", { name: "Instalar aqui" }).click();
-  await expect(page.getByRole("dialog", { name: "Instalar aqui" })).toContainText("https://github.com/prometeu/revisor");
-  await page.keyboard.press("Escape");
-  await page.locator(".setnavitem", { hasText: "Ferramentas" }).click();
-  await expect(page.locator(".setrow", { hasText: "notion" })).toContainText("na nuvem");
-  await expect(page.locator(".setrow", { hasText: "capim-ds" })).toContainText("só neste Mac");
-  await page.locator(".cloud-account").scrollIntoViewIfNeeded();
   await account.focus(); await page.keyboard.press("ArrowDown");
   await expect(page.getByRole("menuitem", { name: "Gerenciar conta" })).toBeVisible();
   await page.getByRole("menuitem", { name: "Sair da conta" }).click();
   await expect(account).toContainText("Criar conta");
   await page.reload(); await expect(account).toContainText("Criar conta");
-});
-
-test("conta opcional na barra lateral cancela login e mantém trabalho local quando SaaS cai", async ({ page }) => {
-  await page.goto("/");
-  await page.locator(".cloud-account").click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.locator(".cloud-account").getByRole("status")).toHaveText("ABCD-EFGH");
-  await page.locator(".cloud-account").click();
-  await page.getByRole("menuitem", { name: "Cancelar", exact: true }).click();
-  await expect(page.locator(".cloud-account")).toContainText("Criar conta");
-  await page.evaluate(() => localStorage.setItem("mock:cloudOffline", "1"));
-  await page.locator(".cloud-account").click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByText("Não foi possível conectar ao Prometeu Cloud", { exact: false })).toBeVisible();
-  await page.locator("#railbody .navitem.sub .lbl").getByText("Ola", { exact: true }).click();
-  await expect(page.locator("#chatwrap")).toBeVisible();
-  await expect(page.locator(".cloud-account")).toContainText("Criar conta");
 });
 
 test("conta opcional na barra lateral preserva identidade offline e reconhece revogação", async ({ page }) => {

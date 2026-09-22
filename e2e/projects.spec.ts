@@ -22,7 +22,7 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole("button", { name: "Adicionar neste Mac" }).click();
 });
 
-test("Git projects open without a selected button and keep compact actions readable", async ({ page }) => {
+test("Git projects open without a selected button and keep compact actions readable", { tag: "@webkit" }, async ({ page }) => {
   const dialog = page.getByRole("dialog", { name: "Projetos", exact: true });
   const local = dialog.getByRole("button", { name: "Adicionar pasta local", exact: true });
   await expect(dialog.getByText("local-prometeu")).toHaveCount(0);
@@ -43,22 +43,6 @@ test("Git projects open without a selected button and keep compact actions reada
   }
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Adicionar neste Mac", exact: true })).toBeFocused();
-});
-
-test("Git projects omit everything already registered on this Mac", async ({ page }) => {
-  await page.getByRole("button", { name: "Cancelar" }).click();
-  await page.evaluate(() => {
-    const catalog = JSON.parse(localStorage.getItem("mock:catalog")!);
-    catalog.projects[0].local_path = "/Users/gustavo/dev/njord";
-    localStorage.setItem("mock:catalog", JSON.stringify(catalog));
-    const organizations = JSON.parse(localStorage.getItem("mock:organizationCatalogs")!);
-    organizations[0].links["projects:team-app"] = "/Users/gustavo/dev/prometeu";
-    localStorage.setItem("mock:organizationCatalogs", JSON.stringify(organizations));
-  });
-  await page.getByRole("button", { name: "Adicionar neste Mac" }).click();
-  const dialog = page.getByRole("dialog", { name: "Projetos", exact: true });
-  await expect(dialog.getByText("Nenhum projeto novo disponível neste Mac.")).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Escolher pasta de destino" })).toBeHidden();
 });
 
 test("Git projects clone in a batch, retain success and retry only failures", async ({ page }) => {
@@ -86,25 +70,4 @@ test("Git projects clone in a batch, retain success and retry only failures", as
   await expect(page.locator("#railbody")).toContainText("team-app");
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("mock:catalog")!).revision)).toBe(0);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("mock:catalog")!).projects)).toHaveLength(1);
-});
-
-test("Git projects reject a stale selection and link existing clones explicitly", async ({ page }) => {
-  const dialog = page.getByRole("dialog", { name: "Projetos", exact: true });
-  await dialog.getByRole("checkbox", { name: /personal-app/ }).check();
-  await dialog.getByRole("button", { name: "Escolher pasta de destino" }).click();
-  await page.evaluate(() => {
-    const catalog = JSON.parse(localStorage.getItem("mock:catalog")!);
-    catalog.revision = 1;
-    localStorage.setItem("mock:catalog", JSON.stringify(catalog));
-  });
-  await dialog.getByRole("button", { name: "Adicionar neste Mac" }).click();
-  await expect(dialog.getByRole("alert")).toBeVisible();
-  await expect(dialog.getByRole("checkbox", { name: /personal-app/ })).toBeChecked();
-  await dialog.getByRole("button", { name: "Cancelar" }).click();
-  await page.getByRole("button", { name: "Adicionar neste Mac" }).click();
-  const row = dialog.locator(".setrow", { hasText: "personal-app" });
-  await row.getByRole("button", { name: "Vincular pasta existente" }).click();
-  await expect(row.getByRole("status")).toHaveText("/tmp/projects");
-  await dialog.getByRole("button", { name: "Cancelar" }).click();
-  await expect(page.locator("#railbody")).toContainText("projects");
 });

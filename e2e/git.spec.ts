@@ -9,7 +9,7 @@ async function open(page: Page, title = "Ola") {
 const group = (page: Page, scope: string) => page.locator(`.git-group[data-scope="${scope}"]`);
 const mode = (page: Page, scope: string) => page.locator(`.git-nav [data-mode="${scope}"]`);
 
-test("Git: stage parcial mostra dois diffs e commit deixa alterações posteriores fora", async ({ page }) => {
+test("Git: stage parcial mostra dois diffs e commit deixa alterações posteriores fora", { tag: "@webkit" }, async ({ page }) => {
   await open(page);
   const staged = group(page, "staged"), changes = group(page, "changes");
   await expect(changes.locator('.git-file[data-path="src/style.css"]')).toHaveCount(1);
@@ -70,19 +70,6 @@ test("Git: rascunho do commit sobrevive à atualização e erro não apaga o sta
   await expect(page.locator("#git-message")).toHaveValue("mensagem ainda em edição");
 });
 
-test("Git: branch abre lançador em worktree e publicação continua explícita", async ({ page }) => {
-  await open(page, "Tela igual ao Conductor");
-  await expect(page.getByRole("button", { name: "Publicar branch", exact: true })).toBeEnabled();
-  await page.getByRole("button", { name: "Publicar branch", exact: true }).click();
-  await expect(page.locator(".git-upstream")).toContainText("origin/");
-  await expect(page.getByRole("button", { name: "Publicar branch", exact: true })).toHaveCount(0);
-  await page.locator("#crumb .branch").click();
-  await page.getByRole("textbox", { name: "Buscar branch…", exact: true }).fill("feature/local-work");
-  await page.locator(".git-branch-row").getByRole("button", { name: "Criar workspace", exact: true }).click();
-  await expect(page.locator("#d-base")).toContainText("feature/local-work");
-  await expect(page.locator("#d-wt")).toBeDisabled();
-});
-
 test("Git: conflito usa resultado revisado e permite concluir merge sem mudanças no índice", async ({ page }) => {
   await open(page, "Ícone do app");
   await mode(page, "staged").click();
@@ -100,18 +87,6 @@ test("Git: conflito usa resultado revisado e permite concluir merge sem mudança
   await page.locator("#git-commit").click();
   await expect(page.locator("#git-commit")).toHaveText("Commit de 0 arquivos");
   await expect(page.locator("#git-commit")).toBeDisabled();
-});
-
-test("Git: comparação mostra commits sem misturar mudanças locais", async ({ page }) => {
-  await open(page);
-  await mode(page, "compare").click();
-  await expect(page.locator(".git-review-scope")).toContainText("somente commits");
-  await expect(page.locator(".git-review-list .dfile")).toHaveCount(1);
-  await expect(page.locator('.git-review-list .dfile[data-key$="/src/style.css"]')).toHaveCount(0);
-  await expect(group(page, "changes")).toHaveCount(0);
-  await expect(page.locator("#git-message")).toHaveCount(0);
-  await mode(page, "changes").click();
-  await expect(group(page, "changes").locator('.git-file[data-path="src/style.css"]')).toHaveCount(1);
 });
 
 test("Git: erro temporário de status preserva os rascunhos e restaura o editor de conflito", async ({ page }) => {
@@ -180,70 +155,7 @@ test("Git: botão antigo de stage não prepara arquivos de outro repositório du
   expect(await page.evaluate(() => (window as any).gitActions)).toEqual([]);
 });
 
-test("Git: Enter compara a base escolhida e voltar a Mudanças mantém o editor de conflito", async ({ page }) => {
-  await open(page);
-  await page.evaluate(() => {
-    const w = window as any, original = w.__TAURI_INTERNALS__.invoke;
-    w.gitDiffRequests = [];
-    w.__TAURI_INTERNALS__.invoke = (command: string, args: any, options: any) => {
-      if (command === "workspace_git_diff") {
-        w.gitDiffRequests.push(structuredClone(args));
-        if (args.scope === "conflict") return Promise.reject("unsupported diff scope: conflict");
-        if (args.reference === "missing-branch") return Promise.reject("Unknown revision: missing-branch");
-      }
-      return original(command, args, options);
-    };
-  });
-  await mode(page, "compare").click();
-  await page.getByRole("textbox", { name: "Base", exact: true }).fill("missing-branch");
-  await page.getByRole("textbox", { name: "Base", exact: true }).press("Enter");
-  await expect(page.locator("#dlist .git-error")).toContainText("missing-branch");
-  await expect(page.getByRole("textbox", { name: "Base", exact: true })).toBeVisible();
-  await page.getByRole("textbox", { name: "Base", exact: true }).fill("origin/feature/review");
-  await page.getByRole("textbox", { name: "Base", exact: true }).press("Enter");
-  await expect.poll(() => page.evaluate(() => (window as any).gitDiffRequests.some(
-    (args: any) => args.scope === "compare" && args.reference === "origin/feature/review",
-  ))).toBe(true);
-  await expect(page.locator(".git-review-scope")).toContainText("origin/feature/review");
-  await page.locator("#railbody .navitem.sub .lbl").getByText("Ícone do app", { exact: true }).click();
-  await expect(group(page, "conflict").locator(".git-file-name")).toBeVisible();
-  await group(page, "conflict").locator(".git-file-name").click();
-  await page.locator(".git-conflict-result").fill("resolução em andamento\n");
-  await page.locator("#tab-diff").click();
-  await expect(page.locator(".git-conflict-result")).toHaveValue("resolução em andamento\n");
-  await expect(page.locator("#dlist .git-error")).toHaveCount(0);
-  expect(await page.evaluate(() => (window as any).gitDiffRequests.some((args: any) => args.scope === "conflict"))).toBe(false);
-});
-
-test("Git: grupos recolhidos sobrevivem à atualização e ações Git ficam no cabeçalho", async ({ page }) => {
-  await open(page);
-  await mode(page, "staged").click();
-  const staged = group(page, "staged"), toggle = staged.locator(".git-group-toggle");
-  await page.locator("#git-message").fill("fix: manter rascunho");
-  await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect(staged.locator(".git-file-name")).toBeHidden();
-  await page.getByRole("button", { name: "Ações do Git", exact: true }).click();
-  await page.locator(".menu .mrow", { hasText: "Fetch" }).click();
-  await expect(page.getByRole("button", { name: "Pull ↓1", exact: true })).toBeVisible();
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect(page.locator("#git-message")).toHaveValue("fix: manter rascunho");
-  await toggle.focus();
-  await page.keyboard.press("Enter");
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(staged.locator(".git-file-name")).toBeVisible();
-  await staged.locator(".git-file .git-file-action").focus();
-  await expect(staged.locator(".git-file .git-file-action")).toHaveCSS("opacity", "1");
-  const history = mode(page, "history");
-  await history.click();
-  await expect(history).toHaveAttribute("aria-current", "true");
-  await expect(page.locator(".git-history-row").first()).toBeVisible();
-  await mode(page, "staged").click();
-  await expect(page.locator("#dlist .dfile").first()).toBeVisible();
-  await expect(page.locator("#git-message")).toHaveValue("fix: manter rascunho");
-});
-
-test("Git: revisão por teclado não altera o stage e um patch novo pede nova revisão", async ({ page }) => {
+test("Git: revisão por teclado não altera o stage e um patch novo pede nova revisão", { tag: "@webkit" }, async ({ page }) => {
   await open(page);
   await page.evaluate(() => {
     const w = window as any, original = w.__TAURI_INTERNALS__.invoke;
@@ -297,7 +209,7 @@ test("Git: revisão por teclado não altera o stage e um patch novo pede nova re
   expect(await page.evaluate(() => (window as any).gitActions)).toEqual([]);
 });
 
-test("Git: diff unificado e lado a lado mantêm números, revisão e recolhimento por teclado", async ({ page }) => {
+test("Git: diff unificado e lado a lado mantêm números, revisão e recolhimento por teclado", { tag: "@webkit" }, async ({ page }) => {
   await open(page);
   await group(page, "changes").locator('.git-file[data-path="src/style.css"] .git-file-name').click();
   const file = page.locator('#dlist .dfile[data-key$="src/style.css"]');

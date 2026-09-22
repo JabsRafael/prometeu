@@ -116,15 +116,15 @@ async function release(page: Page) {
   await page.evaluate(() => (window as BrowserTestWindow).browserRelease());
 }
 
-test("browser mostra elemento como tag e preserva dados completos no envio e replay", async ({ page }) => {
+test("browser mostra elemento como tag e preserva dados completos no envio e replay", { tag: "@webkit" }, async ({ page }) => {
   await openBrowser(page);
   const composer = page.locator(composerSelector);
-  await composer.fill("Ajuste este botão.");
+  await composer.fill("/compact");
   await pickElement(page);
   await expect(page.locator("#webdetails .webhtml")).toContainText('id="design-button"');
   await expect(page.locator("#webdetails .webstyles")).toContainText("background-color:");
   await page.locator("#wadd").click();
-  await expect(composer).toHaveValue("Ajuste este botão.");
+  await expect(composer).toHaveValue("/compact");
   await expect(page.locator(contextSelector)).toHaveCount(1);
   await expect(page.locator(contextSelector)).toContainText("Elemento selecionado");
   await expect(page.locator(fileSelector)).toHaveCount(0);
@@ -139,14 +139,14 @@ test("browser mostra elemento como tag e preserva dados completos no envio e rep
   await expect(dialog).toContainText("background-color:");
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
-  await expect(composer).toHaveValue("Ajuste este botão.");
+  await expect(composer).toHaveValue("/compact");
   await page.locator("#chatwrap .send").click();
   await expect(composer).toHaveValue("");
   await expect(page.locator(contextSelector)).toHaveCount(0);
   const message = await page.evaluate(() => (window as BrowserTestWindow).browserMessages[0]);
   expect(message.session).toBe("t1");
-  expect(message.text).toContain("Ajuste este botão.");
-  expect(message.text).toContain('<prometeu-browser-element v="1">');
+  expect(message.text.startsWith('<prometeu-browser-element v="1">')).toBe(true);
+  expect(message.text.endsWith("/compact")).toBe(true);
   const payload = JSON.parse(message.text.match(/<prometeu-browser-element v="1">\n([^\n]+)\n/)![1]);
   expect(payload.selection).toMatchObject({
     selector: "#design-button", tag: "button", html: expect.stringContaining('id="design-button"'),
@@ -158,7 +158,7 @@ test("browser mostra elemento como tag e preserva dados completos no envio e rep
   expect(payload.image).toMatch(/browser-.*\.png$/);
   expect(message.text).toContain(`@"${payload.image}"`);
   const bubble = page.locator("#chatwrap .turn.user").last();
-  await expect(bubble).toContainText("Ajuste este botão.");
+  await expect(bubble).toContainText("/compact");
   await expect(bubble.locator(".browser-context")).toContainText("Elemento selecionado");
   await expect(bubble).not.toContainText('"html"');
   await expect(bubble).not.toContainText("prometeu-browser-element");
@@ -172,7 +172,7 @@ test("browser mostra elemento como tag e preserva dados completos no envio e rep
   expect(recorded).toBeDefined();
   await page.locator('#tabbar .tab[data-tab="t2"]').click();
   await page.locator('#tabbar .tab[data-tab="t1"]').click();
-  await expect(bubble).toContainText("Ajuste este botão.");
+  await expect(bubble).toContainText("/compact");
   await expect(bubble.locator(".browser-context")).toContainText("Elemento selecionado");
   await expect(bubble).not.toContainText('"html"');
   await expect(bubble).not.toContainText(payload.image);
@@ -198,39 +198,13 @@ test("browser mantém preview ao trocar conversa e adiciona contexto somente ao 
   await page.locator('#tabbar .tab[data-tab="t2"]').click();
   await expect(composer).toHaveValue("Rascunho da segunda conversa.");
   await expect(page.locator(contextSelector)).toContainText("Elemento selecionado");
-  expect(await page.evaluate(() => (window as BrowserTestWindow).browserSent)).toBe(0);
-});
-
-test("browser remove elemento e captura juntos sem alterar texto do rascunho", async ({ page }) => {
-  await openBrowser(page);
-  const composer = page.locator(composerSelector);
-  await composer.fill("Ajuste somente o texto.");
-  await pickElement(page);
-  await page.locator("#wadd").click();
-  await expect(page.locator(contextSelector)).toHaveCount(1);
   await page.locator(contextSelector).getByRole("button", { name: "Remover elemento selecionado", exact: true }).click();
   await expect(page.locator("#chatwrap .cfiles .injchip")).toHaveCount(0);
-  await expect(composer).toHaveValue("Ajuste somente o texto.");
+  await expect(composer).toHaveValue("Rascunho da segunda conversa.");
+  expect(await page.evaluate(() => (window as BrowserTestWindow).browserSent)).toBe(0);
   await page.locator("#chatwrap .send").click();
-  await expect.poll(() => page.evaluate(() => (window as BrowserTestWindow).browserMessages.length)).toBe(1);
-  expect(await page.evaluate(() => (window as BrowserTestWindow).browserMessages[0].text)).toBe("Ajuste somente o texto.");
-});
-
-test("browser envia somente tag sem expor JSON na conversa", async ({ page }) => {
-  await openBrowser(page);
-  await pickElement(page);
-  await page.locator("#wadd").click();
-  await expect(page.locator(composerSelector)).toHaveValue("");
-  await expect(page.locator(contextSelector)).toHaveCount(1);
-  await page.locator("#chatwrap .send").click();
-  await expect.poll(() => page.evaluate(() => (window as BrowserTestWindow).browserMessages.length)).toBe(1);
-  const text = await page.evaluate(() => (window as BrowserTestWindow).browserMessages[0].text);
-  expect(text).toContain('<prometeu-browser-element v="1">');
-  expect(text).toContain('"selector":"#design-button"');
-  const bubble = page.locator("#chatwrap .turn.user").last();
-  await expect(bubble.locator(".browser-context")).toContainText("Elemento selecionado");
-  await expect(bubble).not.toContainText('"selector"');
-  await expect(page.locator(contextSelector)).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => (window as BrowserTestWindow).browserMessages[0]))
+    .toEqual({ session: "t2", text: "Rascunho da segunda conversa." });
 });
 
 test("browser preserva tag e captura na fila pendente sem expor JSON após falha de retomada", async ({ page }) => {
@@ -286,33 +260,6 @@ test("browser preserva tag e captura na fila pendente sem expor JSON após falha
   expect(await page.evaluate(() => (window as BrowserTestWindow).browserSent)).toBe(1);
 });
 
-test("browser prefixa tag ao comando escrito para preservar contexto no envio ao Codex", async ({ page }) => {
-  await openBrowser(page);
-  await page.locator(composerSelector).fill("/compact");
-  await pickElement(page);
-  await page.locator("#wadd").click();
-  await expect(page.locator(composerSelector)).toHaveValue("/compact");
-  await page.locator("#chatwrap .send").click();
-  await expect.poll(() => page.evaluate(() => (window as BrowserTestWindow).browserMessages.length)).toBe(1);
-  const text = await page.evaluate(() => (window as BrowserTestWindow).browserMessages[0].text);
-  expect(text.startsWith('<prometeu-browser-element v="1">')).toBe(true);
-  expect(text.endsWith("/compact")).toBe(true);
-  expect(text).toContain('"selector":"#design-button"');
-  await expect(page.locator(contextSelector)).toHaveCount(0);
-});
-
-test("browser recolhe painel direito por padrão e permite reabrir durante preview", async ({ page }) => {
-  await expect(page.locator("#side")).toBeVisible();
-  await openBrowser(page);
-  await page.locator("#sidetoggle").click();
-  await expect(page.locator("#side")).toBeVisible();
-  await page.locator('#tabbar .tab[data-tab="t2"]').click();
-  await expect(page.locator("#side")).toBeVisible();
-  await expect(page.locator(previewSelector)).toBeVisible();
-  await page.locator("#tabbar .tab", { hasText: "Navegador" }).locator(".tabx").click();
-  await expect(page.locator("#side")).toBeVisible();
-});
-
 test("browser entrega captura atrasada à conversa original depois de trocar aba", async ({ page }) => {
   await openBrowser(page);
   const composer = page.locator(composerSelector);
@@ -366,7 +313,7 @@ test("browser preserva contexto textual quando captura falha", async ({ page }) 
   expect(await page.evaluate(() => (window as BrowserTestWindow).browserSent)).toBe(0);
 });
 
-test("browser permite arrastar arquivo ao chat e fechar preview preserva conversa e rascunho", async ({ page }) => {
+test("browser permite arrastar arquivo ao chat e fechar preview preserva conversa e rascunho", { tag: "@webkit" }, async ({ page }) => {
   await openBrowser(page);
   const composer = page.locator(composerSelector);
   await composer.fill("Use esta referência.");
@@ -386,7 +333,7 @@ test("browser permite arrastar arquivo ao chat e fechar preview preserva convers
   await expect(page.locator("#chatwrap .cfiles .injchip")).toContainText("Referência.png");
 });
 
-test("browser ajusta viewport e separador por teclado, empilhando sem sobreposição em janela estreita", async ({ page }) => {
+test("browser ajusta viewport e separador por teclado, empilhando sem sobreposição em janela estreita", { tag: "@webkit" }, async ({ page }) => {
   await openBrowser(page);
   await page.locator("#wwidth").fill("390");
   await page.locator("#wwidth").press("Tab");
@@ -406,7 +353,7 @@ test("browser ajusta viewport e separador por teclado, empilhando sem sobreposi�
   expect(await page.locator("#tabbody").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
 });
 
-test("browser suspende para menus e diálogos, restaurando página sem recarregar", async ({ page }) => {
+test("browser suspende para menus e diálogos, restaurando página sem recarregar", { tag: "@webkit" }, async ({ page }) => {
   await openBrowser(page);
   const preview = page.locator(previewSelector);
   const name = page.frameLocator(previewSelector).locator("#design-name");

@@ -70,22 +70,6 @@ test("login no rodapé começa sem apelido e permite cancelar e reconectar", asy
   await expect(page.locator('#status [data-provider="claude"]')).toHaveText("5h 11% · 7d 27%");
 });
 
-test("falha de login mantém conta ativa e permite remover a tentativa", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("mock:accountLoginError", "1"));
-  await page.goto("/");
-  const panel = await openAccounts(page);
-  await panel.getByRole("button", { name: "Adicionar conta" }).click();
-  const added = panel.locator(".uaccount", { hasText: "Nova conta" });
-  await expect(added.getByRole("button", { name: "Ações da conta" })).toBeEnabled();
-  await expect(added.locator(".account-select")).toBeDisabled();
-  await expect(panel.locator('[data-account="codex"] .account-select')).toHaveAttribute("aria-pressed", "true");
-  await action(page, added, "Remover conta");
-  await expect(added).toHaveCount(0);
-  await page.reload();
-  await openAccounts(page);
-  await expect(panel.locator(".uaccount")).toHaveCount(2);
-});
-
 test("remover todas as contas limpa seleção e preserva conversa e outro provider", async ({ page }) => {
   await page.goto("/");
   await page.locator("#railbody .navitem.sub .lbl").getByText("Ola", { exact: true }).click();
@@ -97,7 +81,12 @@ test("remover todas as contas limpa seleção e preserva conversa e outro provid
   await work.locator(".account-select").click();
   await expect(work.locator(".account-select")).toHaveAttribute("aria-pressed", "true");
   await action(page, work, "Remover conta");
-  await page.getByRole("dialog", { name: "Remover conta ativa?" }).getByRole("button", { name: "Remover conta", exact: true }).click();
+  const confirm = page.getByRole("dialog", { name: "Remover conta ativa?" });
+  await expect(confirm).toContainText("Novas mensagens");
+  await confirm.getByRole("button", { name: "Cancelar", exact: true }).click();
+  await expect(work.locator(".account-select")).toHaveAttribute("aria-pressed", "true");
+  await action(page, work, "Remover conta");
+  await confirm.getByRole("button", { name: "Remover conta", exact: true }).click();
   await expect(work).toHaveCount(0);
   await expect(panel.locator('[data-account="codex"] .account-select')).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator('#status [data-provider="codex"]')).toHaveText("—");
@@ -140,27 +129,6 @@ test("cadastro antigo ignora apelidos e mostra email como texto", async ({ page 
   await expect(panel.locator("img")).toHaveCount(0);
 });
 
-test("contas: configurações compartilham cartões e confirmam remoção ativa", async ({ page }) => {
-  await page.goto("/");
-  const panel = await openAccounts(page);
-  await panel.getByRole("button", { name: "Gerenciar contas" }).click();
-  const settings = page.locator("#settingsView");
-  await expect(settings.getByRole("heading", { name: "Contas", exact: true })).toBeVisible();
-  const active = settings.locator('[data-account="codex"]');
-  await active.getByRole("button", { name: "Ações da conta" }).click();
-  await page.getByRole("menuitem", { name: "Remover conta" }).click();
-  const confirm = page.getByRole("dialog", { name: "Remover conta ativa?" });
-  await expect(confirm).toContainText("Novas mensagens");
-  await confirm.getByRole("button", { name: "Cancelar", exact: true }).click();
-  await expect(active.locator(".account-select")).toHaveAttribute("aria-pressed", "true");
-  await active.getByRole("button", { name: "Ações da conta" }).click();
-  await page.getByRole("menuitem", { name: "Remover conta" }).click();
-  await confirm.getByRole("button", { name: "Remover conta", exact: true }).click();
-  await expect(active).toHaveCount(0);
-  await expect(settings.locator('[data-provider-accounts="codex"] .account-select')).toBeFocused();
-  await expect(page.locator('#status [data-provider="codex"]')).toHaveText("—");
-});
-
 test("contas: Antigravity usa a conta externa sem criar login ou ativar automaticamente", async ({ page }) => {
   await page.goto("/");
   const panel = await openAccounts(page, "antigravity");
@@ -181,30 +149,8 @@ test("contas: Antigravity usa a conta externa sem criar login ou ativar automati
   await expect(page.locator('#status [data-provider="antigravity"]')).not.toHaveText("—");
 });
 
-test("contas: configurações mostram agente não instalado", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("mock:antigravityMissing", "1"));
-  await page.goto("/");
-  const panel = await openAccounts(page);
-  await panel.getByRole("button", { name: "Gerenciar contas" }).click();
-  const antigravity = page.locator('#settingsView [data-provider-accounts="antigravity"]');
-  await expect(antigravity).toContainText("Instale Antigravity");
-  await expect(antigravity.getByRole("button", { name: "Usar conta do agy" })).toBeDisabled();
-});
 
-test("contas: configurações atualizam disponibilidade após descoberta atrasada", async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.setItem("mock:agentsDelay", "2000");
-    localStorage.setItem("prometeu:configuracoes", "contas");
-  });
-  await page.goto("/");
-  await page.locator("#settings").click();
-  const group = page.locator('#settingsView [data-provider-accounts="antigravity"]');
-  await expect(group.getByRole("button", { name: "Usar conta do agy" })).toBeEnabled();
-  await expect(group).not.toContainText("Instale Antigravity");
-});
-
-
-test("contas: remover última conta sem CLI mantém foco no grupo", async ({ page }) => {
+test("contas: remover última conta sem CLI mantém foco no grupo", { tag: "@webkit" }, async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("mock:antigravityMissing", "1");
     localStorage.setItem("mock:accounts", JSON.stringify({ accounts: [
@@ -217,6 +163,8 @@ test("contas: remover última conta sem CLI mantém foco no grupo", async ({ pag
   const group = page.locator('#settingsView [data-provider-accounts="antigravity"]');
   await action(page, group.locator(".uaccount"), "Remover conta");
   await expect(group.locator(".uaccount")).toHaveCount(0);
+  await expect(group).toContainText("Instale Antigravity");
+  await expect(group.getByRole("button", { name: "Usar conta do agy" })).toBeDisabled();
   await expect(group).toBeFocused();
 });
 

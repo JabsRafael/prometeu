@@ -145,8 +145,9 @@ then ignoring its event because it did not come from `main`.
 
 ## Evidence and verification limits
 
-- `e2e/browser-inspector.spec.ts`: the real script in Chromium and WebKit,
-  selection, Escape, navigation, sanitization, Shadow DOM, scroll and resize.
+- `e2e/browser-inspector.spec.ts`: the real script's selection, Escape,
+  navigation, sanitization, Shadow DOM, scroll and resize in Chromium, with
+  selected engine checks in WebKit.
 - `e2e/browser.spec.ts`: composition, drafts, attachments, navigation and
   lifecycle over the web mock, tags and the actual content sent to the agent.
 - `src/browser-context.test.ts`: textual compatibility and rejection of invalid

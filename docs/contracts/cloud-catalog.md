@@ -247,8 +247,9 @@ with empty credentials.
   private items and credentials, rejection of malformed documents.
 - `src-tauri/src/skills.rs`: validation, directory isolation, frontmatter, both
   providers' manifests and content updates.
-- `e2e/cloud.spec.ts`: installation, explicit sharing, private copy, offline
-  editing and revision conflict over the mock.
+- `e2e/cloud.spec.ts`: explicit sharing, private copy, offline editing and
+  revision-conflict flows over the mock. Organization installation rules are
+  covered by `catalog.rs`; the optional installation form has no dedicated E2E.
 - `e2e/mcp.spec.ts`: local connection checks, login retry and logout for shared
   MCPs while Cloud is unavailable, pending-action guards and authentication
   independent of catalog revisions. Browser tests simulate OAuth; consent with
