@@ -1828,6 +1828,9 @@ const mockCommands: IpcHandlers = {
   feedback_capture() {
     return "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aHlcAAAAASUVORK5CYII=";
   },
+  feedback_image(args) {
+    return { name: args.path.split(/[\\/]/).pop() || "feedback.png", type: "image/png" as const, data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aHlcAAAAASUVORK5CYII=" };
+  },
   // The browser mock records the report; no issue is created and nothing leaves the machine.
   // mock:feedbackFailures makes that many attempts fail, as a recoverable delivery error does.
   feedback_send(args) {

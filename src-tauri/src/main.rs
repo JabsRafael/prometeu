@@ -198,6 +198,7 @@ fn main() {
             browser::browser_capture,
             browser::open_external,
             feedback::feedback_capture,
+            feedback::feedback_image,
             feedback::feedback_send,
             file_drop::paste_files,
             session::pr_prompt,

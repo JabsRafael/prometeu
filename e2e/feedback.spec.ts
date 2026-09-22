@@ -96,6 +96,36 @@ test("feedback stays usable above modal dialogs, captures a preview and fits mob
   await expect(panel.getByRole("textbox")).toHaveValue("Falha no modal");
 });
 
+test("feedback accepts a dropped image", async ({ page }) => {
+  await page.addInitScript(signedIn());
+  await page.goto("/");
+  await page.getByRole("button", { name: "Feedback", exact: true }).click();
+  const panel = page.getByRole("dialog", { name: "Deixe seu feedback" });
+  const transfer = await page.evaluateHandle(([base64]) => {
+    const data = new DataTransfer();
+    data.items.add(new File([Uint8Array.from(atob(base64), char => char.charCodeAt(0))], "dropped.png", { type: "image/png" }));
+    return data;
+  }, [png.toString("base64")]);
+  await panel.dispatchEvent("dragover", { dataTransfer: transfer });
+  await expect(panel).toHaveClass(/ui-feedback-dropping/);
+  await panel.dispatchEvent("drop", { dataTransfer: transfer });
+  await expect(panel).not.toHaveClass(/ui-feedback-dropping/);
+  await expect(panel.getByRole("img")).toBeVisible();
+});
+
+test("desktop feedback accepts a native file drop intercepted by Tauri", async ({ page }) => {
+  await page.addInitScript(signedIn());
+  await page.goto("/");
+  await page.getByRole("button", { name: "Feedback", exact: true }).click();
+  const panel = page.getByRole("dialog", { name: "Deixe seu feedback" });
+  const box = (await panel.boundingBox())!;
+  await page.evaluate(({ x, y }) => {
+    (window as unknown as { mock: { drop(paths: string[], x: number, y: number): void } })
+      .mock.drop(["/Users/eu/Desktop/Captura de Tela.png"], x, y);
+  }, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
+  await expect(panel.getByRole("img")).toBeVisible();
+});
+
 function attempts(page: import("@playwright/test").Page) {
   return page.evaluate(() => JSON.parse(localStorage.getItem("mock:feedbackAttempts") ?? "[]") as Record<string, unknown>[]);
 }

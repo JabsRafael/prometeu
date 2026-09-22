@@ -10,11 +10,12 @@ form's description or image and remains available without a Prometeu account.
 The person reviews and publishes the issue through GitHub.
 
 The private form offers Problem, Idea and Other, a description, an optional
-image and a capture started by the person. The form states that the report will
-be handled privately by the Prometeu team and asks for a review of sensitive
-data before sending. No transcript, workspace path, email, credential or
-navigation URL is collected automatically. Captures may contain such data: the
-person reviews the thumbnail and can remove or replace the image.
+image selected or dropped onto the panel, and a capture started by the person.
+The form states that the report will be handled privately by the Prometeu team
+and asks for a review of sensitive data before sending. No transcript,
+workspace path, email, credential or navigation URL is collected automatically.
+Captures may contain such data: the person reviews the thumbnail and can remove
+or replace the image.
 
 ## HTTP
 
@@ -117,6 +118,12 @@ base64 PNG or `null` on cancellation. On the Mac, `screencapture -i -W` allows
 selecting the window; the file stays in a private temporary directory and is
 removed when it finishes. Failures use i18n. The mock returns a fictional image;
 it does not capture the computer.
+
+Tauri intercepts desktop file drops before HTML receives them. A drop over the
+open form routes its first path through the additive `feedback_image` IPC
+command. The command reads at most 5 MiB plus one byte, verifies the PNG, JPEG or
+WebP signature and returns the file name, media type and base64 bytes. Other
+drop targets keep their existing behavior.
 
 In the browser, `getDisplayMedia` offers surface selection when available. The
 tracks are stopped after the capture, including on error. Browsers without that

@@ -71,12 +71,26 @@ export function feedbackWidget(options: {
     else preview.removeAttribute("src");
     preview.hidden = remove.hidden = !file;
   };
+  const attach = (file?: File) => {
+    error.textContent = "";
+    try { setImage(file); upload.value = ""; }
+    catch (cause) { error.textContent = options.error(cause); }
+  };
   const remove = button(labels.remove, () => { setImage(); upload.value = ""; });
   remove.hidden = true;
-  upload.onchange = () => {
-    error.textContent = "";
-    try { setImage(upload.files?.[0]); }
-    catch (cause) { upload.value = ""; error.textContent = options.error(cause); }
+  upload.onchange = () => attach(upload.files?.[0]);
+  panel.ondragover = event => {
+    if (busy || form.hidden || !event.dataTransfer?.types.includes("Files")) return;
+    event.preventDefault();
+    panel.classList.add("ui-feedback-dropping");
+  };
+  panel.ondragleave = event => {
+    if (!event.relatedTarget || !panel.contains(event.relatedTarget as Node)) panel.classList.remove("ui-feedback-dropping");
+  };
+  panel.ondrop = event => {
+    panel.classList.remove("ui-feedback-dropping");
+    if (busy || form.hidden || !event.dataTransfer?.files.length) return;
+    event.preventDefault(); attach(event.dataTransfer.files[0]);
   };
   const attachments = h("div", "ui-feedback-attachments");
   attachments.append(field(labels.attach, upload), preview, remove);
@@ -147,5 +161,10 @@ export function feedbackWidget(options: {
   const observer = new MutationObserver(place);
   document.body.append(root); root.showPopover?.(); place();
   observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["open"] });
-  return { root, trigger, destroy() { observer.disconnect(); document.removeEventListener("keydown", onKey, true); if (objectUrl) URL.revokeObjectURL(objectUrl); trigger.remove(); root.remove(); } };
+  return {
+    root, trigger, attach,
+    canAttach: () => !panel.hidden && !form.hidden && !busy,
+    fail: (cause: unknown) => { error.textContent = options.error(cause); },
+    destroy() { observer.disconnect(); document.removeEventListener("keydown", onKey, true); if (objectUrl) URL.revokeObjectURL(objectUrl); trigger.remove(); root.remove(); },
+  };
 }
