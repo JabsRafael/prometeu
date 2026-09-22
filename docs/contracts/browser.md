@@ -68,6 +68,12 @@ command receives arbitrary JavaScript and no remote capability is added. The
 page stays untrusted: Rust deserializes and limits the result before delivering
 it to the interface. HTML and CSS are displayed with `textContent`.
 
+On macOS, the Run child webview denies every media-capture permission request.
+It remains on `about:blank` until that native delegate override is installed and
+closes if the restriction cannot be installed. The main webview keeps Wry's
+media behavior because composer dictation needs microphone access; remote HTTP
+and HTTPS pages never share that access.
+
 The script limits HTML to 12,000 UTF-16 units, text to 2,000, the selector to
 1,000 and the URL to 4,096; each style has up to 1,000. It removes form values,
 handlers and executable content from the copied excerpt. Rust accepts the
