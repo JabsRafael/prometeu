@@ -17,7 +17,9 @@ authorization, revision checks, local cache and board project registration.
 The desktop offers multiple selection and one destination directory. It clones
 each selected project into its named subdirectory and registers successful clones.
 It can instead link an existing repository after checking its root and origin.
-Retries preserve completed projects; conflicting folders remain untouched.
+Repositories already registered with the same origin do not appear as available;
+a stale installation action reuses their path. Retries preserve completed
+projects; conflicting folders remain untouched.
 
 Cloning uses Git installed on the Mac and local authentication. HTTPS and SSH are
 the only accepted transports; credentials, local paths and executable transport
@@ -36,9 +38,13 @@ removes them. Publish Cloud support before the new desktop. Rolling back the
 desktop preserves definitions; rolling back Cloud code requires a version that
 still accepts stored projects. No schema migration is needed.
 
-Existing catalog synchronization serializes installation operations. Large clones
-can delay catalog refresh, as plugin installations already do. No background job
-system or automatic setup is introduced.
+Existing catalog synchronization serializes installation operations and local
+project additions/removals, so registration cannot change between the origin
+check and the catalog installation. Project commands wait on worker threads,
+without holding the board lock. Large clones can delay catalog refresh and local
+project edits, as plugin installations already delay catalog refresh. Board reads
+and unrelated workspace edits stay available. No background job system or
+automatic setup is introduced.
 
 The [catalog contract](../contracts/cloud-catalog.md) specifies wire behavior.
 [Rust tests](../../src-tauri/src/catalog/projects.rs) use a local Git upload-pack

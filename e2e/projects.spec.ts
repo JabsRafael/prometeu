@@ -7,8 +7,12 @@ test.beforeEach(async ({ page }) => {
       { id: "personal-app", source: "team/personal", note: "App pessoal", revision: 0, organization: null, organization_name: null, local_path: null },
     ] }));
     localStorage.setItem("mock:organizationCatalogs", JSON.stringify([
-      { id: "acme", name: "Equipe Acme", revision: 0, links: {}, plugins: [], mcp: [], skills: [], projects: [{ id: "team-app", source: "team/shared", note: "App da equipe" }] },
+      { id: "acme", name: "Equipe Acme", revision: 0, links: {}, plugins: [], mcp: [], skills: [], projects: [
+        { id: "team-app", source: "team/shared", note: "App da equipe" },
+        { id: "local-prometeu", source: "prometeucorp/prometeu", note: "Já registrado" },
+      ] },
     ]));
+    localStorage.setItem("mock:projectOrigins", JSON.stringify({ "/Users/gustavo/dev/prometeu": "prometeucorp/prometeu" }));
     localStorage.setItem("mock:directory", "/tmp/projects");
   });
   await page.goto("/");
@@ -21,6 +25,7 @@ test.beforeEach(async ({ page }) => {
 test("Git projects open without a selected button and keep compact actions readable", async ({ page }) => {
   const dialog = page.getByRole("dialog", { name: "Projetos", exact: true });
   const local = dialog.getByRole("button", { name: "Adicionar pasta local", exact: true });
+  await expect(dialog.getByText("local-prometeu")).toHaveCount(0);
   await expect(dialog.locator(".sheettop b")).toBeFocused();
   await expect(dialog.locator("button:focus-visible")).toHaveCount(0);
   await page.keyboard.press("Tab");
@@ -38,6 +43,22 @@ test("Git projects open without a selected button and keep compact actions reada
   }
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Adicionar neste Mac", exact: true })).toBeFocused();
+});
+
+test("Git projects omit everything already registered on this Mac", async ({ page }) => {
+  await page.getByRole("button", { name: "Cancelar" }).click();
+  await page.evaluate(() => {
+    const catalog = JSON.parse(localStorage.getItem("mock:catalog")!);
+    catalog.projects[0].local_path = "/Users/gustavo/dev/njord";
+    localStorage.setItem("mock:catalog", JSON.stringify(catalog));
+    const organizations = JSON.parse(localStorage.getItem("mock:organizationCatalogs")!);
+    organizations[0].links["projects:team-app"] = "/Users/gustavo/dev/prometeu";
+    localStorage.setItem("mock:organizationCatalogs", JSON.stringify(organizations));
+  });
+  await page.getByRole("button", { name: "Adicionar neste Mac" }).click();
+  const dialog = page.getByRole("dialog", { name: "Projetos", exact: true });
+  await expect(dialog.getByText("Nenhum projeto novo disponível neste Mac.")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Escolher pasta de destino" })).toBeHidden();
 });
 
 test("Git projects clone in a batch, retain success and retry only failures", async ({ page }) => {

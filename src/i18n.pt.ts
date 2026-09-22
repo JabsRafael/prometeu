@@ -38,7 +38,7 @@ export const PT = {
   "projects.cloning": "Clonando {name}…",
   "projects.failed": "Alguns projetos falharam. Veja os erros e tente novamente; os projetos concluídos foram registrados.",
   "projects.done": "Projetos adicionados.",
-  "projects.empty": "Nenhum projeto disponível. Conecte sua conta e cadastre projetos no catálogo pessoal ou da organização.",
+  "projects.empty": "Nenhum projeto novo disponível neste Mac.",
   "err.project.directoryDetail": "Não foi possível usar a pasta de destino.\n{cause}",
   "err.project.directory": "Escolha uma pasta existente e acessível.",
   "err.project.exists": "A pasta já existe e não corresponde ao repositório. Escolha outro destino ou vincule o clone correto.",

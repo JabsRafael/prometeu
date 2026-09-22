@@ -40,7 +40,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "projects.cloning": "Cloning {name}…",
   "projects.failed": "Some projects failed. Check the errors and retry; completed projects were registered.",
   "projects.done": "Projects added.",
-  "projects.empty": "No projects available. Connect your account and register projects in your personal or organization catalog.",
+  "projects.empty": "No new projects available on this Mac.",
   "err.project.directoryDetail": "Could not use the destination folder.\n{cause}",
   "err.project.directory": "Choose an existing, accessible directory.",
   "err.project.exists": "The folder already exists and does not match the repository. Choose another destination or link the correct clone.",

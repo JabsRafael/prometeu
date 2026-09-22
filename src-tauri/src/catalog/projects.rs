@@ -1,5 +1,5 @@
 use super::*;
-use crate::state::{Board, Project};
+use crate::state::Project;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -13,7 +13,17 @@ pub struct CatalogProject {
     local_path: Option<String>,
 }
 
-pub(super) fn state(cache: &Cache, board: &Board) -> Vec<CatalogProject> {
+pub(super) fn state(cache: &Cache, registered: &[Project]) -> Vec<CatalogProject> {
+    let local: Vec<_> = if cache.doc.projects.is_empty()
+        && cache
+            .organizations
+            .iter()
+            .all(|org| org.doc.projects.is_empty())
+    {
+        Vec::new()
+    } else {
+        project_remotes(registered)
+    };
     std::iter::once((
         None,
         None,
@@ -31,6 +41,7 @@ pub(super) fn state(cache: &Cache, board: &Board) -> Vec<CatalogProject> {
         )
     }))
     .flat_map(|(organization, name, revision, doc, links)| {
+        let local = &local;
         doc.projects.iter().map(move |item| CatalogProject {
             item: item.clone(),
             organization: organization.cloned(),
@@ -39,9 +50,15 @@ pub(super) fn state(cache: &Cache, board: &Board) -> Vec<CatalogProject> {
             local_path: links
                 .get(&key("projects", &item.id))
                 .filter(|path| {
-                    board.projects.iter().any(|p| &p.path == *path) && Path::new(path).is_dir()
+                    registered.iter().any(|p| &p.path == *path) && Path::new(path).is_dir()
                 })
-                .cloned(),
+                .cloned()
+                .or_else(|| {
+                    local
+                        .iter()
+                        .find(|(_, source)| same_remote(&item.source, source))
+                        .map(|(project, _)| project.path.clone())
+                }),
         })
     })
     .collect()
@@ -131,6 +148,49 @@ fn git() -> Command {
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_ALLOW_PROTOCOL", "https:ssh");
     command
+}
+
+fn same_remote(first: &str, second: &str) -> bool {
+    let (Ok(first), Ok(second)) = (remote(first), remote(second)) else {
+        return false;
+    };
+    first.strip_suffix(".git").unwrap_or(&first) == second.strip_suffix(".git").unwrap_or(&second)
+}
+
+fn project_remote(path: &str) -> Option<String> {
+    let output = git()
+        .arg("-C")
+        .arg(path)
+        .args(["config", "--get", "remote.origin.url"])
+        .output()
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn project_remotes(projects: &[Project]) -> Vec<(Project, String)> {
+    projects
+        .iter()
+        .filter_map(|project| project_remote(&project.path).map(|source| (project.clone(), source)))
+        .collect()
+}
+
+fn matching_project(
+    item: &Portable,
+    remotes: &[(Project, String)],
+    registered: &[Project],
+) -> Option<Project> {
+    remotes
+        .iter()
+        .filter(|(_, source)| same_remote(&item.source, source))
+        .find_map(|(project, _)| {
+            registered
+                .iter()
+                .find(|current| current.id == project.id && current.path == project.path)
+                .cloned()
+        })
 }
 
 /// Show Git diagnostics locally, without URL credentials, query strings or authorization headers.
@@ -231,13 +291,9 @@ fn checkout(item: &Portable, directory: &Path, existing: bool) -> Result<PathBuf
                     .canonicalize()
                     .ok();
                 let expected = destination.canonicalize().ok();
-                let origin = remote(String::from_utf8_lossy(&origin.stdout).trim()).ok();
                 if actual.is_some()
                     && actual == expected
-                    && origin.as_ref().is_some_and(|url| {
-                        url.strip_suffix(".git").unwrap_or(url)
-                            == source.strip_suffix(".git").unwrap_or(&source)
-                    })
+                    && same_remote(&source, String::from_utf8_lossy(&origin.stdout).trim())
                 {
                     return Ok(expected.unwrap());
                 }
@@ -291,7 +347,21 @@ pub fn catalog_install_project(
     directory: String,
     existing: bool,
 ) -> Result<Project, String> {
-    let _sync = guard();
+    // Probe a snapshot before taking the catalog lock; slow paths must not block shared state.
+    let (remotes, _sync) = loop {
+        let registered = lock(&app.state::<AppState>().board).projects.clone();
+        let remotes = project_remotes(&registered);
+        let sync = guard();
+        // Another installation may have registered a project while we probed or waited.
+        if lock(&app.state::<AppState>().board)
+            .projects
+            .iter()
+            .map(|p| (&p.id, &p.path))
+            .eq(registered.iter().map(|p| (&p.id, &p.path)))
+        {
+            break (remotes, sync);
+        }
+    };
     let mut cache = load_cache();
     let (route, cached) = match organization.as_deref() {
         Some(id) => {
@@ -304,7 +374,7 @@ pub fn catalog_install_project(
         }
         None => ("/api/catalog".into(), &cache.doc),
     };
-    // Membership, revision and source are checked again before touching the filesystem.
+    // Membership, revision and source are checked again before cloning or linking.
     let (code, value) = cloud::api(Method::GET, &route, None, Duration::from_secs(12))?
         .ok_or_else(|| i18n::t("err.catalog.disconnected"))?;
     if code != 200 {
@@ -320,6 +390,28 @@ pub fn catalog_install_project(
         .iter()
         .find(|item| item.id == id)
         .ok_or_else(invalid)?;
+    let project = matching_project(
+        item,
+        &remotes,
+        &lock(&app.state::<AppState>().board).projects,
+    );
+    if let Some(project) = project {
+        let links = match organization {
+            Some(id) => {
+                &mut cache
+                    .organizations
+                    .iter_mut()
+                    .find(|org| org.id == id)
+                    .unwrap()
+                    .links
+            }
+            None => cache.links.as_mut().unwrap(),
+        };
+        links.insert(key("projects", &id), project.path.clone());
+        save_cache(&cache)?;
+        let _ = app.emit("catalog", ());
+        return Ok(project);
+    }
     let path = checkout(item, Path::new(&directory), existing)?;
     let project =
         crate::session::register_project(&mut lock(&app.state::<AppState>().board), &path);
@@ -345,6 +437,7 @@ pub fn catalog_install_project(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::Board;
 
     #[test]
     fn clone_errors_explain_access_without_hiding_git_diagnostics_or_exposing_url_secrets() {
@@ -496,6 +589,23 @@ mod tests {
         crate::session::register_project(&mut board, &retry);
         assert_eq!(board.projects.len(), 1);
         assert_eq!(
+            matching_project(&item, &project_remotes(&board.projects), &board.projects)
+                .unwrap()
+                .path,
+            retry.display().to_string()
+        );
+        // A project removed during the probe must not be returned from the old snapshot.
+        let snapshot = board.projects.clone();
+        let remotes = project_remotes(&snapshot);
+        assert!(matching_project(&item, &remotes, &[]).is_none());
+        board.projects[0].name = "Renamed during probe".into();
+        assert_eq!(
+            matching_project(&item, &remotes, &board.projects)
+                .unwrap()
+                .name,
+            "Renamed during probe"
+        );
+        assert_eq!(
             std::fs::read_to_string(path.join("README.md")).unwrap(),
             "local changes"
         );
@@ -519,12 +629,16 @@ mod tests {
             },
             ..Cache::default()
         };
+        assert_eq!(
+            state(&cache, &board.projects)[0].local_path.as_deref(),
+            retry.to_str()
+        );
         cache
             .links
             .as_mut()
             .unwrap()
             .insert(key("projects", "app"), retry.display().to_string());
-        assert!(state(&cache, &board)[0].local_path.is_some());
+        assert!(state(&cache, &board.projects)[0].local_path.is_some());
         bind(
             &mut cache,
             &Doc::default(),
