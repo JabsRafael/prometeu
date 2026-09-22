@@ -773,7 +773,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   /* ---------- releasing the disk ---------- */
 
   "clean.title": "Clean up worktrees",
-  "clean.offer": "Take this worktree off the disk?",
+  "clean.offer": "Workspace archived. Remove the worktree from disk?",
+  "clean.keep": "Keep worktree",
   "clean.hint":
     "The folder, local branch, and every ignored file inside go permanently; the card and PR stay.",
   "clean.hint.force":
