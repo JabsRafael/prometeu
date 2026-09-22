@@ -4,6 +4,23 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.12.0] - 2026-09-22
+
+### New
+
+- **feedback:** Support native image drops
+
+### Fixes
+
+- **feedback:** Keep pending images in sync with the form
+- **dictation:** Allow microphone access on macos
+- **browser:** Deny remote media capture
+- **mcp:** Expose connection checks and local login
+- **mcp:** Guard refreshes and avoid redundant login
+- **catalog:** Avoid duplicate local installs
+- **catalog:** Keep duplicate checks responsive and consistent
+- **projects:** Serialize local changes with catalog installs
+
 ## [0.11.0] - 2026-09-21
 
 ### New
