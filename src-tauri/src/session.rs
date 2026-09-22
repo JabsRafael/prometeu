@@ -28,19 +28,25 @@ pub fn load_board(state: State<AppState>) -> Board {
 
 /// Register folders once so the launcher can reuse them. Non-Git folders support agent sessions but
 /// cannot create branches or worktrees.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn add_project(
     app: AppHandle,
     state: State<AppState>,
     path: String,
 ) -> Result<Project, String> {
     let path = PathBuf::from(expand(&path));
-    let project = register_project(&mut lock(&state.board), &path);
+    let project = register_local_project(&state.board, &path);
     publish(&app);
     Ok(project)
 }
 
-/// Both local folders and catalog clones use the same board registration.
+fn register_local_project(board: &std::sync::Mutex<Board>, path: &Path) -> Project {
+    let _sync = crate::catalog::guard();
+    register_project(&mut lock(board), path)
+}
+
+/// Both local folders and catalog clones use the same board registration while holding the catalog
+/// guard. Acquire that guard before the board lock, so origin checks and cloning stay serialized.
 pub(crate) fn register_project(board: &mut Board, path: &Path) -> Project {
     let id = path.display().to_string();
     if let Some(project) = board.projects.iter().find(|p| p.path == id) {
@@ -59,13 +65,15 @@ pub(crate) fn register_project(board: &mut Board, path: &Path) -> Project {
     project
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn remove_project(app: AppHandle, state: State<AppState>, id: String) {
-    {
-        let mut board = lock(&state.board);
-        board.projects.retain(|p| p.id != id);
-    }
+    remove_registered_project(&state.board, &id);
     publish(&app);
+}
+
+fn remove_registered_project(board: &std::sync::Mutex<Board>, id: &str) {
+    let _sync = crate::catalog::guard();
+    lock(board).projects.retain(|p| p.id != id);
 }
 
 /* ---------- workspaces ---------- */
@@ -2339,6 +2347,54 @@ mod tests {
     };
     use crate::dock::{is_terminal, multi_setup, quoted};
     use std::path::Path;
+
+    #[test]
+    fn local_project_changes_wait_for_catalog_installation_without_locking_the_board() {
+        use std::sync::{mpsc, Mutex};
+        use std::time::Duration;
+
+        let mut initial = crate::state::Board::default();
+        super::register_project(&mut initial, Path::new("/old"));
+        let board = Mutex::new(initial);
+        let sync = crate::catalog::guard();
+        let (started, ready) = mpsc::channel();
+        let (finished, done) = mpsc::channel();
+        std::thread::scope(|scope| {
+            let add = scope.spawn(|| {
+                started.send(()).unwrap();
+                super::register_local_project(&board, Path::new("/new"));
+                finished.send(()).unwrap();
+            });
+            let remove = scope.spawn(|| {
+                started.send(()).unwrap();
+                super::remove_registered_project(&board, "/old");
+                finished.send(()).unwrap();
+            });
+            ready.recv().unwrap();
+            ready.recv().unwrap();
+            let blocked = matches!(
+                done.recv_timeout(Duration::from_millis(100)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            );
+            let during = board.try_lock().ok().map(|b| {
+                b.projects
+                    .iter()
+                    .map(|p| p.path.clone())
+                    .collect::<Vec<_>>()
+            });
+            drop(sync);
+            add.join().unwrap();
+            remove.join().unwrap();
+            assert!(
+                blocked,
+                "local project mutations must wait for the catalog guard"
+            );
+            assert_eq!(during, Some(vec!["/old".to_string()]));
+        });
+        let board = board.into_inner().unwrap();
+        assert_eq!(board.projects.len(), 1);
+        assert_eq!(board.projects[0].path, "/new");
+    }
 
     fn pr(number: u64, branch: &str, state: &str) -> Pr {
         Pr {

@@ -38,9 +38,13 @@ removes them. Publish Cloud support before the new desktop. Rolling back the
 desktop preserves definitions; rolling back Cloud code requires a version that
 still accepts stored projects. No schema migration is needed.
 
-Existing catalog synchronization serializes installation operations. Large clones
-can delay catalog refresh, as plugin installations already do. No background job
-system or automatic setup is introduced.
+Existing catalog synchronization serializes installation operations and local
+project additions/removals, so registration cannot change between the origin
+check and the catalog installation. Project commands wait on worker threads,
+without holding the board lock. Large clones can delay catalog refresh and local
+project edits, as plugin installations already delay catalog refresh. Board reads
+and unrelated workspace edits stay available. No background job system or
+automatic setup is introduced.
 
 The [catalog contract](../contracts/cloud-catalog.md) specifies wire behavior.
 [Rust tests](../../src-tauri/src/catalog/projects.rs) use a local Git upload-pack

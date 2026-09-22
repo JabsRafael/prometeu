@@ -194,6 +194,10 @@ and returns it without cloning or asking for the folder again.
 Origin probes use a snapshot of registered projects without holding the board or
 catalog mutex. Installation rechecks that a match is still registered before
 linking it; catalog writes remain serialized.
+Local project additions and removals use the same catalog guard, acquired before
+the board lock. They cannot change the checked registration set during the Cloud
+request or checkout. These commands run on worker threads while waiting; board
+reads and unrelated workspace edits remain available. IPC payloads are unchanged.
 An unrelated directory, nested repository subdirectory or different origin is
 rejected. Git clones into a temporary sibling directory and moves the completed
 clone into the reserved destination. Failures remove only that temporary clone
