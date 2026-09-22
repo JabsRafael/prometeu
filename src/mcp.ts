@@ -254,7 +254,10 @@ function serverRow(server: McpServer): HTMLElement {
   if (server.config.builtin === true) return row;
 
   const config = JSON.stringify(server.config);
-  if (connections.get(server.id)?.config !== config) connections.set(server.id, { config });
+  const previous = connections.get(server.id);
+  // A refreshed definition must not unlock an operation still using the old configuration.
+  // Replace its result only after it settles, so stale success/error never describes the new URL.
+  if (!previous || (previous.config !== config && !previous.pending)) connections.set(server.id, { config });
   const connection = connections.get(server.id)!;
   const check = connection.check;
   const status: Key = connection.pending ?? (connection.error ? "mcp.status.error"
@@ -270,7 +273,7 @@ function serverRow(server: McpServer): HTMLElement {
   const test = ui.button(t("mcp.check"), () => void connect(server, connection, "check"), "ghost");
   row.querySelector(".act")!.append(test);
   if (kind(server) === "url") {
-    if (!check?.probe.ok || check.probe.auth) {
+    if (check?.probe.auth || (!signedIn(server.id) && !check?.probe.ok)) {
       row.querySelector(".act")!.append(ui.button(t("mcp.authenticate"), () => void connect(server, connection, "login"), "ghost"));
     }
     if (signedIn(server.id)) {

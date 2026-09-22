@@ -1,9 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { McpServer } from "../src/types";
 
 type McpWindow = Window & {
   __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> };
   mcpCalls: string[];
   releaseMcpLogin?: () => void;
+  releaseMcpCheck?: () => void;
+  mock: { catalog: (servers: McpServer[]) => void };
 };
 
 async function openTools(page: Page) {
@@ -22,6 +25,9 @@ async function openTools(page: Page) {
       if (command === "mcp_login") {
         if (localStorage.getItem("test:denyMcpLogin")) throw 'i18n:{"code":"err.mcp.auth.denied"}';
         if (localStorage.getItem("test:holdMcpLogin")) await new Promise<void>((resolve) => { w.releaseMcpLogin = resolve; });
+      }
+      if (command === "mcp_check" && localStorage.getItem("test:holdMcpCheck")) {
+        await new Promise<void>((resolve) => { w.releaseMcpCheck = resolve; });
       }
       if (command === "mcp_check" && localStorage.getItem("test:failMcpCheck")) return {
         steps: [{ key: "connect", ok: false, note: "", detail: "connection refused" }],
@@ -94,9 +100,17 @@ test("ferramentas: autenticação no editor não salva catálogo nem publica ras
   await page.evaluate((value) => localStorage.setItem("mock:catalog", value), changed);
   await page.locator("#veil").getByRole("button", { name: "Entrar", exact: true }).click();
   await expect(page.locator("#veil").getByRole("button", { name: "Sair", exact: true })).toBeVisible();
+  await page.locator("#veil").getByRole("button", { name: "Cancelar", exact: true }).click();
+  // A saved login without a cached check offers sign-out, not another browser OAuth flow.
+  await expect(row.getByRole("status")).toHaveText("Não verificado neste Mac");
+  await expect(row.getByRole("button", { name: "Autenticar", exact: true })).toHaveCount(0);
+  await expect(row.getByRole("button", { name: "Sair", exact: true })).toBeVisible();
+  await row.getByRole("button", { name: "Editar", exact: true }).click();
   await page.locator("#veil").getByRole("button", { name: "Sair", exact: true }).click();
   await page.locator("#veil .mhead").click();
   await page.locator("#veil").getByLabel("URL do servidor remoto", { exact: true }).fill("https://mcp.capim.test/mcp");
+  await page.locator("#veil").getByLabel("URL do servidor remoto", { exact: true }).press("Tab");
+  await expect(page.locator("#veil .mcheck")).toContainText("Servidor verificado");
   await page.locator("#veil").getByRole("button", { name: "Continuar", exact: true }).click();
   await page.locator("#veil").getByRole("button", { name: "Entrar", exact: true }).click();
   await expect(page.locator("#veil .hint")).toHaveText("Salve as alterações de conexão antes de autenticar.");
@@ -105,3 +119,36 @@ test("ferramentas: autenticação no editor não salva catálogo nem publica ras
   expect(calls).not.toContain("mcp_save");
   expect(await page.evaluate(() => localStorage.getItem("mock:catalog"))).toBe(changed);
 });
+
+for (const action of ["login", "check"] as const) {
+  test(`ferramentas: refresh preserva bloqueio de ${action} e descarta resultado antigo`, async ({ page }) => {
+    await openTools(page);
+    const id = action === "login" ? "notion" : "linear-server";
+    const row = page.locator(".mcp-server", { has: page.locator("b", { hasText: new RegExp(`^${id}$`) }) });
+    await page.evaluate((action) => localStorage.setItem(action === "login" ? "test:holdMcpLogin" : "test:holdMcpCheck", "1"), action);
+    await row.getByRole("button", { name: action === "login" ? "Autenticar" : "Testar conexão", exact: true }).click();
+    await expect(row).toHaveAttribute("aria-busy", "true");
+    await page.evaluate(async (id) => {
+      const w = window as McpWindow;
+      const servers = await w.__TAURI_INTERNALS__.invoke("mcp_hub") as McpServer[];
+      w.mock.catalog(servers.map((server) => server.id === id
+        ? { ...server, config: { ...server.config, url: "https://quebrado.test/mcp" } } : server));
+    }, id);
+    await expect(row).toContainText("https://quebrado.test/mcp");
+    await expect(row).toHaveAttribute("aria-busy", "true");
+    await expect(row.getByRole("button", { name: "Testar conexão" })).toBeDisabled();
+    await expect(row.getByRole("button", { name: "Editar", exact: true })).toBeDisabled();
+    await page.evaluate((action) => {
+      const w = window as McpWindow;
+      if (action === "login") w.releaseMcpLogin!();
+      else { localStorage.removeItem("test:holdMcpCheck"); w.releaseMcpCheck!(); }
+    }, action);
+    await expect(row).toHaveAttribute("aria-busy", "false");
+    await expect(row.getByRole("status")).toHaveText("Não verificado neste Mac");
+    await row.getByRole("button", { name: "Testar conexão" }).click();
+    await expect(row.getByRole("status")).toHaveText("Erro de conexão · connection refused");
+    const calls = await page.evaluate(() => (window as McpWindow).mcpCalls);
+    expect(calls.filter((command) => command === "mcp_login")).toHaveLength(action === "login" ? 1 : 0);
+    expect(calls.filter((command) => command === "mcp_check")).toHaveLength(2);
+  });
+}

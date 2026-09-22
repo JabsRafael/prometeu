@@ -26,8 +26,11 @@ MCP IPC without saving the definition, creating a copy or changing the catalog
 revision. Authentication opens the local browser; credentials remain in the
 Mac's private MCP store. Login and logout recheck the connection. The row shows
 an unchecked, authentication-required, connected or error state; a stored token
-alone does not prove connectivity. Results are ephemeral and discarded when
-the configuration changes. Existing definitions also authenticate from the
+alone does not prove connectivity. A stored login offers sign-out; authentication
+is offered again if a check explicitly requires it. Results are ephemeral and
+discarded when the configuration changes, but pending operations keep actions
+blocked until they settle even if a catalog refresh replaces the definition.
+Existing definitions also authenticate from the
 editor without saving; connection edits must be explicitly saved first.
 Received plugins and skills appear as available, with `Install here`. The
 per-workspace/per-conversation selection still determines what the providers

@@ -2114,6 +2114,7 @@ w.__TAURI_INTERNALS__ = {
 
 // Console shortcut for file-drop testing: mock.drop([...]).
 w.mock = {
+  catalog: (servers: McpServer[]) => { mcpHub = servers; emit("catalog", null); },
   usage: (payload: unknown) => emit("usage", payload),
   accountError: (error: string) => emit("account-error", error),
   /// Mirror the authorized desktop navigation event without running an MCP server in the browser.
