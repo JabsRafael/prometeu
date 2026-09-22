@@ -1528,7 +1528,7 @@ const mockCommands: IpcHandlers = {
     const server = args.server as McpServer;
     const url = String(server.config.url ?? "");
     const step = (key: string, ok: boolean, note = "", detail = "") => ({ key, ok, note, detail });
-    if (url.includes("notion") || url.includes("capim"))
+    if ((url.includes("notion") || url.includes("capim")) && !mcpLogins.includes(server.id))
       return {
         steps: [step("connect", true, "401"), step("oauth", true), step("client", true)],
         probe: { ok: false, auth: true, tools: 0, name: "", detail: "" },
@@ -2117,6 +2117,7 @@ w.__TAURI_INTERNALS__ = {
 
 // Console shortcut for file-drop testing: mock.drop([...]).
 w.mock = {
+  catalog: (servers: McpServer[]) => { mcpHub = servers; emit("catalog", null); },
   usage: (payload: unknown) => emit("usage", payload),
   accountError: (error: string) => emit("account-error", error),
   /// Mirror the authorized desktop navigation event without running an MCP server in the browser.

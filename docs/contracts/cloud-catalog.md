@@ -20,6 +20,18 @@ modify the files independently, register another directory. Copied skills have
 their own package and content.
 
 Received MCPs enter the hub, without automatic connection or activation.
+Installed MCP rows offer **Test connection** and, for remote servers,
+**Authenticate** or **Sign out** on this Mac. These actions use the existing
+MCP IPC without saving the definition, creating a copy or changing the catalog
+revision. Authentication opens the local browser; credentials remain in the
+Mac's private MCP store. Login and logout recheck the connection. The row shows
+an unchecked, authentication-required, connected or error state; a stored token
+alone does not prove connectivity. A stored login offers sign-out; authentication
+is offered again if a check explicitly requires it. Results are ephemeral and
+discarded when the configuration changes, but pending operations keep actions
+blocked until they settle even if a catalog refresh replaces the definition.
+Existing definitions also authenticate from the
+editor without saving; connection edits must be explicitly saved first.
 Received plugins and skills appear as available, with `Install here`. The
 per-workspace/per-conversation selection still determines what the providers
 receive. The desktop checks for updates on login, when the window regains focus,
@@ -220,6 +232,11 @@ with empty credentials.
   providers' manifests and content updates.
 - `e2e/cloud.spec.ts`: installation, explicit sharing, private copy, offline
   editing and revision conflict over the mock.
+- `e2e/mcp.spec.ts`: local connection checks, login retry and logout for shared
+  MCPs while Cloud is unavailable, pending-action guards and authentication
+  independent of catalog revisions. Browser tests simulate OAuth; consent with
+  a real server still requires manual validation. No persisted or IPC format
+  changes are introduced.
 - `prometeu-cloud/test/integration/catalog_test.rb` and
   `catalog_browser_test.rb`: authentication, per-account isolation, browser/API
   CRUD, conflict and compatibility.
