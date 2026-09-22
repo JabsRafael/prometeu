@@ -911,7 +911,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn normaliza_stream_e_bloco_final() {
+    fn normalizes_streaming_and_final_blocks() {
         let mut adapter = Adapter::default();
         let started = adapter.translate(&json!({
             "type": "stream_event",
@@ -922,15 +922,15 @@ mod tests {
         let final_block = adapter.translate(&json!({
             "type": "assistant",
             "ts": 11,
-            "message": { "id": "m1", "content": [{ "type": "text", "text": "oi" }] },
+            "message": { "id": "m1", "content": [{ "type": "text", "text": "hello" }] },
         }));
         assert_eq!(final_block[0]["type"], "assistant.block");
         assert_eq!(final_block[0]["index"], 0);
-        assert_eq!(final_block[0]["block"]["text"], "oi");
+        assert_eq!(final_block[0]["block"]["text"], "hello");
     }
 
     #[test]
-    fn comando_de_resposta_reusa_o_input_do_pedido() {
+    fn response_commands_reuse_request_input() {
         let buffer = event(
             "request.opened",
             1,
@@ -939,7 +939,7 @@ mod tests {
                 "kind": "approval",
                 "toolId": "t1",
                 "tool": "Bash",
-                "input": { "command": "rm arquivo" },
+                "input": { "command": "rm file" },
             }),
         )
         .to_string();
@@ -952,7 +952,7 @@ mod tests {
         let provider = command(&response, &buffer).unwrap();
         assert_eq!(
             provider.pointer("/response/response/updatedInput/command"),
-            Some(&json!("rm arquivo"))
+            Some(&json!("rm file"))
         );
 
         let closed = format!(
@@ -968,14 +968,14 @@ mod tests {
     }
 
     #[test]
-    fn evento_desconhecido_nao_vira_conversa() {
+    fn unknown_events_do_not_become_conversation_content() {
         assert!(Adapter::default()
             .translate(&json!({ "type": "provider/new-event" }))
             .is_empty());
     }
 
     #[test]
-    fn normaliza_pedido_background_e_compactacao() {
+    fn normalizes_requests_background_tasks_and_compaction() {
         let mut adapter = Adapter::default();
         let request = adapter.translate(&json!({
             "type": "control_request",
@@ -1014,8 +1014,8 @@ mod account_tests {
     use super::*;
 
     #[test]
-    #[ignore = "precisa do Claude Code instalado; não faz login nem envia prompts"]
-    fn perfil_vazio_nao_herda_login_do_terminal() {
+    #[ignore = "requires Claude Code installed; does not log in or send prompts"]
+    fn empty_profiles_do_not_inherit_terminal_login() {
         let id = uuid::Uuid::new_v4().to_string();
         let home = std::env::temp_dir().join(format!("prometeu-claude-auth-{id}"));
         paths::ensure_private_dir(&home).unwrap();
@@ -1032,7 +1032,7 @@ mod account_tests {
     }
 
     #[test]
-    fn contas_compartilham_transcript_e_plugins_sem_copiar_login() {
+    fn accounts_share_transcripts_and_plugins_without_copying_login() {
         let root =
             std::env::temp_dir().join(format!("prometeu-claude-accounts-{}", uuid::Uuid::new_v4()));
         let base = root.join("base");
@@ -1041,17 +1041,21 @@ mod account_tests {
         for home in [&base, &first, &second] {
             paths::ensure_private_dir(home).unwrap();
         }
-        std::fs::write(base.join(".credentials.json"), "login original").unwrap();
+        std::fs::write(base.join(".credentials.json"), "original login").unwrap();
         std::fs::write(base.join(".claude.json"), r#"{"oauthAccount":{"email":"original@example.com"},"mcpServers":{"local":{"command":"echo"}},"projects":{"/repo":{"hasTrustDialogAccepted":true}}}"#).unwrap();
-        std::fs::write(base.join("settings.json"), r#"{"env":{"ANTHROPIC_API_KEY":"segredo","CLAUDE_CONFIG_DIR":"/outra-conta","KEEP":"sim"},"apiKeyHelper":"outra-chave","enabledPlugins":{"teste":true}}"#).unwrap();
+        std::fs::write(base.join("settings.json"), r#"{"env":{"ANTHROPIC_API_KEY":"secret","CLAUDE_CONFIG_DIR":"/other-account","KEEP":"yes"},"apiKeyHelper":"other-key","enabledPlugins":{"test":true}}"#).unwrap();
         prepare_profile_at(&base, &first).unwrap();
         prepare_profile_at(&base, &second).unwrap();
-        std::fs::write(first.join(".credentials.json"), "primeira conta").unwrap();
-        std::fs::write(first.join("projects/conversa.jsonl"), "transcript completo").unwrap();
+        std::fs::write(first.join(".credentials.json"), "first account").unwrap();
+        std::fs::write(
+            first.join("projects/conversation.jsonl"),
+            "complete transcript",
+        )
+        .unwrap();
         prepare_profile_at(&base, &first).unwrap();
         assert_eq!(
-            std::fs::read_to_string(second.join("projects/conversa.jsonl")).unwrap(),
-            "transcript completo"
+            std::fs::read_to_string(second.join("projects/conversation.jsonl")).unwrap(),
+            "complete transcript"
         );
         assert_eq!(
             std::fs::read_link(second.join("plugins")).unwrap(),
@@ -1059,19 +1063,19 @@ mod account_tests {
         );
         assert_eq!(
             std::fs::read_to_string(first.join(".credentials.json")).unwrap(),
-            "primeira conta"
+            "first account"
         );
         assert!(!second.join(".credentials.json").exists());
         assert_eq!(
             std::fs::read_to_string(base.join(".credentials.json")).unwrap(),
-            "login original"
+            "original login"
         );
         let settings: Value =
             serde_json::from_str(&std::fs::read_to_string(first.join("settings.json")).unwrap())
                 .unwrap();
         assert!(settings["apiKeyHelper"].is_null());
         assert!(settings["env"]["ANTHROPIC_API_KEY"].is_null());
-        assert_eq!(settings["env"]["KEEP"], "sim");
+        assert_eq!(settings["env"]["KEEP"], "yes");
         let config: Value =
             serde_json::from_str(&std::fs::read_to_string(first.join(".claude.json")).unwrap())
                 .unwrap();
@@ -1081,17 +1085,17 @@ mod account_tests {
     }
 
     #[test]
-    fn status_261_expoe_somente_identidade_da_conta() {
+    fn status_261_exposes_only_account_identity() {
         // Sanitized shape captured from claude auth status --json 2.1.261.
-        let value = json!({"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","analyticsDisabled":false,"projectsDirectory":"/privado/projects","email":"pessoa@example.com","orgId":"org-teste","orgName":"Time","subscriptionType":"max"});
+        let value = json!({"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","analyticsDisabled":false,"projectsDirectory":"/private/projects","email":"person@example.com","orgId":"org-test","orgName":"Team","subscriptionType":"max"});
         let identity = parse_account(&value).unwrap();
         assert!(identity.connected);
-        assert_eq!(identity.email.as_deref(), Some("pessoa@example.com"));
+        assert_eq!(identity.email.as_deref(), Some("person@example.com"));
         assert!(!serde_json::to_string(&identity)
             .unwrap()
-            .contains("/privado"));
+            .contains("/private"));
         assert!(!parse_account(&json!({"loggedIn":false})).unwrap().connected);
-        assert!(parse_account(&json!({"error":"indisponível"})).is_err());
+        assert!(parse_account(&json!({"error":"unavailable"})).is_err());
     }
 }
 
@@ -1146,14 +1150,14 @@ mod launch_tests {
     /// Without an explicit MCP selection, preserve CLI defaults. A selection supplies both the
     /// generated file and strict configuration.
     #[test]
-    fn mcp_so_entra_quando_alguem_escolheu() {
+    fn mcp_is_injected_only_when_explicitly_selected() {
         // Use the existing subprocess pattern instead of changing the shared test environment.
         if std::env::var("PROMETEU_CLAUDE_MCP_TEST_CHILD").as_deref() != Ok("1") {
             let root = std::env::temp_dir().join(format!("prometeu-mcp-{}", uuid::Uuid::new_v4()));
             let result = Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
-                    "claude::launch_tests::mcp_so_entra_quando_alguem_escolheu",
+                    "claude::launch_tests::mcp_is_injected_only_when_explicitly_selected",
                     "--nocapture",
                 ])
                 .env("PROMETEU_CLAUDE_MCP_TEST_CHILD", "1")
@@ -1170,9 +1174,9 @@ mod launch_tests {
             );
             return;
         }
-        let sem = launch_args("id", false, &launch("", "", false), work()).unwrap();
-        assert!(!sem.contains(&"--mcp-config".to_string()));
-        assert!(!sem.contains(&"--strict-mcp-config".to_string()));
+        let unselected = launch_args("id", false, &launch("", "", false), work()).unwrap();
+        assert!(!unselected.contains(&"--mcp-config".to_string()));
+        assert!(!unselected.contains(&"--strict-mcp-config".to_string()));
 
         // A chosen id must exist in the universe: materialization fails instead of silently
         // starting without the requested server.
@@ -1182,15 +1186,15 @@ mod launch_tests {
             note: String::new(),
         }])
         .expect("hub");
-        let escolheu = Launch {
+        let selected = Launch {
             mcp: Some(vec!["notion".into()]),
             ..launch("", "", false)
         };
-        let args = launch_args("id", false, &escolheu, work()).unwrap();
+        let args = launch_args("id", false, &selected, work()).unwrap();
         let at = args
             .iter()
             .position(|a| a == "--mcp-config")
-            .expect("o arquivo");
+            .expect("configuration file");
         assert!(std::path::Path::new(&args[at + 1]).exists());
         assert!(std::path::Path::new(&args[at + 1]).starts_with(paths::root()));
         assert!(args.contains(&"--strict-mcp-config".to_string()));
@@ -1199,7 +1203,7 @@ mod launch_tests {
     /// Without a plugin selection, preserve CLI defaults. Selected-plugin flag coverage belongs to
     /// plugins.rs.
     #[test]
-    fn sem_escolha_nao_ha_flag_de_plugin() {
+    fn omits_plugin_flags_without_a_selection() {
         let args = launch_args("id", false, &launch("", "", false), work()).unwrap();
         assert!(!args.contains(&"--plugin-dir".to_string()));
         assert!(!args.contains(&"--plugin-url".to_string()));
@@ -1208,40 +1212,39 @@ mod launch_tests {
     /// Bypass overrides plan mode, so plan mode must use the allow flag without enabling bypass
     /// immediately.
     #[test]
-    fn plan_mode_nao_leva_o_bypass_junto() {
-        let solto = launch_args("id", false, &launch("", "", false), work()).unwrap();
-        assert!(solto.contains(&"--dangerously-skip-permissions".to_string()));
-        assert!(!solto.contains(&"--permission-mode".to_string()));
+    fn plan_mode_does_not_enable_permission_bypass() {
+        let unrestricted = launch_args("id", false, &launch("", "", false), work()).unwrap();
+        assert!(unrestricted.contains(&"--dangerously-skip-permissions".to_string()));
+        assert!(!unrestricted.contains(&"--permission-mode".to_string()));
 
-        let plano = launch_args("id", false, &launch("", "", true), work()).unwrap();
-        assert!(!plano.contains(&"--dangerously-skip-permissions".to_string()));
-        assert!(plano.contains(&"--allow-dangerously-skip-permissions".to_string()));
-        let at = plano.iter().position(|a| a == "--permission-mode").unwrap();
-        assert_eq!(plano[at + 1], "plan");
+        let plan = launch_args("id", false, &launch("", "", true), work()).unwrap();
+        assert!(!plan.contains(&"--dangerously-skip-permissions".to_string()));
+        assert!(plan.contains(&"--allow-dangerously-skip-permissions".to_string()));
+        let at = plan.iter().position(|a| a == "--permission-mode").unwrap();
+        assert_eq!(plan[at + 1], "plan");
     }
 
     /// Omit empty model and effort flags so Claude can choose its defaults.
     #[test]
-    fn modelo_e_esforco_so_quando_escolhidos() {
-        let padrao = launch_args("id", true, &launch("", " ", false), work()).unwrap();
-        assert!(!padrao.contains(&"--model".to_string()));
-        assert!(!padrao.contains(&"--effort".to_string()));
-        let at = padrao.iter().position(|a| a == "--resume").unwrap();
-        assert_eq!(padrao[at + 1], "id");
+    fn passes_model_and_effort_only_when_selected() {
+        let defaults = launch_args("id", true, &launch("", " ", false), work()).unwrap();
+        assert!(!defaults.contains(&"--model".to_string()));
+        assert!(!defaults.contains(&"--effort".to_string()));
+        let at = defaults.iter().position(|a| a == "--resume").unwrap();
+        assert_eq!(defaults[at + 1], "id");
 
-        let escolhido =
-            launch_args("id", false, &launch("opus[1m]", "max", false), work()).unwrap();
+        let selected = launch_args("id", false, &launch("opus[1m]", "max", false), work()).unwrap();
         assert_eq!(
-            escolhido[escolhido.len() - 4..],
+            selected[selected.len() - 4..],
             ["--model", "opus[1m]", "--effort", "max"]
         );
-        let at = escolhido.iter().position(|a| a == "--session-id").unwrap();
-        assert_eq!(escolhido[at + 1], "id");
+        let at = selected.iter().position(|a| a == "--session-id").unwrap();
+        assert_eq!(selected[at + 1], "id");
     }
 
     /// Keep conversation input, output, and permission requests on the same stream-json transport.
     #[test]
-    fn a_conversa_e_stream_json_com_permissao_por_stdio() {
+    fn conversation_uses_stream_json_with_stdio_permissions() {
         let args = launch_args("id", false, &launch("", "", false), work()).unwrap();
         let has = |pair: [&str; 2]| args.windows(2).any(|w| w[0] == pair[0] && w[1] == pair[1]);
         assert_eq!(args[0], "-p");

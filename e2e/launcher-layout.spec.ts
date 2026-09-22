@@ -1,16 +1,15 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-const email = "pessoa.com.sobrenome.comprido@departamento.empresa.exemplo.com";
+const email = "person.with.a.very.long.surname@department.company.example.com";
 
-async function seed(page: Page, locale: string) {
-  await page.addInitScript(({ locale, email }) => {
-    localStorage.setItem("prometeu:idioma", locale);
+async function seed(page: Page) {
+  await page.addInitScript(email => {
     localStorage.setItem("prometeu:model-choice", JSON.stringify({ agent: "codex", model: "gpt-5.6-sol" }));
     localStorage.setItem("prometeu:effort", "high");
     localStorage.setItem("mock:accounts", JSON.stringify({ accounts: [
       { id: "codex", provider: "codex", email, plan: "pro", connected: true, revision: 0 },
     ], active: { codex: "codex" }, login: null }));
-  }, { locale, email });
+  }, email);
   await page.goto("/");
   await expect(page.locator("#railbody .navitem.sub").first()).toBeVisible();
 }
@@ -25,13 +24,11 @@ async function inside(locator: Locator, container: Locator) {
 }
 
 // Cover the two-column and stacked layouts without a locale/viewport matrix.
-for (const [width, height, locale] of [
-  [1280, 800, "pt-BR"], [390, 720, "en"],
-] as const) {
-  test(`launcher layout: readable settings and fixed actions at ${width}×${height} in ${locale}`, { tag: "@webkit" }, async ({ page }) => {
+for (const [width, height] of [[1280, 800], [390, 720]] as const) {
+  test(`launcher layout: readable settings and fixed actions at ${width}×${height}`, { tag: "@webkit" }, async ({ page }) => {
     await page.setViewportSize({ width, height });
-    await seed(page, locale);
-    await page.locator("#railbody").getByRole("button", { name: locale === "en" ? "Create" : "Criar", exact: true }).click();
+    await seed(page);
+    await page.locator("#railbody").getByRole("button", { name: "Create", exact: true }).click();
     const scroll = page.locator(".launcher-scroll");
     const footer = page.locator(".launcher-footer");
     await expect(page.locator("#d-model")).toContainText("GPT-5.6-Sol");
@@ -69,8 +66,8 @@ for (const [width, height, locale] of [
 }
 
 test("launcher layout: native branch controls preserve worktree and multiple-repository rules", async ({ page }) => {
-  await seed(page, "pt-BR");
-  await page.locator("#railbody").getByRole("button", { name: "Criar", exact: true }).click();
+  await seed(page);
+  await page.locator("#railbody").getByRole("button", { name: "Create", exact: true }).click();
   await expect(page.locator("#d-nb")).toBeChecked();
   await expect(page.locator("#d-nb")).toBeDisabled();
   await page.locator("#d-wt").uncheck();
@@ -82,6 +79,6 @@ test("launcher layout: native branch controls preserve worktree and multiple-rep
   await expect(page.locator("#d-wt")).toBeDisabled();
   await expect(page.locator("#d-nb")).toBeChecked();
   await expect(page.locator("#d-nb")).toBeDisabled();
-  await page.getByTitle("Tirar prometeu deste workspace", { exact: true }).click();
+  await page.getByTitle("Remove prometeu from this workspace", { exact: true }).click();
   await expect(page.locator("#d-wt")).toBeEnabled();
 });

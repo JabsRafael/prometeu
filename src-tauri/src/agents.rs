@@ -227,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn ultracode_vira_ultra() {
+    fn ultracode_maps_to_ultra() {
         assert_eq!(effort("ultracode"), "ultra");
         assert_eq!(effort("max"), "max");
     }
@@ -235,7 +235,7 @@ mod tests {
     // A shortened Claude 2.1.251 response excludes Default and disabled advertisements while
     // preserving usable models.
     #[test]
-    fn le_o_catalogo_do_claude() {
+    fn reads_the_claude_catalog() {
         let line = r#"{"type":"control_response","response":{"subtype":"success","request_id":"models","response":{"models":[
             {"value":"default","resolvedModel":"claude-opus-5[1m]","displayName":"Default (recommended)","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]},
             {"value":"opus[1m]","resolvedModel":"claude-opus-5[1m]","displayName":"Opus (1M context)","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]},
@@ -252,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn capacidades_sao_do_descriptor_e_nao_da_tela() {
+    fn capabilities_belong_to_the_descriptor_not_the_view() {
         let claude = descriptor(ProviderId::Claude, true, vec![]);
         let codex = descriptor(ProviderId::Codex, true, vec![]);
 

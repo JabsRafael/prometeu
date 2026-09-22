@@ -4,11 +4,11 @@ import {
   signIdentity, validateIdentity, validatePublicKey, verifyIdentity,
 } from "./team-crypto";
 
-const content = new TextEncoder().encode("private conversation: Olá 🔐");
+const content = new TextEncoder().encode("private conversation: Hello 🔐");
 const context = ["organization", "workspace", "tab", "sender", "recipient", "message-id"];
 
-describe("criptografia ponta a ponta do time", () => {
-  it("preserva identidade e autentica conteúdo entre dispositivos", async () => {
+describe("team end-to-end encryption", () => {
+  it("preserves identity and authenticates content between devices", async () => {
     const alice = await generateIdentity();
     const bob = await generateIdentity();
     const restored = await validateIdentity(JSON.parse(JSON.stringify(alice)));
@@ -18,7 +18,7 @@ describe("criptografia ponta a ponta do time", () => {
     expect(await seal(alice, bob.publicKey, context, content)).not.toEqual(box);
   });
 
-  it("recusa remetente, destinatário e contexto substituídos", async () => {
+  it("rejects substituted sender, recipient and context", async () => {
     const alice = await generateIdentity();
     const bob = await generateIdentity();
     const mallory = await generateIdentity();
@@ -33,7 +33,7 @@ describe("criptografia ponta a ponta do time", () => {
     await expect(open(bob, alice.publicKey, ["a:b", "c"], ambiguous)).rejects.toThrow();
   });
 
-  it("recusa adulteração de ciphertext e encapsulamento", async () => {
+  it("rejects tampered ciphertext and envelopes", async () => {
     const alice = await generateIdentity();
     const bob = await generateIdentity();
     const box = await seal(alice, bob.publicKey, context, content);
@@ -45,7 +45,7 @@ describe("criptografia ponta a ponta do time", () => {
     await expect(open(bob, alice.publicKey, context, { ...box, ct: "AA" })).rejects.toThrow();
   });
 
-  it("recusa chaves inválidas e identidades inconsistentes sem regenerar", async () => {
+  it("rejects invalid keys and inconsistent identities without regenerating them", async () => {
     const alice = await generateIdentity();
     const bob = await generateIdentity();
     for (const value of [null, {}, { ...alice, privateKey: {} }, { ...alice, publicKey: bob.publicKey },
@@ -58,7 +58,7 @@ describe("criptografia ponta a ponta do time", () => {
     }
   });
 
-  it("valida base64url canônico e limites antes de importar", () => {
+  it("validates canonical base64url and limits before importing", () => {
     const bytes = Uint8Array.from({ length: 256 }, (_, i) => i);
     expect(decodeBase64Url(encodeBase64Url(bytes), 256)).toEqual(bytes);
     expect(decodeBase64Url("", 0)).toEqual(new Uint8Array());
@@ -69,7 +69,7 @@ describe("criptografia ponta a ponta do time", () => {
     expect(() => decodeBase64Url("AA", -1)).toThrow();
   });
 
-  it("prova posse vinculada ao membro, organização e desafio", async () => {
+  it("binds proof of possession to the member, organization and challenge", async () => {
     const alice = await generateIdentity();
     const bob = await generateIdentity();
     const statement = ["organization", "member", "challenge"];

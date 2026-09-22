@@ -2,63 +2,63 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { use } from "./i18n";
 import { ago, bytes, groups, span, until, type Window } from "./statusbar";
 
-beforeEach(() => use("pt-BR"));
+beforeEach(() => use("en"));
 
 describe("span", () => {
-  it("para em duas casas: dia e hora, ou hora e minuto", () => {
+  it("uses two duration units: days and hours, or hours and minutes", () => {
     expect(span(3 * 3600 + 15 * 60)).toBe("3h 15m");
     expect(span(3 * 86400 + 4 * 3600 + 50 * 60)).toBe("3d 4h");
     expect(span(12 * 60)).toBe("12m");
   });
 
-  it("a casa redonda não arrasta um zero atrás", () => {
+  it("omits a trailing zero unit for exact durations", () => {
     expect(span(2 * 3600)).toBe("2h");
     expect(span(5 * 86400)).toBe("5d");
   });
 
-  it("menos de um minuto é zero minuto, não é negativo", () => {
+  it("clamps durations under a minute to zero minutes", () => {
     expect(span(30)).toBe("0m");
     expect(span(-90)).toBe("0m");
   });
 });
 
 describe("until", () => {
-  it("conta o que falta para a janela zerar", () => {
+  it("counts down until the quota window resets", () => {
     expect(until(1000 + 3 * 3600, 1000)).toBe("3h");
   });
 
   // A stale usage response must not display a negative reset countdown.
-  it("janela vencida não conta para trás", () => {
-    expect(until(900, 1000)).toBe("agora");
+  it("does not count backward after a window expires", () => {
+    expect(until(900, 1000)).toBe("now");
   });
 });
 
 describe("ago", () => {
-  it("leitura recém-chegada não vira relógio", () => {
-    expect(ago(980, 1000)).toBe("atualizado agora");
+  it("omits elapsed time for freshly received readings", () => {
+    expect(ago(980, 1000)).toBe("updated just now");
   });
 
-  it("mais de um minuto vira quanto tempo faz", () => {
-    expect(ago(1000 - 4 * 60, 1000)).toBe("atualizado há 4m");
-    expect(ago(1000 - 96 * 60, 1000)).toBe("atualizado há 1h 36m");
+  it("shows elapsed time after one minute", () => {
+    expect(ago(1000 - 4 * 60, 1000)).toBe("updated 4m ago");
+    expect(ago(1000 - 96 * 60, 1000)).toBe("updated 1h 36m ago");
   });
 });
 
 describe("bytes", () => {
-  it("uma casa até dez, nenhuma depois", () => {
+  it("uses one decimal below ten and none above it", () => {
     expect(bytes(822 * 1024 * 1024)).toBe("822 MB");
     expect(bytes(1.25 * 1024 * 1024 * 1024)).toBe("1.3 GB");
     expect(bytes(4096)).toBe("4.0 KB");
   });
 
-  it("processo que ainda não pegou memória nenhuma", () => {
+  it("handles processes that have not allocated memory yet", () => {
     expect(bytes(0)).toBe("0 B");
     expect(bytes(900)).toBe("900 B");
   });
 });
 
 describe("groups", () => {
-  it("segrega as janelas do Codex por cota sem mudar a ordem", () => {
+  it("groups Codex windows by quota without reordering them", () => {
     const windows: Window[] = [
       { kind: "weekly", pct: 6, resets: 30, scope: "general" },
       { kind: "session", pct: 1, resets: 10, scope: "spark", label: "Spark" },
@@ -70,7 +70,7 @@ describe("groups", () => {
     ]);
   });
 
-  it("trata o snapshot persistido antigo como cota geral", () => {
+  it("treats legacy persisted snapshots as the general quota", () => {
     const window: Window = { kind: "session", pct: 4, resets: 10 };
     expect(groups([window])).toEqual([["general", [window]]]);
   });

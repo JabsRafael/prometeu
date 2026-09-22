@@ -75,5 +75,5 @@ and the read scope.
 - `branch.ts` tests cover the new prefix;
 - conversation tests keep fixtures of the historical tokens;
 - the Tauri configuration defines an independent product, binary and bundle id.
-- `session.rs::check_so_deixa_sair_o_que_ja_entrou_e_esta_limpo` covers cleanup
+- `session.rs::check_allows_only_clean_workspaces_that_were_entered` covers cleanup
   of inherited multi-repository worktrees.

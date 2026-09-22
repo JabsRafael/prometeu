@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("organizações no desktop selecionam acesso aceito e mantêm compartilhamento no escopo escolhido", async ({ page }) => {
+test("desktop organizations select accepted access and keep sharing within the chosen scope", async ({ page }) => {
   await page.addInitScript(() => {
     if (!localStorage.getItem("mock:cloud")) localStorage.setItem("mock:cloud", JSON.stringify({ user: { id: "user1", name: "Alice", email: "alice@example.com" }, origin: "https://app.prometeu.co", offline: false }));
     if (!localStorage.getItem("mock:organizations")) localStorage.setItem("mock:organizations", JSON.stringify([
@@ -11,13 +11,13 @@ test("organizações no desktop selecionam acesso aceito e mantêm compartilhame
   await page.goto("/");
   await expect(page.locator(".cloud-account")).toContainText("Alice");
   await page.locator("#settings").click();
-  await page.locator(".setnavitem", { hasText: "Organizações" }).click();
-  await expect(page.getByRole("button", { name: "Criar time", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Entrar com código", exact: true })).toHaveCount(0);
-  const choice = () => page.getByLabel("Compartilhar workspaces com", { exact: true });
+  await page.locator(".setnavitem", { hasText: "Organizations" }).click();
+  await expect(page.getByRole("button", { name: "Create team", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Join with code", exact: true })).toHaveCount(0);
+  const choice = () => page.getByLabel("Share workspaces with", { exact: true });
   await choice().click();
   await page.getByRole("menuitemcheckbox", { name: "One", exact: true }).click();
-  await expect(page.locator(".setrow", { hasText: "One" }).first()).toContainText("Conectado");
+  await expect(page.locator(".setrow", { hasText: "One" }).first()).toContainText("Connected");
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("mock:team")!).cloud)).toMatchObject({ user: "user1", slug: "one" });
   expect(await page.evaluate(() => localStorage.getItem("mock:shared"))).toBeNull();
   await page.reload();
@@ -25,16 +25,16 @@ test("organizações no desktop selecionam acesso aceito e mantêm compartilhame
   await expect(choice()).toContainText("One");
   await choice().click();
   await page.getByRole("menuitemcheckbox", { name: "Two", exact: true }).click();
-  await expect(page.locator(".setrow", { hasText: "Two" }).first()).toContainText("Conectado");
+  await expect(page.locator(".setrow", { hasText: "Two" }).first()).toContainText("Connected");
   expect(await page.evaluate(() => localStorage.getItem("mock:shared"))).toBeNull();
   await page.evaluate(() => localStorage.setItem("mock:organizations", "[]"));
   await page.locator(".cloud-account").click();
-  await page.getByRole("menuitem", { name: "Atualizar conta" }).click();
+  await page.getByRole("menuitem", { name: "Refresh account" }).click();
   await expect(choice()).toHaveCount(0);
-  await expect(page.locator("#settingsView")).toContainText("Crie organizações");
+  await expect(page.locator("#settingsView")).toContainText("Create organizations");
 });
 
-test("controle remoto no rodapé persiste sem compartilhar com a organização", async ({ page }) => {
+test("footer remote control persists without sharing with the organization", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("mock:cloud", JSON.stringify({ user: { id: "user1", name: "Alice", email: "alice@example.com" }, origin: "https://app.prometeu.co", offline: false }));
     localStorage.setItem("mock:organizations", JSON.stringify([
@@ -45,7 +45,7 @@ test("controle remoto no rodapé persiste sem compartilhar com a organização",
   await expect(page.locator("#tiles .tile").first()).toBeVisible();
   // Cloud discovery can rebuild the sidebar during a click; use the stable desk entry point.
   await page.locator('#tiles .tile[data-tab="t1"] .topen').click();
-  const control = page.locator("#chatwrap").getByRole("button", { name: "Controle remoto", exact: true });
+  const control = page.locator("#chatwrap").getByRole("button", { name: "Remote control", exact: true });
   await expect(control).toBeVisible();
   await expect(control).toHaveAttribute("aria-pressed", "false");
 

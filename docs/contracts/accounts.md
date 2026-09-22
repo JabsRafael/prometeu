@@ -175,7 +175,7 @@ accounts; late responses from the previous selection are discarded.
 - `e2e/accounts.spec.ts`: selection persisted per provider, cancellation,
   reconnection, removal of every account, old registry without
   nicknames, email escaping, and launcher draft preservation before explicit account selection.
-- The `perfil_vazio_nao_herda_login_do_terminal` tests, run separately, query
+- The `empty_profiles_do_not_inherit_terminal_login` tests, run separately, query
   the real CLIs without login or prompts.
 
 The automated suite does not prove an OAuth round with two real accounts, nor

@@ -13,7 +13,7 @@ export default defineConfig({
   expect: { timeout: 7_000 },
   use: {
     baseURL,
-    locale: "pt-BR",
+    locale: "en-US",
     screenshot: "only-on-failure",
     trace: process.env.CI ? "on-first-retry" : "retain-on-failure",
   },

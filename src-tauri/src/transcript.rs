@@ -86,11 +86,11 @@ mod tests {
     }
 
     #[test]
-    fn soma_o_que_entrou_na_ultima_resposta() {
+    fn sums_input_tokens_from_the_last_response() {
         let jsonl = [
-            r#"{"type":"user","message":{"role":"user","content":"oi"}}"#.to_string(),
+            r#"{"type":"user","message":{"role":"user","content":"hello"}}"#.to_string(),
             turn(2, 10_000, 500, 80),
-            r#"{"type":"user","message":{"role":"user","content":"e aí"}}"#.to_string(),
+            r#"{"type":"user","message":{"role":"user","content":"and then"}}"#.to_string(),
             turn(3, 30_000, 1_000, 120),
         ]
         .join("\n");
@@ -98,7 +98,7 @@ mod tests {
     }
 
     #[test]
-    fn ignora_erro_de_api_e_subagente() {
+    fn ignores_api_errors_and_subagents() {
         let jsonl = [
             turn(1, 5_000, 0, 10),
             r#"{"type":"assistant","isSidechain":true,"message":{"usage":{"input_tokens":9,"cache_read_input_tokens":99}}}"#.to_string(),
@@ -110,7 +110,7 @@ mod tests {
 
     /// Use Codex's native rollout format.
     #[test]
-    fn le_o_token_count_do_codex() {
+    fn reads_codex_token_count() {
         let count = |input: u64| {
             format!(
                 r#"{{"type":"event_msg","payload":{{"type":"token_count","info":{{"last_token_usage":{{"input_tokens":{input},"cached_input_tokens":{},"total_tokens":{input}}},"model_context_window":258400}}}}}}"#,
@@ -129,18 +129,18 @@ mod tests {
     }
 
     #[test]
-    fn sem_resposta_nenhuma_e_none() {
+    fn returns_none_without_a_response() {
         assert_eq!(
-            last_context(r#"{"type":"user","message":{"content":"oi"}}"#),
+            last_context(r#"{"type":"user","message":{"content":"hello"}}"#),
             None
         );
         assert_eq!(last_context(""), None);
-        assert_eq!(context(Path::new("/nao/existe.jsonl")), None);
+        assert_eq!(context(Path::new("/does/not/exist.jsonl")), None);
     }
 
     /// Fall back to the full file when the latest usable response precedes the bounded tail.
     #[test]
-    fn cauda_vazia_cai_para_o_arquivo_inteiro() {
+    fn empty_tail_falls_back_to_the_complete_file() {
         let path =
             std::env::temp_dir().join(format!("prometeu-transcript-{}.jsonl", std::process::id()));
         let filler = format!(

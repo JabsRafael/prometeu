@@ -50,8 +50,8 @@ function team(): State {
   return s;
 }
 
-describe("presença", () => {
-  it("quem entra recebe welcome e os outros recebem presence", () => {
+describe("presence", () => {
+  it("welcomes the joining member and sends presence to the others", () => {
     const s = empty();
     const first = reduce(s, open("a1", "alice"));
     expect(kinds(first, "a1")).toEqual(["welcome"]);
@@ -64,7 +64,7 @@ describe("presença", () => {
     expect(one(second, "b1", "welcome")!.members.map((m) => m.name)).toEqual(["alice", "Bob"]);
   });
 
-  it("nome vazio na conexão mantém o que o membro já tinha", () => {
+  it("preserves the member's name when connecting with an empty name", () => {
     const s = empty();
     reduce(s, open("a1", "alice", "Alice"));
     reduce(s, close("a1"));
@@ -72,7 +72,7 @@ describe("presença", () => {
     expect(one(fx, "a2", "welcome")!.members[0].name).toBe("Alice");
   });
 
-  it("fechar o último socket do membro deixa ele offline, mas na lista", () => {
+  it("marks members offline after their last socket closes without removing them", () => {
     const s = empty();
     reduce(s, open("a1", "alice"));
     reduce(s, open("b1", "bob"));
@@ -83,7 +83,7 @@ describe("presença", () => {
     ]);
   });
 
-  it("me troca o nome e avisa todo mundo", () => {
+  it("updates the name through me and notifies everyone", () => {
     const s = empty();
     reduce(s, open("a1", "alice"));
     reduce(s, open("b1", "bob"));
@@ -93,8 +93,8 @@ describe("presença", () => {
   });
 });
 
-describe("compartilhar e olhar", () => {
-  it("share vai para todos com o dono e online; attach avisa o dono quem chegou", () => {
+describe("sharing and watching", () => {
+  it("broadcasts share ownership and online state, then tells the owner who attached", () => {
     const s = empty();
     reduce(s, open("a1", "alice"));
     reduce(s, open("b1", "bob"));
@@ -109,7 +109,7 @@ describe("compartilhar e olhar", () => {
     expect(one(at, "a1", "watch")).toEqual({ t: "watch", ws: "ws1", tab: "t1", members: ["bob"], added: ["bob"] });
   });
 
-  it("bytes ao vivo só chegam a quem olha a aba, e nunca voltam ao dono", () => {
+  it("sends live bytes only to tab watchers and never back to the owner", () => {
     const s = team();
     reduce(s, open("c1", "carol"));
     reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t1" }));
@@ -119,7 +119,7 @@ describe("compartilhar e olhar", () => {
     expect(fx).toEqual([{ e: "sendBinary", sock: "b1", data }]);
   });
 
-  it("snapshot vai só para quem foi endereçado", () => {
+  it("sends snapshots only to the addressed recipient", () => {
     const s = team();
     reduce(s, open("c1", "carol"));
     reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t1" }));
@@ -128,13 +128,13 @@ describe("compartilhar e olhar", () => {
     expect(reduce(s, binary("a1", data))).toEqual([{ e: "sendBinary", sock: "c1", data }]);
   });
 
-  it("quem não é o dono não transmite nada", () => {
+  it("rejects transmissions from non-owners", () => {
     const s = team();
     reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t1" }));
     expect(reduce(s, binary("b1", encodeLive("t1", [{ seq: 1, bytes: new Uint8Array([1]) }])))).toEqual([]);
   });
 
-  it("trocar de aba solta a anterior e o dono ouve as duas", () => {
+  it("detaches the previous tab when switching and notifies both owners", () => {
     const s = team();
     reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t1" }));
     const fx = reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t2" }));
@@ -146,7 +146,7 @@ describe("compartilhar e olhar", () => {
     expect(one(off, "a1", "watch")).toEqual({ t: "watch", ws: "ws1", tab: "t2", members: [], added: [] });
   });
 
-  it("reanunciar sem a aba solta quem ainda estava nela", () => {
+  it("detaches watchers when a refreshed share removes their tab", () => {
     const s = team();
     reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t2" }));
     const fx = reduce(s, text("a1", { t: "share", share: share("ws1", ["t1"]) }));
@@ -154,13 +154,13 @@ describe("compartilhar e olhar", () => {
     expect(one(fx, "a1", "watch")).toMatchObject({ ws: "ws1", tab: "t2", members: [] });
   });
 
-  it("attach em workspace ou aba que não existe é erro", () => {
+  it("rejects attachment to missing workspaces or tabs", () => {
     const s = team();
-    expect(one(reduce(s, text("b1", { t: "attach", ws: "nada", tab: "t1" })), "b1", "error")!.code).toBe("noShare");
+    expect(one(reduce(s, text("b1", { t: "attach", ws: "missing", tab: "t1" })), "b1", "error")!.code).toBe("noShare");
     expect(one(reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t9" })), "b1", "error")!.code).toBe("noTab");
   });
 
-  it("write chega ao dono com quem escreveu; dono offline é erro", () => {
+  it("forwards writes with sender identity and rejects offline owners", () => {
     const s = team();
     reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t1" }));
     const fx = reduce(s, text("b1", { t: "write", ws: "ws1", tab: "t1", data: "ls\r" }));
@@ -170,15 +170,15 @@ describe("compartilhar e olhar", () => {
     expect(one(off, "b1", "error")!.code).toBe("offline");
   });
 
-  it("write exige que o mesmo socket esteja olhando exatamente a aba", () => {
+  it("requires the writing socket to watch the exact target tab", () => {
     const s = team();
-    expect(one(reduce(s, text("b1", { t: "write", ws: "ws1", tab: "t1", data: "oculto" })), "b1", "error")!.code).toBe("notAttached");
+    expect(one(reduce(s, text("b1", { t: "write", ws: "ws1", tab: "t1", data: "hidden" })), "b1", "error")!.code).toBe("notAttached");
     reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t2" }));
-    expect(one(reduce(s, text("b1", { t: "write", ws: "ws1", tab: "t1", data: "aba errada" })), "b1", "error")!.code).toBe("notAttached");
-    expect(one(reduce(s, text("b1", { t: "write", ws: "ws1", tab: "sumiu", data: "x" })), "b1", "error")!.code).toBe("noTab");
+    expect(one(reduce(s, text("b1", { t: "write", ws: "ws1", tab: "t1", data: "wrong tab" })), "b1", "error")!.code).toBe("notAttached");
+    expect(one(reduce(s, text("b1", { t: "write", ws: "ws1", tab: "missing", data: "x" })), "b1", "error")!.code).toBe("noTab");
   });
 
-  it("size do dono vai a quem olha a aba e fica no share", () => {
+  it("forwards owner dimensions to watchers and retains them in the share", () => {
     const s = team();
     reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t1" }));
     const fx = reduce(s, text("a1", { t: "size", ws: "ws1", tab: "t1", cols: 120, rows: 40 }));
@@ -186,7 +186,7 @@ describe("compartilhar e olhar", () => {
     expect(s.shares.get("ws1")!.share.sizes.t1).toEqual([120, 40]);
   });
 
-  it("dono cai: share fica offline para todos; volta e reanuncia: online, e sabe quem já olhava", () => {
+  it("marks shares offline on disconnect, then online on reannouncement and restores the watcher list", () => {
     const s = team();
     reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t1" }));
     const gone = reduce(s, close("a1"));
@@ -207,7 +207,7 @@ describe("compartilhar e olhar", () => {
     expect(one(again, "b1", "share")!.share.online).toBe(true);
   });
 
-  it("unshare solta quem olhava e some da lista", () => {
+  it("detaches watchers and removes unshared workspaces", () => {
     const s = team();
     reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t1" }));
     const fx = reduce(s, text("a1", { t: "unshare", ws: "ws1" }));
@@ -217,13 +217,13 @@ describe("compartilhar e olhar", () => {
     expect(s.shares.size).toBe(0);
   });
 
-  it("só o dono mexe no próprio share", () => {
+  it("allows only owners to modify their shares", () => {
     const s = team();
     expect(one(reduce(s, text("b1", { t: "share", share: share() })), "b1", "error")!.code).toBe("owner");
     expect(one(reduce(s, text("b1", { t: "unshare", ws: "ws1" })), "b1", "error")!.code).toBe("owner");
   });
 
-  it("ids de aba são únicos no time para o frame binário não ficar ambíguo", () => {
+  it("requires unique team tab IDs to avoid ambiguous binary frames", () => {
     const s = team();
     const fx = reduce(s, text("b1", { t: "share", share: share("ws2", ["t1"]) }));
     expect(one(fx, "b1", "error")!.code).toBe("tabConflict");
@@ -231,7 +231,7 @@ describe("compartilhar e olhar", () => {
   });
 });
 
-describe("audiência", () => {
+describe("audience", () => {
   /// Alice, Bob and Carol are connected; Alice shares `ws1` only with Bob.
   function trio(): State {
     const s = empty();
@@ -242,7 +242,7 @@ describe("audiência", () => {
     return s;
   }
 
-  it("share só chega a quem está na lista; para o resto o workspace não existe", () => {
+  it("delivers shares only to audience members and hides workspaces from others", () => {
     const s = empty();
     reduce(s, open("a1", "alice"));
     reduce(s, open("b1", "bob"));
@@ -257,7 +257,7 @@ describe("audiência", () => {
     expect(kinds(reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t1" })), "b1")).toEqual([]);
   });
 
-  it("welcome só traz o que quem chega vê; dono sempre vê o seu", () => {
+  it("includes only visible shares in welcome and always includes owned shares", () => {
     const s = trio();
     reduce(s, close("c1"));
     expect(one(reduce(s, open("c2", "carol")), "c2", "welcome")!.shares).toEqual([]);
@@ -265,7 +265,7 @@ describe("audiência", () => {
     expect(one(reduce(s, open("a2", "alice")), "a2", "welcome")!.shares.map((x) => x.id)).toEqual(["ws1"]);
   });
 
-  it("dono cai e volta: só a audiência ouve o offline e o online", () => {
+  it("notifies only the audience when the owner disconnects and reconnects", () => {
     const s = trio();
     const down = reduce(s, close("a1"));
     expect(kinds(down, "b1")).toEqual(["share", "presence"]);
@@ -275,7 +275,7 @@ describe("audiência", () => {
     expect(kinds(up, "c1")).toEqual(["presence"]);
   });
 
-  it("tirar alguém da lista: ele recebe unshare e solta a aba; entrar na lista: recebe share", () => {
+  it("unshares and detaches removed audience members and shares with added members", () => {
     const s = trio();
     reduce(s, text("b1", { t: "attach", ws: "ws1", tab: "t1" }));
     const fx = reduce(s, text("a1", { t: "share", share: share("ws1", ["t1", "t2"], ["carol"]) }));
@@ -286,7 +286,7 @@ describe("audiência", () => {
     expect(s.socks.get("b1")!.attached).toBeNull();
   });
 
-  it("abrir para o time inteiro: todos recebem share; unshare vai só a quem via", () => {
+  it("shares with everyone when opening to the team and unshares only from previous viewers", () => {
     const s = trio();
     const all = reduce(s, text("a1", { t: "share", share: share("ws1", ["t1"], null) }));
     expect(kinds(all, "c1")).toEqual(["share"]);
@@ -296,17 +296,17 @@ describe("audiência", () => {
     expect(kinds(off, "c1")).toEqual([]);
   });
 
-  it("nota fica na audiência, e menção a quem está fora é descartada", () => {
+  it("keeps notes within the audience and discards mentions of outsiders", () => {
     const s = trio();
     const fx = reduce(s, text("b1", { t: "note", ws: "ws1", text: "@carol @alice", mentions: ["carol", "alice"], quote: null }));
     expect(kinds(fx, "a1")).toEqual(["note", "inbox"]);
     expect(kinds(fx, "b1")).toEqual(["note"]);
     expect(kinds(fx, "c1")).toEqual([]);
     expect(one(fx, "a1", "note")!.note.mentions).toEqual(["alice"]);
-    expect(one(reduce(s, text("c1", { t: "note", ws: "ws1", text: "oi", mentions: [], quote: null })), "c1", "error")!.code).toBe("noShare");
+    expect(one(reduce(s, text("c1", { t: "note", ws: "ws1", text: "hello", mentions: [], quote: null })), "c1", "error")!.code).toBe("noShare");
   });
 
-  it("share de cliente sem o campo é para o time inteiro, como era", () => {
+  it("preserves team-wide sharing for legacy clients without an audience field", () => {
     const s = empty();
     reduce(s, open("a1", "alice"));
     reduce(s, open("c1", "carol"));
@@ -316,10 +316,10 @@ describe("audiência", () => {
   });
 });
 
-describe("notas", () => {
-  it("nota vai a todos; a menção vira item na caixa de quem foi citado", () => {
+describe("notes", () => {
+  it("broadcasts notes and creates inbox items for mentioned members", () => {
     const s = team();
-    const fx = reduce(s, text("b1", { t: "note", ws: "ws1", text: "@alice isso está certo?", mentions: ["alice", "bob", "zé"], quote: "  ✓ 3 tests" }, "abc"));
+    const fx = reduce(s, text("b1", { t: "note", ws: "ws1", text: "@alice is this correct?", mentions: ["alice", "bob", "zé"], quote: "  ✓ 3 tests" }, "abc"));
     const note = one(fx, "a1", "note")!.note;
     expect(note).toMatchObject({ id: `${NOW + 2}-abc`, ws: "ws1", author: "bob", mentions: ["alice"], quote: "  ✓ 3 tests" });
     expect(one(fx, "b1", "note")!.note).toEqual(note);
@@ -329,7 +329,7 @@ describe("notas", () => {
       author: "bob",
       ts: NOW + 2,
       tab: null,
-      text: "@alice isso está certo?",
+      text: "@alice is this correct?",
     }]);
     expect(one(fx, "b1", "inbox")).toBeUndefined();
     expect(puts(fx)).toEqual([`note:ws1:${note.id}`, `inbox:alice:${note.id}`]);
@@ -339,13 +339,13 @@ describe("notas", () => {
     expect(one(read, "a1", "inbox")!.items).toEqual([]);
   });
 
-  it("nota vazia ou grande demais é recusada", () => {
+  it("rejects empty or oversized notes", () => {
     const s = team();
     expect(one(reduce(s, text("b1", { t: "note", ws: "ws1", text: "   ", mentions: [], quote: null })), "b1", "error")!.code).toBe("empty");
     expect(one(reduce(s, text("b1", { t: "note", ws: "ws1", text: "x".repeat(9000), mentions: [], quote: null })), "b1", "error")!.code).toBe("tooBig");
   });
 
-  it("notes devolve a lista do workspace, e quem está offline recebe a caixa ao entrar", () => {
+  it("returns workspace notes and delivers inbox items when offline members join", () => {
     const s = team();
     reduce(s, open("c1", "carol"));
     reduce(s, close("c1"));
@@ -357,7 +357,7 @@ describe("notas", () => {
     expect(one(back, "c2", "welcome")!.inbox.map((i) => i.id)).toEqual([`${NOW + 2}-n1`]);
   });
 
-  it("resposta fica na thread; abrir não resolve; resolver limpa todas as caixas", () => {
+  it("keeps replies in their thread; opening does not resolve it and resolution clears all inboxes", () => {
     const s = team();
     reduce(s, open("c1", "carol"));
     const created = reduce(s, text("b1", {
@@ -375,7 +375,7 @@ describe("notas", () => {
       t: "note_reply",
       ws: "ws1",
       note: root.id,
-      text: "@carol confere também",
+      text: "@carol please check too",
       mentions: ["carol"],
     }, "reply"));
     expect(one(replied, "b1", "note")!.note).toMatchObject({ parent: root.id, tab: "t1", anchor: null });
@@ -397,27 +397,27 @@ describe("notas", () => {
     ]));
   });
 
-  it("não responde a comentário resolvido nem ancora numa aba inexistente", () => {
+  it("rejects replies to resolved comments and anchors to missing tabs", () => {
     const s = team();
-    expect(one(reduce(s, text("b1", { t: "note", ws: "ws1", tab: "sumiu", anchor: "s1.0", text: "oi", mentions: [], quote: null })), "b1", "error")!.code).toBe("noTab");
-    const created = reduce(s, text("b1", { t: "note", ws: "ws1", tab: "t1", anchor: null, text: "oi", mentions: [], quote: null }, "root"));
+    expect(one(reduce(s, text("b1", { t: "note", ws: "ws1", tab: "missing", anchor: "s1.0", text: "hello", mentions: [], quote: null })), "b1", "error")!.code).toBe("noTab");
+    const created = reduce(s, text("b1", { t: "note", ws: "ws1", tab: "t1", anchor: null, text: "hello", mentions: [], quote: null }, "root"));
     const root = one(created, "b1", "note")!.note;
     reduce(s, text("a1", { t: "note_resolve", ws: "ws1", note: root.id }));
-    expect(one(reduce(s, text("b1", { t: "note_reply", ws: "ws1", note: root.id, text: "tarde", mentions: [] })), "b1", "error")!.code).toBe("resolved");
+    expect(one(reduce(s, text("b1", { t: "note_reply", ws: "ws1", note: root.id, text: "late", mentions: [] })), "b1", "error")!.code).toBe("resolved");
   });
 
-  it("não cria nota para workspace inventado e limita o histórico", () => {
+  it("rejects notes for unknown workspaces and bounds history", () => {
     const s = team();
-    expect(one(reduce(s, text("b1", { t: "note", ws: "fake", text: "oi", mentions: [], quote: null })), "b1", "error")!.code).toBe("noShare");
+    expect(one(reduce(s, text("b1", { t: "note", ws: "fake", text: "hello", mentions: [], quote: null })), "b1", "error")!.code).toBe("noShare");
     for (let i = 0; i < NOTES_PER_WORKSPACE_MAX; i++) {
-      reduce(s, text("b1", { t: "note", ws: "ws1", text: `nota ${i}`, mentions: [], quote: null }, `n${i}`));
+      reduce(s, text("b1", { t: "note", ws: "ws1", text: `note ${i}`, mentions: [], quote: null }, `n${i}`));
     }
     const fx = reduce(s, text("b1", { t: "note", ws: "ws1", text: "mais nova", mentions: [], quote: null }, "last"));
     expect(s.notes.get("ws1")).toHaveLength(NOTES_PER_WORKSPACE_MAX);
     expect(dels(fx)).toContain(`note:ws1:${NOW + 2}-n0`);
   });
 
-  it("cota global remove threads inteiras e preserva raiz com resposta recente", () => {
+  it("evicts entire threads at the global limit while preserving roots with recent replies", () => {
     const s = empty();
     const note = (ws: string, id: string, ts: number, parent: string | null = null): Note => ({
       id,
@@ -446,9 +446,9 @@ describe("notas", () => {
     expect(dels(fx)).not.toContain("note:hot:root");
   });
 
-  it("unshare apaga notas e caixas privadas; TTL também limpa o storage", () => {
+  it("removes notes and private inboxes on unshare and expires stored entries by TTL", () => {
     const s = team();
-    reduce(s, text("b1", { t: "note", ws: "ws1", text: "@alice oi", mentions: ["alice"], quote: null }, "old"));
+    reduce(s, text("b1", { t: "note", ws: "ws1", text: "@alice hello", mentions: ["alice"], quote: null }, "old"));
     const expired = reduce(s, { k: "open", sock: "c1", member: "carol", name: "Carol", now: NOW + NOTE_TTL_MS + 10 });
     expect(dels(expired)).toContain(`note:ws1:${NOW + 2}-old`);
     expect(dels(expired)).toContain(`inbox:alice:${NOW + 2}-old`);
@@ -461,8 +461,8 @@ describe("notas", () => {
   });
 });
 
-describe("cotas", () => {
-  it("limita a quantidade de shares do time", () => {
+describe("quotas", () => {
+  it("limits the team's share count", () => {
     const s = empty();
     reduce(s, open("a1", "alice"));
     for (let i = 0; i < SHARES_MAX; i++) reduce(s, text("a1", { t: "share", share: share(`ws${i}`, [`tab${i}`]) }));
@@ -472,8 +472,8 @@ describe("cotas", () => {
   });
 });
 
-describe("dono que volta", () => {
-  it("só os shares dele acordam — o do colega continua como estava", () => {
+describe("returning owners", () => {
+  it("restores only the returning owner's shares and leaves other owners unchanged", () => {
     const s = team();
     reduce(s, text("b1", { t: "share", share: share("ws2", ["u1"]) }));
     reduce(s, close("a1"));
@@ -487,10 +487,10 @@ describe("dono que volta", () => {
   });
 });
 
-describe("acordar do storage", () => {
-  it("reconstrói membros, shares, notas e caixas — e share sem dono conectado nasce offline", () => {
+describe("storage recovery", () => {
+  it("restores members, shares, notes and inboxes while marking disconnected owners' shares offline", () => {
     const s = team();
-    reduce(s, text("b1", { t: "note", ws: "ws1", text: "@alice oi", mentions: ["alice"], quote: null }, "n1"));
+    reduce(s, text("b1", { t: "note", ws: "ws1", text: "@alice hello", mentions: ["alice"], quote: null }, "n1"));
     const rows: [string, unknown][] = [];
     // Reconstruct stored values from persistence effects.
     rows.push(["member:alice", { id: "alice", name: "alice", last_seen: NOW }]);
@@ -511,12 +511,12 @@ describe("acordar do storage", () => {
     expect(welcome.inbox.length).toBe(1);
   });
 
-  it("ignora linhas corrompidas em vez de confiar no cast do storage", () => {
+  it("ignores corrupt rows instead of trusting storage casts", () => {
     const woke = hydrate(
       [
-        ["member:__proto__", { name: "intruso", last_seen: NOW }],
+        ["member:__proto__", { name: "intruder", last_seen: NOW }],
         ["member:alice", { name: "x".repeat(500), last_seen: NOW }],
-        ["share:ws1", { owner: "alice", share: { id: "ws1", tabs: "não" } }],
+        ["share:ws1", { owner: "alice", share: { id: "ws1", tabs: "invalid" } }],
         ["note:ws1:n1", { id: "n1", ws: "ws1", author: "alice", text: 42, mentions: [], quote: null, ts: NOW }],
       ],
       [{ id: "sock", member: "bob", attached: { ws: "__proto__", tab: "t1" } }],
@@ -527,7 +527,7 @@ describe("acordar do storage", () => {
     expect(woke.socks.get("sock")?.attached).toBeNull();
   });
 
-  it("não restaura attachment fora da audiência ou para aba que sumiu", () => {
+  it("does not restore attachments outside the audience or to missing tabs", () => {
     const restricted = share("ws1", ["t1"], ["carol"]);
     const rows: [string, unknown][] = [
       ["share:ws1", { share: restricted, owner: "alice", online: false }],
@@ -535,7 +535,7 @@ describe("acordar do storage", () => {
 
     const woke = hydrate(rows, [
       { id: "bob-sock", member: "bob", attached: { ws: "ws1", tab: "t1" } },
-      { id: "carol-sock", member: "carol", attached: { ws: "ws1", tab: "apagada" } },
+      { id: "carol-sock", member: "carol", attached: { ws: "ws1", tab: "deleted" } },
       { id: "alice-sock", member: "alice", attached: { ws: "ws1", tab: "t1" } },
     ]);
 
@@ -546,12 +546,12 @@ describe("acordar do storage", () => {
 });
 
 
-describe("limites de ciphertext persistido", () => {
+describe("persisted ciphertext limits", () => {
   const envelope = (id: string, length = 1024) => ({ id, boxes: {
     alice: { enc: "A".repeat(87), ct: "B".repeat(length) },
     bob: { enc: "A".repeat(87), ct: "B".repeat(length) },
   } });
-  it("não sobrescreve ID de comentário e persiste somente caixa do destinatário na inbox", () => {
+  it("does not overwrite comment IDs and stores only recipient envelopes in each inbox", () => {
     const s = team();
     const frame: Up = { t: "note", ws: "ws1", text: "", quote: null, mentions: ["bob"], encrypted: envelope("same-id") };
     const created = reduce(s, text("a1", frame));
@@ -561,7 +561,7 @@ describe("limites de ciphertext persistido", () => {
     expect(s.notes.get("ws1")).toHaveLength(1);
     expect(s.notes.get("ws1")![0].author).toBe("alice");
   });
-  it("limita expansão de shares e comentários antes de alterar storage", () => {
+  it("bounds share and comment expansion before modifying storage", () => {
     const s = team();
     const tooBig: Up = { t: "note", ws: "ws1", text: "", quote: null, mentions: [], encrypted: envelope("huge", 800_000) };
     const refused = reduce(s, text("a1", tooBig));

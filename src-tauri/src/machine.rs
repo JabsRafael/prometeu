@@ -312,7 +312,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tempo_de_cpu_em_segundos() {
+    fn cpu_time_is_measured_in_seconds() {
         assert!((cpu_time("0:12.34") - 12.34).abs() < 0.001);
         assert!((cpu_time("2:30.00") - 150.0).abs() < 0.001);
         assert!((cpu_time("1:00:00.00") - 3600.0).abs() < 0.001);
@@ -320,7 +320,7 @@ mod tests {
     }
 
     #[test]
-    fn a_subarvore_soma_os_filhos() {
+    fn subtrees_sum_child_processes() {
         let table = Table {
             rss: HashMap::from([(1, 100), (2, 20), (3, 3)]),
             time: HashMap::from([(1, 10.0), (2, 2.0), (3, 0.5)]),
@@ -333,10 +333,10 @@ mod tests {
 
     /// A real `ps` snapshot includes at least the current test process.
     #[test]
-    fn o_ps_desta_maquina_traz_a_arvore() {
-        let table = snapshot().expect("ps não respondeu");
+    fn local_ps_returns_the_process_tree() {
+        let table = snapshot().expect("ps did not respond");
         let me = std::process::id();
-        assert!(table.rss.contains_key(&me), "o próprio pid não veio");
+        assert!(table.rss.contains_key(&me), "current pid was missing");
         assert!(table.sum(me).0 > 0);
     }
 }

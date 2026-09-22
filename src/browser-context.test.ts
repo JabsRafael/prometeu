@@ -3,20 +3,20 @@ import { encodeBrowserContext, splitBrowserContexts, type BrowserContext } from 
 
 const sample = (): BrowserContext => ({
   selection: {
-    url: "http://localhost:3100/colecao", selector: "#design-button", tag: "button", text: "Adicionar ao projeto",
-    html: '<button id="design-button">Adicionar ao projeto</button>',
+    url: "http://localhost:3100/collection", selector: "#design-button", tag: "button", text: "Add to project",
+    html: '<button id="design-button">Add to project</button>',
     styles: { color: "rgb(255, 255, 255)", "font-size": "16px" },
     rect: { x: -5, y: 24, width: 180, height: 48 }, viewport: { width: 600, height: 800 },
   },
-  image: "/tmp/browser seleção.png",
+  image: "/tmp/browser café.png",
 });
 
 describe("browser context codec", () => {
   it("round-trips multiple contexts and preserves surrounding text exactly", () => {
     const first = sample();
-    const second = { selection: { ...sample().selection, text: "Outra seleção" } };
-    const encoded = `Veja isto:\n\n${encodeBrowserContext(first)}\n\nE isto:\n${encodeBrowserContext(second)}\nFim.\n`;
-    expect(splitBrowserContexts(encoded)).toEqual(["Veja isto:\n\n", first, "\n\nE isto:\n", second, "\nFim.\n"]);
+    const second = { selection: { ...sample().selection, text: "Another selection" } };
+    const encoded = `See this:\n\n${encodeBrowserContext(first)}\n\nAnd this:\n${encodeBrowserContext(second)}\nDone.\n`;
+    expect(splitBrowserContexts(encoded)).toEqual(["See this:\n\n", first, "\n\nAnd this:\n", second, "\nDone.\n"]);
     expect(splitBrowserContexts(encodeBrowserContext(first))).toEqual([first]);
     expect(splitBrowserContexts(encodeBrowserContext(second))).toEqual([second]);
     expect(encodeBrowserContext(first)).toContain(`\n@${JSON.stringify(first.image)}\n`);
@@ -36,8 +36,8 @@ describe("browser context codec", () => {
 
   it("preserves unknown versions, incomplete blocks and ordinary user text", () => {
     const good = encodeBrowserContext(sample());
-    for (const text of ["", "Texto com @arquivo.png", good.replace('v="1"', 'v="2"'), good.slice(0, -1),
-      good.replace("\n", " "), good.replace(/\n/g, "\r\n"), `Exemplo inline: ${good}`,
+    for (const text of ["", "Text with @file.png", good.replace('v="1"', 'v="2"'), good.slice(0, -1),
+      good.replace("\n", " "), good.replace(/\n/g, "\r\n"), `Inline example: ${good}`,
       '<prometeu-browser-element v="2">\n' + good + '\n' + good + '\n</prometeu-browser-element>']) {
       expect(splitBrowserContexts(text)).toEqual([text]);
     }

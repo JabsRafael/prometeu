@@ -121,12 +121,12 @@ mod tests {
     }
 
     #[test]
-    fn nenhuma_camada_declarada_nao_injeta_nada() {
+    fn undeclared_layers_inject_nothing() {
         assert_eq!(resolve(&None, &None, &None, &names(&["a"])), names(&[]));
     }
 
     #[test]
-    fn global_serve_de_base_enquanto_projeto_e_workspace_herdam() {
+    fn global_is_the_base_while_project_and_workspace_inherit() {
         let got = resolve(
             &Some(replace(&["a", "b"])),
             &None,
@@ -137,7 +137,7 @@ mod tests {
     }
 
     #[test]
-    fn base_none_substitui_o_que_veio_de_cima() {
+    fn base_none_replaces_parent_selection() {
         let got = resolve(
             &Some(replace(&["a", "b"])),
             &Some(replace(&["c"])),
@@ -148,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn base_none_sem_add_apaga_a_heranca() {
+    fn base_none_without_add_clears_inherited_selection() {
         let got = resolve(
             &Some(replace(&["a", "b"])),
             &None,
@@ -159,7 +159,7 @@ mod tests {
     }
 
     #[test]
-    fn base_inherit_adiciona_no_fim_e_remove_do_meio() {
+    fn base_inherit_appends_additions_and_removes_existing_items() {
         let got = resolve(
             &Some(replace(&["a", "b"])),
             &Some(delta(&["c"], &["a"])),
@@ -170,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn remocao_na_ultima_camada_vence_adicao_na_primeira() {
+    fn removal_in_the_last_layer_overrides_addition_in_the_first() {
         let got = resolve(
             &Some(replace(&["a", "b"])),
             &None,
@@ -181,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_tem_a_ultima_palavra_na_mesma_camada() {
+    fn remove_overrides_add_in_the_same_layer() {
         let got = resolve(
             &None,
             &Some(delta(&["a", "b"], &["a"])),
@@ -192,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn id_fora_do_hub_e_ignorado_e_o_resto_resolve() {
+    fn ignores_ids_outside_the_hub_and_resolves_the_rest() {
         let got = resolve(
             &Some(replace(&["gone"])),
             &Some(delta(&["a", "also-gone"], &[])),
@@ -203,7 +203,7 @@ mod tests {
     }
 
     #[test]
-    fn add_repetido_nao_duplica() {
+    fn repeated_additions_do_not_duplicate_items() {
         let got = resolve(
             &Some(replace(&["a"])),
             &Some(delta(&["a", "b"], &[])),
@@ -214,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn a_camada_aceita_null_e_o_objeto_do_contrato() {
+    fn layer_accepts_null_and_the_contract_object() {
         let inherit: Option<Selection> = serde_json::from_str("null").unwrap();
         assert_eq!(inherit, None);
 
@@ -233,7 +233,7 @@ mod tests {
     }
 
     #[test]
-    fn a_forma_serializada_e_a_do_contrato() {
+    fn serialized_shape_matches_the_contract() {
         let json = serde_json::to_string(&Some(replace(&[]))).unwrap();
         assert_eq!(json, r#"{"base":"none","add":[],"remove":[]}"#);
         assert_eq!(serde_json::to_string(&None::<Selection>).unwrap(), "null");
@@ -242,7 +242,7 @@ mod tests {
     /// The CLI-inherited base is the implicit lowest layer: it flows through inheriting layers,
     /// a workspace removal drops one id, and `base: "none"` replaces it (ADR 0046).
     #[test]
-    fn a_base_do_cli_participa_da_cadeia() {
+    fn cli_base_participates_in_the_chain() {
         use super::resolve_with_base;
         let base = names(&["cli-a", "cli-b"]);
         let universe = names(&["cli-a", "cli-b", "hub-a"]);
@@ -291,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn a_tabela_tools_do_toml_vira_uma_camada() {
+    fn toml_tools_table_becomes_a_layer() {
         #[derive(serde::Deserialize)]
         struct File {
             #[serde(default)]

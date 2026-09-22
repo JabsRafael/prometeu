@@ -66,7 +66,7 @@ const socketResult = (url: string): Promise<{ open: boolean; first?: unknown }> 
     });
   });
 
-describe("relay no runtime do Worker", () => {
+describe("relay in the Worker runtime", () => {
   beforeAll(async () => {
     worker = await unstable_dev("relay/src/worker.ts", {
       config: "relay/wrangler.toml",
@@ -86,7 +86,7 @@ describe("relay no runtime do Worker", () => {
     await worker?.stop();
   });
 
-  it("troca o convite por uma credencial individual", async () => {
+  it("exchanges invitations for individual credentials", async () => {
     const denied = await worker.fetch(`/team/${created.team}/enroll`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -106,7 +106,7 @@ describe("relay no runtime do Worker", () => {
     expect(membership?.credential).not.toBe(created.credential);
   });
 
-  it("não aceita mais o segredo coletivo no WebSocket", async () => {
+  it("rejects the legacy shared secret on WebSocket connections", async () => {
     const base = `ws://${worker.address}:${worker.port}`;
     const old = await upgradeStatus(`${base}/team/${created.team}?s=${created.secret}&m=${created.member}&n=Alice&p=${PROTO}`);
     expect(old).toBe(401);
@@ -131,7 +131,7 @@ describe("relay no runtime do Worker", () => {
     expect(parseMembership(await next.json())).not.toBeNull();
   });
 
-  it("liga a credencial ao membro e entrega o welcome", async () => {
+  it("binds credentials to members and delivers welcome", async () => {
     const base = `ws://${worker.address}:${worker.port}`;
     const swapped = await upgradeStatus(`${base}/team/${created.team}?c=${created.credential}&m=outro_membro&n=Eve&p=${PROTO}`);
     expect(swapped).toBe(401);

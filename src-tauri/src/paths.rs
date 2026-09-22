@@ -172,7 +172,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn slug_troca_tudo_que_nao_e_alfanumerico() {
+    fn slug_replaces_non_alphanumeric_characters() {
         let path = transcript("abc", Path::new("/Users/ana/.prometeu/wt/x_1"));
         assert!(
             path.ends_with("-Users-ana--prometeu-wt-x-1/abc.jsonl"),
@@ -184,7 +184,7 @@ mod tests {
     /// Multi-repository grouping directories remain beside single-repository paths, with named
     /// child worktrees.
     #[test]
-    fn pasta_de_varios_repos_junta_os_nomes() {
+    fn multi_repository_directories_join_repository_names() {
         let dir = multi_dir(&["back".into(), "front".into()], "feat/x");
         let one = worktree_dir("back", "feat/x");
         assert_eq!(dir.parent().unwrap().file_name().unwrap(), "back+front");
@@ -198,7 +198,7 @@ mod tests {
     /// Preserve branch names without slashes and distinguish flattened slash-containing names from
     /// existing flat names.
     #[test]
-    fn branch_com_barra_nao_colide_com_a_achatada() {
+    fn branches_with_slashes_do_not_collide_with_flattened_names() {
         assert_eq!(dir_name("feat-x"), "feat-x");
         assert_ne!(dir_name("feat/x"), dir_name("feat-x"));
         assert!(
@@ -213,15 +213,15 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn estado_privado_nasce_com_permissoes_restritas_e_troca_atomicamente() {
+    fn private_state_uses_restricted_permissions_and_atomic_replacement() {
         use std::os::unix::fs::PermissionsExt;
 
         let root = std::env::temp_dir().join(format!("prometeu-private-{}", uuid::Uuid::new_v4()));
         let file = root.join("nested/state.json");
-        write_private(&file, "primeiro").unwrap();
-        write_private(&file, "segundo").unwrap();
+        write_private(&file, "first").unwrap();
+        write_private(&file, "second").unwrap();
 
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "segundo");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "second");
         assert_eq!(
             std::fs::metadata(file.parent().unwrap())
                 .unwrap()

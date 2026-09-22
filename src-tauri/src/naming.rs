@@ -193,24 +193,24 @@ mod tests {
     use super::clean;
 
     #[test]
-    fn tira_aspas_ponto_e_espaco() {
+    fn strips_quotes_periods_and_whitespace() {
         assert_eq!(
-            clean("  \"Corrigir arrastar entre colunas.\"  ").unwrap(),
-            "Corrigir arrastar entre colunas"
+            clean("  \"Fix dragging between columns.\"  ").unwrap(),
+            "Fix dragging between columns"
         );
     }
 
     #[test]
-    fn fica_com_a_ultima_linha() {
+    fn keeps_the_last_line() {
         assert_eq!(
-            clean("pensando...\n\nSubir modelo no rodapé").unwrap(),
-            "Subir modelo no rodapé"
+            clean("thinking...\n\nMove the model to the footer").unwrap(),
+            "Move the model to the footer"
         );
     }
 
     #[test]
-    fn recusa_vazio_e_parágrafo() {
+    fn rejects_empty_text_and_paragraphs() {
         assert!(clean("   ").is_none());
-        assert!(clean(&"palavra ".repeat(20)).is_none());
+        assert!(clean(&"word ".repeat(20)).is_none());
     }
 }

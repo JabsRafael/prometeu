@@ -243,8 +243,8 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "precisa do Codex instalado; não faz login nem envia prompts"]
-    fn perfil_vazio_nao_herda_login_do_terminal() {
+    #[ignore = "requires Codex installed; does not log in or send prompts"]
+    fn empty_profiles_do_not_inherit_terminal_login() {
         let id = uuid::Uuid::new_v4().to_string();
         let home = std::env::temp_dir().join(format!("prometeu-codex-auth-{id}"));
         paths::ensure_private_dir(&home).unwrap();
@@ -261,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn perfis_retoman_o_mesmo_rollout_com_credenciais_separadas() {
+    fn profiles_resume_the_same_rollout_with_separate_credentials() {
         let root =
             std::env::temp_dir().join(format!("prometeu-codex-accounts-{}", uuid::Uuid::new_v4()));
         let base = root.join("base");
@@ -274,8 +274,8 @@ mod tests {
         std::fs::write(base.join("config.toml"), "cli_auth_credentials_store = 'keyring'\nmodel_provider = 'custom'\n[features]\nplugins = true\n").unwrap();
         prepare_profile_at(&base, &first).unwrap();
         prepare_profile_at(&base, &second).unwrap();
-        std::fs::write(first.join("auth.json"), "conta um").unwrap();
-        std::fs::write(second.join("auth.json"), "conta dois").unwrap();
+        std::fs::write(first.join("auth.json"), "first account").unwrap();
+        std::fs::write(second.join("auth.json"), "second account").unwrap();
         std::fs::write(first.join("sessions/rollout.jsonl"), "mesma thread").unwrap();
         prepare_profile_at(&base, &first).unwrap();
         assert_eq!(
@@ -288,11 +288,11 @@ mod tests {
         );
         assert_eq!(
             std::fs::read_to_string(first.join("auth.json")).unwrap(),
-            "conta um"
+            "first account"
         );
         assert_eq!(
             std::fs::read_to_string(second.join("auth.json")).unwrap(),
-            "conta dois"
+            "second account"
         );
         let config: toml::Table =
             toml::from_str(&std::fs::read_to_string(first.join("config.toml")).unwrap()).unwrap();
@@ -309,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn protocolo_de_conta_153_nao_abre_thread_e_correlaciona_respostas() {
+    fn account_protocol_153_correlates_responses_without_opening_a_thread() {
         let mut command = Command::new("python3");
         command.args(["-u", "-c", r#"
 import sys,json
@@ -322,7 +322,7 @@ account=read()
 assert account['method']=='account/read'
 assert account['params']['refreshToken'] is True
 print(json.dumps({'method':'account/updated','params':{'authMode':'chatgpt','planType':'pro'}}),flush=True)
-print(json.dumps({'id':account['id'],'result':{'account':{'type':'chatgpt','email':'pessoa@example.com','planType':'pro'},'requiresOpenaiAuth':True}}),flush=True)
+print(json.dumps({'id':account['id'],'result':{'account':{'type':'chatgpt','email':'person@example.com','planType':'pro'},'requiresOpenaiAuth':True}}),flush=True)
 read()
 "#]);
         let mut server = Server::from_command(
@@ -333,7 +333,7 @@ read()
         .unwrap();
         let identity = server.identity().unwrap();
         assert!(identity.connected);
-        assert_eq!(identity.email.as_deref(), Some("pessoa@example.com"));
+        assert_eq!(identity.email.as_deref(), Some("person@example.com"));
         assert!(
             !parse_account(&json!({"account":null,"requiresOpenaiAuth":true}))
                 .unwrap()

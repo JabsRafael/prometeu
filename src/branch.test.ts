@@ -2,67 +2,67 @@ import { describe, expect, it } from "vitest";
 import { freshBranch, pair } from "./branch";
 
 /// Return predictable random values in sequence, then repeat the last one to make collision retries deterministic.
-const dado = (...ns: number[]) => {
+const draw = (...ns: number[]) => {
   let i = 0;
   return () => ns[Math.min(i++, ns.length - 1)];
 };
 
 describe("pair", () => {
-  it("oferece 128 substantivos e 128 adjetivos distintos em ASCII", () => {
-    const nomes = new Set<string>();
-    const adjetivos = new Set<string>();
+  it("provides 128 distinct ASCII nouns and 128 distinct ASCII adjectives", () => {
+    const nouns = new Set<string>();
+    const adjectives = new Set<string>();
     for (let i = 0; i < 128; i++) {
-      const nome = pair(dado(i / 128, i / 128));
-      expect(nome).toMatch(/^[a-z]+-[a-z]+$/);
-      const [substantivo, adjetivo] = nome.split("-");
-      nomes.add(substantivo);
-      adjetivos.add(adjetivo);
+      const name = pair(draw(i / 128, i / 128));
+      expect(name).toMatch(/^[a-z]+-[a-z]+$/);
+      const [noun, adjective] = name.split("-");
+      nouns.add(noun);
+      adjectives.add(adjective);
     }
-    expect(nomes.size).toBe(128);
-    expect(adjetivos.size).toBe(128);
+    expect(nouns.size).toBe(128);
+    expect(adjectives.size).toBe(128);
   });
 
-  it("é um par de palavras, sem acento e sem maiúscula", () => {
+  it("returns a lowercase pair of words without accents", () => {
     expect(pair()).toMatch(/^[a-z]+-[a-z]+$/);
   });
 
-  it("sorteios diferentes dão pares diferentes", () => {
-    expect(pair(dado(0, 0))).not.toBe(pair(dado(0.5, 0.5)));
+  it("different random draws produce different pairs", () => {
+    expect(pair(draw(0, 0))).not.toBe(pair(draw(0.5, 0.5)));
   });
 });
 
 describe("freshBranch", () => {
-  it("nasce com palavras e quatro dígitos aleatórios", () => {
-    const nome = freshBranch([]);
-    expect(nome).toMatch(/^prometeu\/[a-z]+-[a-z]+-\d{4}$/);
+  it("starts with words and four random digits", () => {
+    const name = freshBranch([]);
+    expect(name).toMatch(/^prometeu\/[a-z]+-[a-z]+-\d{4}$/);
   });
 
-  it("varia o número mantendo as palavras e preserva quatro dígitos nos extremos", () => {
-    expect(freshBranch([], dado(0, 0, 0))).toBe("prometeu/farol-lento-0000");
-    expect(freshBranch([], dado(0, 0, 0.99999))).toBe("prometeu/farol-lento-9999");
+  it("varies the number while preserving words and four digits at both bounds", () => {
+    expect(freshBranch([], draw(0, 0, 0))).toBe("prometeu/farol-lento-0000");
+    expect(freshBranch([], draw(0, 0, 0.99999))).toBe("prometeu/farol-lento-9999");
   });
 
-  it("nome de branch que já existe no repo não é oferecido de novo", () => {
-    const primeiro = freshBranch([], dado(0, 0));
-    const outro = freshBranch([primeiro], dado(0, 0, 0, 0.5, 0.5, 0.5));
-    expect(outro).not.toBe(primeiro);
-    expect(outro).toMatch(/^prometeu\/[a-z]+-[a-z]+-\d{4}$/);
+  it("does not offer a branch name that already exists in the repository", () => {
+    const first = freshBranch([], draw(0, 0));
+    const other = freshBranch([first], draw(0, 0, 0, 0.5, 0.5, 0.5));
+    expect(other).not.toBe(first);
+    expect(other).toMatch(/^prometeu\/[a-z]+-[a-z]+-\d{4}$/);
   });
 
-  it("branch só no remoto também conta como tomada", () => {
-    const primeiro = freshBranch([], dado(0, 0));
-    const outro = freshBranch([`origin/${primeiro}`], dado(0, 0, 0, 0.5, 0.5, 0.5));
-    expect(outro).not.toBe(primeiro);
+  it("treats remote-only branches as taken", () => {
+    const first = freshBranch([], draw(0, 0));
+    const other = freshBranch([`origin/${first}`], draw(0, 0, 0, 0.5, 0.5, 0.5));
+    expect(other).not.toBe(first);
   });
 
-  it("sorteio teimoso no mesmo nome tomado acaba num número no fim", () => {
-    const primeiro = freshBranch([], dado(0));
-    expect(freshBranch([primeiro], dado(0))).toBe(`${primeiro}-2`);
+  it("appends a number when repeated draws produce the same taken name", () => {
+    const first = freshBranch([], draw(0));
+    expect(freshBranch([first], draw(0))).toBe(`${first}-2`);
   });
 
-  it("nome parecido de outro projeto não atrapalha", () => {
-    const nome = freshBranch([], dado(0));
-    const taken = [`outro-${nome}`];
-    expect(freshBranch(taken, dado(0))).toBe(nome);
+  it("ignores similar names from other projects", () => {
+    const name = freshBranch([], draw(0));
+    const taken = [`other-${name}`];
+    expect(freshBranch(taken, draw(0))).toBe(name);
   });
 });

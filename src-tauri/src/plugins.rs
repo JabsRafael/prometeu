@@ -1752,7 +1752,7 @@ mod tests {
     }
 
     #[test]
-    fn limpeza_encontra_todas_as_contas_sem_seguir_links() {
+    fn cleanup_finds_all_accounts_without_following_links() {
         let root =
             std::env::temp_dir().join(format!("prometeu-account-plugins-{}", uuid::Uuid::new_v4()));
         let home = root.join("workspace");
@@ -1780,23 +1780,23 @@ mod tests {
 
     /// Directories use plugin-dir; remote sources use plugin-url.
     #[test]
-    fn a_origem_decide_a_flag() {
+    fn source_determines_the_flag() {
         assert_eq!(
             flags(&plugin("caveman", "/opt/caveman")),
             ["--plugin-dir".to_string(), "/opt/caveman".to_string()]
         );
         assert_eq!(
-            flags(&plugin("x", "https://exemplo.com/x.zip")),
+            flags(&plugin("x", "https://example.com/x.zip")),
             [
                 "--plugin-url".to_string(),
-                "https://exemplo.com/x.zip".to_string()
+                "https://example.com/x.zip".to_string()
             ]
         );
     }
 
     /// Expand tilde into this machine's absolute home path before invoking Claude.
     #[test]
-    fn o_til_vira_caminho() {
+    fn expands_tilde_in_paths() {
         let [_, path] = flags(&plugin("x", "~/plugins/x"));
         assert_eq!(path, paths::home().join("plugins/x").display().to_string());
         assert!(!path.starts_with('~'));
@@ -1805,17 +1805,17 @@ mod tests {
     /// Preserve selection order and emit one argument pair per existing selected plugin. Skip IDs
     /// removed from the hub rather than preventing conversation startup.
     #[test]
-    fn a_escolha_vira_linha_de_comando() {
+    fn selection_becomes_command_line_arguments() {
         let hub = vec![
             plugin("caveman", "/opt/caveman"),
-            plugin("ponytail", "https://exemplo.com/ponytail.zip"),
+            plugin("ponytail", "https://example.com/ponytail.zip"),
         ];
         let chosen = ["ponytail".to_string(), "apagado".into(), "caveman".into()];
         assert_eq!(
             args_from(&hub, &chosen),
             [
                 "--plugin-url",
-                "https://exemplo.com/ponytail.zip",
+                "https://example.com/ponytail.zip",
                 "--plugin-dir",
                 "/opt/caveman",
             ]
@@ -1826,14 +1826,14 @@ mod tests {
 
     /// Reject empty names because the CLI deduplicates plugins by identity.
     #[test]
-    fn sem_nome_nao_grava() {
+    fn does_not_save_unnamed_plugins() {
         assert!(save_local(plugin("  ", "/opt/x")).is_err());
     }
 
     /// Reject directories without a valid plugin before registration instead of silently losing
     /// behavior during startup.
     #[test]
-    fn pasta_sem_manifesto_e_recusada() {
+    fn rejects_directories_without_manifests() {
         let dir = std::env::temp_dir().join(format!("prometeu-plug-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         assert!(check_source(&dir.display().to_string()).is_err());
@@ -1841,35 +1841,35 @@ mod tests {
         std::fs::create_dir_all(dir.join(".claude-plugin")).unwrap();
         std::fs::write(
             dir.join(".claude-plugin").join("plugin.json"),
-            r#"{"name":"exemplo","description":"o que ele faz"}"#,
+            r#"{"name":"example","description":"what it does"}"#,
         )
         .unwrap();
         assert!(check_source(&dir.display().to_string()).is_ok());
 
         // Use manifest metadata to prefill the form.
         let looked = plugin_look(dir.display().to_string()).unwrap();
-        assert_eq!(looked.id, "exemplo");
-        assert_eq!(looked.note, "o que ele faz");
+        assert_eq!(looked.id, "example");
+        assert_eq!(looked.note, "what it does");
         std::fs::remove_dir_all(&dir).ok();
     }
 
     /// Reject paths that do not exist.
     #[test]
-    fn caminho_que_nao_existe_e_recusado() {
-        assert!(check_source("/nao/existe/plugin").is_err());
-        assert!(check_source("https://exemplo.com/x.zip").is_ok());
+    fn rejects_missing_paths() {
+        assert!(check_source("/does/not/exist/plugin").is_err());
+        assert!(check_source("https://example.com/x.zip").is_ok());
     }
 
     /// Suggest a ZIP filename when its manifest is not directly readable.
     #[test]
-    fn zip_ganha_o_nome_do_arquivo() {
-        assert_eq!(guessed_name("https://exemplo.com/caveman.zip"), "caveman");
+    fn zip_uses_the_archive_filename() {
+        assert_eq!(guessed_name("https://example.com/caveman.zip"), "caveman");
         assert_eq!(guessed_name("/tmp/meu-plugin.zip"), "meu-plugin");
     }
 
     /// Normalize browser URLs, owner/repo shorthand, and Git addresses into clone targets.
     #[test]
-    fn o_endereco_colado_vira_clone() {
+    fn pasted_urls_become_clone_sources() {
         let git = "https://github.com/JuliusBrussee/caveman";
         assert_eq!(git_url("JuliusBrussee/caveman"), git);
         assert_eq!(git_url("github.com/JuliusBrussee/caveman"), git);
@@ -1894,7 +1894,7 @@ mod tests {
 
     /// Derive the clone directory from the repository name, with or without .git.
     #[test]
-    fn a_pasta_tem_o_nome_do_repositorio() {
+    fn directory_uses_the_repository_name() {
         assert_eq!(
             repo_name("https://github.com/JuliusBrussee/caveman"),
             "caveman"
@@ -1908,26 +1908,26 @@ mod tests {
     /// Discover root plugins, local marketplace entries, and plugins/ children. Ignore entries
     /// pointing to other repositories, which require separate installation.
     #[test]
-    fn o_clone_diz_quais_plugins_vieram() {
+    fn clone_lists_discovered_plugins() {
         let root = std::env::temp_dir().join(format!("prometeu-inst-{}", uuid::Uuid::new_v4()));
         let manifest = |at: &Path, name: &str| {
             std::fs::create_dir_all(at.join(".claude-plugin")).unwrap();
             std::fs::write(
                 at.join(".claude-plugin").join("plugin.json"),
-                format!(r#"{{"name":"{name}","description":"o que ele faz"}}"#),
+                format!(r#"{{"name":"{name}","description":"what it does"}}"#),
             )
             .unwrap();
         };
 
         // The repository itself is a plugin.
-        let one = root.join("um");
+        let one = root.join("one");
         manifest(&one, "caveman");
-        let found = plugins_in(&one, "https://exemplo/caveman");
+        let found = plugins_in(&one, "https://example/caveman");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].id, "caveman");
-        assert_eq!(found[0].note, "o que ele faz");
+        assert_eq!(found[0].note, "what it does");
         assert!(found[0].made);
-        assert_eq!(found[0].from, "https://exemplo/caveman");
+        assert_eq!(found[0].from, "https://example/caveman");
 
         // The marketplace contains one local plugin and one external entry.
         let many = root.join("muitos");
@@ -1936,7 +1936,7 @@ mod tests {
         std::fs::create_dir_all(many.join(".claude-plugin")).unwrap();
         std::fs::write(
             many.join(".claude-plugin").join("marketplace.json"),
-            r#"{"plugins":[{"name":"a","source":"./plugins/a"},{"name":"fora","source":{"source":"git-subdir","url":"https://exemplo/outro.git"}}]}"#,
+            r#"{"plugins":[{"name":"a","source":"./plugins/a"},{"name":"outside","source":{"source":"git-subdir","url":"https://example.com/other.git"}}]}"#,
         )
         .unwrap();
         std::fs::create_dir_all(many.join(".agents").join("plugins")).unwrap();
@@ -1945,7 +1945,7 @@ mod tests {
             r#"{"name":"nativo","plugins":[{"name":"b","source":{"source":"local","path":"./plugins/b"}}]}"#,
         )
         .unwrap();
-        let found = plugins_in(&many, "https://exemplo/muitos");
+        let found = plugins_in(&many, "https://example/muitos");
         assert_eq!(
             found.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
             ["a", "b"]
@@ -1971,7 +1971,7 @@ mod tests {
     /// Generate a native marketplace entry and Codex manifest while retaining compatible hooks.
     /// Content-hashed versions invalidate unchanged upstream version numbers.
     #[test]
-    fn o_marketplace_do_codex_nasce_do_mesmo_plugin() {
+    fn codex_marketplace_uses_the_same_plugin() {
         let root =
             std::env::temp_dir().join(format!("prometeu-codex-market-{}", uuid::Uuid::new_v4()));
         let source = root.join("origem");
@@ -2049,7 +2049,7 @@ mod tests {
     }
 
     #[test]
-    fn detecta_hooks_que_precisam_nascer_ativos() {
+    fn detects_hooks_that_must_start_enabled() {
         let root = std::env::temp_dir().join(format!(
             "prometeu-codex-hook-detect-{}",
             uuid::Uuid::new_v4()
@@ -2093,7 +2093,7 @@ mod tests {
     }
 
     #[test]
-    fn versao_livre_do_claude_nao_quebra_o_cache_do_codex() {
+    fn freeform_claude_versions_do_not_break_the_codex_cache() {
         let root =
             std::env::temp_dir().join(format!("prometeu-plugin-version-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(root.join(".claude-plugin")).unwrap();
@@ -2110,7 +2110,7 @@ mod tests {
     }
 
     #[test]
-    fn home_do_codex_pertence_ao_workspace_e_nao_ao_cwd() {
+    fn codex_home_belongs_to_the_workspace_not_the_working_directory() {
         assert_eq!(
             codex_workspace_home("workspace-a"),
             codex_workspace_home("workspace-a")
@@ -2123,7 +2123,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn apagar_home_derivado_nao_segue_links_para_o_home_real() {
+    fn deleting_derived_home_does_not_follow_links_to_the_real_home() {
         let root =
             std::env::temp_dir().join(format!("prometeu-codex-remove-{}", uuid::Uuid::new_v4()));
         let homes = root.join("homes");
@@ -2131,7 +2131,7 @@ mod tests {
         let real = root.join("real");
         std::fs::create_dir_all(&home).unwrap();
         std::fs::create_dir_all(&real).unwrap();
-        std::fs::write(real.join("auth.json"), "conta").unwrap();
+        std::fs::write(real.join("auth.json"), "account").unwrap();
         std::os::unix::fs::symlink(real.join("auth.json"), home.join("auth.json")).unwrap();
 
         remove_codex_home(&homes, &home);
@@ -2139,13 +2139,13 @@ mod tests {
         assert!(!home.exists());
         assert_eq!(
             std::fs::read_to_string(real.join("auth.json")).unwrap(),
-            "conta"
+            "account"
         );
         std::fs::remove_dir_all(root).ok();
     }
 
     #[test]
-    fn home_derivado_preserva_estado_sem_mudar_a_config_global() {
+    fn derived_home_preserves_state_without_changing_global_configuration() {
         let root =
             std::env::temp_dir().join(format!("prometeu-codex-home-{}", uuid::Uuid::new_v4()));
         let base = root.join("base");
@@ -2153,12 +2153,12 @@ mod tests {
         let marketplace = home.join("marketplace");
         std::fs::create_dir_all(base.join("plugins")).unwrap();
         std::fs::create_dir_all(&home).unwrap();
-        std::fs::write(base.join("auth.json"), "conta").unwrap();
+        std::fs::write(base.join("auth.json"), "account").unwrap();
         let global = r#"
-[projects."/tmp/projeto"]
+[projects."/tmp/project"]
 trust_level = "trusted"
 
-[plugins."global@outro"]
+[plugins."global@other"]
 enabled = true
 
 [hooks.state.global]
@@ -2190,11 +2190,11 @@ opcao = "preservada"
         );
         let config = read_toml(&home.join("config.toml")).unwrap();
         assert_eq!(
-            config["projects"]["/tmp/projeto"]["trust_level"].as_str(),
+            config["projects"]["/tmp/project"]["trust_level"].as_str(),
             Some("trusted")
         );
         assert_eq!(
-            config["plugins"]["global@outro"]["enabled"].as_bool(),
+            config["plugins"]["global@other"]["enabled"].as_bool(),
             Some(true)
         );
         assert_eq!(config["cli_auth_credentials_store"].as_str(), Some("file"));
@@ -2231,7 +2231,7 @@ opcao = "preservada"
     /// SessionStart hook. It temporarily writes to and cleans up the real Codex cache.
     #[test]
     #[ignore]
-    fn codex_instala_plugin_portatil_de_verdade() {
+    fn codex_installs_a_real_portable_plugin() {
         let root = std::env::temp_dir().join(format!(
             "prometeu-codex-plugin-live-{}",
             uuid::Uuid::new_v4()
@@ -2293,7 +2293,7 @@ opcao = "preservada"
             }
             let first_version = codex_installed(&home)?
                 .get(&canonical)
-                .ok_or_else(|| "plugin não apareceu no cache do Codex".to_string())?
+                .ok_or_else(|| "plugin did not appear in the Codex cache".to_string())?
                 .version
                 .clone();
             let listed = codex_command(&home)
@@ -2304,14 +2304,14 @@ opcao = "preservada"
                 return Err(last_line(&String::from_utf8_lossy(&listed.stderr)));
             }
             let listed: Value = serde_json::from_slice(&listed.stdout)
-                .map_err(|error| format!("lista ilegível: {error}"))?;
+                .map_err(|error| format!("unreadable list: {error}"))?;
             let active = listed["installed"]
                 .as_array()
                 .into_iter()
                 .flatten()
                 .find(|entry| entry["pluginId"].as_str() == Some(&canonical));
             if active.and_then(|entry| entry["enabled"].as_bool()) != Some(true) {
-                return Err(format!("plugin não ficou ativo no home: {active:?}"));
+                return Err(format!("plugin was not active in the home: {active:?}"));
             }
             let output = Command::new("codex")
                 .env("CODEX_HOME", &home)
@@ -2323,7 +2323,7 @@ opcao = "preservada"
                 return Err(last_line(&String::from_utf8_lossy(&output.stderr)));
             }
             if !String::from_utf8_lossy(&output.stdout).contains(&marker) {
-                return Err("a sessão Codex não recebeu a skill instalada".into());
+                return Err("the Codex session did not receive the installed skill".into());
             }
 
             // debug prompt-input proves skill discovery without opening a session. Use the real
@@ -2342,11 +2342,11 @@ opcao = "preservada"
                 let mut input = server
                     .stdin
                     .take()
-                    .ok_or_else(|| "app-server sem stdin".to_string())?;
+                    .ok_or_else(|| "app-server missing stdin".to_string())?;
                 let output = server
                     .stdout
                     .take()
-                    .ok_or_else(|| "app-server sem stdout".to_string())?;
+                    .ok_or_else(|| "app-server missing stdout".to_string())?;
                 let (send, receive) = std::sync::mpsc::channel();
                 std::thread::spawn(move || {
                     for line in BufReader::new(output).lines().map_while(Result::ok) {
@@ -2359,12 +2359,15 @@ opcao = "preservada"
                 });
                 let response = |id: u64| -> Result<Value, String> {
                     loop {
-                        let message = receive
-                            .recv_timeout(Duration::from_secs(5))
-                            .map_err(|error| format!("app-server sem resposta {id}: {error}"))?;
+                        let message =
+                            receive
+                                .recv_timeout(Duration::from_secs(5))
+                                .map_err(|error| {
+                                    format!("app-server missing response {id}: {error}")
+                                })?;
                         if message["id"].as_u64() == Some(id) {
                             if let Some(error) = message["error"]["message"].as_str() {
-                                return Err(format!("app-server recusou {id}: {error}"));
+                                return Err(format!("app-server rejected {id}: {error}"));
                             }
                             return Ok(message);
                         }
@@ -2412,13 +2415,13 @@ opcao = "preservada"
                     .flatten()
                     .flat_map(|entry| entry["hooks"].as_array().into_iter().flatten())
                     .find(|hook| hook["pluginId"].as_str() == Some(&canonical))
-                    .ok_or_else(|| format!("hook não descoberto: {}", listed["result"]))?;
+                    .ok_or_else(|| format!("hook not discovered: {}", listed["result"]))?;
                 let key = hook["key"]
                     .as_str()
-                    .ok_or_else(|| format!("hook sem key: {hook}"))?;
+                    .ok_or_else(|| format!("hook missing key: {hook}"))?;
                 let hash = hook["currentHash"]
                     .as_str()
-                    .ok_or_else(|| format!("hook sem hash: {hook}"))?;
+                    .ok_or_else(|| format!("hook missing hash: {hook}"))?;
                 let state = serde_json::Map::from_iter([(
                     key.to_string(),
                     serde_json::json!({ "trusted_hash": hash, "enabled": true }),
@@ -2463,7 +2466,7 @@ opcao = "preservada"
                 if !hook_ran.is_file() {
                     let thread = opened["result"]["thread"]["id"]
                         .as_str()
-                        .ok_or_else(|| "thread/start sem id".to_string())?;
+                        .ok_or_else(|| "thread/start missing id".to_string())?;
                     writeln!(
                         input,
                         "{}",
@@ -2487,7 +2490,7 @@ opcao = "preservada"
                     }
                     std::thread::sleep(Duration::from_millis(50));
                 }
-                Err("o SessionStart do plugin não nasceu ativo".into())
+                Err("the plugin SessionStart hook did not start active".into())
             })();
             server.kill().ok();
             server.wait().ok();
@@ -2495,7 +2498,7 @@ opcao = "preservada"
             if std::fs::read_to_string(&hook_ran).ok().as_deref()
                 != Some(format!("{hook_marker}\n").as_str())
             {
-                return Err("o SessionStart do plugin não nasceu ativo".into());
+                return Err("the plugin SessionStart hook did not start active".into());
             }
 
             std::fs::write(
@@ -2510,11 +2513,11 @@ opcao = "preservada"
             )?;
             let updated_version = codex_installed(&home)?
                 .get(&canonical)
-                .ok_or_else(|| "plugin atualizado sumiu do cache do Codex".to_string())?
+                .ok_or_else(|| "updated plugin disappeared from the Codex cache".to_string())?
                 .version
                 .clone();
             if updated_version == first_version {
-                return Err("o hash novo não invalidou a versão instalada".into());
+                return Err("the new hash did not invalidate the installed version".into());
             }
             let updated = Command::new("codex")
                 .env("CODEX_HOME", &home)
@@ -2526,7 +2529,7 @@ opcao = "preservada"
                 return Err(last_line(&String::from_utf8_lossy(&updated.stderr)));
             }
             if !String::from_utf8_lossy(&updated.stdout).contains(&updated_marker) {
-                return Err("a sessão Codex não recebeu a versão atualizada".into());
+                return Err("the Codex session did not receive the updated version".into());
             }
             if std::fs::read(&global_config).ok() != global_before {
                 return Err("a config global do Codex foi alterada".into());
@@ -2543,10 +2546,10 @@ opcao = "preservada"
     }
 
     /// Ignored GitHub integration clones, discovers, and registers a real plugin: cargo test --
-    /// --ignored instala_de_verdade.
+    /// --ignored installs_a_real_plugin.
     #[test]
     #[ignore]
-    fn instala_de_verdade() {
+    fn installs_a_real_plugin() {
         let root = std::env::temp_dir().join(format!("prometeu-net-{}", uuid::Uuid::new_v4()));
         // The ignored test owns its process environment.
         std::env::set_var("PROMETEU_ROOT", &root);
@@ -2582,7 +2585,7 @@ opcao = "preservada"
 
     /// Marketplace paths must remain inside the clone regardless of external manifest contents.
     #[test]
-    fn caminho_de_marketplace_nao_sai_do_clone() {
+    fn marketplace_paths_cannot_escape_the_clone() {
         let dir = Path::new("/tmp/clone");
         assert_eq!(within(dir, "./plugins/a"), Some(dir.join("plugins/a")));
         assert_eq!(within(dir, "./"), Some(dir.to_path_buf()));
@@ -2592,7 +2595,7 @@ opcao = "preservada"
 
     /// Normalize names without accents, spaces, or repeated hyphens for CLI use.
     #[test]
-    fn o_nome_vira_pasta() {
+    fn plugin_names_become_directory_names() {
         assert_eq!(slug("Revisão de front"), "revisao-de-front");
         assert_eq!(slug("  Caveman!!  "), "caveman");
         assert_eq!(slug("padrões — do time"), "padroes-do-time");
@@ -2602,7 +2605,7 @@ opcao = "preservada"
     /// Display written files and the first agent sentence as progress, with paths relative to the
     /// plugin. Reads do not count as progress.
     #[test]
-    fn o_stream_vira_progresso() {
+    fn stream_becomes_progress() {
         let dir = Path::new("/tmp/plug");
         let wrote = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":"/tmp/plug/skills/x/SKILL.md"}}]}}"#;
         let wrote = step(dir, wrote).unwrap();
@@ -2614,24 +2617,24 @@ opcao = "preservada"
         let read = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/tmp/plug/x"}}]}}"#;
         assert!(step(dir, read).is_none());
 
-        let said = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"\n  Vou começar pelo manifesto.\nDepois as skills."}]}}"#;
+        let said = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"\n  I will start with the manifest.\nThen the skills."}]}}"#;
         let said = step(dir, said).unwrap();
         assert_eq!(
             (said.kind.as_str(), said.text.as_str()),
-            ("say", "Vou começar pelo manifesto.")
+            ("say", "I will start with the manifest.")
         );
 
         // Ignore unrelated stream frames and malformed JSON without aborting progress parsing.
         assert!(step(dir, r#"{"type":"result","subtype":"success"}"#).is_none());
-        assert!(step(dir, "não é json").is_none());
+        assert!(step(dir, "not JSON").is_none());
     }
 
     /// A response without a manifest is not a created plugin and must not enter the hub.
     #[test]
-    fn pasta_sem_manifesto_nao_vira_plugin() {
+    fn directories_without_manifests_do_not_become_plugins() {
         let dir = std::env::temp_dir().join(format!("prometeu-made-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        assert!(born(&dir, "exemplo").is_err());
+        assert!(born(&dir, "example").is_err());
         std::fs::remove_dir_all(&dir).ok();
     }
 }

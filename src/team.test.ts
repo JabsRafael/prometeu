@@ -5,8 +5,8 @@ import { t } from "./i18n";
 import type { Board, Workspace } from "./types";
 
 const config = {
-  relay: "wss://relay.exemplo", team: "time1234", secret: "segredo-de-teste-1234567",
-  member: "membro1", credential: "credencial-de-teste-com-tamanho-bastante", name: "Eu",
+  relay: "wss://relay.example", team: "team1234", secret: "test-secret-12345678901",
+  member: "member1", credential: "test-credential-with-sufficient-length", name: "Me",
 };
 const fake = vi.hoisted(() => ({ invoke: vi.fn(), security: null as unknown,
   chat: null as ((event: { payload: [string, string, number] }) => void) | null,
@@ -81,7 +81,7 @@ async function outgoingNote(ws: string, text: string): Promise<Note> {
 beforeEach(async () => {
   vi.useFakeTimers(); vi.resetModules(); fake.security = null; fake.chat = null;
   fake.invoke.mockReset().mockImplementation(async (command: string, args: any) => {
-    if (command === "team_config") return { config, default_name: "Eu" };
+    if (command === "team_config") return { config, default_name: "Me" };
     if (command === "team_security") return structuredClone(fake.security);
     if (command === "team_security_set") { fake.security = structuredClone(args.state); return; }
     return null;
@@ -93,11 +93,11 @@ beforeEach(async () => {
 });
 afterEach(async () => { await team.leave(); vi.useRealTimers(); });
 
-describe("notas do time", () => {
-  it("não consulta um workspace local que nunca foi anunciado", () => {
-    expect(team.notesOf("workspace-local-nunca-compartilhado")).toEqual([]);
+describe("team notes", () => {
+  it("does not query a local workspace that was never announced", () => {
+    expect(team.notesOf("local-workspace-never-shared")).toEqual([]);
   });
-  it("pergunta pelas notas depois de anunciar o que é meu e reutiliza a identidade ao reconectar", async () => {
+  it("requests notes after announcing owned workspaces and reuses identity on reconnect", async () => {
     await welcome(); await announce("ws1");
     const key = relay.only("identity")[0].key;
     team.notesOf("ws1");
@@ -108,7 +108,7 @@ describe("notas do time", () => {
     expect(relay.sent.filter(f => f.t === "share" || f.t === "notes").map(f => f.t)).toEqual(["share", "notes"]);
     expect(relay.only("identity")[0].key).toBe(key);
   });
-  it("não repete o pedido de um workspace que parou de ser compartilhado", async () => {
+  it("does not repeat requests for a workspace that is no longer shared", async () => {
     await welcome(); await announce("ws1");
     team.notesOf("ws1");
     team.boardChanged(board(workspace("ws1", false)));
@@ -117,27 +117,27 @@ describe("notas do time", () => {
     await reconnect();
     expect(relay.only("notes")).toEqual([]);
   });
-  it("cifra comentário, resposta e resolução; atualização autenticada substitui a raiz", async () => {
+  it("encrypts comments, replies and resolution; authenticated updates replace the root", async () => {
     await welcome(); await announce("comments-ws");
     expect(team.supportsThreads()).toBe(true);
-    const root = await outgoingNote("comments-ws", "texto privado do comentário");
-    expect(await team.replyNote(root.ws, root.id, "resposta privada", [])).toBe(true);
+    const root = await outgoingNote("comments-ws", "private comment text");
+    expect(await team.replyNote(root.ws, root.id, "private reply", [])).toBe(true);
     expect(await team.resolveNote(root.ws, root.id)).toBe(true);
     await vi.waitFor(() => expect(relay.only("note_resolve")).toHaveLength(1));
     const reply = relay.only("note_reply")[0];
     const resolution = relay.only("note_resolve")[0];
     expect(root.encrypted?.boxes[config.member]).toBeTruthy();
     expect(reply).toMatchObject({ note: root.id, text: "", encrypted: { boxes: expect.any(Object) } });
-    expect(JSON.stringify(relay.sent)).not.toContain("texto privado");
-    expect(JSON.stringify(relay.sent)).not.toContain("resposta privada");
+    expect(JSON.stringify(relay.sent)).not.toContain("private comment");
+    expect(JSON.stringify(relay.sent)).not.toContain("private reply");
     relay.says({ t: "notes", ws: root.ws, items: [root] });
-    await vi.waitFor(() => expect(team.notesOf(root.ws)[0]?.text).toBe("texto privado do comentário"));
+    await vi.waitFor(() => expect(team.notesOf(root.ws)[0]?.text).toBe("private comment text"));
     relay.says({ t: "note", note: { ...root, resolved: true,
       resolution: { author: config.member, encrypted: resolution.encrypted! } } });
     await vi.waitFor(() => expect(team.notesOf(root.ws)[0]?.resolved).toBe(true));
     expect(team.notesOf(root.ws)).toHaveLength(1);
   });
-  it("bloqueia comentário durante mudança de audiência e usa somente destinatários confirmados ao terminar", async () => {
+  it("blocks comments during audience changes and uses only confirmed recipients afterward", async () => {
     await welcome();
     const bob = await generateIdentity(), eve = await generateIdentity();
     relay.members.push({ id: "bob", name: "Bob", online: true, key: bob.publicKey },
@@ -145,7 +145,7 @@ describe("notas do time", () => {
     relay.says({ t: "presence", members: relay.members });
     await vi.waitFor(() => expect(team.status().members).toHaveLength(3));
     await announce("ws1");
-    const before = await outgoingNote("ws1", "antes da remoção");
+    const before = await outgoingNote("ws1", "before removal");
     expect(Object.keys(before.encrypted!.boxes).sort()).toEqual(["bob", "eve", config.member]);
     let finish!: () => void;
     const previous = fake.invoke.getMockImplementation()!;
@@ -153,7 +153,7 @@ describe("notas do time", () => {
       ? new Promise<void>(resolve => { finish = resolve; }) : previous(command, args));
     const change = team.share("ws1", ["bob"]);
     await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
-    expect(await team.addNote("ws1", null, null, "rascunho durante remoção", [], null)).toBe(false);
+    expect(await team.addNote("ws1", null, null, "draft during removal", [], null)).toBe(false);
     expect(relay.only("note")).toHaveLength(1);
     await expect(team.share("ws1", ["eve"])).rejects.toBeTruthy();
     // The IPC resolves before the next board event; the old board must not supply recipients.
@@ -161,28 +161,28 @@ describe("notas do time", () => {
     const sharesBeforePresence = relay.only("share").length;
     relay.says({ t: "presence", members: relay.members });
     await vi.waitFor(() => expect(relay.only("share").length).toBeGreaterThan(sharesBeforePresence));
-    const after = await outgoingNote("ws1", "depois da remoção");
+    const after = await outgoingNote("ws1", "after removal");
     expect(Object.keys(after.encrypted!.boxes).sort()).toEqual(["bob", config.member]);
-    expect(JSON.stringify(relay.sent)).not.toContain("rascunho durante remoção");
+    expect(JSON.stringify(relay.sent)).not.toContain("draft during removal");
   });
-  it("informa falha de cifra sem confirmar envio do comentário", async () => {
+  it("reports encryption failure without confirming comment delivery", async () => {
     const fail = vi.fn(); team.onError(fail);
     await welcome(); await announce("ws1");
-    expect(await team.addNote("workspace-sem-chave", null, null, "rascunho privado", [], null)).toBe(false);
+    expect(await team.addNote("workspace-without-key", null, null, "private draft", [], null)).toBe(false);
     expect(relay.only("note")).toEqual([]);
     await vi.waitFor(() => expect(fail).toHaveBeenCalledWith(t("err.team.encryption")));
   });
-  it("abrir item cifrado de Para mim não o remove", async () => {
+  it("opening an encrypted inbox item does not remove it", async () => {
     await welcome(); await announce("ws1");
-    const root = await outgoingNote("ws1", "revisa em privado");
+    const root = await outgoingNote("ws1", "review privately");
     relay.says({ t: "inbox", items: [{ id: root.id, ws: root.ws, author: root.author, ts: root.ts, encrypted: root.encrypted }] });
     await vi.waitFor(() => expect(team.inboxCount()).toBe(1));
-    expect(team.inboxList()[0].text).toBe("revisa em privado");
+    expect(team.inboxList()[0].text).toBe("review privately");
     expect(team.readInbox(root.id)).toEqual({ workspace: "ws1", note: root.id, tab: null });
     expect(team.inboxCount()).toBe(1);
     expect(relay.only("inbox_read")).toEqual([]);
   });
-  it("recusa relay antigo sem retornar a comentários e inbox em texto", async () => {
+  it("rejects legacy relays without falling back to plaintext comments and inbox", async () => {
     const fail = vi.fn(); team.onError(fail);
     await vi.waitFor(() => expect(relay.onmessage).not.toBeNull());
     relay.onopen?.();
@@ -191,12 +191,12 @@ describe("notas do time", () => {
     await vi.waitFor(() => expect(fail).toHaveBeenCalledWith(t("err.team.encryption")));
     expect(team.status().phase).not.toBe("online");
     expect(team.readInbox("legacy")).toBeNull();
-    expect(await team.addNote("ws1", null, null, "segredo", [], null)).toBe(false);
+    expect(await team.addNote("ws1", null, null, "secret", [], null)).toBe(false);
     expect(team.inboxCount()).toBe(0);
     expect(relay.sent).toEqual([]);
   });
 });
-it("retoma stream após reconectar ao mesmo time com snapshot anterior pendente", async () => {
+it("resumes streaming after reconnecting to the same team with an earlier snapshot pending", async () => {
   await welcome();
   const guest = await generateIdentity();
   relay.members.push({ id: "guest", name: "Guest", online: true, key: guest.publicKey });
@@ -213,25 +213,25 @@ it("retoma stream após reconectar ao mesmo time com snapshot anterior pendente"
   fake.invoke.mockImplementation((command, args) => {
     if (command !== "chat_snapshot") return previous(command, args);
     snapshots++;
-    return snapshots === 1 ? new Promise(resolve => { finish = resolve; }) : Promise.resolve({ text: "snapshot atual", seq: 2 });
+    return snapshots === 1 ? new Promise(resolve => { finish = resolve; }) : Promise.resolve({ text: "current snapshot", seq: 2 });
   });
   const watch: Down = { t: "watch", ws: work.id, tab: "tab-stream", members: ["guest"], added: ["guest"] };
   relay.says(watch);
   await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
   await reconnect();
   await vi.waitFor(() => expect(relay.only("share")).toHaveLength(2));
-  finish({ text: "snapshot antigo", seq: 1 });
+  finish({ text: "old snapshot", seq: 1 });
   await vi.advanceTimersByTimeAsync(0);
   expect(relay.binaries).toHaveLength(0);
   relay.says(watch);
   await vi.waitFor(() => expect(relay.binaries).toHaveLength(1));
-  fake.chat!({ payload: ["tab-stream", "linha depois da reconexão", 3] });
+  fake.chat!({ payload: ["tab-stream", "line after reconnecting", 3] });
   await vi.advanceTimersByTimeAsync(40);
   await vi.waitFor(() => expect(relay.binaries).toHaveLength(2));
 });
 
-describe("erro do relay", () => {
-  it("cala pedidos automáticos e mostra o erro da ação da pessoa", async () => {
+describe("relay errors", () => {
+  it("silences automatic requests and surfaces errors from user actions", async () => {
     const fail = vi.fn(); team.onError(fail); await welcome();
     relay.says({ t: "error", code: "noShare" });
     relay.says({ t: "error", code: "noTab" });
@@ -240,8 +240,8 @@ describe("erro do relay", () => {
     expect(fail).toHaveBeenCalledTimes(1);
   });
 });
-describe("ouvintes", () => {
-  it("deixa uma tela removida parar de ouvir mudanças", async () => {
+describe("listeners", () => {
+  it("lets removed views stop listening for changes", async () => {
     const changed = vi.fn(); const stop = team.onChange(changed);
     await team.leave();
     expect(changed).toHaveBeenCalledTimes(1);

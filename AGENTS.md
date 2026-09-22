@@ -131,8 +131,12 @@ an artifact without an explicit request. See `docs/operations/release.md`.
 
 ## Documentation maintenance
 
-- Write all code comments and doc comments in English, including comments in
-  tests, scripts, stylesheets, and configuration files.
+- Write code identifiers, test names, comments and doc comments in English,
+  including tests, scripts, stylesheets and configuration files. Author test
+  fixtures in English unless a contract or a Unicode regression needs another
+  value. Preserve persisted and wire identifiers.
+- Run E2E scenarios with the English UI. Do not duplicate scenarios by language
+  or add tests whose only purpose is checking translation copy.
 - Document the why and the contracts; do not narrate obvious code.
 - Comments explain local details. Documents explain flows and decisions.
 - Links are relative to the repository and must stay valid.

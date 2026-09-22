@@ -7,47 +7,47 @@ import { inheritedOf, loadInherited, onChange, toDraft, toServer, type Draft } f
 import type { McpServer } from "./types";
 
 /// Translate editable form fields into the provider configuration shape.
-describe("o formulário e o cadastro", () => {
-  it("o comando digitado vira programa e argumentos", () => {
+describe("form and registry", () => {
+  it("parses an entered command into program and arguments", () => {
     const server = toServer({
       stdio: true,
-      id: " eco ",
+      id: " echo ",
       cmd: "  npx -y @modelcontextprotocol/server-everything  ",
       url: "",
       pairs: [],
-      note: " o de teste ",
+      note: " the test server ",
     });
     expect(server).toEqual({
-      id: "eco",
+      id: "echo",
       config: {
         type: "stdio",
         command: "npx",
         args: ["-y", "@modelcontextprotocol/server-everything"],
         env: {},
       },
-      note: "o de teste",
+      note: "the test server",
     });
   });
 
   /// The same key/value entry becomes a local environment variable or a remote header depending on transport.
-  it("os pares viram variável no stdio e cabeçalho no remoto", () => {
+  it("stores key-value pairs as stdio environment variables or remote headers", () => {
     const pairs: [string, string][] = [["X-Key", "abracadabra"]];
-    const aqui = toServer({ stdio: true, id: "aqui", cmd: "node s.js", url: "", pairs, note: "" });
-    expect(aqui!.config.env).toEqual({ "X-Key": "abracadabra" });
-    const la = toServer({ stdio: false, id: "la", cmd: "", url: "https://x/mcp", pairs, note: "" });
-    expect(la!.config.headers).toEqual({ "X-Key": "abracadabra" });
-    expect(la!.config.url).toBe("https://x/mcp");
+    const local = toServer({ stdio: true, id: "local", cmd: "node s.js", url: "", pairs, note: "" });
+    expect(local!.config.env).toEqual({ "X-Key": "abracadabra" });
+    const remote = toServer({ stdio: false, id: "remote", cmd: "", url: "https://x/mcp", pairs, note: "" });
+    expect(remote!.config.headers).toEqual({ "X-Key": "abracadabra" });
+    expect(remote!.config.url).toBe("https://x/mcp");
   });
 
   /// Ignore newly added blank rows instead of creating variables with empty names.
-  it("par sem nome não entra no cadastro", () => {
+  it("excludes unnamed pairs from registration", () => {
     const server = toServer({
       stdio: true,
       id: "x",
       cmd: "node s.js",
       url: "",
       pairs: [
-        ["", "sobrou"],
+        ["", "leftover"],
         [" TOKEN ", " abc "],
       ],
       note: "",
@@ -55,7 +55,7 @@ describe("o formulário e o cadastro", () => {
     expect(server!.config.env).toEqual({ TOKEN: "abc" });
   });
 
-  it("sem nome, ou sem o endereço do tipo escolhido, não há o que gravar", () => {
+  it("requires a name and the address for the selected transport", () => {
     const base: Draft = { stdio: false, id: "", cmd: "node s.js", url: "https://x", pairs: [], note: "" };
     expect(toServer(base)).toBeNull();
     expect(toServer({ ...base, id: "x", url: "" })).toBeNull();
@@ -63,7 +63,7 @@ describe("o formulário e o cadastro", () => {
     expect(toServer({ ...base, id: "x", cmd: "" })).not.toBeNull();
   });
 
-  it("um servidor cadastrado volta ao formulário como foi digitado", () => {
+  it("restores a registered server to the form as entered", () => {
     const server = {
       id: "capim-ds",
       config: { type: "stdio", command: "npx", args: ["-y", "@capim/ds-mcp"], env: { TOKEN: "abc" } },
@@ -76,7 +76,7 @@ describe("o formulário e o cadastro", () => {
     expect(toServer(draft)).toEqual(server);
   });
 
-  it("um remoto volta com a URL e os cabeçalhos no mesmo lugar", () => {
+  it("restores remote URLs and headers to their original fields", () => {
     const draft = toDraft({
       id: "notion",
       config: { type: "http", url: "https://mcp.notion.com/mcp", headers: { "X-Id": "7" } },
@@ -87,16 +87,16 @@ describe("o formulário e o cadastro", () => {
     expect(draft.pairs).toEqual([["X-Id", "7"]]);
   });
 
-  it("o formulário em branco começa como um programa daqui", () => {
+  it("starts an empty form with a local program", () => {
     expect(toDraft(null)).toEqual({ stdio: true, id: "", cmd: "", url: "", pairs: [], note: "" });
   });
 });
 
 /// The CLI-inherited base (ADR 0046) arrives per workspace and repaints gated buttons.
-describe("a base herdada do CLI", () => {
+describe("inherited CLI configuration", () => {
   const metabase: McpServer = { id: "metabase", config: { type: "http", url: "https://x/mcp" }, note: "" };
 
-  it("busca uma vez por workspace e anuncia quando chega", async () => {
+  it("fetches once per workspace and notifies when the result arrives", async () => {
     vi.mocked(invoke).mockResolvedValue([metabase]);
     let painted = 0;
     const forget = onChange(() => painted++);
@@ -110,7 +110,7 @@ describe("a base herdada do CLI", () => {
     forget();
   });
 
-  it("separa a base por provider no mesmo workspace", async () => {
+  it("separates inherited configuration by provider in the same workspace", async () => {
     vi.mocked(invoke).mockResolvedValueOnce([metabase]).mockResolvedValueOnce([]);
     loadInherited("mixed", "claude");
     loadInherited("mixed", "codex");
@@ -119,18 +119,18 @@ describe("a base herdada do CLI", () => {
     expect(vi.mocked(invoke)).toHaveBeenCalledWith("mcp_inherited", { id: "mixed", agent: "codex" });
   });
 
-  it("sem backend, a base fica vazia, o botão continua escondido e uma paint seguinte tenta de novo", async () => {
+  it("keeps the configuration empty and button hidden without a backend, then retries on the next paint", async () => {
     vi.mocked(invoke).mockRejectedValue("mcp.inherited.failed");
     let painted = 0;
     const forget = onChange(() => painted++);
-    loadInherited("ws-falha");
+    loadInherited("ws-failure");
     // The announce still fires so gated buttons repaint with the empty base.
     await vi.waitFor(() => expect(painted).toBe(1));
-    expect(inheritedOf("ws-falha")).toEqual([]);
+    expect(inheritedOf("ws-failure")).toEqual([]);
     // The failure left no cache entry, so a later paint retries the discovery.
     vi.mocked(invoke).mockResolvedValue([metabase]);
-    loadInherited("ws-falha");
-    await vi.waitFor(() => expect(inheritedOf("ws-falha")).toEqual([metabase]));
+    loadInherited("ws-failure");
+    await vi.waitFor(() => expect(inheritedOf("ws-failure")).toEqual([metabase]));
     forget();
   });
 });

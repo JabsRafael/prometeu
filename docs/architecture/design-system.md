@@ -77,7 +77,7 @@ Account identities wrap instead of truncating; account popovers share one row
 for adding and managing accounts, and the account dialog keeps its footer
 visible while its cards scroll. Launcher layout and account-dialog focus are covered in
 [`e2e/launcher-layout.spec.ts`](../../e2e/launcher-layout.spec.ts), including
-representative locales and viewport sizes, with selected WebKit checks. Text
+the English UI at representative viewport sizes, with selected WebKit checks. Text
 fields in the MCP and plugin hubs use `input` and `field`, including the plugin
 creation request. Worktree cleanup also uses `formDialog`,
 including its busy-state cancellation guard and shared checkboxes. Their

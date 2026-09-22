@@ -1273,7 +1273,7 @@ mod tests {
     fn explicit_links_preserve_private_items_and_legacy_catalogs() {
         let local = mcp::Server {
             id: "linear".into(),
-            note: "privado".into(),
+            note: "private".into(),
             config: json!({"url":"https://local.test/mcp", "headers":{"Authorization":"private"}}),
         };
         let cloud = mcp::Server {
@@ -1360,7 +1360,7 @@ mod tests {
     }
 
     #[test]
-    fn segredo_fica_no_mac_e_volta_no_merge() {
+    fn secrets_stay_on_the_mac_and_return_during_merge() {
         let local = mcp::Server {
             id: "x".into(),
             config: json!({"command": "npx", "env": {"TOKEN": "s3cret", "MODE": "dev"}, "headers": {"Authorization": "Bearer t"}}),
@@ -1383,7 +1383,7 @@ mod tests {
     }
 
     #[test]
-    fn so_o_que_tem_endereco_e_portatil() {
+    fn only_items_with_addresses_are_portable() {
         let p = |source: &str, from: &str| plugins::Plugin {
             id: "p".into(),
             source: source.into(),

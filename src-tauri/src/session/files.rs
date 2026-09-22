@@ -143,20 +143,20 @@ mod tests {
 
     /// Save when disk contents still match the opened version.
     #[test]
-    fn salvar_grava_quando_o_disco_nao_mudou() {
+    fn save_writes_when_disk_content_is_unchanged() {
         let dir = tmp("save");
         let file = dir.join("nota.md");
-        std::fs::write(&file, "linha um\nlinha dois\n").unwrap();
+        std::fs::write(&file, "line one\nline two\n").unwrap();
 
-        save(&file, "linha um\n", "linha um\nlinha dois\n").unwrap();
+        save(&file, "line one\n", "line one\nline two\n").unwrap();
 
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "linha um\n");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "line one\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Preserve agent changes made while the person was editing by rejecting the stale save.
     #[test]
-    fn salvar_recusa_quando_o_agente_escreveu_por_baixo() {
+    fn save_rejects_concurrent_agent_writes() {
         let dir = tmp("race");
         let file = dir.join("nota.md");
         std::fs::write(&file, "o que o agente escreveu\n").unwrap();
@@ -173,13 +173,13 @@ mod tests {
 
     /// A symlink outside the worktree must not authorize writing there.
     #[test]
-    fn inside_barra_link_que_sai_do_worktree() {
+    fn inside_rejects_links_escaping_the_worktree() {
         let dir = tmp("outside");
-        let (root, fora) = (dir.join("worktree"), dir.join("fora"));
+        let (root, outside) = (dir.join("worktree"), dir.join("fora"));
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::create_dir_all(&fora).unwrap();
-        std::fs::write(fora.join("segredo.txt"), "x").unwrap();
-        std::os::unix::fs::symlink(fora.join("segredo.txt"), root.join("atalho.txt")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), "x").unwrap();
+        std::os::unix::fs::symlink(outside.join("secret.txt"), root.join("atalho.txt")).unwrap();
 
         assert!(inside(&root, "atalho.txt").is_err());
         let _ = std::fs::remove_dir_all(&dir);

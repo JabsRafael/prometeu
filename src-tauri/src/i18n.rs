@@ -61,7 +61,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sem_idioma_ainda_e_portugues() {
+    fn missing_language_defaults_to_portuguese() {
         let _guard = TEST_LANG.lock().unwrap_or_else(|e| e.into_inner());
         set_lang(String::new());
         assert!(pt());
@@ -72,12 +72,12 @@ mod tests {
     }
 
     #[test]
-    fn codigo_sem_argumento_e_so_o_codigo() {
+    fn codes_without_arguments_remain_unchanged() {
         assert_eq!(t("err.pty.gone"), r#"i18n:{"code":"err.pty.gone"}"#);
     }
 
     #[test]
-    fn argumentos_saem_em_ordem_e_escapados() {
+    fn arguments_are_ordered_and_escaped() {
         let got = ta("err.session.notGit", &[("path", "/tmp/a\"b".into())]);
         assert_eq!(
             got,

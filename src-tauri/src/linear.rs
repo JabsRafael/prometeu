@@ -578,7 +578,7 @@ mod tests {
     use crate::oauth::{parse_query, request_target, unescape};
 
     #[test]
-    fn o_verifier_tem_o_tamanho_da_rfc() {
+    fn verifier_has_the_rfc_length() {
         let v = random();
         assert!((43..=128).contains(&v.len()), "{}", v.len());
         assert!(v.bytes().all(|b| b.is_ascii_hexdigit()));
@@ -586,7 +586,7 @@ mod tests {
     }
 
     #[test]
-    fn o_corpo_do_token_e_urlencoded() {
+    fn token_body_is_urlencoded() {
         assert_eq!(
             form(&[
                 ("grant_type", "authorization_code"),
@@ -597,7 +597,7 @@ mod tests {
     }
 
     #[test]
-    fn o_redirect_vai_escapado_e_volta() {
+    fn redirect_roundtrips_with_escaping() {
         assert_eq!(escape(REDIRECT), "http%3A%2F%2Flocalhost%3A17420%2Flinear");
         assert_eq!(unescape(&escape(REDIRECT)), REDIRECT);
         assert_eq!(unescape("a+b%20c%zz"), "a b c%zz");
@@ -605,7 +605,7 @@ mod tests {
     }
 
     #[test]
-    fn le_o_alvo_do_pedido_e_a_query() {
+    fn reads_request_target_and_query() {
         let req = "GET /linear?code=abc&state=xyz&error_description=User+denied HTTP/1.1\r\nHost: localhost\r\n\r\n";
         let target = request_target(req).unwrap();
         let (route, query) = target.split_once('?').unwrap();
@@ -621,7 +621,7 @@ mod tests {
     /// Optional project, team, and description fields must not invalidate an otherwise valid issue
     /// page.
     #[test]
-    fn le_uma_pagina_de_issues() {
+    fn reads_an_issues_page() {
         let json = serde_json::json!({
             "pageInfo": { "hasNextPage": false, "endCursor": null },
             "nodes": [{
@@ -646,11 +646,11 @@ mod tests {
     }
 
     #[test]
-    fn a_pagina_diz_o_que_aconteceu() {
+    fn page_reports_the_outcome() {
         let _guard = i18n::TEST_LANG.lock().unwrap_or_else(|e| e.into_inner());
         i18n::set_lang("pt-BR".into());
         assert!(page(true, "").contains("Pode fechar esta aba"));
-        assert!(page(false, "sem código").contains("sem código"));
+        assert!(page(false, "missing code").contains("missing code"));
         i18n::set_lang("en".into());
         assert!(page(true, "").contains("You can close this tab"));
         assert!(page(false, "no code").contains("no code"));

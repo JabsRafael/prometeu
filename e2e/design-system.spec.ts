@@ -23,41 +23,41 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => { await new Promise<void>(resolve => server.close(() => resolve())); });
 
-test("design system entrega menu, submenu, senha e formulário com recuperação de erro", { tag: "@webkit" }, async ({ page }) => {
+test("design system supports menus, submenus, passwords and recoverable form errors", { tag: "@webkit" }, async ({ page }) => {
   const scripts: string[] = [];
   page.on("request", request => { if (request.resourceType() === "script") scripts.push(request.url()); });
   await page.goto(`${baseURL}/index.html`);
-  const password = page.getByLabel("Senha", { exact: true });
-  await password.fill("exemplo-seguro");
-  await page.getByRole("button", { name: "Mostrar senha", exact: true }).click();
+  const password = page.getByLabel("Password", { exact: true });
+  await password.fill("safe-example");
+  await page.getByRole("button", { name: "Show password", exact: true }).click();
   await expect(password).toHaveAttribute("type", "text");
-  await page.getByRole("button", { name: "Ocultar senha", exact: true }).click();
+  await page.getByRole("button", { name: "Hide password", exact: true }).click();
   await expect(password).toHaveAttribute("type", "password");
-  await expect(password).toHaveValue("exemplo-seguro");
+  await expect(password).toHaveValue("safe-example");
 
-  const menu = page.getByRole("button", { name: "Ações do projeto" });
+  const menu = page.getByRole("button", { name: "Project actions" });
   await menu.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
-  await expect(page.getByRole("menuitem", { name: "Renomear" })).toBeFocused();
+  await expect(page.getByRole("menuitem", { name: "Rename" })).toBeFocused();
   await page.keyboard.press("ArrowDown");
-  await expect(page.getByRole("menuitem", { name: "Exportar" })).toBeFocused();
+  await expect(page.getByRole("menuitem", { name: "Export" })).toBeFocused();
   await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("menuitem", { name: "Copiar" })).toBeFocused();
+  await expect(page.getByRole("menuitem", { name: "Copy" })).toBeFocused();
   await page.keyboard.press("ArrowLeft");
-  await expect(page.getByRole("menuitem", { name: "Exportar" })).toBeFocused();
+  await expect(page.getByRole("menuitem", { name: "Export" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(menu).toBeFocused();
   await expect(menu).toHaveAttribute("aria-expanded", "false");
 
-  const trigger = page.getByRole("button", { name: "Editar perfil", exact: true });
+  const trigger = page.getByRole("button", { name: "Edit profile", exact: true });
   await trigger.click();
   const dialog = page.getByRole("dialog");
-  const name = dialog.getByLabel("Nome do perfil");
+  const name = dialog.getByLabel("Profile name");
   await expect(name).toBeFocused();
-  await dialog.getByRole("button", { name: "Salvar", exact: true }).click();
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(name).toBeFocused();
-  await name.fill("Equipe");
-  const project = dialog.getByLabel("Projeto", { exact: true });
+  await name.fill("Team");
+  const project = dialog.getByLabel("Project", { exact: true });
   await project.click();
   await page.keyboard.press("Escape");
   await expect(dialog).toBeVisible();
@@ -69,16 +69,16 @@ test("design system entrega menu, submenu, senha e formulário com recuperação
   await expect(dialog.getByRole("menuitemcheckbox", { name: "Prometeu Desktop" })).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(project).toHaveText("Prometeu Desktop");
-  await dialog.getByLabel("Simular erro ao salvar").check();
-  await dialog.getByRole("button", { name: "Salvar", exact: true }).focus();
+  await dialog.getByLabel("Simulate a save error").check();
+  await dialog.getByRole("button", { name: "Save", exact: true }).focus();
   await page.keyboard.press("Tab");
   await expect(name).toBeFocused();
   await name.press("Enter");
-  await expect(dialog.getByRole("button", { name: "Salvar", exact: true })).toBeDisabled();
-  await expect(dialog.getByRole("alert")).toHaveText("Não foi possível salvar. Tente novamente.");
-  await expect(name).toHaveValue("Equipe");
-  await dialog.getByLabel("Simular erro ao salvar").uncheck();
-  await dialog.getByRole("button", { name: "Salvar", exact: true }).click();
+  await expect(dialog.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await expect(dialog.getByRole("alert")).toHaveText("Could not save. Try again.");
+  await expect(name).toHaveValue("Team");
+  await dialog.getByLabel("Simulate a save error").uncheck();
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(dialog).toBeHidden();
   await expect(trigger).toBeFocused();
   await page.setViewportSize({ width: 390, height: 640 });
@@ -91,16 +91,16 @@ test("design system entrega menu, submenu, senha e formulário com recuperação
 
 test("design system opens confirmations without highlighting actions and keeps keyboard focus", { tag: "@webkit" }, async ({ page }) => {
   await page.goto(`${baseURL}/index.html`);
-  const trigger = page.getByRole("button", { name: "Excluir conta", exact: true });
+  const trigger = page.getByRole("button", { name: "Delete account", exact: true });
   for (const keyboard of [false, true]) {
     if (keyboard) await trigger.press("Enter"); else await trigger.click();
-    const dialog = page.getByRole("dialog", { name: "Excluir conta?", exact: true });
+    const dialog = page.getByRole("dialog", { name: "Delete account?", exact: true });
     await expect(dialog.locator(".sheettop b")).toBeFocused();
     await expect(dialog.locator("button:focus-visible")).toHaveCount(0);
     await page.keyboard.press("Shift+Tab");
-    await expect(dialog.getByRole("button", { name: "Excluir", exact: true })).toBeFocused();
+    await expect(dialog.getByRole("button", { name: "Delete", exact: true })).toBeFocused();
     await page.keyboard.press("Tab");
-    const cancel = dialog.getByRole("button", { name: "Cancelar", exact: true });
+    const cancel = dialog.getByRole("button", { name: "Cancel", exact: true });
     await expect(cancel).toBeFocused();
     await expect(cancel).toHaveCSS("outline-style", "solid");
     await page.keyboard.press("Escape");
@@ -108,12 +108,12 @@ test("design system opens confirmations without highlighting actions and keeps k
   }
 });
 
-test("design system valida seletor e preserva submitter com bloqueio de envio duplicado", { tag: "@webkit" }, async ({ page }) => {
+test("design system validates selection and preserves the submitter while blocking duplicate submissions", { tag: "@webkit" }, async ({ page }) => {
   await page.goto(`${baseURL}/index.html`);
   const result = await page.evaluate(async () => {
     const { enhance, field, select, button } = await import("/dist/index.js");
     const form = document.createElement("form"); form.dataset.uiForm = "true";
-    const choice = select("", [["", "Escolha"], ["cloud", "Cloud"]], { name: "project", required: true });
+    const choice = select("", [["", "Choose"], ["cloud", "Cloud"]], { name: "project", required: true });
     const submit = button("Autorizar"); submit.type = "submit"; submit.name = "decision"; submit.value = "approve";
     form.append(field('<img src=x onerror="alert(1)">', choice.root), submit); document.body.append(form);
     const cleanup = enhance(form);

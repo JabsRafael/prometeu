@@ -3,21 +3,21 @@ import type { Board } from "../src/types";
 
 async function settings(page: Page) {
   await page.locator("#settings").click();
-  await page.locator(".setnavitem").getByText("Ações", { exact: true }).click();
+  await page.locator(".setnavitem").getByText("Actions", { exact: true }).click();
 }
 async function workspace(page: Page) {
-  await page.locator("#railbody .navitem.sub .lbl").getByText("Ola", { exact: true }).click();
+  await page.locator("#railbody .navitem.sub .lbl").getByText("Hello", { exact: true }).click();
   await expect(page.locator("#wsView")).toBeVisible();
 }
 
-test("comando reutilizável preenche prompt editável e persiste após reabrir", async ({ page }) => {
+test("reusable commands fill an editable prompt and persist after reopening", async ({ page }) => {
   await page.goto("/");
   await settings(page);
-  await page.getByRole("button", { name: "Novo comando", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Configurar comando" });
-  await dialog.getByLabel("Comando (sem /)", { exact: true }).fill("explicar");
-  await dialog.getByLabel("Texto do prompt ou pedido inicial da tarefa").fill("Explique as alterações com exemplos.");
-  await dialog.getByRole("button", { name: "Salvar", exact: true }).click();
+  await page.getByRole("button", { name: "New command", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Configure command" });
+  await dialog.getByLabel("Command (without /)", { exact: true }).fill("explain");
+  await dialog.getByLabel("Prompt text or initial task request").fill("Explain the changes with examples.");
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(dialog).toBeHidden();
   await page.reload();
   await workspace(page);
@@ -25,22 +25,22 @@ test("comando reutilizável preenche prompt editável e persiste após reabrir",
   const count = await page.locator("#chatwrap .turn.user").count();
   await area.fill("/");
   const suggestions = page.locator(".menu.cmds");
-  await expect(suggestions.locator(".mrow", { hasText: "/explicar" }).locator(".mbadge")).toHaveText("Prometeu");
+  await expect(suggestions.locator(".mrow", { hasText: "/explain" }).locator(".mbadge")).toHaveText("Prometeu");
   await expect(suggestions.locator(".mrow", { hasText: "/review" }).locator(".mbadge")).toHaveText("Prometeu");
   await expect(suggestions.locator(".mrow", { hasText: "/compact" })).toBeVisible();
   await expect(suggestions.locator(".mrow", { hasText: "/compact" }).locator(".mbadge")).toHaveCount(0);
-  await area.fill("/explicar arquivo.ts");
+  await area.fill("/explain file.ts");
   await area.press("Enter");
-  await expect(area).toHaveValue("Explique as alterações com exemplos.\n\narquivo.ts");
+  await expect(area).toHaveValue("Explain the changes with examples.\n\nfile.ts");
   await expect(page.locator("#chatwrap .turn.user")).toHaveCount(count);
-  await area.fill("outro contexto");
+  await area.fill("other context");
   await page.locator("#chatwrap .actionsbtn").click();
-  await page.locator(".menu .mrow", { hasText: "/explicar" }).click();
-  await expect(area).toHaveValue("Explique as alterações com exemplos.\n\noutro contexto");
+  await page.locator(".menu .mrow", { hasText: "/explain" }).click();
+  await expect(area).toHaveValue("Explain the changes with examples.\n\nother context");
 });
 
 
-test("model picker: editar instruções preserva modelo e esforço históricos do perfil", async ({ page }) => {
+test("model picker: editing instructions preserves a profile’s historical model and effort", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#deskView")).toBeVisible();
   await page.evaluate(async () => {
@@ -52,11 +52,11 @@ test("model picker: editar instruções preserva modelo e esforço históricos d
     await invoke("actions_save", { catalog: board.actions });
   });
   await settings(page);
-  await page.locator(".action-profile").first().getByRole("button", { name: "Editar", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Configurar agente" });
-  await expect(dialog.getByLabel("Modelo", { exact: true })).toContainText("retired-model");
-  await dialog.getByLabel("Prompt e instruções do agente", { exact: true }).fill("Preserve minha seleção anterior.");
-  await dialog.getByRole("button", { name: "Salvar", exact: true }).click();
+  await page.locator(".action-profile").first().getByRole("button", { name: "Edit", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Configure agent" });
+  await expect(dialog.getByLabel("Model", { exact: true })).toContainText("retired-model");
+  await dialog.getByLabel("Agent prompt and instructions", { exact: true }).fill("Preserve my previous selection.");
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(dialog).toBeHidden();
   const choice = await page.evaluate(async () => {
     type Invoke = (command: string) => Promise<Board>;

@@ -121,9 +121,11 @@ When adding or expanding a browser scenario, explain in the PR or change summary
 
 Use this qualitative justification rather than test-count quotas or a new test
 classification framework. Extend an existing scenario when it can protect the
-same journey clearly. Do not multiply providers, locales, viewports and engines
-without a specific risk for each extra case. A test that only calls the mock and
-asserts its state without exercising UI belongs below Playwright.
+same journey clearly. Run browser tests with the English UI; translation copy
+does not justify an E2E case or a locale matrix. Do not multiply providers,
+viewports and engines without a specific risk for each extra case. A test that
+only calls the mock and asserts its state without exercising UI belongs below
+Playwright.
 
 Keep one representative interaction per distinct production path, including
 failure recovery when it protects user data. Several controls reaching the same
@@ -145,9 +147,9 @@ sidebar grouping, catalog empty states and preview-panel preferences have no
 dedicated E2E gate. Tool selection, MCP comparison, plugin parsing, quota grouping,
 Code review defaults and silent alerts have Rust or Vitest coverage. These
 lower-level checks do not prove the secondary forms or live CLI installation.
-Profile editing retains its UI regression. Layout uses representative languages
-and sizes; sibling-tab state combinations stay in `workspace_tools.rs`, with one
-UI journey through the tool selectors.
+Profile editing retains its UI regression. Layout uses English at representative
+viewport sizes; sibling-tab state combinations stay in `workspace_tools.rs`,
+with one UI journey through the tool selectors.
 
 Account/settings variations, catalog management shortcuts, header styling, tab
 visibility preferences and recent-file ranking also have no dedicated browser
@@ -230,3 +232,9 @@ the frontend translates with `fromBack`.
 
 Agent output, terminal output and text provided by the person are not
 translated.
+
+Write test names, helpers, comments and authored fixtures in English. Preserve
+contract values and Unicode samples needed to prove parsing or encoding. Tests
+cover locale selection, interpolation and structured errors, not translation
+copy quality; TypeScript checks that the English catalog implements the source
+catalog keys.

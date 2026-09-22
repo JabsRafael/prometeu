@@ -331,7 +331,7 @@ mod tests {
 
     /// Sequences identify exactly which chunks a snapshot includes without inspecting byte content.
     #[test]
-    fn pedacos_numerados_e_o_snapshot_diz_ate_qual() {
+    fn numbers_output_chunks_and_records_the_last_sequence_in_snapshots() {
         let mut s = Scroll::default();
         assert_eq!(s.absorb(b"a"), 1);
         assert_eq!(s.absorb(b"b"), 2);
@@ -342,12 +342,12 @@ mod tests {
 
     /// Truncating old bytes must not reset the sequence.
     #[test]
-    fn o_teto_corta_o_comeco_sem_mexer_no_numero() {
+    fn retention_limit_drops_the_start_without_changing_sequence_numbers() {
         let mut s = Scroll::default();
         s.absorb(&vec![b'x'; SCROLLBACK]);
-        assert_eq!(s.absorb(b"fim"), 2);
+        assert_eq!(s.absorb(b"end"), 2);
         assert_eq!(s.bytes.len(), SCROLLBACK);
-        assert!(s.bytes.ends_with(b"fim"));
+        assert!(s.bytes.ends_with(b"end"));
     }
 
     /// Treat zombies as exited even though kill(pid, 0) reports their PID exists. Process state
@@ -356,12 +356,12 @@ mod tests {
         let out = std::process::Command::new("ps")
             .args(["-o", "stat=", "-p", &pid.to_string()])
             .output()
-            .expect("ps não rodou");
+            .expect("ps did not run");
         let stat = String::from_utf8_lossy(&out.stdout).trim().to_string();
         !stat.is_empty() && !stat.starts_with('Z')
     }
 
-    fn parou(pid: i32, until: Duration) -> bool {
+    fn stopped(pid: i32, until: Duration) -> bool {
         let deadline = Instant::now() + until;
         while Instant::now() < deadline {
             if !running(pid) {
@@ -375,15 +375,15 @@ mod tests {
     /// Use a real PTY with separated output chunks to verify snapshot/live reconciliation through
     /// the same Scroll implementation used in production.
     #[test]
-    fn snapshot_tirado_no_meio_da_saida_sabe_o_que_ja_levou() {
+    fn snapshots_during_output_record_what_they_already_contain() {
         let mut cmd = CommandBuilder::new("/bin/sh");
-        cmd.args(["-c", "printf primeiro; sleep 0.4; printf segundo"]);
-        let (pty, mut reader, _child) = open(cmd, 80, 24).expect("pty não abriu");
+        cmd.args(["-c", "printf first; sleep 0.4; printf second"]);
+        let (pty, mut reader, _child) = open(cmd, 80, 24).expect("pty did not open");
         let scroll = pty.buffer.clone();
 
         let read_chunk = |reader: &mut Box<dyn Read + Send>| -> u64 {
             let mut chunk = [0u8; 1024];
-            let n = reader.read(&mut chunk).expect("leitura falhou");
+            let n = reader.read(&mut chunk).expect("read failed");
             lock(&scroll).absorb(&chunk[..n])
         };
 
@@ -393,50 +393,53 @@ mod tests {
             let s = lock(&scroll);
             (s.bytes.clone(), s.seq)
         };
-        assert_eq!(String::from_utf8_lossy(&bytes), "primeiro");
-        assert_eq!(seq, 1, "o snapshot leva o primeiro pedaço, e diz isso");
+        assert_eq!(String::from_utf8_lossy(&bytes), "first");
+        assert_eq!(
+            seq, 1,
+            "snapshot includes the first chunk and records its sequence"
+        );
 
         // Only subsequent chunks belong to the live continuation.
         assert_eq!(read_chunk(&mut reader), 2);
-        assert!(lock(&scroll).bytes.ends_with(b"segundo"));
+        assert!(lock(&scroll).bytes.ends_with(b"second"));
         assert!(
             seq < lock(&scroll).seq,
-            "o pedaço novo tem número maior que o do snapshot"
+            "new chunk sequence exceeds the snapshot sequence"
         );
     }
 
     /// Regression for dock shutdown leaving servers alive: stop both the direct child and a
     /// descendant that ignores SIGHUP. Group signalling and escalation to SIGTERM must reach both.
     #[test]
-    fn encerrar_uma_sessao_leva_filho_e_neto() {
+    fn ending_a_session_terminates_children_and_grandchildren() {
         let mut cmd = CommandBuilder::new("/bin/sh");
         cmd.args([
             "-c",
-            "nohup sleep 30 >/dev/null 2>&1 & echo NETO=$!; exec sleep 30",
+            "nohup sleep 30 >/dev/null 2>&1 & echo GRANDCHILD=$!; exec sleep 30",
         ]);
-        let (pty, mut reader, _child) = open(cmd, 80, 24).expect("pty não abriu");
-        let filho = pty.pid as i32;
+        let (pty, mut reader, _child) = open(cmd, 80, 24).expect("pty did not open");
+        let child = pty.pid as i32;
 
         // Read until the descendant reports its PID.
-        let mut saida = String::new();
+        let mut output = String::new();
         let mut chunk = [0u8; 512];
         let deadline = Instant::now() + Duration::from_secs(5);
-        let neto: i32 = loop {
+        let grandchild: i32 = loop {
             assert!(
                 Instant::now() < deadline,
-                "o neto nunca disse o pid: {saida:?}"
+                "grandchild did not report its pid: {output:?}"
             );
-            let n = reader.read(&mut chunk).expect("leitura falhou");
-            saida.push_str(&String::from_utf8_lossy(&chunk[..n]));
-            let digits: String = saida
-                .split("NETO=")
+            let n = reader.read(&mut chunk).expect("read failed");
+            output.push_str(&String::from_utf8_lossy(&chunk[..n]));
+            let digits: String = output
+                .split("GRANDCHILD=")
                 .nth(1)
                 .unwrap_or("")
                 .chars()
                 .take_while(char::is_ascii_digit)
                 .collect();
-            if saida.contains('\n') && !digits.is_empty() {
-                break digits.parse().expect("pid ilegível");
+            if output.contains('\n') && !digits.is_empty() {
+                break digits.parse().expect("unreadable pid");
             }
         };
 
@@ -448,25 +451,25 @@ mod tests {
         });
 
         assert!(
-            running(filho),
-            "o filho devia estar de pé antes do teste começar"
+            running(child),
+            "child must be running before the test starts"
         );
         assert!(
-            running(neto),
-            "o neto devia estar de pé antes do teste começar"
+            running(grandchild),
+            "grandchild must be running before the test starts"
         );
 
         drop(pty);
 
         // Shutdown escalation waits on another thread.
-        let teto = GRACE + REAP + Duration::from_secs(2);
+        let deadline = GRACE + REAP + Duration::from_secs(2);
         assert!(
-            parou(filho, teto),
-            "o filho {filho} sobreviveu ao fechamento da sessão"
+            stopped(child, deadline),
+            "child {child} survived session shutdown"
         );
         assert!(
-            parou(neto, teto),
-            "o neto {neto} sobreviveu ao fechamento da sessão"
+            stopped(grandchild, deadline),
+            "grandchild {grandchild} survived session shutdown"
         );
     }
 }

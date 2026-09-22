@@ -3,15 +3,15 @@ import { arrange } from "./desk-layout";
 
 /// Preserve user-defined desk order, remove closed tabs, append newcomers, and avoid duplicates.
 describe("arrange", () => {
-  it("mantém a ordem guardada, tira quem foi e põe quem chegou no fim", () => {
+  it("preserves saved order, removes missing workspaces and appends new ones", () => {
     expect(arrange(["a", "b", "c", "d"], ["c", "x", "a"])).toEqual(["c", "a", "b", "d"]);
   });
 
-  it("sem ordem guardada, a do quadro", () => {
+  it("uses board order when no order is saved", () => {
     expect(arrange(["b", "a"], [])).toEqual(["b", "a"]);
   });
 
-  it("ordem guardada com repetição não duplica quadro", () => {
+  it("does not duplicate workspaces when saved order contains duplicates", () => {
     expect(arrange(["a", "b"], ["b", "b", "a"])).toEqual(["b", "a"]);
   });
 });

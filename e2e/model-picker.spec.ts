@@ -6,7 +6,7 @@ const choices = (page: Page) => picker(page).locator(".ui-search-picker-choice")
 async function launcher(page: Page) {
   await page.goto("/");
   await expect(page.locator("#railbody .navitem.sub").first()).toBeVisible();
-  await page.locator("#railbody").getByRole("button", { name: "Criar", exact: true }).click();
+  await page.locator("#railbody").getByRole("button", { name: "Create", exact: true }).click();
   await page.locator("#d-model").click();
 }
 async function board(page: Page) {
@@ -23,7 +23,7 @@ test("model picker searches a large native catalog and explicitly selects an add
   await launcher(page);
   await picker(page).getByRole("searchbox").fill("native-99");
   await expect(choices(page)).toHaveCount(0);
-  await picker(page).getByRole("checkbox", { name: "Mostrar modelos adicionais" }).check();
+  await picker(page).getByRole("checkbox", { name: "Show additional models" }).check();
   await expect(choices(page)).toHaveCount(1);
   await expect(choices(page)).toContainText("Native model 99");
   await picker(page).getByRole("searchbox").fill("Codex");
@@ -35,9 +35,9 @@ test("model picker searches a large native catalog and explicitly selects an add
   await expect(page.locator("#d-plugins")).toBeVisible();
   await expect(page.locator("#d-mcp")).toBeVisible();
   await page.locator("#d-effort").click();
-  await expect(page.getByRole("menuitemcheckbox", { name: "Padrão do agente", exact: true })).toBeVisible();
-  await expect(page.getByRole("menuitemcheckbox", { name: "Alto", exact: true })).toBeVisible();
-  await expect(page.getByRole("menuitemcheckbox", { name: "Máximo", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("menuitemcheckbox", { name: "Agent default", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitemcheckbox", { name: "High", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitemcheckbox", { name: "Max", exact: true })).toHaveCount(0);
 });
 
 test("model picker wraps descriptions and keeps favorites inside their rows", { tag: "@webkit" }, async ({ page }) => {
@@ -47,8 +47,8 @@ test("model picker wraps descriptions and keeps favorites inside their rows", { 
   ])));
   await launcher(page);
   await picker(page).getByRole("searchbox").fill("Codex");
-  await picker(page).getByRole("button", { name: /^Favoritar Native model/ }).click();
-  await expect(picker(page).getByRole("button", { name: /^Remover Native model/ }).first()).toHaveAttribute("aria-pressed", "true");
+  await picker(page).getByRole("button", { name: /^Favorite Native model/ }).click();
+  await expect(picker(page).getByRole("button", { name: /^Unfavorite Native model/ }).first()).toHaveAttribute("aria-pressed", "true");
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 800 });
     expect(await picker(page).locator(".ui-search-picker-list").evaluate(list => {
@@ -62,7 +62,7 @@ test("model picker wraps descriptions and keeps favorites inside their rows", { 
         });
       });
     })).toBe(true);
-    const star = picker(page).getByRole("button", { name: /^Remover Native model/ }).first();
+    const star = picker(page).getByRole("button", { name: /^Unfavorite Native model/ }).first();
     await picker(page).getByRole("searchbox").focus();
     await page.keyboard.press("Tab");
     await page.keyboard.press("Tab");
@@ -76,21 +76,21 @@ test("model picker wraps descriptions and keeps favorites inside their rows", { 
 test("model picker failed refresh preserves stale catalog and conversation state", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#railbody .navitem.sub").first()).toBeVisible();
-  await page.locator("#railbody .navitem.sub .lbl").getByText("Ola", { exact: true }).click();
+  await page.locator("#railbody .navitem.sub .lbl").getByText("Hello", { exact: true }).click();
   const before = (await board(page)).workspaces[0];
   await page.locator("#chatwrap .composer .mdl").click();
   await expect(choices(page).filter({ hasText: "Sonnet" }).first()).toBeVisible();
   await page.evaluate(() => localStorage.setItem("mock:catalogError:claude", "err.modelsCatalog.timeout"));
-  await picker(page).getByRole("button", { name: "Atualizar agora", exact: true }).click();
-  await expect(picker(page)).toContainText("Exibindo a última lista conhecida");
+  await picker(page).getByRole("button", { name: "Refresh now", exact: true }).click();
+  await expect(picker(page)).toContainText("Showing the last known list");
   await expect(choices(page).filter({ hasText: "Sonnet" }).first()).toBeVisible();
   const after = (await board(page)).workspaces[0];
   expect(after.model).toBe(before.model);
   expect(after.effort).toBe(before.effort);
   expect(after.tabs).toEqual(before.tabs);
   await page.evaluate(() => localStorage.removeItem("mock:catalogError:claude"));
-  await picker(page).getByRole("button", { name: "Atualizar agora", exact: true }).click();
-  await expect(picker(page)).not.toContainText("Exibindo a última lista conhecida");
+  await picker(page).getByRole("button", { name: "Refresh now", exact: true }).click();
+  await expect(picker(page)).not.toContainText("Showing the last known list");
 });
 
 test("model picker launcher resolves a unique legacy selection after delayed discovery", async ({ page }) => {
@@ -110,8 +110,8 @@ test("model picker launcher resolves a unique legacy selection after delayed dis
   });
   await page.goto("/");
   await expect(page.locator("#railbody .navitem.sub").first()).toBeVisible();
-  await page.locator("#railbody").getByRole("button", { name: "Criar", exact: true }).click();
-  await expect(page.locator("#d-model")).toContainText("Escolher modelo");
+  await page.locator("#railbody").getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page.locator("#d-model")).toContainText("Choose model");
   await expect(page.locator("#d-go")).toBeDisabled();
   await page.evaluate(() => (window as unknown as { releaseModels: () => void }).releaseModels());
   await expect(page.locator("#d-model")).toContainText("Delayed native");
@@ -121,9 +121,9 @@ test("model picker launcher resolves a unique legacy selection after delayed dis
 test("model picker new tab keeps the terminal action and selects another provider", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#railbody .navitem.sub").first()).toBeVisible();
-  await page.locator("#railbody .navitem.sub .lbl").getByText("Ola", { exact: true }).click();
+  await page.locator("#railbody .navitem.sub .lbl").getByText("Hello", { exact: true }).click();
   await page.locator("#tabbar .tabadd .caret").click();
-  await expect(choices(page).filter({ hasText: "Terminal novo" })).toBeVisible();
+  await expect(choices(page).filter({ hasText: "New terminal" })).toBeVisible();
   await picker(page).getByRole("searchbox").fill("GPT-5.6-Sol");
   await choices(page).click();
   await expect(page.locator("#chatwrap .composer .mdl")).toContainText("GPT-5.6-Sol");
@@ -151,11 +151,11 @@ test("model picker launcher preserves the draft until an unavailable saved model
 
 test("model picker ignores stale model and effort callbacks after switching conversations", async ({ page }) => {
   await page.goto("/");
-  await page.locator("#railbody .navitem.sub .lbl").getByText("Ola", { exact: true }).click();
+  await page.locator("#railbody .navitem.sub .lbl").getByText("Hello", { exact: true }).click();
   const stale = [];
   for (const control of ["model", "effort"] as const) {
     await page.locator(`#chatwrap .composer .${control === "model" ? "mdl" : "effort"}`).click();
-    const option = control === "model" ? choices(page).filter({ hasText: "Sonnet" }) : page.getByRole("menuitemcheckbox", { name: "Baixo", exact: true });
+    const option = control === "model" ? choices(page).filter({ hasText: "Sonnet" }) : page.getByRole("menuitemcheckbox", { name: "Low", exact: true });
     stale.push((await option.elementHandle())!);
     await page.keyboard.press("Escape");
   }

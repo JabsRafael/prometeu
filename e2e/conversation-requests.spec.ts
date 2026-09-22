@@ -106,13 +106,13 @@ test("Antigravity fixture renders canonical events and localized failures", asyn
     for (const event of events) (window as RequestWindow).mock.line("t1", event);
   }, fixture.events);
   await expect(page.locator("#chatwrap")).toContainText("AGY_TOOL_OK");
-  await expect(page.locator("#chatwrap")).toContainText("Antigravity recusou uma ferramenta que exige aprovação.");
+  await expect(page.locator("#chatwrap")).toContainText("Antigravity denied a tool requiring approval.");
   await expect(page.locator("#chatwrap")).not.toContainText("i18n:");
   await expect(page.locator("#chatwrap .ask")).toHaveCount(0);
   await page.evaluate(() => (window as RequestWindow).mock.line("t1", {
     v: 1, type: "turn.completed", at: 1, outcome: "error", durationMs: null, costUsd: null,
     message: 'i18n:{"code":"err.antigravity.result","args":{}}',
   }));
-  await expect(page.locator("#chatwrap")).toContainText("Antigravity não concluiu a solicitação.");
+  await expect(page.locator("#chatwrap")).toContainText("Antigravity did not complete the request.");
   await expect(page.locator("#chatwrap")).not.toContainText("i18n:");
 });
