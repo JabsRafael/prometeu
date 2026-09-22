@@ -24,12 +24,12 @@ let skillHub: Skill[] = JSON.parse(localStorage.getItem("mock:skills") ?? "[]");
 const mockCatalog = (): CatalogState => JSON.parse(localStorage.getItem("mock:catalog") ?? "null") ?? {
   connected: true, revision: 0,
   plugins: [
-    { id: "caveman", source: "https://github.com/JuliusBrussee/caveman", note: "fala curto e sem enfeite", local_id: "caveman", installed: true, source_changed: false },
-    { id: "revisor", source: "https://github.com/prometeu/revisor", note: "revisa PR", local_id: "revisor", installed: false, source_changed: false },
+    { id: "caveman", source: "https://github.com/JuliusBrussee/caveman", note: "concise, plain communication", local_id: "caveman", installed: true, source_changed: false },
+    { id: "revisor", source: "https://github.com/prometeu/revisor", note: "reviews PRs", local_id: "revisor", installed: false, source_changed: false },
   ],
   mcp: ["notion"],
-  skills: [{ id: "revisao-cloud", description: "Revisar alterações", content: "Leia o diff e relate bugs.", local_id: "revisao-cloud", installed: false }],
-  shared: { "plugins:caveman": "caveman", "plugins:revisor": "revisor", "mcp:notion": "notion", "skills:revisao-cloud": "revisao-cloud" },
+  skills: [{ id: "cloud-review", description: "Review changes", content: "Read the diff and report bugs.", local_id: "cloud-review", installed: false }],
+  shared: { "plugins:caveman": "caveman", "plugins:revisor": "revisor", "mcp:notion": "notion", "skills:cloud-review": "cloud-review" },
 };
 type MockOrganizationCatalog = { id: string; name: string; revision?: number; plugins: Pick<Plugin, "id" | "source" | "note">[]; mcp: McpServer[]; skills: Skill[]; projects?: { id: string; source: string; note: string }[]; links: Record<string, string> };
 const mockOrganizations = (): MockOrganizationCatalog[] => JSON.parse(localStorage.getItem("mock:organizationCatalogs") ?? "[]");
@@ -64,10 +64,10 @@ const w = window as unknown as Record<string, unknown>;
 
 const accountDefaults: Accounts = {
   accounts: [
-    { id: "claude", provider: "claude", email: "pessoal@exemplo.com", plan: "max", connected: true, revision: 0 },
-    { id: "codex", provider: "codex", email: "pessoal@exemplo.com", plan: "pro", connected: true, revision: 0 },
-    { id: "09317ab6-22c1-45bb-882e-f6fef6a44c09", provider: "claude", email: "trabalho@exemplo.com", plan: "max", connected: true, revision: 0 },
-    { id: "086eb684-2c61-421b-a3e5-80e54bc26a53", provider: "codex", email: "trabalho@exemplo.com", plan: "pro", connected: true, revision: 0 },
+    { id: "claude", provider: "claude", email: "personal@example.com", plan: "max", connected: true, revision: 0 },
+    { id: "codex", provider: "codex", email: "personal@example.com", plan: "pro", connected: true, revision: 0 },
+    { id: "09317ab6-22c1-45bb-882e-f6fef6a44c09", provider: "claude", email: "work@example.com", plan: "max", connected: true, revision: 0 },
+    { id: "086eb684-2c61-421b-a3e5-80e54bc26a53", provider: "codex", email: "work@example.com", plan: "pro", connected: true, revision: 0 },
   ],
   active: { claude: "claude", codex: "codex" },
   login: null,
@@ -130,17 +130,17 @@ const board: Board = {
     { id: "p2", name: "prometeu", path: "/Users/gustavo/dev/prometeu" },
   ],
   workspaces: [
-    ws("sessao-0929", "p1", "njord", "Ola", "Fazendo", [
+    ws("sessao-0929", "p1", "njord", "Hello", "Fazendo", [
       { id: "t1", title: "", status: "pronta", note: null, tokens: 57_000 },
       // This tab overrides the workspace model so its footer differs from sibling tabs.
-      { id: "t2", title: "", status: "pronta", note: null, tokens: 112_400, pending_prompt: "O que tem nesse projeto aqui de legal?", choice: { agent: "claude", model: "sonnet", effort: "medium" } },
+      { id: "t2", title: "", status: "pronta", note: null, tokens: 112_400, pending_prompt: "What is interesting about this project?", choice: { agent: "claude", model: "sonnet", effort: "medium" } },
     ]),
-    ws("ui-2231", "p2", "prometeu", "Tela igual ao Conductor", "Fazendo", [
+    ws("ui-2231", "p2", "prometeu", "Match the Conductor screen", "Fazendo", [
       { id: "t3", title: "", status: "rodando", note: "Edit src/style.css", tokens: 23_800 },
     ]),
     // Two repositories on one branch exercise separate change sections.
     Object.assign(
-      ws("portal-1217", "p2", "prometeu", "Contratação pelo portal", "Fazendo", [
+      ws("portal-1217", "p2", "prometeu", "Hiring through the portal", "Fazendo", [
         { id: "t9", title: "", status: "rodando", note: "Edit app/models/entry.rb", tokens: 31_000 },
       ]),
       {
@@ -152,54 +152,54 @@ const board: Board = {
             name: "prometeu",
             worktree: "~/prometeu/worktrees/prometeu+njord/prometeu-portal-1217/prometeu",
             base: "origin/main",
-            pr: { number: 51, title: "feat(portal): contratação pelo portal", isDraft: false, state: "OPEN" },
+            pr: { number: 51, title: "feat(portal): hire through the portal", isDraft: false, state: "OPEN" },
           },
           {
             path: "/Users/gustavo/dev/njord",
             name: "njord",
             worktree: "~/prometeu/worktrees/prometeu+njord/prometeu-portal-1217/njord",
             base: "origin/develop",
-            pr: { number: 12, title: "feat: origem da entrada", isDraft: false, state: "MERGED" },
+            pr: { number: 12, title: "feat: entry source", isDraft: false, state: "MERGED" },
           },
         ],
       },
     ),
     // An unanswered question marks this conversation unread.
     Object.assign(
-      ws("icone-2140", "p2", "prometeu", "Ícone do app", "Code review", [
-        { id: "t4", title: "", status: "querendo", note: "Qual tamanho de ícone você quer gerar?", tokens: 8_100 },
+      ws("icone-2140", "p2", "prometeu", "App icon", "Code review", [
+        { id: "t4", title: "", status: "querendo", note: "What icon size do you want to generate?", tokens: 8_100 },
       ]),
-      { unread: true, pr: { number: 42, title: "feat(quadro): ícone do app", isDraft: false, state: "OPEN" } },
+      { unread: true, pr: { number: 42, title: "feat(board): app icon", isDraft: false, state: "OPEN" } },
     ),
     // A merged PR exposes the card badge and completion action.
     Object.assign(
-      ws("dock-1130", "p2", "prometeu", "Porta do dock por worktree", "Code review", [
+      ws("dock-1130", "p2", "prometeu", "Dock port per worktree", "Code review", [
         { id: "t5", title: "", status: "pronta", note: null, tokens: 44_200 },
       ]),
-      { pr: { number: 40, title: "feat(dock): porta por worktree", isDraft: false, state: "MERGED" } },
+      { pr: { number: 40, title: "feat(dock): port per worktree", isDraft: false, state: "MERGED" } },
     ),
     // This archived workspace still occupies disk space and appears in cleanup.
     Object.assign(
-      ws("linear-0912", "p1", "njord", "Conectar o Linear", "Feito", [
+      ws("linear-0912", "p1", "njord", "Connect Linear", "Feito", [
         { id: "t7", title: "", status: "desligada", note: null, tokens: 66_000 },
       ]),
-      { archived: true, pr: { number: 8, title: "feat: conectar o Linear", isDraft: false, state: "MERGED" } },
+      { archived: true, pr: { number: 8, title: "feat: connect Linear", isDraft: false, state: "MERGED" } },
     ),
     Object.assign(
-      ws("porta-1751", "p1", "njord", "Porta ocupada no setup", "Travado", [
+      ws("porta-1751", "p1", "njord", "Port in use during setup", "Travado", [
         { id: "t8", title: "", status: "desligada", note: null, tokens: 12_000 },
       ]),
       { archived: true },
     ),
     // Keep the completed workspace card after its worktree is removed.
     Object.assign(
-      ws("idioma-1348", "p2", "prometeu", "O app fala inglês", "Feito", [
+      ws("idioma-1348", "p2", "prometeu", "The app speaks English", "Feito", [
         { id: "t6", title: "", status: "desligada", note: null, tokens: 91_000 },
       ]),
       {
         archived: true,
         cleaned: true,
-        pr: { number: 17, title: "feat(idioma): o app fala inglês", isDraft: false, state: "MERGED" },
+        pr: { number: 17, title: "feat(locale): the app speaks English", isDraft: false, state: "MERGED" },
       },
     ),
   ],
@@ -228,19 +228,19 @@ const tree: Record<string, { name: string; path: string; dir: boolean }[]> = {
   "app/adapters": ["transcriber.rb", "waha.rb"].map((name) => ({ name, path: `app/adapters/${name}`, dir: false })),
   bin: ["brakeman", "ci", "dev", "rails", "rake", "rubocop", "setup"].map((name) => ({ name, path: `bin/${name}`, dir: false })),
   docs: [
-    { name: "clientes.csv", path: "docs/clientes.csv", dir: false },
-    { name: "regras.pdf", path: "docs/regras.pdf", dir: false },
+    { name: "customers.csv", path: "docs/customers.csv", dir: false },
+    { name: "rules.pdf", path: "docs/rules.pdf", dir: false },
   ],
 };
 
 const files: Record<string, string> = {
-  "docs/regras.pdf":
+  "docs/rules.pdf":
     "%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>",
   // Brazilian Excel format: semicolon delimiters, decimal commas, and a multiline field.
-  "docs/clientes.csv": [
-    "id;nome;cidade;total",
-    ...Array.from({ length: 3000 }, (_, i) => `${i + 1};"Cliente ${i + 1}";São Paulo;${i * 7},50`),
-    '3001;"Nome, com vírgula";"Rio de\nJaneiro";0,00',
+  "docs/customers.csv": [
+    "id;name;city;total",
+    ...Array.from({ length: 3000 }, (_, i) => `${i + 1};"Customer ${i + 1}";São Paulo;${i * 7},50`),
+    '3001;"Name, with comma";"Rio de\nJaneiro";0,00',
   ].join("\n"),
   "app/adapters/transcriber.rb": `class Transcriber
   MODEL = "gemini-3.6-flash".freeze
@@ -259,13 +259,13 @@ const files: Record<string, string> = {
     private
       def transcription(path)
         RubyLLM.transcribe(
-          path, model: MODEL, provider: :gemini, assume_model_exists: true, language: "portuguese"
+          path, model: MODEL, provider: :gemini, assume_model_exists: true, language: "english"
         ).text
       end
   end
 end
 `,
-  "CLAUDE.md": "# Njord\n\nControle financeiro pessoal em Rails.\n\n## Regras\n\n- Competência é o dia em que o dinheiro **saiu**.\n- Rodar `bin/ci` antes de abrir PR. Ver [docs](docs/README.md).\n",
+  "CLAUDE.md": "# Njord\n\nPersonal finance management in Rails.\n\n## Rules\n\n- Record the date the money **left** the account.\n- Run `bin/ci` before opening a PR. See [docs](docs/README.md).\n",
   ".gitignore": "# Ignore bundler config.\n/.bundle\n/log/*\n!/log/.keep\n/tmp/*\n",
   "src/style.css": ".card {\n  display: flex;\n  gap: 8px;\n  padding: 12px;\n}\n",
   Dockerfile: "# syntax=docker/dockerfile:1\nFROM ruby:3.4-slim AS base\nWORKDIR /rails\nENV RAILS_ENV=production\nRUN apt-get update -qq && apt-get install -y curl\nCMD [\"bin/rails\", \"server\"]\n",
@@ -395,8 +395,8 @@ function gitState(id: string, index = 0): MockGit {
       },
       staged, changes: local, compare: committed,
       commits: [
-        { oid: "2".padStart(40, "0"), subject: "feat: atualiza projeto", author: "Gustavo", date: "2026-09-05T09:00:00-03:00", outgoing: !!upstream && index === 0, files: structuredClone(committed) },
-        { oid: "1".padStart(40, "0"), subject: "chore: inicia projeto", author: "Gustavo", date: "2026-09-04T09:00:00-03:00", outgoing: false, files: [] },
+        { oid: "2".padStart(40, "0"), subject: "feat: update project", author: "Gustavo", date: "2026-09-05T09:00:00-03:00", outgoing: !!upstream && index === 0, files: structuredClone(committed) },
+        { oid: "1".padStart(40, "0"), subject: "chore: initialize project", author: "Gustavo", date: "2026-09-04T09:00:00-03:00", outgoing: false, files: [] },
       ],
       conflicts: {}, version: 0,
     };
@@ -443,8 +443,8 @@ const SAMPLE =
             { name: "clear", description: "Clear conversation history and free up context", argumentHint: "[name]" },
             { name: "cost", description: "Show the total cost and duration of the current session", argumentHint: "" },
             { name: "color", description: "Set the color of the session", argumentHint: "" },
-            { name: "open-pr", description: "Abre um PR da branch atual — empurra, escreve título e corpo e acompanha os checks até o fim (project)", argumentHint: "" },
-            { name: "release", description: "Solta uma versão nova do Prometeu — confere os commits, corta a tag, acompanha o CI e publica a draft (project)", argumentHint: "" },
+            { name: "open-pr", description: "Open a PR for the current branch: push, write its title and body, and watch checks until completion (project)", argumentHint: "" },
+            { name: "release", description: "Release a new Prometeu version: review commits, create the tag, watch CI, and publish the draft (project)", argumentHint: "" },
             { name: "caveman:caveman", description: "(caveman) Ultra-compressed communication mode. Cuts token usage ~75% by speaking like caveman while keeping full technical accuracy.", argumentHint: "" },
             { name: "caveman:caveman-commit", description: "(caveman) Ultra-compressed commit message generator. Cuts noise from commit messages while preserving intent and reasoning.", argumentHint: "" },
           ],
@@ -452,15 +452,15 @@ const SAMPLE =
       },
     }),
     line({ type: "system", subtype: "init", slash_commands: ["compact", "context", "clear", "cost", "color"], terminal_slash_commands: ["color"] }),
-    line({ type: "user", message: { role: "user", content: "Me pergunte quais são as minhas 3 cores preferidas" }, timestamp: ago(12) }),
-    line({ type: "assistant", message: { id: "m0", role: "assistant", content: [{ type: "thinking", thinking: "Pergunta simples. Vou perguntar direto." }] }, timestamp: ago(12) }),
-    line({ type: "assistant", message: { id: "m0", role: "assistant", content: [{ type: "text", text: "Quais são as suas **três** cores preferidas?" }] }, timestamp: ago(12) }),
-    line({ type: "user", message: { role: "user", content: "verde" }, timestamp: ago(10) }),
-    line({ type: "assistant", message: { id: "m1", role: "assistant", content: [{ type: "tool_use", id: "tu1", name: "Bash", input: { command: "ls -la", description: "Lista os arquivos" } }] }, timestamp: ago(10) }),
+    line({ type: "user", message: { role: "user", content: "Ask me about my 3 favorite colors" }, timestamp: ago(12) }),
+    line({ type: "assistant", message: { id: "m0", role: "assistant", content: [{ type: "thinking", thinking: "A simple question. I will ask directly." }] }, timestamp: ago(12) }),
+    line({ type: "assistant", message: { id: "m0", role: "assistant", content: [{ type: "text", text: "What are your **three** favorite colors?" }] }, timestamp: ago(12) }),
+    line({ type: "user", message: { role: "user", content: "green" }, timestamp: ago(10) }),
+    line({ type: "assistant", message: { id: "m1", role: "assistant", content: [{ type: "tool_use", id: "tu1", name: "Bash", input: { command: "ls -la", description: "List files" } }] }, timestamp: ago(10) }),
     line({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu1", content: "total 0\n.env\nREADME.md\napp/" }] }, timestamp: ago(10) }),
     line({ type: "assistant", message: { id: "m1", role: "assistant", content: [{ type: "tool_use", id: "tu2", name: "Edit", input: { file_path: "app/models/todo.rb", old_string: "  def complete!\n    destroy\n  end", new_string: "  def complete!\n    update!(completed_at: Time.current)\n  end" } }] }, timestamp: ago(9) }),
     line({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu2", content: "The file app/models/todo.rb has been updated." }] }, timestamp: ago(9) }),
-    line({ type: "assistant", message: { id: "m1", role: "assistant", content: [{ type: "text", text: "Verde anotado. Só uma das três — quer dizer as outras duas?\n\n```ruby\ndef complete!\n  update!(completed_at: Time.current)\nend\n```" }] }, timestamp: ago(9) }),
+    line({ type: "assistant", message: { id: "m1", role: "assistant", content: [{ type: "text", text: "Green noted. That is one of three. What are the other two?\n\n```ruby\ndef complete!\n  update!(completed_at: Time.current)\nend\n```" }] }, timestamp: ago(9) }),
     line({ type: "result", subtype: "success", is_error: false, duration_ms: 5000 }),
   ].join("\n") + "\n";
 
@@ -614,7 +614,7 @@ function workspaceTools(ws: Workspace): Tools {
 
 /// Dock keys match Rust: <workspace>:<kind>. Setup finishes on a timer so retained output is available in the browser.
 const docks = new Map<string, boolean>();
-const DONE = "\r\n\x1b[32m✓ terminou\x1b[0m\r\n";
+const DONE = "\r\n\x1b[32m✓ finished\x1b[0m\r\n";
 
 const SCRIPT_OUT =
   "\x1b[2m$ npm run dev -- --port 3110\x1b[0m\r\n\r\n" +
@@ -639,7 +639,7 @@ const issue = (
   url: `https://linear.app/moabi/issue/${identifier}/${title.toLowerCase().replace(/\W+/g, "-")}`,
   branch_name: `gustavo/${identifier.toLowerCase()}-${title.toLowerCase().replace(/\W+/g, "-").slice(0, 40)}`,
   priority,
-  priority_label: ["Sem prioridade", "Urgente", "Alta", "Média", "Baixa"][priority],
+  priority_label: ["No priority", "Urgent", "High", "Medium", "Low"][priority],
   state: { name: state[0], kind: state[1], color: state[2] },
   team: identifier.split("-")[0],
   project,
@@ -650,14 +650,14 @@ const DOING: [string, string, string] = ["In Progress", "started", "#f2c94c"];
 const TODO: [string, string, string] = ["Todo", "unstarted", "#e2e2e2"];
 const BACKLOG: [string, string, string] = ["Backlog", "backlog", "#bec2c8"];
 const ISSUES: Issue[] = [
-  issue("MOA-142", "Conectar o Linear ao Prometeu", 2, DOING, "Integrações", 1, "Aba de issues e criar workspace a partir de uma delas."),
-  issue("MOA-137", "[Quadro] Card arrastado entre colunas perde a etapa quando o mouse solta fora da coluna (drop + reordenar)", 1, DOING, "Quadro", 5),
-  issue("MOA-151", "Mostrar tokens de contexto no card", 3, TODO, "Quadro", 26),
-  issue("MOA-149", "Atalho ⌘, para configurações", 4, TODO, null, 30),
-  issue("MOA-120", "Explorar sync com Notion", 0, BACKLOG, "Integrações", 240),
+  issue("MOA-142", "Connect Linear to Prometeu", 2, DOING, "Integrations", 1, "Show issues and create a workspace from one."),
+  issue("MOA-137", "[Board] Dragging a card loses its stage when dropped outside a column (drop + reorder)", 1, DOING, "Board", 5),
+  issue("MOA-151", "Show context tokens on the card", 3, TODO, "Board", 26),
+  issue("MOA-149", "⌘, shortcut for settings", 4, TODO, null, 30),
+  issue("MOA-120", "Explore Notion sync", 0, BACKLOG, "Integrations", 240),
   // A second team makes the team filter visible.
-  issue("INF-88", "Runner self-hosted cai depois de duas horas ocioso", 1, DOING, "Infra", 3),
-  issue("INF-72", "Assinar o .dmg no CI sem pedir a senha do Keychain", 3, TODO, "Infra", 52),
+  issue("INF-88", "Self-hosted runner stops after two idle hours", 1, DOING, "Infra", 3),
+  issue("INF-72", "Sign the .dmg in CI without requesting the Keychain password", 3, TODO, "Infra", 52),
 ];
 
 /// Number conversation lines like the backend. Live events and snapshots share that sequence for real-relay browser tests.
@@ -697,7 +697,7 @@ let mcpHub: McpServer[] = [
 /// Servers discoverable from the user's Claude configuration; they form the CLI-inherited base of
 /// the workspace picker (ADR 0046) and the import menu.
 const cliServers: McpServer[] = [
-  { id: "metabase", config: { type: "http", url: "https://metabase.exemplo/mcp" }, note: "capim-backend" },
+  { id: "metabase", config: { type: "http", url: "https://metabase.example/mcp" }, note: "capim-backend" },
   { id: "n8n", config: { type: "stdio", command: "npx", args: ["-y", "n8n-mcp"], env: {} }, note: "" },
 ];
 
@@ -709,8 +709,8 @@ type Step = { kind: string; text: string };
 
 /// The sample hub includes a marketplace plugin and a plugin being authored locally.
 let pluginHub: Plugin[] = [
-  { id: "caveman", source: "~/.prometeu/plugins/caveman", note: "fala curto e sem enfeite", made: true, from: "https://github.com/JuliusBrussee/caveman" },
-  { id: "ponytail", source: "~/dev/ponytail", note: "em construção" },
+  { id: "caveman", source: "~/.prometeu/plugins/caveman", note: "concise, plain communication", made: true, from: "https://github.com/JuliusBrussee/caveman" },
+  { id: "ponytail", source: "~/dev/ponytail", note: "work in progress" },
 ];
 
 
@@ -736,17 +736,17 @@ function sayInto(tab: string, text: string) {
     setTimeout(() => {
       pushLine(tab, { type: "system", subtype: "status", status: null, compact_result: "success" });
       pushLine(tab, { type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 23978, post_tokens: 3132 } });
-      pushLine(tab, { type: "user", isCompactSummary: true, message: { role: "user", content: "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n1. **Primary Request**: trocar o `destroy` por `completed_at`.\n2. **Files**: `app/models/todo.rb`." } });
+      pushLine(tab, { type: "user", isCompactSummary: true, message: { role: "user", content: "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n1. **Primary Request**: replace `destroy` with `completed_at`.\n2. **Files**: `app/models/todo.rb`." } });
       pushLine(tab, { type: "user", message: { role: "user", content: "<local-command-stdout>Compacted </local-command-stdout>" } });
       pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 4000 });
     }, 4000);
     return;
   }
-  const words = (text.includes("plano")
-    ? "Li o pedido. Segue o plano — aprove para eu começar."
-    : text.includes("pergunta")
-      ? "Antes de mexer, uma pergunta."
-      : `Entendi: **${text.slice(0, 40)}**. Vou olhar o código e volto com o que achei.`
+  const words = (text.includes("plan")
+    ? "I read the request. Here is the plan; approve it to start."
+    : text.includes("question")
+      ? "Before changing anything, a question."
+      : `Understood: **${text.slice(0, 40)}**. I will review the code and report what I find.`
   ).split(" ");
   let i = 0;
   pushLine(tab, { type: "stream_event", event: { type: "message_start", message: { id } } }, false);
@@ -758,16 +758,16 @@ function sayInto(tab: string, text: string) {
     }
     clearInterval(tick);
     pushLine(tab, { type: "assistant", message: { id, role: "assistant", content: [{ type: "text", text: words.join(" ") }] } });
-    if (text.includes("plano")) {
-      pushLine(tab, { type: "assistant", message: { id, role: "assistant", content: [{ type: "tool_use", id: `tu-${id}`, name: "ExitPlanMode", input: { plan: "# Plano\n\n1. Ler `app/models/todo.rb`\n2. Trocar o `destroy` por `completed_at`\n3. Rodar os testes" } }] } });
-      pushLine(tab, { type: "control_request", request_id: `req-${id}`, request: { subtype: "can_use_tool", tool_name: "ExitPlanMode", input: { plan: "# Plano\n\n1. Ler `app/models/todo.rb`\n2. Trocar o `destroy` por `completed_at`\n3. Rodar os testes" }, tool_use_id: `tu-${id}` } });
+    if (text.includes("plan")) {
+      pushLine(tab, { type: "assistant", message: { id, role: "assistant", content: [{ type: "tool_use", id: `tu-${id}`, name: "ExitPlanMode", input: { plan: "# Plan\n\n1. Read `app/models/todo.rb`\n2. Replace `destroy` with `completed_at`\n3. Run the tests" } }] } });
+      pushLine(tab, { type: "control_request", request_id: `req-${id}`, request: { subtype: "can_use_tool", tool_name: "ExitPlanMode", input: { plan: "# Plan\n\n1. Read `app/models/todo.rb`\n2. Replace `destroy` with `completed_at`\n3. Run the tests" }, tool_use_id: `tu-${id}` } });
       return;
     }
     if (text.includes("background")) {
       // Two background tasks exercise progress counts, completion notices, and automatic agent replies.
       const tasks = [
-        { task: `bg-${id}a`, tool: `tu-${id}a`, desc: "Mapear lacunas de teste" },
-        { task: `bg-${id}b`, tool: `tu-${id}b`, desc: "Auditar qualidade do repositório" },
+        { task: `bg-${id}a`, tool: `tu-${id}a`, desc: "Find gaps in test coverage" },
+        { task: `bg-${id}b`, tool: `tu-${id}b`, desc: "Audit repository quality" },
       ];
       for (const k of tasks) {
         pushLine(tab, { type: "assistant", message: { id, role: "assistant", content: [{ type: "tool_use", id: k.tool, name: "Agent", input: { description: k.desc, subagent_type: "Explore", run_in_background: true, prompt: "…" } }] } });
@@ -775,13 +775,13 @@ function sayInto(tab: string, text: string) {
         pushLine(tab, { type: "user", message: { role: "user", content: [{ tool_use_id: k.tool, type: "tool_result", content: `Agent started with ID: ${k.task}. You will be notified when it completes.`, is_error: false }] } });
       }
       pushLine(tab, { type: "system", subtype: "background_tasks_changed", tasks: tasks.map((k) => ({ task_id: k.task, task_type: "local_agent", description: k.desc })) });
-      pushLine(tab, { type: "assistant", message: { id: `${id}c`, role: "assistant", content: [{ type: "text", text: "Dois agentes rodando. Aviso quando terminarem." }] } });
+      pushLine(tab, { type: "assistant", message: { id: `${id}c`, role: "assistant", content: [{ type: "text", text: "Two agents are running. I will report when they finish." }] } });
       pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 1200 });
       tasks.forEach((k, n) =>
         setTimeout(() => {
           pushLine(tab, { type: "system", subtype: "background_tasks_changed", tasks: tasks.slice(n + 1).map((j) => ({ task_id: j.task, task_type: "local_agent", description: j.desc })) });
           pushLine(tab, { type: "system", subtype: "task_notification", task_id: k.task, tool_use_id: k.tool, status: "completed", summary: `Agent "${k.desc}" finished` });
-          pushLine(tab, { type: "assistant", message: { id: `${id}d${n}`, role: "assistant", content: [{ type: "text", text: `Terminou: ${k.desc}.` }] } });
+          pushLine(tab, { type: "assistant", message: { id: `${id}d${n}`, role: "assistant", content: [{ type: "text", text: `Finished: ${k.desc}.` }] } });
           pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 300 });
         }, 5000 * (n + 1)),
       );
@@ -789,15 +789,15 @@ function sayInto(tab: string, text: string) {
     }
     if (text.includes("diff")) {
       const diff = "diff --git a/src/lib/token.ts b/src/lib/token.ts\nindex 4354763..0458d9c 100644\n--- a/src/lib/token.ts\n+++ b/src/lib/token.ts\n@@ -1,4 +1,5 @@\n /**\n- * Shape of the token\n+ * Shape of the token that authenticates\n+ * the public landings\n  */\n const PATTERN = /^[1-9A-Z]{36}$/;";
-      pushLine(tab, { type: "assistant", message: { id, role: "assistant", content: [{ type: "tool_use", id: `tu-${id}`, name: "Bash", input: { command: "git diff -- src/lib/token.ts", description: "Diff do arquivo" } }] } });
+      pushLine(tab, { type: "assistant", message: { id, role: "assistant", content: [{ type: "tool_use", id: `tu-${id}`, name: "Bash", input: { command: "git diff -- src/lib/token.ts", description: "File diff" } }] } });
       pushLine(tab, { type: "user", message: { role: "user", content: [{ tool_use_id: `tu-${id}`, type: "tool_result", content: diff, is_error: false }] } });
-      pushLine(tab, { type: "assistant", message: { id: `${id}c`, role: "assistant", content: [{ type: "text", text: "O mesmo diff, num bloco:\n\n```diff\n" + diff + "\n```\n\n1 arquivo, +2 −1." }] } });
+      pushLine(tab, { type: "assistant", message: { id: `${id}c`, role: "assistant", content: [{ type: "text", text: "The same diff in a block:\n\n```diff\n" + diff + "\n```\n\n1 file, +2 −1." }] } });
       pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 1200 });
       return;
     }
-    if (text.includes("pergunta")) {
-      pushLine(tab, { type: "assistant", message: { id, role: "assistant", content: [{ type: "tool_use", id: `tu-${id}`, name: "AskUserQuestion", input: { questions: [{ header: "Histórico", question: "Onde guardar os concluídos?", options: [{ label: "Coluna", description: "completed_at na tabela de todos" }, { label: "Tabela", description: "uma tabela só deles" }] }, { header: "Migração", question: "Rodar a migração agora?", options: [{ label: "Sim", description: "no banco de dev" }, { label: "Depois", description: "só escrever o arquivo" }] }] } }] } });
-      pushLine(tab, { type: "control_request", request_id: `req-${id}`, request: { subtype: "can_use_tool", tool_name: "AskUserQuestion", input: { questions: [{ header: "Histórico", question: "Onde guardar os concluídos?", options: [{ label: "Coluna", description: "completed_at na tabela de todos" }, { label: "Tabela", description: "uma tabela só deles" }] }, { header: "Migração", question: "Rodar a migração agora?", options: [{ label: "Sim", description: "no banco de dev" }, { label: "Depois", description: "só escrever o arquivo" }] }] }, tool_use_id: `tu-${id}` } });
+    if (text.includes("question")) {
+      pushLine(tab, { type: "assistant", message: { id, role: "assistant", content: [{ type: "tool_use", id: `tu-${id}`, name: "AskUserQuestion", input: { questions: [{ header: "History", question: "Where should completed items be stored?", options: [{ label: "Column", description: "completed_at in the todos table" }, { label: "Table", description: "a separate table" }] }, { header: "Migration", question: "Run the migration now?", options: [{ label: "Yes", description: "in the development database" }, { label: "Later", description: "only write the file" }] }] } }] } });
+      pushLine(tab, { type: "control_request", request_id: `req-${id}`, request: { subtype: "can_use_tool", tool_name: "AskUserQuestion", input: { questions: [{ header: "History", question: "Where should completed items be stored?", options: [{ label: "Column", description: "completed_at in the todos table" }, { label: "Table", description: "a separate table" }] }, { header: "Migration", question: "Run the migration now?", options: [{ label: "Yes", description: "in the development database" }, { label: "Later", description: "only write the file" }] }] }, tool_use_id: `tu-${id}` } });
       return;
     }
     pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 1200 });
@@ -811,7 +811,7 @@ function controlInto(tab: string, frame: Record<string, any>) {
   const id = req.replace(/^req-/, "");
   const denied = frame.response?.outcome === "deny";
   pushLine(tab, { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: `tu-${id}`, content: denied ? String(frame.response.message) : "ok", is_error: denied }] } });
-  pushLine(tab, { type: "assistant", message: { id: `${id}b`, role: "assistant", content: [{ type: "text", text: denied ? "Certo, vou mudar o plano." : "Combinado. Seguindo." }] } });
+  pushLine(tab, { type: "assistant", message: { id: `${id}b`, role: "assistant", content: [{ type: "text", text: denied ? "All right, I will change the plan." : "Agreed. Continuing." }] } });
   pushLine(tab, { type: "result", subtype: "success", is_error: false, duration_ms: 400 });
 }
 
@@ -880,7 +880,7 @@ const mockCommands: IpcHandlers = {
         cancelAccountLogin = null;
         if (!code) {
           connecting.connected = true;
-          connecting.email = "nova@exemplo.com";
+          connecting.email = "new@example.com";
           connecting.plan = "pro";
           connecting.revision++;
         }
@@ -1147,7 +1147,7 @@ const mockCommands: IpcHandlers = {
   },
   // Use localStorage for browser team state; Tauri stores it in team.json.
   team_config() {
-    return { config: JSON.parse(localStorage.getItem("mock:team") ?? "null"), default_name: "Você" };
+    return { config: JSON.parse(localStorage.getItem("mock:team") ?? "null"), default_name: "You" };
   },
   team_security() {
     return JSON.parse(localStorage.getItem("mock:team-security") ?? "null");
@@ -1572,7 +1572,7 @@ const mockCommands: IpcHandlers = {
         steps: [step("connect", true, "401"), step("oauth", true), step("client", true)],
         probe: { ok: false, auth: true, tools: 0, name: "", detail: "" },
       };
-    if (url.includes("quebrado"))
+    if (url.includes("broken"))
       return {
         steps: [step("connect", false, "", "connection refused")],
         probe: { ok: false, auth: false, tools: 0, name: "", detail: "connection refused" },
@@ -1647,8 +1647,8 @@ const mockCommands: IpcHandlers = {
         dir,
         saved: false,
         plugins: [
-          { id: `${name}-um`, source: `${dir}/plugins/um`, note: "o primeiro do repositório", made: true, from },
-          { id: `${name}-dois`, source: `${dir}/plugins/dois`, note: "o segundo do repositório", made: true, from },
+          { id: `${name}-one`, source: `${dir}/plugins/one`, note: "the first plugin in the repository", made: true, from },
+          { id: `${name}-two`, source: `${dir}/plugins/two`, note: "the second plugin in the repository", made: true, from },
         ],
       };
     }
@@ -1672,7 +1672,7 @@ const mockCommands: IpcHandlers = {
       .replace(/^-|-$/g, "");
     const run = ++pluginRun;
     const steps: Step[] = [
-      { kind: "say", text: "Vou começar pelo manifesto." },
+      { kind: "say", text: "I will start with the manifest." },
       { kind: "file", text: ".claude-plugin/plugin.json" },
       { kind: "file", text: `skills/${slug}/SKILL.md` },
       { kind: "file", text: "hooks/hooks.json" },
@@ -1777,13 +1777,13 @@ const mockCommands: IpcHandlers = {
       procs: [
         { kind: "app", name: "Prometeu", detail: "", rss: 640 * 1024 * 1024, cpu: 0.8,
           hist: [0.4, 0.6, 1.2, 0.9, 0.7, 2.1, 1.4, 0.8, 0.6, 0.8] },
-        { kind: "chat", name: "Tela igual ao Conductor", detail: "Conversa 1", rss: 128 * 1024 * 1024, cpu: 2.2,
+        { kind: "chat", name: "Match the Conductor screen", detail: "Conversation 1", rss: 128 * 1024 * 1024, cpu: 2.2,
           hist: [0, 0, 4.5, 8.2, 6.1, 3.3, 1.2, 2.8, 5.4, 2.2] },
-        { kind: "term", name: "Ícone do app", detail: "run", rss: 54 * 1024 * 1024, cpu: 0.4,
+        { kind: "term", name: "App icon", detail: "run", rss: 54 * 1024 * 1024, cpu: 0.4,
           hist: [0.2, 0.3, 0.2, 0.5, 0.4, 0.3, 0.4, 0.4, 0.3, 0.4] },
       ],
       terms: 2,
-      ports: [{ id: "0831-1714", title: "Ícone do app", port: 3100 }],
+      ports: [{ id: "0831-1714", title: "App icon", port: 3100 }],
     };
   },
   list_branches() {
@@ -1829,12 +1829,12 @@ const mockCommands: IpcHandlers = {
     // Delay setup like a large Git worktree operation. The fixture failure keyword selects the error state.
     setTimeout(() => {
       fresh.preparing = false;
-      if (String(draft.prompt).includes("falha")) {
+      if (String(draft.prompt).includes("failure")) {
         fresh.failed = JSON.stringify({
           code: "err.git",
           args: {
             command: "git worktree add",
-            cause: `fatal: '${fresh.branch}' is already checked out at '/Users/g/wt/outro'`,
+            cause: `fatal: '${fresh.branch}' is already checked out at '/Users/g/wt/other'`,
           },
         }).replace(/^/, "i18n:");
         emit("board", board);
@@ -1858,7 +1858,7 @@ const mockCommands: IpcHandlers = {
     return ".prometeu/settings.toml";
   },
   scripts_prompt() {
-    return "Descubra como preparar e como rodar este projeto, e escreva isso em `.prometeu/settings.toml`.";
+    return "Find out how to set up and run this project, and write it in `.prometeu/settings.toml`.";
   },
   /// The browser has no pasteboard; return a plausible attachment so the paste flow stays testable.
   paste_files() {
@@ -1890,7 +1890,7 @@ const mockCommands: IpcHandlers = {
     return;
   },
   open_run(args) {
-    console.log("abrir no navegador: http://localhost:" + ((scripts[args.id] ?? noScripts).port ?? 0));
+    console.log("open in the browser: http://localhost:" + ((scripts[args.id] ?? noScripts).port ?? 0));
     return;
   },
   // The interactive fixture shares the inspector script with the native preview.
@@ -1970,14 +1970,14 @@ const mockCommands: IpcHandlers = {
     return;
   },
   open_pr(args) {
-    console.log("abrir o PR de " + args.id + " no navegador");
+    console.log("open the PR for " + args.id + " in the browser");
     return;
   },
   pr_prompt() {
     return [
-      "Quero abrir um PR deste worktree.",
+      "Open a PR for this worktree.",
       "",
-      "Há 2 arquivos com mudanças fora de commit. A branch atual é `mock/ajuste`; o alvo é `origin/main`. Ainda não há branch upstream.",
+      "There are 2 files with uncommitted changes. The current branch is `mock/update`; the target is `origin/main`. The branch has no upstream yet.",
     ].join("\n");
   },
   open_dock(args) {
@@ -2025,7 +2025,7 @@ const mockCommands: IpcHandlers = {
         linear = {
           connected: true,
           busy: false,
-          who: { name: "Gustavo Brancaglione", email: "gustavo@exemplo.com", org: "Moabi", org_key: "moabi" },
+          who: { name: "Gustavo Brancaglione", email: "gustavo@example.com", org: "Moabi", org_key: "moabi" },
         };
         emit("linear", linear);
         done(linear);
@@ -2039,7 +2039,7 @@ const mockCommands: IpcHandlers = {
     return new Promise((done) => setTimeout(() => done({ issues: ISSUES, fetched_at: Date.now() / 1000 }), 600));
   },
   linear_open(args) {
-    console.log("abrir no Linear:", args.url);
+    console.log("open in Linear:", args.url);
     return;
   },
   linear_disconnect() {
@@ -2085,7 +2085,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     // Folder selection returns no sample project. Multiple-file selection supplies sample attachments.
     case "plugin:dialog|open":
       return args.options?.multiple
-        ? ["/Users/gustavo/dev/njord/docs/spec.md", "/Users/gustavo/Desktop/tela.png"]
+        ? ["/Users/gustavo/dev/njord/docs/spec.md", "/Users/gustavo/Desktop/screenshot.png"]
         : localStorage.getItem("mock:directory");
 
     // There is no app bundle version in the browser. Version zero prevents release notes from opening automatically.
@@ -2108,15 +2108,15 @@ const fakes: team.SocketLike[] = [];
 /// Marcus's shared workspace provides a running remote conversation.
 const marcusShare = (): Share => ({
   id: "ws-marcus",
-  title: "Arquivar todos os concluídos",
+  title: "Archive completed todos",
   repo_name: "capim-backend",
   branch: "fix/archive-completed-todos",
   stage: "Fazendo",
-  issue: { identifier: "CAP-218", title: "Digest semanal zera concluídos", url: "https://linear.app/x/issue/CAP-218" },
+  issue: { identifier: "CAP-218", title: "Weekly digest clears completed todos", url: "https://linear.app/x/issue/CAP-218" },
   active: "mt1",
   tabs: [
     { id: "mt1", title: "", status: "rodando", note: "Edit src/todos/complete.ts", tokens: 41_200 },
-    { id: "mt2", title: "testes", status: "pronta", note: null, tokens: 8_300 },
+    { id: "mt2", title: "tests", status: "pronta", note: null, tokens: 8_300 },
   ],
   sizes: { mt1: [100, 30], mt2: [100, 30] },
   audience: null,
@@ -2132,8 +2132,8 @@ if (!(import.meta as unknown as { env?: Record<string, string | undefined> }).en
     needsRelay: false,
     socket: fakeSocket,
     create: async () => ({
-      team: "timeDeMentira",
-      secret: "segredoDeMentira",
+      team: "fakeTeam",
+      secret: "fakeSecret",
       member: "eu_mock",
       credential: "c".repeat(43),
     }),

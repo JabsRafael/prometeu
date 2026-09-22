@@ -21,7 +21,7 @@ const result = (index: number, ...parts: [string, boolean][]) => ({
   results: parts.map(([transcript, isFinal]) => Object.assign([{ transcript }], { isFinal })),
 });
 
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); use("pt-BR"); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); use("en"); });
 
 it("reports absence instead of throwing when the webview lacks recognition", () => {
   expect(available()).toBe(false);
@@ -33,20 +33,20 @@ it("reports absence instead of throwing when the webview lacks recognition", () 
 it("hands the caller newly settled text plus the interim tail, then ends once on stop", () => {
   vi.stubGlobal("webkitSpeechRecognition", Fake);
   expect(available()).toBe(true);
-  use("pt-BR");
+  use("en");
   const text = vi.fn();
   const end = vi.fn();
   const stop = listen(text, end);
   const r = Fake.last;
   expect(r.start).toHaveBeenCalled();
-  expect(r.lang).toBe("pt-BR");
+  expect(r.lang).toBe("en");
   expect(r.continuous && r.interimResults).toBe(true);
 
-  r.onresult!(result(0, ["olá ", true], ["mun", false]));
-  expect(text).toHaveBeenLastCalledWith("olá ", "mun");
+  r.onresult!(result(0, ["hello ", true], ["wor", false]));
+  expect(text).toHaveBeenLastCalledWith("hello ", "wor");
   // The results list is cumulative; resultIndex points at the first entry that changed.
-  r.onresult!(result(1, ["olá ", true], ["mundo", true]));
-  expect(text).toHaveBeenLastCalledWith("mundo", "");
+  r.onresult!(result(1, ["hello ", true], ["world", true]));
+  expect(text).toHaveBeenLastCalledWith("world", "");
 
   r.onerror!({ error: "no-speech" });
   stop();
@@ -96,10 +96,10 @@ it("forces cleanup when the engine never ends after stop", () => {
 });
 
 it("joins segments with a single space", () => {
-  expect(join("Oi tudo bem", "vamos lá")).toBe("Oi tudo bem vamos lá");
-  expect(join("Oi ", "tudo")).toBe("Oi tudo");
-  expect(join("", "Oi")).toBe("Oi");
-  expect(join("Oi", "")).toBe("Oi");
+  expect(join("Hello there", "let us go")).toBe("Hello there let us go");
+  expect(join("Hello ", "there")).toBe("Hello there");
+  expect(join("", "Hello")).toBe("Hello");
+  expect(join("Hello", "")).toBe("Hello");
 });
 
 it("surfaces real errors when recognition ends", () => {

@@ -500,7 +500,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn update_atrasado_da_conta_anterior_nao_muda_cota_da_nova() {
+    fn late_updates_from_previous_accounts_do_not_change_current_quota() {
         let mut all: Usage = serde_json::from_value(
             json!({"codex":{"windows":[{"kind":"weekly","pct":12,"resets":100}],"at":1}}),
         )
@@ -512,19 +512,19 @@ mod tests {
             scope: Some("general".into()),
             label: None,
         };
-        remember(&mut all, "conta-a", vec![window(20.0)], true);
-        remember(&mut all, "conta-b", vec![window(2.0)], true);
-        let newer = all["conta-b"].clone();
-        remember(&mut all, "conta-a", vec![window(90.0)], false);
-        assert_eq!(all["conta-b"], newer);
-        assert_eq!(all["conta-a"].windows[0].pct, 90.0);
+        remember(&mut all, "account-a", vec![window(20.0)], true);
+        remember(&mut all, "account-b", vec![window(2.0)], true);
+        let newer = all["account-b"].clone();
+        remember(&mut all, "account-a", vec![window(90.0)], false);
+        assert_eq!(all["account-b"], newer);
+        assert_eq!(all["account-a"].windows[0].pct, 90.0);
         assert_eq!(all["codex"].windows[0].pct, 12.0);
-        assert!(!remember(&mut all, "conta-b", vec![], true));
-        assert_eq!(all["conta-b"], newer);
+        assert!(!remember(&mut all, "account-b", vec![], true));
+        assert_eq!(all["account-b"], newer);
     }
 
     #[test]
-    fn claude_traduz_as_janelas_que_vieram() {
+    fn claude_translates_received_windows() {
         let info = json!({
             "status": "allowed",
             "unifiedWindows": {
@@ -548,12 +548,12 @@ mod tests {
     }
 
     #[test]
-    fn claude_sem_janela_nenhuma_nao_inventa() {
+    fn claude_does_not_invent_missing_windows() {
         assert!(claude_windows(&json!({ "status": "allowed" })).is_empty());
     }
 
     #[test]
-    fn poll_do_claude_traduz_os_limits() {
+    fn claude_poll_translates_limits() {
         let info = json!({
             "limits": [
                 { "kind": "session", "percent": 26, "resets_at": "2026-09-02T05:10:00.504892+00:00" },
@@ -573,7 +573,7 @@ mod tests {
     }
 
     #[test]
-    fn poll_do_codex_separa_cota_geral_e_modelo() {
+    fn codex_poll_separates_general_and_model_quotas() {
         let reply = json!({
             "rate_limit": {
                 "primary_window": { "used_percent": 6, "limit_window_seconds": 604800, "reset_at": 1789079183u64 },
@@ -602,7 +602,7 @@ mod tests {
     }
 
     #[test]
-    fn rfc3339_vira_unix() {
+    fn rfc3339_converts_to_unix_time() {
         // date -u -j -f "%Y-%m-%dT%H:%M:%S" "2026-09-02T05:10:00" +%s
         assert_eq!(
             rfc3339("2026-09-02T05:10:00.504892+00:00"),
@@ -613,11 +613,11 @@ mod tests {
         assert_eq!(rfc3339("1970-01-01T00:00:00Z"), Some(0));
         assert_eq!(rfc3339("2026-09-02T02:10:00-03:00"), Some(1788325800));
         assert_eq!(rfc3339("2026-09-02T07:10:00+02:00"), Some(1788325800));
-        assert_eq!(rfc3339("sem data nenhuma"), None);
+        assert_eq!(rfc3339("not a date"), None);
     }
 
     #[test]
-    fn codex_traduz_primary_e_secondary() {
+    fn codex_translates_primary_and_secondary_windows() {
         let limits = json!({
             "primary": { "usedPercent": 0, "windowDurationMins": 300, "resetsAt": 1788245287u64 },
             "secondary": { "usedPercent": 13, "windowDurationMins": 10080, "resetsAt": 1788789678u64 }
@@ -632,7 +632,7 @@ mod tests {
     }
 
     #[test]
-    fn codex_prefere_snapshot_com_todos_os_buckets() {
+    fn codex_prefers_snapshots_with_all_buckets() {
         let limits = json!({
             "rateLimits": {
                 "limitId": "codex",
@@ -661,7 +661,7 @@ mod tests {
     }
 
     #[test]
-    fn update_esparso_do_codex_preserva_outros_buckets_e_janelas() {
+    fn sparse_codex_updates_preserve_other_buckets_and_windows() {
         let full = json!({
             "rateLimits": {},
             "rateLimitsByLimitId": {
@@ -693,7 +693,7 @@ mod tests {
     }
 
     #[test]
-    fn usage_antigo_sem_scope_continua_legivel() {
+    fn legacy_usage_without_scope_remains_readable() {
         let window: Window = serde_json::from_value(json!({
             "kind": "session", "pct": 4, "resets": 1788330820u64
         }))

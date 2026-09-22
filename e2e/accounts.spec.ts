@@ -2,20 +2,20 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 async function openAccounts(page: Page, provider = "codex") {
   await page.locator(`#status [data-provider="${provider}"]`).click();
-  return page.getByRole("dialog", { name: "Cotas" });
+  return page.getByRole("dialog", { name: "Usage limits" });
 }
 
 async function action(page: Page, card: Locator, label: string) {
-  await card.getByRole("button", { name: "Ações da conta" }).click();
+  await card.getByRole("button", { name: "Account actions" }).click();
   await page.getByRole("menuitem", { name: label }).click();
 }
 
-test("contas no rodapé trocam globalmente, preservam conversa e a seleção do outro provider", async ({ page }) => {
+test("footer accounts switch globally while preserving the conversation and the other provider’s selection", async ({ page }) => {
   await page.goto("/");
-  await page.locator("#railbody .navitem.sub .lbl").getByText("Ola", { exact: true }).click();
+  await page.locator("#railbody .navitem.sub .lbl").getByText("Hello", { exact: true }).click();
   const before = await page.locator("#chatwrap").innerText();
   const panel = await openAccounts(page);
-  const work = panel.locator(".uaccount", { hasText: "trabalho@exemplo.com" });
+  const work = panel.locator(".uaccount", { hasText: "work@example.com" });
   const quota = await work.locator(".urow").last().boundingBox();
   await page.mouse.click(quota!.x + quota!.width / 2, quota!.y + quota!.height / 2);
   await expect(work.locator(".account-select")).toHaveAttribute("aria-pressed", "true");
@@ -37,32 +37,32 @@ test("contas no rodapé trocam globalmente, preservam conversa e a seleção do 
     const mock = (window as unknown as { mock: { accountError: (error: string) => void } }).mock;
     mock.accountError('i18n:{"code":"err.account.disconnected"}');
   });
-  await expect(page.locator("#msg")).toHaveText("Reconecte esta conta antes de ativá-la.");
+  await expect(page.locator("#msg")).toHaveText("Reconnect this account before activating it.");
   await page.reload();
   await expect(page.locator('#status [data-provider="codex"]')).toHaveText("5h 10% · 7d 26%");
   await openAccounts(page);
   await expect(work.locator(".account-select")).toHaveAttribute("aria-pressed", "true");
   await openAccounts(page, "claude");
   await expect(panel.locator('[data-account="claude"] .account-select')).toHaveAttribute("aria-pressed", "true");
-  const other = panel.locator(".uaccount", { hasText: "trabalho@exemplo.com" }).locator(".account-select");
+  const other = panel.locator(".uaccount", { hasText: "work@example.com" }).locator(".account-select");
   await other.focus();
   await page.keyboard.press("Space");
   await expect(other).toHaveAttribute("aria-pressed", "true");
 });
 
-test("login no rodapé começa sem apelido e permite cancelar e reconectar", async ({ page }) => {
+test("footer sign-in starts without an alias and supports cancellation and reconnection", async ({ page }) => {
   await page.goto("/");
   const panel = await openAccounts(page, "claude");
   await expect(panel.getByRole("textbox")).toHaveCount(0);
-  await panel.getByRole("button", { name: "Adicionar conta" }).click();
-  await expect(panel.getByRole("status")).toContainText("Conclua o login no navegador.");
-  await panel.getByRole("button", { name: "Cancelar", exact: true }).click();
+  await panel.getByRole("button", { name: "Add account" }).click();
+  await expect(panel.getByRole("status")).toContainText("Complete sign-in in your browser.");
+  await panel.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(panel.getByRole("status")).toHaveCount(0);
   const added = panel.locator(".uaccount").last();
   await expect(added.locator(".account-select")).toBeDisabled();
-  await action(page, added, "Reconectar");
+  await action(page, added, "Reconnect");
   await expect(added.locator(".account-select")).toBeEnabled();
-  await expect(added.locator("strong")).toHaveText("nova@exemplo.com");
+  await expect(added.locator("strong")).toHaveText("new@example.com");
   // Connecting an account does not change selection without an explicit choice.
   await expect(panel.locator('[data-account="claude"] .account-select')).toHaveAttribute("aria-pressed", "true");
   await added.locator(".account-select").click();
@@ -70,64 +70,53 @@ test("login no rodapé começa sem apelido e permite cancelar e reconectar", asy
   await expect(page.locator('#status [data-provider="claude"]')).toHaveText("5h 11% · 7d 27%");
 });
 
-test("falha de login mantém conta ativa e permite remover a tentativa", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("mock:accountLoginError", "1"));
+test("removing all accounts clears the selection and preserves the conversation and other provider", async ({ page }) => {
   await page.goto("/");
-  const panel = await openAccounts(page);
-  await panel.getByRole("button", { name: "Adicionar conta" }).click();
-  const added = panel.locator(".uaccount", { hasText: "Nova conta" });
-  await expect(added.getByRole("button", { name: "Ações da conta" })).toBeEnabled();
-  await expect(added.locator(".account-select")).toBeDisabled();
-  await expect(panel.locator('[data-account="codex"] .account-select')).toHaveAttribute("aria-pressed", "true");
-  await action(page, added, "Remover conta");
-  await expect(added).toHaveCount(0);
-  await page.reload();
-  await openAccounts(page);
-  await expect(panel.locator(".uaccount")).toHaveCount(2);
-});
-
-test("remover todas as contas limpa seleção e preserva conversa e outro provider", async ({ page }) => {
-  await page.goto("/");
-  await page.locator("#railbody .navitem.sub .lbl").getByText("Ola", { exact: true }).click();
+  await page.locator("#railbody .navitem.sub .lbl").getByText("Hello", { exact: true }).click();
   const before = await page.locator("#chatwrap").innerText();
   const panel = await openAccounts(page, "claude");
-  await panel.locator(".uaccount", { hasText: "trabalho@exemplo.com" }).locator(".account-select").click();
+  await panel.locator(".uaccount", { hasText: "work@example.com" }).locator(".account-select").click();
   await openAccounts(page);
-  const work = panel.locator(".uaccount", { hasText: "trabalho@exemplo.com" });
+  const work = panel.locator(".uaccount", { hasText: "work@example.com" });
   await work.locator(".account-select").click();
   await expect(work.locator(".account-select")).toHaveAttribute("aria-pressed", "true");
-  await action(page, work, "Remover conta");
-  await page.getByRole("dialog", { name: "Remover conta ativa?" }).getByRole("button", { name: "Remover conta", exact: true }).click();
+  await action(page, work, "Remove account");
+  const confirm = page.getByRole("dialog", { name: "Remove active account?" });
+  await expect(confirm).toContainText("New messages");
+  await confirm.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(work.locator(".account-select")).toHaveAttribute("aria-pressed", "true");
+  await action(page, work, "Remove account");
+  await confirm.getByRole("button", { name: "Remove account", exact: true }).click();
   await expect(work).toHaveCount(0);
   await expect(panel.locator('[data-account="codex"] .account-select')).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator('#status [data-provider="codex"]')).toHaveText("—");
-  await action(page, panel.locator(".uaccount"), "Remover conta");
+  await action(page, panel.locator(".uaccount"), "Remove account");
   await expect(panel.locator(".uaccount")).toHaveCount(0);
-  await expect(panel.getByText("Nenhuma conta adicionada.")).toBeVisible();
+  await expect(panel.getByText("No accounts added.")).toBeVisible();
   await page.keyboard.press("Escape");
   expect(await page.locator("#chatwrap").innerText()).toBe(before);
   await page.reload();
   await openAccounts(page);
   await expect(panel.locator(".uaccount")).toHaveCount(0);
   await expect(page.locator('#status [data-provider="codex"]')).toHaveText("—");
-  await panel.getByRole("button", { name: "Adicionar conta" }).click();
-  await expect(panel.getByRole("button", { name: "Ações da conta" })).toBeEnabled();
+  await panel.getByRole("button", { name: "Add account" }).click();
+  await expect(panel.getByRole("button", { name: "Account actions" })).toBeEnabled();
   await expect(panel.locator(".account-select")).toHaveAttribute("aria-pressed", "false");
   await panel.locator(".account-select").click();
   await expect(panel.locator(".account-select")).toHaveAttribute("aria-pressed", "true");
   await openAccounts(page, "claude");
-  await expect(panel.locator(".uaccount", { hasText: "trabalho@exemplo.com" }).locator(".account-select")).toHaveAttribute("aria-pressed", "true");
+  await expect(panel.locator(".uaccount", { hasText: "work@example.com" }).locator(".account-select")).toHaveAttribute("aria-pressed", "true");
 });
 
-test("cadastro antigo ignora apelidos e mostra email como texto", async ({ page }) => {
+test("legacy accounts ignore aliases and render email as text", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator('#status [data-provider="codex"]')).toBeVisible();
-  const email = 'pessoal+"<img src=x onerror=alert(1)>"@exemplo.com';
+  const email = 'personal+"<img src=x onerror=alert(1)>"@example.com';
   await page.evaluate(async (email) => {
     const backend = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string) => Promise<any> } }).__TAURI_INTERNALS__;
     const saved = await backend.invoke("accounts");
     const account = saved.accounts.find((account: { id: string }) => account.id === "codex");
-    account.label = "Apelido antigo";
+    account.label = "Old alias";
     account.email = email;
     localStorage.setItem("mock:accounts", JSON.stringify(saved));
   }, email);
@@ -135,76 +124,33 @@ test("cadastro antigo ignora apelidos e mostra email como texto", async ({ page 
   const panel = await openAccounts(page);
   await expect(panel.locator('[data-account="codex"] strong')).toHaveText(email);
   await expect(panel.locator('[data-account="codex"] strong')).toHaveAttribute("title", email);
-  await expect(panel.getByText("Apelido antigo")).toHaveCount(0);
+  await expect(panel.getByText("Old alias")).toHaveCount(0);
   await expect(panel.getByRole("textbox")).toHaveCount(0);
   await expect(panel.locator("img")).toHaveCount(0);
 });
 
-test("contas: configurações compartilham cartões e confirmam remoção ativa", async ({ page }) => {
-  await page.goto("/");
-  const panel = await openAccounts(page);
-  await panel.getByRole("button", { name: "Gerenciar contas" }).click();
-  const settings = page.locator("#settingsView");
-  await expect(settings.getByRole("heading", { name: "Contas", exact: true })).toBeVisible();
-  const active = settings.locator('[data-account="codex"]');
-  await active.getByRole("button", { name: "Ações da conta" }).click();
-  await page.getByRole("menuitem", { name: "Remover conta" }).click();
-  const confirm = page.getByRole("dialog", { name: "Remover conta ativa?" });
-  await expect(confirm).toContainText("Novas mensagens");
-  await confirm.getByRole("button", { name: "Cancelar", exact: true }).click();
-  await expect(active.locator(".account-select")).toHaveAttribute("aria-pressed", "true");
-  await active.getByRole("button", { name: "Ações da conta" }).click();
-  await page.getByRole("menuitem", { name: "Remover conta" }).click();
-  await confirm.getByRole("button", { name: "Remover conta", exact: true }).click();
-  await expect(active).toHaveCount(0);
-  await expect(settings.locator('[data-provider-accounts="codex"] .account-select')).toBeFocused();
-  await expect(page.locator('#status [data-provider="codex"]')).toHaveText("—");
-});
-
-test("contas: Antigravity usa a conta externa sem criar login ou ativar automaticamente", async ({ page }) => {
+test("accounts: Antigravity uses the external account without creating a login or activating it automatically", async ({ page }) => {
   await page.goto("/");
   const panel = await openAccounts(page, "antigravity");
-  await panel.getByRole("button", { name: "Usar conta do agy" }).click();
+  await panel.getByRole("button", { name: "Use agy account" }).click();
   const added = panel.locator('[data-account="antigravity"]');
-  await expect(added).toContainText("Conta do Antigravity");
+  await expect(added).toContainText("Antigravity account");
   await expect(added.locator(".account-select")).toHaveAttribute("aria-pressed", "false");
   await expect(added.locator(".account-select")).toBeFocused();
   await expect(page.getByRole("dialog")).toHaveCount(1);
-  await expect(panel.getByRole("button", { name: "Usar conta do agy" })).toHaveCount(0);
-  await expect(panel).toContainText("Conta do agy adicionada");
+  await expect(panel.getByRole("button", { name: "Use agy account" })).toHaveCount(0);
+  await expect(panel).toContainText("agy account added");
   await added.locator(".account-select").click();
   await expect(added.locator(".account-select")).toHaveAttribute("aria-pressed", "true");
   await expect(panel).toContainText("Gemini Models");
   await expect(panel).toContainText("Claude and GPT models");
-  await expect(panel).toContainText("59% livre");
-  await expect(panel).toContainText("97% livre");
+  await expect(panel).toContainText("59% free");
+  await expect(panel).toContainText("97% free");
   await expect(page.locator('#status [data-provider="antigravity"]')).not.toHaveText("—");
 });
 
-test("contas: configurações mostram agente não instalado", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("mock:antigravityMissing", "1"));
-  await page.goto("/");
-  const panel = await openAccounts(page);
-  await panel.getByRole("button", { name: "Gerenciar contas" }).click();
-  const antigravity = page.locator('#settingsView [data-provider-accounts="antigravity"]');
-  await expect(antigravity).toContainText("Instale Antigravity");
-  await expect(antigravity.getByRole("button", { name: "Usar conta do agy" })).toBeDisabled();
-});
 
-test("contas: configurações atualizam disponibilidade após descoberta atrasada", async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.setItem("mock:agentsDelay", "2000");
-    localStorage.setItem("prometeu:configuracoes", "contas");
-  });
-  await page.goto("/");
-  await page.locator("#settings").click();
-  const group = page.locator('#settingsView [data-provider-accounts="antigravity"]');
-  await expect(group.getByRole("button", { name: "Usar conta do agy" })).toBeEnabled();
-  await expect(group).not.toContainText("Instale Antigravity");
-});
-
-
-test("contas: remover última conta sem CLI mantém foco no grupo", async ({ page }) => {
+test("accounts: removing the last account without a CLI preserves focus on the group", { tag: "@webkit" }, async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("mock:antigravityMissing", "1");
     localStorage.setItem("mock:accounts", JSON.stringify({ accounts: [
@@ -213,52 +159,54 @@ test("contas: remover última conta sem CLI mantém foco no grupo", async ({ pag
   });
   await page.goto("/");
   await page.locator("#settings").click();
-  await page.locator("#settingsView").getByRole("button", { name: "Contas", exact: true }).click();
+  await page.locator("#settingsView").getByRole("button", { name: "Accounts", exact: true }).click();
   const group = page.locator('#settingsView [data-provider-accounts="antigravity"]');
-  await action(page, group.locator(".uaccount"), "Remover conta");
+  await action(page, group.locator(".uaccount"), "Remove account");
   await expect(group.locator(".uaccount")).toHaveCount(0);
+  await expect(group).toContainText("Install Antigravity");
+  await expect(group.getByRole("button", { name: "Use agy account" })).toBeDisabled();
   await expect(group).toBeFocused();
 });
 
-test("contas: launcher preserva o pedido até selecionar uma conta conectada", async ({ page }) => {
+test("accounts: the launcher preserves its prompt until a connected account is selected", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("prometeu:model", "gemini-3.8-flash-high");
     localStorage.setItem("mock:accounts", JSON.stringify({ accounts: [
-      { id: "antigravity", provider: "antigravity", email: "pessoa@exemplo.com", connected: true, revision: 0, authMethod: "external" },
+      { id: "antigravity", provider: "antigravity", email: "person@example.com", connected: true, revision: 0, authMethod: "external" },
     ], active: {}, login: null }));
   });
   await page.goto("/");
   await page.locator('#status [data-provider="antigravity"]').waitFor();
-  await page.locator("#railbody").getByRole("button", { name: "Criar", exact: true }).click();
+  await page.locator("#railbody").getByRole("button", { name: "Create", exact: true }).click();
   await page.locator("#d-model").click();
   await page.locator(".ui-search-picker-choice", { hasText: "Gemini 3.8 Flash (High)" }).click();
   const prompt = page.locator("#d-prompt");
-  await prompt.fill("Meu pedido preservado");
+  await prompt.fill("My preserved request");
   const workspaceIds = () => page.evaluate(async () => {
     const backend = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string) => Promise<{ workspaces: { id: string }[] }> } }).__TAURI_INTERNALS__;
     return (await backend.invoke("load_board")).workspaces.map(workspace => workspace.id);
   });
   const before = await workspaceIds();
   await prompt.press("Enter");
-  const picker = page.getByRole("dialog", { name: "Usar esta conta", exact: true });
+  const picker = page.getByRole("dialog", { name: "Use this account", exact: true });
   await expect(picker).toBeVisible();
   expect(await workspaceIds()).toEqual(before);
-  await expect(prompt).toHaveValue("Meu pedido preservado");
+  await expect(prompt).toHaveValue("My preserved request");
   await page.keyboard.press("Escape");
   await expect(picker).toHaveCount(0);
   await expect(prompt).toBeVisible();
-  await expect(prompt).toHaveValue("Meu pedido preservado");
+  await expect(prompt).toHaveValue("My preserved request");
   await prompt.press("Enter");
   await expect(picker).toBeVisible();
   const account = picker.locator('[data-account="antigravity"]');
-  await expect(account).toContainText("Usar esta conta");
+  await expect(account).toContainText("Use this account");
   await expect(account.locator(".account-select")).toHaveAttribute("aria-pressed", "false");
   await account.locator(".account-select").click();
-  await picker.getByRole("button", { name: "Continuar", exact: true }).click();
+  await picker.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(picker).toHaveCount(0);
-  await expect(page.locator("#d-account")).toContainText("Conta do Antigravity");
-  await expect(prompt).toHaveValue("Meu pedido preservado");
+  await expect(page.locator("#d-account")).toContainText("Antigravity account");
+  await expect(prompt).toHaveValue("My preserved request");
   await prompt.press("Enter");
   await expect(page.locator("#veil")).toBeHidden();
-  await expect(page.locator("#crumb")).toContainText("Meu pedido preservado");
+  await expect(page.locator("#crumb")).toContainText("My preserved request");
 });

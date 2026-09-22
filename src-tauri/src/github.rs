@@ -242,18 +242,18 @@ mod tests {
     }
 
     #[test]
-    fn aberto_manda_mais_que_fechado_na_mesma_branch() {
+    fn open_pull_requests_take_precedence_over_closed_ones_on_the_same_branch() {
         let all = vec![
             pr(9, "outra/coisa", "OPEN"),
             pr(8, "meu/ajuste", "CLOSED"),
             pr(7, "meu/ajuste", "OPEN"),
         ];
         assert_eq!(pick(&all, "meu/ajuste").unwrap().number, 7);
-        assert!(pick(&all, "nao/existe").is_none());
+        assert!(pick(&all, "does/not/exist").is_none());
     }
 
     #[test]
-    fn nao_achar_nao_apaga_o_pr_conhecido() {
+    fn missing_results_do_not_remove_known_pull_requests() {
         let mut repo = Repo {
             path: "/clone".into(),
             name: "repo".into(),
@@ -269,7 +269,7 @@ mod tests {
     }
 
     #[test]
-    fn sem_aberto_fica_com_o_mais_novo() {
+    fn keeps_the_newest_pull_request_when_none_are_open() {
         let all = vec![
             pr(12, "meu/ajuste", "MERGED"),
             pr(4, "meu/ajuste", "CLOSED"),

@@ -848,7 +848,7 @@ mod tests {
                  {{"id":"w","title":"t","repo":"/r","repo_name":"r",
                    "branch":"b","worktree":"/wt","stage":"Fazendo"{extra}}}]}}"#
         );
-        serde_json::from_str(&json).expect("board não desserializou")
+        serde_json::from_str(&json).expect("board did not deserialize")
     }
 
     fn temporary_board_path() -> std::path::PathBuf {
@@ -858,7 +858,7 @@ mod tests {
     }
 
     #[test]
-    fn flush_descarta_o_quadro_antigo_que_esperava_no_coalesce() {
+    fn flush_discards_the_older_board_waiting_in_coalescing() {
         let written = Arc::new(std::sync::Mutex::new(Vec::new()));
         let observed = written.clone();
         let saver = spawn_saver_with(move |board| {
@@ -881,7 +881,7 @@ mod tests {
     }
 
     #[test]
-    fn quadro_corrompido_recupera_o_ultimo_backup_valido() {
+    fn corrupt_boards_recover_from_the_last_valid_backup() {
         let current = temporary_board_path();
         std::fs::create_dir_all(current.parent().unwrap()).unwrap();
         std::fs::write(&current, "{cortado").unwrap();
@@ -899,7 +899,7 @@ mod tests {
     }
 
     #[test]
-    fn backup_tambem_recupera_quadro_principal_ausente() {
+    fn backup_recovers_a_missing_primary_board() {
         let current = temporary_board_path();
         std::fs::create_dir_all(current.parent().unwrap()).unwrap();
         std::fs::write(
@@ -916,26 +916,26 @@ mod tests {
     }
 
     #[test]
-    fn provider_legado_e_normalizado_sem_quebrar_o_board() {
-        let vazio = board_json(r#","agent":"""#);
-        let explicito = board_json(r#","agent":"codex""#);
-        let futuro = board_json(r#","agent":"provider-ainda-desconhecido""#);
+    fn normalizes_legacy_provider_without_breaking_the_board() {
+        let empty = board_json(r#","agent":"""#);
+        let explicit = board_json(r#","agent":"codex""#);
+        let future = board_json(r#","agent":"provider-ainda-desconhecido""#);
 
-        assert_eq!(vazio.workspaces[0].agent, ProviderId::Claude);
-        assert_eq!(explicito.workspaces[0].agent, ProviderId::Codex);
-        assert_eq!(futuro.workspaces[0].agent, ProviderId::Claude);
+        assert_eq!(empty.workspaces[0].agent, ProviderId::Claude);
+        assert_eq!(explicit.workspaces[0].agent, ProviderId::Codex);
+        assert_eq!(future.workspaces[0].agent, ProviderId::Claude);
 
-        let normalized = serde_json::to_value(vazio).unwrap();
+        let normalized = serde_json::to_value(empty).unwrap();
         assert_eq!(normalized["workspaces"][0]["agent"], "claude");
     }
 
     /// Interrupted preparation becomes an explicit failure after restart.
     #[test]
-    fn montagem_interrompida_vira_erro_escrito_no_card() {
+    fn interrupted_setup_becomes_an_error_on_the_card() {
         let mut board = board_json(r#","preparing":true"#);
         board.revive();
         let ws = &board.workspaces[0];
-        assert!(!ws.preparing, "não pode voltar montando");
+        assert!(!ws.preparing, "must not restore while preparing");
         assert_eq!(
             ws.failed.as_deref(),
             Some(crate::i18n::t("err.session.interrupted")).as_deref()
@@ -944,7 +944,7 @@ mod tests {
 
     /// Do not invent a resumable tab for a workspace whose preparation never completed.
     #[test]
-    fn montagem_interrompida_nao_ganha_aba() {
+    fn interrupted_setup_does_not_create_a_tab() {
         let mut board = board_json(r#","preparing":true"#);
         board.revive();
         assert!(board.workspaces[0].tabs.is_empty());
@@ -953,7 +953,7 @@ mod tests {
 
     /// Existing legacy sessions still receive their migrated tab.
     #[test]
-    fn quadro_antigo_sem_aba_continua_ganhando_a_sua() {
+    fn legacy_boards_without_tabs_still_receive_one() {
         let mut board = board_json("");
         board.revive();
         let ws = &board.workspaces[0];
@@ -967,7 +967,7 @@ mod tests {
     /// Remove generated placeholder titles while preserving user-authored titles, even with the
     /// same prefix.
     #[test]
-    fn nome_inventado_de_aba_some_na_migracao() {
+    fn invented_tab_names_are_removed_during_migration() {
         let mut board = board_json(
             r#","tabs":[
               {"id":"a","title":"conversa","status":"pronta","note":null,"pending_prompt":null},
@@ -988,7 +988,7 @@ mod tests {
     }
 
     #[test]
-    fn revive_distingue_projeto_legado_de_removido() {
+    fn revive_distinguishes_legacy_projects_from_removed_projects() {
         let mut legacy = board_json("");
         legacy.revive();
         assert_eq!(legacy.projects[0].id, "/r");
@@ -1001,7 +1001,7 @@ mod tests {
 
     /// Legacy single-repository boards keep their original paths while gaining the repository list.
     #[test]
-    fn quadro_antigo_ganha_a_lista_de_um_repositorio() {
+    fn legacy_boards_receive_a_single_repository_list() {
         let mut board = board_json("");
         board.revive();
         let ws = &board.workspaces[0];
@@ -1023,7 +1023,7 @@ mod tests {
 
     /// Move the legacy PR into the primary repository and stop serializing its old location.
     #[test]
-    fn quadro_antigo_leva_o_pr_para_o_principal() {
+    fn legacy_boards_move_the_pull_request_to_the_primary_repository() {
         let mut board = board_json(r#","pr":{"number":3,"title":"t","state":"MERGED"}"#);
         board.revive();
         let ws = &board.workspaces[0];
@@ -1037,7 +1037,7 @@ mod tests {
 
     /// Existing repository lists retain their entries without duplication.
     #[test]
-    fn quadro_com_lista_fica_como_esta() {
+    fn boards_with_repository_lists_remain_unchanged() {
         let mut board = board_json(
             r#","repos":[{"path":"/r","name":"r","worktree":"/wt/r"},{"path":"/s","name":"s","worktree":"/wt/s"}]"#,
         );
@@ -1051,7 +1051,7 @@ mod tests {
 
     /// Tabs saved as running reopen stopped because their processes did not survive.
     #[test]
-    fn aba_gravada_viva_volta_desligada() {
+    fn persisted_live_tabs_restore_as_stopped() {
         let mut board = board_json(
             r#","tabs":[{"id":"t1","title":"conversa","status":"rodando","note":null,"pending_prompt":null}]"#,
         );
@@ -1063,7 +1063,7 @@ mod tests {
     }
 
     #[test]
-    fn tokens_somam_o_contexto_depois_de_compactar() {
+    fn tokens_sum_context_after_compaction() {
         let mut board = board_json(
             r#","tabs":[{"id":"t1","title":"conversa","status":"pronta","note":null,"pending_prompt":null}]"#,
         );
@@ -1078,7 +1078,7 @@ mod tests {
     }
 
     #[test]
-    fn tokens_antigos_viram_inicio_do_contador_sem_duplicar() {
+    fn legacy_tokens_seed_the_counter_without_double_counting() {
         let mut board = board_json(
             r#","tabs":[{"id":"t1","title":"conversa","status":"pronta","note":null,"pending_prompt":null,"tokens":20000}]"#,
         );
@@ -1092,7 +1092,7 @@ mod tests {
 
     /// Legacy tool axes (`Option<Vec<String>>`) migrate to the layered `Selection` form on load.
     #[test]
-    fn selecao_legada_de_ferramentas_vira_objeto() {
+    fn legacy_tool_selection_becomes_an_object() {
         use crate::selection::{Base, Selection};
         let legacy = board_json(r#","mcp":["a","b"],"plugins":[]"#);
         assert_eq!(
@@ -1106,9 +1106,9 @@ mod tests {
         assert_eq!(board_json("").workspaces[0].mcp, None);
 
         // The new object form round-trips, including the `inherit` base.
-        let novo = board_json(r#","mcp":{"base":"inherit","add":["x"],"remove":["y"]}"#);
+        let current = board_json(r#","mcp":{"base":"inherit","add":["x"],"remove":["y"]}"#);
         assert_eq!(
-            novo.workspaces[0].mcp,
+            current.workspaces[0].mcp,
             Some(Selection {
                 base: Base::Inherit,
                 add: vec!["x".into()],
@@ -1119,7 +1119,7 @@ mod tests {
 
     /// Standalone skills move from the plugin axis to their own on load, and stay moved.
     #[test]
-    fn skills_saem_dos_plugins_na_migracao() {
+    fn migration_separates_skills_from_plugins() {
         use crate::selection::Selection;
         let mut board = board_json(r#","plugins":["revisor","skill-review"]"#);
         board.revive();
@@ -1143,7 +1143,7 @@ mod tests {
     /// A replacement on the plugins axis propagates to an existing skills axis, so moved skill
     /// ids do not degrade the replacement into inherit-plus-add.
     #[test]
-    fn migracao_de_skills_preserva_substituicao_no_destino_existente() {
+    fn skill_migration_preserves_replacement_in_existing_destination() {
         use crate::selection::{Base, Selection};
         let mut plugins = Some(Selection::only(vec!["skill-a".into()]));
         let mut skills = Some(Selection {
@@ -1160,7 +1160,7 @@ mod tests {
 
     /// The global tool layer is absent by default so an old board injects exactly what it used to.
     #[test]
-    fn board_antigo_nao_tem_camada_global() {
+    fn legacy_boards_have_no_global_layer() {
         let board = board_json("");
         assert_eq!(board.tools, Tools::default());
         assert!(board.tools.mcp.is_none());

@@ -25,10 +25,11 @@ test("canonical request kind controls question, plan and approval cards independ
     };
   });
 
+  // timeline.test.ts covers every kind/tool combination; the browser proves each card's interaction.
   for (const [kind, tool] of [
-    ["question", "custom_question"], ["question", null],
-    ["plan", "custom_plan"], ["plan", null],
-    ["approval", "AskUserQuestion"], ["approval", null],
+    ["question", "custom_question"],
+    ["plan", null],
+    ["approval", "AskUserQuestion"],
   ] as const) {
     const requestId = `${kind}-${tool ?? "none"}`;
     await page.evaluate(({ kind, tool, requestId }) => {
@@ -94,7 +95,7 @@ test("plan approval waits for the execution permission change", async ({ page })
 });
 
 
-test("Antigravity adapter fixture renders through the browser mock", async ({ page }) => {
+test("Antigravity fixture renders canonical events and localized failures", async ({ page }) => {
   const fixture: { events: unknown[] } = JSON.parse(readFileSync(
     new URL("../src-tauri/src/antigravity/fixtures/canonical-events.json", import.meta.url), "utf8",
   ));
@@ -105,20 +106,13 @@ test("Antigravity adapter fixture renders through the browser mock", async ({ pa
     for (const event of events) (window as RequestWindow).mock.line("t1", event);
   }, fixture.events);
   await expect(page.locator("#chatwrap")).toContainText("AGY_TOOL_OK");
-  await expect(page.locator("#chatwrap")).toContainText("Antigravity recusou uma ferramenta que exige aprovação.");
+  await expect(page.locator("#chatwrap")).toContainText("Antigravity denied a tool requiring approval.");
   await expect(page.locator("#chatwrap")).not.toContainText("i18n:");
   await expect(page.locator("#chatwrap .ask")).toHaveCount(0);
-});
-
-
-test("Antigravity runtime failures use the interface language", async ({ page }) => {
-  await page.goto("/");
-  await page.locator('.railworkspace[data-workspace="sessao-0929"] > .navitem').click();
-  await expect(page.locator("#wsView")).toBeVisible();
   await page.evaluate(() => (window as RequestWindow).mock.line("t1", {
     v: 1, type: "turn.completed", at: 1, outcome: "error", durationMs: null, costUsd: null,
     message: 'i18n:{"code":"err.antigravity.result","args":{}}',
   }));
-  await expect(page.locator("#chatwrap")).toContainText("Antigravity não concluiu a solicitação.");
+  await expect(page.locator("#chatwrap")).toContainText("Antigravity did not complete the request.");
   await expect(page.locator("#chatwrap")).not.toContainText("i18n:");
 });

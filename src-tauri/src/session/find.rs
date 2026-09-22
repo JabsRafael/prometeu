@@ -626,7 +626,7 @@ mod tests {
             .collect()
     }
     #[test]
-    fn o_nome_pesa_mais_que_o_resto_do_caminho() {
+    fn filename_matches_outweigh_the_rest_of_the_path() {
         let all = ["app/user/legacy/parser.rb", "app/models/user.rb"];
         assert_eq!(
             best("user", &all),
@@ -635,38 +635,38 @@ mod tests {
     }
 
     #[test]
-    fn comeco_de_palavra_vale_mais_que_letra_no_meio() {
+    fn word_prefixes_outweigh_interior_letters() {
         // Prefer ur at word boundaries in user_repo over interior matches in nature.
         assert!(fuzzy(b"ur", b"user_repo.rb") > fuzzy(b"ur", b"nature.rb"));
     }
 
     /// Path initials such as amtr can locate deeply nested files without typing each directory.
     #[test]
-    fn as_iniciais_do_caminho_acham_o_arquivo() {
+    fn path_initials_find_the_file() {
         assert!(score("amtr", "app/models/transcriber.rb").is_some());
     }
 
     /// Filename matches outrank matches scattered across path components, even at boundaries.
     #[test]
-    fn nome_ganha_de_caminho() {
+    fn filename_matches_outrank_path_matches() {
         let all = ["app/models/transcriber.rb", "lib/parametros.rb"];
         assert_eq!(best("amtr", &all)[0], "lib/parametros.rb");
     }
 
     #[test]
-    fn escrito_de_uma_vez_ganha_de_letra_espalhada() {
+    fn contiguous_matches_outrank_scattered_letters() {
         let all = ["app/user.rb", "app/utilities/serializer.rb"];
         assert_eq!(best("user", &all)[0], "app/user.rb");
     }
 
     #[test]
-    fn camel_case_e_fronteira_como_qualquer_outra() {
+    fn camel_case_creates_word_boundaries() {
         let all = ["src/userRepo.ts", "src/nature.ts"];
         assert_eq!(best("ur", &all)[0], "src/userRepo.ts");
     }
 
     #[test]
-    fn nao_e_guloso_com_a_primeira_letra() {
+    fn does_not_greedily_accept_the_first_letter() {
         // Skip an early weak occurrence when a later filename provides the better match.
         assert!(score("usr", "under/models/user.rb").is_some());
         let all = ["under/models/user.rb", "under/models/superset.rb"];
@@ -674,39 +674,39 @@ mod tests {
     }
 
     #[test]
-    fn barra_procura_no_caminho_inteiro() {
+    fn slashes_search_the_entire_path() {
         let all = ["app/models/user.rb", "user_app/x.rb", "app/views/user.erb"];
         assert_eq!(best("app/mod", &all), ["app/models/user.rb"]);
     }
 
     #[test]
-    fn o_que_nao_tem_as_letras_fica_de_fora() {
+    fn excludes_paths_missing_query_letters() {
         assert!(score("zzz", "app/models/transcriber.rb").is_none());
     }
 
     /// A complete filename stem outranks a longer prefix match; extensions do not affect that
     /// bonus.
     #[test]
-    fn o_nome_inteiro_ganha_de_quem_so_comeca_igual() {
+    fn exact_filenames_outrank_shared_prefixes() {
         let all = ["db/seeds/users/", "app/models/user.rb"];
         assert_eq!(best("user", &all)[0], "app/models/user.rb");
         assert!(whole(b"user", b"user.rb") > whole(b"user", b"users"));
     }
 
     #[test]
-    fn nada_digitado_serve_tudo() {
+    fn empty_queries_match_everything() {
         assert_eq!(best("", &["b.rb", "a.rb"]), ["a.rb", "b.rb"]);
     }
 
     #[test]
-    fn maiuscula_nao_atrapalha() {
+    fn uppercase_does_not_prevent_matches() {
         assert!(score("readme", "README.md").is_some());
         assert!(score("CLAUDE", "CLAUDE.md").is_some());
     }
 
     /// Recent files gain weight only if their path still matches the query.
     #[test]
-    fn o_que_o_agente_acabou_de_tocar_sobe() {
+    fn recent_agent_edits_rank_higher() {
         let all = ["app/models/user.rb", "spec/models/user_spec.rb"];
         assert_eq!(best("user", &all)[0], "app/models/user.rb");
 
@@ -717,7 +717,7 @@ mod tests {
 
     /// Normalize absolute and relative recent paths while rejecting paths outside the workspace.
     #[test]
-    fn os_recentes_viram_caminho_da_raiz() {
+    fn recent_files_become_root_relative_paths() {
         let root = Path::new("/tmp/ws");
         let fresh = under(
             root,
@@ -738,7 +738,7 @@ mod tests {
     /// Verify tracked and untracked Git paths, ignored-file exclusion, and synthesized directory
     /// entries against a real repository.
     #[test]
-    fn a_varredura_e_o_que_o_git_conhece() {
+    fn git_scans_include_known_files() {
         let root = std::env::temp_dir().join(format!("prometeu-paths-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("app/models")).unwrap();
@@ -765,7 +765,7 @@ mod tests {
 
     /// Non-Git scans skip hidden and generated directories.
     #[test]
-    fn a_varredura_da_pasta_sem_git() {
+    fn scans_directories_without_git() {
         let root = std::env::temp_dir().join(format!("prometeu-solta-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("app/models")).unwrap();
@@ -785,7 +785,7 @@ mod tests {
 
     /// Strong matches must survive bounded filtering among thousands of weaker monorepo candidates.
     #[test]
-    fn a_triagem_nao_perde_o_bom_no_meio_do_ruim() {
+    fn shortlisting_preserves_good_matches_among_poor_matches() {
         let mut paths: Vec<String> = (0..50_000)
             .map(|n| format!("vendor/lib{n}/user_helper_stub.rb"))
             .collect();
@@ -800,7 +800,7 @@ mod tests {
     /// Recent files reach detailed scoring even when ordinary candidate trimming would discard
     /// them.
     #[test]
-    fn a_triagem_guarda_lugar_para_o_recente() {
+    fn shortlisting_reserves_space_for_recent_files() {
         let mut paths: Vec<String> = (0..50_000).map(|n| format!("app/user{n}.rb")).collect();
         paths.push("vendor/deep/nested/legacy/u_s_e_r.rb".to_string());
         let all = corpus(paths);
@@ -813,7 +813,7 @@ mod tests {
 
     /// Evict the least recently used workspace index to bound memory.
     #[test]
-    fn a_prateleira_so_guarda_alguns_workspaces() {
+    fn shelf_caches_only_a_bounded_number_of_workspaces() {
         let mut cache: HashMap<String, Shelf> = HashMap::new();
         for n in 0..KEEP + 3 {
             cache.insert(

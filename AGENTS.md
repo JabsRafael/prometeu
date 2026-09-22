@@ -106,6 +106,10 @@ During implementation, run the test closest to the change first. Before
 finishing a cross-cutting change, prefer `npm run check`. If a check cannot run,
 say exactly which one and why.
 
+Follow the [E2E scope policy](docs/operations/development.md#e2e-scope) before
+adding or expanding browser tests. A visible behavior change does not by itself
+justify E2E coverage.
+
 The browser uses `src/mock.ts`; the Tauri app uses the Rust backend. New IPC
 commands must exist in both paths and in the typed registry in `src/ipc.ts`.
 
@@ -127,8 +131,12 @@ an artifact without an explicit request. See `docs/operations/release.md`.
 
 ## Documentation maintenance
 
-- Write all code comments and doc comments in English, including comments in
-  tests, scripts, stylesheets, and configuration files.
+- Write code identifiers, test names, comments and doc comments in English,
+  including tests, scripts, stylesheets and configuration files. Author test
+  fixtures in English unless a contract or a Unicode regression needs another
+  value. Preserve persisted and wire identifiers.
+- Run E2E scenarios with the English UI. Do not duplicate scenarios by language
+  or add tests whose only purpose is checking translation copy.
 - Document the why and the contracts; do not narrate obvious code.
 - Comments explain local details. Documents explain flows and decisions.
 - Links are relative to the repository and must stay valid.

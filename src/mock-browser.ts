@@ -24,7 +24,7 @@ const previews = new Map<string, Preview>();
 let captures = 0;
 
 // Sample product content is fixture data. Only this browser mock creates an iframe.
-const demo = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+const demo = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   * { box-sizing: border-box; } body { margin: 0; color: #252820; background: #f8f7f2; font: 15px/1.5 system-ui, sans-serif; }
@@ -35,15 +35,15 @@ const demo = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
   label { display: grid; gap: 6px; margin-top: 20px; } input { min-width: 0; width: 100%; padding: 10px; border: 1px solid #c7ccbd; border-radius: 8px; font: inherit; }
   output { display: block; margin-top: 8px; } small { overflow-wrap: anywhere; color: #626857; }
 </style></head><body>
-  <header><strong>Forma</strong><a id="design-link" href="/colecao">Ver coleção</a></header>
+  <header><strong>Forma</strong><a id="design-link" href="/collection">View collection</a></header>
   <main id="design-card"><small id="design-location"></small>
-    <h1>Espaço para suas próximas ideias.</h1>
-    <p>Objetos, cores e referências para criar com mais intenção.</p>
-    <div class="sample" role="img" aria-label="Composição verde com um círculo dourado"></div>
-    <button id="design-button" type="button">Adicionar ao projeto</button>
+    <h1>Space for your next ideas.</h1>
+    <p>Objects, colors and inspiration for intentional design.</p>
+    <div class="sample" role="img" aria-label="Green composition with a golden circle"></div>
+    <button id="design-button" type="button">Add to project</button>
     <output id="design-status" aria-live="polite"></output>
-    <form><label>Nome do projeto<input id="design-name" placeholder="Meu próximo projeto"></label>
-      <label>Enviar referência<input id="design-upload" type="file" accept="image/*"></label>
+    <form><label>Project name<input id="design-name" placeholder="My next project"></label>
+      <label>Upload reference<input id="design-upload" type="file" accept="image/*"></label>
       <output id="upload-status" aria-live="polite"></output>
     </form>
   </main>
@@ -64,7 +64,7 @@ function render(id: string, preview: Preview) {
         content.eval(inspectorSource);
         document.getElementById("design-location")!.textContent = currentUrl(preview);
         document.getElementById("design-button")!.addEventListener("click", () => {
-          document.getElementById("design-status")!.textContent = "Referência adicionada ao projeto.";
+          document.getElementById("design-status")!.textContent = "Reference added to the project.";
         });
         document.getElementById("design-upload")!.addEventListener("change", event => {
           document.getElementById("upload-status")!.textContent = (event.target as HTMLInputElement).files?.[0]?.name ?? "";
@@ -101,7 +101,7 @@ export function open(id: string, port: number, navigated: (url: string) => void)
   if (!preview) {
     const frame = document.createElement("iframe");
     frame.dataset.browserWorkspace = id;
-    frame.title = "Forma — projeto de exemplo";
+    frame.title = "Forma — sample project";
     frame.style.cssText = "display:block;width:100%;height:100%;border:0";
     preview = { frame, port, history: [`http://localhost:${port}/`], index: 0, ready: Promise.resolve(), settle() {}, navigated };
     previews.set(id, preview);

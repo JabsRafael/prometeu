@@ -68,12 +68,12 @@ and the axis payload keeps its existing wire shape.
 ## Verification
 
 - `session.rs::tool_axis_ipc_preserves_absent_null_and_replacement` checks native
-  IPC bodies, explicit empty selections and malformed values.
+  IPC bodies, reset semantics, explicit empty selections and malformed values.
 - `session.rs::tool_resolution_uses_the_tab_provider_and_configured_claude_home`
   exercises both providers and materializers with isolated files.
-- `session.rs::projeto_so_injeta_depois_de_aprovado_e_reprova_quando_o_hash_muda`
+- `session.rs::project_tools_require_approval_and_invalidate_it_when_hash_changes`
   rejects stale approvals and rejections without changing stored decisions.
 - `mcp.rs::local_mcp_shadows_project_and_user_and_materializes_the_same_definition`
   checks duplicate-name precedence through strict configuration generation.
-- `e2e/tools.spec.ts` covers resets, empty/removal-only declarations, stale
-  dialogs, mixed-provider pickers and the application-time notice.
+- `e2e/tools.spec.ts` covers an empty declaration, stale dialogs,
+  mixed-provider pickers, the inheritance menu and the application-time notice.

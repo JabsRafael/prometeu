@@ -13,14 +13,14 @@ export default defineConfig({
   expect: { timeout: 7_000 },
   use: {
     baseURL,
-    locale: "pt-BR",
+    locale: "en-US",
     screenshot: "only-on-failure",
-    trace: "retain-on-failure",
+    trace: process.env.CI ? "on-first-retry" : "retain-on-failure",
   },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
-    // Cover desktop WebKit gestures, Git review, encrypted collaboration and asynchronous editing.
-    { name: "webkit", use: { ...devices["Desktop Safari"] }, grep: /launcher layout|model picker|contas:|browser|mobile|feedback|comentário fica|adota a chave nova|organizações no desktop|controle remoto no rodapé|rodapé da conversa|catálogo pessoal|a mesa|a barra lateral|design system|comando reutilizável|perfil por projeto|Code review|arquivo solto|arraste de arquivo|Git|a tela de Mudanças|file saving|finishing a save|cleanup keeps|legacy import|ferramentas:/ },
+    // Repeat representative core journeys and explicit browser risks, not every feature variant.
+    { name: "webkit", use: { ...devices["Desktop Safari"] }, grep: /@webkit\b/ },
   ],
   webServer: {
     // The static production preview avoids HMR reloads when concurrent work edits this checkout.

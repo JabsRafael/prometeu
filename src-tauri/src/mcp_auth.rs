@@ -403,7 +403,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn acha_os_metadados_no_cabecalho() {
+    fn finds_metadata_in_the_header() {
         let header = r#"Bearer realm="OAuth", resource_metadata="https://x.dev/.well-known/oauth-protected-resource/mcp""#;
         assert_eq!(
             resource_metadata_url(header).as_deref(),
@@ -414,19 +414,19 @@ mod tests {
 
     /// RFC 9728 places a nested resource path after the well-known metadata name.
     #[test]
-    fn o_well_known_carrega_o_caminho() {
+    fn well_known_preserves_the_path() {
         assert_eq!(
-            well_known("https://mcp.exemplo.com/mcp", "oauth-protected-resource"),
-            "https://mcp.exemplo.com/.well-known/oauth-protected-resource/mcp"
+            well_known("https://mcp.example.com/mcp", "oauth-protected-resource"),
+            "https://mcp.example.com/.well-known/oauth-protected-resource/mcp"
         );
         assert_eq!(
-            well_known("https://mcp.exemplo.com", "oauth-authorization-server"),
-            "https://mcp.exemplo.com/.well-known/oauth-authorization-server"
+            well_known("https://mcp.example.com", "oauth-authorization-server"),
+            "https://mcp.example.com/.well-known/oauth-authorization-server"
         );
     }
 
     #[test]
-    fn a_origem_e_so_esquema_e_host() {
+    fn origin_contains_only_scheme_and_host() {
         assert_eq!(origin("https://a.b/c/d?x=1"), "https://a.b");
         assert_eq!(origin("http://127.0.0.1:3000/mcp"), "http://127.0.0.1:3000");
     }
@@ -435,7 +435,7 @@ mod tests {
     /// consent: cargo test -- --ignored descobre.
     #[test]
     #[ignore]
-    fn descobre_e_registra_num_servidor_de_verdade() {
+    fn discovers_and_registers_with_a_real_server() {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let ends = discover("https://mcp.apps.capim.tech/mcp", None).expect("descoberta");
         println!(

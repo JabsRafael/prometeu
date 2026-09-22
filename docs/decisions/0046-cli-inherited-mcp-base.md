@@ -105,15 +105,15 @@ Negative:
 
 ## Evidence
 
-- `selection.rs`: `a_base_do_cli_participa_da_cadeia` — the base flows through
+- `selection.rs`: `cli_base_participates_in_the_chain` — the base flows through
   the chain, a workspace removal drops one ID, `base: "none"` replaces the
   base, and an empty base equals `resolve`.
-- `mcp.rs`: `a_base_herdada_vem_do_usuario_do_projeto_e_do_repositorio` and
-  `o_hub_vence_colisao_no_universo` — discovery scopes, ancestor `.mcp.json`
+- `mcp.rs`: `inherited_base_combines_user_project_and_repository_configuration` and
+  `hub_wins_name_collisions_in_the_universe` — discovery scopes, ancestor `.mcp.json`
   files with the nearest winning a clash, first-occurrence wins, hub shadows a
-  clash. `escolhido_ausente_impede_a_materializacao` — a chosen id the registry
+  clash. `missing_selected_servers_prevent_materialization` — a chosen id the registry
   lost fails the materialization instead of being dropped.
-- `session.rs`: `provenance_classifica_a_base_herdada_do_cli` — `cli`,
+- `session.rs`: `provenance_classifies_inherited_cli_configuration` — `cli`,
   `removed`, an add over the base, and the global replacement clearing it.
 - `claude.rs`: the strict configuration carries the whole effective set for
   the workspace directory.

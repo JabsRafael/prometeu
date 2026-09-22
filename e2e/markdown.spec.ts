@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
 
-test("rodapé da conversa: copia blocos completos sem formatação e permite tentar novamente", async ({ page }) => {
+test("conversation copies complete unformatted code blocks and allows retry", { tag: "@webkit" }, async ({ page }) => {
   await page.goto("/");
-  await page.locator("#railbody .navitem.sub .lbl").getByText("Ola", { exact: true }).click();
+  await page.locator("#railbody .navitem.sub .lbl").getByText("Hello", { exact: true }).click();
   const sources = ['const text = "<tag> & café";\n  console.log(text);', '-old\n+new', 'plain\n  indented'];
   await page.evaluate((sources) => {
     const state = window as unknown as {
@@ -28,18 +28,18 @@ test("rodapé da conversa: copia blocos completos sem formatação e permite ten
   await expect(blocks).toHaveCount(3);
   for (let i = 0; i < sources.length; i++) {
     const copy = blocks.nth(i).getByRole("button");
-    await expect(copy).toHaveAccessibleName("Copiar código");
+    await expect(copy).toHaveAccessibleName("Copy code");
     await copy.focus();
     await page.keyboard.press("Enter");
-    await expect(copy).toHaveAttribute("aria-label", "Código copiado");
+    await expect(copy).toHaveAttribute("aria-label", "Code copied");
   }
   expect(await page.evaluate(() => (window as unknown as { copied: string[] }).copied)).toEqual(sources);
   await page.evaluate(() => { (window as unknown as { rejectCopy: boolean }).rejectCopy = true; });
   const retry = blocks.first().getByRole("button");
-  await expect(retry).toHaveAttribute("aria-label", "Copiar código");
+  await expect(retry).toHaveAttribute("aria-label", "Copy code");
   await retry.click();
-  await expect(page.getByText("Não foi possível copiar o código", { exact: true })).toBeVisible();
-  await expect(retry).toHaveAttribute("aria-label", "Copiar código");
+  await expect(page.getByText("Could not copy code", { exact: true })).toBeVisible();
+  await expect(retry).toHaveAttribute("aria-label", "Copy code");
   await expect(retry).toBeEnabled();
 
   // Keep the clipboard pending while a real text delta replaces the original button.
@@ -60,7 +60,7 @@ test("rodapé da conversa: copia blocos completos sem formatação e permite ten
   });
   await expect.poll(() => original!.evaluate(node => node.isConnected)).toBe(false);
   await page.evaluate(() => (window as unknown as { finishCopy: () => void }).finishCopy());
-  await expect(page.locator("#msg")).toHaveText("Código copiado");
+  await expect(page.locator("#msg")).toHaveText("Code copied");
   await expect(page.locator("#msg")).not.toHaveClass(/err/);
 
   // A newer operational error keeps its text and severity after a delayed copy succeeds.
@@ -75,7 +75,7 @@ test("rodapé da conversa: copia blocos completos sem formatação e permite ten
     state.mock.accountError("Newer operational error");
     state.finishCopy();
   });
-  await expect(retry).toHaveAccessibleName("Código copiado");
+  await expect(retry).toHaveAccessibleName("Code copied");
   await expect(page.locator("#msg")).toHaveText("Newer operational error");
   await expect(page.locator("#msg")).toHaveClass(/err/);
 });

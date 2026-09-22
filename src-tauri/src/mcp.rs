@@ -987,17 +987,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn slug_serve_de_sufixo() {
+    fn slug_is_valid_as_a_suffix() {
         assert_eq!(slug("capim-backend"), "capim-backend");
         assert_eq!(slug("Meu Projeto!"), "meu-projeto");
     }
 
     #[test]
-    fn servidores_de_um_objeto() {
+    fn reads_servers_from_an_object() {
         let value = json!({
             "mcpServers": {
                 "notion": { "type": "http", "url": "https://mcp.notion.com/mcp" },
-                "quebrado": "isto não é um objeto"
+                "quebrado": "not an object"
             }
         });
         let found = servers_in(&value, "origem");
@@ -1008,19 +1008,19 @@ mod tests {
 
     /// JSON and event-stream envelopes expose the same server identity object.
     #[test]
-    fn desembrulha_json_e_fluxo_de_eventos() {
-        let puro = frame(r#"{"result":{"serverInfo":{"name":"x"}}}"#).expect("json");
-        assert_eq!(puro["result"]["serverInfo"]["name"], "x");
-        let fluxo =
+    fn unwraps_json_and_event_streams() {
+        let plain = frame(r#"{"result":{"serverInfo":{"name":"x"}}}"#).expect("json");
+        assert_eq!(plain["result"]["serverInfo"]["name"], "x");
+        let stream =
             frame("event: message\ndata: {\"result\":{\"serverInfo\":{\"name\":\"y\"}}}\n\n")
                 .expect("fluxo");
-        assert_eq!(fluxo["result"]["serverInfo"]["name"], "y");
-        assert!(frame("não é json").is_none());
+        assert_eq!(stream["result"]["serverInfo"]["name"], "y");
+        assert!(frame("not JSON").is_none());
     }
 
     #[test]
-    fn erro_cabe_numa_linha() {
-        assert_eq!(short("  falhou\nmais coisa  "), "falhou");
+    fn errors_fit_on_one_line() {
+        assert_eq!(short("  failed\nmore details  "), "failed");
         assert_eq!(short(&"a".repeat(300)).chars().count(), 200);
     }
 
@@ -1028,7 +1028,7 @@ mod tests {
     /// --ignored sonda. Install the crypto provider explicitly because main does not run here.
     #[test]
     #[ignore]
-    fn sonda_servidores_de_verdade() {
+    fn probes_real_servers() {
         let stdio = Server {
             id: "eco".into(),
             config: json!({ "command": "npx", "args": ["-y", "@modelcontextprotocol/server-everything"], "env": {} }),
@@ -1036,48 +1036,48 @@ mod tests {
         };
         let got = check(&stdio).probe;
         println!(
-            "stdio: ok={} tools={} nome={} detalhe={}",
+            "stdio: ok={} tools={} name={} detail={}",
             got.ok, got.tools, got.name, got.detail
         );
         assert!(got.ok && got.tools > 0);
 
         // Test a remote server without authentication using an event-stream handshake response.
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let remoto = Server {
+        let remote = Server {
             id: "deepwiki".into(),
             config: json!({ "type": "http", "url": "https://mcp.deepwiki.com/mcp" }),
             note: String::new(),
         };
-        let got = check(&remoto).probe;
+        let got = check(&remote).probe;
         println!(
-            "http: ok={} auth={} tools={} nome={} detalhe={}",
+            "http: ok={} auth={} tools={} name={} detail={}",
             got.ok, got.auth, got.tools, got.name, got.detail
         );
         assert!(got.ok && got.tools > 0);
 
         // Distinguish a reachable server requiring login from a failed connection.
-        let precisa_login = Server {
+        let requires_login = Server {
             id: "notion".into(),
             config: json!({ "type": "http", "url": "https://mcp.notion.com/mcp" }),
             note: String::new(),
         };
-        let got = check(&precisa_login).probe;
-        println!("login: auth={} detalhe={}", got.auth, got.detail);
+        let got = check(&requires_login).probe;
+        println!("login: auth={} detail={}", got.auth, got.detail);
         assert!(got.auth);
 
-        let nao_existe = Server {
+        let missing = Server {
             id: "fantasma".into(),
-            config: json!({ "command": "comando-que-nao-existe", "args": [], "env": {} }),
+            config: json!({ "command": "command-that-does-not-exist", "args": [], "env": {} }),
             note: String::new(),
         };
-        let got = check(&nao_existe).probe;
+        let got = check(&missing).probe;
         assert!(!got.ok && !got.detail.is_empty());
     }
 
     /// Verify Codex header environment references and stdio wrappers keep secrets out of process
     /// arguments.
     #[test]
-    fn a_tabela_do_codex_nao_carrega_segredo() {
+    fn codex_table_does_not_contain_secrets() {
         // Keep the fixture root in a child process so parallel tests cannot redirect hub reads.
         if std::env::var("PROMETEU_MCP_TEST_CHILD").as_deref() != Ok("1") {
             let root =
@@ -1085,7 +1085,7 @@ mod tests {
             let result = Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
-                    "mcp::tests::a_tabela_do_codex_nao_carrega_segredo",
+                    "mcp::tests::codex_table_does_not_contain_secrets",
                     "--nocapture",
                 ])
                 .env("PROMETEU_MCP_TEST_CHILD", "1")
@@ -1127,8 +1127,8 @@ mod tests {
             "simples".to_string(),
         ];
         let (table, env) = codex_config("aba", Some(&chosen))
-            .expect("sem erro")
-            .expect("há escolha");
+            .expect("no error")
+            .expect("selection exists");
 
         // No secret may appear anywhere in the command line.
         assert!(!table.contains("abracadabra"), "{table}");
@@ -1195,9 +1195,9 @@ mod tests {
     /// Without an explicit selection, do not generate a configuration file or change legacy startup
     /// behavior.
     #[test]
-    fn sem_escolha_nao_ha_arquivo() {
+    fn no_selection_creates_no_file() {
         assert!(config_for("aba", None, Path::new("/tmp"))
-            .expect("sem erro")
+            .expect("no error")
             .is_none());
     }
 
@@ -1205,13 +1205,13 @@ mod tests {
     /// directory, and the repository's .mcp.json plus its ancestors' nearest first, deduplicated
     /// by name with the first origin winning (ADR 0046).
     #[test]
-    fn a_base_herdada_vem_do_usuario_do_projeto_e_do_repositorio() {
+    fn inherited_base_combines_user_project_and_repository_configuration() {
         let workdir = Path::new("/dev/projeto");
         let claude = json!({
             "mcpServers": { "do-usuario": { "type": "http", "url": "https://u/mcp" } },
             "projects": {
                 "/dev/projeto": { "mcpServers": { "do-projeto": { "command": "p" } } },
-                "/dev/outro": { "mcpServers": { "estranho": { "command": "x" } } }
+                "/dev/other": { "mcpServers": { "estranho": { "command": "x" } } }
             }
         });
         let files = vec![
@@ -1265,7 +1265,7 @@ mod tests {
 
     /// A hub entry wins an ID clash, so an imported server stays Prometeu-managed.
     #[test]
-    fn o_hub_vence_colisao_no_universo() {
+    fn hub_wins_name_collisions_in_the_universe() {
         let hub = vec![Server {
             id: "notion".into(),
             config: json!({ "url": "https://hub" }),
@@ -1290,7 +1290,7 @@ mod tests {
     }
 
     #[test]
-    fn so_os_escolhidos_entram() {
+    fn includes_only_selected_servers() {
         let hub = vec![
             Server {
                 id: "notion".into(),
@@ -1312,16 +1312,16 @@ mod tests {
     /// A chosen id the universe no longer has fails the spawn instead of silently shrinking the
     /// effective set (docs/contracts/agent-runtime.md).
     #[test]
-    fn escolhido_ausente_impede_a_materializacao() {
-        let got = config_body(&[], &["sumiu".to_string()], |_| None);
-        let err = got.expect_err("falha");
-        assert!(err.contains("sumiu"), "{err}");
+    fn missing_selected_servers_prevent_materialization() {
+        let got = config_body(&[], &["missing".to_string()], |_| None);
+        let err = got.expect_err("failure");
+        assert!(err.contains("missing"), "{err}");
     }
 
     /// An empty selection still generates strict empty configuration. Inject OAuth authorization
     /// without discarding other configured headers.
     #[test]
-    fn o_token_vira_cabecalho_no_arquivo_da_sessao() {
+    fn token_becomes_a_header_in_the_session_file() {
         let hub = vec![Server {
             id: "capisce".into(),
             config: json!({ "type": "http", "url": "https://x/mcp", "headers": { "X-Id": "7" } }),
@@ -1337,7 +1337,7 @@ mod tests {
     }
 
     #[test]
-    fn escolher_nenhum_tem_arquivo_vazio() {
+    fn explicitly_empty_selection_creates_an_empty_file() {
         let body = config_body(&[], &[], |_| None).expect("materializa");
         assert_eq!(body["mcpServers"].as_object().expect("objeto").len(), 0);
     }

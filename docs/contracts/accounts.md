@@ -173,9 +173,9 @@ accounts; late responses from the previous selection are discarded.
 - `plugins.rs`: cleanup of per-account layers without following links.
 - `src/agents.test.ts`: late catalog response.
 - `e2e/accounts.spec.ts`: selection persisted per provider, cancellation,
-  reconnection, removal of every account, login failure, old registry without
+  reconnection, removal of every account, old registry without
   nicknames, email escaping, and launcher draft preservation before explicit account selection.
-- The `perfil_vazio_nao_herda_login_do_terminal` tests, run separately, query
+- The `empty_profiles_do_not_inherit_terminal_login` tests, run separately, query
   the real CLIs without login or prompts.
 
 The automated suite does not prove an OAuth round with two real accounts, nor
@@ -202,7 +202,7 @@ the attachment action available again. The selector uses the same cards inside
 a scrolling dialog body with fixed confirmation actions. Selection, login and
 removal semantics remain unchanged; this presentation needs no format migration.
 `e2e/launcher-layout.spec.ts` covers narrow layouts, long identities and the
-selector's focus restoration in Chromium and WebKit.
+selector's focus restoration, with representative WebKit checks.
 
 ## Antigravity
 

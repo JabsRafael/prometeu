@@ -1396,7 +1396,7 @@ mod tests {
         let at = sent
             .iter()
             .position(|m| m["method"] == method)
-            .unwrap_or_else(|| panic!("nenhum {method} em {sent:?}"));
+            .unwrap_or_else(|| panic!("no {method} in {sent:?}"));
         (sent[at]["id"].as_u64().unwrap(), at)
     }
 
@@ -1405,10 +1405,10 @@ mod tests {
     }
 
     #[test]
-    fn a_thread_abre_e_a_fala_que_esperava_vai() {
+    fn opening_a_thread_sends_the_waiting_input() {
         let (mut link, out) = link(None);
         assert_eq!(out.take()[0]["method"], "initialize");
-        assert!(link.write(&user("oi")).unwrap().is_empty());
+        assert!(link.write(&user("hello")).unwrap().is_empty());
         let frames = opened(&mut link, &out);
         assert_eq!(frames[0]["v"], 1);
         assert_eq!(frames[0]["type"], "session.identity");
@@ -1416,14 +1416,14 @@ mod tests {
         let sent = out.take();
         assert_eq!(sent[0]["method"], "turn/start");
         assert_eq!(sent[0]["params"]["threadId"], "t-1");
-        assert_eq!(sent[0]["params"]["input"][0]["text"], "oi");
+        assert_eq!(sent[0]["params"]["input"][0]["text"], "hello");
         assert_eq!(sent[0]["params"]["effort"], "high");
     }
 
     /// Explicit plugin selection approves current hashes for that plugin's hooks only, never
     /// unrelated user, project, or plugin hooks.
     #[test]
-    fn plugins_escolhidos_aprovam_so_os_proprios_hooks_antes_da_thread() {
+    fn selected_plugins_approve_only_their_own_hooks_before_opening_the_thread() {
         let (mut link, out) = link(None);
         link.start.plugin_ids = vec!["ponytail@prometeu-dev".into()];
         link.start.plugin_hook_ids = vec!["ponytail@prometeu-dev".into()];
@@ -1439,10 +1439,10 @@ mod tests {
 
         link.on_line(&format!(
             r#"{{"id":{},"result":{{"data":[{{"cwd":"/wt","hooks":[
-              {{"pluginId":"ponytail@prometeu-dev","key":"plugin:ponytail:0","currentHash":"sha256:novo","trustStatus":"trusted","enabled":false}},
-              {{"pluginId":"ponytail@prometeu-dev","key":"plugin:ponytail:1","currentHash":"sha256:novo-1","trustStatus":"untrusted","enabled":true}},
-              {{"pluginId":"ponytail@prometeu-dev","key":"plugin:ponytail:2","currentHash":"sha256:pronto","trustStatus":"trusted","enabled":true}},
-              {{"pluginId":"outro@prometeu-dev","key":"plugin:outro:0","currentHash":"sha256:outro","trustStatus":"untrusted","enabled":false}},
+              {{"pluginId":"ponytail@prometeu-dev","key":"plugin:ponytail:0","currentHash":"sha256:new","trustStatus":"trusted","enabled":false}},
+              {{"pluginId":"ponytail@prometeu-dev","key":"plugin:ponytail:1","currentHash":"sha256:new-1","trustStatus":"untrusted","enabled":true}},
+              {{"pluginId":"ponytail@prometeu-dev","key":"plugin:ponytail:2","currentHash":"sha256:ready","trustStatus":"trusted","enabled":true}},
+              {{"pluginId":"other@prometeu-dev","key":"plugin:other:0","currentHash":"sha256:other","trustStatus":"untrusted","enabled":false}},
               {{"pluginId":null,"key":"/tmp/hooks.json:0","currentHash":"sha256:user","trustStatus":"untrusted","enabled":false}}
             ]}}]}}}}"#,
             hooks.0
@@ -1451,9 +1451,9 @@ mod tests {
         let trust = call_id(&sent, "config/batchWrite");
         let value = &sent[trust.1]["params"]["edits"][0]["value"];
         assert_eq!(value.as_object().unwrap().len(), 2);
-        assert_eq!(value["plugin:ponytail:0"]["trusted_hash"], "sha256:novo");
+        assert_eq!(value["plugin:ponytail:0"]["trusted_hash"], "sha256:new");
         assert_eq!(value["plugin:ponytail:0"]["enabled"], true);
-        assert_eq!(value["plugin:ponytail:1"]["trusted_hash"], "sha256:novo-1");
+        assert_eq!(value["plugin:ponytail:1"]["trusted_hash"], "sha256:new-1");
         assert_eq!(value["plugin:ponytail:1"]["enabled"], true);
         assert!(value.get("plugin:ponytail:2").is_none());
         assert_eq!(sent[trust.1]["params"]["reloadUserConfig"], true);
@@ -1463,19 +1463,19 @@ mod tests {
     }
 
     #[test]
-    fn plugin_com_hook_declarado_nao_abre_sem_ser_descoberto() {
+    fn plugins_with_declared_hooks_require_discovery_before_opening() {
         let (mut link, out) = link(None);
         link.start.plugin_ids = vec!["caveman@prometeu-dev".into()];
         link.start.plugin_hook_ids = vec!["caveman@prometeu-dev".into()];
         out.take();
-        assert!(link.write(&user("fala como caveman")).unwrap().is_empty());
+        assert!(link.write(&user("speak like caveman")).unwrap().is_empty());
 
         link.on_line(r#"{"id":1,"result":{}}"#);
         let sent = out.take();
         let hooks = call_id(&sent, "hooks/list");
         let frames = link.on_line(&format!(
             r#"{{"id":{},"result":{{"data":[{{"cwd":"/wt","hooks":[
-              {{"pluginId":"outro@prometeu-dev","key":"plugin:outro:0","currentHash":"sha256:outro","trustStatus":"untrusted","enabled":false}}
+              {{"pluginId":"other@prometeu-dev","key":"plugin:other:0","currentHash":"sha256:other","trustStatus":"untrusted","enabled":false}}
             ]}}]}}}}"#,
             hooks.0
         ));
@@ -1491,11 +1491,11 @@ mod tests {
             .take()
             .iter()
             .all(|message| message["method"] != "thread/start"));
-        assert!(link.write(&user("oi")).is_err());
+        assert!(link.write(&user("hello")).is_err());
     }
 
     #[test]
-    fn falha_ao_ativar_hook_impede_a_thread() {
+    fn hook_activation_failure_prevents_opening_the_thread() {
         let (mut link, out) = link(None);
         link.start.plugin_ids = vec!["caveman@prometeu-dev".into()];
         link.start.plugin_hook_ids = vec!["caveman@prometeu-dev".into()];
@@ -1529,7 +1529,7 @@ mod tests {
     }
 
     #[test]
-    fn initialize_responde_os_comandos_sem_ir_ao_processo() {
+    fn initialize_returns_commands_without_calling_the_process() {
         let (mut link, out) = link(None);
         out.take();
         let req = json!({ "v": 1, "type": "commands.list" });
@@ -1553,7 +1553,7 @@ mod tests {
     }
 
     #[test]
-    fn leitura_de_cota_entrega_o_snapshot_multibucket_inteiro() {
+    fn quota_reads_return_the_complete_multi_bucket_snapshot() {
         let (mut link, out) = link(None);
         out.take();
         link.on_line(r#"{"id":1,"result":{}}"#);
@@ -1568,13 +1568,13 @@ mod tests {
     }
 
     #[test]
-    fn retomar_passa_o_id_e_cai_para_nova_se_falhar() {
-        let (mut link, out) = link(Some("velha"));
+    fn resume_passes_the_id_and_falls_back_to_a_new_thread_on_failure() {
+        let (mut link, out) = link(Some("old"));
         out.take();
         link.on_line(r#"{"id":1,"result":{}}"#);
         let sent = out.take();
         let (id, at) = call_id(&sent, "thread/resume");
-        assert_eq!(sent[at]["params"]["threadId"], "velha");
+        assert_eq!(sent[at]["params"]["threadId"], "old");
         let frames = link.on_line(&format!(
             r#"{{"id":{id},"error":{{"code":1,"message":"no such thread"}}}}"#
         ));
@@ -1584,7 +1584,7 @@ mod tests {
     }
 
     #[test]
-    fn um_turno_vira_rascunho_bloco_autoritativo_e_fim() {
+    fn turns_produce_a_draft_authoritative_block_and_completion() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         link.on_line(
@@ -1596,17 +1596,17 @@ mod tests {
         assert_eq!(f[1]["type"], "assistant.block.started");
         assert_eq!(f[1]["index"], 0);
         let f = link.on_line(
-            r#"{"method":"item/agentMessage/delta","params":{"itemId":"m1","delta":"Ol"}}"#,
+            r#"{"method":"item/agentMessage/delta","params":{"itemId":"m1","delta":"Caf"}}"#,
         );
         assert_eq!(f[0]["type"], "assistant.delta");
         assert_eq!(f[0]["kind"], "text");
-        assert_eq!(f[0]["delta"], "Ol");
-        let f = link.on_line(r#"{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"m1","text":"Olá"}}}"#);
+        assert_eq!(f[0]["delta"], "Caf");
+        let f = link.on_line(r#"{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"m1","text":"Café"}}}"#);
         assert_eq!(f.len(), 1);
         assert_eq!(f[0]["type"], "assistant.block");
         assert_eq!(f[0]["messageId"], "turn-1");
         assert_eq!(f[0]["block"]["kind"], "text");
-        assert_eq!(f[0]["block"]["text"], "Olá");
+        assert_eq!(f[0]["block"]["text"], "Café");
         assert!(f[0]["at"].is_number());
         let f = link.on_line(r#"{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"completed","durationMs":900}}}"#);
         assert_eq!(f[0]["type"], "turn.completed");
@@ -1615,7 +1615,7 @@ mod tests {
     }
 
     #[test]
-    fn turno_de_subagente_nao_encerra_a_conversa() {
+    fn subagent_turns_do_not_complete_the_conversation() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         link.on_line(
@@ -1628,10 +1628,10 @@ mod tests {
                 r#"{"method":"turn/started","params":{"threadId":"sub-1","turn":{"id":"turn-s"}}}"#
             )
             .is_empty());
-        assert!(link.on_line(r#"{"method":"item/completed","params":{"threadId":"sub-1","turnId":"turn-s","item":{"type":"agentMessage","id":"s1","text":"achei"}}}"#).is_empty());
+        assert!(link.on_line(r#"{"method":"item/completed","params":{"threadId":"sub-1","turnId":"turn-s","item":{"type":"agentMessage","id":"s1","text":"found it"}}}"#).is_empty());
         assert!(link.on_line(r#"{"method":"turn/completed","params":{"threadId":"sub-1","turn":{"id":"turn-s","status":"completed"}}}"#).is_empty());
         // The primary conversation remains in its own active turn.
-        let f = link.on_line(r#"{"method":"item/completed","params":{"threadId":"t-1","turnId":"turn-1","item":{"type":"agentMessage","id":"m1","text":"pronto"}}}"#);
+        let f = link.on_line(r#"{"method":"item/completed","params":{"threadId":"t-1","turnId":"turn-1","item":{"type":"agentMessage","id":"m1","text":"ready"}}}"#);
         assert_eq!(f[0]["type"], "assistant.block");
         assert_eq!(f[0]["messageId"], "turn-1");
         let f = link.on_line(r#"{"method":"turn/completed","params":{"threadId":"t-1","turn":{"id":"turn-1","status":"completed"}}}"#);
@@ -1639,7 +1639,7 @@ mod tests {
     }
 
     #[test]
-    fn chamada_spawn_concluida_mantem_background_ate_o_filho_terminar() {
+    fn completed_spawn_calls_remain_background_work_until_the_child_finishes() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         link.on_line(
@@ -1649,7 +1649,7 @@ mod tests {
             "method": "item/completed", "params": { "threadId": "t-1", "item": {
                 "type": "collabAgentToolCall", "id": "spawn-1", "tool": "spawnAgent",
                 "status": "completed", "senderThreadId": "t-1", "receiverThreadIds": ["sub-1"],
-                "prompt": "mapear", "agentsStates": { "sub-1": { "status": "running", "message": null } },
+                "prompt": "map", "agentsStates": { "sub-1": { "status": "running", "message": null } },
             } },
         }).to_string();
         let events = link.on_line(&spawn);
@@ -1657,7 +1657,7 @@ mod tests {
         assert_eq!(events[1]["type"], "background.changed");
         assert_eq!(
             events[1]["tasks"],
-            json!([{ "id": "sub-1", "description": "mapear", "toolId": "spawn-1" }])
+            json!([{ "id": "sub-1", "description": "map", "toolId": "spawn-1" }])
         );
         assert_eq!(link.on_line(&spawn).len(), 1);
 
@@ -1678,7 +1678,7 @@ mod tests {
     }
 
     #[test]
-    fn atividade_de_subagente_nao_confunde_envelopes_com_inicio_e_fim() {
+    fn subagent_activity_does_not_confuse_envelopes_with_start_and_end_events() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         let activity = |method: &str, kind: &str| {
@@ -1724,7 +1724,7 @@ mod tests {
     }
 
     #[test]
-    fn estados_parciais_de_subagentes_preservam_outros_filhos() {
+    fn partial_subagent_states_preserve_other_children() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         let collab = |states: Value| {
@@ -1757,7 +1757,7 @@ mod tests {
     }
 
     #[test]
-    fn a_borda_do_codex_entrega_eventos_v1_sem_segunda_traducao() {
+    fn codex_boundary_emits_v1_events_without_a_second_translation() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         link.on_line(
@@ -1779,7 +1779,7 @@ mod tests {
     }
 
     #[test]
-    fn evento_externo_desconhecido_e_ignorado_na_borda() {
+    fn unknown_external_events_are_ignored_at_the_boundary() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         assert!(link
@@ -1788,7 +1788,7 @@ mod tests {
     }
 
     #[test]
-    fn comando_vira_bash_e_o_resultado_acha_o_bloco() {
+    fn commands_become_bash_blocks_and_results_find_their_block() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         link.on_line(r#"{"method":"turn/started","params":{"turn":{"id":"turn-1"}}}"#);
@@ -1808,18 +1808,18 @@ mod tests {
 
     /// Close streamed text before adding a tool so block indexes match the UI's ordering.
     #[test]
-    fn ferramenta_no_meio_do_texto_fecha_o_texto_antes() {
+    fn tools_between_text_blocks_close_the_previous_text() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         link.on_line(r#"{"method":"turn/started","params":{"turn":{"id":"turn-1"}}}"#);
         link.on_line(
             r#"{"method":"item/started","params":{"item":{"type":"reasoning","id":"r1"}}}"#,
         );
-        link.on_line(r#"{"method":"item/reasoning/summaryTextDelta","params":{"itemId":"r1","delta":"pensando"}}"#);
+        link.on_line(r#"{"method":"item/reasoning/summaryTextDelta","params":{"itemId":"r1","delta":"thinking"}}"#);
         let f = link.on_line(r#"{"method":"item/started","params":{"item":{"type":"commandExecution","id":"c1","command":"ls","commandActions":[]}}}"#);
         assert_eq!(f[0]["type"], "assistant.block");
         assert_eq!(f[0]["block"]["kind"], "thinking");
-        assert_eq!(f[0]["block"]["text"], "pensando");
+        assert_eq!(f[0]["block"]["text"], "thinking");
         assert_eq!(f[1]["block"]["kind"], "tool");
         // The next text uses index 2, after reasoning at 0 and the tool at 1.
         let f = link.on_line(
@@ -1830,29 +1830,29 @@ mod tests {
     }
 
     #[test]
-    fn a_pergunta_vira_card_e_a_resposta_volta_no_id_do_codex() {
+    fn questions_become_cards_and_answers_keep_the_codex_request_id() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
-        let f = link.on_line(r#"{"id":7,"method":"item/tool/requestUserInput","params":{"itemId":"q1","questions":[{"id":"cor","header":"Cor","question":"Qual cor?","options":[{"label":"azul","description":"frio"}]}]}}"#);
+        let f = link.on_line(r#"{"id":7,"method":"item/tool/requestUserInput","params":{"itemId":"q1","questions":[{"id":"color","header":"Color","question":"Which color?","options":[{"label":"blue","description":"cool"}]}]}}"#);
         assert_eq!(f[0]["type"], "request.opened");
         assert_eq!(f[0]["requestId"], "7");
         assert_eq!(f[0]["kind"], "question");
         assert_eq!(f[0]["tool"], "AskUserQuestion");
-        assert_eq!(f[0]["input"]["questions"][0]["options"][0]["label"], "azul");
+        assert_eq!(f[0]["input"]["questions"][0]["options"][0]["label"], "blue");
         link.write(&json!({
             "v": 1,
             "type": "request.respond",
             "requestId": "7",
-            "response": { "outcome": "answer", "answers": { "Qual cor?": "azul" } },
+            "response": { "outcome": "answer", "answers": { "Which color?": "blue" } },
         }))
         .unwrap();
         let sent = out.take();
         assert_eq!(sent[0]["id"], 7);
-        assert_eq!(sent[0]["result"]["answers"]["cor"]["answers"][0], "azul");
+        assert_eq!(sent[0]["result"]["answers"]["color"]["answers"][0], "blue");
     }
 
     #[test]
-    fn aprovacao_de_comando_responde_accept_ou_decline() {
+    fn command_approval_answers_with_accept_or_decline() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         let f = link.on_line(r#"{"id":"r-9","method":"item/commandExecution/requestApproval","params":{"itemId":"c1","command":"rm -rf x"}}"#);
@@ -1864,7 +1864,7 @@ mod tests {
             "v": 1,
             "type": "request.respond",
             "requestId": "r-9",
-            "response": { "outcome": "deny", "message": "não" },
+            "response": { "outcome": "deny", "message": "no" },
         }))
         .unwrap();
         let sent = out.take();
@@ -1873,7 +1873,7 @@ mod tests {
     }
 
     #[test]
-    fn compact_e_a_compactacao_contam_o_antes_e_o_depois() {
+    fn compact_command_and_compaction_report_before_and_after_sizes() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         link.on_line(r#"{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"totalTokens":20000},"modelContextWindow":258400}}}"#);
@@ -1895,7 +1895,7 @@ mod tests {
     }
 
     #[test]
-    fn context_vira_o_relatorio_que_a_tela_desenha() {
+    fn context_becomes_the_report_rendered_by_the_view() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         let f = link.on_line(r#"{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"totalTokens":12300},"modelContextWindow":258400}}}"#);
@@ -1909,11 +1909,11 @@ mod tests {
         assert!(text.contains("**Model:** gpt-5.4"));
         assert!(text.contains("**Tokens:** 12k / 258k (5%)"));
         assert_eq!(f[1]["type"], "turn.completed");
-        assert!(out.take().is_empty(), "/context não vai ao processo");
+        assert!(out.take().is_empty(), "/context does not reach the process");
     }
 
     #[test]
-    fn comando_que_o_codex_nao_tem_e_recusado_na_tela() {
+    fn unsupported_codex_commands_are_rejected_in_the_view() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         let f = link.write(&user("/cost")).unwrap();
@@ -1924,10 +1924,10 @@ mod tests {
     }
 
     #[test]
-    fn caminho_absoluto_nao_vira_comando_de_barra() {
+    fn absolute_paths_do_not_become_slash_commands() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
-        let path = r#"/var/folders/q7/TemporaryItems/Captura\ de\ Tela.png"#;
+        let path = r#"/var/folders/q7/TemporaryItems/Screen\ Capture\ Image.png"#;
         assert!(link.write(&user(path)).unwrap().is_empty());
         let sent = out.take();
         assert_eq!(sent[0]["method"], "turn/start");
@@ -1935,7 +1935,7 @@ mod tests {
     }
 
     #[test]
-    fn log_do_app_server_nao_duplica_erro_da_ferramenta() {
+    fn app_server_logs_do_not_duplicate_tool_errors() {
         let log = "\u{1b}[2m2026-08-28T16:54:16.210466Z\u{1b}[0m \u{1b}[31mERROR\u{1b}[0m \u{1b}[2mcodex_core::tools::router\u{1b}[0m: error=apply_patch verification failed";
         assert_eq!(process_stderr(log), None);
         assert_eq!(
@@ -1945,7 +1945,7 @@ mod tests {
     }
 
     #[test]
-    fn interromper_precisa_do_turno() {
+    fn interruption_requires_an_active_turn() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
         let stop = json!({ "v": 1, "type": "turn.interrupt" });
@@ -1964,22 +1964,24 @@ mod tests {
 
     /// Match Codex's absolute paths, raw modification hunks, and unmarked added-file contents.
     #[test]
-    fn o_patch_vira_diff_com_cabecalho_e_sinal() {
+    fn patches_become_diffs_with_headers_and_signs() {
         let change = json!({ "path": "/wt/src/a.rs", "kind": { "type": "update", "move_path": null }, "diff": "@@ -1 +1 @@\n-a\n+b\n" });
         let text = patch(&change, "/wt");
         assert_eq!(
             text,
             "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-a\n+b"
         );
-        let add =
-            json!({ "path": "/wt/n.txt", "kind": { "type": "add" }, "diff": "novo\nlinha\n" });
-        assert_eq!(patch(&add, "/wt"), "diff --git a/n.txt b/n.txt\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1,2 @@\n+novo\n+linha");
-        let del = json!({ "path": "/outro/x.txt", "kind": { "type": "delete" }, "diff": "fim\n" });
-        assert!(patch(&del, "/wt").starts_with("diff --git a//outro/x.txt b//outro/x.txt\n--- a//outro/x.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-fim"));
+        let add = json!({ "path": "/wt/n.txt", "kind": { "type": "add" }, "diff": "new\nline\n" });
+        assert_eq!(
+            patch(&add, "/wt"),
+            "diff --git a/n.txt b/n.txt\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1,2 @@\n+new\n+line"
+        );
+        let del = json!({ "path": "/other/x.txt", "kind": { "type": "delete" }, "diff": "end\n" });
+        assert!(patch(&del, "/wt").starts_with("diff --git a//other/x.txt b//other/x.txt\n--- a//other/x.txt\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-end"));
     }
 
     #[test]
-    fn kilo_como_na_tela() {
+    fn kilo_matches_display_formatting() {
         assert_eq!(kilo(368), "368");
         assert_eq!(kilo(3140), "3.1k");
         assert_eq!(kilo(24000), "24k");

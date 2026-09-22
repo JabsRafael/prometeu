@@ -23,11 +23,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn envelope_v1_conserva_os_campos_do_evento() {
-        let value = event("system.notice", 12, json!({ "detail": "oi" }));
+    fn v1_envelope_preserves_event_fields() {
+        let value = event("system.notice", 12, json!({ "detail": "hello" }));
         assert_eq!(value["v"], 1);
         assert_eq!(value["type"], "system.notice");
         assert_eq!(value["at"], 12);
-        assert_eq!(value["detail"], "oi");
+        assert_eq!(value["detail"], "hello");
     }
 }

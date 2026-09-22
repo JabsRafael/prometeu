@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { use } from "./i18n";
 import { updater, view, type Found, type Io, type View } from "./update";
 
-// Pin the tested language because Node defaults to English.
-use("pt-BR");
+// Keep view-state assertions independent of the host language.
+use("en");
 
 /// A controlled update emits download progress and finishes when the test allows it.
 function found(version = "0.2.0"): Found & { finish: () => void; fail: (why: string) => void; downloads: number } {
@@ -11,7 +11,7 @@ function found(version = "0.2.0"): Found & { finish: () => void; fail: (why: str
   let broke!: (e: Error) => void;
   const it = {
     version,
-    body: "notas",
+    body: "notes",
     downloads: 0,
     finish: () => done(),
     fail: (why: string) => broke(new Error(why)),
@@ -46,18 +46,18 @@ function world(update: Found | null) {
 const tick = () => vi.advanceTimersByTimeAsync(0);
 
 describe("view", () => {
-  it("cada fase tem o seu texto, e só a pronta é cheia", () => {
+  it("maps each phase to its view state and marks only ready updates as filled", () => {
     const update = found("0.2.0");
-    expect(view({ at: "quiet" })).toMatchObject({ text: "Buscar atualizações", disabled: false });
-    expect(view({ at: "checking" })).toMatchObject({ text: "Buscando…", disabled: true });
-    expect(view({ at: "found", update })).toMatchObject({ text: "Atualizar para 0.2.0", title: "notas", ready: false });
-    expect(view({ at: "downloading", update, got: 0, total: 0 })).toMatchObject({ text: "Baixando…", disabled: true });
-    expect(view({ at: "downloading", update, got: 50, total: 200 })).toMatchObject({ text: "Baixando 25%" });
-    expect(view({ at: "ready", version: "0.2.0" })).toMatchObject({ text: "Reiniciar para atualizar", ready: true, disabled: false });
-    expect(view({ at: "restarting", version: "0.2.0" })).toMatchObject({ text: "Reiniciando…", ready: true, disabled: true });
+    expect(view({ at: "quiet" })).toMatchObject({ text: "Check for updates", disabled: false });
+    expect(view({ at: "checking" })).toMatchObject({ text: "Checking…", disabled: true });
+    expect(view({ at: "found", update })).toMatchObject({ text: "Update to 0.2.0", title: "notes", ready: false });
+    expect(view({ at: "downloading", update, got: 0, total: 0 })).toMatchObject({ text: "Downloading…", disabled: true });
+    expect(view({ at: "downloading", update, got: 50, total: 200 })).toMatchObject({ text: "Downloading 25%" });
+    expect(view({ at: "ready", version: "0.2.0" })).toMatchObject({ text: "Restart to update", ready: true, disabled: false });
+    expect(view({ at: "restarting", version: "0.2.0" })).toMatchObject({ text: "Restarting…", ready: true, disabled: true });
   });
 
-  it("o rodapé só mostra o botão quando tem o que fazer com ele", () => {
+  it("shows the footer button only when an action is available", () => {
     const update = found("0.2.0");
     expect(view({ at: "quiet" }).footer).toBe(false);
     expect(view({ at: "checking" }).footer).toBe(false);
@@ -67,9 +67,9 @@ describe("view", () => {
     expect(view({ at: "ready", version: "0.2.0" }).footer).toBe(true);
   });
 
-  it("as notas da versão encontrada viajam até a linha, e só nela", () => {
+  it("exposes release notes only while the found update is being reviewed", () => {
     const update = found("0.2.0");
-    expect(view({ at: "found", update }).notes).toEqual({ version: "0.2.0", body: "notas" });
+    expect(view({ at: "found", update }).notes).toEqual({ version: "0.2.0", body: "notes" });
     // Release-note review ends once downloading starts or the update is ready.
     expect(view({ at: "downloading", update, got: 0, total: 0 }).notes).toBeUndefined();
     expect(view({ at: "ready", version: "0.2.0" }).notes).toBeUndefined();
@@ -77,15 +77,15 @@ describe("view", () => {
     expect(view({ at: "found", update: { ...update, body: "  " } }).notes).toBeUndefined();
   });
 
-  it("a linha de Configurações diz a hora da última pergunta e o motivo da falha", () => {
+  it("shows the last check time and failure reason in settings", () => {
     expect(view({ at: "fresh", when: "13:48" })).toMatchObject({
-      text: "Buscar atualizações",
-      note: "Nenhuma novidade — conferido às 13:48",
+      text: "Check for updates",
+      note: "Nothing new — checked at 13:48",
       tone: "plain",
     });
     expect(view({ at: "failed", why: "Error: offline" })).toMatchObject({
-      text: "Buscar atualizações",
-      note: "Não deu para buscar: Error: offline",
+      text: "Check for updates",
+      note: "Could not check: Error: offline",
       tone: "bad",
     });
   });
@@ -95,29 +95,29 @@ describe("updater", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it("achar, baixar, e o segundo clique reinicia de verdade", async () => {
+  it("finds and downloads an update, then restarts on the second click", async () => {
     const update = found();
     const w = world(update);
     const up = updater(w.io);
 
     await up.look();
-    expect(w.last()?.text).toBe("Atualizar para 0.2.0");
+    expect(w.last()?.text).toBe("Update to 0.2.0");
 
     const first = up.click();
     await tick();
-    expect(w.last()?.text).toBe("Baixando 50%");
+    expect(w.last()?.text).toBe("Downloading 50%");
     update.finish();
     await first;
-    expect(w.last()).toMatchObject({ text: "Reiniciar para atualizar", ready: true });
+    expect(w.last()).toMatchObject({ text: "Restart to update", ready: true });
 
     // Regression: the restart button previously did nothing.
     void up.click();
     await tick();
     expect(w.io.relaunch).toHaveBeenCalledTimes(1);
-    expect(w.last()).toMatchObject({ text: "Reiniciando…", disabled: true });
+    expect(w.last()).toMatchObject({ text: "Restarting…", disabled: true });
   });
 
-  it("clicar durante o download não baixa duas vezes", async () => {
+  it("does not start a second download while downloading", async () => {
     const update = found();
     const w = world(update);
     const up = updater(w.io);
@@ -130,20 +130,20 @@ describe("updater", () => {
     await first;
   });
 
-  it("download que falha volta ao botão de atualizar e avisa", async () => {
+  it("returns to the update action and reports failed downloads", async () => {
     const update = found();
     const w = world(update);
     const up = updater(w.io);
     await up.look();
     const first = up.click();
     await tick();
-    update.fail("sem rede");
+    update.fail("offline");
     await first;
-    expect(w.last()?.text).toBe("Atualizar para 0.2.0");
-    expect(w.said[0]).toMatch(/não deu para atualizar.*sem rede/);
+    expect(w.last()?.text).toBe("Update to 0.2.0");
+    expect(w.said[0]).toMatch(/could not update.*offline/);
   });
 
-  it("reinício que não acontece avisa para fechar e abrir", async () => {
+  it("asks the user to reopen when restarting does not complete", async () => {
     const update = found();
     const w = world(update);
     const up = updater(w.io);
@@ -156,11 +156,11 @@ describe("updater", () => {
     const second = up.click();
     await vi.advanceTimersByTimeAsync(9_000);
     await second;
-    expect(w.last()).toMatchObject({ text: "Reiniciar para atualizar", disabled: false });
-    expect(w.said[w.said.length - 1]).toMatch(/feche e abra o Prometeu.*0\.2\.0/);
+    expect(w.last()).toMatchObject({ text: "Restart to update", disabled: false });
+    expect(w.said[w.said.length - 1]).toMatch(/quit and open Prometeu.*0\.2\.0/);
   });
 
-  it("reinício que o back recusa avisa o erro", async () => {
+  it("reports restart errors returned by the backend", async () => {
     const update = found();
     const w = world(update);
     w.io.relaunch = vi.fn(async () => {
@@ -173,11 +173,11 @@ describe("updater", () => {
     update.finish();
     await first;
     await up.click();
-    expect(w.last()?.text).toBe("Reiniciar para atualizar");
-    expect(w.said[w.said.length - 1]).toMatch(/não deu para reiniciar: process\.restart not allowed/);
+    expect(w.last()?.text).toBe("Restart to update");
+    expect(w.said[w.said.length - 1]).toMatch(/could not restart: process\.restart not allowed/);
   });
 
-  it("antes de baixar troca a oferta por uma versão mais nova", async () => {
+  it("replaces the offer with a newer version before downloading", async () => {
     const old = found("0.2.0");
     const latest = found("0.3.0");
     const w = world(old);
@@ -194,16 +194,16 @@ describe("updater", () => {
     await download;
   });
 
-  it("sem novidade diz a hora", async () => {
+  it("shows the check time when no update is available", async () => {
     const quiet = world(null);
     const q = updater(quiet.io);
     await q.look();
     expect(q.phase()).toEqual({ at: "fresh", when: "13:48" });
     expect(quiet.last()?.footer).toBe(false);
-    expect(quiet.last()?.note).toMatch(/conferido às 13:48/);
+    expect(quiet.last()?.note).toMatch(/checked at 13:48/);
   });
 
-  it("clicar sem novidade nenhuma pergunta de novo", async () => {
+  it("checks again when clicked without an available update", async () => {
     const w = world(null);
     const up = updater(w.io);
     await up.look();
@@ -214,10 +214,10 @@ describe("updater", () => {
     // Manual checks can discover updates before the scheduled check.
     w.io.check = vi.fn(async () => found("0.3.0"));
     await up.click();
-    expect(w.last()?.text).toBe("Atualizar para 0.3.0");
+    expect(w.last()?.text).toBe("Update to 0.3.0");
   });
 
-  it("erro do relógio é silêncio, erro do seu clique aparece", async () => {
+  it("silences scheduled check errors and surfaces user-triggered errors", async () => {
     const w = world(null);
     const up = updater(w.io);
     await up.look();
@@ -234,13 +234,13 @@ describe("updater", () => {
 
     await up.click();
     expect(up.phase()).toEqual({ at: "failed", why: "Error: offline" });
-    expect(w.last()?.note).toMatch(/Não deu para buscar.*offline/);
+    expect(w.last()?.note).toMatch(/Could not check.*offline/);
     // Manual errors belong in Settings, not the sidebar footer.
     expect(w.last()?.footer).toBe(false);
     expect(w.said).toEqual([]);
   });
 
-  it("clicar durante a busca não pergunta duas vezes", async () => {
+  it("does not check twice when clicked during a check", async () => {
     const w = world(null);
     let release!: (v: Found | null) => void;
     w.io.check = vi.fn(() => new Promise<Found | null>((r) => (release = r)));

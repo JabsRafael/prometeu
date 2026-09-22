@@ -459,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    fn le_as_tres_chaves() {
+    fn reads_all_three_keys() {
         let dir = tmp("tres");
         write(
             &dir,
@@ -475,7 +475,7 @@ mod tests {
 
     /// Support Conductor's named run tables and place the configured default first.
     #[test]
-    fn run_nomeado_com_padrao_na_frente() {
+    fn named_run_places_the_default_first() {
         let dir = tmp("nomeado");
         write(
             &dir,
@@ -499,7 +499,7 @@ default = true
 
     /// Prometeu settings replace the entire Conductor fallback rather than merging partial files.
     #[test]
-    fn prometeu_tem_prioridade_e_nao_mistura() {
+    fn prometeu_configuration_takes_precedence_without_merging() {
         let dir = tmp("prioridade");
         write(
             &dir,
@@ -518,7 +518,7 @@ default = true
 
     /// Malformed settings remain on disk for repair while script discovery returns empty.
     #[test]
-    fn toml_quebrado_nao_explode() {
+    fn malformed_toml_does_not_panic() {
         let dir = tmp("quebrado");
         write(&dir, ".prometeu/settings.toml", "[scripts\nsetup = ");
         let s = read(&dir);
@@ -527,7 +527,7 @@ default = true
     }
 
     #[test]
-    fn sem_arquivo_nao_tem_script() {
+    fn missing_files_have_no_scripts() {
         let s = read(&tmp("vazio"));
         assert!(s.file.is_none() && s.runs.is_empty());
     }
@@ -535,7 +535,7 @@ default = true
     /// Inherit clone settings only when the worktree has none; a local file completely replaces the
     /// fallback.
     #[test]
-    fn worktree_sem_arquivo_herda_o_do_clone() {
+    fn worktrees_without_configuration_inherit_from_the_clone() {
         let repo = tmp("herda-repo");
         let wt = tmp("herda-wt");
         write(
@@ -558,15 +558,15 @@ default = true
         // A session in the original clone does not inherit from another directory.
         assert!(!read_for(&repo, &repo).inherited);
         // Do not invent settings when neither location has a file.
-        let vazio = tmp("herda-vazio");
-        assert!(read_for(&wt, &vazio).file.is_some()); // Use the worktree settings written above.
-        assert!(read_for(&vazio, &vazio).file.is_none());
+        let empty = tmp("herda-vazio");
+        assert!(read_for(&wt, &empty).file.is_some()); // Use the worktree settings written above.
+        assert!(read_for(&empty, &empty).file.is_none());
     }
 
     /// Verify this repository's mixed setup, named runs, and multiline command configuration so
     /// Prometeu can continue running itself.
     #[test]
-    fn o_proprio_repositorio_e_lido() {
+    fn reads_the_repository_itself() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         let s = read(root);
         assert_eq!(s.file.as_deref(), Some(".prometeu/settings.toml"));
@@ -580,7 +580,7 @@ default = true
     }
 
     #[test]
-    fn env_traz_os_dois_prefixos_e_o_port_solto() {
+    fn environment_includes_both_prefixes_and_the_standalone_port() {
         let pairs = env(Path::new("/wt"), Path::new("/repo"), "x", Some(3100));
         let get = |k: &str| pairs.iter().find(|(a, _)| a == k).map(|(_, b)| b.clone());
         assert_eq!(get("PROMETEU_PORT").as_deref(), Some("3100"));
@@ -595,7 +595,7 @@ default = true
 
     /// Align reservations to ten ports and never reuse a range already saved by another workspace.
     #[test]
-    fn porta_pula_a_ja_guardada_e_e_multipla_de_dez() {
+    fn port_skips_reserved_values_and_is_a_multiple_of_ten() {
         let wt = Path::new("/wt/a");
         let first = alloc_port(wt, &[]).unwrap();
         assert_eq!(first % 10, 0);
@@ -607,7 +607,7 @@ default = true
 
     /// Automatic copying includes root .env variants but excludes committed examples.
     #[test]
-    fn copia_automatica_pega_os_env_e_deixa_o_exemplo() {
+    fn automatic_copy_includes_env_files_and_excludes_examples() {
         let repo = tmp("auto-repo");
         for name in [".env", ".env.local", ".env.example", "package.json"] {
             write(&repo, name, "x");
@@ -623,7 +623,7 @@ default = true
     /// An explicit declaration includes only existing clone paths that remain inside the
     /// repository.
     #[test]
-    fn copia_declarada_filtra_o_que_nao_existe_e_o_que_escapa() {
+    fn declared_copy_filters_missing_and_escaping_paths() {
         let repo = tmp("decl-repo");
         write(&repo, ".env", "x");
         write(&repo, "config/master.key", "x");
@@ -631,7 +631,7 @@ default = true
         let declared = [
             ".env".to_string(),
             "config/master.key".to_string(),
-            "nao-existe".to_string(),
+            "does-not-exist".to_string(),
             "../fora".to_string(),
             "/etc/passwd".to_string(),
         ];
@@ -645,7 +645,7 @@ default = true
 
     /// Keep resolved copy entries after copying so the Setup tab retains its content.
     #[test]
-    fn copia_declarada_nao_encolhe_depois_de_copiar() {
+    fn declared_copy_does_not_shrink_after_copying() {
         let repo = tmp("estavel-repo");
         write(&repo, ".env", "PORT=3000");
         let wt = tmp("estavel-wt");
@@ -655,10 +655,10 @@ default = true
     }
 
     #[test]
-    fn hydrate_copia_o_que_falta_e_nao_sobrescreve() {
+    fn hydrate_copies_missing_files_without_overwriting() {
         let repo = tmp("hyd-repo");
         write(&repo, ".env", "do clone");
-        write(&repo, "config/master.key", "chave");
+        write(&repo, "config/master.key", "key");
         let wt = tmp("hyd-wt");
         write(&wt, ".env", "meu");
 
@@ -670,52 +670,52 @@ default = true
         assert_eq!(std::fs::read_to_string(wt.join(".env")).unwrap(), "meu");
         assert_eq!(
             std::fs::read_to_string(wt.join("config/master.key")).unwrap(),
-            "chave"
+            "key"
         );
 
         // Rerunning hydration neither overwrites nor duplicates data.
-        let de_novo = hydrate(&wt, &repo, &list);
-        assert!(de_novo.iter().all(|n| matches!(n, Copied::Kept(_))));
-        assert!(report(&de_novo).is_some());
+        let again = hydrate(&wt, &repo, &list);
+        assert!(again.iter().all(|n| matches!(n, Copied::Kept(_))));
+        assert!(report(&again).is_some());
         assert!(report(&[]).is_none());
     }
 
     /// Support whole directories for credentials stored as a tree.
     #[test]
-    fn hydrate_copia_diretorio() {
+    fn hydrate_copies_directories() {
         let repo = tmp("dir-repo");
-        write(&repo, "config/credentials/production.key", "chave");
+        write(&repo, "config/credentials/production.key", "key");
         let wt = tmp("dir-wt");
         hydrate(&wt, &repo, &["config/credentials".to_string()]);
         assert_eq!(
             std::fs::read_to_string(wt.join("config/credentials/production.key")).unwrap(),
-            "chave"
+            "key"
         );
     }
 
     /// Inherited clone settings must resolve copy declarations even when settings and secrets are
     /// ignored by Git.
     #[test]
-    fn copia_vem_junto_com_o_arquivo_herdado() {
+    fn copy_configuration_follows_the_inherited_file() {
         let repo = tmp("copia-herda-repo");
         write(
             &repo,
             ".prometeu/settings.toml",
-            "[scripts]\nrun = \"x\"\n\n[worktree]\ncopy = [\"segredo\"]\n",
+            "[scripts]\nrun = \"x\"\n\n[worktree]\ncopy = [\"secret\"]\n",
         );
-        write(&repo, "segredo", "s");
-        write(&repo, ".env", "nao-declarado");
+        write(&repo, "secret", "s");
+        write(&repo, ".env", "undeclared");
         let wt = tmp("copia-herda-wt");
 
         let s = read_for(&wt, &repo);
         assert!(s.inherited);
         // An explicit copy list excludes unlisted automatic .env files.
-        assert_eq!(s.copy, vec!["segredo".to_string()]);
+        assert_eq!(s.copy, vec!["secret".to_string()]);
     }
 
     /// An empty copy list disables copying rather than falling back to automatic discovery.
     #[test]
-    fn copia_vazia_desliga_o_automatico() {
+    fn empty_copy_disables_automatic_copying() {
         let repo = tmp("vazia-repo");
         write(&repo, ".prometeu/settings.toml", "[worktree]\ncopy = []\n");
         write(&repo, ".env", "x");
@@ -726,7 +726,7 @@ default = true
     /// Skip an entire reserved range if any port is browser-blocked, including ports reached by
     /// PORT+n.
     #[test]
-    fn porta_pula_as_que_o_navegador_recusa() {
+    fn port_skips_values_blocked_by_browsers() {
         const SLOTS: u64 = (9990 - 3100) / 10 + 1;
         let slot = (5060 - 3100) / 10;
         let path = (0..)
@@ -741,7 +741,7 @@ default = true
     /// Different paths produce different starting ranges, while a given path remains stable across
     /// boards. Verify the starting point because final allocation also depends on live sockets.
     #[test]
-    fn porta_sai_do_caminho_do_worktree() {
+    fn port_is_derived_from_the_worktree_path() {
         let a = Path::new("/Users/ana/prometeu/worktrees/app/feat-a");
         let b = Path::new("/Users/ana/prometeu/worktrees/app/feat-b");
         assert_ne!(port_start(a), port_start(b));
@@ -752,7 +752,7 @@ default = true
 
     /// The `[tools]` table parses into the layered Selections; an absent axis inherits.
     #[test]
-    fn tools_da_tabela_vira_camada_do_projeto() {
+    fn tools_table_becomes_the_project_layer() {
         use crate::selection::{Base, Selection};
         let dir = tmp("tools");
         write(
@@ -779,7 +779,7 @@ default = true
     /// A worktree without settings inherits the clone's `[tools]`, and only the repository passed to
     /// read_for governs: for a multi-repository workspace the caller selects the primary one.
     #[test]
-    fn tools_herdados_do_clone_e_so_do_repositorio_primario() {
+    fn inherited_clone_tools_come_only_from_the_primary_repository() {
         use crate::selection::Selection;
         let primary = tmp("tools-primario");
         let secondary = tmp("tools-secundario");

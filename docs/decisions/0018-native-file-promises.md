@@ -46,7 +46,7 @@ successfully received files are preserved.
 - `src-tauri/src/file_drop.rs`: registration, reception, destination validation
   and tests.
 - `e2e/file-drop.spec.ts`: asynchronous phases, tab switching, failure, retry,
-  Finder, launcher and terminal in Chromium and WebKit over the mock.
+  Finder, launcher and terminal over the mock, with selected WebKit scenarios.
 - The real thumbnail gesture was confirmed in Prometeu Dev on 2026-09-06, after
   registering `on_webview_event`: with `unstable`, `on_window_event` does not
   receive the main webview's drag. The native diagnosis confirmed the sequence

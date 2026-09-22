@@ -4,7 +4,7 @@
 
 - Node and npm at the versions declared in `package.json`;
 - the Rust toolchain declared in `src-tauri/rust-toolchain.toml`;
-- Playwright's Chromium for E2E tests;
+- Playwright's Chromium and WebKit for E2E tests;
 - Claude Code and/or Codex installed to test real sessions.
 
 ```sh
@@ -36,8 +36,8 @@ itself, and a binary run by `tauri dev` (or executed directly from inside the
 button stays hidden under `npm run app`; there is no hot reload in this mode.
 
 The mock's interactive preview uses a controlled page in an iframe and the app's
-own selection script. The `browser` tests cover Chromium and WebKit; the native
-PNG and AppKit gestures stay outside that proof. See the
+own selection script. Selected preview scenarios cover Chromium and WebKit;
+the native PNG and AppKit gestures stay outside that proof. See the
 [browser contract](../contracts/browser.md).
 
 ## Validation commands
@@ -96,6 +96,80 @@ During development, run the smallest suite that covers the change first. Use
   effects, and presentation/protocol checks stay in force. The exact scope and
   limits are in the [dependency rules](../architecture/dependency-rules.md).
 - Clippy/rustfmt: backend discipline.
+
+Worker integration tests use Wrangler's test harness with HTTP requests sent
+directly to workerd, avoiding the development proxy's upstream connection loss
+after a streamed request body is canceled. WebSocket and HTTP Upgrade probes
+still use the listening server; transport errors and HTTP 500 responses fail
+the tests.
+
+## E2E scope
+
+Keep Playwright focused on the core workspace and conversation journey: create
+or open a workspace, send a message, follow the response, interrupt and resume,
+answer an agent request, and preserve history and drafts. Belonging to this
+journey is necessary for ordinary E2E coverage, but is not sufficient: prefer
+the smallest unit or integration test that proves the behavior. A new control,
+setting or visible behavior does not automatically need a browser test.
+
+Exceptions outside the core need a concrete risk that requires a real browser:
+an engine incompatibility, keyboard or focus accessibility, a security boundary
+in the UI, or loss of user data during interaction. These labels alone do not
+justify E2E coverage; parsing, authorization and persistence rules still belong
+in the closest unit or integration tests.
+
+When adding or expanding a browser scenario, explain in the PR or change summary:
+
+- which user journey it protects, or which concrete exception applies;
+- which failure depends on browser behavior;
+- why unit or integration coverage cannot prove that behavior;
+- what it adds beyond the existing browser scenarios.
+
+Use this qualitative justification rather than test-count quotas or a new test
+classification framework. Extend an existing scenario when it can protect the
+same journey clearly. Run browser tests with the English UI; translation copy
+does not justify an E2E case or a locale matrix. Do not multiply providers,
+viewports and engines without a specific risk for each extra case. A test that
+only calls the mock and asserts its state without exercising UI belongs below
+Playwright.
+
+Keep one representative interaction per distinct production path, including
+failure recovery when it protects user data. Several controls reaching the same
+cancellation or validation logic do not each need an E2E scenario. Shared
+component behavior belongs in its browser scenario; product flows should prove
+their integration rather than repeat the component's entire matrix.
+
+Chromium runs the entire lean browser suite. WebKit runs only scenarios
+explicitly tagged `@webkit`: a representative core journey and checks with a
+specific engine risk. A title mentioning a feature is not a reason to run its
+whole test group twice. CI keeps one Playwright worker; reduce unnecessary
+browser work rather than increasing concurrency. CI captures traces on the first
+retry and screenshots on failure; local runs retain traces on failure because
+they do not retry. A CI failure that does not recur has a screenshot of the
+original attempt and a trace of the retry, not a trace of the original failure.
+
+Secondary plugin creation/installation forms, quota presentation, issue filters,
+sidebar grouping, catalog empty states and preview-panel preferences have no
+dedicated E2E gate. Tool selection, MCP comparison, plugin parsing, quota grouping,
+Code review defaults and silent alerts have Rust or Vitest coverage. These
+lower-level checks do not prove the secondary forms or live CLI installation.
+Profile editing retains its UI regression. Layout uses English at representative
+viewport sizes; sibling-tab state combinations stay in `workspace_tools.rs`,
+with one UI journey through the tool selectors.
+
+Account/settings variations, catalog management shortcuts, header styling, tab
+visibility preferences and recent-file ranking also have no dedicated browser
+gate. Recent-file collection and ranking remain covered in `timeline.test.ts`
+and `session/find.rs`; native Git/catalog rules keep their Rust coverage. Feedback
+keeps representative submission, attachment races and cancellation checks rather
+than repeating every replacement control. Removing a UI scenario does not imply
+that its presentation or wiring is proven by a backend test.
+
+Keep contract, security, protocol and backend regression coverage in the cheaper
+suites on every CI run. Reducing E2E scope does not remove those guarantees. The
+browser mock proves UI integration, not native process lifecycle, filesystem
+behavior, real provider execution or deployed services; retain the corresponding
+Rust, relay and contract tests and focused native checks.
 
 ## Shared Cloud API fixtures
 
@@ -164,3 +238,9 @@ the frontend translates with `fromBack`.
 
 Agent output, terminal output and text provided by the person are not
 translated.
+
+Write test names, helpers, comments and authored fixtures in English. Preserve
+contract values and Unicode samples needed to prove parsing or encoding. Tests
+cover locale selection, interpolation and structured errors, not translation
+copy quality; TypeScript checks that the English catalog implements the source
+catalog keys.

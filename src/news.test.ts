@@ -1,65 +1,64 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { use } from "./i18n";
 import { cmp, localize, parse, unseen, type Release } from "./news";
 
-// Set the relevant language explicitly because Node defaults to English.
-use("pt-BR");
+beforeEach(() => use("en"));
 
 const CHANGELOG = `# Changelog
 
-O que muda no Prometeu, versão a versão, para quem usa o app.
+Changes in Prometeu, release by release, for app users.
 
 ## [0.4.8] - 2026-08-31
 
-### Novidades
+### New
 
-- **arquivos:** Editar e salvar o arquivo aberto sem passar pelo agente
+- **files:** Edit and save the open file without asking the agent
 
-### Correções
+### Fixes
 
-- **conversa:** Mensagens não ficam presas ao retomar uma aba
+- **chat:** Messages no longer get stuck when resuming a tab
 
 ## [0.4.7] - 2026-08-30
 
-### Correções
+### Fixes
 
-- **barra:** Simplifica o topo
+- **toolbar:** Simplify the header
 
 ## [0.1.0] - 2026-08-01
 
-### Novidades
+### New
 
-- O começo
+- Initial release
 `;
 
 describe("parse", () => {
-  it("uma versão por seção, da mais nova para a mais velha", () => {
+  it("parses one release per section from newest to oldest", () => {
     const all = parse(CHANGELOG);
     expect(all.map((r) => r.version)).toEqual(["0.4.8", "0.4.7", "0.1.0"]);
     expect(all[0].date).toBe("2026-08-31");
-    expect(all[0].body).toContain("### Novidades");
-    expect(all[0].body).toContain("Mensagens não ficam presas");
+    expect(all[0].body).toContain("### New");
+    expect(all[0].body).toContain("Messages no longer get stuck");
     // A release body ends at the next release heading.
-    expect(all[0].body).not.toContain("Simplifica o topo");
+    expect(all[0].body).not.toContain("Simplify the header");
   });
 
-  it("o preâmbulo do arquivo não é versão nenhuma", () => {
-    expect(parse(CHANGELOG).some((r) => r.body.includes("versão a versão"))).toBe(false);
+  it("does not treat the file preamble as a release", () => {
+    expect(parse(CHANGELOG).some((r) => r.body.includes("release by release"))).toBe(false);
   });
 
-  it("arquivo vazio não quebra", () => {
+  it("handles empty files", () => {
     expect(parse("")).toEqual([]);
-    expect(parse("# Changelog\n\nnada aqui\n")).toEqual([]);
+    expect(parse("# Changelog\n\nnothing here\n")).toEqual([]);
   });
 
-  it("versão sem data ainda conta", () => {
-    const [one] = parse("## [0.5.0]\n\n### Novidades\n\n- algo\n");
+  it("accepts releases without dates", () => {
+    const [one] = parse("## [0.5.0]\n\n### New\n\n- something\n");
     expect(one).toMatchObject({ version: "0.5.0", date: "" });
   });
 });
 
 describe("cmp", () => {
-  it("ordena pelas três partes do número, e não pelo texto", () => {
+  it("orders versions by their three numeric parts instead of text", () => {
     expect(cmp("0.4.10", "0.4.9")).toBe(1);
     expect(cmp("0.4.9", "0.4.10")).toBe(-1);
     expect(cmp("0.5.0", "0.4.99")).toBe(1);
@@ -72,60 +71,46 @@ describe("unseen", () => {
   const all = parse(CHANGELOG);
   const versions = (rs: Release[]) => rs.map((r) => r.version);
 
-  it("conta o que saiu depois da última que você viu", () => {
+  it("counts releases after the last viewed version", () => {
     expect(versions(unseen(all, "0.4.8", "0.4.7"))).toEqual(["0.4.8"]);
     expect(versions(unseen(all, "0.4.8", "0.1.0"))).toEqual(["0.4.8", "0.4.7"]);
   });
 
-  it("em dia não conta nada", () => {
+  it("counts nothing when up to date", () => {
     expect(unseen(all, "0.4.8", "0.4.8")).toEqual([]);
     // Downgrading below the last viewed version shows no new releases.
     expect(unseen(all, "0.4.7", "0.4.8")).toEqual([]);
   });
 
-  it("sem nada guardado mostra só a versão de agora", () => {
+  it("shows only the current release without a saved version", () => {
     expect(versions(unseen(all, "0.4.8", null))).toEqual(["0.4.8"]);
     expect(versions(unseen(all, "0.4.7", null))).toEqual(["0.4.7"]);
   });
 
-  it("nunca conta o que ainda não está instalado", () => {
+  it("never counts releases that are not installed yet", () => {
     expect(versions(unseen(all, "0.4.7", "0.1.0"))).toEqual(["0.4.7"]);
   });
 });
 
 describe("localize", () => {
-  it("os títulos do git-cliff falam o idioma da tela", () => {
-    const body = "### Novidades\n\n- **conversa:** algo\n\n### Correções\n\n- outro\n";
-    use("en");
-    expect(localize(body)).toContain("### New");
-    expect(localize(body)).toContain("### Fixes");
-    // Commit descriptions are content and remain unchanged.
-    expect(localize(body)).toContain("**conversa:** algo");
-    use("pt-BR");
-    expect(localize(body)).toContain("### Novidades");
-    // The changelog now ships English headings; they translate the same way.
-    expect(localize("### New\n\n- algo\n")).toContain("### Novidades");
-    use("en");
-    expect(localize("### New\n\n- something\n")).toContain("### New");
+  it("preserves unrecognized headings and release content", () => {
+    const body = "### Custom heading\n\n- **chat:** Keep this description unchanged.\n";
+    expect(localize(body)).toBe(body);
   });
 
-  it("título que não é de seção passa intacto", () => {
-    expect(localize("### Outra coisa\n")).toBe("### Outra coisa\n");
-  });
-
-  it("escolhe só o bloco do idioma nas notas bilíngues", () => {
+  it("selects only the requested language block in bilingual notes", () => {
     const body = `<!-- lang:pt-BR -->
-### Novidades
+### Selected section
 
-- Abre conversas
+- First language content
 <!-- lang:en -->
-### New
+### Selected section
 
-- Opens conversations
+- Second language content
 <!-- lang:end -->`;
     use("en");
-    expect(localize(body)).toBe("### New\n\n- Opens conversations");
+    expect(localize(body)).toBe("### Selected section\n\n- Second language content");
     use("pt-BR");
-    expect(localize(body)).toBe("### Novidades\n\n- Abre conversas");
+    expect(localize(body)).toBe("### Selected section\n\n- First language content");
   });
 });

@@ -266,5 +266,6 @@ error. Directory pages reflect the filesystem at call time, not a snapshot.
 - MCP materialization tests cover both provider configuration formats.
 - `e2e/tools.spec.ts` covers built-in availability without default activation.
 - `pty.rs` tests retain real process output and exit status; `e2e/browser.spec.ts`
-  covers the preview navigation event over the browser mock in both engines.
+  covers the preview navigation event over the browser mock in Chromium;
+  selected preview interactions also run in WebKit.
 - Existing `session/files.rs` tests cover path/symlink confinement.

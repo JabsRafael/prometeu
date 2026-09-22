@@ -1,83 +1,83 @@
 import { avatar, button, input, field, checkbox, select, password, card, badge, notice, disclosure, menuButton, formDialog, confirmDialog, searchablePicker } from "./dist/index.js";
 
 const examples = document.querySelector("#examples");
-const output = notice("Interaja com os componentes para ver seus estados.");
+const output = notice("Interact with the components to see their states.");
 const row = (...children) => {
   const root = document.createElement("div"); root.className = "ui-actions";
   root.append(...children); return root;
 };
-const disabled = button("Indisponível"); disabled.disabled = true;
-const pending = button("Salvando…", undefined, "pri"); pending.disabled = true; pending.setAttribute("aria-busy", "true");
-examples.append(card("03 / Ações",
-  row(button("Salvar", () => { output.textContent = "Alterações salvas."; }, "pri"), button("Cancelar"), button("Editar", undefined, "ghost")),
-  row(button("Excluir conta", async () => {
-    output.textContent = await confirmDialog({ title: "Excluir conta?", message: "Demonstração: nenhum dado será excluído.", accept: "Excluir", cancel: "Cancelar" }) ? "Exclusão confirmada na demonstração." : "Exclusão cancelada.";
+const disabled = button("Unavailable"); disabled.disabled = true;
+const pending = button("Saving…", undefined, "pri"); pending.disabled = true; pending.setAttribute("aria-busy", "true");
+examples.append(card("03 / Actions",
+  row(button("Save", () => { output.textContent = "Changes saved."; }, "pri"), button("Cancel"), button("Edit", undefined, "ghost")),
+  row(button("Delete account", async () => {
+    output.textContent = await confirmDialog({ title: "Delete account?", message: "Demo: no data will be deleted.", accept: "Delete", cancel: "Cancel" }) ? "Deletion confirmed in the demo." : "Deletion cancelled.";
   }, "danger"), disabled, pending)));
 
 const name = input(); name.name = "name"; name.autocomplete = "name"; name.required = true;
-const email = input("email-inválido"); email.type = "email"; email.setAttribute("aria-invalid", "true");
-const invalid = field("Email", email, "Informe um email válido."); invalid.querySelector(".ui-hint").classList.add("ui-error");
+const email = input("invalid-email"); email.type = "email"; email.setAttribute("aria-invalid", "true");
+const invalid = field("Email", email, "Enter a valid email."); invalid.querySelector(".ui-hint").classList.add("ui-error");
 const project = select("cloud", [["cloud", "Prometeu Cloud"], ["desktop", "Prometeu Desktop"]]);
-project.onchange = () => { output.textContent = `Projeto selecionado: ${project.value}.`; };
-const unavailable = input("Indisponível"); unavailable.disabled = true;
-const secret = password("", { show: "Mostrar senha", hide: "Ocultar senha" });
-examples.append(card("04 / Formulário", field("Nome", name), invalid, field("Projeto", project.control),
-  field("Senha", secret.root), field("Campo desabilitado", unavailable), checkbox("Manter as configurações deste projeto.", true).label));
+project.onchange = () => { output.textContent = `Selected project: ${project.value}.`; };
+const unavailable = input("Unavailable"); unavailable.disabled = true;
+const secret = password("", { show: "Show password", hide: "Hide password" });
+examples.append(card("04 / Form", field("Name", name), invalid, field("Project", project.control),
+  field("Password", secret.root), field("Disabled field", unavailable), checkbox("Keep settings for this project.", true).label));
 
 const details = document.createElement("p"); details.className = "ui-hint";
-details.textContent = "Disclosure nativo: abre com Enter ou Espaço.";
-examples.append(card("05 / Feedback", output, notice("Não foi possível salvar. Seus dados continuam no formulário.", "error"),
-  notice("Confira o código antes de autorizar seu Mac.", "warning"), row(badge("Desktop"), badge("Esta sessão", true)),
-  disclosure("Informações adicionais", details)));
+details.textContent = "Native disclosure: opens with Enter or Space.";
+examples.append(card("05 / Feedback", output, notice("Could not save. Your data remains in the form.", "error"),
+  notice("Check the code before authorizing your Mac.", "warning"), row(badge("Desktop"), badge("This session", true)),
+  disclosure("Additional information", details)));
 
-examples.append(card("06 / Menus e diálogos", menuButton("Ações do projeto", () => [
-  { label: "Renomear", run: () => { output.textContent = "Renomear selecionado."; } },
-  { label: "Indisponível", disabled: true },
-  { label: "Exportar", sub: [{ label: "Copiar", run: () => { output.textContent = "Copiar selecionado."; } }] },
+examples.append(card("06 / Menus and dialogs", menuButton("Project actions", () => [
+  { label: "Rename", run: () => { output.textContent = "Rename selected."; } },
+  { label: "Unavailable", disabled: true },
+  { label: "Export", sub: [{ label: "Copy", run: () => { output.textContent = "Copy selected."; } }] },
   "sep",
-  { label: "Excluir", danger: true, run: () => { output.textContent = "Excluir selecionado."; } },
-]), button("Editar perfil", () => {
+  { label: "Delete", danger: true, run: () => { output.textContent = "Delete selected."; } },
+]), button("Edit profile", () => {
   const name = input(); name.required = true;
-  const simulate = checkbox("Simular erro ao salvar", false);
+  const simulate = checkbox("Simulate a save error", false);
   const project = select("cloud", [["cloud", "Prometeu Cloud"], ["desktop", "Prometeu Desktop"]]);
   const dialog = formDialog({
-    title: "Editar perfil", save: "Salvar", cancel: "Cancelar", error: cause => cause.message,
+    title: "Edit profile", save: "Save", cancel: "Cancel", error: cause => cause.message,
     submit: async () => {
       await new Promise(resolve => setTimeout(resolve, 350));
-      if (simulate.control.checked) throw new Error("Não foi possível salvar. Tente novamente.");
-      output.textContent = `Perfil salvo: ${name.value}.`;
+      if (simulate.control.checked) throw new Error("Could not save. Try again.");
+      output.textContent = `Profile saved: ${name.value}.`;
     },
   });
-  dialog.body.append(field("Nome do perfil", name), field("Projeto", project.control), simulate.label);
+  dialog.body.append(field("Profile name", name), field("Project", project.control), simulate.label);
   dialog.open();
 })));
 
 // Navigation uses the same underlined tabs and sidebar links emitted by the Rails adapter.
-const tabs = document.createElement("nav"); tabs.className = "ui-tabs"; tabs.setAttribute("aria-label", "Catálogo");
+const tabs = document.createElement("nav"); tabs.className = "ui-tabs"; tabs.setAttribute("aria-label", "Catalog");
 const sidebar = document.createElement("nav"); sidebar.className = "ui-stack"; sidebar.style.gap = "2px"; sidebar.style.maxWidth = "220px";
-for (const [list, labels, current] of [[tabs, ["MCPs", "Plugins", "Skills"], "MCPs"], [sidebar, ["Perfil", "Segurança", "Sessões"], "Segurança"]]) {
+for (const [list, labels, current] of [[tabs, ["MCPs", "Plugins", "Skills"], "MCPs"], [sidebar, ["Profile", "Security", "Sessions"], "Security"]]) {
   for (const label of labels) {
     const link = document.createElement("a"); link.href = "#"; link.textContent = label;
     if (list === sidebar) link.className = "ui-nav-link";
     if (label === current) link.setAttribute("aria-current", "page");
-    link.addEventListener("click", event => { event.preventDefault(); output.textContent = `${label} selecionado.`; });
+    link.addEventListener("click", event => { event.preventDefault(); output.textContent = `${label} selected.`; });
     list.append(link);
   }
 }
 const identity = row(avatar(), avatar(undefined, "person", "md"), avatar(undefined, "organization", "md"), avatar(undefined, "organization", "lg"));
-const account = menuButton("Gustavo", () => [{ label: "Configurações" }, "sep", { label: "Sair", danger: true }]);
+const account = menuButton("Gustavo", () => [{ label: "Settings" }, "sep", { label: "Sign out", danger: true }]);
 account.prepend(avatar());
-examples.append(card("07 / Navegação", tabs, sidebar, identity, row(account)));
+examples.append(card("07 / Navigation", tabs, sidebar, identity, row(account)));
 
 // Delivery stays local in the gallery; production hosts provide their own transport.
 const { feedbackWidget } = await import("./dist/index.js");
 feedbackWidget({
   labels: {
-    trigger: "Feedback", title: "Deixe seu feedback", kind: "Tipo", problem: "Problema", idea: "Ideia", other: "Outro",
-    description: "Descrição", attach: "Anexar imagem", capture: "Capturar tela", remove: "Remover imagem",
-    send: "Enviar feedback privado", close: "Fechar", privacy: "Demonstração local: nenhum dado será enviado.",
-    publicReport: "Reportar bug publicamente", publicReportHint: "Abre uma issue pública no GitHub sem enviar dados automaticamente.",
-    invalidImage: "Use PNG, JPEG ou WebP de até 5 MB.", empty: "Escreva seu feedback.", success: "Feedback recebido na demonstração.",
+    trigger: "Feedback", title: "Leave your feedback", kind: "Type", problem: "Problem", idea: "Idea", other: "Other",
+    description: "Description", attach: "Attach an image", capture: "Capture screen", remove: "Remove image",
+    send: "Send private feedback", close: "Close", privacy: "Local demo: no data will be sent.",
+    publicReport: "Report a bug publicly", publicReportHint: "Opens a public GitHub issue without sending data automatically.",
+    invalidImage: "Use PNG, JPEG or WebP up to 5 MB.", empty: "Write your feedback.", success: "Feedback received in the demo.",
   },
   publicIssue: "https://github.com/prometeucorp/prometeu/issues/new",
   submit: async () => {}, error: cause => String(cause),
@@ -85,31 +85,31 @@ feedbackWidget({
 
 
 function pickerExample() {
-  const selected = notice("Nenhuma opção escolhida");
+  const selected = notice("No option selected");
   const starred = new Set();
   let picker;
   const items = () => Array.from({ length: 100 }, (_, n) => ({
-    key: String(n), label: `Opção ${String(n).padStart(3, "0")}`,
-    detail: n === 0 ? "Descrição com acentuação · Café · Codex" : `Detalhe ${n}`,
-    group: n < 5 ? "Recentes" : "Todas as opções", checked: n === 2, disabled: n === 98,
-    secondary: { label: `${starred.has(n) ? "Desfavoritar" : "Favoritar"} Opção ${String(n).padStart(3, "0")}`,
+    key: String(n), label: `Option ${String(n).padStart(3, "0")}`,
+    detail: n === 0 ? "Accented description · Café · Codex" : `Detail ${n}`,
+    group: n < 5 ? "Recent" : "All options", checked: n === 2, disabled: n === 98,
+    secondary: { label: `${starred.has(n) ? "Unfavorite" : "Favorite"} Option ${String(n).padStart(3, "0")}`,
       pressed: starred.has(n), run: () => {
         if (starred.has(n)) starred.delete(n); else starred.add(n);
         picker.update(items());
       } },
   }));
-  const trigger = button("Buscar opção", () => {
+  const trigger = button("Find option", () => {
     picker = searchablePicker(trigger, {
-      label: "Opções disponíveis", searchPlaceholder: "Buscar opções", empty: "Nenhuma opção encontrada",
-      items: items(), select: key => { selected.textContent = `Escolhida: Opção ${String(key).padStart(3, "0")}`; },
-      refresh: { label: "Atualizar opções", run: () => picker.update(items(), "Catálogo atualizado") },
-      additional: { label: "Mostrar opções adicionais", checked: false,
-        change: checked => picker.update(checked ? [...items(), { key: "extra", label: "Opção adicional" }] : items()) },
+      label: "Available options", searchPlaceholder: "Search options", empty: "No options found",
+      items: items(), select: key => { selected.textContent = `Selected: Option ${String(key).padStart(3, "0")}`; },
+      refresh: { label: "Refresh options", run: () => picker.update(items(), "Catalog updated") },
+      additional: { label: "Show additional options", checked: false,
+        change: checked => picker.update(checked ? [...items(), { key: "extra", label: "Additional option" }] : items()) },
     });
   });
   return [trigger, selected];
 }
-examples.append(card("Busca em listas extensas", ...pickerExample(), button("Busca em diálogo", () => {
-  const dialog = formDialog({ title: "Exemplo de busca", save: "Salvar", cancel: "Cancelar", submit: async () => {}, error: String });
+examples.append(card("Search in large lists", ...pickerExample(), button("Search in dialog", () => {
+  const dialog = formDialog({ title: "Search example", save: "Save", cancel: "Cancel", submit: async () => {}, error: String });
   dialog.body.append(...pickerExample()); dialog.open();
 })));

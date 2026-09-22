@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-const path = "/Users/eu/Desktop/Captura de Tela.png";
+const path = "/Users/tester/Desktop/Screen Capture.png";
 type Point = { x: number; y: number };
 
 async function point(locator: Locator): Promise<Point> {
@@ -39,69 +39,34 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator('#tiles .tile[data-tab="t1"] .composer textarea')).toBeVisible();
 });
 
-test("arraste de arquivo usa o quadro da posição final, mesmo sem o último over", async ({ page }) => {
+test("file drop uses the final destination and discards cancelled or hidden targets", { tag: "@webkit" }, async ({ page }) => {
   const first = page.locator('#tiles .tile[data-tab="t1"]');
   const second = page.locator('#tiles .tile[data-tab="t3"]');
   await drag(page, "enter", await point(first), [path]);
   await expect(first).toHaveClass(/dropping/);
   await drag(page, "drop", await point(second), [path]);
   await expect(first.locator(".injchip")).toHaveCount(0);
-  await expect(second.locator(".cfiles .injchip")).toContainText("Captura de Tela.png");
+  await expect(second.locator(".cfiles .injchip")).toContainText("Screen Capture.png");
   await expect(page.locator(".dropping")).toHaveCount(0);
-});
 
-test("arraste de arquivo fora da conversa não usa hover antigo nem a moldura anterior", async ({ page }) => {
-  await page.locator('#tiles .tile[data-tab="t1"] .topen').click();
-  const chat = page.locator("#chatwrap");
-  const composer = chat.locator("textarea");
-  await composer.hover();
-  const inside = await point(composer);
-  const outside = await point(page.locator("#crumb"));
-
-  await drag(page, "enter", inside, [path]);
-  await expect(chat).toHaveClass(/dropping/);
-  await drag(page, "drop", outside, [path]);
-  await expect(chat.locator(".cfiles .injchip")).toHaveCount(0);
-
-  await drag(page, "enter", outside, [path]);
-  await expect(page.locator(".dropping")).toHaveCount(0);
-  await drag(page, "drop", outside, [path]);
-  await expect(chat.locator(".cfiles .injchip")).toHaveCount(0);
-});
-
-test("arraste de arquivo limpa cancelamento e não reaproveita conversa escondida", async ({ page }) => {
-  const tile = page.locator('#tiles .tile[data-tab="t1"]');
-  const at = await point(tile);
-  const outside = { x: -100, y: -100 };
+  const at = await point(first);
+  await first.hover();
+  await drag(page, "enter", at, [path]);
+  await drag(page, "drop", await point(page.locator("#deskbar")), [path]);
+  await expect(first.locator(".cfiles .injchip")).toHaveCount(0);
   await drag(page, "enter", at, [path]);
   await drag(page, "leave");
   await expect(page.locator(".dropping")).toHaveCount(0);
-  await drag(page, "drop", outside, [path]);
-  await expect(tile.locator(".cfiles .injchip")).toHaveCount(0);
-
+  await drag(page, "drop", { x: -100, y: -100 }, [path]);
+  await expect(first.locator(".cfiles .injchip")).toHaveCount(0);
   await drag(page, "enter", at, [path]);
-  await tile.locator(".topen").click();
-  await drag(page, "drop", outside, [path]);
-  await expect(page.locator(".cfiles .injchip")).toHaveCount(0);
+  await first.locator(".topen").click();
+  await drag(page, "drop", { x: -100, y: -100 }, [path]);
+  await expect(first.locator(".cfiles .injchip")).toHaveCount(0);
+  await expect(page.locator("#chatwrap .cfiles .injchip")).toHaveCount(0);
 });
 
-test("arraste de arquivo sem caminhos avisa e permite tentar novamente sem perder rascunho", async ({ page }) => {
-  const tile = page.locator('#tiles .tile[data-tab="t1"]');
-  const composer = tile.locator("textarea");
-  await composer.fill("Veja estes arquivos");
-  const at = await point(composer);
-  await drag(page, "enter", at, []);
-  await drag(page, "drop", at, []);
-  await expect(page.locator("#msg")).toContainText("Não foi possível obter o arquivo arrastado");
-  await expect(page.locator(".dropping")).toHaveCount(0);
-
-  await drag(page, "enter", at, [path]);
-  await drag(page, "drop", at, [path, path, "/tmp/notas.txt"]);
-  await expect(tile.locator(".cfiles .injchip")).toHaveCount(2);
-  await expect(composer).toHaveValue("Veja estes arquivos");
-});
-
-test("arraste de arquivo respeita diálogo modal aberto durante o gesto", async ({ page }) => {
+test("file drop respects a modal dialog opened during the gesture", { tag: "@webkit" }, async ({ page }) => {
   const tile = page.locator('#tiles .tile[data-tab="t1"]');
   const at = await point(tile);
   await drag(page, "enter", at, [path]);
@@ -116,44 +81,31 @@ test("arraste de arquivo respeita diálogo modal aberto durante o gesto", async 
   await expect(tile.locator(".cfiles .injchip")).toHaveCount(0);
 });
 
-test("arraste de arquivo preserva caminho completado no rascunho sem navegador", async ({ page }) => {
-  await page.locator('#tiles .tile[data-tab="t1"] .topen').click();
-  const composer = page.locator("#chatwrap .composer textarea");
-  await composer.fill("Veja @CLA");
-  await expect(page.locator(".menu .mrow").first()).toContainText("CLAUDE.md");
-  await composer.press("Tab");
-  await expect(composer).toHaveValue("Veja @CLAUDE.md ");
-  await drag(page, "drop", await point(composer), [path]);
-  await expect(page.locator("#chatwrap .cfiles .injchip")).toContainText("Captura de Tela.png");
-  await expect(composer).toHaveValue("Veja @CLAUDE.md ");
-  await expect(page.locator("#webview")).toBeHidden();
-});
-
-test("arraste de arquivo no lançador preserva texto e não duplica anexos", async ({ page }) => {
-  await page.locator("#railbody").getByRole("button", { name: "Criar", exact: true }).click();
+test("launcher file drop preserves text and does not duplicate attachments", async ({ page }) => {
+  await page.locator("#railbody").getByRole("button", { name: "Create", exact: true }).click();
   const composer = page.locator("#d-prompt");
-  await composer.fill("Veja esta captura");
+  await composer.fill("Look at this capture");
   const at = await point(composer);
   await drag(page, "drop", at, []);
-  await expect(page.locator("#msg")).toContainText("Não foi possível obter o arquivo arrastado");
+  await expect(page.locator("#msg")).toContainText("Could not retrieve the dragged file");
   await drag(page, "enter", at, [path]);
   await drag(page, "drop", at, [path, path]);
   await expect(page.locator("#d-inj .injchip")).toHaveCount(1);
-  await expect(composer).toHaveValue("Veja esta captura");
+  await expect(composer).toHaveValue("Look at this capture");
   await expect(page.locator(".cfiles .injchip")).toHaveCount(0);
   await promise(page, "pending", "launcher", at);
   await expect(page.locator("#d-go")).toBeDisabled();
   await composer.press("Enter");
   await expect(page.locator("#veil")).toBeVisible();
-  await promise(page, "received", "launcher", undefined, ["/tmp/outra.png"]);
+  await promise(page, "received", "launcher", undefined, ["/tmp/other.png"]);
   await expect(page.locator("#d-inj .injchip")).toHaveCount(2);
   await expect(page.locator("#d-go")).toBeEnabled();
 });
 
-test("arraste de arquivo no terminal escreve caminho escapado no pty correto", async ({ page }) => {
+test("terminal file drop writes the escaped path to the correct PTY", { tag: "@webkit" }, async ({ page }) => {
   await page.locator('#tiles .tile[data-tab="t1"] .topen').click();
   await page.locator(".tabadd .caret").click();
-  await page.locator(".ui-search-picker-choice", { hasText: "Terminal novo" }).click();
+  await page.locator(".ui-search-picker-choice", { hasText: "New terminal" }).click();
   await expect(page.locator("#termview .xterm")).toBeVisible();
   await page.evaluate(() => {
     const w = window as unknown as {
@@ -175,24 +127,24 @@ test("arraste de arquivo no terminal escreve caminho escapado no pty correto", a
   }).droppedWrites);
   expect(writes).toHaveLength(1);
   expect(writes[0].session).toBe("sessao-0929:terminal");
-  expect(writes[0].data).toBe("/Users/eu/Desktop/Captura\\ de\\ Tela.png /tmp/a\\;echo.txt ");
+  expect(writes[0].data).toBe("/Users/tester/Desktop/Screen\\ Capture.png /tmp/a\\;echo.txt ");
   await expect(page.locator(".cfiles .injchip")).toHaveCount(0);
 });
 
-test("arraste de arquivo da miniatura recebe captura na aba original após navegar", async ({ page }) => {
+test("thumbnail file drop delivers the capture to its original tab after navigation", async ({ page }) => {
   await page.locator('#tiles .tile[data-tab="t1"] .topen').click();
   const composer = page.locator("#chatwrap .composer textarea");
-  await composer.fill("Analise esta captura");
+  await composer.fill("Analyze this capture");
   const at = await point(composer);
   // The screenshot thumbnail advertises a file promise before a path exists.
   await drag(page, "enter", at, []);
   await expect(page.locator("#chatwrap")).toHaveClass(/dropping/);
   await promise(page, "pending", "capture-1", at);
-  await expect(page.locator("#msg")).toContainText("Recebendo arquivo");
+  await expect(page.locator("#msg")).toContainText("Receiving file");
   await expect(page.locator(".dropping")).toHaveCount(0);
   await expect(page.locator("#chatwrap .send")).toBeDisabled();
   await composer.press("Enter");
-  await expect(composer).toHaveValue("Analise esta captura");
+  await expect(composer).toHaveValue("Analyze this capture");
 
   // A board update can arrive between mouse press and release.
   const second = page.locator('#tabbar .tab[data-tab="t2"]');
@@ -202,59 +154,49 @@ test("arraste de arquivo da miniatura recebe captura na aba original após naveg
     const internals = (window as unknown as {
       __TAURI_INTERNALS__: { invoke: (command: string, args: Record<string, unknown>) => Promise<unknown> };
     }).__TAURI_INTERNALS__;
-    return internals.invoke("rename_tab", { workspace: "sessao-0929", tab: "t2", title: "Outra conversa" });
+    return internals.invoke("rename_tab", { workspace: "sessao-0929", tab: "t2", title: "Another conversation" });
   });
   await page.mouse.up();
   await expect(second).toHaveClass(/\bon\b/);
-  await expect(second).toContainText("Outra conversa");
+  await expect(second).toContainText("Another conversation");
   await promise(page, "received", "capture-1", undefined, [path]);
   await expect(page.locator("#chatwrap .cfiles .injchip")).toHaveCount(0);
   await page.locator('#tabbar .tab[data-tab="t1"]').click();
-  await expect(page.locator("#chatwrap .cfiles .injchip")).toContainText("Captura de Tela.png");
-  await expect(composer).toHaveValue("Analise esta captura");
+  await expect(page.locator("#chatwrap .cfiles .injchip")).toContainText("Screen Capture.png");
+  await expect(composer).toHaveValue("Analyze this capture");
   await expect(page.locator("#chatwrap .send")).toBeEnabled();
 });
 
-test("arraste de arquivo prometido na mesa atualiza a conversa já aberta no workspace", async ({ page }) => {
-  const tile = page.locator('#tiles .tile[data-tab="t1"]');
-  await promise(page, "pending", "desk", await point(tile));
-  await tile.locator(".topen").click();
-  await expect(page.locator("#chatwrap .send")).toBeDisabled();
-  await promise(page, "received", "desk", undefined, [path]);
-  await expect(page.locator("#chatwrap .cfiles .injchip")).toContainText("Captura de Tela.png");
-  await expect(page.locator("#chatwrap .send")).toBeEnabled();
-});
-
-test("arraste de arquivo prometido mantém destinos independentes e permite repetir após falha", async ({ page }) => {
+test("promised file drops keep independent destinations and allow retry after failure", async ({ page }) => {
   const first = page.locator('#tiles .tile[data-tab="t1"]');
   const second = page.locator('#tiles .tile[data-tab="t3"]');
   await promise(page, "pending", "first", await point(first));
   await promise(page, "pending", "second", await point(second));
-  await promise(page, "received", "second", undefined, ["/tmp/segunda.png"]);
+  await promise(page, "received", "second", undefined, ["/tmp/second.png"]);
   await promise(page, "received", "first", undefined, [], "timeout");
-  await expect(page.locator("#msg")).toContainText("Não foi possível receber o arquivo");
+  await expect(page.locator("#msg")).toContainText("Could not receive the file");
   await expect(first.locator(".cfiles .injchip")).toHaveCount(0);
-  await expect(second.locator(".cfiles .injchip")).toContainText("segunda.png");
+  await expect(second.locator(".cfiles .injchip")).toContainText("second.png");
   await promise(page, "pending", "retry", await point(first));
   await promise(page, "received", "retry", undefined, [path]);
-  await promise(page, "received", "retry", undefined, ["/tmp/duplicada.png"]);
+  await promise(page, "received", "retry", undefined, ["/tmp/duplicate.png"]);
   await expect(first.locator(".cfiles .injchip")).toHaveCount(1);
-  await expect(first.locator(".cfiles .injchip")).toContainText("Captura de Tela.png");
+  await expect(first.locator(".cfiles .injchip")).toContainText("Screen Capture.png");
 });
 
-test("colar imagem anexa na conversa e no lançador, sem tocar em texto colado", async ({ page }) => {
+test("image paste attaches to conversation and launcher without changing pasted text", { tag: "@webkit" }, async ({ page }) => {
   await page.locator('#tiles .tile[data-tab="t1"] .topen').click();
   const composer = page.locator("#chatwrap .composer textarea");
-  await composer.fill("Veja isto");
+  await composer.fill("Look at this");
   await paste(page, "#chatwrap .composer textarea", false);
   await expect(page.locator("#chatwrap .cfiles .injchip")).toHaveCount(0);
   await paste(page, "#chatwrap .composer textarea", true);
   await expect(page.locator("#chatwrap .cfiles .injchip")).toContainText("pasted.png");
-  await expect(composer).toHaveValue("Veja isto");
+  await expect(composer).toHaveValue("Look at this");
 
-  await page.locator("#railbody").getByRole("button", { name: "Criar", exact: true }).click();
-  await page.locator("#d-prompt").fill("Analise esta captura");
+  await page.locator("#railbody").getByRole("button", { name: "Create", exact: true }).click();
+  await page.locator("#d-prompt").fill("Analyze this capture");
   await paste(page, "#d-prompt", true);
   await expect(page.locator("#d-inj .injchip")).toContainText("pasted.png");
-  await expect(page.locator("#d-prompt")).toHaveValue("Analise esta captura");
+  await expect(page.locator("#d-prompt")).toHaveValue("Analyze this capture");
 });

@@ -50,7 +50,7 @@ the cache's additive field; installed files stay local.
 
 - `src-tauri/src/catalog.rs`: collisions, credentials, local installation and an
   old cache.
-- `e2e/cloud.spec.ts`: discovery and installation without copying into the
-  account.
+- The optional discovery and installation form has no dedicated browser
+  scenario; native installation rules remain covered in `catalog.rs`.
 - Cloud, `test/integration/organizations_test.rb`: Bearer, membership,
   revocation and isolation.

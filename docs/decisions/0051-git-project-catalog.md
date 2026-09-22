@@ -48,5 +48,6 @@ automatic setup is introduced.
 
 The [catalog contract](../contracts/cloud-catalog.md) specifies wire behavior.
 [Rust tests](../../src-tauri/src/catalog/projects.rs) use a local Git upload-pack
-fixture; [browser tests](../../e2e/projects.spec.ts) cover selection, partial
-failure, retry and existing-folder registration in Chromium and WebKit.
+fixture for cloning, retry, existing-folder registration and file preservation.
+[Browser tests](../../e2e/projects.spec.ts) cover selection, partial failure and
+retry in Chromium, plus a representative layout and focus check in WebKit.

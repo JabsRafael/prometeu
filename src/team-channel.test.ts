@@ -69,8 +69,8 @@ function received<T extends Down["t"]>(deliveries: Array<{ member: string; frame
     .filter((frame): frame is Extract<Down, { t: T }> => frame.t === type);
 }
 
-describe("canal ponta a ponta integrado ao relay", () => {
-  it("negocia automaticamente e mantém workspace, snapshot e stream opacos no relay", async () => {
+describe("end-to-end encrypted channel through the relay", () => {
+  it("negotiates automatically and keeps workspace, snapshot and stream opaque to the relay", async () => {
     const t = await team();
     await t.send("alice", { t: "share", share: shared });
     expect(t.bob.shares.get(shared.id)).toMatchObject(shared);
@@ -93,7 +93,7 @@ describe("canal ponta a ponta integrado ao relay", () => {
     expect(JSON.stringify([...t.relay.shares])).not.toContain("private-marker");
   });
 
-  it("controle remoto libera somente dispositivos companheiros do dono", async () => {
+  it("allows remote control only from the owner's companion devices", async () => {
     const t = await team();
     await t.deliver(reduce(t.relay, { k: "roster", now: Date.now(), members: [
       { id: "alice", name: "alice" }, { id: "bob", name: "bob" }, { id: "carol", name: "carol" },
@@ -108,15 +108,15 @@ describe("canal ponta a ponta integrado ao relay", () => {
     await t.send("alice", { t: "share", share: shared });
     expect(phone.shares.get(shared.id)).toMatchObject({ id: shared.id, title: shared.title });
     expect(t.carol.shares.size).toBe(0);
-    const note = await t.send("alice", { t: "note", ws: shared.id, tab: null, anchor: null, text: "olha isso", mentions: ["alice"], quote: null });
+    const note = await t.send("alice", { t: "note", ws: shared.id, tab: null, anchor: null, text: "look at this", mentions: ["alice"], quote: null });
     expect((note.encrypted as Extract<Up, { t: "note" }>).mentions.sort()).toEqual(["alice", "phone"]);
-    expect(received(t.deliveries, "phone", "inbox").slice(-1)[0]?.items.map(item => item.text)).toEqual(["olha isso"]);
+    expect(received(t.deliveries, "phone", "inbox").slice(-1)[0]?.items.map(item => item.text)).toEqual(["look at this"]);
     await t.send("phone", { t: "attach", ws: shared.id, tab: "tab" });
-    await t.send("phone", { t: "write", ws: shared.id, tab: "tab", data: "do celular" });
-    expect(received(t.deliveries, "alice", "write").slice(-1)[0]).toMatchObject({ from: "phone", data: "do celular" });
+    await t.send("phone", { t: "write", ws: shared.id, tab: "tab", data: "from the phone" });
+    expect(received(t.deliveries, "alice", "write").slice(-1)[0]).toMatchObject({ from: "phone", data: "from the phone" });
   });
 
-  it("um segundo Mac da pessoa compartilha como dispositivo companheiro", async () => {
+  it("shares from a second Mac as a companion device", async () => {
     const t = await team();
     await t.deliver(reduce(t.relay, { k: "roster", now: Date.now(), members: [
       { id: "alice", name: "alice" }, { id: "bob", name: "bob" }, { id: "carol", name: "carol" },
@@ -138,11 +138,11 @@ describe("canal ponta a ponta integrado ao relay", () => {
     expect(phone.shares.get(shared.id)).toMatchObject({ id: shared.id, owner: "mac2", title: shared.title });
     expect(t.carol.shares.size).toBe(0);
     await t.send("alice", { t: "attach", ws: shared.id, tab: "tab" });
-    await t.send("alice", { t: "write", ws: shared.id, tab: "tab", data: "do outro Mac" });
-    expect(received(t.deliveries, "mac2", "write").slice(-1)[0]).toMatchObject({ from: "alice", data: "do outro Mac" });
+    await t.send("alice", { t: "write", ws: shared.id, tab: "tab", data: "from the other Mac" });
+    expect(received(t.deliveries, "mac2", "write").slice(-1)[0]).toMatchObject({ from: "alice", data: "from the other Mac" });
   });
 
-  it("autentica fala remota e persiste rejeição de replay após reinício", async () => {
+  it("authenticates remote input and persists replay rejection across restarts", async () => {
     const t = await team();
     await t.send("alice", { t: "share", share: shared });
     await t.send("bob", { t: "attach", ws: shared.id, tab: "tab" });
@@ -156,7 +156,7 @@ describe("canal ponta a ponta integrado ao relay", () => {
     await expect(reopened.incoming(replay)).rejects.toThrow("Expired or repeated input");
   });
 
-  it("troca comentários, citações, respostas, inbox e resolução sem texto no storage do relay", async () => {
+  it("exchanges comments, mentions, replies, inbox and resolution without plaintext in relay storage", async () => {
     const t = await team();
     await t.send("alice", { t: "share", share: shared });
     await t.send("bob", { t: "note", ws: shared.id, tab: "tab", anchor: "private-marker-anchor",
@@ -176,7 +176,7 @@ describe("canal ponta a ponta integrado ao relay", () => {
     expect(JSON.stringify([...t.relay.inbox])).not.toContain("private-marker");
   });
 
-  it("recusa destinatário externo, ciphertext adulterado e contexto trocado", async () => {
+  it("rejects outsiders, tampered ciphertext and substituted context", async () => {
     const t = await team();
     const sent = await t.send("alice", { t: "share", share: shared });
     await expect(t.carol.outgoing({ t: "attach", ws: shared.id, tab: "tab" })).rejects.toThrow();
@@ -199,7 +199,7 @@ describe("canal ponta a ponta integrado ao relay", () => {
     await expect(t.carol.incoming(valid)).rejects.toThrow();
   });
 
-  it("adota identidade substituída e não aceita relay sem negociação E2EE", async () => {
+  it("adopts replacement identities and rejects relays without E2EE negotiation", async () => {
     const t = await team();
     await t.send("alice", { t: "share", share: shared });
     const impostor = await generateIdentity();
@@ -215,7 +215,7 @@ describe("canal ponta a ponta integrado ao relay", () => {
     await expect(t.bob.incomingBinary(Uint8Array.from(encodeSnapshot("tab", "bob", 1, encoder.encode(privateText))).buffer)).rejects.toThrow();
   });
 
-  it("preserva revogação local contra eco antigo e rejeita revisão antiga após reinício", async () => {
+  it("preserves local revocation against stale echoes and rejects old revisions after restart", async () => {
     const t = await team();
     const old = await t.send("alice", { t: "share", share: { ...shared, audience: ["bob", "carol"] } });
     if (old.encrypted.t !== "share") throw new Error("Missing share");
@@ -229,7 +229,7 @@ describe("canal ponta a ponta integrado ao relay", () => {
     await expect(reopened.incoming(downForMember(echo, "bob"))).rejects.toThrow("Repeated or replaced share");
   });
 
-  it("recusa comentário e resolução de membro externo mesmo com criptografia válida", async () => {
+  it("rejects comments and resolutions from outsiders even with valid encryption", async () => {
     const t = await team();
     await t.send("alice", { t: "share", share: shared });
     await t.send("alice", { t: "note", ws: shared.id, tab: "tab", text: privateText, mentions: ["bob"], quote: null });

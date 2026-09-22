@@ -569,8 +569,8 @@ mod tests {
                 "url": "http://localhost:3000/design",
                 "selector": "main > button",
                 "tag": "button",
-                "text": "Criar espaço",
-                "html": "<button>Criar espaço</button>",
+                "text": "Create workspace",
+                "html": "<button>Create workspace</button>",
                 "styles": { "padding": "12px", "color": "rgb(0, 0, 0)" },
                 "rect": { "x": -20.0, "y": 12.0, "width": 120.0, "height": 40.0 },
                 "viewport": { "width": 800.0, "height": 600.0 }
@@ -579,7 +579,7 @@ mod tests {
     }
 
     #[test]
-    fn inspecao_preserva_texto_e_estado_sem_transformar_html_em_codigo() {
+    fn inspection_preserves_text_and_state_without_executing_html() {
         let payload = inspection();
         let parsed = parse_inspection(&payload.to_string()).unwrap();
         assert_eq!(serde_json::to_value(parsed).unwrap(), payload);
@@ -589,7 +589,7 @@ mod tests {
     }
 
     #[test]
-    fn inspecao_rejeita_payload_externo_invalido_ou_excessivo() {
+    fn inspection_rejects_invalid_or_oversized_external_payloads() {
         for (field, value) in [
             ("url", serde_json::json!("file:///etc/passwd")),
             ("url", serde_json::json!("javascript:alert(1)")),
@@ -616,7 +616,7 @@ mod tests {
     }
 
     #[test]
-    fn captura_limita_elemento_a_parte_visivel_sem_aceitar_geometria_invalida() {
+    fn capture_clips_elements_to_the_viewport_and_rejects_invalid_geometry() {
         let rect = BrowserRect {
             x: -20.0,
             y: 580.0,
@@ -645,13 +645,13 @@ mod tests {
     }
 
     #[test]
-    fn label_so_com_o_que_o_tauri_aceita() {
+    fn labels_use_only_tauri_supported_characters() {
         assert_eq!(super::label("dock-1130"), "run-dock-1130");
         assert_eq!(super::label("porta 17.a"), "run-porta-17-a");
     }
 
     #[test]
-    fn navegacao_so_aceita_http() {
+    fn navigation_accepts_only_http_urls() {
         assert!(super::allowed(
             &tauri::Url::parse("http://localhost:3000").unwrap()
         ));

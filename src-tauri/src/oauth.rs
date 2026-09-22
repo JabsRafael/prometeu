@@ -222,7 +222,7 @@ mod tests {
 
     /// RFC 7636 Appendix B test vector.
     #[test]
-    fn o_challenge_e_o_da_rfc() {
+    fn challenge_matches_the_rfc_example() {
         assert_eq!(
             challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
             "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
@@ -230,14 +230,14 @@ mod tests {
     }
 
     #[test]
-    fn a_query_volta_decodificada() {
+    fn query_is_decoded() {
         let q = parse_query("code=abc%20def&state=xyz");
         assert_eq!(q.get("code").map(String::as_str), Some("abc def"));
         assert_eq!(q.get("state").map(String::as_str), Some("xyz"));
     }
 
     #[test]
-    fn so_get_e_alvo() {
+    fn only_get_requests_supply_a_target() {
         assert_eq!(
             request_target("GET /mcp?code=1 HTTP/1.1\r\n"),
             Some("/mcp?code=1".to_string())

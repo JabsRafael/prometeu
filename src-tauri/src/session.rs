@@ -2409,7 +2409,7 @@ mod tests {
     /// Verify cleanup against real Git repositories: require archiving, committed changes, and work
     /// already merged into the target unless force explicitly permits loss.
     #[test]
-    fn check_so_deixa_sair_o_que_ja_entrou_e_esta_limpo() {
+    fn check_allows_only_clean_workspaces_that_were_entered() {
         let root = std::env::temp_dir().join(format!("prometeu-clean-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let (origin, local) = (root.join("origin"), root.join("clone"));
@@ -2450,15 +2450,15 @@ mod tests {
         );
 
         let dest = root.join("wt");
-        super::add_worktree(&local, "trabalho", "origin/main", &dest).unwrap();
+        super::add_worktree(&local, "work", "origin/main", &dest).unwrap();
 
         let mut ws = super::Workspace {
             id: "w".into(),
-            title: "trabalho".into(),
+            title: "work".into(),
             project: local.display().to_string(),
             repo: local.display().to_string(),
             repo_name: "clone".into(),
-            branch: "trabalho".into(),
+            branch: "work".into(),
             worktree: dest.display().to_string(),
             repos: vec![Repo {
                 path: local.display().to_string(),
@@ -2504,7 +2504,7 @@ mod tests {
 
         // GitHub's merged PR status also permits cleanup after a squash merge, which does not
         // preserve branch ancestry.
-        ws.repos[0].pr = Some(pr(3, "trabalho", "MERGED"));
+        ws.repos[0].pr = Some(pr(3, "work", "MERGED"));
         super::check(&ws).unwrap();
 
         // Uncommitted changes prevent cleanup.
@@ -2528,7 +2528,7 @@ mod tests {
         // An unmerged commit in any additional repository blocks cleanup of the entire workspace.
         ws.worktree = dest.display().to_string();
         let dest2 = root.join("wt2");
-        super::add_worktree(&local, "trabalho-2", "origin/main", &dest2).unwrap();
+        super::add_worktree(&local, "work-2", "origin/main", &dest2).unwrap();
         ws.repos.push(Repo {
             path: local.display().to_string(),
             name: "clone-2".into(),
@@ -2558,7 +2558,7 @@ mod tests {
             repo.worktree = legacy.join(&repo.name).display().to_string();
         }
         super::validate_multi_root(&ws).unwrap();
-        ws.worktree = legacy.join("vizinho").display().to_string();
+        ws.worktree = legacy.join("neighbor").display().to_string();
         assert!(super::validate_multi_root(&ws)
             .unwrap_err()
             .contains("badRoot"));
@@ -2594,10 +2594,10 @@ mod tests {
     /// The PR prompt must name the branch, strip the remote from --base, and describe uncommitted
     /// changes.
     #[test]
-    fn pr_text_diz_o_estado_e_os_passos() {
+    fn pr_text_describes_state_and_steps() {
         let t = pr_text(&repo_pr(
             "app",
-            Some("meu/ajuste"),
+            Some("my/update"),
             3,
             2,
             "origin/main",
@@ -2605,23 +2605,23 @@ mod tests {
             None,
         ));
         assert!(t.contains("Há 3 arquivos"));
-        assert!(t.contains("git push -u origin HEAD:meu/ajuste"));
+        assert!(t.contains("git push -u origin HEAD:my/update"));
         assert!(t.contains("gh pr create --base main"));
         assert!(t.contains("Ainda não há branch upstream."));
 
-        let limpo = pr_text(&repo_pr("app", None, 0, 0, "origin/master", true, None));
-        assert!(limpo.contains("limpo"));
-        assert!(limpo.contains("HEAD solto"));
-        assert!(limpo.contains("--base master"));
-        assert!(limpo.contains("A branch já tem upstream."));
+        let clean = pr_text(&repo_pr("app", None, 0, 0, "origin/master", true, None));
+        assert!(clean.contains("limpo"));
+        assert!(clean.contains("HEAD solto"));
+        assert!(clean.contains("--base master"));
+        assert!(clean.contains("A branch já tem upstream."));
     }
 
     /// An existing PR requests an update to its number instead of another PR.
     #[test]
-    fn pr_text_com_pr_aberto_pede_atualizacao() {
+    fn pr_text_requests_updates_for_open_pull_requests() {
         let t = pr_text(&repo_pr(
             "app",
-            Some("meu/ajuste"),
+            Some("my/update"),
             1,
             1,
             "origin/main",
@@ -2633,13 +2633,13 @@ mod tests {
         assert!(t.contains("gh pr edit 42"));
         assert!(!t.contains("gh pr create"));
         // Both creation and updates require committing and pushing the work.
-        assert!(t.contains("git push -u origin HEAD:meu/ajuste"));
+        assert!(t.contains("git push -u origin HEAD:my/update"));
     }
 
     /// For multiple repositories, update existing PRs, skip unchanged repositories, and create the
     /// remaining PRs with cross-links.
     #[test]
-    fn multi_pr_text_lista_cada_repositorio() {
+    fn multi_pr_text_lists_each_repository() {
         let t = multi_pr_text(&[
             repo_pr("backend", Some("feat/x"), 2, 4, "origin/main", true, None),
             repo_pr(
@@ -2806,18 +2806,18 @@ mod tests {
     /// its own axis, yet a spawn still materializes both through the plugin pipeline, so an old
     /// workspace keeps the tools it had. See ADR 0045 and docs/contracts/persistence.md.
     #[test]
-    fn ferramentas_legadas_com_skill_migram_e_continuam_materializando() {
+    fn legacy_tools_with_skills_migrate_and_still_materialize() {
         use crate::selection::{Selection, Tools};
         use crate::state::split_skills;
 
         let mut ws = bare();
         // The pre-migration selection: one plugin and one standalone skill mixed on the plugin axis.
         ws.plugins = Some(Selection::only(vec![
-            "revisor".into(),
+            "reviewer".into(),
             "skill-review".into(),
         ]));
         split_skills(&mut ws.plugins, &mut ws.skills);
-        assert_eq!(ws.plugins, Some(Selection::only(vec!["revisor".into()])));
+        assert_eq!(ws.plugins, Some(Selection::only(vec!["reviewer".into()])));
         assert_eq!(
             ws.skills,
             Some(Selection::only(vec!["skill-review".into()]))
@@ -2825,7 +2825,7 @@ mod tests {
 
         // Both ride the plugin hub, so resolution keeps them and a launch materializes the union in
         // plugin-then-skill order, exactly as the old single-axis selection did.
-        let hub = vec!["revisor".to_string(), "skill-review".to_string()];
+        let hub = vec!["reviewer".to_string(), "skill-review".to_string()];
         let tools = resolve_tools(
             &Tools::default(),
             &Tools::default(),
@@ -2835,11 +2835,11 @@ mod tests {
             &hub,
         );
         let launch = ws.launch(&tools);
-        assert_eq!(launch.plugins, Some(vec!["revisor".into()]));
+        assert_eq!(launch.plugins, Some(vec!["reviewer".into()]));
         assert_eq!(launch.skills, Some(vec!["skill-review".into()]));
         assert_eq!(
             launch.plugin_packages(),
-            Some(vec!["revisor".into(), "skill-review".into()])
+            Some(vec!["reviewer".into(), "skill-review".into()])
         );
     }
 
@@ -2847,7 +2847,7 @@ mod tests {
     /// the current hash, a changed declaration re-gates until approved again, and a rejection never
     /// activates it (ADR 0045, phase 4).
     #[test]
-    fn projeto_so_injeta_depois_de_aprovado_e_reprova_quando_o_hash_muda() {
+    fn project_tools_require_approval_and_invalidate_it_when_hash_changes() {
         use super::{project_declaration, tools_hash, trusted_project};
         use crate::selection::{Selection, Tools};
         use crate::state::ToolTrust;
@@ -2856,7 +2856,7 @@ mod tests {
         std::fs::create_dir_all(root.join(".prometeu")).unwrap();
         std::fs::write(
             root.join(".prometeu/settings.toml"),
-            "[tools]\nplugins = { base = \"none\", add = [\"revisor\"] }\n",
+            "[tools]\nplugins = { base = \"none\", add = [\"reviewer\"] }\n",
         )
         .unwrap();
 
@@ -2871,11 +2871,11 @@ mod tests {
             pr: None,
         });
 
-        let hub = vec!["revisor".to_string()];
-        let declaration = project_declaration(&root, &root).expect("declaração");
+        let hub = vec!["reviewer".to_string()];
+        let declaration = project_declaration(&root, &root).expect("declaration");
         assert_eq!(
             declaration.tools.plugins,
-            Some(Selection::only(vec!["revisor".into()]))
+            Some(Selection::only(vec!["reviewer".into()]))
         );
 
         // Unapproved: the project layer contributes nothing, so no plugin is injected.
@@ -2900,18 +2900,18 @@ mod tests {
         let allowed = trusted_project(&trust, &ws);
         assert_eq!(
             allowed.plugins,
-            Some(Selection::only(vec!["revisor".into()]))
+            Some(Selection::only(vec!["reviewer".into()]))
         );
         let resolved = resolve_tools(&Tools::default(), &allowed, &ws.tools(), &[], &[], &hub);
-        assert_eq!(resolved.plugins, Some(vec!["revisor".into()]));
+        assert_eq!(resolved.plugins, Some(vec!["reviewer".into()]));
 
         // A changed declaration re-gates: the stored hash no longer matches, so approval lapses.
         std::fs::write(
             root.join(".prometeu/settings.toml"),
-            "[tools]\nplugins = { base = \"none\", add = [\"revisor\", \"outro\"] }\n",
+            "[tools]\nplugins = { base = \"none\", add = [\"reviewer\", \"other\"] }\n",
         )
         .unwrap();
-        let changed = project_declaration(&root, &root).expect("declaração");
+        let changed = project_declaration(&root, &root).expect("declaration");
         assert_ne!(changed.hash, declaration.hash);
         let mut decisions = trust.clone();
         for verdict in [true, false] {
@@ -2930,7 +2930,7 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .add,
-            ["revisor", "outro"]
+            ["reviewer", "other"]
         );
 
         assert_eq!(trusted_project(&trust, &ws), Tools::default());
@@ -3077,7 +3077,7 @@ mod tests {
     /// malformed payload errors instead of silently resetting the axis, and ids belonging to the
     /// other plugin-pipeline axis are refused (ADR 0045).
     #[test]
-    fn o_payload_do_eixo_e_validado_antes_de_gravar() {
+    fn tool_axis_payload_is_validated_before_persistence() {
         use super::{axis, Axis};
         use crate::selection::{Base, Selection};
 
@@ -3098,21 +3098,21 @@ mod tests {
 
         // Standalone skills ride `skill-<id>` and belong to the skills axis only.
         let misplaced = axis(
-            serde_json::json!({ "add": ["skill-revisor"] }),
+            serde_json::json!({ "add": ["skill-reviewer"] }),
             Axis::Plugins,
         );
         assert!(misplaced.unwrap_err().contains("err.tools.badAxis"));
-        let misplaced = axis(serde_json::json!({ "remove": ["revisor"] }), Axis::Skills);
+        let misplaced = axis(serde_json::json!({ "remove": ["reviewer"] }), Axis::Skills);
         assert!(misplaced.unwrap_err().contains("err.tools.badAxis"));
 
         assert!(axis(
-            serde_json::json!({ "add": ["skill-revisor"] }),
+            serde_json::json!({ "add": ["skill-reviewer"] }),
             Axis::Skills
         )
         .unwrap()
         .is_some());
         assert!(
-            axis(serde_json::json!({ "add": ["revisor"] }), Axis::Plugins)
+            axis(serde_json::json!({ "add": ["reviewer"] }), Axis::Plugins)
                 .unwrap()
                 .is_some()
         );
@@ -3121,7 +3121,7 @@ mod tests {
     /// The picker's provenance: a global item is inherited, a workspace add is added, removing an
     /// inherited item is removed, and an untrusted project item is pending until trusted (ADR 0045).
     #[test]
-    fn provenance_classifica_cada_item_do_hub() {
+    fn provenance_classifies_each_hub_item() {
         use super::{axis_provenance, Gate, Provenance};
         use crate::selection::{Base, Selection};
 
@@ -3176,7 +3176,7 @@ mod tests {
     /// The CLI-inherited base is visible without any layer action: an active base id is labeled
     /// `Cli`, the workspace may remove it, and an explicit add wins over the base label (ADR 0046).
     #[test]
-    fn provenance_classifica_a_base_herdada_do_cli() {
+    fn provenance_classifies_inherited_cli_configuration() {
         use super::{axis_provenance, Gate, Provenance};
         use crate::selection::{Base, Selection};
 
@@ -3245,8 +3245,8 @@ mod tests {
         ws.mcp = Some(Selection::only(vec!["original".into()]));
         let base = Profile {
             id: "review".into(),
-            name: "Revisor".into(),
-            prompt: "Revise".into(),
+            name: "Reviewer".into(),
+            prompt: "Review".into(),
             choice: Choice {
                 model: "sonnet".into(),
                 ..Default::default()
@@ -3303,15 +3303,15 @@ mod tests {
     /// Resume tabs with their own model choices. Tabs without overrides follow workspace defaults,
     /// including older persisted tabs.
     #[test]
-    fn retomar_uma_aba_respeita_o_modelo_com_que_ela_nasceu() {
+    fn resuming_a_tab_preserves_its_original_model() {
         let mut ws = bare();
         ws.agent = ProviderId::Claude;
         ws.model = "opus[1m]".into();
         ws.effort = "high".into();
         ws.tabs = vec![
-            tab("herda", None),
+            tab("inherited", None),
             tab(
-                "propria",
+                "explicit",
                 Some(Choice {
                     agent: ProviderId::Codex,
                     model: "gpt-5.6-sol".into(),
@@ -3320,25 +3320,28 @@ mod tests {
             ),
         ];
 
-        let herda = ws.launch_of("herda", &ResolvedTools::default());
+        let inherited = ws.launch_of("inherited", &ResolvedTools::default());
         assert_eq!(
-            (herda.model.as_str(), herda.effort.as_str()),
+            (inherited.model.as_str(), inherited.effort.as_str()),
             ("opus[1m]", "high")
         );
-        assert_eq!(herda.agent, ProviderId::Claude);
+        assert_eq!(inherited.agent, ProviderId::Claude);
 
-        let propria = ws.launch_of("propria", &ResolvedTools::default());
-        assert_eq!(propria.agent, ProviderId::Codex);
+        let explicit_choice = ws.launch_of("explicit", &ResolvedTools::default());
+        assert_eq!(explicit_choice.agent, ProviderId::Codex);
         assert_eq!(
-            (propria.model.as_str(), propria.effort.as_str()),
+            (
+                explicit_choice.model.as_str(),
+                explicit_choice.effort.as_str()
+            ),
             ("gpt-5.6-sol", "ultracode")
         );
         // Resuming never restores initial plan mode.
-        assert!(!propria.plan);
+        assert!(!explicit_choice.plan);
 
         // A tab removed while the request was in flight falls back to workspace defaults.
         assert_eq!(
-            ws.launch_of("sumiu", &ResolvedTools::default()).model,
+            ws.launch_of("missing", &ResolvedTools::default()).model,
             "opus[1m]"
         );
     }
@@ -3346,11 +3349,11 @@ mod tests {
     /// Retuning persists a tab override; choosing workspace defaults clears it. Reject switching
     /// providers within a transcript.
     #[test]
-    fn trocar_o_modelo_de_uma_conversa_grava_na_aba() {
+    fn changing_a_conversation_model_persists_it_on_the_tab() {
         let mut ws = bare();
         ws.model = "opus[1m]".into();
         ws.effort = "high".into();
-        ws.tabs = vec![tab("aberta", None)];
+        ws.tabs = vec![tab("open", None)];
 
         let choice = |model: &str, effort: &str| Choice {
             agent: ProviderId::Claude,
@@ -3358,8 +3361,8 @@ mod tests {
             effort: effort.into(),
         };
 
-        ws.retune("aberta", choice("sonnet", "medium")).unwrap();
-        let launch = ws.launch_of("aberta", &ResolvedTools::default());
+        ws.retune("open", choice("sonnet", "medium")).unwrap();
+        let launch = ws.launch_of("open", &ResolvedTools::default());
         assert_eq!(
             (launch.model.as_str(), launch.effort.as_str()),
             ("sonnet", "medium")
@@ -3368,7 +3371,7 @@ mod tests {
         assert_eq!(ws.model, "opus[1m]");
 
         // Return to inherited settings instead of freezing a copy of today's defaults.
-        ws.retune("aberta", choice("opus[1m]", "high")).unwrap();
+        ws.retune("open", choice("opus[1m]", "high")).unwrap();
         assert!(ws.tabs[0].choice.is_none());
 
         // The provider cannot change during a conversation.
@@ -3377,8 +3380,8 @@ mod tests {
             model: "gpt-5.6-sol".into(),
             effort: "high".into(),
         };
-        assert!(ws.retune("aberta", gpt).is_err());
-        assert!(ws.retune("sumiu", choice("sonnet", "high")).is_err());
+        assert!(ws.retune("open", gpt).is_err());
+        assert!(ws.retune("missing", choice("sonnet", "high")).is_err());
     }
 
     /// Parse modified and deleted files, including paths containing spaces, from git diff HEAD.
@@ -3400,18 +3403,18 @@ index 3e3e3e3..0000000
 @@ -1,2 +0,0 @@
 -const gone = true;
 -export default gone;
-diff --git a/docs/com espaco.md b/docs/com espaco.md
---- a/docs/com espaco.md
-+++ b/docs/com espaco.md
+diff --git a/docs/with spaces.md b/docs/with spaces.md
+--- a/docs/with spaces.md
++++ b/docs/with spaces.md
 @@ -1 +1 @@
--antes
-+depois
+-before
++after
 ";
 
     /// Every text file with counted changes must have a renderable patch. Binary files have zero
     /// line counts and no text patch.
     #[test]
-    fn a_lista_e_o_patch_falam_do_mesmo_arquivo() {
+    fn file_listing_and_patch_refer_to_the_same_file() {
         let wt = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap();
@@ -3421,7 +3424,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
             }
             assert!(
                 change.patch.contains("@@"),
-                "{} tem {}+/{}- e nenhum trecho",
+                "{} has {}+/{}- without a hunk",
                 change.path,
                 change.added,
                 change.removed
@@ -3465,12 +3468,12 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         run(&["commit", "-qm", "feat"]);
         // Include both a modified tracked file and an untracked file.
         std::fs::write(root.join("a.txt"), "a\nb\nc\n").unwrap();
-        std::fs::write(root.join("novo.txt"), "n\n").unwrap();
+        std::fs::write(root.join("new.txt"), "n\n").unwrap();
 
         let (base, ahead) = super::ahead_of(&root, "main");
         assert_eq!(base, super::git(&root, &["rev-parse", "main"]).trim());
         assert_eq!(ahead, 1);
-        assert_eq!(super::ahead_of(&root, "nao-existe"), ("HEAD".into(), 0));
+        assert_eq!(super::ahead_of(&root, "nonexistent"), ("HEAD".into(), 0));
 
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -3478,7 +3481,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
     /// Use a local bare remote to prove new branches start from the selected base and respect the
     /// clone's origin/HEAD default.
     #[test]
-    fn a_branch_nova_sai_da_base_escolhida() {
+    fn new_branches_start_from_the_selected_base() {
         let root = std::env::temp_dir().join(format!("prometeu-base-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let (origin, local) = (root.join("origin"), root.join("clone"));
@@ -3507,11 +3510,11 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         std::fs::write(origin.join("a.txt"), "a").unwrap();
         run(&origin, &["add", "-A"]);
         run(&origin, &["commit", "-qm", "a"]);
-        run(&origin, &["checkout", "-qb", "velha"]);
+        run(&origin, &["checkout", "-qb", "old"]);
         std::fs::write(origin.join("b.txt"), "b").unwrap();
         run(&origin, &["add", "-A"]);
         run(&origin, &["commit", "-qm", "b"]);
-        let velha = run(&origin, &["rev-parse", "HEAD"]);
+        let old = run(&origin, &["rev-parse", "HEAD"]);
         run(&origin, &["checkout", "-q", "main"]);
 
         let out = Command::new("git")
@@ -3530,34 +3533,34 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         assert_eq!(branches.default, "origin/main");
         assert_eq!(branches.all.first().unwrap(), "origin/main");
         assert!(
-            branches.all.contains(&"origin/velha".to_string()),
+            branches.all.contains(&"origin/old".to_string()),
             "{:?}",
             branches.all
         );
 
         let dest = root.join("wt");
-        super::add_worktree(&local, "nova", "origin/velha", &dest).unwrap();
-        assert_eq!(run(&dest, &["rev-parse", "HEAD"]), velha);
-        assert_eq!(run(&dest, &["rev-parse", "--abbrev-ref", "HEAD"]), "nova");
+        super::add_worktree(&local, "new", "origin/old", &dest).unwrap();
+        assert_eq!(run(&dest, &["rev-parse", "HEAD"]), old);
+        assert_eq!(run(&dest, &["rev-parse", "--abbrev-ref", "HEAD"]), "new");
 
         // Reject a base that does not exist.
-        let erro = super::add_worktree(&local, "outra", "origin/fantasma", &root.join("wt2"));
-        assert!(erro.unwrap_err().contains("fantasma"));
+        let error = super::add_worktree(&local, "other", "origin/missing", &root.join("wt2"));
+        assert!(error.unwrap_err().contains("missing"));
 
         // Reuse a worktree already on the requested branch so repeated creation is safe.
-        super::add_worktree(&local, "nova", "origin/velha", &dest).unwrap();
+        super::add_worktree(&local, "new", "origin/old", &dest).unwrap();
         // Reject an existing worktree on the wrong branch.
-        let erro = super::add_worktree(&local, "outra-branch", "origin/main", &dest).unwrap_err();
-        assert!(erro.contains("nova"), "{erro}");
+        let error = super::add_worktree(&local, "other-branch", "origin/main", &dest).unwrap_err();
+        assert!(error.contains("new"), "{error}");
 
         // Without worktree isolation, move the original clone's HEAD to a branch at the selected
         // base without creating a directory.
-        super::switch_branch(&local, "aqui", "origin/velha").unwrap();
-        assert_eq!(run(&local, &["rev-parse", "--abbrev-ref", "HEAD"]), "aqui");
-        assert_eq!(run(&local, &["rev-parse", "HEAD"]), velha);
+        super::switch_branch(&local, "here", "origin/old").unwrap();
+        assert_eq!(run(&local, &["rev-parse", "--abbrev-ref", "HEAD"]), "here");
+        assert_eq!(run(&local, &["rev-parse", "HEAD"]), old);
         // Selecting the current branch is a no-op.
-        super::switch_branch(&local, "aqui", "origin/main").unwrap();
-        assert_eq!(run(&local, &["rev-parse", "HEAD"]), velha);
+        super::switch_branch(&local, "here", "origin/main").unwrap();
+        assert_eq!(run(&local, &["rev-parse", "HEAD"]), old);
 
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -3566,7 +3569,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
     /// leave no empty directories behind. Multi-repository workspace names can produce different
     /// paths for the same issue branch.
     #[test]
-    fn branch_aberta_em_outra_pasta_recusa_sem_deixar_pasta() {
+    fn branches_open_in_another_directory_are_rejected_without_leaving_a_directory() {
         let root = std::env::temp_dir().join(format!("prometeu-busy-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let repo = root.join("code-rules");
@@ -3594,31 +3597,35 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         run(&repo, &["commit", "-qm", "a"]);
 
         // Create the single-repository workspace first.
-        let um = root.join("code-rules").join("aut-49");
-        assert!(super::add_worktree(&repo, "aut-49", "", &um).unwrap());
+        let first = root.join("code-rules").join("aut-49");
+        assert!(super::add_worktree(&repo, "aut-49", "", &first).unwrap());
 
         // Request the same branch at the multi-repository path.
-        let dois = root.join("code-rules+autonomous").join("aut-49");
-        let erro = super::add_worktree(&repo, "aut-49", "", &dois.join("code-rules")).unwrap_err();
-        let onde = um.canonicalize().unwrap().display().to_string();
-        assert!(erro.contains("aut-49") && erro.contains(&onde), "{erro}");
+        let second = root.join("code-rules+autonomous").join("aut-49");
+        let error =
+            super::add_worktree(&repo, "aut-49", "", &second.join("code-rules")).unwrap_err();
+        let location = first.canonicalize().unwrap().display().to_string();
         assert!(
-            !dois.exists(),
-            "sobrou a pasta da tentativa: {}",
-            dois.display()
+            error.contains("aut-49") && error.contains(&location),
+            "{error}"
+        );
+        assert!(
+            !second.exists(),
+            "attempt directory remains: {}",
+            second.display()
         );
         assert!(!root.join("code-rules+autonomous").exists());
 
         // Adopt an existing worktree on the requested branch, and preserve it during rollback of a
         // sibling failure.
-        assert!(!super::add_worktree(&repo, "aut-49", "", &um).unwrap());
+        assert!(!super::add_worktree(&repo, "aut-49", "", &first).unwrap());
 
         let _ = std::fs::remove_dir_all(&root);
     }
 
     /// Quote each setup subshell's path so spaces and apostrophes cannot split arguments.
     #[test]
-    fn quoted_aguenta_espaco_e_apostrofo() {
+    fn quoted_handles_spaces_and_apostrophes() {
         assert_eq!(quoted("/a b"), "'/a b'");
         assert_eq!(quoted("/d'x"), "'/d'\\''x'");
     }
@@ -3626,7 +3633,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
     /// Run the combined setup script in a real shell to verify sequential execution in each
     /// repository with its own environment.
     #[test]
-    fn setup_de_varios_repos_roda_cada_um_na_sua_pasta() {
+    fn multi_repository_setup_runs_in_each_repository_directory() {
         let root = std::env::temp_dir().join(format!("prometeu-multi-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let mk = |name: &str, setup: &str| {
@@ -3649,8 +3656,8 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
             }
         };
         let repos = vec![
-            mk("back end", "echo \"$PROMETEU_WORKSPACE_PATH\" > saida.txt"),
-            mk("front", "echo \"$PROMETEU_ROOT_PATH:$PORT\" > saida.txt"),
+            mk("back end", "echo \"$PROMETEU_WORKSPACE_PATH\" > output.txt"),
+            mk("front", "echo \"$PROMETEU_ROOT_PATH:$PORT\" > output.txt"),
         ];
         let ws = super::Workspace {
             id: "w".into(),
@@ -3698,7 +3705,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
             String::from_utf8_lossy(&out.stderr)
         );
         let read =
-            |r: &Repo| std::fs::read_to_string(Path::new(&r.worktree).join("saida.txt")).unwrap();
+            |r: &Repo| std::fs::read_to_string(Path::new(&r.worktree).join("output.txt")).unwrap();
         assert_eq!(read(&repos[0]).trim(), repos[0].worktree);
         assert_eq!(read(&repos[1]).trim(), format!("{}:3100", repos[1].path));
 
@@ -3712,7 +3719,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
     }
 
     #[test]
-    fn separa_um_patch_por_arquivo() {
+    fn splits_one_patch_per_file() {
         let map = patch_map(DIFF);
         assert_eq!(map.len(), 3);
 
@@ -3728,19 +3735,19 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
         // header and mark deleted file mode.
         assert!(map["src/old.ts"].body.contains("-export default gone;"));
         assert!(map["src/old.ts"].deleted);
-        assert_eq!(map["docs/com espaco.md"].body.lines().count(), 3);
+        assert_eq!(map["docs/with spaces.md"].body.lines().count(), 3);
     }
 
     /// Only terminal and terminal-<number> may open a PTY. Reject arbitrary keys before they create
     /// shell processes.
     #[test]
-    fn so_terminal_numerado_vira_shell() {
+    fn only_numbered_terminal_labels_become_shells() {
         assert!(is_terminal("terminal"));
         assert!(is_terminal("terminal-2"));
         assert!(is_terminal("terminal-10"));
         assert!(!is_terminal("terminal-"));
         assert!(!is_terminal("terminal-2x"));
-        assert!(!is_terminal("terminalzinho"));
+        assert!(!is_terminal("terminalextra"));
         assert!(!is_terminal("setup"));
         assert!(!is_terminal("run"));
     }

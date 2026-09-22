@@ -122,8 +122,8 @@ collaboration in the relay; see the
   [shared fixture workflow](../operations/development.md#shared-cloud-api-fixtures).
 - `src-tauri/src/cloud.rs`: origin validation and absence of the token in the
   status.
-- `e2e/cloud.spec.ts`: connection, persistence, cancellation, logout, offline
-  account, revocation and preservation of conversations, in Chromium and WebKit.
+- `e2e/cloud.spec.ts`: connection, persistence, logout, offline
+  account, revocation and preservation of conversations over the browser mock.
 - `prometeu-cloud/test/integration/accounts_test.rb`: Rails requests, CRUD,
   isolation, desktop contract, approval, revocation, CSRF, rate limiting and
   email.

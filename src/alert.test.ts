@@ -53,8 +53,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("pendências no Dock", () => {
-  it("exige envio aceito e conclusão; status e mensagens sintéticas não criam pendência", () => {
+describe("Dock notifications", () => {
+  it("requires accepted input and completion; status and synthetic messages do not create notifications", () => {
     boardChanged(board(workspace("a")));
     for (let i = 0; i < 5; i++) {
       boardChanged(board(workspace("a", [tab("a-t", i % 2 ? "pronta" : "rodando")])));
@@ -76,11 +76,11 @@ describe("pendências no Dock", () => {
     expect(waiting()).toBe(1);
   });
 
-  it("ferramentas e streaming não criam pendência; conclusão atualiza o Dock", () => {
+  it("tools and streaming do not create notifications; completion updates the Dock", () => {
     boardChanged(board(workspace("a")));
     begin();
     for (let i = 0; i < 10; i++) {
-      emit("a-t", { type: "assistant.block", messageId: "m", index: i, block: { kind: "text", text: "trabalhando" } });
+      emit("a-t", { type: "assistant.block", messageId: "m", index: i, block: { kind: "text", text: "working" } });
       emit("a-t", { type: "tool.completed", toolId: "tool", output: "ok", error: false, background: false });
       emit("a-t", { type: "context.updated", used: i, window: 100 });
       settle();
@@ -94,7 +94,7 @@ describe("pendências no Dock", () => {
     expect(badge).toHaveBeenLastCalledWith(1);
   });
 
-  it("não confunde resultados intermediários com fim enquanto há tarefas em background", () => {
+  it("does not treat intermediate results as completion while background tasks remain", () => {
     boardChanged(board(workspace("a")));
     begin();
     background(["one", "two"]);
@@ -120,7 +120,7 @@ describe("pendências no Dock", () => {
     expect(waiting()).toBe(1);
   });
 
-  it("retomada cancela conclusão candidata, sem inferir fim por silêncio", () => {
+  it("resuming cancels pending completion without inferring completion from silence", () => {
     boardChanged(board(workspace("a")));
     begin();
     done();
@@ -133,7 +133,7 @@ describe("pendências no Dock", () => {
     expect(waiting()).toBe(1);
   });
 
-  it("olhar, responder e receber mensagens sintéticas não rearmam execução já avisada", () => {
+  it("viewing, replying and receiving synthetic messages do not rearm an already notified execution", () => {
     boardChanged(board(workspace("a")));
     begin();
     done();
@@ -157,7 +157,7 @@ describe("pendências no Dock", () => {
     expect(waiting()).toBe(1);
   });
 
-  it("consome conclusão vista; sair da aba não cria pendência depois", () => {
+  it("consumes viewed completion so leaving the tab does not create a later notification", () => {
     boardChanged(board(workspace("a")));
     focused = true;
     visible.add("a-t");
@@ -174,7 +174,7 @@ describe("pendências no Dock", () => {
     expect(waiting()).toBe(1);
   });
 
-  it("ver conclusão durante espera cancela pendência mesmo saindo depois", () => {
+  it("viewing completion during the waiting period cancels notification even after leaving", () => {
     boardChanged(board(workspace("a")));
     begin();
     done();
@@ -189,7 +189,7 @@ describe("pendências no Dock", () => {
     expect(waiting()).toBe(0);
   });
 
-  it("cada aba conclui independentemente; Dock conta workspaces e preserva unread", () => {
+  it("completes tabs independently; the Dock counts workspaces and preserves unread state", () => {
     boardChanged(board(workspace("a", [tab("a-t"), tab("b-t")], true)));
     begin();
     begin("b-t");
@@ -201,7 +201,7 @@ describe("pendências no Dock", () => {
     expect(waiting()).toBe(0);
   });
 
-  it("arquivar ou remover aba cancela pendência; remotos não entram no Dock", () => {
+  it("archiving or removing a tab cancels its notification; remote tabs stay out of the Dock", () => {
     boardChanged(board(workspace("a"), { ...workspace("b"), remote: {} } as Workspace));
     begin();
     done();
@@ -212,7 +212,7 @@ describe("pendências no Dock", () => {
     expect(waiting()).toBe(0);
   });
 
-  it("reiniciar processo descarta background antigo; novo envio no mesmo processo preserva tarefas", () => {
+  it("restarting a process discards old background tasks; new input in the same process preserves them", () => {
     boardChanged(board(workspace("a")));
     begin();
     background(["old"]);
@@ -227,7 +227,7 @@ describe("pendências no Dock", () => {
     expect(waiting()).toBe(1);
   });
 
-  it("ignora dados inválidos, comandos locais e interrupções; erro terminal avisa", () => {
+  it("ignores invalid data, local commands and interruptions; terminal errors notify", () => {
     boardChanged(board(workspace("a")));
     chatChanged("a-t", "invalid json");
     emit("a-t", { type: "turn.completed" });
@@ -250,7 +250,7 @@ describe("pendências no Dock", () => {
   });
 });
 
-it("comentários atualizam o Dock sem áudio, inclusive depois de reconectar", () => {
+it("comments update the Dock silently, including after reconnecting", () => {
   inbox.push({ id: "comment" });
   teamChanged();
   teamChanged();

@@ -1273,7 +1273,7 @@ mod tests {
     fn explicit_links_preserve_private_items_and_legacy_catalogs() {
         let local = mcp::Server {
             id: "linear".into(),
-            note: "privado".into(),
+            note: "private".into(),
             config: json!({"url":"https://local.test/mcp", "headers":{"Authorization":"private"}}),
         };
         let cloud = mcp::Server {
@@ -1339,7 +1339,28 @@ mod tests {
     }
 
     #[test]
-    fn segredo_fica_no_mac_e_volta_no_merge() {
+    fn mcp_equivalence_ignores_object_order_but_preserves_command_args_and_secrets() {
+        let local = mcp::Server {
+            id: "order-test".into(),
+            note: "Local".into(),
+            config: json!({"type":"stdio", "command":"npx", "args":["-y", "server"], "env":{"FIRST":"local-secret", "SECOND":"another-secret"}, "headers":{"Authorization":"Bearer local"}}),
+        };
+        let mut item = mcp::Server {
+            id: local.id.clone(),
+            note: "Team".into(),
+            config: json!({"headers":{"Authorization":""}, "env":{"SECOND":"", "FIRST":""}, "args":["-y", "server"], "command":"npx", "type":"stdio"}),
+        };
+        assert!(same_mcp(&item, &local));
+        assert_eq!(merge(&item.config, &local.config), local.config);
+        item.config["args"] = json!(["server", "-y"]);
+        assert!(!same_mcp(&item, &local));
+        item.config["args"] = local.config["args"].clone();
+        item.config["command"] = json!("other");
+        assert!(!same_mcp(&item, &local));
+    }
+
+    #[test]
+    fn secrets_stay_on_the_mac_and_return_during_merge() {
         let local = mcp::Server {
             id: "x".into(),
             config: json!({"command": "npx", "env": {"TOKEN": "s3cret", "MODE": "dev"}, "headers": {"Authorization": "Bearer t"}}),
@@ -1362,7 +1383,7 @@ mod tests {
     }
 
     #[test]
-    fn so_o_que_tem_endereco_e_portatil() {
+    fn only_items_with_addresses_are_portable() {
         let p = |source: &str, from: &str| plugins::Plugin {
             id: "p".into(),
             source: source.into(),

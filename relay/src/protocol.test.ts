@@ -17,9 +17,9 @@ import {
 const bytes = (s: string) => new TextEncoder().encode(s);
 const text = (b: Uint8Array) => new TextDecoder().decode(b);
 
-describe("frames binários", () => {
-  it("ao vivo: vários pedaços, cada um com o seu número, voltam iguais", () => {
-    const frame = encodeLive("aba-1", [
+describe("binary frames", () => {
+  it("round-trips multiple live chunks with their sequence numbers", () => {
+    const frame = encodeLive("tab-1", [
       { seq: 41, bytes: bytes("olá") },
       { seq: 42, bytes: new Uint8Array(0) },
       { seq: 2 ** 40 + 3, bytes: bytes("\x1b[2J") },
@@ -27,7 +27,7 @@ describe("frames binários", () => {
     const got = decodeBinary(frame);
     expect(got?.kind).toBe(LIVE);
     if (got?.kind !== LIVE) return;
-    expect(got.tab).toBe("aba-1");
+    expect(got.tab).toBe("tab-1");
     expect(got.segments.map((s) => [s.seq, text(s.bytes)])).toEqual([
       [41, "olá"],
       [42, ""],
@@ -35,15 +35,15 @@ describe("frames binários", () => {
     ]);
   });
 
-  it("snapshot: aba, destinatário, número e bytes", () => {
-    const got = decodeBinary(encodeSnapshot("t", "bob", 9, bytes("tudo")));
+  it("round-trips snapshot tab, recipient, sequence number and bytes", () => {
+    const got = decodeBinary(encodeSnapshot("t", "bob", 9, bytes("full")));
     expect(got).toMatchObject({ kind: SNAPSHOT, tab: "t", to: "bob", seq: 9, more: false });
-    if (got?.kind === SNAPSHOT) expect(text(got.bytes)).toBe("tudo");
+    if (got?.kind === SNAPSHOT) expect(text(got.bytes)).toBe("full");
     const part = decodeBinary(encodeSnapshot("t", "bob", 9, bytes("meta"), true));
     expect(part).toMatchObject({ kind: SNAPSHOT, more: true });
   });
 
-  it("decodifica a partir de um ArrayBuffer com offset, como o WebSocket entrega", () => {
+  it("decodes an offset ArrayBuffer as delivered by WebSocket", () => {
     const frame = encodeLive("t", [{ seq: 1, bytes: bytes("x") }]);
     const padded = new Uint8Array(frame.length + 4);
     padded.set(frame, 4);
@@ -51,14 +51,14 @@ describe("frames binários", () => {
     expect(got?.kind).toBe(LIVE);
   });
 
-  it("lixo não vira frame", () => {
+  it("rejects malformed frames", () => {
     expect(decodeBinary(new Uint8Array([]))).toBeNull();
     expect(decodeBinary(new Uint8Array([0, 5, 1]))).toBeNull();
     expect(decodeBinary(new Uint8Array([7, 1, 65]))).toBeNull();
     expect(decodeBinary(new Uint8Array([0, 1, 65, 0, 1]))).toBeNull();
   });
 
-  it("recusa frame com lixo no fim, id inválido, UTF-8 quebrado ou acima do teto", () => {
+  it("rejects trailing garbage, invalid IDs, malformed UTF-8 and oversized frames", () => {
     const live = encodeLive("tab", [{ seq: 1, bytes: bytes("x") }]);
     const trailing = new Uint8Array(live.length + 1);
     trailing.set(live);
@@ -69,50 +69,50 @@ describe("frames binários", () => {
   });
 });
 
-describe("frames de controle", () => {
+describe("control frames", () => {
   const validShare = {
     id: "ws1",
-    title: "Trabalho",
+    title: "Work",
     repo_name: "repo",
     branch: "main",
     stage: "Fazendo",
     issue: null,
     active: "t1",
-    tabs: [{ id: "t1", title: "Agente", status: "rodando", note: null, tokens: 10 }],
+    tabs: [{ id: "t1", title: "Agent", status: "rodando", note: null, tokens: 10 }],
     sizes: { t1: [80, 24] },
     audience: ["alice", "alice"],
   };
 
-  it("copia e normaliza share/menções válidos", () => {
+  it("copies and normalizes valid shares and mentions", () => {
     const got = parseUp({ t: "share", share: validShare });
     expect(got?.t).toBe("share");
     if (got?.t === "share") expect(got.share.audience).toEqual(["alice"]);
-    expect(parseUp({ t: "note", ws: "ws1", text: "oi", mentions: ["alice", "zé", "alice"], quote: null })).toEqual({
+    expect(parseUp({ t: "note", ws: "ws1", text: "hello", mentions: ["alice", "zé", "alice"], quote: null })).toEqual({
       t: "note",
       ws: "ws1",
       tab: null,
       anchor: null,
-      text: "oi",
+      text: "hello",
       mentions: ["alice"],
       quote: null,
     });
-    expect(parseUp({ t: "note", ws: "ws1", tab: "t1", anchor: "s4.0", text: "oi", mentions: [], quote: "trecho" })).toMatchObject({ tab: "t1", anchor: "s4.0" });
-    expect(parseUp({ t: "note_reply", ws: "ws1", note: "n1", text: "feito", mentions: ["alice"] })).toMatchObject({ t: "note_reply", note: "n1" });
+    expect(parseUp({ t: "note", ws: "ws1", tab: "t1", anchor: "s4.0", text: "hello", mentions: [], quote: "excerpt" })).toMatchObject({ tab: "t1", anchor: "s4.0" });
+    expect(parseUp({ t: "note_reply", ws: "ws1", note: "n1", text: "done", mentions: ["alice"] })).toMatchObject({ t: "note_reply", note: "n1" });
     expect(parseUp({ t: "note_resolve", ws: "ws1", note: "n1" })).toEqual({ t: "note_resolve", ws: "ws1", note: "n1" });
   });
 
-  it("recusa campos aninhados, dimensões, ids e tamanhos inválidos", () => {
-    expect(parseUp({ t: "share", share: { ...validShare, active: "sumiu" } })).toBeNull();
+  it("rejects invalid nested fields, dimensions, IDs and sizes", () => {
+    expect(parseUp({ t: "share", share: { ...validShare, active: "missing" } })).toBeNull();
     expect(parseUp({ t: "share", share: { ...validShare, sizes: { t1: [0, 24] } } })).toBeNull();
     expect(parseUp({ t: "share", share: { ...validShare, tabs: [{ ...validShare.tabs[0], status: "hack" }] } })).toBeNull();
     expect(parseUp({ t: "attach", ws: "__proto__", tab: "t1" })).toBeNull();
     expect(parseUp({ t: "me", name: "x".repeat(81) })).toBeNull();
     expect(parseUp({ t: "write", ws: "ws1", tab: "t1", data: "x".repeat(64 * 1024 + 1) })).toBeNull();
-    expect(parseUp({ t: "note", ws: "ws1", tab: "sumiu!", anchor: null, text: "x", mentions: [], quote: null })).toBeNull();
+    expect(parseUp({ t: "note", ws: "ws1", tab: "missing!", anchor: null, text: "x", mentions: [], quote: null })).toBeNull();
     expect(parseUp({ t: "note_reply", ws: "ws1", note: "?", text: "x", mentions: [] })).toBeNull();
   });
 
-  it("valida e limita tudo que volta de um relay configurável", () => {
+  it("validates and bounds all responses from a configurable relay", () => {
     const shared = { ...validShare, owner: "alice", online: true };
     const welcome = {
       t: "welcome",
@@ -126,23 +126,23 @@ describe("frames de controle", () => {
     expect(parseDown(welcome)).toMatchObject({ t: "welcome", comments: 1, watching: { ws1: { t1: ["bob"] } } });
     expect(parseDown({ ...welcome, members: [{ id: "__proto__", name: "x", online: true }] })).toBeNull();
     expect(parseDown({ t: "write", ws: "ws1", tab: "t1", from: "alice", data: "x".repeat(64 * 1024 + 1) })).toBeNull();
-    expect(parseDown({ t: "notes", ws: "ws1", items: [{ id: "n1", ws: "outro", author: "alice", text: "oi", mentions: [], quote: null, ts: 1 }] })).toBeNull();
+    expect(parseDown({ t: "notes", ws: "ws1", items: [{ id: "n1", ws: "other", author: "alice", text: "hello", mentions: [], quote: null, ts: 1 }] })).toBeNull();
     expect(parseDown({ t: "presence", members: Array.from({ length: 65 }, (_, i) => ({ id: `m${i}`, name: "x", online: true })) })).toBeNull();
     expect(parseDown({ ...welcome, comments: 2 })).toBeNull();
-    expect(parseDown({ t: "note", note: { id: "n1", ws: "ws1", author: "alice", text: "oi", mentions: [], quote: null, ts: 1, tab: "t1", anchor: "s4.0", parent: null, resolved: false } })).toMatchObject({
+    expect(parseDown({ t: "note", note: { id: "n1", ws: "ws1", author: "alice", text: "hello", mentions: [], quote: null, ts: 1, tab: "t1", anchor: "s4.0", parent: null, resolved: false } })).toMatchObject({
       note: { tab: "t1", anchor: "s4.0", parent: null, resolved: false },
     });
   });
 });
 
-describe("convite", () => {
-  it("vai e volta", () => {
+describe("invitations", () => {
+  it("round-trips invitation codes", () => {
     const team = "abc_-123";
     const secret = "s3gr3d0-individual-123456";
     expect(parseInvite(formatInvite(team, secret))).toEqual({ team, secret });
     expect(parseInvite(`  pm2.${team}.${secret}\n`)).toEqual({ team, secret });
   });
-  it("recusa o que não é código", () => {
+  it("rejects invalid invitation codes", () => {
     expect(parseInvite("pm1.abcdefgh.abcdefghijklmnop")).toBeNull();
     expect(parseInvite("pm2.a.b")).toBeNull();
     expect(parseInvite("a.b")).toBeNull();
@@ -150,10 +150,10 @@ describe("convite", () => {
     expect(parseInvite("")).toBeNull();
   });
 
-  it("valida as credenciais devolvidas pelos endpoints", () => {
+  it("validates credentials returned by endpoints", () => {
     const membership = { member: "member_123", credential: "c".repeat(43) };
     expect(parseMembership(membership)).toEqual(membership);
-    expect(parseMembership({ ...membership, credential: "curta" })).toBeNull();
+    expect(parseMembership({ ...membership, credential: "short" })).toBeNull();
     const created = { team: "team_123", secret: "s".repeat(32), ...membership };
     expect(parseCreatedTeam(created)).toEqual(created);
     expect(parseCreatedTeam({ ...created, team: "__proto__" })).toBeNull();

@@ -53,7 +53,7 @@ transcript or IPC format changes, so no migration or compatibility shim applies.
 - `e2e/audit-regressions.spec.ts` covers scoped offers from both archive and
   finish and confirms that only the affected workspace appears. It also covers
   the explicit archived state and keeping a worktree for later restoration in
-  Portuguese and English.
+  the English UI.
 - `src-tauri/src/session.rs` tests cover archived eligibility, force guards,
   dirty worktrees and commits relative to the base.
 - [`../contracts/git.md`](../contracts/git.md) defines cleanup behavior and

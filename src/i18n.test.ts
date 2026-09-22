@@ -1,106 +1,68 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { EN } from "./i18n.en";
-import { PT } from "./i18n.pt";
-import { current, fromBack, match, stage, t, tn, use } from "./i18n";
+import { beforeEach, describe, expect, it } from "vitest";
+import { fromBack, match, stage, t, tn, use } from "./i18n";
 
-afterEach(() => use("pt-BR"));
+beforeEach(() => use("en"));
 
 describe("match", () => {
-  it("o que bate inteiro ganha do que bate na raiz", () => {
+  it("matches exact tags and regional variants", () => {
     expect(match(["pt-BR"])).toBe("pt-BR");
     expect(match(["en-US"])).toBe("en");
   });
 
-  it("português de outro lugar cai no que temos", () => {
+  it("matches language roots case-insensitively", () => {
     expect(match(["pt-PT"])).toBe("pt-BR");
     expect(match(["PT-pt"])).toBe("pt-BR");
   });
 
-  it("a ordem da lista é a preferência do computador", () => {
+  it("respects the order of system preferences", () => {
     expect(match(["fr-FR", "pt-BR", "en"])).toBe("pt-BR");
   });
 
-  it("idioma que não falamos é inglês", () => {
+  it("falls back to English when no language matches", () => {
     expect(match(["ja"])).toBe("en");
     expect(match([])).toBe("en");
   });
 });
 
 describe("t", () => {
-  it("troca cada buraco pelo que veio", () => {
-    use("pt-BR");
-    expect(t("rail.newIn", { project: "njord" })).toBe("Novo workspace em njord");
-    use("en");
+  it("interpolates supplied arguments", () => {
     expect(t("rail.newIn", { project: "njord" })).toBe("New workspace in njord");
   });
 
-  it("buraco sem valor fica como está, em vez de virar undefined", () => {
-    use("pt-BR");
-    expect(t("ws.copied", {})).toBe("{name} copiado");
+  it("preserves placeholders with missing arguments", () => {
+    expect(t("ws.copied", {})).toBe("{name} copied");
   });
 });
 
 describe("tn", () => {
-  it("um é singular, o resto é plural, nos dois idiomas", () => {
-    use("pt-BR");
-    expect(tn(1, "diff.files")).toBe("1 arquivo");
-    expect(tn(0, "diff.files")).toBe("0 arquivos");
-    use("en");
+  it("selects singular only for one", () => {
     expect(tn(1, "diff.files")).toBe("1 file");
+    expect(tn(0, "diff.files")).toBe("0 files");
     expect(tn(3, "diff.files")).toBe("3 files");
   });
 });
 
 describe("stage", () => {
-  it("etapa que o app criou é traduzida; a que alguém escreveu, não", () => {
-    use("en");
-    expect(stage("Fazendo")).toBe("In progress");
-    expect(stage("Esperando o Jorge")).toBe("Esperando o Jorge");
+  it("resolves persisted built-in stages and preserves custom names", () => {
+    expect(stage("Fazendo")).toBe(t("stage.Fazendo"));
+    expect(stage("Waiting for review")).toBe("Waiting for review");
   });
 });
 
 describe("fromBack", () => {
-  it("código do back vira frase no idioma da tela", () => {
-    use("en");
+  it("decodes structured backend errors and interpolates their arguments", () => {
     expect(fromBack('i18n:{"code":"err.pty.gone"}')).toBe("terminal is not running");
-    use("pt-BR");
     expect(fromBack('i18n:{"code":"err.session.notGit","args":{"path":"/tmp/x"}}')).toBe(
-      "/tmp/x não é um repositório git",
+      "/tmp/x is not a git repository",
     );
   });
 
-  it("o que não é código passa reto — erro de plugin continua legível", () => {
+  it("preserves unstructured errors", () => {
     expect(fromBack("process.restart not allowed")).toBe("process.restart not allowed");
     expect(fromBack(new Error("boom"))).toBe("Error: boom");
   });
 
-  it("código torto não some: volta como veio", () => {
-    expect(fromBack("i18n:{isto não é json")).toBe("i18n:{isto não é json");
-  });
-});
-
-describe("catálogo", () => {
-  it("os dois idiomas têm exatamente as mesmas chaves", () => {
-    expect(Object.keys(EN).sort()).toEqual(Object.keys(PT).sort());
-  });
-
-  // Interpolation placeholders must match across languages to prevent partially translated output.
-  it("cada frase tem os mesmos buracos nos dois idiomas", () => {
-    const holes = (text: string) => (text.match(/\{\w+\}/g) ?? []).sort();
-    for (const key of Object.keys(PT) as (keyof typeof PT)[]) {
-      expect([key, holes(EN[key])]).toEqual([key, holes(PT[key])]);
-    }
-  });
-
-  it("nenhuma frase ficou vazia", () => {
-    for (const [key, text] of Object.entries(PT)) expect([key, text.length > 0]).toEqual([key, true]);
-    for (const [key, text] of Object.entries(EN)) expect([key, text.length > 0]).toEqual([key, true]);
-  });
-
-  it("idioma sem tradução para a chave cai no inglês em vez de sumir", () => {
-    use("pt-BR");
-    expect(current()).toBe("pt-BR");
-    // Code review is identical in both catalogs, but its key must exist in each.
-    expect(t("stage.Code review")).toBe("Code review");
+  it("preserves malformed error payloads", () => {
+    expect(fromBack("i18n:{invalid json")).toBe("i18n:{invalid json");
   });
 });

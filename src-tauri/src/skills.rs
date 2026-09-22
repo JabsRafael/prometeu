@@ -157,8 +157,8 @@ mod tests {
     fn validates_limits_and_keeps_packages_separate() {
         let skill = Skill {
             id: "review".into(),
-            description: "Use ao revisar: \"código\".\nNão publicar.".into(),
-            content: "# Revisão\n\nLeia o diff.".into(),
+            description: "Use when reviewing: \"code\".\nDo not publish.".into(),
+            content: "# Review\n\nRead the diff.".into(),
         };
         assert!(validate(&skill).is_ok());
         for id in ["", "../escape", "-review", "Review", "ação"] {
@@ -223,9 +223,10 @@ mod tests {
             std::fs::read_to_string(Path::new(&plugin.source).join("skills/review/SKILL.md"))
                 .unwrap();
         assert!(body.contains("name: \"review\"\n"));
-        assert!(body
-            .contains("description: \"Use ao revisar: \\\"código\\\".\\nNão publicar.\"\n---\n"));
-        assert!(body.ends_with("# Revisão\n\nLeia o diff.\n"));
+        assert!(body.contains(
+            "description: \"Use when reviewing: \\\"code\\\".\\nDo not publish.\"\n---\n"
+        ));
+        assert!(body.ends_with("# Review\n\nRead the diff.\n"));
         for directory in [".claude-plugin", ".codex-plugin"] {
             let manifest: serde_json::Value = serde_json::from_str(
                 &std::fs::read_to_string(
@@ -242,15 +243,15 @@ mod tests {
             }
         }
         let updated = Skill {
-            content: "Nova instrução.".into(),
+            content: "New instruction.".into(),
             ..skill
         };
         materialize(&updated, &plugin).unwrap();
         let body =
             std::fs::read_to_string(Path::new(&plugin.source).join("skills/review/SKILL.md"))
                 .unwrap();
-        assert!(body.ends_with("Nova instrução.\n"));
-        assert!(!body.contains("Leia o diff."));
+        assert!(body.ends_with("New instruction.\n"));
+        assert!(!body.contains("Read the diff."));
         std::fs::remove_dir_all(root).unwrap();
     }
 }

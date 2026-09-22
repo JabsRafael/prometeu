@@ -18,8 +18,8 @@ function storage(initial: unknown = null) {
   };
 }
 
-describe("identidades e confiança inicial do time", () => {
-  it("persiste replay antes do uso e bloqueia relógio regressivo e falha de escrita", async () => {
+describe("team identities and initial trust", () => {
+  it("persists replay state before use and rejects clock rollback and write failures", async () => {
     const disk = storage();
     const security = await TeamSecurity.load("team", disk.read, disk.write);
     const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
@@ -40,7 +40,7 @@ describe("identidades e confiança inicial do time", () => {
     } finally { now.mockRestore(); }
   });
 
-  it("conserva sequência e dono de shares e não avança revisão se gravação falhar", async () => {
+  it("preserves share sequence and ownership without advancing revisions after failed writes", async () => {
     const disk = storage();
     const security = await TeamSecurity.load("team", disk.read, disk.write);
     const bob = await generateIdentity();
@@ -60,7 +60,7 @@ describe("identidades e confiança inicial do time", () => {
     await expect(reopened.observeShare("ws", "bob", bob.publicKey, 2, "revision-two")).rejects.toThrow();
   });
 
-  it("persiste identidade e vínculos antes de expor e conserva outras organizações", async () => {
+  it("persists identity and bindings before exposing them and preserves other organizations", async () => {
     const disk = storage();
     const bob = await generateIdentity();
     const alpha = await TeamSecurity.load("alpha", disk.read, disk.write);
@@ -77,7 +77,7 @@ describe("identidades e confiança inicial do time", () => {
     expect((await TeamSecurity.load("beta", disk.read, disk.write)).identity).toEqual(beta.identity);
   });
 
-  it("adota chave nova do colega e só a usa depois de persistir", async () => {
+  it("adopts a peer's replacement key only after persisting it", async () => {
     const disk = storage();
     const security = await TeamSecurity.load("team", disk.read, disk.write);
     const old = await generateIdentity();
@@ -97,7 +97,7 @@ describe("identidades e confiança inicial do time", () => {
     expect(reopened.key("bob")).toBe(old.publicKey);
   });
 
-  it("bloqueia chave ausente sem apagar vínculo e recusa troca da própria identidade", async () => {
+  it("blocks missing keys without removing bindings and rejects replacement of its own identity", async () => {
     const disk = storage();
     const security = await TeamSecurity.load("team", disk.read, disk.write);
     const bob = await generateIdentity();
@@ -114,7 +114,7 @@ describe("identidades e confiança inicial do time", () => {
     expect(security.key("alice")).toBeUndefined();
   });
 
-  it("não expõe primeira chave quando persistência falha", async () => {
+  it("does not expose the first key when persistence fails", async () => {
     const disk = storage();
     disk.fail(true);
     await expect(TeamSecurity.load("team", disk.read, disk.write)).rejects.toThrow("Storage unavailable");
@@ -129,7 +129,7 @@ describe("identidades e confiança inicial do time", () => {
     expect(security.key("bob")).toBe(bob.publicKey);
   });
 
-  it("recusa armazenamento corrompido sem regenerar identidade", async () => {
+  it("rejects corrupt storage without regenerating identity", async () => {
     const identity = await generateIdentity();
     const invalid = [false, [], {}, { version: 2, scopes: {} }, { version: 1, scopes: [] },
       { version: 1, scopes: { team: null } },
@@ -145,7 +145,7 @@ describe("identidades e confiança inicial do time", () => {
     }
   });
 
-  it("serializa observações simultâneas sem perder vínculos", async () => {
+  it("serializes concurrent observations without losing bindings", async () => {
     const disk = storage();
     const security = await TeamSecurity.load("team", disk.read, disk.write);
     const bob = await generateIdentity();
@@ -161,7 +161,7 @@ describe("identidades e confiança inicial do time", () => {
     expect(reopened.key("carol")).toBe(carol.publicKey);
   });
 
-  it("recusa diretório inválido sem expor vínculo observado", async () => {
+  it("rejects invalid directories without exposing observed bindings", async () => {
     const disk = storage();
     const security = await TeamSecurity.load("team", disk.read, disk.write);
     const bob = await generateIdentity();

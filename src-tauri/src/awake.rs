@@ -51,8 +51,8 @@ mod tests {
     /// Start and stop real caffeinate. The test PID supplied to -w ensures failures cannot leave
     /// the machine permanently awake.
     #[test]
-    fn liga_tela_e_sistema_desliga_e_nao_sobe_dois() {
-        set_awake(true).expect("caffeinate não subiu");
+    fn enables_display_and_system_awake_once_then_disables_them() {
+        set_awake(true).expect("caffeinate did not start");
         let first = lock(running()).as_ref().map(|c| c.id());
         assert!(first.is_some());
 
@@ -60,11 +60,11 @@ mod tests {
         let command = Command::new("/bin/ps")
             .args(["-p", &first.unwrap().to_string(), "-o", "command="])
             .output()
-            .expect("não leu o caffeinate");
+            .expect("could not read caffeinate");
         let command = String::from_utf8_lossy(&command.stdout);
         assert!(command.contains("caffeinate -d -i -s -w"), "{command}");
 
-        set_awake(true).expect("segundo pedido");
+        set_awake(true).expect("second request");
         assert_eq!(lock(running()).as_ref().map(|c| c.id()), first);
 
         set_awake(false).expect("desligar");

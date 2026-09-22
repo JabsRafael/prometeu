@@ -170,11 +170,11 @@ answered with 401. `feedback_send` is an additive IPC command and does not
 change existing commands. Claude and Codex use the same interface; their CLIs
 do not take part in the delivery.
 
-- [`e2e/feedback.spec.ts`](../../e2e/feedback.spec.ts): the notice without an
-  account and connecting from the panel, a recoverable error, retry, upload,
-  thumbnail, simulated capture, modal and narrow viewport in Chromium/WebKit;
+- [`e2e/feedback.spec.ts`](../../e2e/feedback.spec.ts): a recoverable error, retry, upload,
+  thumbnail, simulated capture, modal and narrow viewport over the mock;
   deferred native loads cover submission blocking, out-of-order results/errors,
-  replacement, removal, capture and closing the panel.
+  replacement and closing the panel. Other replacement/cancellation controls
+  share the same invalidation path and have no separate browser scenarios.
 - The Cloud's `FeedbackTest` tests: 401 without a session, Bearer and cookie,
   per-account limit, foreign origin, format, signature, creation, idempotency,
   ambiguous failure, repository privacy, native upload, retry and the absence of

@@ -171,9 +171,9 @@ remoções ou contratos incompatíveis, major (durante 0.x, minor). Reimporte no
 Cloud e versione o manifesto junto. Rollback reverte pacote, adaptador e assets
 juntos. Nenhum produto busca versões novas pela rede em runtime.
 
-Verificações: `e2e/design-system.spec.ts`, `e2e/ui.spec.ts` e
-`e2e/actions.spec.ts` no desktop; `test/helpers/design_system_components_test.rb`,
-`test/design_system_test.rb` e `test/browser/accounts.spec.js` no Cloud.
+Checks: `e2e/design-system.spec.ts` and `e2e/actions.spec.ts` in the desktop
+repository; `test/helpers/design_system_components_test.rb`,
+`test/design_system_test.rb` and `test/browser/accounts.spec.js` in the Cloud.
 
 ## Widget de feedback
 
@@ -214,5 +214,5 @@ the host. This component does not load data or store preferences.
 
 The standalone gallery demonstrates 100 choices, disabled and selected items,
 secondary actions, refresh, additional choices and use inside a dialog.
-`e2e/search-picker.spec.ts` checks keyboard search, accents, independent actions,
-update focus preservation and a narrow dialog in Chromium and WebKit.
+`e2e/search-picker.spec.ts` checks keyboard search, accents, pointer selection,
+focus order and a narrow dialog in Chromium and WebKit.

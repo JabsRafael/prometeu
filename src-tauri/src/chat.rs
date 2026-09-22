@@ -1443,20 +1443,20 @@ mod tests {
     /// Caller-supplied environment values, including MCP secrets, survive inherited Claude-variable
     /// cleanup.
     #[test]
-    fn o_que_o_chamador_poe_no_ambiente_chega_ao_processo() {
+    fn caller_environment_reaches_the_process() {
         std::env::set_var("CLAUDE_CODE_CHILD_SESSION", "1");
         let mut cmd = Command::new("sh");
         cmd.arg("-c")
             .arg(r#"printf '%s|%s' "$PROMETEU_MCP_X_AUTHORIZATION" "$CLAUDE_CODE_CHILD_SESSION""#);
         cmd.env("PROMETEU_MCP_X_AUTHORIZATION", "Bearer abracadabra");
         drop_claude_vars(&mut cmd);
-        let out = cmd.output().expect("o sh");
+        let out = cmd.output().expect("shell");
         std::env::remove_var("CLAUDE_CODE_CHILD_SESSION");
         assert_eq!(String::from_utf8_lossy(&out.stdout), "Bearer abracadabra|");
     }
 
     #[test]
-    fn fim_antigo_nao_fecha_o_processo_que_o_substituiu() {
+    fn old_completion_does_not_close_the_replacement_process() {
         let old = Arc::new(AtomicBool::new(false));
         let new = Arc::new(AtomicBool::new(true));
 
@@ -1466,7 +1466,7 @@ mod tests {
     }
 
     #[test]
-    fn pendencia_orfa_reabre_ou_religa_a_conversa() {
+    fn orphaned_pending_input_reopens_or_reconnects_the_conversation() {
         assert_eq!(wake(false, false, false), Wake::Revive);
         assert_eq!(wake(false, true, false), Wake::Revive);
         assert_eq!(wake(true, false, false), Wake::Ready);
@@ -1477,7 +1477,7 @@ mod tests {
     /// Persisted and ephemeral events share one increasing sequence so snapshots and live delivery
     /// agree.
     #[test]
-    fn linhas_numeradas_guardadas_ou_nao() {
+    fn numbers_lines_whether_retained_or_not() {
         let mut l = Lines::default();
         assert_eq!(l.absorb("a"), 1);
         assert_eq!(l.skip(), 2);
@@ -1487,7 +1487,7 @@ mod tests {
 
     /// Trim whole JSON lines instead of keeping an invalid partial record.
     #[test]
-    fn o_teto_corta_linhas_inteiras() {
+    fn retention_limit_drops_whole_lines() {
         let mut l = Lines::default();
         let fat = "x".repeat(KEEP);
         l.absorb(&fat);
@@ -1499,7 +1499,7 @@ mod tests {
     /// Keep replayable messages, tools, requests and completion; discard streaming and progress
     /// noise.
     #[test]
-    fn guarda_o_que_a_tela_precisa_amanha() {
+    fn retains_the_data_needed_to_restore_the_view() {
         let f = |s: &str| serde_json::from_str::<Value>(s).unwrap();
         assert!(keep(&f(r#"{"v":1,"type":"assistant.block"}"#)));
         assert!(keep(&f(r#"{"v":1,"type":"user.message"}"#)));
@@ -1518,7 +1518,7 @@ mod tests {
     }
 
     #[test]
-    fn a_linha_de_atividade_diz_a_ferramenta_e_o_alvo() {
+    fn activity_lines_identify_the_tool_and_target() {
         let f = |s: &str| serde_json::from_str::<Value>(s).unwrap();
         assert_eq!(
             activity(&f(
@@ -1538,7 +1538,7 @@ mod tests {
     }
 
     #[test]
-    fn controle_remoto_recoloca_o_input_que_o_dono_viu() {
+    fn remote_control_restores_the_input_seen_by_the_owner() {
         let request = json!({
             "type": "control_request",
             "request_id": "ask-1",
@@ -1564,7 +1564,7 @@ mod tests {
     }
 
     #[test]
-    fn controle_remoto_nao_ativa_modo_irrestrito_nem_inventa_pedido() {
+    fn remote_control_does_not_enable_unrestricted_mode_or_invent_requests() {
         let bypass = json!({
             "type": "control_request",
             "request_id": "x",
@@ -1584,7 +1584,7 @@ mod tests {
     }
 
     #[test]
-    fn pergunta_remota_so_aceita_respostas_das_perguntas_originais() {
+    fn remote_questions_accept_answers_only_for_original_questions() {
         let request = json!({
             "type": "control_request",
             "request_id": "q-1",
@@ -1616,7 +1616,7 @@ mod tests {
     }
 
     #[test]
-    fn controle_v1_remoto_reconstroi_resposta_sem_confiar_no_cliente() {
+    fn remote_v1_control_reconstructs_responses_without_trusting_the_client() {
         let request = conversation::event(
             "request.opened",
             1,
@@ -1715,7 +1715,7 @@ mod account_tests {
     use super::*;
 
     #[test]
-    fn troca_espera_turno_atual_e_retoma_so_antes_da_proxima_fala() {
+    fn switching_waits_for_the_current_turn_and_resumes_before_the_next_input() {
         assert_eq!(boundary(false, true), AccountBoundary::Keep);
         assert_eq!(boundary(false, false), AccountBoundary::Keep);
         assert_eq!(boundary(true, true), AccountBoundary::Wait);

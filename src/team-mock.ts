@@ -9,7 +9,7 @@ import type { SocketLike } from "./team-transport";
 export function simulatedSocket(url: string, sample: string, share: Share, online: () => boolean): SocketLike & { presence(): void } {
   const endpoint = new URL(url);
   const self = endpoint.searchParams.get("m") ?? "eu_mock";
-  const name = endpoint.searchParams.get("n") ?? "Você";
+  const name = endpoint.searchParams.get("n") ?? "You";
   const cfg = JSON.parse(localStorage.getItem("mock:team") ?? "null");
   const scope = JSON.stringify(cfg?.cloud ? ["organization", cfg.cloud.origin, cfg.team] : ["team", cfg?.relay || "wss://prometeu-relay.prometheus-capim.workers.dev", cfg?.team]);
   const state = empty();
@@ -60,7 +60,7 @@ export function simulatedSocket(url: string, sample: string, share: Share, onlin
         seeded = true;
         await peerSend({ t: "share", share });
         await peerSend({ t: "note", ws: share.id, tab: "mt1", anchor: "w3.0",
-          text: `Completar um todo agora carimba completed_at em vez de apagar a linha. @${name}, a chamada que sobrou é sua.`,
+          text: `Completing a todo now sets completed_at instead of deleting the row. @${name}, the remaining call is yours.`,
           mentions: [self], quote: "edit migrations/0007_todo_completed_at.sql · +11" });
       }
     }); },

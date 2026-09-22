@@ -741,7 +741,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cadastro_novo_preserva_o_cli_e_persiste_selecao_independente() {
+    fn new_registration_preserves_cli_and_persists_independent_selection() {
         let dir = std::env::temp_dir().join(format!("prometeu-accounts-{}", uuid::Uuid::new_v4()));
         let path = dir.join("accounts.json");
         let mut registry = read(&path).unwrap();
@@ -756,7 +756,7 @@ mod tests {
             revision: 1,
             identity: Identity {
                 connected: true,
-                email: Some("trabalho@example.com".into()),
+                email: Some("work@example.com".into()),
                 plan: Some("pro".into()),
             },
         });
@@ -786,7 +786,7 @@ mod tests {
     }
 
     #[test]
-    fn remocao_aceita_todas_as_contas_e_cadastro_antigo_com_apelido() {
+    fn removal_accepts_all_accounts_and_legacy_registration_with_nickname() {
         let mut legacy = serde_json::to_value(Registry::default()).unwrap();
         let codex = uuid::Uuid::new_v4().to_string();
         let claude = uuid::Uuid::new_v4().to_string();
@@ -796,7 +796,7 @@ mod tests {
                 .unwrap()
                 .push(serde_json::json!({
                     "id": id, "provider": provider, "label": "apelido antigo",
-                    "connected": true, "email": "pessoal@example.com", "plan": "pro"
+                    "connected": true, "email": "personal@example.com", "plan": "pro"
                 }));
         }
         let mut registry: Registry = serde_json::from_value(legacy).unwrap();
@@ -834,7 +834,7 @@ mod tests {
     }
 
     #[test]
-    fn cadastro_futuro_sobrevive_ao_round_trip_sem_aparecer_na_interface() {
+    fn future_registration_roundtrips_without_appearing_in_the_interface() {
         let dir = std::env::temp_dir().join(format!("prometeu-accounts-{}", uuid::Uuid::new_v4()));
         let path = dir.join("accounts.json");
         let future = serde_json::json!({
@@ -892,7 +892,7 @@ mod tests {
     }
 
     #[test]
-    fn cadastro_futuro_nao_relaxa_validacao_de_conta_conhecida() {
+    fn future_registration_does_not_relax_known_account_validation() {
         let dir = std::env::temp_dir().join(format!("prometeu-accounts-{}", uuid::Uuid::new_v4()));
         let path = dir.join("accounts.json");
         paths::write_private(
@@ -914,7 +914,7 @@ mod tests {
     }
 
     #[test]
-    fn login_cancelado_encerra_processo_sem_devolver_saida_privada() {
+    fn cancelled_login_terminates_the_process_without_returning_private_output() {
         let cancel = Arc::new(AtomicBool::new(false));
         let mut command = Command::new("sh");
         command.args(["-c", "printf 'pronto\\n'; exec sleep 30"]);

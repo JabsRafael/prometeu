@@ -35,7 +35,7 @@ const SAMPLE = `## Context Usage
 `;
 
 describe("parseContext", () => {
-  it("lê modelo, uso, categorias e seções", () => {
+  it("reads the model, usage, categories and sections", () => {
     const r = parseContext(SAMPLE)!;
     expect(r.model).toBe("claude-fable-5");
     expect([r.used, r.total, r.pct]).toEqual(["20.2k", "1m", 2]);
@@ -52,7 +52,7 @@ describe("parseContext", () => {
     expect(sectionTotal(r.sections[1])).toBe(190);
   });
 
-  it("agrupa seção grande pela segunda coluna; pequena fica como está", () => {
+  it("groups large sections by the second column and preserves small sections", () => {
     const r = parseContext(SAMPLE)!;
     expect(grouped(r.sections[0])!.map((g) => [g.name, g.n, g.rows.length])).toEqual([
       ["a", 450, 2],
@@ -61,11 +61,11 @@ describe("parseContext", () => {
     expect(grouped(r.sections[1])).toBeNull();
   });
 
-  it("não é relatório: null", () => {
+  it("returns null for content that is not a report", () => {
     expect(parseContext("## Cost\n\ntotal")).toBeNull();
   });
 
-  it("tokens e milhares", () => {
+  it("parses token counts and thousands", () => {
     expect(tokenCount("24k")).toBe(24000);
     expect(tokenCount("1m")).toBe(1_000_000);
     expect(tokenCount("~190")).toBe(190);

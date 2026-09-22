@@ -161,9 +161,9 @@ protocol migration.
   special paths, commit, local remotes, conflicts and merge.
 - `src/diff.test.ts`: line numbering on both sides and alignment of
   replacements, additions and deletions between hunks.
-- `e2e/git.spec.ts`: UI operations and states over the mock in Chromium and
-  WebKit, including review independent of the stage, filters, layout and
-  per-repo drafts.
+- `e2e/git.spec.ts`: representative review and commit flows, filters, layout,
+  per-repo drafts and protection against stale UI actions over the mock in
+  Chromium; selected review and keyboard/layout scenarios also run in WebKit.
 - `e2e/critical-flows.spec.ts`: navigation to the viewer, a large review and
   isolation between repositories.
 - `e2e/audit-regressions.spec.ts`: scoped cleanup offers after both archiving

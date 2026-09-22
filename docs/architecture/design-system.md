@@ -75,9 +75,9 @@ the branch summary and creation actions remain in a separate, visible footer.
 Model search, favorites and native effort selection use the existing pickers.
 Account identities wrap instead of truncating; account popovers share one row
 for adding and managing accounts, and the account dialog keeps its footer
-visible while its cards scroll. These compositions are covered in
+visible while its cards scroll. Launcher layout and account-dialog focus are covered in
 [`e2e/launcher-layout.spec.ts`](../../e2e/launcher-layout.spec.ts), including
-Portuguese/English and Chromium/WebKit. Text
+the English UI at representative viewport sizes, with selected WebKit checks. Text
 fields in the MCP and plugin hubs use `input` and `field`, including the plugin
 creation request. Worktree cleanup also uses `formDialog`,
 including its busy-state cancellation guard and shared checkboxes. Their
@@ -116,10 +116,11 @@ is also an entry point of the web build and does not start the backend or
 agents. It shows tokens, buttons, fields, selection, error, disabled, checkbox,
 menu with tag, disclosure and a form with a simulated success or failure.
 
-[`e2e/ui.spec.ts`](../../e2e/ui.spec.ts) covers keyboard, focus, validation,
-recoverable failure and a narrow viewport in Chromium and WebKit.
+[`e2e/design-system.spec.ts`](../../e2e/design-system.spec.ts) covers keyboard,
+focus, validation, recoverable failure and a narrow viewport in the standalone
+consumer.
 [`e2e/actions.spec.ts`](../../e2e/actions.spec.ts) covers the primitives in the
-feature's real flows on both engines. The architectural check prevents `ui.ts`
+feature's real flows. The architectural check prevents `ui.ts`
 from depending on domain modules and prevents Actions from recreating native
 selectors. The existing web and E2E tests protect the launcher, menus and hubs
 during adoption.
@@ -142,4 +143,5 @@ Tab reaches the current choice, its secondary action and footer controls without
 requiring traversal of the whole catalog. Escape closes the picker before the
 parent dialog and restores trigger focus. Both standalone gallery and
 `e2e/search-picker.spec.ts` cover a 100-entry list, accent-insensitive filtering,
-independent star actions, dynamic updates and narrow dialogs in Chromium/WebKit.
+keyboard and pointer selection, focus order and narrow dialogs in Chromium and
+WebKit. The gallery also demonstrates independent star actions and dynamic updates.

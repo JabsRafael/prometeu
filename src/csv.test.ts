@@ -2,17 +2,17 @@ import { describe, expect, it } from "vitest";
 import { decode, parse, sniff } from "./csv";
 
 describe("csv", () => {
-  it("adivinha ; do Excel em pt-BR mesmo com vírgula decimal nas linhas", () => {
-    const text = "nome;preço\ncafé;1,50\npão;0,75\n";
+  it("detects the semicolon delimiter from Brazilian Excel despite decimal commas", () => {
+    const text = "name;price\ncafé;1,50\nbread;0,75\n";
     expect(sniff(text)).toBe(";");
     expect(parse(text)).toEqual([
-      ["nome", "preço"],
+      ["name", "price"],
       ["café", "1,50"],
-      ["pão", "0,75"],
+      ["bread", "0,75"],
     ]);
   });
 
-  it("vírgula e tab também", () => {
+  it("also detects commas and tabs", () => {
     expect(parse("a,b\n1,2")).toEqual([
       ["a", "b"],
       ["1", "2"],
@@ -23,24 +23,24 @@ describe("csv", () => {
     ]);
   });
 
-  it("campo entre aspas guarda vírgula, quebra de linha e aspa dobrada", () => {
-    const text = 'id,texto\n1,"olá, mundo"\n2,"linha um\nlinha dois"\n3,"diz ""oi"""\n';
+  it("preserves commas, newlines and doubled quotes inside quoted fields", () => {
+    const text = 'id,text\n1,"hello, world"\n2,"line one\nline two"\n3,"says ""hi"""\n';
     expect(parse(text)).toEqual([
-      ["id", "texto"],
-      ["1", "olá, mundo"],
-      ["2", "linha um\nlinha dois"],
-      ["3", 'diz "oi"'],
+      ["id", "text"],
+      ["1", "hello, world"],
+      ["2", "line one\nline two"],
+      ["3", 'says "hi"'],
     ]);
   });
 
-  it("campo vazio e linha sem quebra no fim", () => {
+  it("handles empty fields and a final line without a newline", () => {
     expect(parse("a,,c\n,,")).toEqual([
       ["a", "", "c"],
       ["", "", ""],
     ]);
   });
 
-  it("latin-1 não vira caractere quebrado", () => {
+  it("decodes Latin-1 without corrupting characters", () => {
     const utf8 = new TextEncoder().encode("ação");
     expect(decode(utf8.buffer as ArrayBuffer)).toBe("ação");
     const latin1 = Uint8Array.from([0x61, 0xe7, 0xe3, 0x6f]);

@@ -287,7 +287,7 @@ mod macos {
         use super::*;
 
         #[test]
-        fn arquivo_recebido_precisa_existir_dentro_do_destino() {
+        fn received_files_must_exist_inside_the_destination() {
             let root = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
             std::fs::create_dir(&root).unwrap();
             let file = root.join("Captura de Tela.png");
@@ -317,7 +317,7 @@ mod macos {
 mod tests {
     use super::*;
     #[test]
-    fn promessa_preserva_id_entre_inicio_e_arquivo_recebido() {
+    fn promises_preserve_the_id_from_start_to_received_file() {
         let mut drag = Drag {
             kind: "pending",
             id: Some("captura".into()),

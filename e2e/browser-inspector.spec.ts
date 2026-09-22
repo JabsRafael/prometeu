@@ -31,15 +31,15 @@ test.beforeEach(async ({ page }) => {
   await page.route("http://inspector.test/**", (route) => route.fulfill({
     contentType: "text/html",
     body: `<!doctype html><html><body style="margin:32px;font-family:sans-serif">
-      <main id="design"><a id="cta:primary" href="#next" style="display:inline-block;padding:16px;color:rgb(12, 34, 56)">Comprar</a>
-      <p>Primeiro</p><p>Segundo</p></main><div style="height:2000px"></div>
+      <main id="design"><a id="cta:primary" href="#next" style="display:inline-block;padding:16px;color:rgb(12, 34, 56)">Buy</a>
+      <p>First</p><p>Second</p></main><div style="height:2000px"></div>
     </body></html>`,
   }));
   await page.goto("http://inspector.test/");
   await page.addScriptTag({ path: inspectorPath });
 });
 
-test("browser seleciona elemento real sem navegar e entrega HTML, estilos e coordenadas uma vez", async ({ page }) => {
+test("browser selects a real element without navigating and delivers HTML, styles and coordinates once", { tag: "@webkit" }, async ({ page }) => {
   const target = page.locator('[id="cta:primary"]');
   const box = (await target.boundingBox())!;
   await enable(page);
@@ -52,7 +52,7 @@ test("browser seleciona elemento real sem navegar e entrega HTML, estilos e coor
   await expect(overlay).toHaveCount(0);
   const selected = (await takeSelection(page))!;
   expect(selected).toMatchObject({
-    url: "http://inspector.test/", tag: "a", text: "Comprar",
+    url: "http://inspector.test/", tag: "a", text: "Buy",
     styles: { color: "rgb(12, 34, 56)", "padding-top": "16px" }, rect: box,
     viewport: page.viewportSize(),
   });
@@ -65,7 +65,7 @@ test("browser seleciona elemento real sem navegar e entrega HTML, estilos e coor
   await expect(page).toHaveURL("http://inspector.test/#next");
 });
 
-test("browser cancela com Escape, preserva cliques normais e remove listeners ao reinjetar", async ({ page }) => {
+test("browser cancels with Escape, preserves normal clicks and removes listeners when reinjected", { tag: "@webkit" }, async ({ page }) => {
   await enable(page);
   await page.locator("a").hover();
   await page.keyboard.press("Escape");
@@ -80,24 +80,24 @@ test("browser cancela com Escape, preserva cliques normais e remove listeners ao
   await page.locator("p").nth(1).click();
   const selected = (await takeSelection(page))!;
   expect(selected.selector).toBe("#design > p:nth-of-type(2)");
-  expect(selected.text).toBe("Segundo");
+  expect(selected.text).toBe("Second");
   await page.evaluate(() => (window as InspectorWindow).__prometeuInspector.dispose());
   await expect(page.locator("[data-prometeu-inspector]")).toHaveCount(0);
 });
 
-test("browser remove scripts, handlers e valores privados sem alterar página original", async ({ page }) => {
+test("browser removes scripts, handlers and private values without changing the original page", { tag: "@webkit" }, async ({ page }) => {
   await page.locator("main").evaluate((main) => {
     main.innerHTML = `<section id="form" style="padding:30px">
       <script>privateScript = 'script-secret'</script><style>.secret { color: red }</style>
       <input value="input-secret"><input type="password" value="password-secret">
       <textarea>textarea-secret</textarea><iframe srcdoc="iframe-secret"></iframe>
-      <a onclick="alert('handler-secret')" href="java&#x09;script:alert('url-secret')">Visível</a>
+      <a onclick="alert('handler-secret')" href="java&#x09;script:alert('url-secret')">Visible</a>
     </section>`;
   });
   await enable(page);
   await page.locator("#form").click({ position: { x: 5, y: 5 } });
   const selected = (await takeSelection(page))!;
-  expect(selected.text).toBe("Visível");
+  expect(selected.text).toBe("Visible");
   for (const secret of ["script-secret", "input-secret", "password-secret", "textarea-secret", "iframe-secret", "handler-secret", "url-secret"]) {
     expect(selected.html).not.toContain(secret);
     expect(selected.text).not.toContain(secret);
@@ -107,7 +107,7 @@ test("browser remove scripts, handlers e valores privados sem alterar página or
   await expect(page.locator("textarea")).toHaveValue("textarea-secret");
 });
 
-test("browser atualiza destaque após scroll e resize sem modificar layout", async ({ page }) => {
+test("browser updates its highlight after scrolling and resizing without changing layout", { tag: "@webkit" }, async ({ page }) => {
   await page.locator("main").evaluate((main) => {
     main.replaceChildren();
     main.style.cssText = "position:sticky;top:20px;width:50vw;height:100px;background:lightgray";
@@ -130,37 +130,21 @@ test("browser atualiza destaque após scroll e resize sem modificar layout", asy
   expect(selected.viewport).toEqual({ width: 1000, height: 800 });
 });
 
-test("browser seleciona Shadow DOM aberto e resolve IDs repetidos com índices", async ({ page }) => {
+test("browser selects open Shadow DOM and resolves repeated IDs with indices", { tag: "@webkit" }, async ({ page }) => {
   await page.locator("main").evaluate((main) => {
     main.innerHTML = '<div id="host"></div>';
     main.firstElementChild!.attachShadow({ mode: "open" }).innerHTML =
-      '<button id="same">Primeiro</button><button id="same">Segundo</button>';
+      '<button id="same">First</button><button id="same">Second</button>';
   });
   await enable(page);
-  await page.getByRole("button", { name: "Segundo" }).click();
+  await page.getByRole("button", { name: "Second" }).click();
   const selected = (await takeSelection(page))!;
   expect(selected.selector).toBe("#host >>> button:nth-of-type(2)");
-  expect(selected.text).toBe("Segundo");
+  expect(selected.text).toBe("Second");
   expect(selected.tag).toBe("button");
 });
 
-test("browser limita conteúdo capturado e exclui próprio destaque ao selecionar ancestral", async ({ page }) => {
-  await page.locator("main").evaluate((main) => {
-    main.innerHTML = `<div id="large">${"a".repeat(16000)}</div>`;
-  });
-  await enable(page);
-  await page.locator("#large").click();
-  const selected = (await takeSelection(page))!;
-  expect(selected.text).toHaveLength(2000);
-  expect(selected.html).toHaveLength(12000);
-  await enable(page);
-  await page.mouse.click(1, 1);
-  const ancestor = (await takeSelection(page))!;
-  expect(ancestor.tag).toBe("html");
-  expect(ancestor.html).not.toContain("data-prometeu-inspector");
-});
-
-test("browser preserva Unicode nos limites de texto, HTML, seletor e estilos", async ({ page }) => {
+test("browser bounds captures without breaking Unicode or including its own highlight", async ({ page }) => {
   await page.locator("main").evaluate((main) => {
     const target = document.createElement("div");
     target.id = `${"x".repeat(998)}😀`;
@@ -179,9 +163,18 @@ test("browser preserva Unicode nos limites de texto, HTML, seletor e estilos", a
   expect(selected.styles["font-family"].length).toBeLessThanOrEqual(1000);
   // JSON.stringify escapes lone surrogates, while valid emoji remain complete characters.
   expect(JSON.stringify(selected)).not.toMatch(/\\u[dD][89a-fA-F][0-9a-fA-F]{2}/);
+  // Keep the ancestor below the HTML limit so truncation cannot hide an unremoved overlay.
+  await page.locator("main").evaluate(main => main.replaceChildren());
+  await enable(page);
+  await page.mouse.move(1, 1);
+  await expect(page.locator("[data-prometeu-inspector]")).toBeVisible();
+  await page.mouse.click(1, 1);
+  const ancestor = (await takeSelection(page))!;
+  expect(ancestor.tag).toBe("html");
+  expect(ancestor.html).not.toContain("data-prometeu-inspector");
 });
 
-test("browser invalida PNG após scroll, resize, reflow ou cancelamento sem perder contexto textual", async ({ page }) => {
+test("browser invalidates PNG after scrolling, resizing, reflow or cancellation without losing textual context", { tag: "@webkit" }, async ({ page }) => {
   const current = () => page.evaluate(() => (window as InspectorWindow).__prometeuInspector.selectionCurrent());
   const select = async () => {
     await page.locator("a").scrollIntoViewIfNeeded();
@@ -191,14 +184,14 @@ test("browser invalida PNG após scroll, resize, reflow ou cancelamento sem perd
     }));
     await enable(page);
     await page.locator("a").click();
-    expect((await takeSelection(page))?.text).toBe("Comprar");
+    expect((await takeSelection(page))?.text).toBe("Buy");
     expect(await current()).toBe(true);
   };
   await enable(page);
   await page.locator("a").click();
   await page.evaluate(() => window.scrollBy(0, 20));
   await expect.poll(current).toBe(false);
-  expect((await takeSelection(page))?.text).toBe("Comprar");
+  expect((await takeSelection(page))?.text).toBe("Buy");
   await select();
   await page.evaluate(() => window.scrollBy(0, 20));
   await expect.poll(current).toBe(false);
@@ -218,7 +211,7 @@ test("browser invalida PNG após scroll, resize, reflow ou cancelamento sem perd
   await select();
   await page.locator("a").evaluate((element) => element.remove());
   expect(await current()).toBe(false);
-  await page.locator("main").evaluate((main) => { main.innerHTML = '<a href="#next">Comprar</a>'; });
+  await page.locator("main").evaluate((main) => { main.innerHTML = '<a href="#next">Buy</a>'; });
   await select();
   await page.evaluate(() => (window as InspectorWindow).__prometeuInspector.dispose());
   expect(await current()).toBe(false);
