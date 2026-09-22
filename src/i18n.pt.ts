@@ -801,7 +801,8 @@ export const PT = {
   /* Disk cleanup. */
 
   "clean.title": "Limpar worktrees",
-  "clean.offer": "Tirar este worktree do disco?",
+  "clean.offer": "Workspace arquivado. Tirar o worktree do disco?",
+  "clean.keep": "Manter worktree",
   "clean.hint":
     "A pasta, a branch local e todos os arquivos ignorados dentro dela saem para sempre; o card e o PR ficam.",
   "clean.hint.force":

@@ -26,6 +26,11 @@ that workspace. Keep archive and cleanup as separate decisions. A safe row
 starts selected; a blocked row starts unselected and must be selected before the
 destructive action becomes available. The dialog states that cleanup removes
 the folder and local branch while preserving the archived card and PR metadata.
+The scoped title explicitly states that the workspace is already archived, and
+the dismissal button says **Keep worktree** instead of **Cancel**. This avoids
+presenting the cleanup choice as an archive confirmation (issue #100). Keeping
+the worktree leaves **Unarchive** available; the full cleanup screen retains its
+ordinary **Cancel** label.
 
 Use the same `cleanup_list` eligibility scan and `cleanup_worktree` command as
 the full cleanup screen. Do not offer cleanup for original clones, remote
@@ -46,7 +51,9 @@ transcript or IPC format changes, so no migration or compatibility shim applies.
 ## Evidence
 
 - `e2e/audit-regressions.spec.ts` covers scoped offers from both archive and
-  finish and confirms that only the affected workspace appears.
+  finish and confirms that only the affected workspace appears. It also covers
+  the explicit archived state and keeping a worktree for later restoration in
+  the English UI.
 - `src-tauri/src/session.rs` tests cover archived eligibility, force guards,
   dirty worktrees and commits relative to the base.
 - [`../contracts/git.md`](../contracts/git.md) defines cleanup behavior and

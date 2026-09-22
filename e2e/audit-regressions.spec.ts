@@ -142,6 +142,7 @@ test("cleanup keeps its dialog open while deleting worktrees", async ({ page }) 
   await page.getByRole("button", { name: /^Archived/ }).click();
   await page.locator("#aclean").click();
   const dialog = page.locator("dialog.clean");
+  await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
   await expect(dialog).toContainText("every ignored file");
   await expect(dialog.locator("#c-go")).toBeEnabled();
   await hold(page, "cleanup_worktree");
@@ -161,7 +162,9 @@ test("archiving offers cleanup for only that workspace", async ({ page }) => {
   await page.locator(".menu .mrow", { hasText: "Archive" }).click();
 
   const dialog = page.locator("dialog.clean");
-  await expect(dialog).toContainText("Take this worktree off the disk?");
+  await expect(dialog).toContainText("Workspace archived. Remove the worktree from disk?");
+  await expect(dialog.getByRole("button", { name: "Keep worktree", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toHaveCount(0);
   await expect(dialog.locator(".cleanrow")).toHaveCount(1);
   await expect(dialog.locator(".cleanrow")).toContainText("Hello");
   await expect(dialog.locator("#c-go")).toBeEnabled();
@@ -179,12 +182,31 @@ test("finishing offers cleanup for only that workspace", async ({ page }) => {
   await page.locator(".menu .mrow", { hasText: "Finish" }).click();
 
   const dialog = page.locator("dialog.clean");
-  await expect(dialog).toContainText("Take this worktree off the disk?");
+  await expect(dialog).toContainText("Workspace archived. Remove the worktree from disk?");
   await expect(dialog.locator(".cleanrow")).toHaveCount(1);
   await expect(dialog.locator(".cleanrow")).toContainText("Dock port per worktree");
-  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await dialog.getByRole("button", { name: "Keep worktree", exact: true }).click();
   await expect(dialog).toHaveCount(0);
 
   await page.getByRole("button", { name: /^Archived/ }).click();
   await expect(page.locator(".arow", { hasText: "Dock port per worktree" })).not.toContainText("worktree removed");
+});
+
+test("cleanup keeps the archived worktree available to restore", async ({ page }) => {
+  await boot(page);
+  const workspace = page.locator('.railworkspace[data-workspace="sessao-0929"] .navitem.sub');
+  await workspace.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Archive", exact: true }).click();
+
+  const dialog = page.locator("dialog.clean");
+  await expect(dialog).toContainText("Workspace archived. Remove the worktree from disk?");
+  await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Keep worktree", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+
+  await page.getByRole("button", { name: /^Archived/ }).click();
+  const archived = page.locator(".arow", { hasText: "Hello" });
+  await expect(archived).toBeVisible();
+  await archived.getByRole("button", { name: "Unarchive", exact: true }).click();
+  await expect(workspace).toBeVisible();
 });
