@@ -17,7 +17,7 @@ export function openCleanup(say: (text: string, isError?: boolean) => void, only
   const marked = new Set<string>();
   let running = false;
   const dialog = formDialog({
-    title: t(only ? "clean.offer" : "clean.title"), save: t("clean.goEmpty"), cancel: t("clean.cancel"), error: fromBack,
+    title: t(only ? "clean.offer" : "clean.title"), save: t("clean.goEmpty"), cancel: t(only ? "clean.keep" : "clean.cancel"), error: fromBack,
     submit: async () => {
       running = true;
       for (const control of list.querySelectorAll("input")) control.disabled = true;

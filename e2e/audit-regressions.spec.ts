@@ -142,6 +142,7 @@ test("cleanup keeps its dialog open while deleting worktrees", async ({ page }) 
   await page.getByRole("button", { name: /^Arquivados/ }).click();
   await page.locator("#aclean").click();
   const dialog = page.locator("dialog.clean");
+  await expect(dialog.getByRole("button", { name: "Cancelar", exact: true })).toBeVisible();
   await expect(dialog).toContainText("todos os arquivos ignorados");
   await expect(dialog.locator("#c-go")).toBeEnabled();
   await hold(page, "cleanup_worktree");
@@ -161,7 +162,9 @@ test("archiving offers cleanup for only that workspace", async ({ page }) => {
   await page.locator(".menu .mrow", { hasText: "Arquivar" }).click();
 
   const dialog = page.locator("dialog.clean");
-  await expect(dialog).toContainText("Tirar este worktree do disco?");
+  await expect(dialog).toContainText("Workspace arquivado. Tirar o worktree do disco?");
+  await expect(dialog.getByRole("button", { name: "Manter worktree", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Cancelar", exact: true })).toHaveCount(0);
   await expect(dialog.locator(".cleanrow")).toHaveCount(1);
   await expect(dialog.locator(".cleanrow")).toContainText("Ola");
   await expect(dialog.locator("#c-go")).toBeEnabled();
@@ -179,12 +182,37 @@ test("finishing offers cleanup for only that workspace", async ({ page }) => {
   await page.locator(".menu .mrow", { hasText: "Concluir" }).click();
 
   const dialog = page.locator("dialog.clean");
-  await expect(dialog).toContainText("Tirar este worktree do disco?");
+  await expect(dialog).toContainText("Workspace arquivado. Tirar o worktree do disco?");
   await expect(dialog.locator(".cleanrow")).toHaveCount(1);
   await expect(dialog.locator(".cleanrow")).toContainText("Porta do dock por worktree");
-  await dialog.getByRole("button", { name: "Cancelar" }).click();
+  await dialog.getByRole("button", { name: "Manter worktree", exact: true }).click();
   await expect(dialog).toHaveCount(0);
 
   await page.getByRole("button", { name: /^Arquivados/ }).click();
   await expect(page.locator(".arow", { hasText: "Porta do dock por worktree" })).not.toContainText("worktree removido");
 });
+
+for (const locale of ["pt-BR", "en"]) {
+  test(`cleanup keeps the archived worktree available to restore in ${locale}`, async ({ page }) => {
+    const english = locale === "en";
+    await page.addInitScript(locale => localStorage.setItem("prometeu:idioma", locale), locale);
+    await boot(page);
+    const workspace = page.locator('.railworkspace[data-workspace="sessao-0929"] .navitem.sub');
+    await workspace.click({ button: "right" });
+    await page.getByRole("menuitem", { name: english ? "Archive" : "Arquivar", exact: true }).click();
+
+    const dialog = page.locator("dialog.clean");
+    await expect(dialog).toContainText(english
+      ? "Workspace archived. Remove the worktree from disk?"
+      : "Workspace arquivado. Tirar o worktree do disco?");
+    await expect(dialog.getByRole("button", { name: english ? "Cancel" : "Cancelar", exact: true })).toHaveCount(0);
+    await dialog.getByRole("button", { name: english ? "Keep worktree" : "Manter worktree", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+
+    await page.getByRole("button", { name: english ? /^Archived/ : /^Arquivados/ }).click();
+    const archived = page.locator(".arow", { hasText: "Ola" });
+    await expect(archived).toBeVisible();
+    await archived.getByRole("button", { name: english ? "Unarchive" : "Desarquivar", exact: true }).click();
+    await expect(workspace).toBeVisible();
+  });
+}
