@@ -1,4 +1,39 @@
 import { expect, test } from "@playwright/test";
+import type { CatalogState } from "../src/catalog";
+import type { McpServer } from "../src/types";
+
+test("organizações no desktop comparam MCPs sem depender da ordem das chaves", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("mock:cloud", JSON.stringify({ user: { id: "1", name: "Pessoa", email: "me@example.com" }, origin: "https://app.prometeu.co", offline: false }));
+    localStorage.setItem("mock:organizationCatalogs", JSON.stringify([
+      { id: "acme", name: "Equipe Acme", links: {}, plugins: [], skills: [], mcp: [
+        { id: "order-test", note: "Team", config: { env: { SECOND: "", FIRST: "" }, args: ["-y", "server"], command: "npx", type: "stdio" } },
+      ] },
+    ]));
+  });
+  await page.goto("/");
+  await expect(page.locator("#tiles .tile").first()).toBeVisible();
+  const result = await page.evaluate(async () => {
+    const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__;
+    const server = { id: "order-test", note: "Local", config: { type: "stdio", command: "npx", args: ["-y", "server"], env: { FIRST: "local-secret", SECOND: "another-secret" } } };
+    await invoke("mcp_save", { server });
+    const installed = async () => (await invoke("catalog_state") as CatalogState).organization_items!.find(item => item.id === server.id)!.installed;
+    const reordered = await installed();
+    await invoke("mcp_save", { server: { ...server, config: { ...server.config, args: ["server", "-y"] } } });
+    const differentArgs = await installed();
+    await invoke("mcp_save", { server: { ...server, config: { ...server.config, command: "other" } } });
+    const differentCommand = await installed();
+    await invoke("mcp_save", { server });
+    await invoke("catalog_install_organization_item", { organization: "acme", kind: "mcp", id: server.id, revision: 0 });
+    return { reordered, differentArgs, differentCommand, servers: await invoke("mcp_hub") as McpServer[], links: JSON.parse(localStorage.getItem("mock:organizationCatalogs")!)[0].links };
+  });
+  expect(result.reordered).toBe(true);
+  expect(result.differentArgs).toBe(false);
+  expect(result.differentCommand).toBe(false);
+  expect(result.servers.filter(server => server.id.includes("order-test"))).toHaveLength(1);
+  expect(result.servers.find(server => server.id === "order-test")!.config.env).toEqual({ FIRST: "local-secret", SECOND: "another-secret" });
+  expect(result.links["mcp:order-test"]).toBe("order-test");
+});
 
 test("organizações no desktop oferecem instalação direta sem alterar catálogo pessoal", async ({ page }) => {
   await page.addInitScript(() => {

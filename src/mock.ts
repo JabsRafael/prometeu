@@ -35,10 +35,12 @@ type MockOrganizationCatalog = { id: string; name: string; revision?: number; pl
 const mockOrganizations = (): MockOrganizationCatalog[] => JSON.parse(localStorage.getItem("mock:organizationCatalogs") ?? "[]");
 const samePlugin = (cloud: Pick<Plugin, "id" | "source">, local: Plugin) => cloud.id.toLowerCase() === local.id.toLowerCase()
   && cloud.source.replace(/\/$/, "") === (local.from || local.source).replace(/\/$/, "");
+const sortedJson = (value: unknown) => JSON.stringify(value, (_, item) => item && typeof item === "object" && !Array.isArray(item)
+  ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
 const sameMcp = (cloud: McpServer, local: McpServer) => {
   const config = structuredClone(local.config);
   for (const key of ["env", "headers"]) for (const name of Object.keys(config[key] as object ?? {})) (config[key] as Record<string, unknown>)[name] = "";
-  return cloud.id === local.id && JSON.stringify(cloud.config) === JSON.stringify(config);
+  return cloud.id === local.id && sortedJson(cloud.config) === sortedJson(config);
 };
 const sameSkill = (cloud: Skill, local: Skill) => cloud.id === local.id && cloud.description === local.description && cloud.content === local.content;
 const sameProjectSource = (first: string, second: string) => first.replace(/\/?\.git\/?$/, "").replace(/\/$/, "") === second.replace(/\/?\.git\/?$/, "").replace(/\/$/, "");

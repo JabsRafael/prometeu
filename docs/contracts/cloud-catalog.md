@@ -182,7 +182,7 @@ omitted from the installation selector. The desktop may omit this additive state
 field on older versions.
 
 `catalog_install_project` fetches the current account or organization document
-and rejects a changed revision or definition before touching files. A conflict
+and rejects a changed revision or definition before cloning or linking. A conflict
 refreshes the cache; reopen the selector to review the current definitions. With
 `existing: false`, `directory` is the chosen parent. With `existing: true`, it
 is the existing repository root. A matching root and origin can be registered
@@ -191,6 +191,9 @@ normalizes GitHub shorthand, scp syntax and an optional `.git` suffix; changing
 between HTTPS and SSH requires the catalog source to match the local origin.
 If a registered project already has that origin, installation records its path
 and returns it without cloning or asking for the folder again.
+Origin probes use a snapshot of registered projects without holding the board or
+catalog mutex. Installation rechecks that a match is still registered before
+linking it; catalog writes remain serialized.
 An unrelated directory, nested repository subdirectory or different origin is
 rejected. Git clones into a temporary sibling directory and moves the completed
 clone into the reserved destination. Failures remove only that temporary clone

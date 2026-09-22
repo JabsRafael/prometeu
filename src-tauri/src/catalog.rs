@@ -979,6 +979,7 @@ pub fn catalog_state(app: AppHandle) -> CatalogState {
     let hub = plugins::load();
     let skill_hub = skills::load();
     let servers = mcp::load();
+    drop(_sync);
     let mut organization_items = Vec::new();
     for org in &cache.organizations {
         for (kind, id) in org
@@ -1079,7 +1080,8 @@ pub fn catalog_state(app: AppHandle) -> CatalogState {
             Some((key(kind, local), id.into()))
         })
         .collect();
-    let projects = projects::state(&cache, &lock(&app.state::<AppState>().board));
+    let registered = lock(&app.state::<AppState>().board).projects.clone();
+    let projects = projects::state(&cache, &registered);
     CatalogState {
         connected,
         projects,

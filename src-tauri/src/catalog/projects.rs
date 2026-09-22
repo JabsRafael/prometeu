@@ -1,5 +1,5 @@
 use super::*;
-use crate::state::{Board, Project};
+use crate::state::Project;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -13,7 +13,7 @@ pub struct CatalogProject {
     local_path: Option<String>,
 }
 
-pub(super) fn state(cache: &Cache, board: &Board) -> Vec<CatalogProject> {
+pub(super) fn state(cache: &Cache, registered: &[Project]) -> Vec<CatalogProject> {
     let local: Vec<_> = if cache.doc.projects.is_empty()
         && cache
             .organizations
@@ -22,11 +22,7 @@ pub(super) fn state(cache: &Cache, board: &Board) -> Vec<CatalogProject> {
     {
         Vec::new()
     } else {
-        board
-            .projects
-            .iter()
-            .filter_map(|project| project_remote(&project.path).map(|source| (project, source)))
-            .collect()
+        project_remotes(registered)
     };
     std::iter::once((
         None,
@@ -54,7 +50,7 @@ pub(super) fn state(cache: &Cache, board: &Board) -> Vec<CatalogProject> {
             local_path: links
                 .get(&key("projects", &item.id))
                 .filter(|path| {
-                    board.projects.iter().any(|p| &p.path == *path) && Path::new(path).is_dir()
+                    registered.iter().any(|p| &p.path == *path) && Path::new(path).is_dir()
                 })
                 .cloned()
                 .or_else(|| {
@@ -174,14 +170,27 @@ fn project_remote(path: &str) -> Option<String> {
         .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-fn matching_project(item: &Portable, board: &Board) -> Option<Project> {
-    board
-        .projects
+fn project_remotes(projects: &[Project]) -> Vec<(Project, String)> {
+    projects
         .iter()
-        .find(|project| {
-            project_remote(&project.path).is_some_and(|source| same_remote(&item.source, &source))
+        .filter_map(|project| project_remote(&project.path).map(|source| (project.clone(), source)))
+        .collect()
+}
+
+fn matching_project(
+    item: &Portable,
+    remotes: &[(Project, String)],
+    registered: &[Project],
+) -> Option<Project> {
+    remotes
+        .iter()
+        .filter(|(_, source)| same_remote(&item.source, source))
+        .find_map(|(project, _)| {
+            registered
+                .iter()
+                .find(|current| current.id == project.id && current.path == project.path)
+                .cloned()
         })
-        .cloned()
 }
 
 /// Show Git diagnostics locally, without URL credentials, query strings or authorization headers.
@@ -338,7 +347,21 @@ pub fn catalog_install_project(
     directory: String,
     existing: bool,
 ) -> Result<Project, String> {
-    let _sync = guard();
+    // Probe a snapshot before taking the catalog lock; slow paths must not block shared state.
+    let (remotes, _sync) = loop {
+        let registered = lock(&app.state::<AppState>().board).projects.clone();
+        let remotes = project_remotes(&registered);
+        let sync = guard();
+        // Another installation may have registered a project while we probed or waited.
+        if lock(&app.state::<AppState>().board)
+            .projects
+            .iter()
+            .map(|p| (&p.id, &p.path))
+            .eq(registered.iter().map(|p| (&p.id, &p.path)))
+        {
+            break (remotes, sync);
+        }
+    };
     let mut cache = load_cache();
     let (route, cached) = match organization.as_deref() {
         Some(id) => {
@@ -351,7 +374,7 @@ pub fn catalog_install_project(
         }
         None => ("/api/catalog".into(), &cache.doc),
     };
-    // Membership, revision and source are checked again before touching the filesystem.
+    // Membership, revision and source are checked again before cloning or linking.
     let (code, value) = cloud::api(Method::GET, &route, None, Duration::from_secs(12))?
         .ok_or_else(|| i18n::t("err.catalog.disconnected"))?;
     if code != 200 {
@@ -367,7 +390,12 @@ pub fn catalog_install_project(
         .iter()
         .find(|item| item.id == id)
         .ok_or_else(invalid)?;
-    if let Some(project) = matching_project(item, &lock(&app.state::<AppState>().board)) {
+    let project = matching_project(
+        item,
+        &remotes,
+        &lock(&app.state::<AppState>().board).projects,
+    );
+    if let Some(project) = project {
         let links = match organization {
             Some(id) => {
                 &mut cache
@@ -409,6 +437,7 @@ pub fn catalog_install_project(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::Board;
 
     #[test]
     fn clone_errors_explain_access_without_hiding_git_diagnostics_or_exposing_url_secrets() {
@@ -560,8 +589,21 @@ mod tests {
         crate::session::register_project(&mut board, &retry);
         assert_eq!(board.projects.len(), 1);
         assert_eq!(
-            matching_project(&item, &board).unwrap().path,
+            matching_project(&item, &project_remotes(&board.projects), &board.projects)
+                .unwrap()
+                .path,
             retry.display().to_string()
+        );
+        // A project removed during the probe must not be returned from the old snapshot.
+        let snapshot = board.projects.clone();
+        let remotes = project_remotes(&snapshot);
+        assert!(matching_project(&item, &remotes, &[]).is_none());
+        board.projects[0].name = "Renamed during probe".into();
+        assert_eq!(
+            matching_project(&item, &remotes, &board.projects)
+                .unwrap()
+                .name,
+            "Renamed during probe"
         );
         assert_eq!(
             std::fs::read_to_string(path.join("README.md")).unwrap(),
@@ -588,7 +630,7 @@ mod tests {
             ..Cache::default()
         };
         assert_eq!(
-            state(&cache, &board)[0].local_path.as_deref(),
+            state(&cache, &board.projects)[0].local_path.as_deref(),
             retry.to_str()
         );
         cache
@@ -596,7 +638,7 @@ mod tests {
             .as_mut()
             .unwrap()
             .insert(key("projects", "app"), retry.display().to_string());
-        assert!(state(&cache, &board)[0].local_path.is_some());
+        assert!(state(&cache, &board.projects)[0].local_path.is_some());
         bind(
             &mut cache,
             &Doc::default(),
