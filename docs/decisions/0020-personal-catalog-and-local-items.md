@@ -28,6 +28,12 @@ Adopt option 3. Desktop creations are private by default. Sharing is an explicit
 action; editing a linked definition publishes it to the account. A local copy
 gets another ID and does not change the shared item.
 
+MCP connection checks and OAuth are local operations on an installed definition,
+independent of catalog editing or revision checks. They never publish or create
+a local copy. The desktop exposes these actions directly in the hub and keeps
+credentials on each Mac; connection changes in the editor require an explicit
+save before authentication.
+
 The SaaS uses conventional Rails, Design System forms, cookies and CSRF. The
 desktop keeps the Bearer. The existing revisioned document is still the storage
 unit; web operations change only the chosen item, preserving the other

@@ -13,6 +13,9 @@ import { $, h, template } from "./util";
 let hub: McpServer[] = [];
 /// Backend OAuth state identifies authenticated servers without exposing tokens.
 let logins: string[] = [];
+/// Connection results belong to this Mac and this configuration, never to the cloud catalog.
+type Connection = { config: string; check?: McpCheck; error?: string; pending?: Key };
+const connections = new Map<string, Connection>();
 let loaded = false;
 const watchers = new Set<() => void>();
 
@@ -240,15 +243,40 @@ function emptyRow(): HTMLElement {
 function serverRow(server: McpServer): HTMLElement {
   const row = template(
     "div",
-    "setrow",
+    "setrow mcp-server",
     `<span class="glyph"></span><div class="txt"><b></b><span></span></div><div class="act"></div>`,
   );
   row.querySelector(".glyph")!.innerHTML = icon(kind(server) === "stdio" ? "terminal" : "globe", 18);
   row.querySelector(".txt b")!.textContent = server.id;
-  const parts = [subtitle(server), signedIn(server.id) ? t("mcp.connected") : "", catalog.tag("mcp", server.id)];
+  const parts = [subtitle(server), catalog.tag("mcp", server.id)];
   row.querySelector(".txt span")!.textContent = parts.filter(Boolean).join(" · ");
 
   if (server.config.builtin === true) return row;
+
+  const config = JSON.stringify(server.config);
+  if (connections.get(server.id)?.config !== config) connections.set(server.id, { config });
+  const connection = connections.get(server.id)!;
+  const check = connection.check;
+  const status: Key = connection.pending ?? (connection.error ? "mcp.status.error"
+    : check?.probe.auth ? "mcp.status.auth"
+    : check?.probe.ok ? "mcp.connected"
+    : check ? "mcp.status.error" : "mcp.status.unchecked");
+  const detail = connection.error || check?.steps.find((s) => !s.ok)?.detail || check?.probe.detail;
+  const statusLine = h("span", "", [t(status), detail ? fromBack(detail) : ""].filter(Boolean).join(" · "));
+  statusLine.setAttribute("role", "status");
+  row.querySelector(".txt")!.append(statusLine);
+  row.setAttribute("aria-busy", String(!!connection.pending));
+
+  const test = ui.button(t("mcp.check"), () => void connect(server, connection, "check"), "ghost");
+  row.querySelector(".act")!.append(test);
+  if (kind(server) === "url") {
+    if (!check?.probe.ok || check.probe.auth) {
+      row.querySelector(".act")!.append(ui.button(t("mcp.authenticate"), () => void connect(server, connection, "login"), "ghost"));
+    }
+    if (signedIn(server.id)) {
+      row.querySelector(".act")!.append(ui.button(t("mcp.logout"), () => void connect(server, connection, "logout"), "ghost"));
+    }
+  }
 
   const edit = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
   edit.children[0].textContent = t("mcp.edit");
@@ -259,7 +287,31 @@ function serverRow(server: McpServer): HTMLElement {
   drop.addEventListener("click", () => void remove(server));
 
   row.querySelector(".act")!.append(edit, ...catalog.controls("mcp", server.id), drop);
+  row.querySelectorAll("button").forEach((button) => { button.disabled = !!connection.pending; });
   return row;
+}
+
+/// Operate on the registered definition without saving or publishing it. Recheck after login/logout
+/// so a stored token alone never implies a working connection.
+async function connect(server: McpServer, connection: Connection, action: "check" | "login" | "logout") {
+  if (connection.pending) return;
+  connection.pending = action === "login" ? "mcp.login.doing" : "mcp.check.doing";
+  connection.error = undefined;
+  connection.check = undefined;
+  announce();
+  try {
+    if (action === "login") await invoke("mcp_login", { server });
+    if (action === "logout") await invoke("mcp_logout", { id: server.id });
+    if (action !== "check") await refreshLogins();
+    connection.pending = "mcp.check.doing";
+    announce();
+    connection.check = await invoke("mcp_check", { server });
+  } catch (e) {
+    connection.error = fromBack(e);
+  } finally {
+    connection.pending = undefined;
+    announce();
+  }
 }
 
 /// Transport selects the fields and icon: local stdio process or remote URL.
@@ -282,6 +334,7 @@ async function remove(server: McpServer) {
   if (!await catalog.confirmRemoval("mcp", server.id)) return;
   try {
     hub = await invoke("mcp_remove", { id: server.id });
+    connections.delete(server.id);
     await catalog.load();
     announce();
   } catch (e) {
@@ -546,16 +599,24 @@ function editor(server: McpServer | null) {
       } catch (e) {
         return say(fromBack(e), true);
       }
+      connections.delete(built.id);
       await refreshLogins();
       return second();
     }
-    // Register before login because OAuth state is stored by server name and must not become orphaned.
+    // Existing definitions authenticate independently of cloud revisions. Connection edits must
+    // be saved explicitly first; only new servers need registration before their first login.
+    if (server && JSON.stringify(built.config) !== JSON.stringify(toServer(toDraft(server))!.config)) {
+      return say(t("mcp.auth.saveFirst"), true);
+    }
     btn.disabled = true;
     say(t("mcp.login.doing"));
     try {
-      await save(built, revision);
-      await catalog.load(); revision = catalog.current().revision;
-      await invoke("mcp_login", { server: built });
+      if (!server) {
+        await save(built, revision);
+        await catalog.load(); revision = catalog.current().revision;
+      }
+      await invoke("mcp_login", { server: server ?? built });
+      connections.delete(built.id);
       await refreshLogins();
       say(t("mcp.login.ok"));
       // Probe again after authentication to replace the previous login-required status.

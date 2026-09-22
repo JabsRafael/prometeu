@@ -1528,7 +1528,7 @@ const mockCommands: IpcHandlers = {
     const server = args.server as McpServer;
     const url = String(server.config.url ?? "");
     const step = (key: string, ok: boolean, note = "", detail = "") => ({ key, ok, note, detail });
-    if (url.includes("notion") || url.includes("capim"))
+    if ((url.includes("notion") || url.includes("capim")) && !mcpLogins.includes(server.id))
       return {
         steps: [step("connect", true, "401"), step("oauth", true), step("client", true)],
         probe: { ok: false, auth: true, tools: 0, name: "", detail: "" },

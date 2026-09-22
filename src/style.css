@@ -1447,6 +1447,11 @@ body.noside .side { display: none; }
 .setrow .txt .bad { color: var(--err); }
 .setrow .act { display: flex; gap: 8px; flex: none; }
 .setrow .act .md .ic:last-child { color: var(--fg-3); }
+/* MCP connection actions remain available when the catalog row wraps. */
+.setrow.mcp-server { flex-wrap: wrap; }
+.setrow.mcp-server .txt { flex-basis: 220px; overflow-wrap: anywhere; }
+.setrow.mcp-server .txt > span { display: block; }
+.setrow.mcp-server .act { flex-wrap: wrap; max-width: 100%; margin-left: auto; }
 /* Align nested team rows without icons. */
 .setrow.sub { padding: 10px 0 10px 46px; }
 .setrow.sub .txt > b { white-space: nowrap; }
