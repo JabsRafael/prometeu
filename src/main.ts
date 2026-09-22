@@ -336,6 +336,8 @@ const escapePath = (p: string) => p.replace(/([\s!"#$&'()*,:;<>?[\\\]^`{|}~])/g,
 type Drop = { host: HTMLElement; put: (paths: string[]) => void; wait?: () => () => void } | null;
 function targetFrom(el: Element | null): Drop {
   if (!el) return null;
+  const feedbackTarget = feedback.fileDropTarget(el);
+  if (feedbackTarget) return feedbackTarget;
   // Side-panel and center xterms route input to their own active PTYs.
   const where = el.closest("#dock") ? "scripts" : el.closest("#termview") ? "shell" : null;
   if (where) {
@@ -404,7 +406,6 @@ listen<Drag>("file-drag", ({ payload: drag }) => {
   }
   if (drag.type === "leave") return markDrop(null);
   if (drag.type === "enter") markDrop(null);
-  if (document.querySelector("dialog:modal")) return markDrop(null);
 
   // While the launcher is open, dropped files attach to its first prompt.
   if (!$("veil").hidden) {
@@ -417,6 +418,7 @@ listen<Drag>("file-drag", ({ payload: drag }) => {
   }
 
   const target = dropTarget(drag.position);
+  if (document.querySelector("dialog:modal") && !target?.host.closest(".ui-feedback-panel")) return markDrop(null);
   if (drag.type !== "drop" && drag.type !== "pending") return markDrop(target);
 
   // Use the final drop location, falling back to the prior target only outside the viewport. Revalidate the host so hidden or removed conversations cannot receive attachments.

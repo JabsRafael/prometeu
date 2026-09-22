@@ -5,8 +5,10 @@ import { invoke } from "./ipc";
 import { $ } from "./util";
 import { version } from "../package.json";
 
+let widget: ReturnType<typeof mountFeedback> | undefined;
+
 export function init() {
-  const widget = mountFeedback({
+  widget = mountFeedback({
     source: "desktop", locale: current(), version, error: fromBack,
     origin: () => cloud.current().origin || "https://app.prometeu.co",
     send: report => invoke("feedback_send", { report }),
@@ -26,4 +28,23 @@ export function init() {
   widget.trigger.textContent = t("feedback.trigger");
   $("update").after(widget.trigger);
   widget.root.classList.add("ui-feedback-desktop");
+}
+
+/** Tauri intercepts native file drops, so load the selected image through bounded IPC. */
+export function fileDropTarget(element: Element | null) {
+  const panel = element?.closest<HTMLElement>(".ui-feedback-panel");
+  if (!widget || !panel || !widget.root.contains(panel) || !widget.canAttach()) return null;
+  const target = widget;
+  return {
+    host: panel,
+    put: ([path]: string[]) => {
+      if (!path || !target.canAttach()) return;
+      void target.attach(invoke("feedback_image", { path })
+        .then(image => new File(
+          [Uint8Array.from(atob(image.data), char => char.charCodeAt(0))],
+          image.name,
+          { type: image.type },
+        )));
+    },
+  };
 }

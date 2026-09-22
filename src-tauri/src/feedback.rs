@@ -3,8 +3,54 @@
 use crate::{cloud, i18n, paths};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use reqwest::Method;
+use serde::Serialize;
 use serde_json::Value;
-use std::time::Duration;
+use std::{io::Read, path::Path, time::Duration};
+
+const MAX_IMAGE_BYTES: u64 = 5 * 1024 * 1024;
+
+#[derive(Serialize)]
+pub struct FeedbackImage {
+    name: String,
+    #[serde(rename = "type")]
+    media_type: &'static str,
+    data: String,
+}
+
+fn read_image(path: &Path) -> Result<FeedbackImage, String> {
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .and_then(|file| file.take(MAX_IMAGE_BYTES + 1).read_to_end(&mut bytes))
+        .map_err(|_| i18n::t("feedback.invalidImage"))?;
+    if bytes.is_empty() || bytes.len() as u64 > MAX_IMAGE_BYTES {
+        return Err(i18n::t("feedback.invalidImage"));
+    }
+    let media_type = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        "image/png"
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        "image/jpeg"
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        "image/webp"
+    } else {
+        return Err(i18n::t("feedback.invalidImage"));
+    };
+    Ok(FeedbackImage {
+        name: path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("feedback")
+            .to_string(),
+        media_type,
+        data: STANDARD.encode(bytes),
+    })
+}
+
+#[tauri::command(async)]
+pub async fn feedback_image(path: String) -> Result<FeedbackImage, String> {
+    tauri::async_runtime::spawn_blocking(move || read_image(Path::new(&path)))
+        .await
+        .map_err(|_| i18n::t("feedback.invalidImage"))?
+}
 
 /// The Cloud forwards text and image to GitHub inside the request, so allow more than the usual
 /// account call. Without an account the person is asked to connect one; nothing is sent.
@@ -55,7 +101,7 @@ pub async fn feedback_capture() -> Result<Option<String>, String> {
                 return Ok(None);
             }
             let bytes = std::fs::read(&file).map_err(|_| i18n::t("feedback.captureError"))?;
-            if bytes.len() > 5 * 1024 * 1024 {
+            if bytes.len() as u64 > MAX_IMAGE_BYTES {
                 return Err(i18n::t("feedback.invalidImage"));
             }
             Ok(Some(STANDARD.encode(bytes)))
@@ -65,4 +111,29 @@ pub async fn feedback_capture() -> Result<Option<String>, String> {
     })
     .await
     .map_err(|_| i18n::t("feedback.captureError"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dropped_image_uses_signature_and_size_limit() {
+        let directory =
+            std::env::temp_dir().join(format!("prometeu-feedback-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let png = directory.join("print.bin");
+        std::fs::write(&png, b"\x89PNG\r\n\x1a\ncontent").unwrap();
+        let image = read_image(&png).unwrap();
+        assert_eq!(image.media_type, "image/png");
+        assert_eq!(image.name, "print.bin");
+        let invalid = directory.join("invalid.png");
+        std::fs::write(&invalid, b"not an image").unwrap();
+        assert!(read_image(&invalid).is_err());
+        let oversized = directory.join("oversized.png");
+        let file = std::fs::File::create(&oversized).unwrap();
+        file.set_len(MAX_IMAGE_BYTES + 1).unwrap();
+        assert!(read_image(&oversized).is_err());
+        let _ = std::fs::remove_dir_all(directory);
+    }
 }

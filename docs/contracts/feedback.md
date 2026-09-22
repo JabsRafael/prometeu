@@ -10,11 +10,12 @@ form's description or image and remains available without a Prometeu account.
 The person reviews and publishes the issue through GitHub.
 
 The private form offers Problem, Idea and Other, a description, an optional
-image and a capture started by the person. The form states that the report will
-be handled privately by the Prometeu team and asks for a review of sensitive
-data before sending. No transcript, workspace path, email, credential or
-navigation URL is collected automatically. Captures may contain such data: the
-person reviews the thumbnail and can remove or replace the image.
+image selected or dropped onto the panel, and a capture started by the person.
+The form states that the report will be handled privately by the Prometeu team
+and asks for a review of sensitive data before sending. No transcript,
+workspace path, email, credential or navigation URL is collected automatically.
+Captures may contain such data: the person reviews the thumbnail and can remove
+or replace the image.
 
 ## HTTP
 
@@ -118,6 +119,19 @@ selecting the window; the file stays in a private temporary directory and is
 removed when it finishes. Failures use i18n. The mock returns a fictional image;
 it does not capture the computer.
 
+Tauri intercepts desktop file drops before HTML receives them. A drop over the
+open form routes its first path through the additive `feedback_image` IPC
+command. The command reads at most 5 MiB plus one byte, verifies the PNG, JPEG or
+WebP signature and returns the file name, media type and base64 bytes. Other
+drop targets keep their existing behavior.
+
+While an image is loading, submission is disabled and the form reports
+`aria-busy`. A newer attachment selection replaces the pending load; results
+and errors from older loads are ignored. Removing the image, starting a capture,
+closing the panel or destroying the widget also invalidates pending loads.
+The last accepted image and the draft survive a loading failure. Sending requires
+another explicit action after loading finishes; it is never queued automatically.
+
 In the browser, `getDisplayMedia` offers surface selection when available. The
 tracks are stopped after the capture, including on error. Browsers without that
 API keep the upload. The widget is hidden during the capture, comes back with a
@@ -158,7 +172,9 @@ do not take part in the delivery.
 
 - [`e2e/feedback.spec.ts`](../../e2e/feedback.spec.ts): the notice without an
   account and connecting from the panel, a recoverable error, retry, upload,
-  thumbnail, simulated capture, modal and narrow viewport in Chromium/WebKit.
+  thumbnail, simulated capture, modal and narrow viewport in Chromium/WebKit;
+  deferred native loads cover submission blocking, out-of-order results/errors,
+  replacement, removal, capture and closing the panel.
 - The Cloud's `FeedbackTest` tests: 401 without a session, Bearer and cookie,
   per-account limit, foreign origin, format, signature, creation, idempotency,
   ambiguous failure, repository privacy, native upload, retry and the absence of

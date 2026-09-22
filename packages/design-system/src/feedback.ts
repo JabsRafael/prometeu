@@ -25,7 +25,7 @@ export function feedbackWidget(options: {
   const form = document.createElement("form");
   const heading = h("div", "ui-feedback-heading");
   let busy = false;
-  const close = () => { if (!busy) { panel.hidden = true; trigger.setAttribute("aria-expanded", "false"); trigger.focus(); } };
+  const close = () => { if (!busy) { cancelAttachment(); panel.hidden = true; trigger.setAttribute("aria-expanded", "false"); trigger.focus(); } };
   heading.append(h("b", "", labels.title), button(labels.close, close, "ghost"));
   const publicReport = h("div", "ui-feedback-public");
   publicReport.hidden = !options.publicIssue;
@@ -71,22 +71,53 @@ export function feedbackWidget(options: {
     else preview.removeAttribute("src");
     preview.hidden = remove.hidden = !file;
   };
-  const remove = button(labels.remove, () => { setImage(); upload.value = ""; });
-  remove.hidden = true;
-  upload.onchange = () => {
+  let attachmentRevision = 0;
+  let loading = false;
+  const setLoading = (value: boolean) => {
+    loading = value;
+    send.disabled = busy || loading;
+    form.setAttribute("aria-busy", String(busy || loading));
+  };
+  const cancelAttachment = () => { attachmentRevision++; setLoading(false); };
+  const attach = async (file?: File | Promise<File>) => {
+    const revision = ++attachmentRevision;
+    setLoading(true);
     error.textContent = "";
-    try { setImage(upload.files?.[0]); }
-    catch (cause) { upload.value = ""; error.textContent = options.error(cause); }
+    try {
+      const image = await file;
+      if (revision === attachmentRevision) setImage(image);
+    } catch (cause) {
+      if (revision === attachmentRevision) error.textContent = options.error(cause);
+    } finally {
+      if (revision === attachmentRevision) { upload.value = ""; setLoading(false); }
+    }
+  };
+  const remove = button(labels.remove, () => { void attach(); });
+  remove.hidden = true;
+  upload.onchange = () => attach(upload.files?.[0]);
+  panel.ondragover = event => {
+    if (busy || form.hidden || !event.dataTransfer?.types.includes("Files")) return;
+    event.preventDefault();
+    panel.classList.add("ui-feedback-dropping");
+  };
+  panel.ondragleave = event => {
+    if (!event.relatedTarget || !panel.contains(event.relatedTarget as Node)) panel.classList.remove("ui-feedback-dropping");
+  };
+  panel.ondrop = event => {
+    panel.classList.remove("ui-feedback-dropping");
+    if (busy || form.hidden || !event.dataTransfer?.files.length) return;
+    event.preventDefault(); attach(event.dataTransfer.files[0]);
   };
   const attachments = h("div", "ui-feedback-attachments");
   attachments.append(field(labels.attach, upload), preview, remove);
   const setBusy = (value: boolean) => {
     busy = value;
     for (const control of form.querySelectorAll<HTMLInputElement | HTMLButtonElement>("button, input, textarea, select")) control.disabled = value;
-    form.setAttribute("aria-busy", String(value));
+    setLoading(loading);
   };
   if (options.capture) {
     attachments.append(button(labels.capture, async () => {
+      cancelAttachment();
       setBusy(true); error.textContent = "";
       root.classList.add("ui-feedback-capturing");
       try {
@@ -103,7 +134,7 @@ export function feedbackWidget(options: {
     h("p", "ui-hint", labels.privacy), error, status, send);
   form.onsubmit = async event => {
     event.preventDefault();
-    if (busy) return;
+    if (busy || loading) return;
     if (!description.value.trim()) { description.setCustomValidity(labels.empty); description.reportValidity(); return; }
     setBusy(true); error.textContent = ""; status.textContent = "";
     try {
@@ -147,5 +178,9 @@ export function feedbackWidget(options: {
   const observer = new MutationObserver(place);
   document.body.append(root); root.showPopover?.(); place();
   observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["open"] });
-  return { root, trigger, destroy() { observer.disconnect(); document.removeEventListener("keydown", onKey, true); if (objectUrl) URL.revokeObjectURL(objectUrl); trigger.remove(); root.remove(); } };
+  return {
+    root, trigger, attach,
+    canAttach: () => !panel.hidden && !form.hidden && !busy,
+    destroy() { cancelAttachment(); observer.disconnect(); document.removeEventListener("keydown", onKey, true); if (objectUrl) URL.revokeObjectURL(objectUrl); trigger.remove(); root.remove(); },
+  };
 }
