@@ -1173,7 +1173,7 @@ fn lives_in(dir: &Path) -> bool {
 
 /// Expand owner/repo as GitHub shorthand and remove browser tree/branch suffixes. Preserve other
 /// Git URLs for GitLab, Bitbucket, and SSH transports.
-fn git_url(source: &str) -> String {
+pub(crate) fn git_url(source: &str) -> String {
     let mut text = source.trim().trim_end_matches('/');
     if let Some(cut) = text.find("/tree/") {
         text = &text[..cut];

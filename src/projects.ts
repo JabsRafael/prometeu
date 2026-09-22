@@ -64,6 +64,7 @@ export function openProjects(say: (text: string, bad?: boolean) => void) {
       if (typeof path === "string") { directory = path; destination.textContent = path; update(); }
     } catch (error) { say(fromBack(error), true); }
   }, "outline");
+  destination.hidden = true;
   const list = h("div", "ui-stack");
   dialog.body.append(local, h("p", "ui-hint", t("projects.hint")), destination, list);
   dialog.save.disabled = true;
@@ -71,7 +72,9 @@ export function openProjects(say: (text: string, bad?: boolean) => void) {
   dialog.open();
   void catalog.load().then(() => {
     if (!dialog.root.isConnected) return;
-    for (const item of catalog.current().projects ?? []) {
+    const items = (catalog.current().projects ?? []).filter(item => !item.local_path);
+    destination.hidden = !items.length;
+    for (const item of items) {
       const row = h("div", "setrow");
       const text = h("div", "txt");
       const choice = checkbox(`${item.id} · ${item.organization_name ?? t("catalog.cloud")}`, false);

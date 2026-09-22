@@ -3,11 +3,23 @@ import { expect, test } from "@playwright/test";
 test("organizações no desktop oferecem instalação direta sem alterar catálogo pessoal", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("mock:cloud", JSON.stringify({ user: { id: "1", name: "Pessoa", email: "me@example.com" }, origin: "https://app.prometeu.co", offline: false }));
+    localStorage.setItem("mock:skills", JSON.stringify([
+      { id: "local-skill", description: "Já instalada", content: "Use o conteúdo local." },
+    ]));
     localStorage.setItem("mock:organizationCatalogs", JSON.stringify([
       { id: "acme", name: "Equipe Acme", links: {},
-        plugins: [{ id: "revisor", source: "https://github.com/acme/revisor", note: "Revisão da equipe" }],
-        mcp: [{ id: "notion", config: { url: "https://acme.test/mcp", headers: { Authorization: "" } }, note: "Documentos da equipe" }],
-        skills: [{ id: "revisao-cloud", description: "Revisão institucional", content: "Leia mudanças da equipe." }] },
+        plugins: [
+          { id: "revisor", source: "https://github.com/acme/revisor", note: "Revisão da equipe" },
+          { id: "Caveman", source: "https://github.com/JuliusBrussee/caveman", note: "Já instalado localmente" },
+        ],
+        mcp: [
+          { id: "notion", config: { url: "https://acme.test/mcp", headers: { Authorization: "" } }, note: "Documentos da equipe" },
+          { id: "capim-ds", config: { type: "stdio", command: "npx", args: ["-y", "@capim/ds-mcp"], env: {} }, note: "Já instalado localmente" },
+        ],
+        skills: [
+          { id: "revisao-cloud", description: "Revisão institucional", content: "Leia mudanças da equipe." },
+          { id: "local-skill", description: "Já instalada", content: "Use o conteúdo local." },
+        ] },
       { id: "other", name: "Outra equipe", links: {}, plugins: [{ id: "revisor", source: "https://github.com/other/revisor", note: "Outra revisão" }], mcp: [], skills: [] },
     ]));
   });
@@ -17,6 +29,7 @@ test("organizações no desktop oferecem instalação direta sem alterar catálo
   await page.locator(".setnavitem", { hasText: "Plugins" }).click();
   const acme = page.locator(".setrow", { hasText: "Equipe Acme" });
   await expect(acme).toContainText("https://github.com/acme/revisor");
+  await expect(page.locator(".setrow", { hasText: "Já instalado localmente" })).toHaveCount(0);
   await page.evaluate(() => {
     const organizations = JSON.parse(localStorage.getItem("mock:organizationCatalogs")!);
     organizations[0].revision = 1;
@@ -36,6 +49,7 @@ test("organizações no desktop oferecem instalação direta sem alterar catálo
   await expect(page.locator(".setrow", { has: page.locator("b", { hasText: /^revisor$/ }) }).getByRole("button", { name: "Instalar aqui" })).toBeVisible();
   await page.locator(".setnavitem", { hasText: "Ferramentas" }).click();
   await expect(acme).toContainText("Documentos da equipe");
+  await expect(page.locator(".setrow", { has: page.locator("b", { hasText: /^capim-ds$/ }) })).toHaveCount(1);
   await page.evaluate(() => localStorage.setItem("mock:cloudOffline", "1"));
   await acme.getByRole("button", { name: "Instalar aqui" }).click();
   await expect(acme.getByRole("button", { name: "Instalar aqui" })).toBeEnabled();
@@ -45,6 +59,7 @@ test("organizações no desktop oferecem instalação direta sem alterar catálo
   await expect(page.locator(".setrow", { hasText: "cloud-notion-1" })).toContainText("só neste Mac");
   await expect(page.locator(".setrow", { has: page.locator("b", { hasText: /^notion$/ }) })).toContainText("na nuvem");
   await page.locator(".setnavitem", { hasText: "Skills" }).click();
+  await expect(page.locator(".setrow", { has: page.locator("b", { hasText: /^local-skill$/ }) })).toHaveCount(1);
   await acme.getByRole("button", { name: "Instalar aqui" }).click();
   await expect(page.locator(".setrow", { hasText: "cloud-revisao-cloud-1" })).toContainText("só neste Mac");
   expect(await page.evaluate(() => localStorage.getItem("mock:catalog"))).toBeNull();

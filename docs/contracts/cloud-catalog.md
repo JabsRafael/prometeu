@@ -102,7 +102,11 @@ personal catalog and lists plugins, MCPs and skills of every organization with
 an accepted membership. Each institutional item shows the organization's name
 and `Install here`, without requiring a copy into the personal account. The
 installation creates an independent local record, without automatic activation
-or publication. In the Cloud, the owner and administrators do CRUD; copying
+or publication. An equivalent local definition counts as installed, so the
+desktop does not offer a duplicate installation. Plugins match by ID and source,
+MCPs by ID and portable configuration after credentials are blanked, and skills
+by their full definition. Installing from stale state links that local record
+instead of creating another one. In the Cloud, the owner and administrators do CRUD; copying
 definitions between catalogs is still optional. See
 [organizations](cloud-organizations.md) and
 [ADR 0039](../decisions/0039-organization-catalog-on-desktop.md).
@@ -172,8 +176,10 @@ sources and old documents. Rails and the production Rust parser consume them.
 
 `catalog_state.projects` contains each portable definition plus nullable
 `organization`, `organization_name`, `revision` and `local_path`. The path is
-shown only while its directory and board registration exist. The desktop may
-omit this additive state field on older versions.
+shown while its directory and board registration exist, or when a registered
+project has the same normalized Git origin. Projects already on the Mac are
+omitted from the installation selector. The desktop may omit this additive state
+field on older versions.
 
 `catalog_install_project` fetches the current account or organization document
 and rejects a changed revision or definition before touching files. A conflict
@@ -183,6 +189,8 @@ is the existing repository root. A matching root and origin can be registered
 again without resetting changes or making another clone. Origin comparison
 normalizes GitHub shorthand, scp syntax and an optional `.git` suffix; changing
 between HTTPS and SSH requires the catalog source to match the local origin.
+If a registered project already has that origin, installation records its path
+and returns it without cloning or asking for the folder again.
 An unrelated directory, nested repository subdirectory or different origin is
 rejected. Git clones into a temporary sibling directory and moves the completed
 clone into the reserved destination. Failures remove only that temporary clone
@@ -204,7 +212,9 @@ The additive `organization_items` field contains `{ organization,
 organization_name, revision, kind, id, description, installed }`. The frontend
 tolerates its absence. The installation queries the organization's catalog
 again; if the document changed, it updates the cache and returns a conflict
-before installing. Institutional MCPs enter the hub only after `Install here`,
+before installing. `installed` also covers equivalent local definitions, even
+before an organization installation link exists. Institutional MCPs enter the
+hub only after `Install here`,
 with empty credentials.
 
 ## Evidence

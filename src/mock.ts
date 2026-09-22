@@ -33,6 +33,19 @@ const mockCatalog = (): CatalogState => JSON.parse(localStorage.getItem("mock:ca
 };
 type MockOrganizationCatalog = { id: string; name: string; revision?: number; plugins: Pick<Plugin, "id" | "source" | "note">[]; mcp: McpServer[]; skills: Skill[]; projects?: { id: string; source: string; note: string }[]; links: Record<string, string> };
 const mockOrganizations = (): MockOrganizationCatalog[] => JSON.parse(localStorage.getItem("mock:organizationCatalogs") ?? "[]");
+const samePlugin = (cloud: Pick<Plugin, "id" | "source">, local: Plugin) => cloud.id.toLowerCase() === local.id.toLowerCase()
+  && cloud.source.replace(/\/$/, "") === (local.from || local.source).replace(/\/$/, "");
+const sameMcp = (cloud: McpServer, local: McpServer) => {
+  const config = structuredClone(local.config);
+  for (const key of ["env", "headers"]) for (const name of Object.keys(config[key] as object ?? {})) (config[key] as Record<string, unknown>)[name] = "";
+  return cloud.id === local.id && JSON.stringify(cloud.config) === JSON.stringify(config);
+};
+const sameSkill = (cloud: Skill, local: Skill) => cloud.id === local.id && cloud.description === local.description && cloud.content === local.content;
+const sameProjectSource = (first: string, second: string) => first.replace(/\/?\.git\/?$/, "").replace(/\/$/, "") === second.replace(/\/?\.git\/?$/, "").replace(/\/$/, "");
+const existingProject = (item: { source: string }) => {
+  const origins: Record<string, string> = JSON.parse(localStorage.getItem("mock:projectOrigins") ?? "{}");
+  return board.projects.find(project => sameProjectSource(item.source, origins[project.path] ?? ""));
+};
 function cloudWrite() {
   if (!mockCloud().user) throw 'i18n:{"code":"err.catalog.disconnected"}';
   if (localStorage.getItem("mock:cloudOffline")) throw 'i18n:{"code":"err.cloud.network"}';
@@ -969,13 +982,16 @@ const mockCommands: IpcHandlers = {
     for (const org of mockOrganizations()) {
       state.projects.push(...(org.projects ?? []).map(p => ({ ...p, organization: org.id, organization_name: org.name, revision: org.revision ?? 0, local_path: org.links[`projects:${p.id}`] ?? null })));
     }
-    state.projects = state.projects.map(p => ({ ...p, local_path: board.projects.some(local => local.path === p.local_path) ? p.local_path : null }));
+    state.projects = state.projects.map(p => ({ ...p, local_path: board.projects.some(local => local.path === p.local_path) ? p.local_path : existingProject(p)?.path ?? null }));
     state.plugins = state.plugins.map(p => ({ ...p, installed: pluginHub.some(local => local.id === p.local_id) }));
     state.skills = state.skills.map(s => ({ ...s, installed: skillHub.some(local => local.id === s.local_id) }));
     state.organization_items = mockOrganizations().flatMap(org => (["plugins", "mcp", "skills"] as Kind[]).flatMap(kind => org[kind].map(item => ({
       organization: org.id, organization_name: org.name, revision: org.revision ?? 0, kind, id: item.id,
       description: "description" in item ? item.description : "source" in item ? `${item.source} · ${item.note}` : item.note,
-      installed: (kind === "plugins" ? pluginHub : kind === "mcp" ? mcpHub : skillHub).some(local => local.id === org.links[`${kind}:${item.id}`]),
+      installed: (kind === "plugins" ? pluginHub : kind === "mcp" ? mcpHub : skillHub).some(local => local.id === org.links[`${kind}:${item.id}`])
+        || kind === "plugins" && pluginHub.some(local => samePlugin(item as Pick<Plugin, "id" | "source">, local))
+        || kind === "mcp" && mcpHub.some(local => sameMcp(item as McpServer, local))
+        || kind === "skills" && skillHub.some(local => sameSkill(item as Skill, local)),
     }))));
     return state;
   },
@@ -988,6 +1004,17 @@ const mockCommands: IpcHandlers = {
     if ((org ? org.revision ?? 0 : state.revision) !== args.revision) throw 'i18n:{"code":"err.catalog.conflict"}';
     const item = (org ? org.projects ?? [] : state.projects ?? []).find(item => item.id === args.id);
     if (!item) throw 'i18n:{"code":"err.catalog.invalid"}';
+    const existing = existingProject(item);
+    if (existing) {
+      if (org) {
+        org.links[`projects:${args.id}`] = existing.path;
+        localStorage.setItem("mock:organizationCatalogs", JSON.stringify(organizations));
+      } else {
+        state.projects!.find(item => item.id === args.id)!.local_path = existing.path;
+        localStorage.setItem("mock:catalog", JSON.stringify(state));
+      }
+      emit("catalog", null); return existing;
+    }
     if (localStorage.getItem("mock:projectFail") === args.id) throw 'i18n:{"code":"err.project.access","args":{"cause":"git@example.test: Permission denied (publickey)."}}';
     const path = args.existing ? args.directory : `${args.directory}/${args.id}`;
     const project = board.projects.find(project => project.path === path) ?? { id: path, path, name: path.split("/").pop()! };
@@ -1054,6 +1081,16 @@ const mockCommands: IpcHandlers = {
     const hub = kind === "plugins" ? pluginHub : kind === "mcp" ? mcpHub : skillHub;
     const key = `${kind}:${id}`;
     if (hub.some(item => item.id === org.links[key])) return;
+    const existing = kind === "plugins"
+      ? pluginHub.find(local => samePlugin(org.plugins.find(item => item.id === id)!, local))
+      : kind === "mcp"
+        ? mcpHub.find(local => sameMcp(org.mcp.find(item => item.id === id)!, local))
+        : skillHub.find(local => sameSkill(org.skills.find(item => item.id === id)!, local));
+    if (existing) {
+      org.links[key] = existing.id;
+      localStorage.setItem("mock:organizationCatalogs", JSON.stringify(organizations));
+      emit("catalog", null); return;
+    }
     const personal = mockCatalog();
     const used = new Set([...hub.map(item => item.id), ...Object.entries(personal.shared).filter(([key]) => key.startsWith(`${kind}:`)).map(([key]) => key.slice(kind.length + 1)),
       ...organizations.flatMap(org => Object.entries(org.links).filter(([key]) => key.startsWith(`${kind}:`)).map(([, local]) => local))]);

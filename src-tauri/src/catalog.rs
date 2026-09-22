@@ -196,6 +196,21 @@ pub fn portable(p: &plugins::Plugin) -> Option<Portable> {
     })
 }
 
+fn same_plugin(item: &Portable, local: &plugins::Plugin) -> bool {
+    portable(local).is_some_and(|local| {
+        local.id.eq_ignore_ascii_case(&item.id)
+            && plugins::git_url(&local.source) == plugins::git_url(&item.source)
+    })
+}
+
+fn same_mcp(item: &mcp::Server, local: &mcp::Server) -> bool {
+    item.id == local.id && item.config == blank(local).config
+}
+
+fn same_skill(item: &skills::Skill, local: &skills::Skill) -> bool {
+    item == local
+}
+
 pub fn blank(server: &mcp::Server) -> mcp::Server {
     let mut config = server.config.clone();
     for key in ["env", "headers"] {
@@ -833,13 +848,56 @@ fn install_organization_item(
     kind: &str,
     id: &str,
 ) -> Result<(), String> {
+    let item_key = key(kind, id);
+    let existing = match kind {
+        "plugins" => {
+            let item = cache.organizations[index]
+                .doc
+                .plugins
+                .iter()
+                .find(|item| item.id == id)
+                .ok_or_else(invalid)?;
+            plugins::load()
+                .into_iter()
+                .find(|local| same_plugin(item, local))
+                .map(|local| local.id)
+        }
+        "mcp" => {
+            let item = cache.organizations[index]
+                .doc
+                .mcp
+                .iter()
+                .find(|item| item.id == id)
+                .ok_or_else(invalid)?;
+            mcp::load()
+                .into_iter()
+                .find(|local| same_mcp(item, local))
+                .map(|local| local.id)
+        }
+        "skills" => {
+            let item = cache.organizations[index]
+                .doc
+                .skills
+                .iter()
+                .find(|item| item.id == id)
+                .ok_or_else(invalid)?;
+            skills::load()
+                .into_iter()
+                .find(|local| same_skill(item, local))
+                .map(|local| local.id)
+        }
+        _ => return Err(invalid()),
+    };
+    if let Some(local) = existing {
+        cache.organizations[index].links.insert(item_key, local);
+        return Ok(());
+    }
     let mut used: BTreeSet<String> = match kind {
         "plugins" => plugins::load().into_iter().map(|p| p.id).collect(),
         "mcp" => mcp::load().into_iter().map(|s| s.id).collect(),
         "skills" => skills::load().into_iter().map(|s| s.id).collect(),
         _ => return Err(invalid()),
     };
-    let item_key = key(kind, id);
     if cache.organizations[index]
         .links
         .get(&item_key)
@@ -935,7 +993,8 @@ pub fn catalog_state(app: AppHandle) -> CatalogState {
                     let item = org.doc.plugins.iter().find(|p| p.id == id).unwrap();
                     (
                         format!("{} · {}", item.source, item.note),
-                        local.is_some_and(|id| hub.iter().any(|p| &p.id == id)),
+                        local.is_some_and(|id| hub.iter().any(|p| &p.id == id))
+                            || hub.iter().any(|plugin| same_plugin(item, plugin)),
                     )
                 }
                 "mcp" => {
@@ -949,14 +1008,16 @@ pub fn catalog_state(app: AppHandle) -> CatalogState {
                                 .unwrap_or_default(),
                             item.note
                         ),
-                        local.is_some_and(|id| servers.iter().any(|s| &s.id == id)),
+                        local.is_some_and(|id| servers.iter().any(|s| &s.id == id))
+                            || servers.iter().any(|server| same_mcp(item, server)),
                     )
                 }
                 "skills" => {
                     let item = org.doc.skills.iter().find(|s| s.id == id).unwrap();
                     (
                         item.description.clone(),
-                        local.is_some_and(|id| skill_hub.iter().any(|s| &s.id == id)),
+                        local.is_some_and(|id| skill_hub.iter().any(|s| &s.id == id))
+                            || skill_hub.iter().any(|skill| same_skill(item, skill)),
                     )
                 }
                 _ => unreachable!(),
@@ -1098,18 +1159,50 @@ mod tests {
             note: "private".into(),
             config: json!({"url":"https://private.test", "headers":{"Authorization":"private-token"}}),
         };
-        mcp::store(std::slice::from_ref(&private)).unwrap();
+        let local_mcp = mcp::Server {
+            id: "notion".into(),
+            note: "local".into(),
+            config: json!({"url":"https://same.test/mcp", "headers":{"Authorization":"local-token"}}),
+        };
+        mcp::store(&[private.clone(), local_mcp.clone()]).unwrap();
+        let local_plugin = plugins::Plugin {
+            id: "caveman".into(),
+            source: "https://github.com/JuliusBrussee/caveman".into(),
+            note: "local".into(),
+            made: false,
+            from: String::new(),
+        };
+        plugins::save_local(local_plugin.clone()).unwrap();
         let doc = Doc {
-            mcp: vec![mcp::Server {
-                id: "issues".into(),
+            plugins: vec![Portable {
+                id: "Caveman".into(),
+                source: "https://github.com/JuliusBrussee/caveman/".into(),
                 note: "team".into(),
-                config: json!({"url":"https://team.test", "headers":{"Authorization":""}}),
             }],
-            skills: vec![skills::Skill {
-                id: "review".into(),
-                description: "Review".into(),
-                content: "Read changes".into(),
-            }],
+            mcp: vec![
+                mcp::Server {
+                    id: "issues".into(),
+                    note: "team".into(),
+                    config: json!({"url":"https://team.test", "headers":{"Authorization":""}}),
+                },
+                mcp::Server {
+                    id: "notion".into(),
+                    note: "team".into(),
+                    config: json!({"url":"https://same.test/mcp", "headers":{"Authorization":""}}),
+                },
+            ],
+            skills: vec![
+                skills::Skill {
+                    id: "review".into(),
+                    description: "Review".into(),
+                    content: "Read changes".into(),
+                },
+                skills::Skill {
+                    id: "local-skill".into(),
+                    description: "Local skill".into(),
+                    content: "Keep this content".into(),
+                },
+            ],
             ..Doc::default()
         };
         for id in ["one", "two"] {
@@ -1123,12 +1216,30 @@ mod tests {
         }
         let personal = cache.doc.clone();
         let personal_links = cache.links.clone();
+        install_organization_item(&mut cache, 0, "plugins", "Caveman").unwrap();
+        assert_eq!(cache.organizations[0].links["plugins:Caveman"], "caveman");
+        assert!(plugins::load() == [local_plugin]);
+        let local_skill = skills::Skill {
+            id: "local-skill".into(),
+            description: "Local skill".into(),
+            content: "Keep this content".into(),
+        };
+        skills::save_local(local_skill.clone()).unwrap();
+        install_organization_item(&mut cache, 0, "mcp", "notion").unwrap();
+        install_organization_item(&mut cache, 0, "skills", "local-skill").unwrap();
+        assert_eq!(cache.organizations[0].links["mcp:notion"], "notion");
+        assert_eq!(
+            cache.organizations[0].links["skills:local-skill"],
+            "local-skill"
+        );
+        assert!(mcp::load().contains(&local_mcp));
+        assert!(skills::load().contains(&local_skill));
         install_organization_item(&mut cache, 0, "mcp", "issues").unwrap();
         install_organization_item(&mut cache, 1, "mcp", "issues").unwrap();
         assert_eq!(cache.organizations[0].links["mcp:issues"], "cloud-issues-2");
         assert_eq!(cache.organizations[1].links["mcp:issues"], "cloud-issues-3");
         let mut servers = mcp::load();
-        assert_eq!(servers.len(), 3);
+        assert_eq!(servers.len(), 4);
         assert!(servers.iter().any(|s| s == &private));
         let installed = servers
             .iter_mut()
@@ -1140,7 +1251,9 @@ mod tests {
         install_organization_item(&mut cache, 0, "mcp", "issues").unwrap();
         assert!(mcp::load() == servers);
         install_organization_item(&mut cache, 0, "skills", "review").unwrap();
-        assert_eq!(skills::load()[0].content, "Read changes");
+        assert!(skills::load()
+            .iter()
+            .any(|skill| skill.content == "Read changes"));
         assert!(cache.doc == personal);
         assert_eq!(cache.links, personal_links);
         assert_eq!(cache.revision, Some(0));

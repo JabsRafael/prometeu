@@ -29,7 +29,10 @@ and the displayed definition again; changes require reviewing the updated list.
 The cache keeps the installed local IDs per organization, type and item. Taken
 names get another ID, using the existing collision rule. Organization updates do
 not replace installed code, configuration or credentials. Revocation removes the
-availability on the next refresh, preserving installations.
+availability on the next refresh, preserving installations. An equivalent local
+plugin, MCP or skill satisfies availability; the desktop neither suggests nor
+creates a duplicate installation. Comparison excludes local MCP credential
+values but preserves executable configuration.
 
 ## Alternatives and consequences
 

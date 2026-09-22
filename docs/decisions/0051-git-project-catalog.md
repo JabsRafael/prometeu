@@ -17,7 +17,9 @@ authorization, revision checks, local cache and board project registration.
 The desktop offers multiple selection and one destination directory. It clones
 each selected project into its named subdirectory and registers successful clones.
 It can instead link an existing repository after checking its root and origin.
-Retries preserve completed projects; conflicting folders remain untouched.
+Repositories already registered with the same origin do not appear as available;
+a stale installation action reuses their path. Retries preserve completed
+projects; conflicting folders remain untouched.
 
 Cloning uses Git installed on the Mac and local authentication. HTTPS and SSH are
 the only accepted transports; credentials, local paths and executable transport
