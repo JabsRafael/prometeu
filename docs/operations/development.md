@@ -97,6 +97,12 @@ During development, run the smallest suite that covers the change first. Use
   limits are in the [dependency rules](../architecture/dependency-rules.md).
 - Clippy/rustfmt: backend discipline.
 
+Worker integration tests use Wrangler's test harness with HTTP requests sent
+directly to workerd, avoiding the development proxy's upstream connection loss
+after a streamed request body is canceled. WebSocket and HTTP Upgrade probes
+still use the listening server; transport errors and HTTP 500 responses fail
+the tests.
+
 ## E2E scope
 
 Keep Playwright focused on the core workspace and conversation journey: create

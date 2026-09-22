@@ -1,10 +1,23 @@
 import { createServer, request, type Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { unstable_dev, type Unstable_DevWorker } from "wrangler";
+import { createTestHarness } from "wrangler";
 import { encryptedBinary, encodeLive, encodeSnapshot, parseCreatedTeam, parseMembership, PROTO, type CreatedTeam, type Encrypted, type Share } from "./protocol";
 import { generateIdentity, open, seal, signIdentity, type Identity } from "../../src/team-crypto";
 
-let worker: Unstable_DevWorker;
+async function startRelay(vars?: Record<string, string>) {
+  const server = createTestHarness({ workers: [{ configPath: "relay/wrangler.toml", vars }] });
+  const { url } = await server.listen();
+  return {
+    address: url.hostname,
+    port: Number(url.port),
+    // Dispatch HTTP directly to workerd: Wrangler's dev proxy loses its upstream connection after
+    // a streamed body is canceled. WebSocket probes still use the listening server's URL.
+    fetch: server.getWorker().fetch,
+    stop: () => server.close(),
+  };
+}
+
+let worker: Awaited<ReturnType<typeof startRelay>>;
 let created: CreatedTeam;
 
 // Closing under a loaded GitHub-hosted runner can exceed expect.poll's 1 s default.
@@ -68,13 +81,7 @@ const socketResult = (url: string): Promise<{ open: boolean; first?: unknown }> 
 
 describe("relay in the Worker runtime", () => {
   beforeAll(async () => {
-    worker = await unstable_dev("relay/src/worker.ts", {
-      config: "relay/wrangler.toml",
-      local: true,
-      persist: false,
-      logLevel: "none",
-      experimental: { disableExperimentalWarning: true },
-    });
+    worker = await startRelay();
     const response = await worker.fetch("/teams", { method: "POST" });
     expect(response.status).toBe(200);
     const parsed = parseCreatedTeam(await response.json());
@@ -113,10 +120,13 @@ describe("relay in the Worker runtime", () => {
   });
 
   it("rejects oversized enrollment streams without breaking the next request", async () => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ secret: created.secret, padding: "x".repeat(4096) }));
+    let offset = 0;
     const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode(JSON.stringify({ secret: created.secret, padding: "x".repeat(1024) })));
-        controller.close();
+      pull(controller) {
+        if (offset >= bytes.length) return controller.close();
+        controller.enqueue(bytes.slice(offset, offset + 256));
+        offset += 256;
       },
     });
     const request = { method: "POST", body, duplex: "half" as const };
@@ -127,8 +137,9 @@ describe("relay in the Worker runtime", () => {
       // Preserve the bounded source: reserializing these ignored numbers would exceed 1 KiB.
       method: "POST", body: `{"secret":"${created.secret}","padding":[${Array(60).fill("1e20").join(",")}]}`,
     });
-    expect(next.status).toBe(200);
-    expect(parseMembership(await next.json())).not.toBeNull();
+    const nextBody = await next.text();
+    expect(next.status, nextBody).toBe(200);
+    expect(parseMembership(JSON.parse(nextBody))).not.toBeNull();
   });
 
   it("binds credentials to members and delivers welcome", async () => {
@@ -149,7 +160,7 @@ describe("relay in the Worker runtime", () => {
 
 describe("organization sharing through Cloud authorization", () => {
   let cloud: Server;
-  let relay: Unstable_DevWorker;
+  let relay: Awaited<ReturnType<typeof startRelay>>;
   const tickets = new Map<string, { organization: string; member: string; name: string; lifetime: number }>();
   const members = [{ id: "owner001", name: "Alice" }, { id: "guest001", name: "Bob" }];
   const sockets: WebSocket[] = [];
@@ -192,8 +203,7 @@ describe("organization sharing through Cloud authorization", () => {
     });
     await new Promise<void>(resolve => cloud.listen(0, "127.0.0.1", resolve));
     const address = cloud.address() as { port: number };
-    relay = await unstable_dev("relay/src/worker.ts", { config: "relay/wrangler.toml", local: true, persist: false, logLevel: "none",
-      vars: { CLOUD_URL: `http://127.0.0.1:${address.port}` }, experimental: { disableExperimentalWarning: true } });
+    relay = await startRelay({ CLOUD_URL: `http://127.0.0.1:${address.port}` });
   }, 30_000);
   afterAll(async () => {
     sockets.forEach(socket => socket.close());
