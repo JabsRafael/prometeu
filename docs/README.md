@@ -97,6 +97,7 @@ compatibility still in use stays documented in the current contracts.
 
 - [ADR 0053](decisions/0053-live-model-selection.md): Live model catalogs and explicit selection identity.
 - [ADR 0054](decisions/0054-local-notifications.md): opt-in local notifications with independent sound.
+- [ADR 0055](decisions/0055-linux-desktop.md): Linux desktop through system programs.
 
 ## Quality and operations
 
@@ -106,6 +107,7 @@ compatibility still in use stays documented in the current contracts.
 - [`operations/contributing.md`](operations/contributing.md): recipes for provider,
   IPC, collaboration and Cloud contract changes; [contribution workflow](../CONTRIBUTING.md).
 - [`operations/release.md`](operations/release.md): CI, versioning and release.
+- [`operations/linux.md`](operations/linux.md): building, installing and platform differences on Linux.
 
 ## Update rule
 

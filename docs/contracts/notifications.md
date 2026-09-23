@@ -90,6 +90,17 @@ command. System banners obey macOS notification settings. The custom overlay
 and independently played sounds do not participate in macOS Focus filtering.
 Sound tests and delivery report playback errors.
 
+On Linux the same commands and payloads apply
+([ADR 0055](../decisions/0055-linux-desktop.md)). Permission is `granted` when
+`notify-send` is on PATH and `unavailable` otherwise; freedesktop has no per-app
+authorization. A banner runs `notify-send --wait`, with a default action only
+when the notice has a tab; the chosen action reaches the same `open_tab` path
+as a macOS click. Without a notification daemon, `notify-send` fails at once and
+delivery reports the unavailable error. Tones map to the freedesktop sound theme events
+`message-new-instant`, `complete` and `bell`, played by `canberra-gtk-play` or,
+failing that, by `pw-play` or `paplay` from the stock theme files. The notch
+window is shown normally; the compositor decides its stacking.
+
 ## Verification boundary
 
 `src/notifications.test.ts` covers compatibility, persistence, event/channel

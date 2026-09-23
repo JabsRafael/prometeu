@@ -10,7 +10,7 @@
   </a>
 </p>
 
-Prometeu is an open-source macOS app for working with Claude Code, Codex, and Antigravity CLI.
+Prometeu is an open-source macOS app, also buildable on Linux, for working with Claude Code, Codex, and Antigravity CLI.
 Organize parallel tasks into workspaces, give each task its own Git worktree,
 and keep conversations, files, terminals, and code review in one place.
 
@@ -83,7 +83,9 @@ notification preferences expand in place.
 
 ## Install
 
-The published download is for **macOS on Apple Silicon**.
+The published download is for **macOS on Apple Silicon**. On Linux, build from
+source: Arch Linux has a `PKGBUILD` and Debian/Ubuntu build a `.deb`. See [Linux](docs/operations/linux.md) for
+installation and platform differences.
 
 1. Download `Prometeu_aarch64.dmg` from the
    [latest release](https://github.com/prometeucorp/prometeu/releases/latest).
@@ -112,7 +114,8 @@ trust. See the [architecture](ARCHITECTURE.md) for execution boundaries.
 
 For the desktop app:
 
-- macOS with Xcode Command Line Tools (`xcode-select --install`).
+- macOS with Xcode Command Line Tools (`xcode-select --install`), or Linux
+  with the WebKitGTK packages listed in [Linux](docs/operations/linux.md).
 - Git.
 - Node.js **24.14.0** and npm **11.9.0**, as declared in
   [package.json](package.json).
