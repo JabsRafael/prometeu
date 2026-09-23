@@ -1698,8 +1698,9 @@ mod tests {
         for event in link.on_line(&spawn) {
             assert!(!work.observe(&event));
         }
-        for event in link.on_line(r#"{"method":"turn/completed","params":{"threadId":"t-1","turn":{"id":"turn-1","status":"completed"}}}"#) {
-            assert!(!work.observe(&event), "the main turn ended, but the child has not");
+        let ended = link.on_line(r#"{"method":"turn/completed","params":{"threadId":"t-1","turn":{"id":"turn-1","status":"completed"}}}"#);
+        for event in ended {
+            assert!(!work.observe(&event), "turn ended, child has not");
         }
         let drain = link.on_line(r#"{"method":"turn/completed","params":{"threadId":"sub-1","turn":{"id":"child-turn","status":"completed"}}}"#);
         assert_eq!(drain[0]["type"], "background.changed");

@@ -986,8 +986,9 @@ mod tests {
         }));
         assert_eq!(started[0]["type"], "background.changed");
         assert!(!work.observe(&started[0]));
-        for event in adapter.translate(&json!({ "type": "result", "ts": 2, "subtype": "success" })) {
-            assert!(!work.observe(&event), "the main turn ended, but the task has not");
+        let ended = adapter.translate(&json!({ "type": "result", "ts": 2, "subtype": "success" }));
+        for event in ended {
+            assert!(!work.observe(&event), "turn ended, task has not");
         }
         let notified = adapter.translate(&json!({
             "type": "system", "subtype": "task_notification", "ts": 3,

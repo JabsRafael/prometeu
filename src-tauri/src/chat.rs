@@ -69,7 +69,6 @@ impl Work {
         self.held = self.held && !settled;
         settled
     }
-
 }
 
 /// Read and update one conversation's background bookkeeping.
