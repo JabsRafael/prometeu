@@ -71,6 +71,16 @@ for Claude Code, and local plugin folders are the portable format for both
 agents. See the [provider matrix](docs/quality/provider-matrix.md) for supported
 features, limitations, and test coverage.
 
+## Settings
+
+Settings has five sections: **General** (language, notifications and updates),
+**Agents** (new-workspace defaults and accounts), **Resources** (plugins, MCPs and
+skills), **Actions**, and **Work and team** (organizations, projects and integrations).
+Search settings by name; filter the resource library by type or text. Each resource's
+menu keeps installation, authentication and catalog management together. Installing
+an item does not enable it in existing workspaces. Account usage and detailed
+notification preferences expand in place.
+
 ## Install
 
 The published download is for **macOS on Apple Silicon**.
@@ -169,7 +179,7 @@ Changes to native behavior also need a manual desktop check. See the
 ## Add projects from your catalog
 
 Register Git sources once in the Cloud's **Projects** tab, in your personal or
-organization catalog. In the desktop, open **Settings / Projects** or **Add
+organization catalog. In the desktop, open **Settings / Work and team / Projects on this Mac** or **Add
 project** in the sidebar. Select projects, choose a destination folder and click
 **Add to this Mac**. Each successful clone appears in the project list. Failed
 rows retain their errors and can be retried without repeating completed clones.

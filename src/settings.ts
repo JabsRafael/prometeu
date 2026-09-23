@@ -22,7 +22,11 @@ import * as team from "./team";
 import type { LinearStatus } from "./types";
 import { settingsRow } from "./update";
 import { $, h, template } from "./util";
-import { button, field, select } from "./ui";
+import { button, disclosure, field, input, select } from "./ui";
+
+import { matchesSettings, settingsDestination, type SettingsPage } from "./settings-navigation";
+import { resourceSettings, setResourceFilter } from "./settings-resources";
+import "./settings.css";
 
 /// Application preferences include Linear, updates, defaults, and interface language.
 /// Connection secrets remain in the backend; this view receives LinearStatus updates.
@@ -35,20 +39,16 @@ let status: LinearStatus = { connected: false, who: null, busy: false };
 export async function init(context: Ctx) {
   ctx = context;
   onCatalogChange(() => { if (!$("settingsView").hidden) { paintDefaultModel(); paintDefaultEffort(); } });
-  accountUI.onChange(() => { if (!$("settingsView").hidden && open === "contas") {
-    const focus = document.activeElement instanceof HTMLElement ? document.activeElement.dataset.focus : undefined;
-    draw();
-    if (focus) $("settingsView").querySelector<HTMLElement>(`[data-focus="${CSS.escape(focus)}"]`)?.focus({ preventScroll: true });
-  } });
+  accountUI.onChange(() => refreshPages("agentes"));
   skills.init(ctx.say, async () => {
     await plugins.refresh();
     await catalog.load();
   });
-  skills.onChange(() => { if (!$("settingsView").hidden) draw(); });
-  actions.onChange(() => { if (!$("settingsView").hidden) draw(); });
+  skills.onChange(() => refreshPages("recursos", "agentes"));
+  actions.onChange(() => refreshPages("acoes", "trabalho"));
   listen<LinearStatus>("linear", ({ payload }) => {
     status = payload;
-    draw();
+    refreshPages("trabalho");
   });
   try {
     status = await invoke("linear_status");
@@ -56,118 +56,168 @@ export async function init(context: Ctx) {
     // Keep the page usable and disconnected if the backend is unavailable or older.
   }
   // Server registration, import, and removal update this page.
-  mcp.onChange(() => {
-    if (!$("settingsView").hidden) draw();
-  });
-  plugins.onChange(() => {
-    if (!$("settingsView").hidden) draw();
-  });
+  mcp.onChange(() => refreshPages("recursos", "agentes"));
+  plugins.onChange(() => refreshPages("recursos", "agentes"));
   // Cloud catalogs include entries that are not installed locally.
   catalog.init(async () => {
     await Promise.all([plugins.refresh(), mcp.refresh(), skills.refresh()]);
   });
-  catalog.onChange(() => {
-    if (!$("settingsView").hidden) draw();
-  });
+  catalog.onChange(() => refreshPages("recursos", "agentes", "trabalho"));
   // Refresh presence without replacing an input the user is editing.
   team.onChange(() => {
-    if ($("settingsView").hidden) return;
+    if ($("settingsView").hidden || open !== "trabalho") return;
     const active = document.activeElement;
     if (active instanceof HTMLInputElement && $("settingsView").contains(active)) return;
     draw();
   });
 }
 
+function refreshPages(...pages: SettingsPage[]) {
+  if (!$("settingsView").hidden && pages.includes(open)) draw();
+}
+
 /// Whether Linear is available to load issues.
 export const linear = () => status;
 
-/// Group settings into separate pages, ordered from frequent choices to occasional maintenance.
-type Page = { id: string; title: Key; glyph: Parameters<typeof icon>[0]; rows: () => HTMLElement[] };
+type Section = { id: string; title: Key; rows: () => HTMLElement[]; keywords?: Key[] };
+type Page = { id: SettingsPage; title: Key; description: Key; glyph: Parameters<typeof icon>[0]; sections: Section[] };
 
 const PAGES: Page[] = [
-  { id: "contas", title: "account.title", glyph: "users", rows: () => [accountUI.render()] },
-  {
-    id: "geral",
-    title: "settings.page.general",
-    glyph: "settings",
-    rows: () => [langRow(), ...(voice.available() ? [voiceRow()] : [])],
-  },
-  { id: "notifications", title: "notifications.title", glyph: "bell", rows: () => [notifications.settings(ctx.say)] },
-  {
-    id: "padroes",
-    title: "settings.defaults",
-    glyph: "sparkles",
-    rows: defaultsRows,
-  },
-  {
-    id: "acoes", title: "actions.title", glyph: "list-tree", rows: () => actionSettings.settingsRows(draw, ctx.say),
-  },
-  {
-    id: "ferramentas",
-    title: "settings.mcp",
-    glyph: "plug",
-    rows: () => mcp.settingsRows(),
-  },
-  {
-    id: "plugins",
-    title: "settings.plugins",
-    glyph: "puzzle",
-    rows: () => plugins.settingsRows(),
-  },
-  { id: "projects", title: "projects.title", glyph: "folder", rows: () => projects.settingsRows(ctx.say) },
-  { id: "skills", title: "skill.title", glyph: "sparkles", rows: () => skills.settingsRows() },
-  {
-    id: "integracoes",
-    title: "settings.integrations",
-    glyph: "linear",
-    rows: () => [linearRow()],
-  },
-  {
-    id: "time",
-    title: "settings.team",
-    glyph: "users",
-    rows: teamRows,
-  },
-  {
-    id: "app",
-    title: "settings.app",
-    glyph: "flame",
-    rows: appRows,
-  },
+  { id: "geral", title: "settings.page.general", description: "settings.general.intro", glyph: "settings", sections: [
+    { id: "language", title: "settings.languageVoice", rows: () => [langRow(), ...(voice.available() ? [voiceRow()] : [])], keywords: ["settings.lang", "settings.voice"] },
+    { id: "notifications", title: "notifications.title", rows: () => [notifications.settings(ctx.say, true)], keywords: ["notifications.events", "notifications.sound", "notifications.style"] },
+    { id: "app", title: "settings.app", rows: appRows, keywords: ["update.ask", "settings.news"] },
+  ] },
+  { id: "agentes", title: "settings.agents", description: "settings.agents.intro", glyph: "sparkles", sections: [
+    { id: "defaults", title: "settings.newWorkspaces", rows: defaultsRows, keywords: ["settings.defaults", "settings.defaults.model", "settings.defaults.effort", "settings.initialResources"] },
+    { id: "accounts", title: "account.title", rows: () => [accountUI.render(undefined, undefined, true)] },
+  ] },
+  { id: "recursos", title: "settings.resources", description: "settings.resources.intro", glyph: "plug", sections: [
+    { id: "resources", title: "settings.resources", rows: () => [resourceSettings(() => navigate("agentes", "defaults"))], keywords: ["settings.mcp", "settings.plugins", "skill.title"] },
+  ] },
+  { id: "acoes", title: "actions.title", description: "actions.intro", glyph: "list-tree", sections: [
+    { id: "actions", title: "actions.title", rows: () => actionSettings.settingsRows(draw, ctx.say), keywords: ["actions.commands", "actions.profiles"] },
+  ] },
+  { id: "trabalho", title: "settings.work", description: "settings.work.intro", glyph: "users", sections: [
+    { id: "team", title: "settings.team", rows: teamRows },
+    { id: "projects", title: "settings.localProjects", rows: projectRows, keywords: ["projects.title"] },
+    { id: "integrations", title: "settings.integrations", rows: () => [linearRow()] },
+  ] },
 ];
 
-/// Remember the last settings page on this Mac.
 const PAGE_KEY = "prometeu:configuracoes";
-let open = localStorage.getItem(PAGE_KEY) ?? "geral";
-export function showAccounts() { open = "contas"; localStorage.setItem(PAGE_KEY, open); }
+const initial = settingsDestination(localStorage.getItem(PAGE_KEY));
+let open: SettingsPage = initial.page;
+let targetSection = initial.section;
+let searchQuery = "";
+if (initial.filter) setResourceFilter(initial.filter);
+
+export function showAccounts() { open = "agentes"; targetSection = "accounts"; searchQuery = ""; localStorage.setItem(PAGE_KEY, open); }
+
+function navigate(page: SettingsPage, section?: string) {
+  open = page; targetSection = section; searchQuery = "";
+  localStorage.setItem(PAGE_KEY, open); draw();
+}
 
 export function draw() {
   const view = $("settingsView");
-  const page = PAGES.find((p) => p.id === open) ?? PAGES[0];
+  if (view.hidden) return;
+  // Close snapshot menus before recording their restored trigger focus.
+  if (menu.isOpen() && !document.querySelector("dialog[open]") && $("veil").hidden) menu.close();
+  const previous = document.activeElement instanceof HTMLElement && view.contains(document.activeElement) ? document.activeElement : null;
+  const focus = previous?.dataset.focus;
+  const selection = previous instanceof HTMLInputElement ? [previous.selectionStart, previous.selectionEnd] : null;
+  const scroll = view.querySelector(".setpage")?.scrollTop ?? 0;
+  const details = new Map([...view.querySelectorAll<HTMLDetailsElement>("details[data-settings-disclosure]")].map(node => [node.dataset.settingsDisclosure, node.open]));
+  const samePage = view.dataset.settingsPage === open;
+  view.dataset.settingsPage = open;
+  const page = PAGES.find(item => item.id === open)!;
+  const nav = h("nav", "setnav"); nav.setAttribute("aria-label", t("settings.title"));
+  const search = input(searchQuery); search.type = "search"; search.placeholder = t("settings.search");
+  search.setAttribute("aria-label", t("settings.search")); search.dataset.focus = "settings-search";
+  for (const item of PAGES) {
+    const control = button(t(item.title), () => navigate(item.id), "ghost");
+    control.classList.add("setnavitem"); control.dataset.focus = `settings-nav-${item.id}`;
+    control.insertAdjacentHTML("afterbegin", `<span class="ic">${icon(item.glyph, 16)}</span>`);
+    if (item.id === page.id && !searchQuery.trim()) { control.classList.add("on"); control.setAttribute("aria-current", "page"); }
+    nav.append(control);
+  }
+  const body = h("div", "setpage");
+  const header = h("header", "settings-header");
+  const breadcrumb = h("p", "settings-breadcrumb");
+  const heading = h("h1", "");
+  const description = h("p", "ui-hint", t(page.description));
+  header.append(breadcrumb, heading, search, description);
+  const content = h("div", "settings-content");
+  body.append(header, content);
+  function paintBody() {
+    content.replaceChildren();
+    heading.textContent = t(searchQuery.trim() ? "settings.searchResults" : page.title);
+    breadcrumb.textContent = `${t("settings.title")} / ${heading.textContent}`;
+    description.hidden = !!searchQuery.trim();
+    if (searchQuery.trim()) {
+      const results = h("div", "settings-panel settings-results");
+      for (const candidate of PAGES) for (const section of candidate.sections) {
+        const words = [t(candidate.title), t(section.title), ...(section.keywords ?? []).map(key => t(key)), section.id === "accounts" ? "Claude Codex Antigravity" : "", section.id === "integrations" ? "Linear" : ""];
+        if (!matchesSettings(searchQuery, words.join(" "))) continue;
+        const result = button("", () => navigate(candidate.id, section.id), "ghost");
+        result.classList.add("settings-result");
+        result.append(h("b", "", t(section.title)), h("span", "ui-hint", t(candidate.title)));
+        results.append(result);
+      }
+      if (!results.childElementCount) results.append(h("p", "settings-empty", t("settings.searchEmpty")));
+      content.append(results); return;
+    }
+    for (const section of page.sections) {
+      const group = h("section", "settings-section"); group.id = `settings-${section.id}`;
+      const title = h("h2", "", t(section.title)); title.id = `${group.id}-title`;
+      group.setAttribute("aria-labelledby", title.id);
+      const panel = h("div", "settings-panel"); panel.append(...section.rows());
+      if (page.id === "recursos" || page.id === "acoes") { title.hidden = true; panel.classList.add("settings-unboxed"); }
+      group.append(title, panel); content.append(group);
+    }
+  }
+  search.oninput = () => {
+    searchQuery = search.value;
+    nav.querySelectorAll(".setnavitem").forEach(control => {
+      const current = !searchQuery.trim() && control.getAttribute("data-focus") === `settings-nav-${open}`;
+      control.classList.toggle("on", current);
+      if (current) control.setAttribute("aria-current", "page"); else control.removeAttribute("aria-current");
+    });
+    paintBody();
+  };
+  search.onkeydown = event => {
+    if (event.key === "Escape") { searchQuery = ""; search.value = ""; search.dispatchEvent(new Event("input")); }
+    if (event.key === "ArrowDown") { event.preventDefault(); body.querySelector<HTMLButtonElement>(".settings-result")?.focus(); }
+  };
+  paintBody();
+  const wrap = h("div", "setwrap"); wrap.append(nav, body); view.replaceChildren(wrap);
+  if (samePage) {
+    for (const node of body.querySelectorAll<HTMLDetailsElement>("details[data-settings-disclosure]")) node.open = details.get(node.dataset.settingsDisclosure) ?? false;
+    body.scrollTop = scroll;
+  }
+  if (targetSection) {
+    const target = body.querySelector<HTMLElement>(`#settings-${targetSection}`);
+    target?.querySelectorAll<HTMLDetailsElement>("details:not(.account-usage)").forEach(node => node.open = true);
+    target?.scrollIntoView({ block: "start" });
+    const heading = target?.querySelector<HTMLElement>("h2");
+    if (heading && !heading.hidden) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+    targetSection = undefined;
+  }
+  if (focus) {
+    const next = view.querySelector<HTMLElement>(`[data-focus="${CSS.escape(focus)}"]`);
+    next?.focus({ preventScroll: true });
+    if (next instanceof HTMLInputElement && selection && selection[0] !== null) next.setSelectionRange(selection[0], selection[1]);
+  }
+}
 
-  const nav = h("nav", "setnav");
-  nav.append(
-    ...PAGES.map((item) => {
-      const btn = template("button", "setnavitem", `<span class="ic"></span><span></span>`);
-      btn.querySelector(".ic")!.innerHTML = icon(item.glyph, 16);
-      btn.children[1].textContent = t(item.title);
-      btn.classList.toggle("on", item.id === page.id);
-      btn.addEventListener("click", () => {
-        open = item.id;
-        localStorage.setItem(PAGE_KEY, item.id);
-        draw();
-      });
-      return btn;
-    }),
-  );
-
-  const body = template("div", "setpage", `<h1></h1>`);
-  body.children[0].textContent = t(page.title);
-  body.append(...page.rows());
-
-  const wrap = h("div", "setwrap");
-  wrap.append(nav, body);
-  view.replaceChildren(wrap);
+function projectRows(): HTMLElement[] {
+  const rows = actions.projects().map(project => {
+    const row = template("div", "setrow", `<span class="glyph">${icon("folder", 18)}</span><div class="txt"><b></b><span></span></div>`);
+    row.querySelector("b")!.textContent = project.name; row.querySelector(".txt span")!.textContent = project.path;
+    return row;
+  });
+  return [...rows, ...projects.settingsRows(ctx.say)];
 }
 
 function appRows(): HTMLElement[] {
@@ -191,20 +241,10 @@ function langRow(): HTMLElement {
   ];
   const picked = chosen();
 
-  const btn = template("button", "ghost md pick", `<span></span>${icon("chevron-down", 12)}`) as HTMLButtonElement;
-  btn.children[0].textContent = options.find(([id]) => id === picked)![1];
-  btn.addEventListener("click", () => {
-    const at = btn.getBoundingClientRect();
-    menu.openAt(
-      { x: at.left, y: at.bottom + 4 },
-      options.map(([id, name]) => ({
-        label: name,
-        checked: id === chosen(),
-        run: () => choose(id),
-      })),
-    );
-  });
-  row.querySelector(".act")!.append(btn);
+  const choice = select(picked ?? "", options.map(([id, label]) => [id ?? "", label]));
+  choice.control.setAttribute("aria-label", t("settings.lang"));
+  choice.onchange = () => choose(choice.value === "" ? null : choice.value as Lang);
+  row.querySelector(".act")!.append(choice.control);
   return row;
 }
 
@@ -221,21 +261,10 @@ function voiceRow(): HTMLElement {
     [null, t("settings.voice.interface")],
     ...voice.TAGS.map((tag) => [tag, voice.nameOf(tag)] as [string, string]),
   ];
-  const label = () => options.find(([id]) => id === voice.chosen())?.[1] ?? voice.chosen()!;
-  const btn = template("button", "ghost md pick", `<span></span>${icon("chevron-down", 12)}`) as HTMLButtonElement;
-  btn.children[0].textContent = label();
-  btn.addEventListener("click", () => {
-    const at = btn.getBoundingClientRect();
-    menu.openAt(
-      { x: at.left, y: at.bottom + 4 },
-      options.map(([id, name]) => ({
-        label: name,
-        checked: id === voice.chosen(),
-        run: () => { voice.choose(id); btn.children[0].textContent = label(); },
-      })),
-    );
-  });
-  row.querySelector(".act")!.append(btn);
+  const choice = select(voice.chosen() ?? "", options.map(([id, label]) => [id ?? "", label]));
+  choice.control.setAttribute("aria-label", t("settings.voice"));
+  choice.onchange = () => voice.choose(choice.value || null);
+  row.querySelector(".act")!.append(choice.control);
   return row;
 }
 
@@ -244,7 +273,9 @@ function voiceRow(): HTMLElement {
 /// Launcher defaults are explicit preferences. Experimenting within one workspace
 /// does not change the starting configuration of future workspaces.
 function defaultsRows(): HTMLElement[] {
-  return [modelRow(), effortRow(), mcpRow(), pluginRow()];
+  const resources = disclosure(t("settings.initialResources"), mcpRow(), pluginRow());
+  resources.dataset.settingsDisclosure = "defaults-resources";
+  return [modelRow(), effortRow(), resources, h("p", "ui-hint settings-section-note", t("settings.defaults.hint"))];
 }
 
 /// Return the picker button so multiple selections can update its label
@@ -261,7 +292,10 @@ function pickRow(
   );
   row.querySelector(".txt b")!.textContent = t(title);
   row.querySelector(".txt span")!.textContent = t(body);
-  const btn = template("button", "ghost md pick", `<span></span>${icon("chevron-down", 12)}`) as HTMLButtonElement;
+  const btn = button("", () => {});
+  btn.classList.add("pick"); btn.append(h("span", ""));
+  btn.insertAdjacentHTML("beforeend", icon("chevron-down", 12));
+  btn.setAttribute("aria-label", t(title));
   row.querySelector(".act")!.append(btn);
   return { row, btn };
 }
@@ -318,7 +352,7 @@ function effortRow(): HTMLElement {
 
 function mcpRow(): HTMLElement {
   const { row, btn } = pickRow("plug", "settings.defaults.mcp", "settings.defaults.mcp.body");
-  const unset = h("button", "ghost md", t("settings.defaults.unset")) as HTMLButtonElement;
+  const unset = button(t("settings.defaults.unset"), () => {}, "ghost");
   unset.title = t("settings.defaults.unset.title");
   const paintRow = () => {
     const chosen = defaultMcp();
@@ -347,7 +381,7 @@ function mcpRow(): HTMLElement {
 
 function pluginRow(): HTMLElement {
   const { row, btn } = pickRow("puzzle", "settings.defaults.plugins", "settings.defaults.plugins.body");
-  const unset = h("button", "ghost md", t("settings.defaults.unset")) as HTMLButtonElement;
+  const unset = button(t("settings.defaults.unset"), () => {}, "ghost");
   unset.title = t("settings.defaults.unset.title");
   const paintRow = () => {
     const chosen = defaultPlugins();

@@ -3,7 +3,8 @@ import { expect, test, type Page } from "@playwright/test";
 async function openSettings(page: Page) {
   await page.goto("/");
   await page.locator("#settings").click();
-  await page.locator(".setnavitem").getByText("Notifications", { exact: true }).click();
+  await page.locator(".setnavitem").getByText("General", { exact: true }).click();
+  await page.locator('details[data-settings-disclosure="notifications"] > summary').click();
   return page.locator(".notification-settings");
 }
 
@@ -35,6 +36,7 @@ test("@webkit notifications: keyboard controls retain native geometry and activa
 test("notifications: live completion opens its conversation and does not replay", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("mock:notification-permission", "default"));
   await page.goto("/");
+  await expect(page.locator("#tiles .tile").first()).toBeVisible();
   // Hold the initial native read while the user enables banners; it must not overwrite authorization.
   await page.evaluate(() => {
     const ipc = (window as unknown as { __TAURI_INTERNALS__: {
@@ -50,7 +52,8 @@ test("notifications: live completion opens its conversation and does not replay"
     };
   });
   await page.locator("#settings").click();
-  await page.locator(".setnavitem").getByText("Notifications", { exact: true }).click();
+  await page.locator(".setnavitem").getByText("General", { exact: true }).click();
+  await page.locator('details[data-settings-disclosure="notifications"] > summary').click();
   const settings = page.locator(".notification-settings");
   const master = settings.getByRole("switch", { name: "Receive notifications", exact: false });
   await master.check();

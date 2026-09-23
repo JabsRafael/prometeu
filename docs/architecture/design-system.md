@@ -100,6 +100,32 @@ is missing, add it to the corresponding primitive and show the state in the
 gallery. Do not copy CSS from one screen to another, and do not introduce a
 component for a composition that exists on a single screen.
 
+## Settings composition
+
+`src/settings.ts` groups preferences into General, Agents, Resources, Actions,
+and Work and team. Navigation keeps the compact, neutral sidebar; settings
+search sits in the content header. `src/settings.css` owns only this screen's layout; buttons,
+inputs, selectors, disclosures and menus reuse the shared primitives. The
+resource library composes the existing MCP, plugin, skill and organization
+catalog rows, preserving their callbacks, validation and busy state. Item
+operations live in an overflow menu; the Add resource menu retains all existing
+creation and import paths. A registered resource is not automatically enabled.
+
+General keeps the notification master switch and native permission warning
+visible while its details expand in place. Agents shows defaults followed by
+compact account cards; quota disclosures do not change the account picker's
+existing presentation. Account notices, login progress and selection remain
+visible. Search and resource filters do not persist business state.
+
+Background updates preserve the search value, focus, expanded disclosures and
+scroll position. Menus for an old resource snapshot close before replacement.
+`src/settings-navigation.test.ts` covers matching and legacy page destinations.
+`e2e/settings.spec.ts` exercises focus restoration and disclosure geometry in
+Chromium and WebKit: browser DOM replacement can lose keyboard focus or clamp
+scroll before a disclosure reopens, which pure matching tests cannot prove.
+Existing accounts, Cloud catalog, MCP, notifications, projects and organization
+scenarios continue to cover their production paths through the grouped UI.
+
 ## Gallery and verification
 
 `/packages/design-system/index.html` is the company's standalone gallery: it

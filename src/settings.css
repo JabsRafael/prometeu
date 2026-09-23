@@ -1,0 +1,100 @@
+/* Settings composition uses the shared controls and tokens. */
+.settings .setnavitem { height: 32px; min-height: 32px; padding: 0 10px; font-size: 13px; }
+.settings .setwrap .setpage { max-width: 1000px; padding: 34px 40px 56px; container-type: inline-size; }
+.settings-header { margin-bottom: 28px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 220px); column-gap: 20px; align-items: center; }
+.settings-header > .ui-input { width: 100%; min-width: 0; font-size: 12px; grid-column: 2; grid-row: 2; }
+.settings-header .settings-breadcrumb { grid-column: 1 / -1; margin: 0 0 18px; font-size: 11px; color: var(--fg-3); }
+.settings .settings-header h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: -.7px; }
+.settings-header > .ui-hint { grid-column: 1 / -1; font-size: 13px; margin: 0; }
+.settings-section + .settings-section { margin-top: 28px; }
+.setpage .settings-section > h2 { margin: 0 0 10px; color: var(--fg); font-size: 13px; letter-spacing: 0; text-transform: none; }
+.settings-panel { min-width: 0; background: var(--bg-side); border: 1px solid var(--line); border-radius: var(--r-lg); }
+.settings-panel.settings-unboxed { border: 0; background: none; }
+.settings-panel > .setrow { padding: 17px 18px; min-height: 72px; border-bottom: 0; gap: 14px; }
+.settings-panel > .setrow + .setrow { border-top: 1px solid var(--line); }
+.settings-panel .setrow .txt { font-size: 13px; overflow-wrap: anywhere; }
+.settings-panel .setrow .txt > span { font-size: 12px; display: block; margin-top: 3px; }
+.settings-panel .setrow .act { align-items: center; gap: 8px; max-width: 50%; }
+.settings-panel .setrow .act > button { font-size: 12px; }
+.settings-panel .setrow .act > .ui-button, .settings-panel .setrow .act > .ui-select { min-width: 0; max-width: 100%; white-space: normal; height: auto; min-height: var(--control-height); }
+.settings-panel .setrow .act > .pick { border: 1px solid var(--line-ghost); background: var(--bg-raised); border-radius: var(--r); font-size: 12px; }
+.settings-panel > .ui-field, .settings-panel > .ui-hint, .settings-panel > .ui-button { margin: 16px 18px; }
+.settings-panel > .ui-disclosure { margin: 0; padding: 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; }
+.settings-panel > .ui-disclosure > summary { padding: 18px; font-size: 13px; }
+.settings-panel > .ui-disclosure > .setrow { padding: 16px 18px; }
+.settings-panel > .settings-section-note { border-top: 1px solid var(--line); margin: 0; padding: 12px 18px; font-size: 11px; }
+.settings-empty { padding: 28px 18px; color: var(--fg-2); font-size: 12px; }
+.settings-result.ui-button { width: 100%; display: flex; flex-direction: column; align-items: start; height: auto; padding: 16px 18px; gap: 5px; border-radius: 0; text-align: left; }
+.settings-result + .settings-result { border-top: 1px solid var(--line); }
+.settings-result b { font-size: 13px; font-weight: 500; }
+.settings-panel .accounts-view.compact { width: 100%; gap: 0; }
+.accounts-view.compact .accounts-provider { padding: 16px 18px; }
+.accounts-view.compact .accounts-provider + .accounts-provider { border-top: 1px solid var(--line); }
+.accounts-view.compact .uhead { border: 0; margin: 0; padding: 0 0 12px; }
+.accounts-view.compact .uaccount { padding: 0; margin: 0 0 10px; background: var(--bg); border-color: var(--line-raised); }
+.accounts-view.compact .uaccount.active .account-select { border-color: var(--line-ghost); }
+.accounts-view.compact .account-heading { padding: 12px; }
+.accounts-view.compact .account-usage { pointer-events: auto; margin: 0; border: 0; border-top: 1px solid var(--line); background: none; border-radius: 0; padding: 0; }
+.accounts-view.compact .account-usage > summary { padding: 10px 14px; color: var(--fg-2); font-size: 12px; }
+.accounts-view.compact .uempty { padding: 6px 0 12px; text-align: left; }
+.accounts-view.compact .account-add { padding: 8px 0 0; border: 0; }
+.accounts-view.compact .account-notice { font-size: 11px; padding: 10px; }
+.settings-panel .notification-settings.compact { padding: 0; }
+.notification-settings.compact .notification-master { border: 0; border-radius: 0; background: none; }
+.notification-settings.compact > .ui-disclosure { margin: 0; border: 0; padding: 0; border-top: 1px solid var(--line); border-radius: 0; }
+.notification-settings.compact > .ui-disclosure > summary { padding: 18px; font-size: 13px; }
+.notification-settings.compact .notification-layout { padding: 0 18px 18px; gap: 22px; grid-template-columns: minmax(0, 1fr) 240px; }
+.notification-settings.compact > .notification-permission { margin: 0 18px 16px; }
+.notification-settings.compact > .notification-feedback { min-height: 0; margin: 0 18px; }
+.notification-settings.compact > .notification-feedback:not(:empty) { margin-bottom: 14px; }
+.notification-settings.compact .notification-section:first-child { padding-top: 6px; }
+.resources-intro { display: flex; align-items: start; gap: 20px; justify-content: space-between; margin-bottom: 24px; }
+.resources-hint { min-width: 0; padding: 8px 12px; border-left: 2px solid var(--line-ghost); }
+.resources-hint .ui-hint { margin: 0; }
+.resources-hint > .ui-button { padding: 0; color: var(--tab-line); font-size: 11px; justify-content: start; }
+.resources-intro > .ui-button { flex-shrink: 0; }
+.resources-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 0 18px; }
+.resource-filters { display: flex; flex-wrap: wrap; gap: 3px; }
+.resource-filters .ui-button { gap: 7px; font-size: 12px; padding: 0 9px; }
+.resource-filters [aria-pressed="true"] { background: var(--bg-raised-2); color: var(--fg); }
+.resource-count { color: var(--fg-3); font-size: 10px; }
+.resources-toolbar > .ui-input { width: 190px; min-width: 100px; font-size: 12px; }
+.resource-headings { display: grid; grid-template-columns: minmax(0, 1fr) 62px 112px 28px; gap: 12px; padding: 0 18px 9px; font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--fg-3); }
+.resource-list > .resource-row.setrow { display: grid; grid-template-columns: 32px minmax(0, 1fr) 62px 112px 28px; gap: 12px; }
+.resource-list > .resource-row + .resource-row { border-top: 1px solid var(--line); }
+.resource-row > .resource-type, .resource-row > .resource-origin { color: var(--fg-2); font-size: 11px; overflow-wrap: anywhere; }
+.resource-list > .resource-row .act { margin: 0; max-width: none; }
+.resource-list > .resource-row .act > .ui-button { padding: 0; width: 28px; min-width: 28px; }
+.resource-row .txt > span:not([role="status"]) { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.resources-count { margin: 12px 2px 0; font-size: 11px; }
+.settings .actions-intro { display: none; }
+.settings .action-section:first-of-type { margin-top: 0; }
+.settings .action-card { background: var(--bg-side); }
+@container (max-width: 680px) {
+  .resources-toolbar { flex-wrap: wrap; }
+  .resources-toolbar > .ui-input { width: 100%; }
+  .resource-headings { grid-template-columns: minmax(0, 1fr) 56px 80px 28px; }
+  .resource-list > .resource-row.setrow { grid-template-columns: minmax(0, 1fr) 56px 80px 28px; }
+  .resource-row > .glyph { display: none; }
+  .notification-settings.compact .notification-layout { grid-template-columns: minmax(0, 1fr); }
+}
+@container (max-width: 480px) {
+  .settings-header { grid-template-columns: minmax(0, 1fr); row-gap: 8px; }
+  .settings-header > .ui-input { grid-column: 1; grid-row: auto; }
+  .settings-panel > .setrow { flex-wrap: wrap; }
+  .settings-panel .setrow .act { max-width: 100%; margin-left: auto; flex-wrap: wrap; }
+  .settings-panel .setrow .txt { flex-basis: calc(100% - 50px); }
+  .resources-intro { flex-wrap: wrap; gap: 12px; }
+  .resource-headings { grid-template-columns: minmax(0, 1fr) 48px 28px; }
+  .resource-list > .resource-row.setrow { grid-template-columns: minmax(0, 1fr) 48px 28px; }
+  .resource-origin { display: none; }
+}
+@media (max-width: 1050px) {
+  .settings .setwrap .setpage { padding: 28px 22px 44px; }
+}
+@media (max-width: 720px) {
+  .settings .setwrap { flex-direction: column; }
+  .settings .setnav { width: 100%; height: auto; padding: 12px; flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); gap: 4px; }
+  .settings .setnavitem { width: auto; padding: 7px 9px; font-size: 12px; }
+  .settings .setwrap .setpage { width: 100%; height: auto; padding: 24px 18px 36px; }
+}

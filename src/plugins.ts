@@ -187,6 +187,14 @@ export function settingsRows(): HTMLElement[] {
   return [aboutRow(), ...(rows.length ? rows : [emptyRow()])];
 }
 
+export function settingsActions(): menu.Item[] {
+  return [
+    { label: t("plugin.install"), run: () => installer() },
+    { label: t("plugin.make"), run: () => maker() },
+    { label: t("plugin.add"), run: () => editor(null) },
+  ];
+}
+
 function cloudRow(p: catalog.CatalogPlugin): HTMLElement {
   const row = template(
     "div",
@@ -195,6 +203,8 @@ function cloudRow(p: catalog.CatalogPlugin): HTMLElement {
   );
   row.querySelector(".glyph")!.innerHTML = icon("globe", 18);
   row.querySelector(".txt b")!.textContent = p.id;
+  row.dataset.resourceId = p.id;
+  row.dataset.resourceOrigin = t("catalog.cloud");
   const where = p.note.trim() ? `${p.source} · ${p.note.trim()}` : p.source;
   row.querySelector(".txt span")!.textContent = `${where} · ${t("catalog.notInstalled")}`;
   const get = template("button", "outline md", `<span></span>`) as HTMLButtonElement;
@@ -205,6 +215,7 @@ function cloudRow(p: catalog.CatalogPlugin): HTMLElement {
     dialog.body.append(h("p", "ui-hint", p.source), h("p", "ui-hint", t("catalog.installHint"))); dialog.open();
   });
   row.querySelector(".act")!.append(get);
+  actionMenu(row, p.id);
   return row;
 }
 
@@ -248,7 +259,9 @@ function pluginRow(plugin: Plugin): HTMLElement {
   row.querySelector(".glyph")!.innerHTML = icon(remote(plugin.source) ? "globe" : "puzzle", 18);
   row.querySelector(".txt b")!.textContent = plugin.id;
   const mark = catalog.tag("plugins", plugin.id);
-  row.querySelector(".txt span")!.textContent = mark ? `${subtitle(plugin)} · ${mark}` : subtitle(plugin);
+  row.dataset.resourceId = plugin.id;
+  row.dataset.resourceOrigin = mark;
+  row.querySelector(".txt span")!.textContent = subtitle(plugin);
 
   const act = row.querySelector(".act")!;
   act.append(...catalog.controls("plugins", plugin.id));
@@ -286,17 +299,32 @@ function pluginRow(plugin: Plugin): HTMLElement {
 
   const drop = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
   drop.children[0].textContent = t(catalog.shared("plugins", plugin.id) ? "catalog.delete" : "plugin.remove");
-  drop.addEventListener("click", () => {
+  drop.addEventListener("click", async () => {
     // Removing app-owned plugins also deletes their files and requires confirmation.
-    if (!plugin.made) return void remove(plugin);
-    const at = drop.getBoundingClientRect();
-    menu.openAt({ x: at.left, y: at.bottom + 4 }, [
-      { label: t("plugin.remove.made"), danger: true, run: () => void remove(plugin) },
-    ]);
+    if (plugin.made && !await ui.confirmDialog({
+      title: t("plugin.remove"), message: t("plugin.remove.made"),
+      accept: t("plugin.remove.made"), cancel: t("plugin.cancel"),
+    })) return;
+    await remove(plugin);
   });
 
   act.append(edit, drop);
+  actionMenu(row, plugin.id, drop);
   return row;
+}
+
+function actionMenu(row: HTMLElement, id: string, drop?: HTMLButtonElement) {
+  const act = row.querySelector(".act")!;
+  const buttons = [...act.querySelectorAll("button")];
+  const hidden = h("div", ""); hidden.hidden = true; hidden.append(...buttons);
+  const more = ui.menuButton("…", () => buttons.map(button => ({
+    label: button.textContent ?? "", disabled: button.disabled,
+    danger: button === drop, run: () => button.click(),
+  })));
+  more.setAttribute("aria-label", `${t("actions.more")} · ${id}`);
+  more.dataset.focus = `plugin-actions-${id}`;
+  more.disabled = buttons.every(button => button.disabled);
+  act.replaceChildren(hidden, more);
 }
 
 const remote = (source: string) => /^https?:\/\//.test(source.trim());
