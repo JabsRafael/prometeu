@@ -36,6 +36,7 @@ import "./style.css";
 import type { Board, Issue, Project, Tab, Workspace } from "./types";
 import * as update from "./update";
 import { $ } from "./util";
+import { mac } from "./platform";
 import * as viewer from "./viewer";
 import * as ws from "./workspace";
 
@@ -590,6 +591,8 @@ void appmenu.install(act);
 
 /* Startup. */
 
+// The system draws the frame outside macOS.
+document.body.classList.toggle("framed", !mac);
 // Translate static index.html labels before building the remaining interface.
 paint();
 // Send the active language to backend-generated text such as dock output and OAuth completion pages.

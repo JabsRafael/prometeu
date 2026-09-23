@@ -99,7 +99,7 @@ pub async fn notification_permission(
     #[cfg(not(target_os = "macos"))]
     {
         let _ = request;
-        Ok("unavailable".into())
+        Ok(freedesktop::permission())
     }
 }
 
@@ -128,7 +128,12 @@ pub async fn notification_show(
                     .map_err(i18n::io)?
             }
             #[cfg(not(target_os = "macos"))]
-            Err(i18n::t("err.notifications.unavailable"))
+            {
+                let (handle, banner) = (app.clone(), notice.clone());
+                tauri::async_runtime::spawn_blocking(move || freedesktop::banner(&handle, &banner))
+                    .await
+                    .map_err(i18n::io)?
+            }
         }
         Style::Notch => {
             let handle = app.clone();
@@ -296,14 +301,20 @@ async fn play(tone: Tone) -> Result<(), String> {
     .await
     .map_err(i18n::io)?;
     #[cfg(not(target_os = "macos"))]
-    {
-        let _ = tone;
-        Err(i18n::t("err.notifications.unavailable"))
-    }
+    return tauri::async_runtime::spawn_blocking(move || freedesktop::sound(tone))
+        .await
+        .map_err(i18n::io)?;
 }
 
+#[cfg(not(target_os = "macos"))]
+mod freedesktop;
 #[cfg(target_os = "macos")]
 mod mac;
+
+pub fn shutdown() {
+    #[cfg(not(target_os = "macos"))]
+    freedesktop::shutdown();
+}
 
 pub fn install(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]

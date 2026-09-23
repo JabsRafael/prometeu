@@ -1,0 +1,40 @@
+# Builds the committed tree of this checkout, so there is no remote source to verify.
+# See docs/operations/linux.md.
+pkgname=prometeu
+pkgver=0.13.0
+pkgrel=1
+pkgdesc='Desktop app for Claude Code, Codex and Antigravity CLI with parallel Git worktrees'
+arch=('x86_64' 'aarch64')
+url='https://github.com/prometeucorp/prometeu'
+license=('MIT')
+depends=('webkit2gtk-4.1' 'gtk3' 'git' 'xdg-utils' 'libnotify' 'systemd')
+makedepends=('cargo' 'nodejs' 'npm')
+optdepends=(
+  'claude-code: Claude Code agent'
+  'github-cli: pull request status and creation'
+  'libcanberra: themed notification sounds'
+  'sound-theme-freedesktop: notification sounds without libcanberra'
+  'grim: feedback screenshots on Wayland'
+  'slurp: feedback screenshots on Wayland'
+)
+options=('!lto')
+
+prepare() {
+  rm -rf "$srcdir/$pkgname"
+  mkdir -p "$srcdir/$pkgname"
+  git -C "$startdir/../.." archive --format=tar HEAD | tar -x -C "$srcdir/$pkgname"
+  cd "$srcdir/$pkgname"
+  npm ci
+}
+
+build() {
+  cd "$srcdir/$pkgname"
+  # Updater artifacts need the release signing key.
+  npx tauri build --bundles deb --config '{"bundle":{"createUpdaterArtifacts":false}}'
+}
+
+package() {
+  cd "$srcdir/$pkgname"
+  cp -a src-tauri/target/release/bundle/deb/Prometeu_*/data/usr "$pkgdir/"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

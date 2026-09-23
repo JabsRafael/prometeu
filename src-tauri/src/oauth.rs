@@ -9,7 +9,6 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Structured callback failure reasons translated by each integration.
@@ -51,7 +50,7 @@ pub fn challenge(verifier: &str) -> String {
 }
 
 pub fn browse(url: &str) -> Result<(), String> {
-    let ok = Command::new("open")
+    let ok = crate::platform::opener()
         .arg(url)
         .status()
         .map_err(i18n::io)?

@@ -5,6 +5,7 @@ import { icon } from "./icons";
 import { current as locale, t } from "./i18n";
 import { openNotes } from "./news";
 import { $, h, template } from "./util";
+import { linux } from "./platform";
 
 /// Check a public update manifest, verify downloaded bundles with the embedded minisign key, and replace the app after explicit download/restart actions. Sidebar shows actionable updates; Settings always shows version and check status. Both derive from one phase.
 
@@ -263,6 +264,12 @@ export function settingsRow(): HTMLElement {
 export async function init(say: Io["say"]) {
   ver = `v${await getVersion()}`;
   $("ver").textContent = ver;
+  // The package manager updates Linux installs.
+  if (linux) {
+    now = { ...view({ at: "quiet" }), disabled: true, note: t("update.linux"), tone: "plain" };
+    paint();
+    return;
+  }
 
   const up = updater({
     check,

@@ -1,5 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const MAC_CHROME =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36";
+
 const port = Number(process.env.E2E_PORT ?? 4173);
 const baseURL = `http://127.0.0.1:${port}`;
 
@@ -18,7 +21,8 @@ export default defineConfig({
     trace: process.env.CI ? "on-first-retry" : "retain-on-failure",
   },
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    // Scenarios assert macOS wording, but the preset reports Windows.
+    { name: "chromium", use: { ...devices["Desktop Chrome"], userAgent: MAC_CHROME } },
     // Repeat representative core journeys and explicit browser risks, not every feature variant.
     { name: "webkit", use: { ...devices["Desktop Safari"] }, grep: /@webkit\b/ },
   ],

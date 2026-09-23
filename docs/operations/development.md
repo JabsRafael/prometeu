@@ -7,6 +7,8 @@
 - Playwright's Chromium and WebKit for E2E tests;
 - Claude Code and/or Codex installed to test real sessions.
 
+On Linux, also install the WebKitGTK packages listed in [Linux](linux.md).
+
 ```sh
 npm install
 npx playwright install chromium webkit

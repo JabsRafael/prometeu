@@ -89,15 +89,7 @@ pub async fn feedback_capture() -> Result<Option<String>, String> {
         paths::ensure_private_dir(&directory).map_err(|_| i18n::t("feedback.captureError"))?;
         let file = directory.join("capture.png");
         let result = (|| {
-            let output = std::process::Command::new("/usr/sbin/screencapture")
-                .args(["-i", "-W", "-x", "-t", "png"])
-                .arg(&file)
-                .output()
-                .map_err(|_| i18n::t("feedback.captureError"))?;
-            if !output.status.success() {
-                return Err(i18n::t("feedback.captureError"));
-            }
-            if !file.exists() {
+            if !capture(&file)? || !file.exists() {
                 return Ok(None);
             }
             let bytes = std::fs::read(&file).map_err(|_| i18n::t("feedback.captureError"))?;
@@ -111,6 +103,44 @@ pub async fn feedback_capture() -> Result<Option<String>, String> {
     })
     .await
     .map_err(|_| i18n::t("feedback.captureError"))?
+}
+
+/// Ok(false) means the person cancelled.
+#[cfg(target_os = "macos")]
+fn capture(file: &std::path::Path) -> Result<bool, String> {
+    let output = std::process::Command::new("/usr/sbin/screencapture")
+        .args(["-i", "-W", "-x", "-t", "png"])
+        .arg(file)
+        .output()
+        .map_err(|_| i18n::t("feedback.captureError"))?;
+    output
+        .status
+        .success()
+        .then_some(true)
+        .ok_or_else(|| i18n::t("feedback.captureError"))
+}
+
+/// Wayland only: slurp picks a region, grim captures it; Esc in slurp cancels.
+#[cfg(not(target_os = "macos"))]
+fn capture(file: &std::path::Path) -> Result<bool, String> {
+    use crate::platform::has;
+    let fail = || i18n::t("feedback.captureError");
+    if std::env::var_os("WAYLAND_DISPLAY").is_none() || !has("slurp") || !has("grim") {
+        return Err(fail());
+    }
+    let region = std::process::Command::new("slurp")
+        .output()
+        .map_err(|_| fail())?;
+    let geometry = String::from_utf8_lossy(&region.stdout).trim().to_string();
+    if !region.status.success() || geometry.is_empty() {
+        return Ok(false);
+    }
+    let status = std::process::Command::new("grim")
+        .args(["-t", "png", "-g", &geometry])
+        .arg(file)
+        .status()
+        .map_err(|_| fail())?;
+    status.success().then_some(true).ok_or_else(fail)
 }
 
 #[cfg(test)]

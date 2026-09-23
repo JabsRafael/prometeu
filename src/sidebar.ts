@@ -1,6 +1,7 @@
 import { avatar, avatars, brand, icon, stageIcon } from "./icons";
 import { stage as stageName, t, tn } from "./i18n";
 import * as menu from "./menu";
+import { keys } from "./platform";
 import * as team from "./team";
 import { accountButton } from "./cloud";
 import * as rename from "./rename";
@@ -110,7 +111,7 @@ function wsMenu(ws: Workspace, board: Board, hooks: Hooks, label: HTMLElement, k
           label: t("ws.menu.archive"),
           glyph: icon("archive"),
           // Show the shortcut only for the active workspace it would affect.
-          hint: ws.id === openId ? "⌘⇧A" : undefined,
+          hint: ws.id === openId ? keys("⌘⇧A") : undefined,
           run: () => hooks.archive(ws.id, true),
         },
     {
