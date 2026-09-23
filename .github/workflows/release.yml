@@ -282,7 +282,8 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseDraft: true
           includeUpdaterJson: true
-          assetNamePattern: 'Prometeu_[arch][ext]'
+          # tauri-action expands [arch] to amd64 for AppImage; keep the documented x86_64 URL.
+          assetNamePattern: 'Prometeu_x86_64[ext]'
           args: --verbose --bundles appimage
 
       - name: Build signed AppImage without publishing
