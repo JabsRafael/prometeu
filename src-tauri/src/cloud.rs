@@ -215,14 +215,7 @@ fn device() -> Result<Device, String> {
             }
         }
     }
-    let label = std::process::Command::new("scutil")
-        .args(["--get", "ComputerName"])
-        .output()
-        .ok()
-        .and_then(|output| String::from_utf8(output.stdout).ok())
-        .map(|name| name.trim().to_string())
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| "Mac".into());
+    let label = crate::platform::device_name();
     let device = Device {
         id: oauth::random()[..32].to_string(),
         label,

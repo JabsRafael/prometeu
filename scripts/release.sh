@@ -73,6 +73,10 @@ p.write_text(re.sub(r'(?m)^version = "[^"]+"', f'version = "{v}"', p.read_text()
 
 p = pathlib.Path("src-tauri/Cargo.lock")
 p.write_text(re.sub(r'(name = "prometeu"\nversion = )"[^"]+"', rf'\1"{v}"', p.read_text(), count=1))
+
+p = pathlib.Path("packaging/arch/PKGBUILD")
+text = re.sub(r"(?m)^pkgver=.*$", f"pkgver={v}", p.read_text(), count=1)
+p.write_text(re.sub(r"(?m)^pkgrel=.*$", "pkgrel=1", text, count=1))
 PY
 
   cliff --unreleased --tag "v$VERSION" --prepend CHANGELOG.md

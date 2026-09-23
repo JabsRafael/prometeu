@@ -21,8 +21,10 @@ every commit of the PR.
 ## CI
 
 `.github/workflows/ci.yml` runs on PRs, including from forks, and on pushes to
-`main`, on GitHub-hosted macOS runners. The job installs dependencies, installs
-Chromium and WebKit and runs `npm run check`. Hosted runners are disposable and
+`main`, on GitHub-hosted runners. The macOS job installs dependencies, installs
+Chromium and WebKit and runs `npm run check`. The `linux` job installs the
+WebKitGTK development packages, builds the frontend and runs the Rust tests and
+Clippy, which cover the Linux `cfg` branches; see [Linux](linux.md). Hosted runners are disposable and
 the workflow has no secrets, so fork code runs without risk. Do not register a
 self-hosted runner in this repository: the code is public and a fork's PR
 controls what the job runs. See

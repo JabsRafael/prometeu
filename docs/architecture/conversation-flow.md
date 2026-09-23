@@ -121,7 +121,7 @@ only when the turn has ended *and* `background.changed` reports no task.
 `chat.rs` holds the tab in `Rodando` and keeps queued input waiting until then;
 the delegation execution holds `running` with its outcome already recorded. An
 interruption settles everything at once, since it ends the children too. See
-[ADR 0055](../decisions/0055-background-tasks-hold-completion.md).
+[ADR 0056](../decisions/0056-background-tasks-hold-completion.md).
 
 `alert.ts` tracks executions per tab from the live local `chat` events,
 separate from the unread state. `chat.rs` publishes `session.state` `starting`

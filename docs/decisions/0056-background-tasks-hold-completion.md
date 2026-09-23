@@ -1,4 +1,4 @@
-# ADR 0055 — A turn only completes when its background tasks drain
+# ADR 0056 — A turn only completes when its background tasks drain
 
 Date: 2026-09-23
 

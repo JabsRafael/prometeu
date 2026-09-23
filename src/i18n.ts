@@ -1,5 +1,6 @@
 import { EN } from "./i18n.en";
 import { PT } from "./i18n.pt";
+import { keys, mac, machine } from "./platform";
 
 /// Store one local interface-language preference; optional accounts do not synchronize it. Without a choice, follow the system language. Portuguese defines catalog keys and English must implement them. Translate interface text, preserving user and agent content.
 
@@ -84,9 +85,17 @@ export function fromSystem(): Lang {
   return match(navigator.languages?.length ? navigator.languages : [navigator.language]);
 }
 
-/// Interpolate parameters; missing translations fall back to English, then the key itself.
+/// Outside macOS, `<key>.generic` replaces text naming macOS or its apps.
+function lookup(key: string): string | undefined {
+  return DICTS[lang][key] ?? (EN as Record<string, string>)[key];
+}
+
+const COMPUTER: Record<Lang, string> = { "pt-BR": "computador", en: "computer" };
+
+/// Interpolate parameters; missing translations fall back to English, then the key itself. Outside macOS, the text is made platform-neutral.
 export function t(key: Key, params?: Params): string {
-  const raw = DICTS[lang][key] ?? EN[key] ?? key;
+  const text = (mac ? undefined : lookup(`${key}.generic`)) ?? lookup(key) ?? key;
+  const raw = keys(machine(text, COMPUTER[lang]));
   if (!params) return raw;
   return raw.replace(/\{(\w+)\}/g, (whole, name: string) =>
     name in params ? String(params[name]) : whole,

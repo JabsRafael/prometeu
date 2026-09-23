@@ -1678,7 +1678,7 @@ mod tests {
     }
 
     /// The settlement rule is provider-neutral, so it is proven against what this adapter really
-    /// emits, not against handwritten canonical events. See ADR 0055.
+    /// emits, not against handwritten canonical events. See ADR 0056.
     #[test]
     fn a_turn_ending_with_a_running_subagent_settles_only_when_the_child_finishes() {
         let (mut link, out) = link(None);

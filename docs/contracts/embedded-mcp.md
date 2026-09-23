@@ -240,7 +240,7 @@ turn ended while its children kept working; completion is the `completed` state
 alone. An interruption completes immediately and drops the last observation of
 the children, which it also ended. This keeps `get_execution` and `send_message`
 in agreement: while a send is rejected as busy, the execution is not completed.
-See [ADR 0055](../decisions/0055-background-tasks-hold-completion.md). Claude and Codex supply the
+See [ADR 0056](../decisions/0056-background-tasks-hold-completion.md). Claude and Codex supply the
 existing normalized signals; neither promises complete visibility into every
 native child process. Native provider subagents are distinct from other
 Prometeu delegations.
