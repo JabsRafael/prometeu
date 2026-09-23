@@ -217,7 +217,7 @@ mod tests {
             ..plugin.clone()
         };
         assert!(package(&skill, &root, &[occupied]).is_err());
-        assert!(package(&skill, &root, &[plugin.clone()]).is_ok());
+        assert!(package(&skill, &root, std::slice::from_ref(&plugin)).is_ok());
         materialize(&skill, &plugin).unwrap();
         let body =
             std::fs::read_to_string(Path::new(&plugin.source).join("skills/review/SKILL.md"))

@@ -1704,11 +1704,15 @@ mod tests {
         for args in [
             vec!["init", "-q"],
             vec!["add", "."],
+            // The fixture identity has no signing key; a contributor who signs every commit by
+            // default would otherwise fail here.
             vec![
                 "-c",
                 "user.name=Test",
                 "-c",
                 "user.email=test@example.com",
+                "-c",
+                "commit.gpgsign=false",
                 "commit",
                 "-qm",
                 "fixture",

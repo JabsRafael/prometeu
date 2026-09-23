@@ -562,6 +562,10 @@ mod tests {
             "user.name=Test",
             "-c",
             "user.email=test@example.test",
+            // The fixture identity has no signing key; a contributor who signs every commit by
+            // default would otherwise fail here.
+            "-c",
+            "commit.gpgsign=false",
             "commit",
             "-m",
             "fixture",
