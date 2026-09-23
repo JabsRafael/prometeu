@@ -1876,6 +1876,7 @@ body.noside .side { display: none; }
 /* Four default tiles support corner resizing, header dragging, collapse, and persistence. Only desk terminals use monospace throughout; workspace conversations keep the wider reading layout. */
 .desk .listmain { font-family: var(--mono); }
 .desk .tab { position: relative; font-family: var(--mono); font-size: 12px; padding-left: 12px; }
+.desk .tab .n { flex-shrink: 1; }
 /* Stop tile underlines before the separator. */
 .desk .tab.on { box-shadow: none; }
 .desk .tab.on::after { content: ""; position: absolute; left: 10px; right: 8px; bottom: 0; height: 2px; background: var(--accent); }

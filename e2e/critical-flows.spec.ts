@@ -895,6 +895,15 @@ test("the desk shows each conversation in a tile, accepts replies and preserves 
   const tiles = page.locator("#tiles .tile");
   await expect(tiles).toHaveCount(6);
   await expect(page.locator("#railbody .navitem", { hasText: "Desk" })).toHaveClass(/\bon\b/);
+  const tabsContainLabels = await page.locator("#deskbar .tab").evaluateAll((tabs) => {
+    tabs[0].querySelector(".n")!.textContent = "Opus with a 1M context window";
+    return tabs.every((tab) =>
+      [...tab.querySelectorAll("span")].every(
+        (label) => label.getBoundingClientRect().right <= tab.getBoundingClientRect().right,
+      ),
+    );
+  });
+  expect(tabsContainLabels).toBe(true);
 
   // Include live local conversations, excluding archived, cleaned and remote workspaces.
   await expect(page.locator('#tiles .tile[data-tab="t7"]')).toHaveCount(0);
