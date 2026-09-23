@@ -825,6 +825,7 @@ export const PT = {
   "chat.codeCopied": "Código copiado",
   "chat.copyCodeFailed": "Não foi possível copiar o código",
   "chat.copy": "Copiar a resposta",
+  "chat.copyFailed": "Não foi possível copiar a resposta",
   "chat.with.pick": "com quem esta conversa fala — trocar desliga o processo, e a próxima fala retoma",
   "chat.with.busy": "o agente está trabalhando — dá para trocar de modelo quando ele parar",
   "chat.stop": "Parar",
@@ -1295,6 +1296,7 @@ export const PT = {
 
   "say.creating": "montando worktree…",
   "say.copied": "{path} copiado",
+  "say.copyPathFailed": "Não foi possível copiar o caminho",
   "say.pickRepo": "Escolha o repositório",
 
   /* Backend activity notes. */

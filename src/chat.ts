@@ -458,15 +458,22 @@ export class ChatView {
     }
     const meta = template("div", "meta", `<span class="took"></span><button class="ico sm cp"></button><button class="ghost sm cm"></button>`);
     meta.querySelector(".took")!.textContent = label;
-    const cp = meta.querySelector<HTMLElement>(".cp")!;
+    const cp = meta.querySelector<HTMLButtonElement>(".cp")!;
     cp.innerHTML = icon("copy", 13);
     cp.title = t("chat.copy");
-    cp.addEventListener("click", () => {
+    cp.addEventListener("click", async () => {
       const at = this.blockAt(piece);
       if (at?.block.kind !== "text") return;
-      void navigator.clipboard.writeText(at.block.text);
-      cp.innerHTML = icon("check", 13);
-      setTimeout(() => (cp.innerHTML = icon("copy", 13)), 1200);
+      cp.disabled = true;
+      try {
+        await navigator.clipboard.writeText(at.block.text);
+        cp.innerHTML = icon("check", 13);
+        setTimeout(() => (cp.innerHTML = icon("copy", 13)), 1200);
+      } catch {
+        this.ctx.say(t("chat.copyFailed"), true);
+      } finally {
+        cp.disabled = false;
+      }
     });
     this.paintCommentAction(meta, piece);
     el.append(meta);
