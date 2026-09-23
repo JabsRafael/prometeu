@@ -95,30 +95,72 @@ describe("Dock notifications", () => {
     expect(badge).toHaveBeenLastCalledWith(1);
   });
 
-  it("does not treat intermediate results as completion while background tasks remain", () => {
+  it("holds the completion while background tasks remain and delivers it when they drain", () => {
     boardChanged(board(workspace("a")));
     begin();
     background(["one", "two"]);
     done();
     settle();
     expect(waiting()).toBe(0);
-    focused = true;
-    visible.add("a-t");
-    looked();
-    focused = false;
     background(["two"]);
-    speak();
-    emit("a-t", { type: "assistant.started", messageId: "automatic" });
-    done();
     settle();
     expect(waiting()).toBe(0);
     background([]);
     settle();
+    expect(waiting()).toBe(1);
+    expect(notify).toHaveBeenCalledWith("done", "a-t");
+  });
+
+  it("draining background tasks without a terminal from the main agent completes nothing", () => {
+    boardChanged(board(workspace("a")));
+    begin();
+    background(["one"]);
+    background([]);
+    settle();
     expect(waiting()).toBe(0);
-    emit("a-t", { type: "assistant.started", messageId: "final" });
+    emit("a-t", { type: "assistant.started", messageId: "still working" });
     done();
     settle();
     expect(waiting()).toBe(1);
+  });
+
+  it("the main agent answering again discards the terminal its background tasks held", () => {
+    boardChanged(board(workspace("a")));
+    begin();
+    background(["one"]);
+    done();
+    emit("a-t", { type: "assistant.started", messageId: "continued" });
+    background([]);
+    settle();
+    expect(waiting()).toBe(0);
+    done();
+    settle();
+    expect(waiting()).toBe(1);
+  });
+
+  it("looking at the conversation consumes the completion its background tasks hold", () => {
+    boardChanged(board(workspace("a")));
+    begin();
+    background(["one"]);
+    done();
+    focused = true;
+    visible.add("a-t");
+    looked();
+    focused = false;
+    background([]);
+    settle();
+    expect(waiting()).toBe(0);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("an interruption while background tasks run never becomes a notice", () => {
+    boardChanged(board(workspace("a")));
+    begin();
+    background(["one"]);
+    emit("a-t", { type: "turn.completed", outcome: "interrupted", message: "", durationMs: null, costUsd: null });
+    background([]);
+    settle();
+    expect(waiting()).toBe(0);
   });
 
   it("resuming cancels pending completion without inferring completion from silence", () => {
@@ -281,7 +323,7 @@ it("delivers each live completion and request once without changing Dock eligibi
   expect(notify).toHaveBeenLastCalledWith("error", "a-t");
 });
 
-it("does not deliver viewed, cancelled, background, or replayed completions", () => {
+it("does not deliver viewed, cancelled, interrupted, or replayed completions", () => {
   boardChanged(board(workspace("a")));
   done(); settle();
   focused = true; visible.add("a-t");
@@ -290,8 +332,6 @@ it("does not deliver viewed, cancelled, background, or replayed completions", ()
   begin(); done();
   emit("a-t", { type: "assistant.started", messageId: "continuation" });
   settle();
-  background(["child"]); done(); settle();
-  background([]); settle();
   emit("a-t", { type: "turn.completed", outcome: "interrupted", message: "", durationMs: null, costUsd: null });
   done(); settle();
   expect(notify).not.toHaveBeenCalled();

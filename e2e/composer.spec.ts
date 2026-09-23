@@ -87,3 +87,42 @@ test("conversation footer keeps controls accessible without overlap", { tag: "@w
   await fits(tile.locator(".composer"));
   await expect(tile.getByRole("button", { name: "Remote control", exact: true })).toBeVisible();
 });
+
+// A turn that ends while its subagents run must keep the Stop button reachable: the reducer test
+// proves `working`, but only the browser proves the composer still paints it and answers a click.
+test("the footer keeps Stop while background tasks outlive the turn", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('.railworkspace[data-workspace="sessao-0929"] > .navitem').click();
+  await expect(page.locator("#wsView")).toBeVisible();
+  await expect(page.locator("#chatwrap .feed .turn").first()).toBeVisible();
+  await page.evaluate(() => {
+    const w = window as ComposerWindow;
+    const { invoke } = w.__TAURI_INTERNALS__;
+    w.controls = [];
+    w.__TAURI_INTERNALS__.invoke = (command, args) => {
+      if (command === "chat_control") w.controls.push(args);
+      return invoke(command, args);
+    };
+    w.mock.line("t1", { v: 1, at: 1, type: "session.state", state: "busy" });
+    w.mock.line("t1", { v: 1, at: 1, type: "background.changed",
+      tasks: [{ id: "bg1", description: "Audit repository quality", toolId: null }] });
+  });
+
+  const composer = page.locator("#chatwrap .composer");
+  const stop = composer.getByRole("button", { name: "Stop", exact: true });
+  await expect(stop).toBeVisible();
+  await page.evaluate(() => (window as ComposerWindow).mock.line("t1", {
+    v: 1, at: 2, type: "turn.completed", outcome: "ok", message: "", durationMs: null, costUsd: null,
+  }));
+  await expect(composer.getByRole("status")).toHaveText("Working…");
+  await expect(stop).toBeVisible();
+  await stop.click();
+  expect(await page.evaluate(() => (window as ComposerWindow).controls)).toEqual([
+    { session: "t1", frame: { v: 1, type: "turn.interrupt" } },
+  ]);
+
+  await page.evaluate(() => (window as ComposerWindow).mock.line("t1",
+    { v: 1, at: 3, type: "background.changed", tasks: [] }));
+  await expect(stop).toBeHidden();
+  await expect(composer).not.toHaveClass(/\bbusy\b/);
+});

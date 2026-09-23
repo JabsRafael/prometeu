@@ -72,7 +72,8 @@ every combination of providers, states, languages and screen sizes.
 | attachments in a message, capture thumbnails and pasting | adapted through a local path; promise and pasteboard materialized by macOS | adapted through a local path; promise and pasteboard materialized by macOS | Adapted; see verification boundary | `file_drop.rs`, `chat.ts`, `paste.ts`; `e2e/file-drop.spec.ts` and dropped-file scenarios in `e2e/critical-flows.spec.ts` cover the UI over the mock; `paste.test.ts` covers the paste detour |
 | the browser's visual context | a tag in the draft and the history; complete HTML, CSS, URL and PNG mention on send | the same interface and textual contract | Adapted; see verification boundary | `browser-context.test.ts`, `e2e/browser-inspector.spec.ts`, `e2e/browser.spec.ts`, `browser.rs` tests; WKWebView capture and the AppKit gesture still require native verification |
 | unknown external event | ignored by the adapter | ignored by the adapter | Adapted; see verification boundary | `conversation.test.ts`, `claude.rs`/`codex.rs` tests |
-| the CLI's subagents | a sidechain off-screen; tasks in `background.changed` | `collabAgentToolCall.agentsStates`, `subAgentActivity` and known child events update the tasks; the children's content stays isolated | Adapted; see verification boundary | `claude.rs`; isolation, spawn, activity and partial-state tests in `codex.rs` |
+| the CLI's subagents | a sidechain off-screen; tasks in `background.changed` | `collabAgentToolCall.agentsStates`, `subAgentActivity` and known child events update the tasks; the children's content stays isolated | no child session signal; the turn settles on its terminal | `claude.rs`; isolation, spawn, activity and partial-state tests in `codex.rs` |
+| a turn that ends while its subagents run | tab, Stop button, queued input, delegation execution and notice all wait for the drain ([ADR 0055](../decisions/0055-background-tasks-hold-completion.md)) | the same rule over the same normalized signal | settles on the terminal, since no task is ever reported | `chat.rs::work_tests`, held-completion and interruption tests in `delegation.rs`, `src/timeline.test.ts`, `src/alert.test.ts`, Stop control in `e2e/composer.spec.ts` |
 | local notifications and Dock attention indicators | completion, error and request events; silent until opt-in | same rule over canonical live events | completion/error over canonical events; interactive requests unavailable | `src/alert.test.ts`, `src/notifications.test.ts`, `e2e/notifications.spec.ts`; native verification limits in [notifications](../contracts/notifications.md) |
 | live sharing | V1 after normalization | V1 after normalization | shared application behavior | `team*.test.ts`, E2E over the mock |
 | remote control from the owner's devices | the same relay v4; execution stays local | the same relay v4; execution stays local | shared application behavior | `team-channel.test.ts`, `team-organizations.test.ts`, `e2e/organizations.spec.ts` |
@@ -138,7 +139,9 @@ rejection, file access and canonical history share the backend implementation.
 Claude receives a private strict MCP file; Codex receives the stdio command
 and private environment wrapper. Workers start with empty MCP/plugin/skill
 selections. Background reporting is limited to each adapter’s existing
-`background.changed` signals; unknown is distinct from an observed empty set.
+`background.changed` signals; unknown is distinct from an observed empty set. An
+execution holds `running` with its outcome recorded until those tasks drain, so
+it never reports completion while sends are still rejected as busy.
 
 Both providers also use the same configured setup/Run controls, bounded dock
 logs, process/exit status and explicit desktop preview opening. These tools

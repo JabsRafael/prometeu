@@ -94,14 +94,35 @@ impl Delegation {
                 self.executions.push(run);
             }
             Some("turn.completed") => {
+                // Native subagents outlive the main turn. Record the outcome, but hold completion
+                // until they drain: a caller must never read a finished execution from a
+                // conversation that still rejects its next message as busy.
+                // An interruption ends the children too; the last observation of them is stale.
+                let interrupted = event["outcome"] == "interrupted";
+                if interrupted {
+                    self.background = None;
+                }
+                let running = working(&self.background);
                 if let Some(run) = self.executions.last_mut().filter(|r| r.state == "running") {
-                    run.state = "completed".into();
                     run.outcome = event["outcome"].as_str().map(str::to_string);
+                    if !running {
+                        run.state = "completed".into();
+                    }
                 }
                 self.requests.clear();
             }
             Some("background.changed") => {
                 self.background = event["tasks"].as_array().cloned();
+                // Draining alone never completes a turn; only a held terminal settles here.
+                if !working(&self.background) {
+                    if let Some(run) = self
+                        .executions
+                        .last_mut()
+                        .filter(|r| r.state == "running" && r.outcome.is_some())
+                    {
+                        run.state = "completed".into();
+                    }
+                }
             }
             Some("request.opened") => {
                 self.requests
@@ -373,6 +394,12 @@ fn previous_creation<'a>(
     Ok(previous)
 }
 
+/// Observed background tasks still running. `None` is no authoritative observation, not an
+/// empty set.
+fn working(background: &Option<Vec<Value>>) -> bool {
+    background.as_ref().is_some_and(|tasks| !tasks.is_empty())
+}
+
 fn check_send(workspace: &crate::state::Workspace, delegation: &Delegation) -> Result<(), String> {
     let tab = workspace
         .tabs
@@ -385,10 +412,7 @@ fn check_send(workspace: &crate::state::Workspace, delegation: &Delegation) -> R
     }
     if matches!(tab.status, Status::Rodando | Status::Querendo)
         || tab.pending_prompt.is_some()
-        || delegation
-            .background
-            .as_ref()
-            .is_some_and(|tasks| !tasks.is_empty())
+        || working(&delegation.background)
     {
         return Err("conversation_busy: wait for the current execution or interrupt it".into());
     }
@@ -928,7 +952,7 @@ mod tests {
     }
 
     #[test]
-    fn completion_and_background_are_independent_and_unknown_is_not_empty() {
+    fn completion_waits_for_background_tasks_and_unknown_is_not_empty() {
         let mut d = delegation();
         let run_id = d.executions[0].id.clone();
         assert!(d.background.is_none());
@@ -936,12 +960,50 @@ mod tests {
         d.observe(&json!({"type":"background.changed","tasks":[{"id":"child","description":"review","toolId":null}]}));
         d.observe(&json!({"type":"turn.completed","outcome":"ok"}));
         assert_eq!(d.executions[0].id, run_id);
-        assert_eq!(d.executions[0].state, "completed");
+        assert_eq!(d.executions[0].state, "running");
         assert_eq!(d.executions[0].outcome.as_deref(), Some("ok"));
         assert_eq!(d.background.as_ref().unwrap().len(), 1);
         d.observe(&json!({"type":"background.changed","tasks":[]}));
         assert_eq!(d.executions.len(), 1);
+        assert_eq!(d.executions[0].state, "completed");
         assert_eq!(d.background, Some(vec![]));
+    }
+
+    #[test]
+    fn a_held_execution_never_reports_completion_while_sends_are_rejected() {
+        let mut workspace = board().workspaces.remove(1);
+        let mut d = delegation();
+        d.observe(&json!({"type":"session.state","state":"busy"}));
+        d.observe(&json!({"type":"background.changed","tasks":[{"id":"child","description":"review","toolId":null}]}));
+        d.observe(&json!({"type":"turn.completed","outcome":"ok"}));
+        workspace.tabs[0].status = Status::Rodando;
+        assert_ne!(d.executions[0].state, "completed");
+        assert!(check_send(&workspace, &d).is_err());
+        d.observe(&json!({"type":"background.changed","tasks":[]}));
+        workspace.tabs[0].status = Status::Pronta;
+        assert_eq!(d.executions[0].state, "completed");
+        assert!(check_send(&workspace, &d).is_ok());
+    }
+
+    #[test]
+    fn an_interruption_completes_the_execution_without_waiting_for_background_tasks() {
+        let mut d = delegation();
+        d.observe(&json!({"type":"session.state","state":"busy"}));
+        d.observe(&json!({"type":"background.changed","tasks":[{"id":"child","description":"review","toolId":null}]}));
+        d.observe(&json!({"type":"turn.completed","outcome":"interrupted"}));
+        assert_eq!(d.executions[0].state, "completed");
+        assert_eq!(d.executions[0].outcome.as_deref(), Some("interrupted"));
+        assert!(d.background.is_none());
+    }
+
+    #[test]
+    fn draining_background_alone_does_not_complete_an_unfinished_turn() {
+        let mut d = delegation();
+        d.observe(&json!({"type":"session.state","state":"busy"}));
+        d.observe(&json!({"type":"background.changed","tasks":[{"id":"child","description":"review","toolId":null}]}));
+        d.observe(&json!({"type":"background.changed","tasks":[]}));
+        assert_eq!(d.executions[0].state, "running");
+        assert!(d.executions[0].outcome.is_none());
     }
 
     #[test]

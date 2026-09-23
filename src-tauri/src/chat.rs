@@ -27,6 +27,45 @@ pub(crate) fn input_gate(session: &str) -> Arc<Mutex<()>> {
         .clone()
 }
 
+/// Background tasks observed for one conversation, and the completion they hold back. A provider's
+/// native subagents outlive the turn that started them, so a conversation only settles when the
+/// turn has ended *and* those tasks have drained. Runtime only: tasks die with the process.
+#[derive(Default)]
+pub struct Work {
+    running: usize,
+    /// A turn ended while tasks were still running.
+    held: bool,
+}
+
+impl Work {
+    /// The turn ended. `true` when the conversation settles now.
+    fn ended(&mut self) -> bool {
+        self.held = self.running > 0;
+        !self.held
+    }
+
+    /// An adapter reported the current tasks. `true` when a held completion settles now.
+    fn reported(&mut self, running: usize) -> bool {
+        self.running = running;
+        let settled = running == 0 && self.held;
+        self.held = self.held && !settled;
+        settled
+    }
+
+    /// An interruption ends the turn and the children it started, whether or not the provider
+    /// reports the drain. Nothing may hold the conversation open afterwards.
+    fn interrupted(&mut self) {
+        *self = Self::default();
+    }
+}
+
+/// Read and update one conversation's background bookkeeping.
+fn work<T>(app: &AppHandle, id: &str, change: impl FnOnce(&mut Work) -> T) -> T {
+    let state = app.state::<AppState>();
+    let mut tracked = lock(&state.work);
+    change(tracked.entry(id.to_string()).or_default())
+}
+
 /// Per-tab memory limit; trim only complete JSON lines.
 const KEEP: usize = 4 * 1024 * 1024;
 
@@ -246,8 +285,8 @@ impl Pump {
             return;
         }
         crate::delegation::publish_observation(&self.app, &self.id, frame);
-        react(&self.app, &self.id, frame, &self.ready, &self.profile.id);
-        if frame["type"] == "turn.completed" {
+        // A turn that ends with subagents still running is not an opening for queued input.
+        if react(&self.app, &self.id, frame, &self.ready, &self.profile.id) {
             let state = self.app.state::<AppState>();
             let queued = lock(&state.board)
                 .tab_mut(&self.id)
@@ -515,6 +554,7 @@ pub(crate) fn launch(
             return;
         }
         lock(&state.ready).remove(&id);
+        lock(&state.work).remove(&id);
         crate::delegation::stopped(&state, &id);
         // Keep the conversation available for resume after the process stops.
         update(&app, &id, Some(Status::Desligada), Note::Clear, None);
@@ -549,9 +589,14 @@ fn keep(frame: &Value) -> bool {
     )
 }
 
-/// Apply canonical events to board activity, pending questions and turn completion.
-fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool, account: &str) {
+/// Apply canonical events to board activity, pending questions and turn completion. Returns whether
+/// the conversation settled on this event: the turn ended and no background task is still running.
+fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool, account: &str) -> bool {
     match frame["type"].as_str() {
+        // A replacement process inherits no background tasks and no held completion.
+        Some("session.state") if frame["state"] == "starting" => {
+            lock(&app.state::<AppState>().work).remove(id);
+        }
         // The initial command list also confirms control readiness.
         Some("commands.updated") if !ready.swap(true, Ordering::Relaxed) => {
             ready_now(app, id);
@@ -603,16 +648,39 @@ fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool, account: 
             update(app, id, Some(Status::Querendo), Note::Set(note), None);
         }
         // Clear stale tool activity on completion and refresh context usage from the transcript.
+        // The tab keeps working while the turn's subagents run: its status is the agent's observed
+        // state, and a green dot over a running child would be a lie.
         Some("turn.completed") => {
             crate::actions::completed(
                 app,
                 id,
                 frame["outcome"] == "error" || frame["outcome"] == "interrupted",
             );
-            update(app, id, Some(Status::Pronta), Note::Clear, context(app, id))
+            let settled = match frame["outcome"] == "interrupted" {
+                true => {
+                    work(app, id, Work::interrupted);
+                    true
+                }
+                false => work(app, id, Work::ended),
+            };
+            let status = match settled {
+                true => Status::Pronta,
+                false => Status::Rodando,
+            };
+            update(app, id, Some(status), Note::Clear, context(app, id));
+            return settled;
+        }
+        // Draining alone never completes a turn; it only releases one the agent already ended.
+        Some("background.changed") => {
+            let running = frame["tasks"].as_array().map_or(0, Vec::len);
+            if work(app, id, |tracked| tracked.reported(running)) {
+                update(app, id, Some(Status::Pronta), Note::Clear, context(app, id));
+                return true;
+            }
         }
         _ => {}
     }
+    false
 }
 
 /// Build a compact activity label such as `Bash cd /Users/...`.
@@ -877,6 +945,7 @@ pub(crate) fn send(
     if boundary == AccountBoundary::Restart {
         kill(&state, &session);
         lock(&state.ready).remove(&session);
+        lock(&state.work).remove(&session);
     }
     // Append behind pending setup input without skipping process recovery. A persisted queue may
     // belong to a stopped process, so appending alone must not leave it stuck.
@@ -1707,6 +1776,51 @@ mod tests {
             assert_eq!(input["questions"][0]["question"], "Color?");
             assert_eq!(input.get("answers").is_some(), kind == "question");
         }
+    }
+}
+
+#[cfg(test)]
+mod work_tests {
+    use super::*;
+
+    #[test]
+    fn a_turn_settles_only_after_its_background_tasks_drain() {
+        let mut work = Work::default();
+        assert!(!work.reported(1));
+        assert!(!work.ended());
+        assert!(!work.reported(2));
+        assert!(!work.reported(1));
+        assert!(work.reported(0));
+        // The drain is consumed: a repeated empty report does not settle a second time.
+        assert!(!work.reported(0));
+    }
+
+    #[test]
+    fn a_turn_without_background_tasks_settles_immediately() {
+        let mut work = Work::default();
+        assert!(work.ended());
+        assert!(!work.reported(0));
+        // A task started by a later continuation settles with that continuation's own terminal.
+        assert!(!work.reported(1));
+        assert!(!work.reported(0));
+        assert!(work.ended());
+    }
+
+    #[test]
+    fn an_interruption_settles_without_waiting_for_a_reported_drain() {
+        let mut work = Work::default();
+        work.reported(2);
+        work.interrupted();
+        assert!(work.ended());
+        assert!(!work.reported(0));
+    }
+
+    #[test]
+    fn draining_without_a_finished_turn_does_not_settle() {
+        let mut work = Work::default();
+        assert!(!work.reported(1));
+        assert!(!work.reported(0));
+        assert!(work.ended());
     }
 }
 
