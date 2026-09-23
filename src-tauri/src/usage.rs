@@ -224,7 +224,7 @@ fn fetch_claude(profile: &accounts::Profile) -> Option<Value> {
 }
 
 /// Read Claude's OAuth credential from a file first, then the macOS Keychain through security when
-/// needed.
+/// needed. Claude Code on Linux keeps it only in the file.
 fn claude_token(profile: &accounts::Profile) -> Option<String> {
     let body = std::fs::read_to_string(profile.home.join(".credentials.json"))
         .ok()
@@ -233,6 +233,12 @@ fn claude_token(profile: &accounts::Profile) -> Option<String> {
     Some(creds["claudeAiOauth"]["accessToken"].as_str()?.to_string())
 }
 
+#[cfg(not(target_os = "macos"))]
+fn keychain(_: &accounts::Profile) -> Option<String> {
+    None
+}
+
+#[cfg(target_os = "macos")]
 fn keychain(profile: &accounts::Profile) -> Option<String> {
     use sha2::{Digest, Sha256};
     let service = if profile.managed || std::env::var_os("CLAUDE_CONFIG_DIR").is_some() {

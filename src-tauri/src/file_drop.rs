@@ -1,7 +1,9 @@
 //! Finder files already have paths; screenshot thumbnails provide promises. AppKit materializes
 //! those promises before the UI attaches their paths.
 use serde::Serialize;
-use tauri::{DragDropEvent, Emitter, PhysicalPosition, Webview, WebviewEvent, Window};
+#[cfg(target_os = "macos")]
+use tauri::Window;
+use tauri::{DragDropEvent, Emitter, PhysicalPosition, Webview, WebviewEvent};
 
 #[derive(Clone, Default, Serialize)]
 pub(crate) struct Drag {

@@ -6,7 +6,6 @@ use crate::dock::ensure_port;
 use crate::{i18n, AppState};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::process::Command;
 use std::sync::mpsc;
 use std::time::Duration;
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
@@ -128,7 +127,7 @@ pub(crate) fn browse(url: &Url) -> Result<(), String> {
     if !allowed(url) {
         return Err(i18n::ta("err.browser.badUrl", &[("url", url.to_string())]));
     }
-    let ok = Command::new("open")
+    let ok = crate::platform::opener()
         .arg(url.as_str())
         .status()
         .map_err(i18n::io)?
@@ -172,6 +171,7 @@ pub fn browser_open(app: AppHandle, state: State<AppState>, id: String) -> Resul
     // scheme rather than host. Redirecting off-site frames would open a browser tab for every ad or
     // login iframe. Track main-frame page loads, and poll browser_url for SPA history changes.
     let of = id.clone();
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
     let view = window
         .add_child(
             WebviewBuilder::new(label(&id), WebviewUrl::External(initial))

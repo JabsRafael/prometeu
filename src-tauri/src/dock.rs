@@ -7,7 +7,6 @@ use crate::state::Workspace;
 use crate::{chat, i18n, pty, scripts, AppState};
 use portable_pty::CommandBuilder;
 use std::path::Path;
-use std::process::Command;
 use tauri::{AppHandle, Manager, State};
 
 /// Validate terminal and terminal-<number> keys before creating PTYs. Numbered UI tabs need
@@ -45,7 +44,7 @@ pub fn open_dock(
     // variables.
     if is_terminal(&kind) {
         let root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+        let shell = crate::platform::shell();
         let mut cmd = CommandBuilder::new(shell);
         cmd.cwd(&root);
         cmd.env("TERM", "xterm-256color");
@@ -346,11 +345,11 @@ pub(crate) fn ensure_port(state: &State<AppState>, id: &str) -> Option<u16> {
     Some(port)
 }
 
-/// Open the workspace or project root folder in Finder.
+/// Open the workspace or project root folder in the file manager.
 #[tauri::command]
 pub fn reveal(state: State<AppState>, id: String) -> Result<(), String> {
     let root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
-    let ok = Command::new("open")
+    let ok = crate::platform::opener()
         .arg(&root)
         .status()
         .map_err(i18n::io)?
@@ -369,7 +368,7 @@ pub fn reveal(state: State<AppState>, id: String) -> Result<(), String> {
 pub fn open_run(state: State<AppState>, id: String) -> Result<(), String> {
     let port = ensure_port(&state, &id).ok_or_else(|| i18n::t("err.session.noPort"))?;
     let url = format!("http://localhost:{port}");
-    let ok = Command::new("open")
+    let ok = crate::platform::opener()
         .arg(&url)
         .status()
         .map_err(i18n::io)?

@@ -30,6 +30,7 @@ mod naming;
 mod notifications;
 mod oauth;
 mod paths;
+mod platform;
 mod plugins;
 mod pty;
 mod scripts;
@@ -62,10 +63,10 @@ pub struct AppState {
     pub ready: Mutex<HashSet<String>>,
 }
 
-/// Finder launches inherit launchd's minimal PATH. Adopt the user's login-shell PATH so agents and
+/// Finder and desktop-launcher starts inherit a minimal PATH. Adopt the user's login-shell PATH so agents and
 /// Homebrew tools can be found; terminal launches retain equivalent behavior.
 fn adopt_login_path() {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let shell = platform::shell();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let out = std::process::Command::new(shell)
@@ -284,6 +285,7 @@ fn main() {
             // Flush deferred board writes during shutdown, when no later save can be assumed.
             if matches!(event, tauri::RunEvent::Exit) {
                 embedded_mcp::shutdown();
+                notifications::shutdown();
                 accounts::shutdown();
                 state::save_now(app);
             }
