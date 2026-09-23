@@ -1255,6 +1255,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
 
   "say.creating": "building the worktree…",
   "say.copied": "{path} copied",
+  "say.copyPathFailed": "Could not copy the path",
   "say.pickRepo": "Choose the repository",
 
   "note.permission": "wants permission for {tool}",

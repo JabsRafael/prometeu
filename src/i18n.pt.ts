@@ -1296,6 +1296,7 @@ export const PT = {
 
   "say.creating": "montando worktree…",
   "say.copied": "{path} copiado",
+  "say.copyPathFailed": "Não foi possível copiar o caminho",
   "say.pickRepo": "Escolha o repositório",
 
   /* Backend activity notes. */

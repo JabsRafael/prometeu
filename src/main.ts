@@ -99,8 +99,8 @@ const hooks: sidebar.Hooks = {
     try {
       await navigator.clipboard.writeText(w.worktree);
       say(t("say.copied", { path: w.worktree }));
-    } catch (error) {
-      say(fromBack(error), true);
+    } catch {
+      say(t("say.copyPathFailed"), true);
     }
   },
   toDesk: () => showDesk(),
