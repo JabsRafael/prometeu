@@ -184,6 +184,7 @@ fn main() {
             session::files::read_bytes,
             session::files::file_stamp,
             session::files::write_file,
+            session::files::reveal_path,
             dock::open_dock,
             dock::close_dock,
             dock::reveal,

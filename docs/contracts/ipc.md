@@ -174,7 +174,8 @@ does not produce those projections in new logs.
 
 ## Root of the file commands
 
-`list_dir`, `read_file`, `read_bytes`, `write_file`, `find_paths` and `reveal`
+`list_dir`, `read_file`, `read_bytes`, `write_file`, `find_paths`, `reveal` and
+`reveal_path`
 receive in `id` the workspace **or** the project. A workspace resolves in its
 working directory: a dedicated worktree, the clone itself, or the common parent
 of multiple worktrees. A project resolves in the registered clone's folder, which is what
@@ -182,6 +183,11 @@ supports reading and editing a repository with no workspace on it at all. The
 two id spaces do not collide, and `session.rs::cwd_of` is the only function that
 performs that resolution — `dock.rs` imports it instead of repeating the rule. A
 path outside the root is still refused.
+
+`reveal` opens the root; `reveal_path` takes a `rel` and shows one entry of the
+tree. Finder selects a file with `-R`; systems served by `xdg-open` have no
+selection flag, so a file there opens the folder holding it rather than the file,
+which would launch another application over it.
 
 `open_dock` accepts a project id only for a terminal: the shell only needs the
 folder, and without a workspace there is no script variable to pass. Setup and

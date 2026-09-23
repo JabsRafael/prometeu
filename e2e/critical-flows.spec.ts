@@ -750,6 +750,31 @@ test("file edits survive board redraws and save", async ({ page }) => {
   await expect(page.locator("#vpre")).not.toContainText("Edited manually by E2E.");
 });
 
+/// The Files panel is how a file inside the worktree reaches the agent. Its menu crosses the tree,
+/// the workspace and the conversation draft, and the route it replaces is a Finder drag no unit test
+/// can exercise.
+test("the file tree hands a file to the conversation", async ({ page }) => {
+  await boot(page);
+  await openWorkspace(page, "Hello");
+
+  await page.locator("#tab-files").click();
+  const row = page.locator("#tree .treerow", { hasText: "CLAUDE.md" });
+  await row.click({ button: "right" });
+
+  // The app menu answers the right-click, and the row it acted on stays marked.
+  await expect(row).toHaveClass(/\bselected\b/);
+  await page.locator(".menu .mrow", { hasText: "Attach to the conversation" }).click();
+  await expect(page.locator("#chatwrap .cfiles .injchip")).toContainText("CLAUDE.md");
+
+  // The attachment travels as the mention the agent already understands.
+  const composer = page.locator("#chatwrap .composer textarea");
+  await composer.fill("Review this");
+  await composer.press("Enter");
+  const bubble = page.locator("#chatwrap .turn.user .bubble").last();
+  await expect(bubble).toContainText("Review this");
+  expect(await bubble.textContent()).toBe("@CLAUDE.md\n\nReview this");
+});
+
 /// Double-clicking a file or activating its explicit diff button opens the full file in the viewer.
 test("Git opens files through double-click and the diff button", { tag: "@webkit" }, async ({ page }) => {
   await boot(page);
