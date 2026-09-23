@@ -38,6 +38,24 @@ pub struct Work {
 }
 
 impl Work {
+    /// Apply a canonical event. `true` when the conversation settles on it: the turn has ended and
+    /// no background task is still running. Both adapters feed this through the same two events.
+    pub(crate) fn observe(&mut self, event: &Value) -> bool {
+        match event["type"].as_str() {
+            // An interruption ends the turn and the children it started, whether or not the
+            // provider reports the drain. Nothing may hold the conversation open afterwards.
+            Some("turn.completed") if event["outcome"] == "interrupted" => {
+                *self = Self::default();
+                true
+            }
+            Some("turn.completed") => self.ended(),
+            Some("background.changed") => {
+                self.reported(event["tasks"].as_array().map_or(0, Vec::len))
+            }
+            _ => false,
+        }
+    }
+
     /// The turn ended. `true` when the conversation settles now.
     fn ended(&mut self) -> bool {
         self.held = self.running > 0;
@@ -52,11 +70,6 @@ impl Work {
         settled
     }
 
-    /// An interruption ends the turn and the children it started, whether or not the provider
-    /// reports the drain. Nothing may hold the conversation open afterwards.
-    fn interrupted(&mut self) {
-        *self = Self::default();
-    }
 }
 
 /// Read and update one conversation's background bookkeeping.
@@ -656,13 +669,7 @@ fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool, account: 
                 id,
                 frame["outcome"] == "error" || frame["outcome"] == "interrupted",
             );
-            let settled = match frame["outcome"] == "interrupted" {
-                true => {
-                    work(app, id, Work::interrupted);
-                    true
-                }
-                false => work(app, id, Work::ended),
-            };
+            let settled = work(app, id, |tracked| tracked.observe(frame));
             let status = match settled {
                 true => Status::Pronta,
                 false => Status::Rodando,
@@ -672,8 +679,7 @@ fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool, account: 
         }
         // Draining alone never completes a turn; it only releases one the agent already ended.
         Some("background.changed") => {
-            let running = frame["tasks"].as_array().map_or(0, Vec::len);
-            if work(app, id, |tracked| tracked.reported(running)) {
+            if work(app, id, |tracked| tracked.observe(frame)) {
                 update(app, id, Some(Status::Pronta), Note::Clear, context(app, id));
                 return true;
             }
@@ -1809,10 +1815,22 @@ mod work_tests {
     #[test]
     fn an_interruption_settles_without_waiting_for_a_reported_drain() {
         let mut work = Work::default();
-        work.reported(2);
-        work.interrupted();
-        assert!(work.ended());
-        assert!(!work.reported(0));
+        assert!(!work.observe(&json!({"type":"background.changed","tasks":[{"id":"child"}]})));
+        assert!(work.observe(&json!({"type":"turn.completed","outcome":"interrupted"})));
+        assert!(work.observe(&json!({"type":"turn.completed","outcome":"ok"})));
+    }
+
+    #[test]
+    fn only_the_turn_and_its_tasks_move_the_conversation() {
+        let mut work = Work::default();
+        for event in [
+            json!({"type":"assistant.block","block":{"kind":"text"}}),
+            json!({"type":"request.opened","requestId":"q"}),
+            json!({"type":"context.updated","used":10}),
+        ] {
+            assert!(!work.observe(&event));
+        }
+        assert!(work.observe(&json!({"type":"turn.completed","outcome":"ok"})));
     }
 
     #[test]

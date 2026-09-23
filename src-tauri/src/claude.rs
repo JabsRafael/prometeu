@@ -974,6 +974,29 @@ mod tests {
             .is_empty());
     }
 
+    /// The settlement rule is provider-neutral, so it is proven against what this adapter really
+    /// emits, not against handwritten canonical events. See ADR 0055.
+    #[test]
+    fn a_turn_ending_with_a_running_task_settles_only_when_the_task_notifies() {
+        let mut adapter = Adapter::default();
+        let mut work = crate::chat::Work::default();
+        let started = adapter.translate(&json!({
+            "type": "system", "subtype": "task_started", "ts": 1,
+            "task_id": "bg1", "tool_use_id": "t1", "description": "map",
+        }));
+        assert_eq!(started[0]["type"], "background.changed");
+        assert!(!work.observe(&started[0]));
+        for event in adapter.translate(&json!({ "type": "result", "ts": 2, "subtype": "success" })) {
+            assert!(!work.observe(&event), "the main turn ended, but the task has not");
+        }
+        let notified = adapter.translate(&json!({
+            "type": "system", "subtype": "task_notification", "ts": 3,
+            "task_id": "bg1", "status": "completed", "summary": "",
+        }));
+        assert_eq!(notified[0]["type"], "background.changed");
+        assert!(work.observe(&notified[0]));
+    }
+
     #[test]
     fn normalizes_requests_background_tasks_and_compaction() {
         let mut adapter = Adapter::default();

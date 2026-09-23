@@ -64,8 +64,14 @@ reports no tasks rather than reconstructing them from the transcript.
 
 ## Consequences
 
+The rule lives in `Work::observe`, over canonical events, so it is one
+implementation for every provider rather than one per adapter.
+
 Tests: `chat.rs::work_tests`, `delegation.rs` held-completion and interruption
-tests, `src/timeline.test.ts`, `src/alert.test.ts`. Contracts updated in
+tests, `src/timeline.test.ts`, `src/alert.test.ts`, the Stop control in
+`e2e/composer.spec.ts`. Claude and Codex each drive `Work::observe` with what
+their adapter really emits, in `claude.rs` and `codex.rs`, so the shared rule is
+proven per provider instead of against handwritten events. Contracts updated in
 [embedded MCP](../contracts/embedded-mcp.md) and
 [conversation events V1](../contracts/conversation-events-v1.md); the flow is in
 [conversation flow](../architecture/conversation-flow.md).
