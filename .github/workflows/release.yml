@@ -1,7 +1,7 @@
-# Build tags matching v* on a GitHub-hosted macOS runner, sign with repository Secrets and create a draft
+# Build tags matching v* on GitHub-hosted macOS and Linux runners, sign and create a shared draft
 # release in this repository. Notes come from the version's CHANGELOG.md section.
 # Drafts do not reach the updater's releases/latest/download/latest.json endpoint. Install and review the
-# draft DMG before running sh scripts/release.sh publish.
+# draft DMG and AppImage before running sh scripts/release.sh publish.
 # The updater accepts only newer versions; recovery from a published defect requires a newer release.
 # workflow_dispatch verifies a release build from main without publishing or consuming a version.
 #
@@ -25,18 +25,25 @@ on:
 permissions:
   contents: read
 
+# A rerun must not overwrite a manifest while another run uploads to the same draft.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   REPO: ${{ github.repository }}
 
 jobs:
   build:
-    name: construir e assinar
+    name: Build and sign macOS
     runs-on: macos-latest
     environment: release
     permissions:
       contents: write
     outputs:
       version: ${{ steps.notes.outputs.version }}
+      notes: ${{ steps.notes.outputs.notes }}
+      release_id: ${{ steps.release.outputs.releaseId }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -131,6 +138,7 @@ jobs:
           echo "APPLE_KEYCHAIN_LIST=$KEYCHAIN_LIST_PATH" >> "$GITHUB_ENV"
 
       - name: build assinado → draft neste repositório
+        id: release
         if: github.ref_type == 'tag'
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
@@ -221,9 +229,82 @@ jobs:
             security delete-keychain "$APPLE_BUILD_KEYCHAIN" || true
           fi
 
+  # tauri-action merges latest.json with the existing draft. Serialize uploads so neither platform
+  # can overwrite the other's entry, and reuse the draft ID instead of creating another release.
+  linux:
+    name: Build and sign Linux
+    needs: build
+    runs-on: ubuntu-22.04
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Build on the oldest supported Ubuntu baseline to avoid requiring a newer glibc.
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libssl-dev patchelf
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.14.0
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:rust
+      - run: npm run lint:rust
+
+      - name: Build signed AppImage in the shared draft
+        if: github.ref_type == 'tag'
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          releaseId: ${{ needs.build.outputs.release_id }}
+          releaseBody: ${{ needs.build.outputs.notes }}
+          tagName: ${{ github.ref_name }}
+          releaseDraft: true
+          includeUpdaterJson: true
+          assetNamePattern: 'Prometeu_[arch][ext]'
+          args: --verbose --bundles appimage
+
+      - name: Build signed AppImage without publishing
+        if: github.ref_type != 'tag'
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          args: --verbose --bundles appimage
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: github.ref_type != 'tag'
+        with:
+          name: Prometeu_${{ needs.build.outputs.version }}_linux-x86_64_${{ github.sha }}
+          path: |
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/appimage/*.AppImage.sig
+          if-no-files-found: error
+          retention-days: 7
+
   verify:
     name: conferir a draft
-    needs: build
+    needs: [build, linux]
     if: github.ref_type == 'tag'
     runs-on: macos-latest
     # Drafts are visible only to write access, so downloading one needs contents: write.
@@ -252,22 +333,4 @@ jobs:
       # Exercise the installed updater path: read latest.json, download its package and verify against
       # the public key embedded in the app.
       - name: latest.json aponta para esta versão e a assinatura bate
-        run: |
-          python3 - <<'PY'
-          import base64, json, os, sys
-          v = os.environ["VERSION"]
-          m = json.load(open("pkg/latest.json"))
-          assert m["version"] == v, f"latest.json diz {m['version']}, a tag diz {v}"
-          p = m["platforms"]["darwin-aarch64"]
-          name = p["url"].rsplit("/", 1)[1]
-          assert f"/download/v{v}/" in p["url"], p["url"]
-          assert os.path.exists(f"pkg/{name}"), f"latest.json aponta para {name}, que não está na release"
-          assert os.path.exists(f"pkg/{name}.sig"), f"falta {name}.sig"
-          assert any(f.endswith(".dmg") for f in os.listdir("pkg")), "falta o .dmg"
-          conf = json.load(open("src-tauri/tauri.conf.json"))
-          open("pub.key", "wb").write(base64.b64decode(conf["plugins"]["updater"]["pubkey"]))
-          open("pkg.minisig", "wb").write(base64.b64decode(p["signature"]))
-          open("pkg.name", "w").write(name)
-          print("pacote:", name)
-          PY
-          minisign -V -m "pkg/$(cat pkg.name)" -p pub.key -x pkg.minisig
+        run: python3 scripts/verify-release.py "$VERSION" "$REPO" pkg

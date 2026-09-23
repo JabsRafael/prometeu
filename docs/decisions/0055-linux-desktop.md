@@ -37,9 +37,18 @@ shortcut labels (`Ctrl+Shift+D`), "computer" where the catalogs say "Mac", and
 `<key>.generic` catalog variants for text naming macOS, Finder or System
 Settings. Shortcut handlers already accepted Ctrl.
 
-Releases stay macOS only. Linux installs come from source or the Arch
-`PKGBUILD`, so the in-app updater is disabled there instead of failing against
-a manifest without Linux entries.
+One GitHub release contains the macOS Apple Silicon DMG and Linux x86_64
+AppImage, using the same version and updater signing key. Linux builds use
+Ubuntu 22.04 as the glibc baseline. The Linux release job runs after macOS and
+reuses its draft ID so the action can merge `latest.json` without concurrent
+writes. Publication requires both platforms and verified updater signatures.
+
+The frontend uses Tauri's native `getBundleType()` to enable the Linux updater
+only for AppImage. Arch `PKGBUILD`, Debian, RPM and source installations keep
+external updates; an unknown bundle type also leaves updates disabled. This
+preserves package-manager ownership without adding a custom IPC command.
+The [release contract](../contracts/releases.md) preserves the macOS download
+names, updater entry, endpoint and signing key.
 
 ## Trade-offs
 
@@ -47,7 +56,10 @@ Behavior depends on the desktop: notification daemons may ignore actions,
 compositors decide where the notch window goes, and display wake depends on
 logind support. X11 has no feedback capture. Finder file promises and
 dictation stay macOS only. CI proves compilation, Clippy and Rust tests on
-Linux, not desktop integration.
+Linux, not desktop integration. Release builds run sequentially to keep draft
+assembly simple; this increases release time. AppImage distribution starts
+with x86_64 only, and its Ubuntu baseline does not prove compatibility with
+every distribution. Native installation and update checks remain manual.
 
 ## Evidence
 
@@ -56,3 +68,6 @@ Linux, not desktop integration.
 - [Sleep inhibitor test](../../src-tauri/src/awake.rs).
 - [Freedesktop notifications](../../src-tauri/src/notifications/freedesktop.rs).
 - [Shortcut label tests](../../src/platform.test.ts).
+- [Updater installation tests](../../src/update-init.test.ts).
+- [Release gate tests](../../scripts/test_release.py) and
+  [release workflow](../../.github/workflows/release.yml).

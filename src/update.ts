@@ -1,4 +1,4 @@
-import { getVersion } from "@tauri-apps/api/app";
+import { getBundleType, getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
 import { icon } from "./icons";
@@ -264,8 +264,8 @@ export function settingsRow(): HTMLElement {
 export async function init(say: Io["say"]) {
   ver = `v${await getVersion()}`;
   $("ver").textContent = ver;
-  // The package manager updates Linux installs.
-  if (linux) {
+  // Only AppImage supports replacing itself; distro packages stay with their package manager.
+  if (linux && await getBundleType().catch(() => null) !== "appimage") {
     now = { ...view({ at: "quiet" }), disabled: true, note: t("update.linux"), tone: "plain" };
     paint();
     return;

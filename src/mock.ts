@@ -2133,6 +2133,10 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     case "plugin:app|version":
       return "0.0.0-mock";
 
+    // Exercise the same updater UI on Linux browsers without downloading a real package.
+    case "plugin:app|bundle_type":
+      return "appimage";
+
     // No app updater runs in the browser; null means no update.
     case "plugin:updater|check":
       return null;

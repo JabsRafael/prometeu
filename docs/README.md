@@ -42,6 +42,7 @@ as a short index for agents and `README.md` presents the product.
 - [`contracts/ipc.md`](contracts/ipc.md): the TypeScript/Rust boundary.
 - [`contracts/git.md`](contracts/git.md): index, worktree, review and Git operations.
 - [`contracts/persistence.md`](contracts/persistence.md): board and transcripts.
+- [`contracts/releases.md`](contracts/releases.md): desktop packages, updater manifest and installation ownership.
 - [`contracts/relay-v4.md`](contracts/relay-v4.md): encrypted collaboration and TOFU.
 
 ## Decisions

@@ -1,8 +1,32 @@
 # Linux
 
-Prometeu runs on Linux from source. Published releases remain macOS only; the
-choices below are recorded in [ADR 0055](../decisions/0055-linux-desktop.md).
-It is tested on Arch Linux, Debian 12 and Ubuntu 24.04 with WebKitGTK 4.1.
+Prometeu's release workflow produces a Linux x86_64 AppImage alongside the macOS
+download. Source builds and the Arch package remain available. These choices
+are recorded in [ADR 0055](../decisions/0055-linux-desktop.md).
+Source builds have been tested on Arch Linux, Debian 12 and Ubuntu 24.04 with
+WebKitGTK 4.1; each release's AppImage still needs the native checks in the
+[release guide](release.md).
+
+## Install the AppImage
+
+Download `Prometeu_x86_64.AppImage` from the
+[latest release](https://github.com/prometeucorp/prometeu/releases/latest).
+Keep it in a directory writable by your user, then run:
+
+```sh
+chmod +x Prometeu_x86_64.AppImage
+./Prometeu_x86_64.AppImage
+```
+
+The workflow builds on Ubuntu 22.04 to set the glibc baseline. This does not
+guarantee compatibility with every Linux distribution. If FUSE is unavailable,
+run `./Prometeu_x86_64.AppImage --appimage-extract-and-run`. The optional system
+programs listed below are still needed for desktop integrations.
+
+AppImage installations use the signed in-app updater. Package-managed and source
+installations do not: update them through their package manager or rebuild.
+Linux ARM64 currently requires a source build. No prebuilt `.deb` or `.rpm` is
+published by this workflow.
 
 ## Install on Arch Linux
 
@@ -20,7 +44,7 @@ It downloads no source archive, so there is nothing to checksum: the source is
 the clone you already have. A recipe inside the repository cannot pin the
 checksum of a release archive that contains the recipe itself; an AUR package
 would pin that archive instead. Updates come from rebuilding the package; the
-in-app updater is off on Linux.
+in-app updater stays off for this installation type.
 Install `claude-code`, `codex` or `agy` as on macOS. Optional programs enable
 the features in the table below.
 
@@ -72,7 +96,7 @@ Without a default toolchain, the Tauri CLI fails with a panic while running
 | Shortcut labels | ⌘ ⇧ ⌥ | Ctrl, Shift, Alt |
 | Interface wording | Mac, Finder, macOS | computer, file manager, system (`<key>.generic` variants) |
 | Dictation, Finder file promises | available | unavailable |
-| Updates | in-app updater | package manager |
+| Updates | in-app updater | in-app updater for AppImage; package manager or rebuild for other installs |
 
 Missing optional programs produce the same unavailable or failure errors the
 UI already shows on macOS. CI builds the backend and runs Rust tests and Clippy
