@@ -70,7 +70,6 @@ Status: Proposed
 | [0026](0026-portable-collaboration-core.md) | portable collaboration core and phone access through the relay |
 | [0027](0027-companion-devices.md) | companion devices in the relay |
 | [0028](0028-mobile-web-app.md) | Prometeu on the phone as a web app served by the Cloud |
-| [0029](0029-remove-alert-sound.md) | Visual pending indicators without sound alerts |
 | [0030](0030-remote-control.md) | remote control independent of sharing |
 | [0034](0034-mobile-pairing-continuity.md) | Mobile pairing continuity |
 | [0035](0035-feedback-requires-account.md) | Authenticated private feedback through the Cloud |
@@ -92,3 +91,4 @@ Status: Proposed
 | [0051](0051-git-project-catalog.md) | Git projects in portable catalogs |
 | [0052](0052-antigravity-runtime.md) | Replace Gemini CLI with Antigravity |
 | [0053](0053-live-model-selection.md) | Live model catalogs and explicit selection identity |
+| [0054](0054-local-notifications.md) | Opt-in local notifications with independent sound |

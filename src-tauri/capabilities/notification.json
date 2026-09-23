@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "notification",
+  "description": "The local notification overlay only subscribes to its content event.",
+  "windows": ["notification"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

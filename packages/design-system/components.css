@@ -76,6 +76,13 @@ textarea.ui-input { resize: vertical; min-height: 112px; line-height: 1.5; }
 .ui-check > input[type="checkbox"]:checked::after { content: ""; width: 7px; height: 4px; border: solid var(--pri-fg); border-width: 0 0 2px 2px; transform: rotate(-45deg) translateY(-1px); }
 .ui-check > input[type="checkbox"]:disabled { opacity: .45; }
 .ui-check > span { min-width: 0; overflow-wrap: anywhere; }
+.ui-switch > input[type="checkbox"] { width: 34px; height: 20px; border-radius: 20px; display: block; position: relative; background: var(--bg-raised-3); cursor: pointer; }
+.ui-switch > input[type="checkbox"]::after { content: ""; display: block; position: absolute; width: 14px; height: 14px; top: 2px; left: 2px; border: 0; border-radius: 50%; background: var(--fg); transform: none; }
+.ui-switch > input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+.ui-switch > input[type="checkbox"]:checked::after { width: 14px; height: 14px; border: 0; background: var(--fg); transform: translateX(14px); }
+.ui-switch > input[type="checkbox"]:disabled { cursor: default; }
+.ui-radio > input[type="radio"] { width: 14px; height: 14px; padding: 0; margin: 3px 0 0; accent-color: var(--accent); flex: none; }
+.ui-radio > input:focus-visible { outline: 2px solid var(--tab-line); outline-offset: 3px; }
 .ui-disclosure { border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--space-3); }
 .ui-disclosure summary { cursor: pointer; color: var(--fg-2); font-size: 12px; }
 .ui-disclosure summary:focus-visible { outline: 2px solid var(--tab-line); outline-offset: 4px; }

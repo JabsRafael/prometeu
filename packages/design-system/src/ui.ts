@@ -64,6 +64,23 @@ export function checkbox(label: string, checked: boolean) {
   return { control, label: root };
 }
 
+/** A native checkbox with switch semantics keeps keyboard and form behavior. */
+export function toggle(label: string, checked: boolean) {
+  const result = checkbox(label, checked);
+  result.label.classList.add("ui-switch");
+  result.control.setAttribute("role", "switch");
+  return result;
+}
+
+export function radio(label: string, name: string, value: string, checked: boolean) {
+  const result = checkbox(label, checked);
+  result.control.type = "radio";
+  result.control.name = name;
+  result.control.value = value;
+  result.label.classList.add("ui-radio");
+  return result;
+}
+
 export type Group = { head?: string; items: [string, string][] };
 
 // Reuse the launcher menu in browsers and WKWebView. Read options on opening because the catalog may

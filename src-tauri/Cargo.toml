@@ -49,8 +49,9 @@ semver = "1"
 # Reuse Tauri bindings to receive screenshots before they exist as files.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSFilePromiseReceiver", "NSPasteboard", "NSBitmapImageRep", "NSImage", "NSImageRep", "NSView", "NSResponder", "block2"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSDictionary", "NSString", "NSURL", "NSError", "NSOperation"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSFilePromiseReceiver", "NSPasteboard", "NSBitmapImageRep", "NSImage", "NSImageRep", "NSView", "NSResponder", "NSWindow", "block2"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSDictionary", "NSString", "NSURL", "NSError", "NSOperation", "NSBundle"] }
 block2 = "0.6"
 # Already used by Tauri; expose WebKit snapshot and child-view permission APIs.
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "WKWebView", "WKSnapshotConfiguration", "WKUIDelegate", "WKFrameInfo", "WKSecurityOrigin", "objc2-app-kit", "objc2-core-foundation", "block2"] }
+objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotification", "UNNotificationSettings", "UNNotificationTrigger", "block2"] }

@@ -133,14 +133,15 @@ into the same event, preserving the isolation of the children's content.
 Completion consumes the notice even with the conversation visible; looking at
 it or answering does not re-arm the execution. Visibility includes the tab open
 in the workspace and the non-collapsed frames on the desk, always with the
-window focused. `request.opened` updates only the Dock's pending state. The
-Dock counts workspaces, joining those pending items with the backend's
-`unread`. The V1, IPC, transcript and relay formats remain unchanged; there is
-no migration. The 1-second window depends on the CLI's signals and does not
-guarantee detecting a later, unannounced continuation. Tracking feeds only
-visual indicators. Completions and comments do not play audio; there is no Web
-Audio initialization and no sound preference.
-See [ADR 0029](../decisions/0029-remove-alert-sound.md).
+window focused. `request.opened` updates the Dock and can deliver an opt-in
+notification once per outstanding request. The Dock counts workspaces, joining
+pending items with the backend's `unread` and inbox comments. Optional local
+notifications reuse that eligibility through a composition callback in
+`main.ts`; comments remain silent. The V1, transcript and relay formats remain
+unchanged. The 1-second window depends on the CLI's signals and cannot detect a
+later, unannounced continuation. Preferences and native delivery are described
+in the [notification contract](../contracts/notifications.md) and
+[ADR 0054](../decisions/0054-local-notifications.md).
 
 ## Input and control
 

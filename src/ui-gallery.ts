@@ -41,6 +41,9 @@ section(t("ui.fields"), ui.field(t("actions.name"), name), ui.field(t("actions.p
   ui.field(t("actions.instructions"), ui.input("", true)), ui.checkbox(t("actions.watch"), true).label);
 
 const disclosure = ui.disclosure(t("actions.tools"), ui.checkbox(t("actions.inherit"), true).label);
+section(t("notifications.title"), ui.toggle(t("notifications.enabled"), true).label,
+  ui.radio(t("notifications.banner"), "gallery-notification-style", "banner", true).label,
+  ui.radio(t("notifications.notch"), "gallery-notification-style", "notch", false).label);
 const badge = ui.button(t("actions.title"), () => {
   const at = badge.getBoundingClientRect();
   menu.openAt({ x: at.left, y: at.bottom + 4 }, [{ label: "/review", badge: t("actions.origin"), hint: t("actions.agent"), run: () => {} }]);

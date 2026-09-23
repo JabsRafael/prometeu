@@ -42,6 +42,9 @@ optional for local work; model access comes from your own provider account.
 - **A desk for ongoing conversations.** Arrange conversations side by side,
   respond to questions, and follow agent activity without opening each workspace.
   Your workspace stage stays separate from the agent's status.
+- **Local notifications.** Opt into completion, approval/input and error alerts
+  in Settings. Choose a macOS banner, a notch overlay or sound alone.
+  Notifications and sound start disabled; phone push is not included.
 - **Git review.** Read unified or side-by-side diffs, stage selected files,
   commit only the index, inspect history, compare branches, and resolve conflicts.
 - **Files, terminals, and browser preview.** Edit code, view PDFs and CSVs,

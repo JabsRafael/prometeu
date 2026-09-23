@@ -15,6 +15,8 @@ as a short index for agents and `README.md` presents the product.
 
 ## Contracts
 
+- [Local notifications](contracts/notifications.md): event selection, native delivery and silent defaults.
+
 - [Embedded MCP and delegation](contracts/embedded-mcp.md): local, opt-in orchestration infrastructure with client-owned agents and optional conversation context.
 
 - [Browser and visual context](contracts/browser.md): preview, inspection, captures and sending to the draft.
@@ -70,7 +72,6 @@ compatibility still in use stays documented in the current contracts.
 - [ADR 0026](decisions/0026-portable-collaboration-core.md): portable collaboration core and phone access through the relay.
 - [ADR 0027](decisions/0027-companion-devices.md): companion devices in the relay.
 - [ADR 0028](decisions/0028-mobile-web-app.md): Prometeu on the phone as a web app served by the Cloud.
-- [ADR 0029](decisions/0029-remove-alert-sound.md): Visual pending indicators without sound alerts.
 - [ADR 0030](decisions/0030-remote-control.md): remote control independent of sharing.
 - [ADR 0034](decisions/0034-mobile-pairing-continuity.md): Mobile pairing continuity.
 - [ADR 0035](decisions/0035-feedback-requires-account.md): Authenticated private feedback through the Cloud.
@@ -95,6 +96,7 @@ compatibility still in use stays documented in the current contracts.
 - [ADR 0052](decisions/0052-antigravity-runtime.md): Replace Gemini CLI with Antigravity.
 
 - [ADR 0053](decisions/0053-live-model-selection.md): Live model catalogs and explicit selection identity.
+- [ADR 0054](decisions/0054-local-notifications.md): opt-in local notifications with independent sound.
 
 ## Quality and operations
 

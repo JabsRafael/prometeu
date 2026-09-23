@@ -33,6 +33,7 @@ const question = (tab = "a-t") => emit(tab, {
 const speak = (tab = "a-t") => emit(tab, { type: "user.message", content: [{ kind: "text", text: "continue" }] });
 let focused = false;
 const visible = new Set<string>();
+const notify = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -43,7 +44,7 @@ beforeEach(() => {
   vi.stubGlobal("document", { hasFocus: () => focused });
   vi.stubGlobal("window", { addEventListener() {}, removeEventListener() {} });
   vi.stubGlobal("AudioContext", audio);
-  init({ visible: (tab) => visible.has(tab) });
+  init({ visible: (tab) => visible.has(tab), notify });
   boardChanged(board());
 });
 
@@ -262,4 +263,36 @@ it("comments update the Dock silently, including after reconnecting", () => {
   teamChanged();
   expect(waiting()).toBe(1);
   expect(badge).toHaveBeenLastCalledWith(1);
+});
+
+it("delivers each live completion and request once without changing Dock eligibility", () => {
+  boardChanged(board(workspace("a")));
+  begin();
+  question(); question();
+  expect(notify).toHaveBeenCalledTimes(1);
+  expect(notify).toHaveBeenLastCalledWith("approval", "a-t");
+  emit("a-t", { type: "request.closed", requestId: "q", outcome: "answered" });
+  done(); done(); settle(); done(); settle();
+  expect(notify).toHaveBeenCalledTimes(2);
+  expect(notify).toHaveBeenLastCalledWith("done", "a-t");
+  begin();
+  emit("a-t", { type: "turn.completed", outcome: "error", message: "failed", durationMs: null, costUsd: null });
+  settle();
+  expect(notify).toHaveBeenLastCalledWith("error", "a-t");
+});
+
+it("does not deliver viewed, cancelled, background, or replayed completions", () => {
+  boardChanged(board(workspace("a")));
+  done(); settle();
+  focused = true; visible.add("a-t");
+  begin(); question(); done(); settle();
+  focused = false;
+  begin(); done();
+  emit("a-t", { type: "assistant.started", messageId: "continuation" });
+  settle();
+  background(["child"]); done(); settle();
+  background([]); settle();
+  emit("a-t", { type: "turn.completed", outcome: "interrupted", message: "", durationMs: null, costUsd: null });
+  done(); settle();
+  expect(notify).not.toHaveBeenCalled();
 });
