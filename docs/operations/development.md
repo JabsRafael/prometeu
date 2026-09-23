@@ -4,6 +4,7 @@
 
 - Node and npm at the versions declared in `package.json`;
 - the Rust toolchain declared in `src-tauri/rust-toolchain.toml`;
+- Python 3 for the release validation tests;
 - Playwright's Chromium and WebKit for E2E tests;
 - Claude Code and/or Codex installed to test real sessions.
 
@@ -63,6 +64,7 @@ npm run architecture:check
 npm run typecheck
 npm run build
 npm run build:mobile
+npm run test:release
 npm run test:web
 npm run test:rust
 npm run test:e2e

@@ -42,27 +42,69 @@ and at least one public note since the previous tag. It computes or receives the
 version, updates the manifests and the changelog, runs the tests, creates the
 commit/tag and pushes to the remote.
 
-The release workflow builds and signs the artifacts and creates a draft in this
-same repository, with the job's `GITHUB_TOKEN`. There is no release PAT.
+The release workflow builds and signs both platforms into one draft in this
+same repository, with the job's `GITHUB_TOKEN`. There is one version, tag and
+changelog for the desktop app. There is no release PAT.
+
+| Platform | Build runner | Install asset | Update asset |
+| --- | --- | --- | --- |
+| macOS Apple Silicon | `macos-latest` | `Prometeu_aarch64.dmg` | `Prometeu_aarch64.app.tar.gz` and `.sig` |
+| Linux x86_64 | `ubuntu-22.04` | `Prometeu_x86_64.AppImage` | the same AppImage and `.sig` |
+
+Linux targets the Ubuntu 22.04 build baseline; building on a newer runner can
+raise the required glibc version. Other distributions still need a native
+smoke test. Linux ARM64 and Intel Macs have no published binary in this workflow.
+Linux source and Arch package instructions remain in the [Linux guide](linux.md).
+
+The macOS job creates the draft first. The Linux job reuses its release ID and
+merges its entries into `latest.json`. These jobs run sequentially to prevent
+concurrent manifest uploads from losing a platform. Workflow runs for the same
+ref are also serialized. The final verification downloads the draft, checks
+Apple notarization, and verifies both updater packages with the public key in
+`tauri.conf.json`. A missing platform or invalid signature fails the release.
+The manifest and stable names are defined in the
+[release contract](../contracts/releases.md).
+
+`workflow_dispatch` builds signed packages for both systems without creating a
+release or tag. Its workflow artifacts expire after seven days. It does not
+replace the final draft verification or the native installation checks.
 
 ## Publish
 
 Between the build and the publication there is a human check:
 
-1. download the `.dmg` from the draft;
-2. install and open the app;
-3. validate the flows affected by the version;
-4. confirm that every asset and the workflow are complete;
+1. download the `.dmg` and `.AppImage` from the draft;
+2. install and open the DMG on an Apple Silicon Mac; make the AppImage executable
+   and open it on a Linux x86_64 desktop;
+3. validate the affected flows on both systems, including starting an agent,
+   opening a terminal and links, and notifications when affected; when an older
+   installation is available, also verify update download and restart;
+4. confirm that both platform builds and final verification passed, all assets
+   are present, and `latest.json` contains both platforms;
 5. publish with:
 
 ```sh
 sh scripts/release.sh publish
 ```
 
-The assets do not carry the version in their name (`Prometeu_aarch64.dmg`). That
-keeps `releases/latest/download/Prometeu_aarch64.dmg` valid forever, which is
-the site's link: publishing changes the version the download button delivers,
-without touching the site's repository.
+The script refuses to publish unless the macOS and Linux assets, their updater
+signatures and `latest.json` exist and the release workflow succeeded. Native
+installation remains a human check, not something an asset check proves.
+
+Assets do not carry the version in their name. These links always select the
+latest published release:
+
+- macOS: `releases/latest/download/Prometeu_aarch64.dmg`;
+- Linux: `releases/latest/download/Prometeu_x86_64.AppImage`.
+
+The site's existing macOS link stays valid. Its separate repository must add a
+Linux download button using the second path; adding assets here does not change
+the site. The README links to both downloads.
+
+macOS and AppImage installations check for updates at startup and hourly.
+On Linux, the native Tauri bundle type enables the updater only for AppImage;
+Arch, Debian, RPM and unpackaged builds keep external updates. Store the
+AppImage in a directory writable by your user so the updater can replace it.
 
 The updater has no rollback to a lower version. A release published with a
 defect must be fixed by a later version.
@@ -73,7 +115,9 @@ The private signing key never enters the repository. The local copy lives in
 `~/.tauri/prometeu.key`; its password lives in the Keychain under the
 `prometeu-tauri-signing` service. CI uses the `TAURI_SIGNING_PRIVATE_KEY` and
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets. Losing the local copy and the
-secrets makes it impossible to update existing installations.
+secrets makes it impossible to update existing installations. Both platforms use
+the same updater key. The Linux job receives only the updater secrets, not the
+Apple credentials.
 
 That signature protects the updater. Distribution on macOS also uses the
 `Developer ID Application: Gustavo Brancaglione (6MQT6A482B)` certificate from
@@ -89,3 +133,12 @@ to validate the copy downloaded from the draft.
 
 Do not run a cut, tag, push or publication as part of an ordinary task without
 an explicit request.
+
+## Verification
+
+`npm run test:release` tests manifest compatibility, missing assets, signature
+verification failures and the publication gate with a fake `gh`. It never
+publishes or contacts GitHub and is part of `npm test`. `src/update-init.test.ts`
+covers AppImage eligibility and keeps package-managed Linux installs disabled;
+`src/update.test.ts` covers download and restart behavior. The release workflow
+performs the actual minisign verification against both downloaded packages.

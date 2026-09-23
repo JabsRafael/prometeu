@@ -10,11 +10,12 @@
   </a>
 </p>
 
-Prometeu is an open-source macOS app, also buildable on Linux, for working with Claude Code, Codex, and Antigravity CLI.
+Prometeu is an open-source desktop app for macOS and Linux, built for working
+with Claude Code, Codex, and Antigravity CLI.
 Organize parallel tasks into workspaces, give each task its own Git worktree,
 and keep conversations, files, terminals, and code review in one place.
 
-The agents run on your Mac through their installed CLIs. A Prometeu account is
+The agents run on your computer through their installed CLIs. A Prometeu account is
 optional for local work; model access comes from your own provider account.
 
 [Download](https://github.com/prometeucorp/prometeu/releases/latest) ·
@@ -60,7 +61,7 @@ optional for local work; model access comes from your own provider account.
   actions include an editable code review profile.
 - **Optional collaboration.** Share live conversations and comment on them
   with your team, or continue from your own companion devices. Execution stays
-  on the owner's Mac.
+  on the owner's computer.
 - **Dictation.** Speak into the message box; the transcript appears as you
   talk, and the dictation language is a preference of its own.
 - **Portuguese and English UI.** Agent output and your content keep their
@@ -83,17 +84,34 @@ notification preferences expand in place.
 
 ## Install
 
-The published download is for **macOS on Apple Silicon**. On Linux, build from
-source: Arch Linux has a `PKGBUILD` and Debian/Ubuntu build a `.deb`. See [Linux](docs/operations/linux.md) for
-installation and platform differences.
+Each release contains separate downloads for **macOS on Apple Silicon** and
+**Linux x86_64** under the same version.
 
-1. Download `Prometeu_aarch64.dmg` from the
-   [latest release](https://github.com/prometeucorp/prometeu/releases/latest).
+### macOS
+
+1. Download [Prometeu_aarch64.dmg](https://github.com/prometeucorp/prometeu/releases/latest/download/Prometeu_aarch64.dmg).
 2. Open the disk image and move Prometeu to Applications.
-3. Install Claude Code, Codex, or Antigravity CLI (minimum 1.2.7). The corresponding
-   `claude`, `codex`, or `agy` command must be available in your shell.
-4. Authenticate with your provider through its CLI or the account panel in
-   Prometeu.
+
+### Linux
+
+Download [Prometeu_x86_64.AppImage](https://github.com/prometeucorp/prometeu/releases/latest/download/Prometeu_x86_64.AppImage)
+to a directory writable by your user, then run:
+
+```sh
+chmod +x Prometeu_x86_64.AppImage
+./Prometeu_x86_64.AppImage
+```
+
+The AppImage is built on Ubuntu 22.04. See the [Linux guide](docs/operations/linux.md)
+for runtime requirements, Arch and Debian source packages, ARM64 builds and
+platform differences. macOS and AppImage installations offer in-app updates;
+other Linux installations use their package manager or a rebuild.
+
+### Connect an agent
+
+Install Claude Code, Codex, or Antigravity CLI (minimum 1.2.7). The corresponding
+`claude`, `codex`, or `agy` command must be available in your shell. Authenticate
+through the CLI or Prometeu's account panel; Antigravity uses its external CLI login.
 
 ### Your first workspace
 

@@ -6,7 +6,7 @@
 # sh scripts/release.sh publish Publish the CI-created draft.
 #
 # This script controls version, changelog and tag. CI builds and signs a draft release in this
-# repository. Install and review its DMG before publishing.
+# repository. Install and review its macOS DMG and Linux AppImage before publishing.
 # The updater accepts only newer versions; publishing a bad release requires another release to recover.
 # Conventional Commits supply git-cliff, CHANGELOG.md and release notes. Features bump minor; fixes
 # bump patch. While versions remain 0.x, breaking changes also bump minor; see cliff.toml.
@@ -117,7 +117,7 @@ watch_run() {
       "completed success")
         echo
         echo "draft pronta: https://github.com/$REPO/releases/tag/$TAG"
-        echo "baixe o .dmg, instale, abra e confira. Depois: sh scripts/release.sh publish"
+        echo "install and review the macOS DMG and Linux AppImage. Then: sh scripts/release.sh publish"
         return 0 ;;
       completed*)
         die "o run terminou como '${STATUS#completed }' — leia o log em $URL antes de qualquer coisa" ;;
@@ -138,10 +138,12 @@ publish() {
   [ "$DRAFT" = true ] || die "$TAG já está publicada"
 
   ASSETS=$(gh release view "$TAG" -R "$REPO" --json assets -q '.assets[].name')
-  # Stable asset names keep website links under releases/latest/download/Prometeu_aarch64.dmg unchanged.
+  # Stable asset names preserve download links for both platforms.
   for want in Prometeu_aarch64.dmg \
               Prometeu_aarch64.app.tar.gz \
               Prometeu_aarch64.app.tar.gz.sig \
+              Prometeu_x86_64.AppImage \
+              Prometeu_x86_64.AppImage.sig \
               latest.json; do
     printf '%s\n' "$ASSETS" | grep -qx "$want" || die "falta $want na draft — o CI terminou inteiro?"
   done
@@ -151,8 +153,8 @@ publish() {
 
   gh release edit "$TAG" -R "$REPO" --draft=false --latest
   echo
-  echo "$VERSION no ar. Quem já tem o Prometeu aberto vê o aviso no rodapé em até seis horas,"
-  echo "e na hora se fechar e abrir de novo."
+  echo "$VERSION published. macOS and Linux AppImage installs check at startup and every hour."
+  echo "Linux packages installed through a package manager must be updated through that manager."
 }
 
 case "${1:-}" in

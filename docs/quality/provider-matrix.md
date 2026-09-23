@@ -97,6 +97,13 @@ A missing test must not become `true` by similarity between providers.
 
 ## Known limitations
 
+Desktop distribution is independent of the provider. macOS Apple Silicon and
+Linux x86_64 AppImage share one release and signed in-app updates for Claude,
+Codex and Antigravity. Other Linux installation types keep external updates.
+Evidence: `scripts/test_release.py`, `src/update-init.test.ts` and
+`src/update.test.ts`; native installation and replacement remain manual checks
+under the [release contract](../contracts/releases.md).
+
 - a plugin source in a local `.zip` or a URL works in Claude and is refused with
   a visible error in Codex; a local folder is the portable format;
 - skills, commands, MCP and hooks have a portable adaptation; `agents/*.md`
