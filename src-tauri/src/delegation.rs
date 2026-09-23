@@ -66,6 +66,13 @@ impl Delegation {
     }
 
     fn observe(&mut self, event: &Value) -> bool {
+        // A resumed turn invalidates the outcome recorded while background tasks held completion;
+        // otherwise a later drain would report the old result for a turn still running.
+        if conversation::agent_activity(event) {
+            if let Some(run) = self.executions.last_mut().filter(|r| r.state == "running") {
+                run.outcome = None;
+            }
+        }
         match event["type"].as_str() {
             Some("session.state") if event["state"] == "busy" => {
                 // Accepted follow-ups do not identify a separate provider turn. Keep the active
@@ -994,6 +1001,23 @@ mod tests {
         assert_eq!(d.executions[0].state, "completed");
         assert_eq!(d.executions[0].outcome.as_deref(), Some("interrupted"));
         assert!(d.background.is_none());
+    }
+
+    #[test]
+    fn a_resumed_turn_discards_the_outcome_its_background_tasks_were_holding() {
+        let mut d = delegation();
+        d.observe(&json!({"type":"session.state","state":"busy"}));
+        d.observe(&json!({"type":"background.changed","tasks":[{"id":"child","description":"review","toolId":null}]}));
+        d.observe(&json!({"type":"turn.completed","outcome":"ok"}));
+        assert_eq!(d.executions[0].outcome.as_deref(), Some("ok"));
+        d.observe(&json!({"type":"assistant.started"}));
+        assert!(d.executions[0].outcome.is_none());
+        d.observe(&json!({"type":"background.changed","tasks":[]}));
+        assert_eq!(d.executions.len(), 1);
+        assert_eq!(d.executions[0].state, "running");
+        d.observe(&json!({"type":"turn.completed","outcome":"error"}));
+        assert_eq!(d.executions[0].state, "completed");
+        assert_eq!(d.executions[0].outcome.as_deref(), Some("error"));
     }
 
     #[test]

@@ -41,6 +41,12 @@ impl Work {
     /// Apply a canonical event. `true` when the conversation settles on it: the turn has ended and
     /// no background task is still running. Both adapters feed this through the same two events.
     pub(crate) fn observe(&mut self, event: &Value) -> bool {
+        // The main agent answering again invalidates the terminal its children were holding, or a
+        // later drain would settle the conversation in the middle of the resumed turn.
+        if conversation::agent_activity(event) {
+            self.held = false;
+            return false;
+        }
         match event["type"].as_str() {
             // An interruption ends the turn and the children it started, whether or not the
             // provider reports the drain. Nothing may hold the conversation open afterwards.
@@ -69,6 +75,20 @@ impl Work {
         self.held = self.held && !settled;
         settled
     }
+}
+
+impl Work {
+    /// Background tasks this conversation still owes, independently of its main turn.
+    fn busy(&self) -> bool {
+        self.running > 0
+    }
+}
+
+/// Background work a conversation still owes, without creating bookkeeping for an unknown one.
+fn busy(app: &AppHandle, id: &str) -> bool {
+    lock(&app.state::<AppState>().work)
+        .get(id)
+        .is_some_and(Work::busy)
 }
 
 /// Read and update one conversation's background bookkeeping.
@@ -387,8 +407,10 @@ impl Chat {
         matches!(&self.wire, Wire::Antigravity(_)) && self.working()
     }
 
+    /// Work the conversation owes: its main turn, or the children that outlived one. Restarting the
+    /// process or replacing credentials under either kills or corrupts work in flight.
     pub fn working(&self) -> bool {
-        self.pump.turn.load(Ordering::Relaxed)
+        self.pump.turn.load(Ordering::Relaxed) || busy(&self.pump.app, &self.pump.id)
     }
 
     /// The agent's process group leader; resource accounting includes its descendants.
@@ -1817,6 +1839,32 @@ mod work_tests {
         assert!(!work.observe(&json!({"type":"background.changed","tasks":[{"id":"child"}]})));
         assert!(work.observe(&json!({"type":"turn.completed","outcome":"interrupted"})));
         assert!(work.observe(&json!({"type":"turn.completed","outcome":"ok"})));
+    }
+
+    #[test]
+    fn a_resumed_turn_drops_the_completion_its_tasks_were_holding() {
+        let mut work = Work::default();
+        assert!(!work.observe(&json!({"type":"background.changed","tasks":[{"id":"child"}]})));
+        assert!(!work.observe(&json!({"type":"turn.completed","outcome":"ok"})));
+        // The main agent answers again before the child finishes.
+        assert!(!work.observe(&json!({"type":"assistant.started","messageId":"m"})));
+        assert!(
+            !work.observe(&json!({"type":"background.changed","tasks":[]})),
+            "a drain must not settle a resumed turn"
+        );
+        assert!(work.observe(&json!({"type":"turn.completed","outcome":"ok"})));
+    }
+
+    #[test]
+    fn a_conversation_owes_work_while_its_tasks_run() {
+        let mut work = Work::default();
+        assert!(!work.busy());
+        work.observe(&json!({"type":"background.changed","tasks":[{"id":"child"}]}));
+        assert!(work.busy());
+        work.observe(&json!({"type":"turn.completed","outcome":"ok"}));
+        assert!(work.busy(), "a held completion still owes its children");
+        work.observe(&json!({"type":"background.changed","tasks":[]}));
+        assert!(!work.busy());
     }
 
     #[test]

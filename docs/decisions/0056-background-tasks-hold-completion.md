@@ -36,6 +36,18 @@ ended its turn and no background task is still running. `turn.completed` and
 - `alert.ts` holds the completion notice and evaluates it when the tasks drain,
   instead of losing it.
 
+The main agent answering again discards a held terminal, in every consumer:
+`conversation::agent_activity` is the one definition of that, mirrored in
+`alert.ts`. Without it, a drain that lands during the resumed turn would settle
+the tab, release queued input and report the previous outcome for work still
+running.
+
+Background work also counts as work when deciding whether a conversation is
+busy. `Chat::working` covers the main turn and the children that outlived one,
+so switching accounts queues the message instead of restarting the process out
+from under running children, a credential refresh waits, and an idle-only send
+is rejected exactly when a delegated send would be.
+
 An interruption settles everything immediately in all four places. It ends the
 children too, and no provider owes us a drain report afterwards; waiting for one
 would leave the conversation visibly stuck.
@@ -67,7 +79,7 @@ reports no tasks rather than reconstructing them from the transcript.
 The rule lives in `Work::observe`, over canonical events, so it is one
 implementation for every provider rather than one per adapter.
 
-Tests: `chat.rs::work_tests`, `delegation.rs` held-completion and interruption
+Tests: `chat.rs::work_tests` including the resumed turn and the busy check, `delegation.rs` held-completion and interruption
 tests, `src/timeline.test.ts`, `src/alert.test.ts`, the Stop control in
 `e2e/composer.spec.ts`. Claude and Codex each drive `Work::observe` with what
 their adapter really emits, in `claude.rs` and `codex.rs`, so the shared rule is
