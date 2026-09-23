@@ -27,7 +27,8 @@ ASSETS = ["Prometeu_aarch64.dmg", "latest.json"] + [
 class ReleaseTests(unittest.TestCase):
     def test_manifest_preserves_macos_and_checks_linux_signatures(self):
         signature = base64.b64encode(b"test signature").decode()
-        manifest = {"version": "0.14.0", "platforms": {
+        notes = "\n### New\n\n- Offer Linux downloads\n"
+        manifest = {"version": "0.14.0", "notes": notes.strip(), "platforms": {
             platform: {
                 "url": f"https://github.com/prometeucorp/prometeu/releases/download/v0.14.0/{name}",
                 "signature": signature,
@@ -42,7 +43,7 @@ class ReleaseTests(unittest.TestCase):
 
             def verify(value):
                 (directory / "latest.json").write_text(json.dumps(value))
-                release.verify("0.14.0", "prometeucorp/prometeu", directory, base64.b64encode(b"key").decode())
+                release.verify("0.14.0", "prometeucorp/prometeu", directory, base64.b64encode(b"key").decode(), notes)
 
             with patch.object(release.subprocess, "run") as minisign:
                 verify(manifest)
@@ -53,8 +54,20 @@ class ReleaseTests(unittest.TestCase):
                 )
                 self.assertTrue(all(call.kwargs["check"] for call in minisign.call_args_list))
 
+                # Tauri 2.10.1 falls back to the generic target when an installer entry is absent.
+                for omitted in [("darwin-aarch64-app",), ("linux-x86_64-appimage",),
+                                ("darwin-aarch64-app", "linux-x86_64-appimage")]:
+                    compatible = copy.deepcopy(manifest)
+                    for platform in omitted:
+                        del compatible["platforms"][platform]
+                    verify(compatible)
+
                 mutations = [
                     lambda m: m.update(version="0.13.0"),
+                    lambda m: m.pop("notes"),
+                    lambda m: m.update(notes=""),
+                    lambda m: m.update(notes="Previous version's notes"),
+                    lambda m: m.update(notes=None),
                     lambda m: m["platforms"].pop("linux-x86_64"),
                     lambda m: m["platforms"]["linux-x86_64"].update(url=m["platforms"]["darwin-aarch64"]["url"]),
                     lambda m: m["platforms"]["linux-x86_64-appimage"].update(url="https://example.com/package"),

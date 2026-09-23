@@ -333,4 +333,6 @@ jobs:
       # Exercise the installed updater path: read latest.json, download its package and verify against
       # the public key embedded in the app.
       - name: latest.json aponta para esta versão e a assinatura bate
+        env:
+          RELEASE_NOTES: ${{ needs.build.outputs.notes }}
         run: python3 scripts/verify-release.py "$VERSION" "$REPO" pkg

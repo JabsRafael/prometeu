@@ -17,13 +17,17 @@ The app keeps the endpoint
 The manifest uses Tauri's static format:
 
 - `version` matches the tag without its `v` prefix;
-- `notes` carries the version's changelog section;
+- `notes` matches the version's changelog section extracted by the build job,
+  ignoring only leading and trailing whitespace;
 - `platforms.darwin-aarch64` points to `Prometeu_aarch64.app.tar.gz`;
 - `platforms.linux-x86_64` points to `Prometeu_x86_64.AppImage`;
 - every entry has a version-specific GitHub download `url` and a `signature`
   containing the base64-encoded minisign signature, not a file path;
 - installer-specific entries emitted by Tauri (`darwin-aarch64-app` and
-  `linux-x86_64-appimage`) point to the same verified packages.
+  `linux-x86_64-appimage`) point to the same verified packages when present;
+  these aliases are optional because
+  [Tauri 2.10.1's target selection](https://github.com/tauri-apps/plugins-workspace/blob/d6a3898001a4bcc659e045f9501498751b77dbe6/plugins/updater/src/updater.rs#L567-L599)
+  falls back to the generic `OS-ARCH` entry if an installer-specific entry is missing.
 
 Both builds use the existing signing key. Linux support is additive: the macOS
 asset names, endpoint, public key and platform entry remain compatible with
@@ -44,8 +48,9 @@ and no available update, so UI tests never download packages.
 
 ## Verification
 
-`scripts/verify-release.py` checks both platforms, exact versioned URLs, assets,
-signature-file consistency and minisign signatures against the embedded key.
+`scripts/verify-release.py` checks changelog notes, both platforms, exact
+versioned URLs, assets, signature-file consistency and minisign signatures
+against the embedded key.
 `scripts/test_release.py` covers missing platforms/assets, wrong versions/URLs,
 signature failures and refusal to publish incomplete or failed builds.
 `src/update-init.test.ts` preserves package-manager ownership and macOS behavior;

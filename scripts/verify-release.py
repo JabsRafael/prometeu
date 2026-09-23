@@ -2,6 +2,7 @@
 
 import base64
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -14,11 +15,14 @@ PACKAGES = {
 }
 
 
-def verify(version, repo, directory, public_key):
+def verify(version, repo, directory, public_key, expected_notes):
     directory = Path(directory)
     manifest = json.loads((directory / "latest.json").read_text())
     if manifest["version"] != version:
         raise ValueError("latest.json version does not match the tag")
+    notes = manifest.get("notes")
+    if not expected_notes.strip() or not isinstance(notes, str) or notes.strip() != expected_notes.strip():
+        raise ValueError("latest.json notes do not match the changelog section")
     platforms = manifest["platforms"]
     if not PACKAGES.keys() <= platforms.keys():
         raise ValueError("latest.json must include macOS and Linux")
@@ -55,4 +59,4 @@ def verify(version, repo, directory, public_key):
 if __name__ == "__main__":
     version, repo, directory = sys.argv[1:]
     config = json.loads(Path("src-tauri/tauri.conf.json").read_text())
-    verify(version, repo, directory, config["plugins"]["updater"]["pubkey"])
+    verify(version, repo, directory, config["plugins"]["updater"]["pubkey"], os.environ["RELEASE_NOTES"])
