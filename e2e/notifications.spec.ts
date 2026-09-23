@@ -21,6 +21,8 @@ test("@webkit notifications: keyboard controls retain native geometry and activa
   expect(await settings.getByRole("radio", { name: "Notch", exact: true }).evaluate(element => element.getBoundingClientRect().width)).toBe(14);
   await settings.getByRole("button", { name: "Test notification" }).click();
   await expect(page.locator(".notification-mock")).toContainText("Your input is needed.");
+  await expect(page.locator(".notification-mock")).toHaveCSS("border-bottom-left-radius", "18px");
+  await expect(page.locator(".notification-mock")).toHaveCSS("height", "96px");
   await page.getByRole("button", { name: "Dismiss notification" }).click();
   await expect(page.locator(".notification-mock")).toHaveCount(0);
   await settings.getByRole("radio", { name: "No visual", exact: true }).check();
@@ -31,9 +33,31 @@ test("@webkit notifications: keyboard controls retain native geometry and activa
 });
 
 test("notifications: live completion opens its conversation and does not replay", async ({ page }) => {
-  const settings = await openSettings(page);
-  await settings.getByRole("switch", { name: "Receive notifications", exact: false }).check();
-  await settings.getByRole("radio", { name: "Notch", exact: true }).check();
+  await page.addInitScript(() => localStorage.setItem("mock:notification-permission", "default"));
+  await page.goto("/");
+  // Hold the initial native read while the user enables banners; it must not overwrite authorization.
+  await page.evaluate(() => {
+    const ipc = (window as unknown as { __TAURI_INTERNALS__: {
+      invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+    } }).__TAURI_INTERNALS__;
+    const invoke = ipc.invoke;
+    ipc.invoke = async (command, args) => {
+      const result = await invoke(command, args);
+      if (command === "notification_permission" && !args?.request) {
+        await new Promise<void>(resolve => window.addEventListener("release-permission", () => resolve(), { once: true }));
+      }
+      return result;
+    };
+  });
+  await page.locator("#settings").click();
+  await page.locator(".setnavitem").getByText("Notifications", { exact: true }).click();
+  const settings = page.locator(".notification-settings");
+  const master = settings.getByRole("switch", { name: "Receive notifications", exact: false });
+  await master.check();
+  await expect(master).toBeDisabled();
+  await page.evaluate(() => window.dispatchEvent(new Event("release-permission")));
+  await expect(settings.getByRole("button", { name: "Test notification" })).toBeEnabled();
+  expect(await page.evaluate(() => localStorage.getItem("mock:notification-permission"))).toBe("granted");
   await page.clock.install();
   await page.evaluate(() => {
     const mock = (window as unknown as { mock: { line(tab: string, event: unknown): void } }).mock;

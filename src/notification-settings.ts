@@ -8,7 +8,8 @@ import "./notifications.css";
 
 export function settings(say: (text: string, error?: boolean) => void): HTMLElement {
   let preferences = readPreferences();
-  let permission: NoticePermission = "default";
+  let permission: NoticePermission | null = null;
+  let requestingPermission = false;
   let example: NoticeKind = "approval";
   const root = h("div", "notification-settings");
   const intro = h("div", "notification-intro");
@@ -23,10 +24,16 @@ export function settings(say: (text: string, error?: boolean) => void): HTMLElem
   const fail = (error: unknown) => { feedback.textContent = fromBack(error); say(fromBack(error), true); };
 
   async function requestPermission() {
-    allow.disabled = true;
-    try { permission = await invoke("notification_permission", { request: true }); }
+    if (requestingPermission) return;
+    requestingPermission = true;
+    paint();
+    try {
+      // Finish the initial read first so a stale result cannot overwrite the user's grant.
+      await initialPermission;
+      permission = await invoke("notification_permission", { request: true });
+    }
     catch (error) { fail(error); }
-    finally { allow.disabled = false; paint(); }
+    finally { requestingPermission = false; paint(); }
   }
 
   function save() {
@@ -45,7 +52,7 @@ export function settings(say: (text: string, error?: boolean) => void): HTMLElem
   enabled.control.onchange = () => {
     preferences.enabled = enabled.control.checked;
     save();
-    if (preferences.enabled && preferences.style === "banner" && permission === "default") void requestPermission();
+    if (preferences.enabled && preferences.style === "banner") void requestPermission();
   };
   const section = (title: string, hint?: string) => {
     const block = h("section", "notification-section");
@@ -76,7 +83,7 @@ export function settings(say: (text: string, error?: boolean) => void): HTMLElem
     choice.label.prepend(screen);
     choice.control.onchange = () => {
       preferences.style = style; save();
-      if (preferences.enabled && style === "banner" && permission === "default") void requestPermission();
+      if (preferences.enabled && style === "banner") void requestPermission();
     };
     choices.append(choice.label);
     return { style, ...choice };
@@ -108,7 +115,7 @@ export function settings(say: (text: string, error?: boolean) => void): HTMLElem
   const logo = h("span", "notification-logo"); logo.innerHTML = icon("flame", 22);
   const sampleCopy = h("div", "notification-copy");
   const sampleTitle = h("strong", "");
-  sampleCopy.append(h("small", "", "PROMETEU"), sampleTitle, h("span", "", t("notifications.exampleWorkspace")));
+  sampleCopy.append(sampleTitle, h("span", "", t("notifications.exampleWorkspace")));
   sample.append(logo, sampleCopy);
   const noVisual = h("p", "notification-no-visual", t("notifications.preview.none"));
   desktop.append(camera, sample, noVisual);
@@ -123,11 +130,13 @@ export function settings(say: (text: string, error?: boolean) => void): HTMLElem
       .catch(fail).finally(() => paint());
   }, "pri");
   const warning = h("div", "notification-permission");
+  warning.setAttribute("role", "status");
   const warningText = h("p", "ui-hint");
   const allow = button(t("notifications.allow"), () => { void requestPermission(); });
   warning.append(warningText, allow);
+  enabled.label.after(warning);
   previewBody.append(description, field(t("notifications.example"), event.root), test,
-    h("p", "ui-hint", t("notifications.testHint")), warning);
+    h("p", "ui-hint", t("notifications.testHint")));
   preview.append(h("h3", "", t("notifications.preview")), desktop, previewBody);
   previewColumn.append(preview, h("p", "ui-hint notification-quiet", t("notifications.quiet")));
   layout.append(form, previewColumn);
@@ -135,7 +144,8 @@ export function settings(say: (text: string, error?: boolean) => void): HTMLElem
 
   function paint() {
     enabled.control.checked = preferences.enabled;
-    controls.disabled = !preferences.enabled;
+    enabled.control.disabled = requestingPermission;
+    controls.disabled = !preferences.enabled || requestingPermission;
     eventControls.forEach(item => { item.control.checked = preferences[item.kind]; });
     styleControls.forEach(item => { item.control.checked = preferences.style === item.style; });
     sound.control.checked = preferences.sound;
@@ -148,14 +158,18 @@ export function settings(say: (text: string, error?: boolean) => void): HTMLElem
     noVisual.textContent = t(preferences.sound ? "notifications.preview.none" : "notifications.noOutput");
     sampleTitle.textContent = t(`notifications.message.${example}`);
     description.textContent = t(`notifications.preview.${preferences.style}`);
-    warning.hidden = preferences.style !== "banner" || permission === "granted";
-    warningText.textContent = t(permission === "unavailable" ? "notifications.permissionUnavailable" : "notifications.permission");
+    warning.hidden = !preferences.enabled || preferences.style !== "banner" || permission === "granted";
+    warningText.textContent = t(permission === null || requestingPermission ? "notifications.permissionChecking"
+      : permission === "unavailable" ? "notifications.permissionUnavailable"
+      : permission === "default" ? "notifications.permissionRequired" : "notifications.permission");
     allow.hidden = permission !== "default";
+    allow.disabled = requestingPermission;
     test.disabled = !preferences.enabled || !preferences[example]
       || (preferences.style === "none" && !preferences.sound)
       || (preferences.style === "banner" && permission !== "granted");
   }
   paint();
-  void invoke("notification_permission", { request: false }).then(value => { permission = value; paint(); }).catch(fail);
+  const initialPermission = invoke("notification_permission", { request: false })
+    .then(value => { permission = value; paint(); }).catch(fail);
   return root;
 }

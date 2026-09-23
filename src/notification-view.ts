@@ -13,7 +13,7 @@ export function notificationView(notice: Notice, open: () => void, dismiss: () =
   action.setAttribute("aria-label", notice.openLabel);
   const logo = h("span", "notification-logo"); logo.innerHTML = icon("flame", 22);
   const copy = h("span", "notification-copy");
-  copy.append(h("small", "", "PROMETEU"), h("strong", "", notice.title), h("span", "", notice.body));
+  copy.append(h("strong", "", notice.title), h("span", "", notice.body));
   action.append(logo, copy);
   const close = button("", dismiss, "ghost");
   close.classList.add("notification-popup-close");

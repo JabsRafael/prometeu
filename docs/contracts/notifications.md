@@ -51,6 +51,10 @@ commands:
 - `notification_permission({ request })`: returns `granted`, `denied`, `default`
   or `unavailable`. Only explicit user interaction requests authorization;
   opening Settings reads status without prompting.
+  Enabling notifications with Banner selected or selecting Banner explicitly
+  requests authorization again, after the initial status read finishes; a stale
+  read cannot overwrite the authorization result. Unavailable or denied banners
+  are shown directly below the master switch, separate from saved preferences.
 - `notification_show({ notice })`: delivers `{ title, body, style, sound, tab,
   openLabel, closeLabel }`. `sound` is a tone or null; `tab` is a local tab ID
   or null for a test. Unknown enum values/fields and excessive text are rejected.
@@ -71,6 +75,9 @@ the workspace title, not conversation or tool output.
 The notch is a separate local Tauri window with a dedicated built entry and
 event-listening capability. It renders text nodes, stays at the top center of
 the main window's display and does not activate the application when shown.
+Its 360-by-96-point surface reserves the top strip for the camera and clips its
+lower corners in AppKit as well as CSS; an opaque rectangular window would
+otherwise cover the rounded web content.
 It also works on displays without a physical notch. One notice replaces the
 previous notice; it disappears after eight seconds. A generation check prevents
 an older timer from dismissing a replacement. Opening an actual conversation
@@ -99,3 +106,6 @@ does not request OS permission or play sound. Automated browser tests do not
 prove Notification Center presentation, sound output, multi-monitor geometry,
 or fullscreen/Focus interaction. Those require a bundled macOS app and native
 manual verification. No live models are needed to use the Settings test button.
+Under `tauri dev`, system banners and their authorization prompt are unavailable;
+use `npm run app:bundle` for that native check. Notch and sound need no macOS
+notification authorization and remain available during development.

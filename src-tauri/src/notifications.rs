@@ -167,7 +167,7 @@ fn show_notch(app: &tauri::AppHandle, notice: &Notice) -> Result<(), String> {
             tauri::WebviewUrl::App("notification.html".into()),
         )
         .title("Prometeu")
-        .inner_size(380.0, 112.0)
+        .inner_size(360.0, 96.0)
         .decorations(false)
         .resizable(false)
         .focused(false)
@@ -187,7 +187,7 @@ fn show_notch(app: &tauri::AppHandle, notice: &Notice) -> Result<(), String> {
         .ok_or_else(|| i18n::t("err.notifications.unavailable"))?;
     let scale = monitor.scale_factor();
     let x =
-        (f64::from(monitor.position().x) + f64::from(monitor.size().width) / 2.0) / scale - 190.0;
+        (f64::from(monitor.position().x) + f64::from(monitor.size().width) / 2.0) / scale - 180.0;
     let y = f64::from(monitor.position().y) / scale;
     overlay
         .set_position(tauri::LogicalPosition::new(x, y))
@@ -205,6 +205,22 @@ fn show_notch(app: &tauri::AppHandle, notice: &Notice) -> Result<(), String> {
                 .cast::<objc2_app_kit::NSWindow>()
         };
         native.setLevel(objc2_app_kit::NSStatusWindowLevel);
+        // Clip the native content too: CSS rounding alone leaves opaque square window corners.
+        native.setOpaque(false);
+        native.setBackgroundColor(Some(&objc2_app_kit::NSColor::clearColor()));
+        if let Some(view) = native.contentView() {
+            view.setWantsLayer(true);
+            if let Some(layer) = view.layer() {
+                use objc2_quartz_core::CACornerMask;
+                layer.setCornerRadius(18.0);
+                layer.setMaskedCorners(if layer.isGeometryFlipped() {
+                    CACornerMask::LayerMinXMaxYCorner | CACornerMask::LayerMaxXMaxYCorner
+                } else {
+                    CACornerMask::LayerMinXMinYCorner | CACornerMask::LayerMaxXMinYCorner
+                });
+                layer.setMasksToBounds(true);
+            }
+        }
         native.orderFrontRegardless();
     }
     #[cfg(not(target_os = "macos"))]
