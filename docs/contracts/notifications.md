@@ -109,3 +109,7 @@ manual verification. No live models are needed to use the Settings test button.
 Under `tauri dev`, system banners and their authorization prompt are unavailable;
 use `npm run app:bundle` for that native check. Notch and sound need no macOS
 notification authorization and remain available during development.
+The development bundle must be signed as a whole so its signing identifier
+matches its bundle identifier; the executable's linker-only signature cannot
+authorize notifications for the bundle. The development config selects ad-hoc
+signing and the bundle launcher verifies it before opening.
