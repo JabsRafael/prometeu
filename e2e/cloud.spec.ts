@@ -1,4 +1,9 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+
+async function action(page: Page, row: Locator, name: string) {
+  await row.getByRole("button", { name: /^More options · / }).click();
+  await page.getByRole("menuitem", { name, exact: true }).click();
+}
 
 test("the optional sidebar account connects, persists and signs out without changing conversations", async ({ page }) => {
   await page.goto("/");
@@ -41,12 +46,14 @@ test("the personal catalog keeps skills private, publishes explicitly and create
   await page.goto("/");
   await expect(page.locator("#tiles .tile").first()).toBeVisible();
   await page.locator("#settings").click();
-  await page.locator(".setnavitem", { hasText: "Skills" }).click();
+  await page.locator(".setnavitem", { hasText: "Resources" }).click();
+  await page.locator('.resource-filters [data-filter="skills"]').click();
   const pending = page.locator(".setrow", { has: page.locator("b", { hasText: /^cloud-review$/ }) });
   await expect(pending).toContainText("not installed on this Mac");
-  await pending.getByRole("button", { name: "Install here" }).click();
+  await action(page, pending, "Install here");
   await expect(pending).toContainText("in the cloud");
-  await page.getByRole("button", { name: "Create skill", exact: true }).click();
+  await page.getByRole("button", { name: "Add resource", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Create skill", exact: true }).click();
   let dialog = page.getByRole("dialog", { name: "Create skill" });
   await dialog.getByLabel("Skill name").fill("my-review");
   await dialog.getByLabel("When to use this skill").fill("Before shipping code");
@@ -55,24 +62,24 @@ test("the personal catalog keeps skills private, publishes explicitly and create
   const local = page.locator(".setrow", { has: page.locator("b", { hasText: /^my-review$/ }) });
   await expect(local).toContainText("this Mac only");
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("mock:catalog") ?? "{}").shared?.["skills:my-review"])).toBeUndefined();
-  await local.getByRole("button", { name: "Share in cloud" }).click();
+  await action(page, local, "Share in cloud");
   dialog = page.getByRole("dialog", { name: "Share in cloud" });
   await dialog.getByRole("button", { name: "Share in cloud" }).click();
   await expect(local).toContainText("in the cloud");
-  await local.getByRole("button", { name: "Create local copy" }).click();
+  await action(page, local, "Create local copy");
   dialog = page.getByRole("dialog", { name: "Create local copy" });
   await dialog.getByLabel("Copy name").fill("my-copy");
   await dialog.getByRole("button", { name: "Create local copy" }).click();
   const copy = page.locator(".setrow", { has: page.locator("b", { hasText: /^my-copy$/ }) });
   await expect(copy).toContainText("this Mac only");
   await page.evaluate(() => localStorage.setItem("mock:cloudOffline", "1"));
-  await copy.getByRole("button", { name: "Edit", exact: true }).click();
+  await action(page, copy, "Edit");
   dialog = page.getByRole("dialog", { name: "Edit skill" });
   await dialog.getByLabel("Instructions", { exact: true }).fill("Local only, even offline.");
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("mock:catalog")!).skills.find((s: {id:string}) => s.id === "my-review").content)).toBe("Read the changes and run tests.");
-  await local.getByRole("button", { name: "Edit", exact: true }).click();
+  await action(page, local, "Edit");
   dialog = page.getByRole("dialog", { name: "Edit skill" });
   await dialog.getByLabel("Instructions", { exact: true }).fill("Offline attempt");
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
@@ -80,9 +87,11 @@ test("the personal catalog keeps skills private, publishes explicitly and create
   await expect(dialog.getByLabel("Instructions", { exact: true })).toHaveValue("Offline attempt");
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await page.evaluate(() => localStorage.removeItem("mock:cloudOffline"));
-  await pending.getByRole("button", { name: "Remove from this Mac" }).click();
+  await action(page, pending, "Remove from this Mac");
   await expect(pending).toContainText("not installed on this Mac");
-  await expect(pending.getByRole("button", { name: "Install here" })).toBeVisible();
+  await pending.getByRole("button", { name: "More options · cloud-review", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Install here", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
 });
 
 test("the personal catalog rejects stale edits over a newer revision", async ({ page }) => {
@@ -90,10 +99,11 @@ test("the personal catalog rejects stale edits over a newer revision", async ({ 
   await page.goto("/");
   await expect(page.locator("#tiles .tile").first()).toBeVisible();
   await page.locator("#settings").click();
-  await page.locator(".setnavitem", { hasText: "Skills" }).click();
+  await page.locator(".setnavitem", { hasText: "Resources" }).click();
+  await page.locator('.resource-filters [data-filter="skills"]').click();
   const row = page.locator(".setrow", { has: page.locator("b", { hasText: /^cloud-review$/ }) });
-  await row.getByRole("button", { name: "Install here" }).click();
-  await row.getByRole("button", { name: "Edit", exact: true }).click();
+  await action(page, row, "Install here");
+  await action(page, row, "Edit");
   const dialog = page.getByRole("dialog", { name: "Edit skill" });
   await page.evaluate(() => localStorage.setItem("mock:catalog", JSON.stringify({ connected: true, revision: 7, plugins: [], mcp: [],
     skills: [{ id: "cloud-review", local_id: "cloud-review", installed: true, description: "Review", content: "Updated in SaaS" }], shared: { "skills:cloud-review": "cloud-review" } })));

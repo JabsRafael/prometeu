@@ -159,7 +159,7 @@ test("accounts: removing the last account without a CLI preserves focus on the g
   });
   await page.goto("/");
   await page.locator("#settings").click();
-  await page.locator("#settingsView").getByRole("button", { name: "Accounts", exact: true }).click();
+  await page.locator("#settingsView").getByRole("button", { name: "Agents", exact: true }).click();
   const group = page.locator('#settingsView [data-provider-accounts="antigravity"]');
   await action(page, group.locator(".uaccount"), "Remove account");
   await expect(group.locator(".uaccount")).toHaveCount(0);

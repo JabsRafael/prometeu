@@ -102,6 +102,17 @@ and exercises the same cryptographic channel.
 Tests: `src/team-security.test.ts` and the `src-tauri/src/team.rs` tests.
 Network contract and limits: [relay v4](relay-v4.md).
 
+## Settings navigation preference
+
+`prometeu:configuracoes` remains a local string in desktop webview localStorage.
+New selections write `geral`, `agentes`, `recursos`, `acoes`, or `trabalho`.
+Reading a historical page selects its new group: `contas` and `padroes` open
+Agents; `notifications` and `app` open General; `ferramentas`, `plugins` and
+`skills` open Resources with the corresponding filter; `projects`, `time` and
+`integracoes` open Work and team. Unknown values open General. Reading does not
+rewrite the saved value or any underlying preference. No board, IPC or provider
+format changes. Compatibility is covered by `src/settings-navigation.test.ts`.
+
 ## Model selection preferences
 
 These preferences live in desktop webview localStorage, not the board or relay:

@@ -1,12 +1,12 @@
 import { icon } from "./icons";
 import { fromBack, t } from "./i18n";
 import { invoke } from "./ipc";
-import { button, field, radio, select, toggle } from "./ui";
+import { button, disclosure, field, radio, select, toggle } from "./ui";
 import { h } from "./util";
 import { makeNotice, readPreferences, savePreferences, type NoticeKind, type NoticePermission, type NoticeTone } from "./notifications";
 import "./notifications.css";
 
-export function settings(say: (text: string, error?: boolean) => void): HTMLElement {
+export function settings(say: (text: string, error?: boolean) => void, compact = false): HTMLElement {
   let preferences = readPreferences();
   let permission: NoticePermission | null = null;
   let requestingPermission = false;
@@ -140,7 +140,12 @@ export function settings(say: (text: string, error?: boolean) => void): HTMLElem
   preview.append(h("h3", "", t("notifications.preview")), desktop, previewBody);
   previewColumn.append(preview, h("p", "ui-hint notification-quiet", t("notifications.quiet")));
   layout.append(form, previewColumn);
-  root.append(intro, layout);
+  if (compact) {
+    root.classList.add("compact");
+    const details = disclosure(t("settings.notificationDetails"), layout);
+    details.dataset.settingsDisclosure = "notifications";
+    root.append(enabled.label, warning, details, feedback);
+  } else root.append(intro, layout);
 
   function paint() {
     enabled.control.checked = preferences.enabled;

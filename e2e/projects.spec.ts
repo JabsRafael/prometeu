@@ -18,7 +18,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#tiles .tile").first()).toBeVisible();
   await page.locator("#settings").click();
-  await page.locator(".setnavitem", { hasText: "Projects" }).click();
+  await page.locator(".setnavitem", { hasText: "Work and team" }).click();
   await page.getByRole("button", { name: "Add to this Mac" }).click();
 });
 

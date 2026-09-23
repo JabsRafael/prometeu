@@ -32,7 +32,7 @@ test("sharing adopts a new device key without requesting review", { tag: "@webki
   await bootTeam(page);
   const settings = async () => {
     await page.locator("#settings").click();
-    await page.locator(".setnavitem", { hasText: "Organizations" }).click();
+    await page.locator(".setnavitem", { hasText: "Work and team" }).click();
   };
   await settings();
   await expect(page.locator("#settingsView")).toContainText("end-to-end encrypted");
@@ -835,8 +835,10 @@ test("tools: saving choices preserves a sibling tab with a queued message", asyn
   await boot(page);
   // Create through the normal settings flow so all three pickers share the refreshed registry.
   await page.locator("#settings").click();
-  await page.locator(".setnavitem", { hasText: "Skills" }).click();
-  await page.getByRole("button", { name: "Create skill", exact: true }).click();
+  await page.locator(".setnavitem", { hasText: "Resources" }).click();
+  await page.locator('[data-filter="skills"]').click();
+  await page.getByRole("button", { name: "Add resource", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Create skill", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Create skill" });
   await dialog.getByLabel("Skill name").fill("review");
   await dialog.getByLabel("When to use this skill").fill("Before shipping code");

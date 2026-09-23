@@ -213,6 +213,13 @@ export function settingsRows(): HTMLElement[] {
   return [aboutRow(), ...(rows.length ? rows : [emptyRow()])];
 }
 
+export function settingsActions(anchor: HTMLElement): menu.Item[] {
+  return [
+    { label: t("mcp.add"), run: () => editor(null) },
+    { label: t("mcp.import"), run: () => void importer(anchor) },
+  ];
+}
+
 /// Explain the registry and offer registration in the first row.
 function aboutRow(): HTMLElement {
   const row = template(
@@ -248,8 +255,9 @@ function serverRow(server: McpServer): HTMLElement {
   );
   row.querySelector(".glyph")!.innerHTML = icon(kind(server) === "stdio" ? "terminal" : "globe", 18);
   row.querySelector(".txt b")!.textContent = server.id;
-  const parts = [subtitle(server), catalog.tag("mcp", server.id)];
-  row.querySelector(".txt span")!.textContent = parts.filter(Boolean).join(" · ");
+  row.dataset.resourceId = server.id;
+  row.dataset.resourceOrigin = server.config.builtin === true ? t("settings.builtin") : catalog.tag("mcp", server.id);
+  row.querySelector(".txt span")!.textContent = subtitle(server);
 
   if (server.config.builtin === true) return row;
 
@@ -291,6 +299,17 @@ function serverRow(server: McpServer): HTMLElement {
 
   row.querySelector(".act")!.append(edit, ...catalog.controls("mcp", server.id), drop);
   row.querySelectorAll("button").forEach((button) => { button.disabled = !!connection.pending; });
+  const act = row.querySelector(".act")!;
+  const buttons = [...act.querySelectorAll("button")];
+  const hidden = h("div", ""); hidden.hidden = true; hidden.append(...buttons);
+  const more = ui.menuButton("…", () => buttons.map(button => ({
+    label: button.textContent ?? "", disabled: button.disabled,
+    danger: button === drop, run: () => button.click(),
+  })));
+  more.setAttribute("aria-label", `${t("actions.more")} · ${server.id}`);
+  more.dataset.focus = `mcp-actions-${server.id}`;
+  more.disabled = buttons.every(button => button.disabled);
+  act.replaceChildren(hidden, more);
   return row;
 }
 

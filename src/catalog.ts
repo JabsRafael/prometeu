@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "./ipc";
 import { fromBack, t } from "./i18n";
-import { button, field, formDialog, input, confirmDialog } from "./ui";
+import { button, field, formDialog, input, confirmDialog, menuButton } from "./ui";
 import { h } from "./util";
 
 import type { CatalogProject } from "./projects";
@@ -42,6 +42,9 @@ export function tag(kind: Kind, id: string): string {
 export function organizationRows(kind: Kind, say: (text: string, bad?: boolean) => void): HTMLElement[] {
   return (state.organization_items ?? []).filter(item => item.kind === kind && !item.installed).map(item => {
     const row = h("div", "setrow");
+    row.dataset.resourceId = item.id;
+    row.dataset.resourceOrigin = item.organization_name;
+    row.dataset.resourceScope = item.organization;
     const text = h("div", "txt");
     text.append(h("b", "", item.id), h("span", "", `${item.organization_name} · ${item.description} · ${t("catalog.notInstalled")}`));
     const install = button(t("catalog.install"), () => {
@@ -49,7 +52,12 @@ export function organizationRows(kind: Kind, say: (text: string, bad?: boolean) 
       void invoke("catalog_install_organization_item", { organization: item.organization, kind, id: item.id, revision: item.revision })
         .then(refresh).catch(error => { install.disabled = false; say(fromBack(error), true); });
     }, "outline");
-    const actions = h("div", "act"); actions.append(install); row.append(text, actions);
+    const actions = h("div", "act");
+    const hidden = h("div", ""); hidden.hidden = true; hidden.append(install);
+    const more = menuButton("…", () => [{ label: t("catalog.install"), disabled: install.disabled, run: () => install.click() }]);
+    more.setAttribute("aria-label", `${t("actions.more")} · ${item.id}`);
+    more.dataset.focus = `organization-${item.organization}-${kind}-${item.id}`;
+    actions.append(more, hidden); row.append(text, actions);
     return row;
   });
 }

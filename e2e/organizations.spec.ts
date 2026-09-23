@@ -11,7 +11,7 @@ test("desktop organizations select accepted access and keep sharing within the c
   await page.goto("/");
   await expect(page.locator(".cloud-account")).toContainText("Alice");
   await page.locator("#settings").click();
-  await page.locator(".setnavitem", { hasText: "Organizations" }).click();
+  await page.locator(".setnavitem", { hasText: "Work and team" }).click();
   await expect(page.getByRole("button", { name: "Create team", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Join with code", exact: true })).toHaveCount(0);
   const choice = () => page.getByLabel("Share workspaces with", { exact: true });

@@ -19,15 +19,27 @@ export function init(report: typeof say, onChanged: () => Promise<void>) {
 export async function refresh() { hub = await invoke("skill_hub"); for (const fn of watchers) fn(); }
 async function changed() { await refresh(); await afterChange(); }
 
-function row(id: string, description: string, controls: HTMLElement[]) {
+function row(id: string, description: string, controls: HTMLElement[], origin = catalog.tag("skills", id)) {
   const row = h("div", "setrow");
+  row.dataset.resourceId = id; row.dataset.resourceOrigin = origin;
   const text = h("div", "txt"); text.append(h("b", "", id), h("span", "", description));
-  const act = h("div", "act"); act.append(...controls); row.append(text, act); return row;
+  const act = h("div", "act");
+  const source = h("div", ""); source.hidden = true; source.append(...controls);
+  const more = ui.menuButton("…", () => controls.map(control => ({
+    label: control.textContent ?? "", disabled: (control as HTMLButtonElement).disabled,
+    danger: control.textContent === t("skill.remove"), run: () => control.click(),
+  })));
+  more.setAttribute("aria-label", `${t("actions.more")} · ${id}`);
+  more.dataset.focus = `skill-actions-${id}`;
+  act.append(more, source); row.append(text, act); return row;
+}
+export function settingsActions() {
+  return [{ label: t("skill.add"), run: () => editor(null) }];
 }
 export function settingsRows(): HTMLElement[] {
   const rows = [row(t("skill.title"), t("skill.intro"), [ui.button(t("skill.add"), () => editor(null), "outline")])];
   for (const skill of hub) {
-    rows.push(row(skill.id, `${skill.description} · ${catalog.tag("skills", skill.id)}`, [
+    rows.push(row(skill.id, skill.description, [
       ui.button(t("actions.edit"), () => editor(skill), "ghost"),
       ...catalog.controls("skills", skill.id),
       ui.button(t("skill.remove"), () => {
@@ -40,7 +52,7 @@ export function settingsRows(): HTMLElement[] {
       install.disabled = true;
       void invoke("catalog_install_skill", { id: skill.id }).then(changed).catch(e => { install.disabled = false; say(fromBack(e), true); });
     }, "outline");
-    rows.push(row(skill.id, `${skill.description} · ${t("catalog.notInstalled")}`, [install]));
+    rows.push(row(skill.id, `${skill.description} · ${t("catalog.notInstalled")}`, [install], t("catalog.cloud")));
   }
   return [...rows, ...catalog.organizationRows("skills", say)];
 }

@@ -3,7 +3,7 @@ import { invoke, type IpcCall } from "./ipc";
 import { brand, icon } from "./icons";
 import { fromBack, t } from "./i18n";
 import type { ProviderId } from "./types";
-import { avatar, badge, button, confirmDialog, field, formDialog, menuButton, select } from "./ui";
+import { avatar, badge, button, confirmDialog, disclosure, field, formDialog, menuButton, select } from "./ui";
 import { h } from "./util";
 
 export type Account = {
@@ -122,7 +122,7 @@ export function add(provider: ProviderId, id: string | null = null) {
   dialog.open();
 }
 
-function card(account: Account): HTMLElement {
+function card(account: Account, compact: boolean): HTMLElement {
   const active = accounts?.active[account.provider] === account.id;
   const external = account.id === account.provider;
   const loggingIn = accounts?.login?.id === account.id;
@@ -161,12 +161,19 @@ function card(account: Account): HTMLElement {
     content.append(wait);
   }
   const limits = h("div", "account-quotas"); limits.innerHTML = quota(account.id);
-  content.append(limits); root.append(choose, content);
+  if (compact) {
+    const usage = disclosure(t("status.usage"), limits);
+    usage.classList.add("account-usage");
+    usage.dataset.settingsDisclosure = `account-usage-${account.id}`;
+    usage.querySelector("summary")!.dataset.focus = `usage-${account.id}`;
+    content.append(usage);
+  } else content.append(limits);
+  root.append(choose, content);
   return root;
 }
 
-export function render(providers: readonly AgentDescriptor[] = descriptors(), manage?: () => void): HTMLElement {
-  const root = h("div", "accounts-view");
+export function render(providers: readonly AgentDescriptor[] = descriptors(), manage?: () => void, compact = false): HTMLElement {
+  const root = h("div", `accounts-view${compact ? " compact" : ""}`);
   for (const provider of providers) {
     const group = h("section", "accounts-provider"); group.dataset.providerAccounts = provider.id; group.tabIndex = -1; group.setAttribute("aria-label", provider.label);
     const heading = h("div", "uhead");
@@ -175,7 +182,7 @@ export function render(providers: readonly AgentDescriptor[] = descriptors(), ma
     if (!provider.installed) group.append(h("p", "ui-hint", provider.unavailableReason ? fromBack(provider.unavailableReason) : t("account.install", { provider: provider.label })));
     const list = accounts?.accounts.filter(a => a.provider === provider.id) ?? [];
     if (!list.length) group.append(h("div", "uempty", t("account.empty")));
-    group.append(...list.map(card));
+    group.append(...list.map(account => card(account, compact)));
     if (provider.accountNotice) group.append(h("p", "account-notice ui-hint", fromBack(provider.accountNotice)));
     const external = provider.authMethods.some(method => method.kind === "external");
     const footer = h("div", "account-add");
