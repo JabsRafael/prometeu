@@ -915,9 +915,12 @@ function treeHost(): tree.Host {
     // The composer shortens the absolute path back against the worktree when it sends the message.
     attach: target ? (absolute) => target.put([absolute]) : null,
     attachHint: !target && ws ? t("tree.menu.attach.unsupported") : undefined,
+    // Announce the copy only once the clipboard accepted it; a refused write must not read as done.
     copy: (text) => {
-      void navigator.clipboard.writeText(text);
-      ctx.say(t("say.copied", { path: text }));
+      void navigator.clipboard
+        .writeText(text)
+        .then(() => ctx.say(t("say.copied", { path: text })))
+        .catch((e) => ctx.say(fromBack(e), true));
     },
     reveal: (path) => {
       const id = root();

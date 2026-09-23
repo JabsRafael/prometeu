@@ -96,8 +96,10 @@ const hooks: sidebar.Hooks = {
   unread: (id, unread) => invoke("set_unread", { id, unread }),
   reveal: (id) => invoke("reveal", { id }).catch((e) => say(fromBack(e), true)),
   copyPath: (w) => {
-    navigator.clipboard.writeText(w.worktree);
-    say(t("say.copied", { path: w.worktree }));
+    void navigator.clipboard
+      .writeText(w.worktree)
+      .then(() => say(t("say.copied", { path: w.worktree })))
+      .catch((e) => say(fromBack(e), true));
   },
   toDesk: () => showDesk(),
   toIssues: () => showIssues(),
