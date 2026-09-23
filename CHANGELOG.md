@@ -4,6 +4,18 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.13.0] - 2026-09-23
+
+### New
+
+- **notifications:** Add opt-in mac alerts with independent sound
+- **settings:** Simplify settings navigation
+
+### Fixes
+
+- **notifications:** Refine notch and clarify banner authorization
+- **notifications:** Sign development bundles for native authorization
+
 ## [0.12.1] - 2026-09-22
 
 ### Fixes
