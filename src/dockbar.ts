@@ -2,6 +2,7 @@ import { invoke } from "./ipc";
 import * as dock from "./dock";
 import { icon, wave } from "./icons";
 import { fromBack, t } from "./i18n";
+import { keys } from "./platform";
 import * as menu from "./menu";
 import { isTerm, termKind, termNumber, type DockKind, type DockState, type Scripts } from "./types";
 import { $ } from "./util";
@@ -268,7 +269,7 @@ export function draw() {
   const up = isUp("run");
   $("runsplit").hidden = !info.scripts.runs.length;
   $("run-pick").hidden = info.scripts.runs.length < 2;
-  $("run-go").innerHTML = `${icon(up ? "square" : "play", 13)}<span></span><kbd>⌘R</kbd>`;
+  $("run-go").innerHTML = `${icon(up ? "square" : "play", 13)}<span></span><kbd>${keys("⌘R")}</kbd>`;
   $("run-go").querySelector("span")!.textContent = t(up ? "dock.stop" : "dock.run");
 
   // Offer browser opening only with a running script and reserved local port.
@@ -370,7 +371,7 @@ function drawEmpty() {
     t(setup ? "dock.setup.start" : "dock.run.start"),
     "outline",
     () => setDock(pane, true),
-    setup ? undefined : "⌘R",
+    setup ? undefined : keys("⌘R"),
   );
   $("empty-sub").textContent = setup
     ? t("dock.setup.idle.body")
