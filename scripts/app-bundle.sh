@@ -15,4 +15,7 @@ npx tauri build --debug --bundles app \
   --config src-tauri/tauri.dev.conf.json \
   --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
+# Verify the complete bundle, including Info.plist, before testing native authorization.
+codesign --verify --strict "src-tauri/target/debug/bundle/macos/Prometeu Dev.app"
+
 exec open -W --env PROMETEU_ROOT="$ROOT" "src-tauri/target/debug/bundle/macos/Prometeu Dev.app"

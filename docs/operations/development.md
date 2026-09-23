@@ -35,6 +35,19 @@ itself, and a binary run by `tauri dev` (or executed directly from inside the
 `.app`) is aborted on the first recognition request. That is why the microphone
 button stays hidden under `npm run app`; there is no hot reload in this mode.
 
+System notification banners and their macOS authorization prompt also require
+`npm run app:bundle`; the unbundled development binary cannot use
+UserNotifications. Notification Settings shows that limitation next to its
+master switch. Notch and sound work without notification permission in either
+native run mode.
+
+The development bundle is ad-hoc signed by Tauri and verified before opening.
+Its signing identifier must match `CFBundleIdentifier`: the linker-only
+signature identifies the executable as `Prometeu-<hash>`, which makes
+UserNotifications reject authorization for `co.prometeu.desktop` with
+`UNErrorDomain` code 1 before showing a permission prompt. Development signing
+needs no release certificate or private notification entitlement.
+
 The mock's interactive preview uses a controlled page in an iframe and the app's
 own selection script. Selected preview scenarios cover Chromium and WebKit;
 the native PNG and AppKit gestures stay outside that proof. See the

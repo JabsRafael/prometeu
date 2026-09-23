@@ -27,6 +27,7 @@ mod mcp;
 mod mcp_access;
 mod mcp_auth;
 mod naming;
+mod notifications;
 mod oauth;
 mod paths;
 mod plugins;
@@ -124,6 +125,12 @@ fn main() {
             ready: Mutex::new(HashSet::new()),
         })
         .invoke_handler(tauri::generate_handler![
+            notifications::notification_permission,
+            notifications::notification_show,
+            notifications::notification_current,
+            notifications::notification_dismiss,
+            notifications::notification_open,
+            notifications::notification_sound,
             actions::actions_save,
             actions::action_start,
             actions::action_pause,
@@ -262,6 +269,7 @@ fn main() {
             skills::skill_remove,
         ])
         .setup(|app| {
+            notifications::install(app.handle());
             embedded_mcp::start(app.handle().clone())?;
             file_drop::install(app.handle())?;
             actions::watch(app.handle().clone());

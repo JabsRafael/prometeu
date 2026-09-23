@@ -174,8 +174,10 @@ snapshot may synthesize `busy` or `ready` to present the current state, but it
 does not start a new execution in the Dock's pending tracking. These events stay
 ephemeral, with no change to the envelope, the persisted format or the
 contract's version.
-There are no sound alerts; see
-[ADR 0029](../decisions/0029-remove-alert-sound.md).
+Optional local notifications use these same live events without changing V1.
+Notifications and sound start disabled; see the
+[notification contract](notifications.md) and
+[ADR 0054](../decisions/0054-local-notifications.md).
 
 `usage.updated` identifies the provider because a quota is account information
 and the external payloads do not have enough common semantics. That payload goes

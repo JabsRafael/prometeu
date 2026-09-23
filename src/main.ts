@@ -4,6 +4,7 @@ import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import { openProjects } from "./projects";
 import * as alert from "./alert";
+import * as notifications from "./notifications";
 import { installed, loadAgents } from "./agents";
 import * as appmenu from "./appmenu";
 import type { Info } from "./chat";
@@ -281,6 +282,14 @@ team.onChange(refresh);
 team.onChange(alert.teamChanged);
 alert.init({ visible: (tab) =>
   (ws.id() !== null && session.currentSession() === tab) || desk.visible(tab),
+  notify: (kind, tab) => {
+    const workspace = state.workspaces.find(item => item.tabs.some(item => item.id === tab));
+    if (workspace) void notifications.deliver(kind, tab, workspace.title).catch(error => say(fromBack(error), true));
+  },
+});
+listen<string>("notification-open", ({ payload: tab }) => {
+  const workspace = state.workspaces.find(item => !item.archived && !item.cleaned && item.tabs.some(item => item.id === tab));
+  if (workspace) void openWorkspace(workspace, true, tab).catch(error => say(fromBack(error), true));
 });
 listen<[string, string, number]>("chat", ({ payload: [tab, line] }) => alert.chatChanged(tab, line));
 

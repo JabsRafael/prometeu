@@ -1,4 +1,6 @@
 import { t } from "./i18n";
+import type { Notice } from "./notifications";
+import { notificationView } from "./notification-view";
 import type { IpcCommand, IpcHandlers } from "./ipc";
 import { emptyCatalog, initializeDefaults, type Catalog, type Profile } from "./actions";
 /// Browser backend for sample data. Loaded only when window.__TAURI_INTERNALS__ is absent; never loaded in Tauri.
@@ -831,7 +833,46 @@ function emit(event: string, payload: unknown) {
   handlers.get(event)?.forEach((h) => h({ event, id: nextId++, payload }));
 }
 
+let currentNotice: Notice | null = null;
+let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+const dismissNotice = () => {
+  clearTimeout(noticeTimer);
+  currentNotice = null;
+  document.querySelector(".notification-mock")?.remove();
+};
+
 const mockCommands: IpcHandlers = {
+  notification_permission({ request }) {
+    const status = localStorage.getItem("mock:notification-permission");
+    if (status === "default" && request) {
+      localStorage.setItem("mock:notification-permission", "granted");
+      return "granted";
+    }
+    return status === "denied" || status === "default" || status === "unavailable" ? status : "granted";
+  },
+  notification_show({ notice }) {
+    if (notice.style === "banner" && ["denied", "default", "unavailable"].includes(localStorage.getItem("mock:notification-permission") ?? "")) {
+      throw new Error(t("err.notifications.permission"));
+    }
+    dismissNotice();
+    currentNotice = notice;
+    if (notice.style !== "none") {
+      const popup = notificationView(notice, () => {
+        if (notice.tab) emit("notification-open", notice.tab);
+        dismissNotice();
+      }, dismissNotice);
+      popup.classList.add("notification-mock");
+      document.body.append(popup);
+      noticeTimer = setTimeout(dismissNotice, 8000);
+    }
+  },
+  notification_current() { return currentNotice; },
+  notification_dismiss() { dismissNotice(); },
+  notification_open() {
+    if (currentNotice?.tab) emit("notification-open", currentNotice.tab);
+    dismissNotice();
+  },
+  notification_sound() { return; },
   accounts() {
     return structuredClone(mockAccounts);
   },

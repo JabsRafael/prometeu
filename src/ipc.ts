@@ -14,6 +14,12 @@ import type { TeamConfig, Organization } from "./team";
 
 /** The frontend and browser mock share this contract. Rust remains the wire authority. */
 export type Commands = {
+  notification_permission: { args: { request: boolean }; result: import("./notifications").NoticePermission };
+  notification_show: { args: { notice: import("./notifications").Notice }; result: void };
+  notification_current: { args: undefined; result: import("./notifications").Notice | null };
+  notification_dismiss: { args: undefined; result: void };
+  notification_open: { args: undefined; result: void };
+  notification_sound: { args: { tone: import("./notifications").NoticeTone }; result: void };
   account_login: { args: { provider: T.ProviderId; id?: string | null; method?: string }; result: Accounts };
   account_login_cancel: { args: { id: string }; result: void };
   account_remove: { args: { id: string }; result: Accounts };

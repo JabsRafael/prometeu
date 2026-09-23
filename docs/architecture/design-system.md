@@ -35,6 +35,10 @@ control. `input` keeps the native `required`, `pattern`, `min` and `max`. Use
 `checkbox` keeps the native input inside the label, with a size independent of
 text fields; long labels wrap next to the control.
 
+`toggle` reuses the native checkbox with switch semantics. `radio` keeps native
+radio-group keyboard behavior. Both appear in the standalone galleries and the
+notification preferences; `e2e/notifications.spec.ts` covers keyboard use.
+
 `select` returns `control`, `value`, `onchange` and `setOptions`. The selector
 uses the same `dropdown` extracted from the launcher and the shared menu. The
 model selection updates its options without creating another component. A

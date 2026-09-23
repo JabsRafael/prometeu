@@ -1,4 +1,4 @@
-import { avatar, button, input, field, checkbox, select, password, card, badge, notice, disclosure, menuButton, formDialog, confirmDialog, searchablePicker } from "./dist/index.js";
+import { avatar, button, input, field, checkbox, toggle, radio, select, password, card, badge, notice, disclosure, menuButton, formDialog, confirmDialog, searchablePicker } from "./dist/index.js";
 
 const examples = document.querySelector("#examples");
 const output = notice("Interact with the components to see their states.");
@@ -23,6 +23,8 @@ const unavailable = input("Unavailable"); unavailable.disabled = true;
 const secret = password("", { show: "Show password", hide: "Hide password" });
 examples.append(card("04 / Form", field("Name", name), invalid, field("Project", project.control),
   field("Password", secret.root), field("Disabled field", unavailable), checkbox("Keep settings for this project.", true).label));
+examples.append(card("Notifications", toggle("Receive notifications", true).label,
+  row(radio("Banner", "notification-style", "banner", true).label, radio("Notch", "notification-style", "notch", false).label)));
 
 const details = document.createElement("p"); details.className = "ui-hint";
 details.textContent = "Native disclosure: opens with Enter or Space.";

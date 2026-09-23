@@ -10,6 +10,7 @@ import type { Board } from "./types";
 type Ctx = {
   /// Visible tabs in the workspace or desk; window focus is checked here.
   visible: (tab: string) => boolean;
+  notify?: (kind: "approval" | "done" | "error", tab: string) => void;
 };
 
 let ctx: Ctx = { visible: () => false };
@@ -19,6 +20,7 @@ type Conversation = {
   background: boolean;
   pending: boolean;
   timer: ReturnType<typeof setTimeout> | null;
+  requests: Set<string>;
 };
 const conversations = new Map<string, Conversation>();
 // Let immediate continuations invalidate a terminal event. Silence alone never means completion.
@@ -63,7 +65,7 @@ export function boardChanged(board: Board) {
   for (const [tab, workspace] of owners) {
     const conversation = conversations.get(tab);
     if (conversation) conversation.workspace = workspace;
-    else conversations.set(tab, { workspace, phase: "idle", background: false, pending: false, timer: null });
+    else conversations.set(tab, { workspace, phase: "idle", background: false, pending: false, timer: null, requests: new Set() });
   }
   looked();
 }
@@ -83,6 +85,7 @@ export function chatChanged(tab: string, line: string) {
         conversation.phase = "idle";
         conversation.background = false;
         conversation.pending = false;
+        conversation.requests.clear();
         badge();
         return;
       }
@@ -115,6 +118,11 @@ export function chatChanged(tab: string, line: string) {
     case "request.opened":
     case "request.closed":
       cancel(conversation);
+      if (event.type === "request.opened" && !conversation.requests.has(event.requestId)) {
+        conversation.requests.add(event.requestId);
+        if (!watching(tab)) ctx.notify?.("approval", tab);
+      }
+      if (event.type === "request.closed") conversation.requests.delete(event.requestId);
       conversation.pending = event.type === "request.opened" && !watching(tab);
       badge();
       return;
@@ -137,6 +145,7 @@ export function chatChanged(tab: string, line: string) {
         conversation.timer = null;
         conversation.phase = "idle";
         conversation.pending = !watching(tab);
+        if (conversation.pending) ctx.notify?.(event.outcome === "error" ? "error" : "done", tab);
         badge();
       }, SETTLE_MS);
   }

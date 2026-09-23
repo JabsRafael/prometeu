@@ -32,6 +32,9 @@ map and the existing boundary tests. Untrusted relay/control input remains
 subject to backend validation. Errors keep their existing rejection format.
 See [ADR 0024](../decisions/0024-typed-ipc.md).
 
+Local notification commands and the `notification-open` event are described in
+the [notification contract](notifications.md).
+
 ## Command rules
 
 - names use `snake_case` and must be unique;

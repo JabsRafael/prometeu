@@ -17,6 +17,7 @@ import * as voice from "./voice";
 import * as plugins from "./plugins";
 import * as projects from "./projects";
 import * as news from "./news";
+import * as notifications from "./notification-settings";
 import * as team from "./team";
 import type { LinearStatus } from "./types";
 import { settingsRow } from "./update";
@@ -91,6 +92,7 @@ const PAGES: Page[] = [
     glyph: "settings",
     rows: () => [langRow(), ...(voice.available() ? [voiceRow()] : [])],
   },
+  { id: "notifications", title: "notifications.title", glyph: "bell", rows: () => [notifications.settings(ctx.say)] },
   {
     id: "padroes",
     title: "settings.defaults",

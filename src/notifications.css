@@ -1,0 +1,67 @@
+.setwrap .setpage:has(.notification-settings) { max-width: 1180px; container-type: inline-size; }
+.setpage:has(.notification-settings) > h1 { margin-bottom: 12px; }
+.notification-intro { margin-bottom: 28px; }
+.setpage .notification-intro h2 { font-size: 25px; letter-spacing: -.7px; text-transform: none; color: var(--fg); margin: 0 0 6px; }
+.notification-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 32px; align-items: start; }
+.notification-controls { border: 0; padding: 0; margin: 0; min-width: 0; }
+.notification-controls:disabled { opacity: .5; }
+.notification-settings .notification-master, .notification-settings .notification-row { align-items: center; flex-direction: row-reverse; justify-content: space-between; gap: 16px; color: var(--fg); font-size: 13px; cursor: pointer; }
+.notification-master { padding: 18px; background: var(--bg-raised); border: 1px solid var(--line-raised); border-radius: var(--r-lg); }
+.notification-master > span, .notification-row > span { flex: 1; font-weight: 500; }
+.notification-master small, .notification-row small { display: block; font-size: 11.5px; line-height: 1.5; color: var(--fg-2); font-weight: 400; margin-top: 4px; }
+.notification-section { padding: 24px 0 18px; border-bottom: 1px solid var(--line); }
+.notification-section:last-child { border-bottom: 0; }
+.setpage .notification-section h2 { margin: 0 0 14px; color: var(--fg); font-size: 12px; text-transform: none; letter-spacing: 0; }
+.notification-row { padding: 11px 0; }
+.notification-row.approval > span, .notification-row.done > span, .notification-row.error > span { position: relative; padding-left: 22px; }
+.notification-row.approval > span::before, .notification-row.done > span::before, .notification-row.error > span::before { content: ""; position: absolute; top: 7px; left: 2px; width: 6px; height: 6px; border-radius: 50%; background: var(--wait); }
+.notification-row.done > span::before { background: var(--done); }
+.notification-row.error > span::before { background: var(--err); }
+.notification-styles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+.notification-settings .notification-style { flex-wrap: wrap; gap: 6px; padding: 9px; border: 1px solid var(--line-raised); border-radius: var(--r-lg); background: var(--bg-side); cursor: pointer; font-size: 11px; color: var(--fg); }
+.notification-style:has(:checked) { border-color: var(--accent); background: var(--bubble); }
+.notification-style:has(:focus-visible) { outline: 2px solid var(--tab-line); outline-offset: 3px; }
+.notification-mini { height: 56px; width: 100%; position: relative; overflow: hidden; background: var(--bg-raised-2); border: 1px solid var(--line-raised); border-radius: 4px; margin-bottom: 3px; }
+.notification-mini::before { content: ""; position: absolute; top: 0; left: 34%; width: 32%; height: 7px; background: #0c0b0a; border-radius: 0 0 4px 4px; }
+.notification-mini.banner i { position: absolute; right: 5px; top: 13px; width: 68%; height: 22px; background: var(--bg-btn); border-radius: 4px; }
+.notification-mini.banner b { position: absolute; right: 10px; top: 19px; width: 50%; height: 3px; background: var(--fg-2); box-shadow: 0 6px var(--fg-3); }
+.notification-mini.notch i { position: absolute; top: 0; left: 10%; width: 80%; height: 24px; border-radius: 0 0 7px 7px; background: #0c0b0a; }
+.notification-mini.notch b { position: absolute; top: 11px; left: 24%; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.notification-mini.none i { position: absolute; top: 23px; left: calc(50% - 6px); width: 12px; height: 12px; border: 1px solid var(--fg-3); border-radius: 50%; }
+.notification-mini.none b { position: absolute; top: 29px; left: calc(50% - 6px); width: 12px; height: 1px; background: var(--fg-3); transform: rotate(45deg); }
+.notification-sound-controls { display: flex; gap: 8px; align-items: end; margin-top: 12px; }
+.notification-sound-controls .ui-field { flex: 1; }
+.notification-sound-controls > button { min-height: 34px; }
+.notification-feedback { min-height: 20px; }
+.notification-preview-column { position: sticky; top: 0; }
+.notification-preview { border: 1px solid var(--line); border-radius: var(--r-xl); background: var(--bg-side); overflow: hidden; }
+.notification-preview h3 { font-size: 12px; font-weight: 500; margin: 0; padding: 17px; }
+.notification-desktop { position: relative; height: 210px; background: #32271f; overflow: hidden; border-block: 1px solid #42352c; }
+.notification-desktop::before { content: ""; position: absolute; width: 320px; height: 320px; border: 1px solid #6d4a35; border-radius: 50%; top: 85px; left: -190px; box-shadow: 0 0 0 30px #473224, 0 0 0 31px #68452f, 0 0 0 65px #3c2c21, 0 0 0 66px #5b3e2b, 0 0 0 100px #36291f, 0 0 0 101px #503926; opacity: .65; }
+.notification-camera { width: 24%; height: 12px; background: #0c0b0a; margin: auto; border-radius: 0 0 5px 5px; position: relative; }
+.notification-sample { position: absolute; top: 34px; left: 12px; right: 12px; display: flex; gap: 10px; align-items: center; background: #51453c; border: 1px solid #79685a; padding: 12px; border-radius: 10px; }
+.notification-sample[data-style="notch"] { top: 0; left: 10px; right: 10px; padding-top: 22px; border-radius: 0 0 15px 15px; background: #0c0b0a; border-color: #0c0b0a; }
+.notification-logo { flex: none; width: 30px; height: 32px; border-radius: 7px; background: var(--bubble); color: var(--accent); display: grid; place-items: center; }
+.notification-copy { display: flex; flex-direction: column; min-width: 0; text-align: left; }
+.notification-copy small { font-size: 8px; letter-spacing: .06em; color: #cfc3bb; }
+.notification-copy strong { font-size: 11px; font-weight: 600; line-height: 1.4; margin: 3px 0; }
+.notification-copy > span { font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; color: #d1c4ba; }
+.notification-no-visual { position: absolute; top: 45px; left: 20px; right: 20px; text-align: center; color: #d1c4ba; font-size: 12px; }
+.notification-preview-body { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.notification-preview-body > .ui-hint { margin: 0; font-size: 11px; }
+.notification-preview-body > button { min-height: 34px; }
+.notification-permission { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--wait); border-radius: var(--r-lg); background: var(--bg-raised); display: flex; flex-direction: column; align-items: start; gap: 8px; }
+.notification-permission > p { margin: 0; }
+.notification-quiet { padding: 16px 4px; font-size: 11px; }
+.notification-window { margin: 0; overflow: hidden; background: #0c0b0a; color: var(--fg); font: 13px/1.5 var(--font); }
+.notification-popup { box-sizing: border-box; display: flex; align-items: center; padding: 32px 16px 14px; gap: 12px; background: #0c0b0a; color: var(--fg); width: 360px; height: 96px; border-radius: 0 0 18px 18px; overflow: hidden; }
+.notification-popup .notification-popup-open { min-width: 0; flex: 1; height: 100%; padding: 0; justify-content: start; gap: 12px; }
+.notification-popup .notification-popup-open:hover { background: transparent; }
+.notification-popup .notification-copy { flex: 1; }
+.notification-popup .notification-copy strong { font-size: 13px; font-weight: 500; color: var(--fg); margin: 0 0 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.notification-popup .notification-copy > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 400; color: var(--fg-2); }
+.notification-popup .notification-popup-close { padding: 4px; width: 24px; min-height: 24px; height: 24px; flex: none; border-radius: 50%; color: var(--fg-3); }
+.notification-popup .notification-popup-open:focus-visible { outline-offset: 3px; }
+.notification-mock { position: fixed; z-index: 1000; top: 0; left: calc(50% - 180px); box-shadow: var(--shadow); }
+.notification-mock[data-style="banner"] { top: 14px; right: 14px; left: auto; padding-top: 12px; height: 88px; border-radius: var(--r-xl); background: var(--bg-raised); }
+@container (max-width: 720px) { .notification-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; } .notification-preview-column { position: static; max-width: 360px; } }

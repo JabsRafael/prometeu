@@ -64,11 +64,15 @@ in the old migration remain in `~/prometheus/worktrees`; cleaning up a multi-rep
 workspace still accepts that path, and the two applications must not operate on
 the same folder at the same time.
 
-## Removed sound preference
+## Notification preferences
 
 The legacy `prometeu:som` localStorage key is no longer read or written. If it
 exists, it stays inert; there is no migration and no change to the board or
-transcripts. See [ADR 0029](../decisions/0029-remove-alert-sound.md).
+transcripts. The new `prometeu:notifications` version-1 record stores local
+notification choices, with notifications and sound disabled by default. Missing,
+invalid and future-version records keep those defaults. See the
+[notification contract](notifications.md) and
+[ADR 0054](../decisions/0054-local-notifications.md).
 
 ## Collaboration security
 
