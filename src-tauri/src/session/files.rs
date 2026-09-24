@@ -143,8 +143,8 @@ fn reveal_args(target: &Path, dir: bool, mac: bool) -> Vec<std::ffi::OsString> {
     }
 }
 
-/// Show one entry of the worktree in the system file manager. The workspace-wide `reveal` opens the
-/// root; the tree needs the file the person pointed at.
+/// Show a workspace or project entry in the system file manager. An empty relative path opens its
+/// root; a file path selects or locates the entry.
 #[tauri::command]
 pub fn reveal_path(state: State<AppState>, id: String, rel: String) -> Result<(), String> {
     let root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
@@ -247,6 +247,23 @@ mod tests {
             reveal_args(dir, true, false),
             vec![std::ffi::OsString::from(dir)]
         );
+    }
+
+    /// An empty relative path targets the workspace or project root, not a file to select.
+    #[test]
+    fn reveal_opens_root_for_empty_relative_path() {
+        let root = tmp("reveal-root");
+        let target = inside(&root, "").unwrap();
+        let expected = root.canonicalize().unwrap();
+
+        assert_eq!(target, expected);
+        for mac in [true, false] {
+            assert_eq!(
+                reveal_args(&target, target.is_dir(), mac),
+                vec![expected.as_os_str().to_os_string()]
+            );
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// A symlink outside the worktree must not authorize writing there.

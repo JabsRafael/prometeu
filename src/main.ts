@@ -94,7 +94,7 @@ const hooks: sidebar.Hooks = {
     }),
   pin: (id, pinned) => invoke("pin_workspace", { id, pinned }),
   unread: (id, unread) => invoke("set_unread", { id, unread }),
-  reveal: (id) => invoke("reveal", { id }).catch((e) => say(fromBack(e), true)),
+  reveal: (id) => invoke("reveal_path", { id, rel: "" }).catch((e) => say(fromBack(e), true)),
   copyPath: async (w) => {
     try {
       await navigator.clipboard.writeText(w.worktree);

@@ -2106,7 +2106,6 @@ const mockCommands: IpcHandlers = {
   },
   pty_resize() {},
   remove_workspace() {},
-  reveal() {},
   reveal_path() {},
 };
 

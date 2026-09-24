@@ -110,7 +110,7 @@ export function init(context: Ctx) {
   });
   $("reveal").addEventListener("click", () => {
     const here = root();
-    if (here) invoke("reveal", { id: here }).catch((e) => ctx.say(fromBack(e), true));
+    if (here) invoke("reveal_path", { id: here, rel: "" }).catch((e) => ctx.say(fromBack(e), true));
   });
   // Agent board events refresh changes, but external commits do not. Refresh on window focus and while Changes is visible.
   window.addEventListener("focus", () => {

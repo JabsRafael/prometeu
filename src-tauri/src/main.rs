@@ -190,7 +190,6 @@ fn main() {
             session::files::reveal_path,
             dock::open_dock,
             dock::close_dock,
-            dock::reveal,
             dock::workspace_scripts,
             dock::dock_state,
             dock::create_scripts_file,
