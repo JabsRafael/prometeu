@@ -138,3 +138,20 @@ it("drops composition ends that no composition start opened", () => {
   expect(lone("compositionend")).toBe(false);
   expect(lone("compositionend")).toBe(true);
 });
+
+it("stops lone composition ends at the terminal host before xterm sees them", () => {
+  const host = new EventTarget();
+  const listen = vi.spyOn(host, "addEventListener");
+  dock.init(new EventTarget() as HTMLElement, host as HTMLElement);
+  expect(listen).toHaveBeenCalledWith("compositionend", expect.any(Function), true);
+
+  const dispatch = (type: string) => {
+    const event = new Event(type);
+    const stop = vi.spyOn(event, "stopPropagation");
+    host.dispatchEvent(event);
+    return stop;
+  };
+  expect(dispatch("compositionend")).toHaveBeenCalled();
+  expect(dispatch("compositionstart")).not.toHaveBeenCalled();
+  expect(dispatch("compositionend")).not.toHaveBeenCalled();
+});
