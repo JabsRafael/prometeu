@@ -18,6 +18,22 @@ export type Sink = (key: string, data: string) => void;
 
 const BACKGROUND = "#141110";
 
+/// WebKitGTK reports an input method commit without preedit (fcitx dead keys) as a compositionend
+/// with no compositionstart. xterm already sends that text from its keydown 229 path, and would
+/// resend the textarea contents since its previous composition, so such lone ends are dropped.
+export function loneCompositionEnds() {
+  let composing = false;
+  return (type: string) => {
+    if (type === "compositionstart") {
+      composing = true;
+      return false;
+    }
+    const lone = !composing;
+    composing = false;
+    return lone;
+  };
+}
+
 export class Term {
   private term: Terminal;
   private fit = new FitAddon();
@@ -49,6 +65,11 @@ export class Term {
     this.sink = sink;
     this.term.loadAddon(this.fit);
     this.term.open(host);
+    // Capture on the host so the check runs before xterm's listeners on its textarea.
+    const lone = loneCompositionEnds();
+    for (const type of ["compositionstart", "compositionend"]) {
+      host.addEventListener(type, (event) => { if (lone(event.type)) event.stopPropagation(); }, true);
+    }
     this.term.onData((data) => {
       if (this.key) this.sink(this.key, data);
     });

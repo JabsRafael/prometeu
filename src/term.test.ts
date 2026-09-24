@@ -24,6 +24,7 @@ vi.mock("@xterm/xterm", () => ({
 }));
 
 import * as dock from "./dock";
+import { loneCompositionEnds } from "./term";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -39,7 +40,7 @@ beforeEach(() => {
   vi.stubGlobal("cancelAnimationFrame", () => {});
   fake.invoke.mockReset();
   dock.detach();
-  dock.init({} as HTMLElement, {} as HTMLElement);
+  dock.init(new EventTarget() as HTMLElement, new EventTarget() as HTMLElement);
 });
 
 it("keeps terminal input in the current workspace when an earlier open finishes late", async () => {
@@ -128,4 +129,12 @@ it("ignores failed older opens without detaching the current shell", async () =>
   await old;
   expect(dock.currentKey("shell")).toBe("second:terminal");
   expect(fake.terminals[1].output).toBe("second:terminal");
+});
+
+it("drops composition ends that no composition start opened", () => {
+  const lone = loneCompositionEnds();
+  expect(lone("compositionend")).toBe(true);
+  expect(lone("compositionstart")).toBe(false);
+  expect(lone("compositionend")).toBe(false);
+  expect(lone("compositionend")).toBe(true);
 });
