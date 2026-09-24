@@ -725,6 +725,11 @@ export const PT = {
   /* Side panel, file tree, and changes. */
 
   "side.files": "Arquivos",
+  "tree.git.A": "Novo",
+  "tree.git.M": "Modificado",
+  "tree.git.D": "Apagado",
+  "tree.git.U": "Em conflito",
+  "tree.git.folder": "Contém alterações",
   "side.changes": "Alterações",
   "side.comments": "Comentários",
   "side.review": "Revisar",

@@ -1346,6 +1346,17 @@ const mockCommands: IpcHandlers = {
     value.status.index = `mock-${++value.version}`;
     return;
   },
+  // A few fixed marks exercise files, nested folders, a new folder and deletions in the sample tree.
+  tree_git_status() {
+    return [
+      { path: "Gemfile", status: "M" },
+      { path: "README.md", status: "A" },
+      { path: "app/models/user.rb", status: "M" },
+      { path: "docs/guide.md", status: "A" },
+      { path: "Procfile", status: "D" },
+      { path: "app/models/legacy/report.rb", status: "D" },
+    ];
+  },
   list_dir(args) {
     return tree[args.rel ?? ""] ?? [];
   },
