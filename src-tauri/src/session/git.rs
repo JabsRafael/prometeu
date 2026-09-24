@@ -216,10 +216,14 @@ pub fn workspace_git_status(state: State<AppState>, id: String) -> Result<Vec<Gi
 }
 
 /// Collapse one porcelain entry into the file tree's mark. Untracked and added files read as new;
-/// a deletion on either side as deleted; conflicts win over everything else.
+/// a deletion on either side as deleted; conflicts win over everything else. A file deleted from
+/// the worktree reads as deleted even when its addition is staged (`AD`): it is no longer on disk,
+/// so only a deleted row can show it.
 fn tree_mark(pair: &str) -> &'static str {
     if pair.contains('U') || pair == "AA" || pair == "DD" {
         "U"
+    } else if pair.as_bytes().get(1) == Some(&b'D') {
+        "D"
     } else if pair == "??" || pair.contains('A') {
         "A"
     } else if pair.contains('D') {

@@ -107,9 +107,14 @@ async function draw(id: string) {
 /// A slow repository must not stack scans: a timer tick waits for the one still running.
 let loading: Promise<void> | null = null;
 
+/// A draw and the timer's repaint can scan at once; only the latest scan started may replace the
+/// marks, so an older result finishing last cannot restore stale badges or deleted rows.
+let scans = 0;
+
 async function loadMarks(id: string) {
+  const mine = ++scans;
   const files = await invoke("tree_git_status", { id }).catch(() => []);
-  if (workspace() === id) marks = gitMarks(files);
+  if (mine === scans && workspace() === id) marks = gitMarks(files);
 }
 
 /// Repaint rows in place, and rebuild them only when a file was deleted or restored.

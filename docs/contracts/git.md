@@ -75,8 +75,9 @@ other commands, accepts the same `id` as `list_dir`: a workspace or a project
 (see [the root of the file commands](ipc.md#root-of-the-file-commands)). Paths
 are relative to that tree root, so a grouping folder prefixes each worktree's
 folder and a project registered on a subfolder sees only its own changes.
-`status` is collapsed to one mark: `U` for conflicts, `A` for untracked or added
-files, `D` for deletions and `M` for the rest. Untracked files are listed one by
+`status` is collapsed to one mark: `U` for conflicts, `D` for a file missing from
+the worktree (including an addition staged and then deleted, `AD`), `A` for other
+untracked or added files, `D` for deletions in the index and `M` for the rest. Untracked files are listed one by
 one, as in the Changes pane, so ignored files inside a new folder stay unmarked.
 The tree adds struck-through rows for `D` paths, which no longer exist on disk
 and therefore never come from `list_dir`.
@@ -84,7 +85,8 @@ A directory outside Git, or
 a repository that fails, contributes no marks instead of an error. The command is async so the scan never runs on the main thread. The tree
 refreshes marks every 5 seconds while it is visible, because terminals and
 agents change files without board events, and skips a tick while the previous
-scan is still running.
+scan is still running. A redraw may scan alongside a tick; only the latest scan
+started replaces the marks, so an older result finishing last is discarded.
 
 Without an upstream, the counters are zero and the action is **Publish branch**.
 That does not mean the commits are published. A detached HEAD is

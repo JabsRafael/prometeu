@@ -495,6 +495,10 @@ fn tree_marks_list_new_files_one_by_one_without_ignored_ones() {
     repo.git(&["add", "added.txt"]);
     repo.write("staged.txt", "two\n");
     repo.git(&["add", "staged.txt"]);
+    // Staged as new, then removed from disk (`AD`).
+    repo.write("vanished.txt", "new\n");
+    repo.git(&["add", "vanished.txt"]);
+    std::fs::remove_file(repo.0.join("vanished.txt")).unwrap();
     std::fs::create_dir_all(repo.0.join("fresh/deep")).unwrap();
     repo.write("fresh/deep/file.txt", "new\n");
     repo.write("fresh/.env", "secret\n");
@@ -510,6 +514,7 @@ fn tree_marks_list_new_files_one_by_one_without_ignored_ones() {
             ("kept.txt", "M"),
             ("new.txt", "A"),
             ("staged.txt", "M"),
+            ("vanished.txt", "D"),
         ]
         .map(|(path, status)| (path.to_string(), status.to_string()))
     );
@@ -554,5 +559,8 @@ fn tree_mark_prefers_conflicts_then_new_files() {
     assert_eq!(tree_mark("AA"), "U");
     assert_eq!(tree_mark("AM"), "A");
     assert_eq!(tree_mark("MD"), "D");
+    // Staged as new, then deleted from disk: only a deleted row can show it.
+    assert_eq!(tree_mark("AD"), "D");
+    assert_eq!(tree_mark("D "), "D");
     assert_eq!(tree_mark("RM"), "M");
 }
