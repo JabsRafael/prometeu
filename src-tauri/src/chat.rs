@@ -391,6 +391,19 @@ impl Chat {
         self.alive.load(Ordering::Relaxed)
     }
 
+    /// Deliver an app-generated warning into the conversation as a `system.notice`, the same path
+    /// provider stderr takes, so it reaches the timeline and the transcript buffer.
+    pub fn warn(&self, code: &str, detail: &str) {
+        self.pump.feed(
+            &conversation::event(
+                "system.notice",
+                conversation::now(),
+                json!({ "level": "warning", "code": code, "detail": detail }),
+            )
+            .to_string(),
+        );
+    }
+
     fn changing_account(&self) -> Result<bool, String> {
         let selected = accounts::active(self.pump.profile.provider)?;
         if accounts::logging_in(&selected.id) {

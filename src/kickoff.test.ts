@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { catalog, KICKOFF_KEY, rememberKickoff, storedKickoff } from "./kickoff";
+import { catalog, effectiveKickoff, KICKOFF_KEY, rememberKickoff, storedKickoff } from "./kickoff";
 
 const standalone = [
   { id: "review", description: "Review a diff.", content: "x" },
@@ -51,5 +51,27 @@ describe("kickoff preference", () => {
     vi.stubGlobal("localStorage", { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } });
     expect(() => rememberKickoff("sdd-kit/specify")).not.toThrow();
     expect(storedKickoff(catalog(standalone, shipped))).toBe("");
+  });
+});
+
+describe("effective kickoff", () => {
+  const entries = catalog(standalone, shipped);
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", { getItem: () => "skill-review/review", setItem: () => {} });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("keeps an explicit choice across an unsupported provider", () => {
+    expect(effectiveKickoff("sdd-kit/specify", entries, false)).toBe("");
+    expect(effectiveKickoff("sdd-kit/specify", entries, true)).toBe("sdd-kit/specify");
+  });
+
+  it("uses the remembered preference until the person chooses, and honors an explicit none", () => {
+    expect(effectiveKickoff(null, entries, true)).toBe("skill-review/review");
+    expect(effectiveKickoff("", entries, true)).toBe("");
+  });
+
+  it("falls back to none when the chosen skill left the catalog", () => {
+    expect(effectiveKickoff("sdd-kit/specify", catalog(standalone, []), true)).toBe("");
   });
 });

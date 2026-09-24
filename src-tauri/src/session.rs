@@ -1837,7 +1837,7 @@ pub fn rename_tab(
 
 /// Restart the process when chat_send receives a message for a stopped tab.
 pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<bool, String> {
-    let (workspace, worktree, mut launch, cleaned, agent_session) = {
+    let (workspace, worktree, mut launch, cleaned, agent_session, kickoff_lost) = {
         // Snapshot under the lock; tool resolution runs git subprocesses and reads CLI
         // configuration, which must not block board events.
         let (global, trust, snapshot) = {
@@ -1858,22 +1858,28 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
         let agent = ws.launch_of(tab, &ResolvedTools::default()).agent;
         let tools = resolve_workspace_tools(&global, &trust, &ws, agent);
         let mut launch = ws.launch_of(tab, &tools);
-        // A conversation started from a skill keeps that skill's package across resumes (ADR 0057).
-        if let Some(kickoff) = ws
+        // A conversation started from a skill keeps that skill's package across resumes, validated
+        // like at creation; a skill no longer installed never blocks the resume (ADR 0057).
+        let kickoff_lost = ws
             .tabs
             .iter()
             .find(|t| t.id == tab)
             .and_then(|t| t.kickoff.as_deref())
-        {
-            let hub: Vec<String> = crate::plugins::load().into_iter().map(|p| p.id).collect();
-            crate::kickoff::ensure(&mut launch, kickoff, &hub);
-        }
+            .and_then(|kickoff| {
+                crate::kickoff::resume(
+                    &mut launch,
+                    kickoff,
+                    &crate::skills::load(),
+                    &crate::plugins::load(),
+                )
+            });
         (
             ws.id.clone(),
             PathBuf::from(&ws.worktree),
             launch,
             ws.cleaned,
             previous,
+            kickoff_lost,
         )
     };
     if let Some(delegation) = lock(&state.board).delegations.iter().find(|d| d.id == tab) {
@@ -1912,6 +1918,9 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
             )
         }
     };
+    if let Some(notice) = kickoff_lost {
+        handle.warn("kickoff.missing", &notice);
+    }
     lock(&state.chats).insert(tab.to_string(), handle);
     {
         let mut board = lock(&state.board);

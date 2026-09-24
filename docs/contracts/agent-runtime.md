@@ -207,9 +207,13 @@ three lists are resolved for the first conversation, the core adds the skill's
 package to the axis its ID belongs to — `skill-<id>` to `skills`, a plugin to
 `plugins` — turning an inheriting `null` into a one-item list. No global,
 project or workspace layer changes, so later tabs keep the ordinary resolution.
-`Tab.kickoff` stores the choice and a resume of that tab adds the package again;
-a package no longer in the hub is ignored. Adapters receive ordinary lists and
-materialize them as today.
+`Tab.kickoff` stores the choice and a resume of that tab adds the package again
+after validating the skill against the installed catalog, like creation does.
+A skill its package no longer ships, or a package no longer in the hub, never
+blocks the resume: the package is not added and the conversation receives a
+`system.notice` with `level: "warning"` and `code: "kickoff.missing"`, whose
+`detail` the backend renders in the display language. Adapters receive
+ordinary lists and materialize them as today.
 
 The first message opens with one app-written line naming the skill, its
 plugin when it has one, and the repository's `[method] artifacts` path relative

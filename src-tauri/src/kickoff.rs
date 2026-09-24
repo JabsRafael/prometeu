@@ -144,25 +144,64 @@ pub(crate) fn frontmatter(text: &str) -> (Option<String>, Option<String>) {
                 .is_some_and(|rest| rest.trim_start().starts_with(':'))
         })?;
         let raw = body[at][key.len()..].trim_start()[1..].trim();
-        let folded = if raw.is_empty() || raw.starts_with('>') || raw.starts_with('|') {
-            body[at + 1..]
-                .iter()
-                .take_while(|l| l.trim().is_empty() || l.starts_with([' ', '\t']))
-                .map(|l| l.trim())
-                .collect::<Vec<_>>()
-                .join(" ")
-        } else if raw.starts_with('"') {
-            serde_json::from_str::<String>(raw)
-                .unwrap_or_else(|_| raw.trim_matches('"').to_string())
-        } else if let Some(inner) = raw.strip_prefix('\'').and_then(|r| r.strip_suffix('\'')) {
-            inner.replace("''", "'")
+        let folded = if raw.starts_with('"') {
+            let quoted = &raw[..quoted_end(raw, '"')];
+            serde_json::from_str::<String>(quoted)
+                .unwrap_or_else(|_| quoted.trim_matches('"').to_string())
+        } else if raw.starts_with('\'') {
+            let quoted = &raw[..quoted_end(raw, '\'')];
+            let inner = quoted.strip_prefix('\'').unwrap_or(quoted);
+            inner.strip_suffix('\'').unwrap_or(inner).replace("''", "'")
         } else {
-            raw.to_string()
+            let raw = without_comment(raw);
+            if raw.is_empty() || raw.starts_with('>') || raw.starts_with('|') {
+                body[at + 1..]
+                    .iter()
+                    .take_while(|l| l.trim().is_empty() || l.starts_with([' ', '\t']))
+                    .map(|l| l.trim())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            } else {
+                raw.to_string()
+            }
         };
         let line = folded.split_whitespace().collect::<Vec<_>>().join(" ");
         (!line.is_empty()).then_some(line)
     };
     (value("name"), value("description"))
+}
+
+/// Drop a trailing YAML comment from a plain scalar. A `#` starts a comment only at the start of the
+/// value or after whitespace, so `a#b` stays literal.
+fn without_comment(raw: &str) -> &str {
+    let cut = raw
+        .char_indices()
+        .find(|&(i, c)| c == '#' && (i == 0 || raw[..i].ends_with([' ', '\t'])))
+        .map_or(raw.len(), |(i, _)| i);
+    raw[..cut].trim_end()
+}
+
+/// The byte length of the quoted scalar that opens `raw`, closing quote included, so anything after
+/// it (such as a comment) is ignored. `\` escapes in double quotes and `''` in single quotes stay
+/// inside. An unterminated scalar spans the whole value.
+fn quoted_end(raw: &str, quote: char) -> usize {
+    let mut chars = raw.char_indices().skip(1).peekable();
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '\\' if quote == '"' => {
+                chars.next();
+            }
+            c if c == quote => {
+                if quote == '\'' && chars.peek().is_some_and(|&(_, n)| n == '\'') {
+                    chars.next();
+                } else {
+                    return i + c.len_utf8();
+                }
+            }
+            _ => {}
+        }
+    }
+    raw.len()
 }
 
 /// Guarantee the kickoff package in a launch without touching any selection layer. The package
@@ -182,6 +221,33 @@ pub(crate) fn ensure(launch: &mut Launch, id: &str, hub: &[String]) {
     let list = axis.get_or_insert_with(Vec::new);
     if !list.iter().any(|p| p == package) {
         list.push(package.to_string());
+    }
+}
+
+/// Add a resumed conversation's kickoff package again, validating the skill with the same catalog
+/// rule as creation. A skill its package no longer ships, or a package the hub no longer has, is
+/// not added: the transcript is the session, so the resume goes on and the returned notice, in the
+/// display language, tells the person the method is gone.
+pub(crate) fn resume(
+    launch: &mut Launch,
+    id: &str,
+    standalone: &[skills::Skill],
+    hub: &[plugins::Plugin],
+) -> Option<String> {
+    match resolve(id, standalone, hub) {
+        Ok(Some(kickoff)) => {
+            let ids: Vec<String> = hub.iter().map(|p| p.id.clone()).collect();
+            ensure(launch, &kickoff.id, &ids);
+            None
+        }
+        Ok(None) => None,
+        Err(_) => {
+            let skill = parse(id).map_or(id.trim(), |(_, skill)| skill);
+            Some(i18n::pick(
+                &format!("A skill \"{skill}\" não está mais instalada; a conversa continua sem ela."),
+                &format!("The \"{skill}\" skill is no longer installed; the conversation continues without it."),
+            ))
+        }
     }
 }
 
@@ -265,6 +331,22 @@ mod tests {
             (Some("a b".into()), None)
         );
         assert_eq!(frontmatter("# No frontmatter\nname: x\n"), (None, None));
+        assert_eq!(
+            frontmatter("---\nname: specify # canonical name\ndescription: Write\t# note\n---\n"),
+            (Some("specify".into()), Some("Write".into()))
+        );
+        assert_eq!(
+            frontmatter("---\nname: \"spec #1\" # comment\ndescription: 'It''s #2' # c\n---\n"),
+            (Some("spec #1".into()), Some("It's #2".into()))
+        );
+        assert_eq!(
+            frontmatter("---\nname: a#b\ndescription: C# tips\n---\n"),
+            (Some("a#b".into()), Some("C# tips".into()))
+        );
+        assert_eq!(
+            frontmatter("---\nname: x\ndescription: > # folded\n  Use when\n  planning.\n---\n"),
+            (Some("x".into()), Some("Use when planning.".into()))
+        );
         assert_eq!(
             frontmatter("---\nnames: x\ndescription:\n---\n"),
             (None, None)
@@ -363,6 +445,32 @@ mod tests {
         ensure(&mut removed, "", &hub);
         assert_eq!(removed.plugins, None);
         assert_eq!(removed.skills, None);
+    }
+
+    #[test]
+    fn resume_keeps_an_installed_skill_and_reports_a_removed_one() {
+        let _guard = i18n::TEST_LANG.lock().unwrap_or_else(|e| e.into_inner());
+        i18n::set_lang("en".into());
+        let root = std::env::temp_dir().join(format!("prometeu-resume-{}", uuid::Uuid::new_v4()));
+        let kit = root.join("sdd-kit");
+        write(&kit, "skills/specify/SKILL.md", "---\nname: specify\n---\n");
+        let hub = [plugin("sdd-kit", &kit.display().to_string())];
+
+        let mut kept = Launch::default();
+        assert_eq!(resume(&mut kept, "sdd-kit/specify", &[], &hub), None);
+        assert_eq!(kept.plugins, Some(vec!["sdd-kit".to_string()]));
+
+        // A plugin update removed the skill: the package stays out and the person is told.
+        std::fs::remove_dir_all(kit.join("skills/specify")).unwrap();
+        let mut lost = Launch::default();
+        assert_eq!(
+            resume(&mut lost, "sdd-kit/specify", &[], &hub).as_deref(),
+            Some("The \"specify\" skill is no longer installed; the conversation continues without it.")
+        );
+        assert_eq!(lost.plugins, None);
+        assert!(resume(&mut lost, "sdd-kit/specify", &[], &[]).is_some());
+        assert_eq!(lost.plugins, None);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

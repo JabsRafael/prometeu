@@ -118,7 +118,9 @@ format changes. Compatibility is covered by `src/settings-navigation.test.ts`.
 `Tab.kickoff` is an optional `<package>/<skill>` string recording the *Start
 with* skill a conversation began from; it is omitted when absent, so ordinary
 tabs keep the previous shape and older boards load with none. A resume adds
-that package to the tab's resolved tools; no selection layer stores it.
+that package to the tab's resolved tools while the skill is still installed,
+and otherwise resumes without it and warns in the conversation; no selection
+layer stores it.
 
 The repository declares where artifacts land with `[method] artifacts` in
 `.prometeu/settings.toml`, read by `scripts.rs` with the same clone inheritance

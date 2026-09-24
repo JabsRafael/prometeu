@@ -51,8 +51,12 @@ Adopt option 3.
   `SessionLaunch` of that conversation only: a standalone `skill-<id>` on the
   skills axis, a plugin on the plugins axis. No global, project or workspace
   layer changes. `Tab.kickoff` records the choice so a resumed process adds the
-  package again; the logical session keeps its method. A package the hub no
-  longer has is ignored on resume, like an ID removed from a layer.
+  package again; the logical session keeps its method. On resume the skill is
+  validated with the same catalog rule as creation. When a plugin update or an
+  uninstall removed it, the resume still happens — the transcript is the
+  session and resuming is never blocked — but the package is not added and the
+  conversation receives a `system.notice` warning (code `kickoff.missing`),
+  rendered in the display language, saying it continues without the skill.
 - **Opening line.** The first message starts with one line naming the skill
   (and its plugin) and, when declared, the artifact path, followed by the
   attachments and the person's prompt. It is agent-facing text rendered by the
@@ -68,7 +72,9 @@ Adopt option 3.
   none, is remembered in webview localStorage (`prometeu:kickoff`), like the
   launcher's worktree switch and the issues feature's team. It is a
   per-installation convenience, not board state, and it falls back to none when
-  the skill is no longer installed.
+  the skill is no longer installed. The launcher keeps the person's choice
+  apart from the draft: a provider without `workspacePluginSelection` only
+  suppresses it, and switching back to Claude or Codex restores it.
 
 The mechanism is a prompt plus the existing skills and plugins axes, so Claude
 and Codex behave the same. Antigravity has no hub tool selection and does not
@@ -93,21 +99,24 @@ Negative:
 
 - the method is not re-announced to new tabs of the same workspace; that is a
   deliberate limit of a starting point;
-- the frontmatter reader covers the scalar forms skills use, not full YAML;
+- the frontmatter reader covers the scalar forms skills use, not full YAML; it
+  does drop trailing `# comments` from plain scalars and ignores text after a
+  closing quote;
 - `Tab.kickoff` is a new optional board field, and `[method]` a new
   repository-facing key to keep stable.
 
 ## Evidence
 
-- `kickoff.rs`: frontmatter forms, discovery that skips standalone, remote and
-  missing packages, catalog validation, axis-aware `ensure` and the localized
-  opening line.
+- `kickoff.rs`: frontmatter forms and comments, discovery that skips
+  standalone, remote and missing packages, catalog validation, axis-aware
+  `ensure`, resume validation with its notice and the localized opening line.
 - `scripts.rs::method_artifacts_are_inherited_normalized_and_never_invented`.
 - `session.rs::drafts_without_a_kickoff_still_deserialize`,
   `session.rs::first_message_opens_with_the_kickoff_line` and
   `session.rs::artifact_path_follows_the_primary_repository`.
 - `state.rs::tabs_without_a_kickoff_keep_the_previous_format`.
-- `src/kickoff.test.ts`: catalog merge and the stored preference.
+- `src/kickoff.test.ts`: catalog merge, the stored preference and the choice
+  that survives provider switches.
 - Contracts: [agent runtime](../contracts/agent-runtime.md#skill-kickoff),
   [plugin hub](../contracts/plugin-marketplace.md#skills-inside-packages),
   [IPC](../contracts/ipc.md#starting-from-a-skill) and

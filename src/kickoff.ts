@@ -44,6 +44,16 @@ export function storedKickoff(entries: KickoffEntry[]): string {
   }
 }
 
+/// Resolve the kickoff a launch carries. `chosen` is the person's explicit choice in this launcher
+/// (null until they pick; the remembered preference applies meanwhile). It survives provider
+/// switches: an unsupported provider only suppresses it, and a supporting one restores it while
+/// the catalog still offers the skill.
+export function effectiveKickoff(chosen: string | null, entries: KickoffEntry[], supported: boolean): string {
+  if (!supported) return "";
+  const id = chosen ?? storedKickoff(entries);
+  return entries.some(entry => entry.id === id) ? id : "";
+}
+
 export function rememberKickoff(id: string) {
   try {
     localStorage.setItem(KICKOFF_KEY, id);

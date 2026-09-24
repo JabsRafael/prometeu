@@ -498,13 +498,13 @@ export function openLauncher(board: Board, opts: Open) {
 
   // Offer the skills of the standalone hub and of installed plugins. The last explicit choice is a
   // per-installation preference; a skill that is no longer installed falls back to none.
-  let kickoffTouched = false;
+  // The explicit choice lives apart from the draft so a provider without skills only suppresses it.
+  let chosenKickoff: string | null = null;
   const kickoffEntries = () => kickoff.catalog(skills.list(), kickoff.pluginSkills());
   const drawKickoff = () => {
     const entries = kickoffEntries();
-    if (!entries.some((entry) => entry.id === draft.kickoff)) draft.kickoff = "";
     const supported = capabilitiesOf(draft.agent).workspacePluginSelection;
-    if (supported && !kickoffTouched && !draft.kickoff) draft.kickoff = kickoff.storedKickoff(entries);
+    draft.kickoff = kickoff.effectiveKickoff(chosenKickoff, entries, supported);
     const chosen = entries.find((entry) => entry.id === draft.kickoff);
     kickoffBtn.querySelector("span")!.textContent = chosen ? t("launcher.kickoff.chosen", { skill: chosen.name }) : t("launcher.kickoff.label");
     kickoffBtn.classList.toggle("on", !!chosen);
@@ -532,8 +532,7 @@ export function openLauncher(board: Board, opts: Open) {
     after: () => prompt.focus(),
   });
   const chooseKickoff = (id: string) => {
-    kickoffTouched = true;
-    draft.kickoff = id;
+    chosenKickoff = id;
     kickoff.rememberKickoff(id);
     drawKickoff();
   };
