@@ -507,6 +507,9 @@ pub enum GitAction {
     Pull,
     Push,
     Publish,
+    /// Throw away unstaged work: tracked paths return to their index version and untracked ones
+    /// are removed. Staged content and conflicts are never touched.
+    Discard,
 }
 
 fn action(
@@ -553,6 +556,39 @@ fn action(
             };
             args.extend(paths.iter().map(String::as_str));
             run(root, &args)?;
+        }
+        GitAction::Discard => {
+            if paths.is_empty() {
+                return Err(i18n::t("err.git.selection"));
+            }
+            let (mut tracked, mut untracked) = (Vec::new(), Vec::new());
+            for path in paths {
+                valid_path(root, path)?;
+                let file = current
+                    .changes
+                    .iter()
+                    .find(|file| &file.path == path)
+                    .filter(|_| !current.conflicts.iter().any(|file| &file.path == path))
+                    .ok_or_else(|| i18n::t("err.git.changed"))?;
+                if file.status == "?" {
+                    untracked.push(path.as_str());
+                } else {
+                    tracked.push(path.as_str());
+                }
+            }
+            if !tracked.is_empty() {
+                // Without `--source`, restore reads the index, so staged content survives.
+                let mut args = vec!["restore", "--worktree", "--"];
+                args.extend(tracked);
+                run(root, &args)?;
+            }
+            if !untracked.is_empty() {
+                // Clean refuses ignored files and directories without extra flags; status lists
+                // untracked files one by one, so only those exact paths go.
+                let mut args = vec!["clean", "--force", "--quiet", "--"];
+                args.extend(untracked);
+                run(root, &args)?;
+            }
         }
         GitAction::Commit => {
             if current.branch.is_none() {
@@ -667,7 +703,8 @@ pub fn workspace_git_action(
     remote: Option<String>,
 ) -> Result<(), String> {
     let _guard = MUTATION.try_lock().map_err(|_| i18n::t("err.git.busy"))?;
-    if matches!(operation, GitAction::Pull)
+    // Both rewrite files an agent may be editing mid-turn.
+    if matches!(operation, GitAction::Pull | GitAction::Discard)
         && lock(&state.board).workspaces.iter().any(|workspace| {
             workspace.id == id
                 && workspace

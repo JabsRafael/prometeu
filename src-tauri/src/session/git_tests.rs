@@ -424,6 +424,54 @@ fn keeping_ours_can_finish_merge_without_staged_file_changes() {
     assert!(repo.git(&["diff", "HEAD^", "HEAD"]).is_empty());
 }
 
+#[test]
+fn discard_restores_the_index_version_and_removes_only_listed_untracked_files() {
+    let repo = Repository::new();
+    repo.write(".gitignore", "ignored.log\n");
+    repo.write("a.txt", "base\n");
+    repo.write("gone.txt", "gone\n");
+    repo.write("only-staged.txt", "base\n");
+    repo.commit("base");
+    repo.write("a.txt", "staged\n");
+    repo.act(GitAction::Stage, &["a.txt"]).unwrap();
+    repo.write("a.txt", "worktree\n");
+    repo.write("only-staged.txt", "staged\n");
+    repo.act(GitAction::Stage, &["only-staged.txt"]).unwrap();
+    std::fs::remove_file(repo.0.join("gone.txt")).unwrap();
+    repo.write("new.txt", "untracked\n");
+    repo.write("kept.txt", "untracked\n");
+    repo.write("ignored.log", "ignored\n");
+
+    assert_eq!(
+        repo.act(GitAction::Discard, &[]),
+        Err(i18n::t("err.git.selection"))
+    );
+    // A path without unstaged work has nothing to discard; staged content is not the target.
+    assert_eq!(
+        repo.act(GitAction::Discard, &["only-staged.txt"]),
+        Err(i18n::t("err.git.changed"))
+    );
+    assert_eq!(
+        repo.act(GitAction::Discard, &["ignored.log"]),
+        Err(i18n::t("err.git.changed"))
+    );
+    assert!(repo.act(GitAction::Discard, &["../a.txt"]).is_err());
+
+    repo.act(GitAction::Discard, &["a.txt", "gone.txt", "new.txt"])
+        .unwrap();
+    assert_eq!(repo.read("a.txt"), "staged\n");
+    assert_eq!(repo.read("gone.txt"), "gone\n");
+    assert!(!repo.0.join("new.txt").exists());
+    assert_eq!(repo.read("kept.txt"), "untracked\n");
+    assert_eq!(repo.read("ignored.log"), "ignored\n");
+    let value = status(&repo.0, "main").unwrap();
+    assert_eq!(
+        entries(&value.staged),
+        [("a.txt", "M"), ("only-staged.txt", "M")]
+    );
+    assert_eq!(entries(&value.changes), [("kept.txt", "?")]);
+}
+
 fn marks_of(root: &Path, repos: &[PathBuf]) -> Vec<(String, String)> {
     let mut marks: Vec<_> = tree_marks(root, repos)
         .into_iter()
