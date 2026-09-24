@@ -238,8 +238,9 @@ pub fn rename_path(
     rename(&root, &from, &to)
 }
 
-/// Move to the system trash instead of deleting, so untracked work can still be recovered.
-#[tauri::command]
+/// Move to the system trash instead of deleting, so untracked work can still be recovered. Async
+/// because the platform trash can be slow, notably through Finder on macOS.
+#[tauri::command(async)]
 pub fn trash_path(state: State<AppState>, id: String, rel: String) -> Result<(), String> {
     let root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
     trash_entry(&root, &rel)
