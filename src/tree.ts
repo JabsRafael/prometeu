@@ -150,9 +150,11 @@ async function fill(id: string, rel: string, into: HTMLElement, depth: number, l
     row.children[1].textContent = entry.name;
     paint(row);
     into.append(row);
+    // The row stays highlighted while its menu is open, like a file manager's selection.
     row.addEventListener("contextmenu", (event) => {
       event.preventDefault();
-      menu.openAt({ x: event.clientX, y: event.clientY }, actions(row, entry, gone));
+      row.classList.add("menu-target");
+      menu.openAt({ x: event.clientX, y: event.clientY }, actions(row, entry, gone), undefined, () => row.classList.remove("menu-target"));
     });
     row.addEventListener("keydown", (event) => {
       if (gone) return;
@@ -299,12 +301,16 @@ function startRename(row: HTMLElement, entry: PathEntry) {
 async function trash(entry: PathEntry) {
   const id = workspace();
   if (!id) return;
+  // Keep showing which entry the confirmation is about.
+  const row = $("tree").querySelector<HTMLElement>(`.treerow[data-path="${CSS.escape(entry.path)}"]`);
+  row?.classList.add("confirm-target");
   const sure = await confirmDialog({
     title: t("tree.trash.title", { name: entry.name }),
     message: t(entry.dir ? "tree.trash.folder" : "tree.trash.file"),
     accept: t("tree.trash.accept"),
     cancel: t("tree.cancel"),
   });
+  row?.classList.remove("confirm-target");
   if (!sure) return;
   try {
     await invoke("trash_path", { id, rel: entry.path });

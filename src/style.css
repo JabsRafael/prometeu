@@ -843,6 +843,8 @@ body.noside .side { display: none; }
 .treerow[data-gone] .tn { text-decoration: line-through; }
 .treerow[data-gone][data-dir="0"] { cursor: default; }
 .treerow[data-dir="0"][data-git]:hover, .treerow[data-gone]:hover { filter: brightness(1.25); }
+.treerow.menu-target, .treerow.confirm-target { background-color: var(--bg-raised-2); box-shadow: inset 0 0 0 1px var(--tab-line); }
+.treerow[data-dir="0"][data-git].menu-target, .treerow[data-gone].menu-target, .treerow[data-dir="0"][data-git].confirm-target, .treerow[data-gone].confirm-target { filter: brightness(1.25); }
 
 /* The tree has no top scroll padding; put spacing in the summary. */
 .difflist { overflow-y: auto; padding: 0 8px 4px; display: flex; flex-direction: column; gap: 1px; }
