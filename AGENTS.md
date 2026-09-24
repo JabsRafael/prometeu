@@ -68,6 +68,9 @@ The complete dependency rules are in
   its features; they never import Tauri or IPC (ADR 0026).
 - `src/mobile/`: the browser shell over the same core, vendored in the Cloud as
   a bundle (ADR 0028).
+- `src-tauri/src/evaluation.rs` and `src-tauri/src/typesafe.rs`: optional
+  context-evaluation port and its TypeSafe adapter (ADR 0057);
+  `src/context-review.ts` holds the missing-context review rules.
 - `relay/src/protocol.ts`: the network contract shared by the app and the
   Worker.
 - `relay/src/logic.ts`: the relay's pure rules.

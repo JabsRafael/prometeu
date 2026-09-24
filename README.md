@@ -46,6 +46,12 @@ optional for local work; model access comes from your own provider account.
 - **Local notifications.** Opt into completion, approval/input and error alerts
   in Settings. Choose a macOS banner, a notch overlay or sound alone.
   Notifications and sound start disabled; phone push is not included.
+- **Optional request review.** Bring your own TypeSafe API key and turn the
+  review on in Settings to add **Review request** to new workspaces. It looks
+  for a missing decision, such as an undefined rule for existing records, and
+  suggests at most two questions you can answer, hand to the agent or dismiss.
+  It is off by default, sends your draft only when you ask, and never blocks
+  creating the workspace. See [context evaluation](docs/contracts/context-evaluation.md).
 - **Git review.** Read unified or side-by-side diffs, stage selected files,
   commit only the index, inspect history, compare branches, and resolve conflicts.
 - **Files, terminals, and browser preview.** Edit code, read Markdown, view PDFs and CSVs,

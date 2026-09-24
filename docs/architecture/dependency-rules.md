@@ -99,6 +99,14 @@ the member, in the order chosen by the composition root. `src/team.ts` is the
 desktop shell; no `team-*.ts` imports `@tauri-apps`, `./ipc`, `./mock` or
 `./team`. See [ADR 0026](../decisions/0026-portable-collaboration-core.md).
 
+### Context evaluation
+
+Varies per external service and its wire format. Features ask closed questions
+through the port in `evaluation.rs`/`evaluation.ts` and apply their own rules;
+the credential, transport, retries and vendor validation stay in `typesafe.rs`.
+`context-review.ts` imports only the port types and runs with a fake port in
+tests. See [ADR 0057](../decisions/0057-optional-context-evaluation.md).
+
 ### Local system
 
 Git, files, PTY, processes and the embedded browser are external effects. Rules

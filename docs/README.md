@@ -17,6 +17,8 @@ as a short index for agents and `README.md` presents the product.
 
 - [Local notifications](contracts/notifications.md): event selection, native delivery and silent defaults.
 
+- [Optional context evaluation](contracts/context-evaluation.md): bring-your-own-key TypeSafe integration, evaluation port and missing-context review.
+
 - [Embedded MCP and delegation](contracts/embedded-mcp.md): local, opt-in orchestration infrastructure with client-owned agents and optional conversation context.
 
 - [Browser and visual context](contracts/browser.md): preview, inspection, captures and sending to the draft.
@@ -100,6 +102,7 @@ compatibility still in use stays documented in the current contracts.
 - [ADR 0054](decisions/0054-local-notifications.md): opt-in local notifications with independent sound.
 - [ADR 0055](decisions/0055-linux-desktop.md): Linux desktop through system programs.
 - [ADR 0056](decisions/0056-background-tasks-hold-completion.md): a turn only completes when its background tasks drain.
+- [ADR 0057](decisions/0057-optional-context-evaluation.md): optional context evaluation behind an application-owned port.
 
 ## Quality and operations
 
