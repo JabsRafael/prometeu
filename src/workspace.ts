@@ -65,7 +65,7 @@ export function init(context: Ctx) {
     refresh: async () => { if (openWs && hasDiff()) await loadChanges(openWs); },
     show: activateChanges,
     say: ctx.say,
-    openFile: openChange,
+    openFile: (repo, path) => void openRepoFile(repo, path),
     launchBranch: ctx.launchBranch,
     openWorkspace: ctx.openGitWorkspace,
   });
@@ -74,7 +74,8 @@ export function init(context: Ctx) {
   dockbar.init({
     workspace: root,
     say: ctx.say,
-    openFile,
+    // The scripts file is relative to the primary repository, like Rust's `Workspace::primary`.
+    openFile: (path) => openRepoFile(current()?.repos[0]?.name ?? "", path),
     newTab,
     openBrowser: showWeb,
     enter: showShell,
@@ -1082,6 +1083,9 @@ async function closeChanges() {
 /// The preview shares the center with the conversation; other views replace both.
 function center(show: "chatwrap" | "viewer" | "diffview" | "webview" | "termview") {
   if (show !== "webview") restoreBrowserSide();
+  // Every route to the viewer, and every route away from it, passes here; the tree marks what it shows.
+  const id = root();
+  tree.select(show === "viewer" && id ? files(id).active : null);
   for (const id of ["chatwrap", "viewer", "diffview", "webview", "termview"] as const) $(id).hidden = id !== show;
   $("tabbody").classList.toggle("browser", show === "webview");
   $("websplit").hidden = show !== "webview";
@@ -1165,14 +1169,16 @@ function outstanding(id: string): { dirty: number; unpushed: number } | null {
   };
 }
 
-/// Translate repository-relative diff paths into workspace-relative viewer paths, including the repository prefix for multi-repository workspaces.
-function openChange(repo: string, path: string) {
+/// Translate repository-relative paths (diffs, the scripts file) into workspace-relative viewer
+/// paths, including the repository prefix for multi-repository workspaces. The result is the same
+/// string list_dir gives that file's row, so the tree can mark it.
+async function openRepoFile(repo: string, path: string) {
   const ws = current();
   if (!ws) return;
   const root = ws.worktree;
   const mine = ws.repos.find((r) => r.name === repo)?.worktree ?? root;
   const under = mine.startsWith(`${root}/`) ? `${mine.slice(root.length + 1)}/` : "";
-  void openFile(`${under}${path}`);
+  await openFile(`${under}${path}`);
 }
 
 /* Project-only view. */
