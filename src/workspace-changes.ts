@@ -5,7 +5,7 @@ import { $, h, template } from "./util";
 import { button as uiButton, confirmDialog, input as uiInput, field } from "./ui";
 import * as diff from "./diff";
 import * as menu from "./menu";
-import { changesMenu } from "./changes-menu";
+import { changesMenu, type Availability, type Refusal } from "./changes-menu";
 import type * as fileMenu from "./file-menu";
 import type { GitAction, GitConflict, GitDiff, GitFile, GitStatus, RepoDiff, Workspace } from "./types";
 
@@ -189,6 +189,13 @@ function drawSidebar() {
   const target = { id: ws.id, repo: view.repo, index: repo.index };
   const act = (operation: GitAction, paths: string[] = [], remote?: string) => perform(target, operation, paths, remote);
   const disabled = busy || !!repo.error;
+  // Read live, not at draw time: the agent's status does not redraw this list.
+  const availability = (): Availability => {
+    const latest = current();
+    return { agentRunning: !!context.workspace()?.tabs.some(tab => tab.status === "rodando"), blocked: busy || !latest || !!latest.error };
+  };
+  // A blocked operation already shows its progress or error in the panel; only the agent needs saying.
+  const refused = (why: Refusal) => { if (why === "agent") context.say(t("err.git.agent"), true); };
   const branch = button(repo.branch ?? t("git.detached"), () => show("branches"), false, "ghost git-branch");
   branch.prepend(template("span", "", icon("git-branch", 13)));
   branch.title = `${repo.branch ?? t("git.detached")} · ${t("git.branches")}`;
@@ -292,14 +299,11 @@ function drawSidebar() {
       // Replace the engine's page menu, which offers web actions over the file's path.
       row.addEventListener("contextmenu", event => {
         event.preventDefault();
-        const host = context.fileHost(repo.name), latest = current();
+        const host = context.fileHost(repo.name);
         menu.openAt({ x: event.clientX, y: event.clientY }, changesMenu(file, {
-          ...host, scope,
-          // Read at opening time: the agent's status does not redraw this list.
-          agentRunning: !!context.workspace()?.tabs.some(tab => tab.status === "rodando"),
-          blocked: busy || !latest || !!latest.error,
+          ...host, scope, availability,
           hooks: {
-            ...host.hooks,
+            ...host.hooks, refused,
             review: () => selectFile(file, scope),
             open: () => context.openFile(repo.name, file.path),
             stage: () => void act("stage", [file.path]),

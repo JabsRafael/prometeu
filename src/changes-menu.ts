@@ -20,14 +20,40 @@ export type Hooks = file.Hooks & {
   unstage: () => void;
   /// Asks for confirmation before anything is lost; the builder only offers it.
   discard: () => void;
+  /// A Git item was activated after the state stopped allowing it; explain why.
+  refused: (why: Refusal) => void;
 };
 
-export type Context = file.Context & {
-  scope: Scope;
+/// What decides whether a Git action on a file may run now.
+export type Availability = {
   /// A running turn may be editing the same files, so Git actions wait for it.
   agentRunning: boolean;
   /// Another Git operation is in flight or the repository did not answer.
   blocked: boolean;
+};
+
+export type Refusal = "agent" | "blocked";
+
+/// Why a Git action may not run now, or null when it may. The menu reads it when it opens and
+/// again when an item runs, because an agent can start or an operation begin in between and the
+/// backend does not check the agent before staging or unstaging.
+export function refusal(state: Availability): Refusal | null {
+  return state.agentRunning ? "agent" : state.blocked ? "blocked" : null;
+}
+
+/// Run a Git action only if the current state still allows it.
+function guarded(availability: () => Availability, run: () => void, refused: (why: Refusal) => void) {
+  return () => {
+    const why = refusal(availability());
+    if (why) refused(why);
+    else run();
+  };
+}
+
+export type Context = file.Context & {
+  scope: Scope;
+  /// Read when the menu opens and again when a Git item runs.
+  availability: () => Availability;
   hooks: Hooks;
 };
 
@@ -45,12 +71,13 @@ export function changesMenu(change: Change, ctx: Context): menu.Item[] {
   ];
 
   // Keep blocked actions visible so the person learns why they wait.
+  const why = refusal(ctx.availability());
   const gate = (item: Exclude<menu.Item, "sep">): menu.Item =>
-    ctx.agentRunning
+    why === "agent"
       ? { ...item, disabled: true, hint: t("err.git.agent"), run: undefined }
-      : ctx.blocked
+      : why === "blocked"
         ? { ...item, disabled: true, run: undefined }
-        : item;
+        : { ...item, run: item.run && guarded(ctx.availability, item.run, hooks.refused) };
   // Conflicts are settled in their editor, which stages the result; the menu only leads there.
   if (ctx.scope === "staged") {
     items.push(gate({ label: t("git.unstage"), glyph: icon("x"), run: hooks.unstage }), "sep");

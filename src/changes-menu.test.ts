@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { t, use } from "./i18n";
 import * as menu from "./menu";
-import { changesMenu, type Change, type Context, type Hooks } from "./changes-menu";
+import { changesMenu, refusal, type Availability, type Change, type Context, type Hooks } from "./changes-menu";
 
 beforeEach(() => use("en"));
 
@@ -16,14 +16,16 @@ function hooks(): Hooks {
     stage: vi.fn(),
     unstage: vi.fn(),
     discard: vi.fn(),
+    refused: vi.fn(),
     attach: vi.fn(),
     copy: vi.fn(),
     reveal: vi.fn(),
   };
 }
 
-function context(over: Partial<Context> = {}): Context {
-  return { root: ROOT, scope: "changes", agentRunning: false, blocked: false, hooks: hooks(), ...over };
+function context(over: Partial<Context> & Partial<Availability> = {}): Context {
+  const { agentRunning = false, blocked = false, ...rest } = over;
+  return { root: ROOT, scope: "changes", availability: () => ({ agentRunning, blocked }), hooks: hooks(), ...rest };
 }
 
 const labels = (items: menu.Item[]) => items.map((item) => (item === "sep" ? "sep" : item.label));
@@ -133,5 +135,46 @@ describe("unavailable Git actions", () => {
     const item = pick(changesMenu(modified, context({ scope: "staged", blocked: true })), "Unstage file");
     expect(item.disabled).toBe(true);
     expect(item.run).toBeUndefined();
+  });
+});
+
+describe("state that changes while the menu is open", () => {
+  it("refuses a Git item when an agent started after the menu opened", () => {
+    const live: Availability = { agentRunning: false, blocked: false };
+    const ctx = context({ availability: () => live });
+    const items = changesMenu(modified, ctx);
+    live.agentRunning = true;
+    for (const label of ["Stage file", "Discard changes"]) pick(items, label).run?.();
+    expect(ctx.hooks.stage).not.toHaveBeenCalled();
+    expect(ctx.hooks.discard).not.toHaveBeenCalled();
+    expect(ctx.hooks.refused).toHaveBeenCalledWith("agent");
+  });
+
+  it("refuses unstaging when another operation began after the menu opened", () => {
+    const live: Availability = { agentRunning: false, blocked: false };
+    const ctx = context({ scope: "staged", availability: () => live });
+    const item = pick(changesMenu(modified, ctx), "Unstage file");
+    live.blocked = true;
+    item.run?.();
+    expect(ctx.hooks.unstage).not.toHaveBeenCalled();
+    expect(ctx.hooks.refused).toHaveBeenCalledWith("blocked");
+  });
+
+  it("leaves the file's other groups unaffected", () => {
+    const live: Availability = { agentRunning: false, blocked: false };
+    const ctx = context({ availability: () => live });
+    const items = changesMenu(modified, ctx);
+    live.agentRunning = true;
+    pick(items, "Open diff").run?.();
+    pick(items, "Copy path").run?.();
+    expect(ctx.hooks.review).toHaveBeenCalledOnce();
+    expect(ctx.hooks.copy).toHaveBeenCalledOnce();
+    expect(ctx.hooks.refused).not.toHaveBeenCalled();
+  });
+
+  it("names the agent before another operation, since only the agent needs explaining", () => {
+    expect(refusal({ agentRunning: false, blocked: false })).toBeNull();
+    expect(refusal({ agentRunning: true, blocked: true })).toBe("agent");
+    expect(refusal({ agentRunning: false, blocked: true })).toBe("blocked");
   });
 });

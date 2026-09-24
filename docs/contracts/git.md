@@ -140,8 +140,12 @@ Files tree offers too, from `src/file-menu.ts`: attaching the file to the
 conversation, copying its repository-relative or absolute path and showing it in
 the file manager. A deleted file offers only its paths. Git items stay visible
 but disabled while another operation runs, and while an agent runs, with
-`err.git.agent` as the reason. Conflicts have no Git item: their editor stages
-the resolution. The menu acts on one file; there is no multiple selection.
+`err.git.agent` as the reason. The same check runs again when a Git item is
+activated, since an agent may start while the menu is open and the backend does
+not check the agent before staging or unstaging: the item then does nothing and
+the panel reports `err.git.agent`. The backend also refuses Discard while a tab
+runs. Conflicts have no Git item: their editor stages the resolution. The menu
+acts on one file; there is no multiple selection.
 
 The tree and this panel keep separate builders and share only those trailing
 groups: the Git group, the scope and the agent state mean nothing to the tree,
@@ -184,8 +188,8 @@ protocol migration.
 
 - `src-tauri/src/session/git_tests.rs`: real Git repositories, partial index,
   special paths, discard, commit, local remotes, conflicts and merge.
-- `src/changes-menu.test.ts`: the file menu per scope, for a deleted file and
-  while an agent runs.
+- `src/changes-menu.test.ts`: the file menu per scope, for a deleted file,
+  while an agent runs and when one starts after the menu opened.
 - `src/diff.test.ts`: line numbering on both sides and alignment of
   replacements, additions and deletions between hunks.
 - `e2e/git.spec.ts`: representative review and commit flows, filters, layout,
