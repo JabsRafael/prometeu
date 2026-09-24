@@ -202,8 +202,10 @@ not followed, so renaming or trashing a symlink acts on the link. Trash is used
 so untracked work, which Git cannot bring back, is still recoverable; a failure
 answers `err.files.trash` with the system's `cause`. `reveal` takes an optional
 `rel` and opens that folder, or the folder of that file, instead of the root.
-The UI moves the open file tabs of a renamed entry and closes those of a
-trashed one.
+A case change of the same entry is the only rename allowed onto an existing
+name; entries are compared by inode, so two symlinks to one file stay distinct.
+The UI moves the open file tabs and unsaved drafts of a renamed entry and drops
+those of a trashed one, in the workspace where the action started.
 
 `open_dock` accepts a project id only for a terminal: the shell only needs the
 folder, and without a workspace there is no script variable to pass. Setup and
