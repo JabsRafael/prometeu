@@ -667,6 +667,8 @@ main { flex: 1; min-height: 0; position: relative; }
   position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
   margin: 0; font: inherit; white-space: pre; tab-size: 4; padding: 0 24px 0 0; color: transparent;
 }
+/* Only lines with a match get a row; 20px is .vcode's line-height, so rows sit on their lines. */
+#vmarks > div { position: absolute; left: 0; top: calc(var(--row) * 20px); }
 #vmarks mark { color: transparent; background: var(--wait-bg); border-radius: 2px; }
 #vmarks mark.on { background: color-mix(in srgb, var(--wait) 45%, transparent); outline: 1px solid var(--wait); }
 /* The find bar docks under the breadcrumb bar so it never covers code. */

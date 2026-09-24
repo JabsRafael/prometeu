@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { caseSensitive, findMatches, markup, nearest, step } from "./find";
+import { caseSensitive, findCapped, findMatches, follow, markup, nearest, step } from "./find";
 
 describe("findMatches", () => {
   it("returns nothing for an empty query", () => {
@@ -42,6 +42,54 @@ describe("findMatches", () => {
   });
 });
 
+describe("findCapped", () => {
+  it("reports exactly the cap as complete", () => {
+    const { matches, more } = findCapped("x".repeat(5), "x", 5);
+    expect(matches).toHaveLength(5);
+    expect(more).toBe(false);
+  });
+
+  it("reports one past the cap as truncated without keeping the extra match", () => {
+    const { matches, more } = findCapped("x".repeat(6), "x", 5);
+    expect(matches).toHaveLength(5);
+    expect(more).toBe(true);
+  });
+});
+
+describe("follow", () => {
+  it("shifts offsets after an edit by its length change", () => {
+    expect(follow("aa foo foo", "aaXX foo foo", 7)).toBe(9);
+    expect(follow("aaXX foo foo", "aa foo foo", 9)).toBe(7);
+  });
+
+  it("keeps offsets before an edit", () => {
+    expect(follow("foo bar foo", "foo bar foo!!", 8)).toBe(8);
+  });
+
+  it("collapses offsets inside a replaced range to where the edit starts", () => {
+    expect(follow("a foo b", "a b", 3)).toBe(2);
+  });
+
+  it("keeps the same active match when an edit before it removes text", () => {
+    const before = "abc foo foo";
+    const after = "foo foo";
+    const was = findMatches(before, "foo")[0].start;
+    const hits = findMatches(after, "foo");
+    // Searching from the stale offset would jump to the next match.
+    expect(nearest(hits, was)).toBe(1);
+    expect(nearest(hits, follow(before, after, was))).toBe(0);
+  });
+
+  it("keeps the same active match when an edit before it inserts text", () => {
+    const before = "foo foo";
+    const after = "XXXXXfoo foo";
+    const was = findMatches(before, "foo")[1].start;
+    const hits = findMatches(after, "foo");
+    expect(nearest(hits, was)).toBe(0);
+    expect(nearest(hits, follow(before, after, was))).toBe(1);
+  });
+});
+
 describe("navigation", () => {
   const hits = findMatches("a\na\na", "a");
 
@@ -66,7 +114,18 @@ describe("markup", () => {
   it("escapes text and marks the active match", () => {
     const text = "<a> & a";
     const hits = findMatches(text, "a");
-    expect(markup(text, hits, 1)).toBe('&lt;<mark>a</mark>&gt; &amp; <mark class="on">a</mark>');
+    expect(markup(text, hits, 1)).toBe(
+      '<div style="--row:0">&lt;<mark>a</mark>&gt; &amp; <mark class="on">a</mark></div>',
+    );
+  });
+
+  it("emits rows only for lines that hold a match", () => {
+    const text = "one\ntwo a\nthree\na four a\nfive";
+    const hits = findMatches(text, "a");
+    expect(markup(text, hits, 2)).toBe(
+      '<div style="--row:1">two <mark>a</mark></div>' +
+        '<div style="--row:3"><mark>a</mark> four <mark class="on">a</mark></div>',
+    );
   });
 
   it("renders nothing without matches", () => {

@@ -29,6 +29,34 @@ export function findMatches(text: string, query: string, limit = MAX_MATCHES): M
   return out;
 }
 
+/// Matches up to the cap, plus whether the text holds more. Collecting one extra match tells
+/// exactly `limit` occurrences apart from a truncated list.
+export function findCapped(text: string, query: string, limit = MAX_MATCHES): { matches: Match[]; more: boolean } {
+  const matches = findMatches(text, query, limit + 1);
+  const more = matches.length > limit;
+  if (more) matches.pop();
+  return { matches, more };
+}
+
+/// Map an offset in `before` onto `after`, assuming one contiguous edit between them. Offsets
+/// before the edit stay, offsets after it shift by the length change, and offsets inside the
+/// replaced range collapse to where the edit starts.
+export function follow(before: string, after: string, offset: number): number {
+  if (before === after) return offset;
+  const shortest = Math.min(before.length, after.length);
+  let head = 0;
+  while (head < shortest && before.charCodeAt(head) === after.charCodeAt(head)) head++;
+  let tail = 0;
+  while (
+    tail < shortest - head &&
+    before.charCodeAt(before.length - 1 - tail) === after.charCodeAt(after.length - 1 - tail)
+  )
+    tail++;
+  if (offset <= head) return offset;
+  if (offset >= before.length - tail) return offset + after.length - before.length;
+  return head;
+}
+
 /// The first match at or after the caret, wrapping to the first match; -1 when there are none.
 export function nearest(matches: Match[], offset: number): number {
   if (!matches.length) return -1;
@@ -45,16 +73,28 @@ export function step(index: number, count: number, delta: number): number {
 
 const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-/// Markup for the viewer's marker layer: the full text (made transparent by CSS, so glyph
-/// positions match the editor exactly) with each match wrapped in a <mark>.
+/// Markup for the viewer's marker layer: one row per line that holds a match, placed by its line
+/// number (`--row`, multiplied by the editor's line height in CSS). Each row repeats its line's
+/// text, made transparent by CSS, so glyph positions match the editor exactly; lines without a
+/// match cost nothing.
 export function markup(text: string, matches: Match[], active: number): string {
-  if (!matches.length) return "";
   let html = "";
-  let at = 0;
-  matches.forEach((m, i) => {
-    html += escapeHtml(text.slice(at, m.start));
-    html += `<mark${i === active ? ' class="on"' : ""}>${escapeHtml(text.slice(m.start, m.end))}</mark>`;
-    at = m.end;
-  });
-  return html + escapeHtml(text.slice(at));
+  let i = 0;
+  while (i < matches.length) {
+    const line = matches[i].line;
+    const start = matches[i].start;
+    const from = start > 0 ? text.lastIndexOf("\n", start - 1) + 1 : 0;
+    let row = "";
+    let at = from;
+    for (; i < matches.length && matches[i].line === line; i++) {
+      const m = matches[i];
+      row += escapeHtml(text.slice(at, m.start));
+      row += `<mark${i === active ? ' class="on"' : ""}>${escapeHtml(text.slice(m.start, m.end))}</mark>`;
+      at = m.end;
+    }
+    const end = text.indexOf("\n", at);
+    row += escapeHtml(text.slice(at, end < 0 ? text.length : end));
+    html += `<div style="--row:${line}">${row}</div>`;
+  }
+  return html;
 }

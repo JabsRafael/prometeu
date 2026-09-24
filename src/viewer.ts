@@ -4,7 +4,7 @@ import { highlight } from "./highlight";
 import { md } from "./markdown";
 import { decode, parse } from "./csv";
 import { fileIcon, icon } from "./icons";
-import { findMatches, markup, MAX_MATCHES, nearest, step, type Match } from "./find";
+import { findCapped, follow, markup, nearest, step, type Match } from "./find";
 import { button, input } from "./ui";
 import { $ } from "./util";
 
@@ -34,6 +34,12 @@ let reading = false;
 let finding = false;
 let hits: Match[] = [];
 let active = -1;
+/// The buffer had more matches than `hits` holds.
+let more = false;
+/// The buffer `hits` was computed from, so an edit can carry the active match to its new offset.
+let seen = "";
+/// What the marker layer currently shows; a repaint that changes none of it skips the rebuild.
+let drawn = { text: "", query: "", active: -1 };
 let query: HTMLInputElement;
 
 const box = () => $("vtext") as HTMLTextAreaElement;
@@ -142,15 +148,17 @@ function closeFind(refocus = true) {
   if (!finding) return;
   finding = false;
   hits = [];
+  more = false;
   active = -1;
   $("vfind").hidden = true;
   $("vmarks").textContent = "";
+  drawn = { text: "", query: "", active: -1 };
   if (refocus && !box().hidden) box().focus({ preventScroll: true });
 }
 
 /// Recompute matches for a new query, starting from the caret, and reveal the first one.
 function search(from: number) {
-  hits = findMatches(box().value, query.value);
+  collect();
   active = nearest(hits, from);
   marks();
   reveal();
@@ -163,24 +171,35 @@ function go(delta: number) {
   reveal();
 }
 
-/// After an edit or a disk refresh, keep the active match closest to where it was without moving the caret.
+/// After an edit or a disk refresh, keep the active match where it was, carried across the edit,
+/// without moving the caret.
 function refind() {
   if (!finding) return;
   const was = active >= 0 ? hits[active]?.start ?? 0 : 0;
-  hits = findMatches(box().value, query.value);
-  active = nearest(hits, was);
+  const before = seen;
+  collect();
+  active = nearest(hits, follow(before, seen, was));
   marks();
 }
 
+function collect() {
+  seen = box().value;
+  ({ matches: hits, more } = findCapped(seen, query.value));
+}
+
 function marks() {
-  $("vmarks").innerHTML = markup(box().value, hits, active);
+  const now = { text: box().value, query: query.value, active };
+  if (now.text !== drawn.text || now.query !== drawn.query || now.active !== drawn.active) {
+    $("vmarks").innerHTML = markup(now.text, hits, active);
+    drawn = now;
+  }
   const n = $("vfindn");
   n.classList.toggle("none", !!query.value && !hits.length);
   n.textContent = !query.value
     ? ""
     : !hits.length
       ? t("viewer.find.none")
-      : t(hits.length >= MAX_MATCHES ? "viewer.find.countMany" : "viewer.find.count", {
+      : t(more ? "viewer.find.countMany" : "viewer.find.count", {
           at: active + 1,
           total: hits.length,
         });

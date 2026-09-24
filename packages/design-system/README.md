@@ -199,7 +199,10 @@ open dialog when present. `options` supplies translated `label`,
 `refresh: { label, run }`, `additional: { label, checked, change }`, `closed`
 and `search(query)`. With `search`, the caller owns ranking: the picker reports
 each query and shows the items passed to `update` without filtering them again,
-so fuzzy backend results are not discarded by the local term match.
+so fuzzy backend results are not discarded by the local term match. Between a
+keystroke and the next `update`, the previous results stay visible but disabled
+and the list is `aria-busy`, so Enter or a click cannot select an answer to an
+older query.
 Items contain stable `key`, `label`, optional `detail`, `searchText`, `group`,
 `checked`, `disabled`, and `secondary: { label, pressed, run }`. The secondary
 button is independent of selection and exposes `aria-pressed`; the caller owns

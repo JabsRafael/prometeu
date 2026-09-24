@@ -16,13 +16,15 @@ use super::files::Entry;
 
 /// Use Git to list tracked and untracked files while respecting ignores; scan directly only for
 /// non-Git folders. Prefix multi-repository paths with their repository directory. Recent timeline
-/// file accesses provide an ordered relevance boost.
+/// file accesses provide an ordered relevance boost. `files` drops directories before candidate
+/// trimming and the row limit, so callers that only open files never lose a file to directories.
 #[tauri::command(async)]
 pub fn find_paths(
     state: State<AppState>,
     id: String,
     query: String,
     recent: Vec<String>,
+    files: Option<bool>,
 ) -> Vec<Entry> {
     let Some(root) = cwd_of(&state, &id) else {
         return Vec::new();
@@ -32,13 +34,31 @@ pub fn find_paths(
     let fresh = recency(&state, &id, &recent);
 
     let q: Vec<u8> = query.to_ascii_lowercase().into_bytes();
-    let short = shortlist(&all, &q, &fresh);
+    ranked(&all, &q, &fresh, files.unwrap_or(false))
+        .into_iter()
+        .take(MOST)
+        .map(|span| Entry {
+            name: all.name(span).to_string(),
+            path: all.text(span).to_string(),
+            dir: span.dir,
+        })
+        .collect()
+}
 
+/// Shortlist, score and order every matching path, best first. With `files`, directories never
+/// enter the shortlist, so they cannot take the place of a matching file.
+fn ranked<'a>(
+    all: &'a Corpus,
+    q: &[u8],
+    fresh: &HashMap<String, i32>,
+    files: bool,
+) -> Vec<&'a Span> {
+    let short = shortlist(all, q, fresh, files);
     let mut hits: Vec<(i32, u32, u32, &Span)> = short
         .into_iter()
         .filter_map(|at| {
             let span = &all.at[at];
-            let points = points(&q, &all, span)? + fresh.get(all.text(span)).copied().unwrap_or(0);
+            let points = points(q, all, span)? + fresh.get(all.text(span)).copied().unwrap_or(0);
             Some((-points, span.depth, span.to - span.from, span))
         })
         .collect();
@@ -48,15 +68,7 @@ pub fn find_paths(
             .then(a.2.cmp(&b.2))
             .then(all.text(a.3).cmp(all.text(b.3)))
     });
-
-    hits.into_iter()
-        .take(MOST)
-        .map(|(_, _, _, span)| Entry {
-            name: all.name(span).to_string(),
-            path: all.text(span).to_string(),
-            dir: span.dir,
-        })
-        .collect()
+    hits.into_iter().map(|(_, _, _, span)| span).collect()
 }
 
 /// Limit suggestion rows to fit the composer menu.
@@ -125,7 +137,7 @@ fn low(b: u8) -> u8 {
 /// Cheaply rank name prefixes, contiguous matches, subsequences, and path matches before detailed
 /// scoring. Filter independent chunks in parallel for large repositories, retaining only a bounded
 /// candidate set.
-fn shortlist(all: &Corpus, q: &[u8], fresh: &HashMap<String, i32>) -> Vec<usize> {
+fn shortlist(all: &Corpus, q: &[u8], fresh: &HashMap<String, i32>, files: bool) -> Vec<usize> {
     let hands = match all.at.len() {
         // Small repositories avoid parallel-dispatch overhead.
         0..=20_000 => 1,
@@ -146,6 +158,9 @@ fn shortlist(all: &Corpus, q: &[u8], fresh: &HashMap<String, i32>) -> Vec<usize>
                 scope.spawn(move || {
                     let mut best: BinaryHeap<Rough> = BinaryHeap::with_capacity(SHORT + 1);
                     for (at, span) in slice.iter().enumerate() {
+                        if files && span.dir {
+                            continue;
+                        }
                         let Some(rank) = rough(q, all, span, keep) else {
                             continue;
                         };
@@ -606,25 +621,12 @@ mod tests {
     fn ranked(query: &str, paths: &[&str], fresh: &HashMap<String, i32>) -> Vec<String> {
         let all = corpus(paths.iter().map(|p| p.to_string()).collect());
         let q: Vec<u8> = query.to_ascii_lowercase().into_bytes();
-        let mut hits: Vec<(i32, u32, u32, &Span)> = shortlist(&all, &q, fresh)
+        super::ranked(&all, &q, fresh, false)
             .into_iter()
-            .filter_map(|at| {
-                let span = &all.at[at];
-                let points =
-                    points(&q, &all, span)? + fresh.get(all.text(span)).copied().unwrap_or(0);
-                Some((-points, span.depth, span.to - span.from, span))
-            })
-            .collect();
-        hits.sort_by(|a, b| {
-            a.0.cmp(&b.0)
-                .then(a.1.cmp(&b.1))
-                .then(a.2.cmp(&b.2))
-                .then(all.text(a.3).cmp(all.text(b.3)))
-        });
-        hits.into_iter()
-            .map(|(_, _, _, s)| all.text(s).to_string())
+            .map(|s| all.text(s).to_string())
             .collect()
     }
+
     #[test]
     fn filename_matches_outweigh_the_rest_of_the_path() {
         let all = ["app/user/legacy/parser.rb", "app/models/user.rb"];
@@ -791,7 +793,7 @@ mod tests {
             .collect();
         paths.push("app/models/user.rb".to_string());
         let all = corpus(paths);
-        let short = shortlist(&all, b"user", &HashMap::new());
+        let short = shortlist(&all, b"user", &HashMap::new(), false);
         assert!(short
             .iter()
             .any(|at| all.text(&all.at[*at]) == "app/models/user.rb"));
@@ -805,10 +807,32 @@ mod tests {
         paths.push("vendor/deep/nested/legacy/u_s_e_r.rb".to_string());
         let all = corpus(paths);
         let fresh = HashMap::from([("vendor/deep/nested/legacy/u_s_e_r.rb".to_string(), RECENT)]);
-        let short = shortlist(&all, b"user", &fresh);
+        let short = shortlist(&all, b"user", &fresh, false);
         assert!(short
             .iter()
             .any(|at| all.text(&all.at[*at]) == "vendor/deep/nested/legacy/u_s_e_r.rb"));
+    }
+
+    /// Quick open asks for files only; many better-ranked directories must not push a matching
+    /// file past the candidate and row limits.
+    #[test]
+    fn files_only_keeps_directories_from_crowding_out_files() {
+        let mut paths: Vec<String> = (0..5_000).map(|n| format!("user{n}/")).collect();
+        paths.push("deep/nested/legacy/user_profile.rb".to_string());
+        let all = corpus(paths);
+        let with_dirs: Vec<&str> = super::ranked(&all, b"user", &HashMap::new(), false)
+            .into_iter()
+            .take(MOST)
+            .map(|s| all.text(s))
+            .collect();
+        assert!(!with_dirs.contains(&"deep/nested/legacy/user_profile.rb"));
+        let only: Vec<&Span> = super::ranked(&all, b"user", &HashMap::new(), true)
+            .into_iter()
+            .take(MOST)
+            .collect();
+        assert_eq!(only.len(), 1);
+        assert!(!only[0].dir);
+        assert_eq!(all.text(only[0]), "deep/nested/legacy/user_profile.rb");
     }
 
     /// Evict the least recently used workspace index to bound memory.
