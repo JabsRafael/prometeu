@@ -125,9 +125,11 @@ function paint(row: HTMLElement) {
 }
 
 /// Merge deleted entries into the listing in list_dir's order: folders first, then by name.
+/// A name that changed type (a deleted file where a folder now stands, or the reverse) keeps both rows.
 function withGone(rel: string, listed: PathEntry[]): (PathEntry | GoneEntry)[] {
-  const names = new Set(listed.map(entry => entry.name));
-  const gone = marks.gone(rel).filter(entry => !names.has(entry.name));
+  const kind = (entry: PathEntry) => `${entry.dir ? "d" : "f"}${entry.name}`;
+  const names = new Set(listed.map(kind));
+  const gone = marks.gone(rel).filter(entry => !names.has(kind(entry)));
   if (!gone.length) return listed;
   const key = (entry: PathEntry) => `${entry.dir ? 0 : 1}${entry.name.toLowerCase()}`;
   return [...listed, ...gone].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
