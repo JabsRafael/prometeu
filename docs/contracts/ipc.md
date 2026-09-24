@@ -35,6 +35,12 @@ See [ADR 0024](../decisions/0024-typed-ipc.md).
 Local notification commands and the `notification-open` event are described in
 the [notification contract](notifications.md).
 
+The `typesafe_status`, `typesafe_save_key`, `typesafe_remove_key`,
+`typesafe_set_enabled` and `context_evaluate` commands are additive and
+described in the [context evaluation contract](context-evaluation.md). No
+command returns the API key; failures use `err.evaluation.*` codes and the
+browser mock answers without a key or network.
+
 ## Command rules
 
 - names use `snake_case` and must be unique;
