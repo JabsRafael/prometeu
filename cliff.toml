@@ -53,6 +53,7 @@ commit_parsers = [
   # without rewriting main.
   { sha = "15bbd4235cbbb7a04227494adcc8171a1a46b0aa", skip = true },
   { message = "^chore\\(release\\)", skip = true },
+  { message = '^Revert "chore\(release\)', skip = true },
   { message = "^Marcar a versão", skip = true },
   { message = "^Merge ", skip = true },
   { message = "^feat", group = "<!-- 0 -->New" },
