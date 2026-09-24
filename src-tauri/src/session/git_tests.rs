@@ -423,3 +423,88 @@ fn keeping_ours_can_finish_merge_without_staged_file_changes() {
     assert_eq!(repo.read("conflict.txt"), "ours\n");
     assert!(repo.git(&["diff", "HEAD^", "HEAD"]).is_empty());
 }
+
+fn marks_of(root: &Path, repos: &[PathBuf]) -> Vec<(String, String)> {
+    let mut marks: Vec<_> = tree_marks(root, repos)
+        .into_iter()
+        .map(|file| (file.path, file.status))
+        .collect();
+    marks.sort();
+    marks
+}
+
+#[test]
+fn tree_marks_list_new_files_one_by_one_without_ignored_ones() {
+    let repo = Repository::new();
+    repo.write("kept.txt", "one\n");
+    repo.write("gone.txt", "one\n");
+    repo.write("staged.txt", "one\n");
+    repo.commit("start");
+    repo.write("kept.txt", "two\n");
+    std::fs::remove_file(repo.0.join("gone.txt")).unwrap();
+    repo.write("new.txt", "new\n");
+    repo.write("added.txt", "new\n");
+    repo.git(&["add", "added.txt"]);
+    repo.write("staged.txt", "two\n");
+    repo.git(&["add", "staged.txt"]);
+    std::fs::create_dir_all(repo.0.join("fresh/deep")).unwrap();
+    repo.write("fresh/deep/file.txt", "new\n");
+    repo.write("fresh/.env", "secret\n");
+    repo.write(".gitignore", ".env\n");
+
+    assert_eq!(
+        marks_of(&repo.0, std::slice::from_ref(&repo.0)),
+        [
+            (".gitignore", "A"),
+            ("added.txt", "A"),
+            ("fresh/deep/file.txt", "A"),
+            ("gone.txt", "D"),
+            ("kept.txt", "M"),
+            ("new.txt", "A"),
+            ("staged.txt", "M"),
+        ]
+        .map(|(path, status)| (path.to_string(), status.to_string()))
+    );
+}
+
+#[test]
+fn tree_marks_are_relative_to_the_tree_root() {
+    let repo = Repository::new();
+    std::fs::create_dir_all(repo.0.join("api/src")).unwrap();
+    repo.write("api/src/main.rs", "one\n");
+    repo.write("top.txt", "one\n");
+    repo.commit("start");
+    repo.write("api/src/main.rs", "two\n");
+    repo.write("top.txt", "two\n");
+
+    // A project registered on a subfolder sees only its own changes, relative to itself.
+    let sub = repo.0.join("api");
+    assert_eq!(
+        marks_of(&sub, std::slice::from_ref(&sub)),
+        [("src/main.rs".to_string(), "M".to_string())]
+    );
+    // A grouping folder above several worktrees prefixes each repository's folder.
+    let parent = repo.0.parent().unwrap();
+    let name = repo.0.file_name().unwrap().to_string_lossy();
+    assert_eq!(
+        marks_of(parent, std::slice::from_ref(&repo.0)),
+        [
+            (format!("{name}/api/src/main.rs"), "M".to_string()),
+            (format!("{name}/top.txt"), "M".to_string()),
+        ]
+    );
+    // Outside Git there is nothing to mark.
+    let plain = std::env::temp_dir().join(format!("prometeu-plain-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&plain).unwrap();
+    assert!(tree_marks(&plain, std::slice::from_ref(&plain)).is_empty());
+    std::fs::remove_dir_all(&plain).unwrap();
+}
+
+#[test]
+fn tree_mark_prefers_conflicts_then_new_files() {
+    assert_eq!(tree_mark("UU"), "U");
+    assert_eq!(tree_mark("AA"), "U");
+    assert_eq!(tree_mark("AM"), "A");
+    assert_eq!(tree_mark("MD"), "D");
+    assert_eq!(tree_mark("RM"), "M");
+}

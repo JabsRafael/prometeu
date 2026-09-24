@@ -153,6 +153,7 @@ export type Commands = {
   workspace_git_history: { args: { id: string; repo: number }; result: T.GitCommit[] };
   workspace_git_resolve: { args: { id: string; repo: number; path: string; was: string; text: string }; result: void };
   workspace_git_status: { args: { id: string }; result: T.GitStatus[] };
+  tree_git_status: { args: { id: string }; result: T.GitFile[] };
   workspace_scripts: { args: { id: string }; result: T.Scripts };
   workspace_tools: { args: { id: string; agent?: T.ProviderId | null }; result: T.WorkspaceTools };
   write_file: { args: { id: string; rel: string; text: string; was: string }; result: void };
