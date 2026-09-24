@@ -81,9 +81,10 @@ one, as in the Changes pane, so ignored files inside a new folder stay unmarked.
 The tree adds struck-through rows for `D` paths, which no longer exist on disk
 and therefore never come from `list_dir`.
 A directory outside Git, or
-a repository that fails, contributes no marks instead of an error. The tree
+a repository that fails, contributes no marks instead of an error. The command is async so the scan never runs on the main thread. The tree
 refreshes marks every 5 seconds while it is visible, because terminals and
-agents change files without board events.
+agents change files without board events, and skips a tick while the previous
+scan is still running.
 
 Without an upstream, the counters are zero and the action is **Publish branch**.
 That does not mean the commits are published. A detached HEAD is
