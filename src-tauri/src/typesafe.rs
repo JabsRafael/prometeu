@@ -1,5 +1,5 @@
 //! Optional TypeSafe integration: the person's own API key, explicit enablement and the HTTP
-//! adapter for the evaluation port (ADR 0057).
+//! adapter for the evaluation port (ADR 0058).
 //!
 //! The key lives only in `<root>/typesafe.json` (private 0600, atomic writes), like the other local
 //! credentials. IPC returns configuration and availability, never the key. Every vendor detail —

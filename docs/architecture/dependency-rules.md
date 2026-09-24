@@ -105,7 +105,7 @@ Varies per external service and its wire format. Features ask closed questions
 through the port in `evaluation.rs`/`evaluation.ts` and apply their own rules;
 the credential, transport, retries and vendor validation stay in `typesafe.rs`.
 `context-review.ts` imports only the port types and runs with a fake port in
-tests. See [ADR 0057](../decisions/0057-optional-context-evaluation.md).
+tests. See [ADR 0058](../decisions/0058-optional-context-evaluation.md).
 
 ### Local system
 

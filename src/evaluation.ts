@@ -1,4 +1,4 @@
-/// Application-owned evaluation port shared by features and shells (ADR 0057). Features depend on
+/// Application-owned evaluation port shared by features and shells (ADR 0058). Features depend on
 /// these closed types, never on a vendor payload; the TypeSafe adapter and the API key stay in the
 /// Rust backend. This module performs no I/O.
 

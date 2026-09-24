@@ -1,7 +1,7 @@
 # Optional context evaluation and missing-context review
 
 Status: current contract. Decision in
-[ADR 0057](../decisions/0057-optional-context-evaluation.md).
+[ADR 0058](../decisions/0058-optional-context-evaluation.md).
 
 ## Responsibilities
 

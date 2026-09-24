@@ -1,7 +1,7 @@
 import { errorCode, type EvaluationAnswer, type EvaluationErrorCode, type EvaluationPort, type EvaluationQuestion, type EvaluationRequest } from "./evaluation";
 import type { Key } from "./i18n";
 
-/// Missing-context review: the first consumer of the evaluation port (ADR 0057). It builds a bounded
+/// Missing-context review: the first consumer of the evaluation port (ADR 0058). It builds a bounded
 /// context from what the launcher really has, asks closed questions, and applies conservative
 /// application rules to choose at most one localized question at a time. It never generates or
 /// rewrites text; DOM, IPC and vendor payloads stay outside this module.

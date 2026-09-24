@@ -1,4 +1,4 @@
-//! Application-owned boundary for optional, bounded context evaluation (ADR 0057).
+//! Application-owned boundary for optional, bounded context evaluation (ADR 0058).
 //!
 //! A feature asks a small set of closed questions about a bounded text context and receives one
 //! outcome and confidence per answered question. The port knows nothing about any vendor payload,

@@ -98,7 +98,7 @@ explicit **Review request** in the launcher, whose rules live in
 `src/context-review.ts`. It is independent of the agent provider, the Cloud
 account, the timeline and the relay. See the
 [contract](docs/contracts/context-evaluation.md) and
-[ADR 0057](docs/decisions/0057-optional-context-evaluation.md).
+[ADR 0058](docs/decisions/0058-optional-context-evaluation.md).
 
 ## Local delegation
 
