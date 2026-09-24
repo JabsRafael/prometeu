@@ -16,6 +16,7 @@ mod delegation;
 mod dock;
 mod domain;
 mod embedded_mcp;
+mod evaluation;
 mod feedback;
 mod file_drop;
 mod github;
@@ -41,6 +42,7 @@ mod skills;
 mod state;
 mod team;
 mod transcript;
+mod typesafe;
 mod usage;
 mod workspace_tools;
 
@@ -176,6 +178,7 @@ fn main() {
             session::remove_workspace,
             session::diff::workspace_branch,
             session::git::workspace_git_status,
+            session::git::tree_git_status,
             session::git::workspace_git_diff,
             session::git::workspace_git_action,
             session::git::workspace_git_history,
@@ -273,6 +276,11 @@ fn main() {
             skills::skill_save,
             skills::skill_remove,
             kickoff::plugin_skills,
+            typesafe::typesafe_status,
+            typesafe::typesafe_save_key,
+            typesafe::typesafe_remove_key,
+            typesafe::typesafe_set_enabled,
+            typesafe::context_evaluate,
         ])
         .setup(|app| {
             notifications::install(app.handle());

@@ -95,3 +95,4 @@ Status: Proposed
 | [0055](0055-linux-desktop.md) | Linux desktop through system programs |
 | [0056](0056-background-tasks-hold-completion.md) | A turn only completes when its background tasks drain |
 | [0057](0057-skill-kickoff-and-artifact-path.md) | Start a conversation from a skill, with a project-declared artifact path |
+| [0058](0058-optional-context-evaluation.md) | Optional context evaluation behind an application-owned port |

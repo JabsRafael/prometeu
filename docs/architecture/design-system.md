@@ -80,7 +80,9 @@ Model search, favorites and native effort selection use the existing pickers. Th
 button and opens the launcher's searchable picker.
 Account identities wrap instead of truncating; account popovers share one row
 for adding and managing accounts, and the account dialog keeps its footer
-visible while its cards scroll. Launcher layout and account-dialog focus are covered in
+visible while its cards scroll. The optional missing-context review adds a ghost action to the launcher footer
+and a panel under the prompt built from shared buttons and notices; its
+Settings row uses the shared password field and switch. Launcher layout and account-dialog focus are covered in
 [`e2e/launcher-layout.spec.ts`](../../e2e/launcher-layout.spec.ts), including
 the English UI at representative viewport sizes, with selected WebKit checks. Text
 fields in the MCP and plugin hubs use `input` and `field`, including the plugin

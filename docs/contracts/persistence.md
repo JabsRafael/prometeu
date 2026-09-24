@@ -33,6 +33,7 @@ In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
 | accounts and per-provider selection | `<root>/accounts.json` | `accounts.rs` |
 | additional authenticated profiles | `<root>/accounts/<uuid>/` | provider adapters |
 | last quota snapshot per account | `<root>/usage.json` | `usage.rs` |
+| optional TypeSafe key and enablement | `<root>/typesafe.json` | `typesafe.rs`; private, disabled by default; see [context evaluation](context-evaluation.md) |
 | Codex and Antigravity V1 transcript | `<root>/chats/<tab>.jsonl` | `chat.rs` |
 | files received through a native promise | `<root>/attachments/<uuid>/<name>` | `file_drop.rs`; private `0700` directory, `0600` file |
 | image pasted from the clipboard | `<root>/attachments/<uuid>/pasted.png` | `file_drop.rs`; same folder and permissions, TIFF converted to PNG |
@@ -101,6 +102,17 @@ and exercises the same cryptographic channel.
 
 Tests: `src/team-security.test.ts` and the `src-tauri/src/team.rs` tests.
 Network contract and limits: [relay v4](relay-v4.md).
+
+## Optional context evaluation
+
+`typesafe.json` is additive: `{ version: 1, enabled, key }`, every field with a
+default. A missing file, an old installation or a file without both a key and
+`enabled: true` keeps the integration disabled; saving a key does not enable
+it, and removing the key deletes the file. An unreadable file stays disabled
+and is reported in Settings without blocking work. The key never enters the
+board, transcripts, `team.json`, the relay or Cloud catalogs, and no IPC result
+returns it. Tests: `src-tauri/src/typesafe.rs`. See the
+[contract](context-evaluation.md).
 
 ## Settings navigation preference
 
