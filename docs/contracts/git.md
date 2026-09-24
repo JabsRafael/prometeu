@@ -46,6 +46,7 @@ File paths are relative to the selected repository; absolute paths, traversals,
 | `workspace_git_conflict` | `repo`, `path` | current, ours and theirs versions |
 | `workspace_git_resolve` | `repo`, `path`, `was`, `text` | empty or error |
 | `tree_git_status` | none; `id` may also be a project | `GitFile[]`, never an error |
+| `tree_restore` | `rel`; `id` may also be a project | empty or error |
 
 The TypeScript types are in `src/types.ts`. `src/ipc.ts`, the Tauri registry and
 `src/mock.ts` expose the same commands. No new field is persisted in the board;
@@ -80,6 +81,10 @@ files, `D` for deletions and `M` for the rest. Untracked files are listed one by
 one, as in the Changes pane, so ignored files inside a new folder stay unmarked.
 The tree adds struck-through rows for `D` paths, which no longer exist on disk
 and therefore never come from `list_dir`.
+`tree_restore` brings such a row back from `HEAD`, in the index and on disk,
+finding the repository that holds `rel` under the tree root. It refuses an entry
+that still exists on disk, so it can never discard edits, and shares the Git
+mutation lock.
 A directory outside Git, or
 a repository that fails, contributes no marks instead of an error. The command is async so the scan never runs on the main thread. The tree
 refreshes marks every 5 seconds while it is visible, because terminals and

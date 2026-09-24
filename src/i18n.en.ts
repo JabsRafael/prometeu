@@ -711,6 +711,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "tree.menu.newFile": "New file",
   "tree.menu.newFolder": "New folder",
   "tree.menu.rename": "Rename",
+  "tree.menu.restore": "Restore",
   "tree.menu.trash": "Move to trash",
   "tree.menu.copyPath": "Copy path",
   "tree.menu.copyRelative": "Copy relative path",

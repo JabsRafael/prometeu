@@ -733,6 +733,7 @@ export const PT = {
   "tree.menu.newFile": "Novo arquivo",
   "tree.menu.newFolder": "Nova pasta",
   "tree.menu.rename": "Renomear",
+  "tree.menu.restore": "Restaurar",
   "tree.menu.trash": "Mover para a lixeira",
   "tree.menu.copyPath": "Copiar caminho",
   "tree.menu.copyRelative": "Copiar caminho relativo",

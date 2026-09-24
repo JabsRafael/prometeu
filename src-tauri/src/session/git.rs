@@ -281,10 +281,16 @@ fn tree_marks(root: &Path, repos: &[PathBuf]) -> Vec<GitFile> {
 /// never fails: a tree outside Git simply has no marks. Async keeps the scan off the main thread.
 #[tauri::command(async)]
 pub fn tree_git_status(state: State<AppState>, id: String) -> Vec<GitFile> {
-    let Some(root) = super::cwd_of(&state, &id) else {
-        return Vec::new();
-    };
-    let repos = workspace_repos(&state, &id)
+    tree_repos(&state, &id)
+        .map(|(root, repos)| tree_marks(&root, &repos))
+        .unwrap_or_default()
+}
+
+/// The file tree's root and the repository directories under it: a workspace's worktrees, or the
+/// project folder itself.
+fn tree_repos(state: &State<AppState>, id: &str) -> Option<(PathBuf, Vec<PathBuf>)> {
+    let root = super::cwd_of(state, id)?;
+    let repos = workspace_repos(state, id)
         .map(|repos| {
             repos
                 .iter()
@@ -292,7 +298,53 @@ pub fn tree_git_status(state: State<AppState>, id: String) -> Vec<GitFile> {
                 .collect()
         })
         .unwrap_or_else(|_| vec![root.clone()]);
-    tree_marks(&root, &repos)
+    Some((root, repos))
+}
+
+/// Bring a deleted tree entry back from `HEAD`, in the index and on disk. Only an entry that is
+/// gone from disk qualifies, so this can never discard edits to a file that still exists.
+fn restore_deleted(root: &Path, repos: &[PathBuf], rel: &str) -> Result<(), String> {
+    let (dir, inner) = repos
+        .iter()
+        .filter_map(|dir| {
+            let place = dir
+                .strip_prefix(root)
+                .ok()?
+                .to_string_lossy()
+                .replace('\\', "/");
+            let inner = match place.is_empty() {
+                true => rel,
+                false => rel.strip_prefix(&place)?.strip_prefix('/')?,
+            };
+            Some((dir, inner))
+        })
+        .next()
+        .ok_or_else(|| i18n::t("err.session.outside"))?;
+    let path = valid_path(dir, inner)?;
+    if path.symlink_metadata().is_ok() {
+        return Err(i18n::ta("err.files.exists", &[("name", inner.to_string())]));
+    }
+    run(
+        dir,
+        &[
+            "restore",
+            "--source=HEAD",
+            "--staged",
+            "--worktree",
+            "--",
+            inner,
+        ],
+    )
+    .map(drop)
+}
+
+/// Restore a file or folder the tree shows as deleted. Accepts a workspace or a project id.
+#[tauri::command(async)]
+pub fn tree_restore(state: State<AppState>, id: String, rel: String) -> Result<(), String> {
+    let _guard = MUTATION.try_lock().map_err(|_| i18n::t("err.git.busy"))?;
+    let (root, repos) =
+        tree_repos(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+    restore_deleted(&root, &repos, &rel)
 }
 
 fn valid_path(root: &Path, path: &str) -> Result<PathBuf, String> {

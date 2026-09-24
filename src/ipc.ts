@@ -148,6 +148,7 @@ export type Commands = {
   team_security_set: { args: { state: unknown }; result: void };
   trash_path: { args: { id: string; rel: string }; result: void };
   tree_git_status: { args: { id: string }; result: T.GitFile[] };
+  tree_restore: { args: { id: string; rel: string }; result: void };
   usage: { args: undefined; result: Usage };
   workspace_branch: { args: { id: string }; result: string | null };
   workspace_git_action: { args: { id: string; repo: number; operation: T.GitAction; paths: string[]; message?: string | null; expected?: string | null; remote?: string | null }; result: void };

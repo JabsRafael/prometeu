@@ -360,6 +360,15 @@ type MockGit = {
 };
 const gitStates = new Map<string, MockGit>();
 const gitError = (code: string): never => { throw `i18n:${JSON.stringify({ code })}`; };
+// Fixed marks exercise files, nested folders, a new folder and deletions in the sample tree.
+let treeMarks = [
+  { path: "Gemfile", status: "M" },
+  { path: "README.md", status: "A" },
+  { path: "app/models/user.rb", status: "M" },
+  { path: "docs/guide.md", status: "A" },
+  { path: "Procfile", status: "D" },
+  { path: "app/models/legacy/report.rb", status: "D" },
+];
 const splitRel = (rel: string): [string, string] => {
   const cut = rel.lastIndexOf("/");
   return cut < 0 ? ["", rel] : [rel.slice(0, cut), rel.slice(cut + 1)];
@@ -1349,16 +1358,26 @@ const mockCommands: IpcHandlers = {
     value.status.index = `mock-${++value.version}`;
     return;
   },
-  // A few fixed marks exercise files, nested folders, a new folder and deletions in the sample tree.
   tree_git_status() {
-    return [
-      { path: "Gemfile", status: "M" },
-      { path: "README.md", status: "A" },
-      { path: "app/models/user.rb", status: "M" },
-      { path: "docs/guide.md", status: "A" },
-      { path: "Procfile", status: "D" },
-      { path: "app/models/legacy/report.rb", status: "D" },
-    ];
+    return structuredClone(treeMarks);
+  },
+  // Restoring puts the deleted sample entries back into the tree and drops their marks.
+  tree_restore(args) {
+    const under = (path: string) => path === args.rel || path.startsWith(`${args.rel}/`);
+    const back = treeMarks.filter(mark => mark.status === "D" && under(mark.path));
+    if (!back.length) return gitError("err.session.outside");
+    for (const { path } of back) {
+      const parts = path.split("/");
+      parts.forEach((name, at) => {
+        const [parent, rel] = [parts.slice(0, at).join("/"), parts.slice(0, at + 1).join("/")];
+        const dir = at < parts.length - 1;
+        const list = (tree[parent] ??= []);
+        if (!list.some(entry => entry.name === name)) list.push({ name, path: rel, dir });
+        if (dir) tree[rel] ??= [];
+        else files[rel] ??= "";
+      });
+    }
+    treeMarks = treeMarks.filter(mark => !back.includes(mark));
   },
   list_dir(args) {
     return tree[args.rel ?? ""] ?? [];

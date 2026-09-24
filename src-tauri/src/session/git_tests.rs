@@ -508,3 +508,51 @@ fn tree_mark_prefers_conflicts_then_new_files() {
     assert_eq!(tree_mark("MD"), "D");
     assert_eq!(tree_mark("RM"), "M");
 }
+
+#[test]
+fn restore_deleted_brings_files_and_folders_back_from_head() {
+    let repo = Repository::new();
+    std::fs::create_dir_all(repo.0.join("docs/deep")).unwrap();
+    repo.write("docs/deep/a.md", "a\n");
+    repo.write("docs/b.md", "b\n");
+    repo.write("kept.md", "kept\n");
+    repo.write("staged.md", "staged\n");
+    repo.commit("start");
+    std::fs::remove_dir_all(repo.0.join("docs")).unwrap();
+    repo.git(&["rm", "-q", "staged.md"]);
+    repo.write("kept.md", "edited\n");
+    let repos = [repo.0.clone()];
+
+    restore_deleted(&repo.0, &repos, "docs").unwrap();
+    restore_deleted(&repo.0, &repos, "staged.md").unwrap();
+    assert_eq!(repo.read("docs/deep/a.md"), "a\n");
+    assert_eq!(repo.read("docs/b.md"), "b\n");
+    assert_eq!(repo.read("staged.md"), "staged\n");
+
+    // An entry still on disk is refused, so its edits cannot be thrown away.
+    assert!(restore_deleted(&repo.0, &repos, "kept.md").is_err());
+    assert_eq!(repo.read("kept.md"), "edited\n");
+    assert!(restore_deleted(&repo.0, &repos, "../outside").is_err());
+    assert_eq!(
+        marks_of(&repo.0, &repos),
+        [("kept.md".to_string(), "M".to_string())]
+    );
+}
+
+#[test]
+fn restore_deleted_finds_the_repository_under_a_grouping_folder() {
+    let repo = Repository::new();
+    repo.write("gone.md", "gone\n");
+    repo.commit("start");
+    std::fs::remove_file(repo.0.join("gone.md")).unwrap();
+    let parent = repo.0.parent().unwrap();
+    let name = repo.0.file_name().unwrap().to_string_lossy();
+
+    restore_deleted(
+        parent,
+        std::slice::from_ref(&repo.0),
+        &format!("{name}/gone.md"),
+    )
+    .unwrap();
+    assert_eq!(repo.read("gone.md"), "gone\n");
+}

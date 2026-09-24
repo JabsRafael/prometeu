@@ -203,7 +203,7 @@ function fail(error: unknown) {
 
 function actions(row: HTMLElement, entry: PathEntry, gone: boolean): menu.Item[] {
   const copy = { label: t("tree.menu.copyRelative"), glyph: icon("copy"), run: () => copyPath(entry.path, false) };
-  if (gone) return [copy];
+  if (gone) return [{ label: t("tree.menu.restore"), glyph: icon("rotate"), run: () => void restore(entry) }, "sep", copy];
   const target = entry.dir ? entry.path : parentOf(entry.path);
   return [
     { label: t("tree.menu.newFile"), glyph: icon("file-plus"), run: () => void create(target, false) },
@@ -309,6 +309,18 @@ async function trash(entry: PathEntry) {
   try {
     await invoke("trash_path", { id, rel: entry.path });
     ctx.moved(entry.path, null);
+    await draw(id);
+  } catch (error) {
+    fail(error);
+  }
+}
+
+/// Bring a deleted file or folder back from the last commit.
+async function restore(entry: PathEntry) {
+  const id = workspace();
+  if (!id) return;
+  try {
+    await invoke("tree_restore", { id, rel: entry.path });
     await draw(id);
   } catch (error) {
     fail(error);
