@@ -816,7 +816,7 @@ body.noside .side { display: none; }
 .sidebody { flex: 1 1 0; min-height: 0; display: flex; }
 .sidebody > * { flex: 1; min-height: 0; }
 
-/* Tree rows are 28px tall with 8px side margins and 20px indentation. Folders are gray, files use type colors, and chevrons appear on hover. */
+/* Tree rows are 28px tall with 8px side margins and 20px indentation. Folders are gray, files use type colors, and chevrons appear on hover. Git marks color the name: new, modified, conflicted. */
 .tree { overflow: auto; padding: 0 0 8px; }
 .treerow {
   display: flex; align-items: center; gap: 8px; width: calc(100% - 16px); margin: 0 8px; text-align: left;
@@ -829,6 +829,12 @@ body.noside .side { display: none; }
 .treerow .tn { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .treerow .tc { display: flex; color: var(--fg-2); opacity: 0; }
 .treerow:hover .tc { opacity: 1; }
+.treerow .tg { flex: none; font: 11px var(--mono); }
+.treerow .tg:empty { display: none; }
+.treerow[data-dir="1"] .tg { font-size: 18px; line-height: 1; }
+.treerow[data-git="A"] .tn, .treerow[data-git="A"] .tg { color: var(--done); }
+.treerow[data-git="M"] .tn, .treerow[data-git="M"] .tg { color: var(--wait); }
+.treerow[data-git="U"] .tn, .treerow[data-git="U"] .tg { color: var(--err); }
 
 /* The tree has no top scroll padding; put spacing in the summary. */
 .difflist { overflow-y: auto; padding: 0 8px 4px; display: flex; flex-direction: column; gap: 1px; }

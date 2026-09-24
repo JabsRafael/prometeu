@@ -172,6 +172,7 @@ fn main() {
             session::remove_workspace,
             session::diff::workspace_branch,
             session::git::workspace_git_status,
+            session::git::tree_git_status,
             session::git::workspace_git_diff,
             session::git::workspace_git_action,
             session::git::workspace_git_history,

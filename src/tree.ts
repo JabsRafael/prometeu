@@ -1,5 +1,7 @@
+import { t } from "./i18n";
 import { invoke } from "./ipc";
 import { fileIcon, icon } from "./icons";
+import { gitMarks, type Mark } from "./tree-git";
 import { $, debounce } from "./util";
 
 /// Load worktree folders on demand in the side panel so large repositories do not require a full tree scan.
@@ -9,6 +11,9 @@ const openDirs = new Set<string>();
 
 let openFile: (path: string) => void = () => {};
 let workspace: () => string | null = () => null;
+let markOf: ReturnType<typeof gitMarks> = () => null;
+/// Agents and terminals change files without board events, so visible marks refresh on a timer.
+const MARKS_EVERY = 5_000;
 
 export function init(ctx: { openFile: (path: string) => void; workspace: () => string | null }) {
   openFile = ctx.openFile;
@@ -17,6 +22,10 @@ export function init(ctx: { openFile: (path: string) => void; workspace: () => s
     openDirs.clear();
     redraw();
   });
+  setInterval(() => {
+    const id = workspace();
+    if (id && !document.hidden && $("tree").offsetParent) void repaint(id);
+  }, MARKS_EVERY);
 }
 
 /// User clicks redraw immediately to avoid visible lag.
@@ -35,8 +44,36 @@ export const redrawSoon = debounce(200, redraw);
 
 async function draw(id: string) {
   const tree = $("tree");
+  const marks = loadMarks(id);
   tree.replaceChildren();
   await fill(id, "", tree, 0);
+  await marks;
+  paintAll();
+}
+
+async function loadMarks(id: string) {
+  const files = await invoke("tree_git_status", { id }).catch(() => []);
+  if (workspace() === id) markOf = gitMarks(files);
+}
+
+async function repaint(id: string) {
+  await loadMarks(id);
+  paintAll();
+}
+
+function paintAll() {
+  for (const row of $("tree").querySelectorAll<HTMLElement>(".treerow")) paint(row);
+}
+
+/// Color the name and show the mark beside it; folders show a dot for changes inside them.
+function paint(row: HTMLElement) {
+  const dir = row.dataset.dir === "1";
+  const mark: Mark | null = markOf(row.dataset.path!, dir);
+  const badge = row.children[2] as HTMLElement;
+  if (mark) row.dataset.git = mark;
+  else delete row.dataset.git;
+  badge.textContent = mark ? (dir ? "•" : mark) : "";
+  badge.title = mark ? t(dir ? "tree.git.folder" : `tree.git.${mark}`) : "";
 }
 
 async function fill(id: string, rel: string, into: HTMLElement, depth: number) {
@@ -45,14 +82,17 @@ async function fill(id: string, rel: string, into: HTMLElement, depth: number) {
     const row = document.createElement("button");
     row.className = "treerow";
     row.style.paddingLeft = `${14 + depth * 20}px`;
-    row.innerHTML = `<span class="tw"></span><span class="tn"></span><span class="tc"></span>`;
+    row.dataset.path = entry.path;
+    row.dataset.dir = entry.dir ? "1" : "0";
+    row.innerHTML = `<span class="tw"></span><span class="tn"></span><span class="tg"></span><span class="tc"></span>`;
     // Expanded folders change their icon and hover chevron.
     const glyph = (open: boolean) => {
       row.children[0].innerHTML = entry.dir ? icon(open ? "folder-open" : "folder") : fileIcon(entry.name);
-      row.children[2].innerHTML = entry.dir ? icon(open ? "chevron-down" : "chevron-right", 14) : "";
+      row.children[3].innerHTML = entry.dir ? icon(open ? "chevron-down" : "chevron-right", 14) : "";
     };
     glyph(false);
     row.children[1].textContent = entry.name;
+    paint(row);
     into.append(row);
 
     if (!entry.dir) {

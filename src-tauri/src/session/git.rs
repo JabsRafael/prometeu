@@ -215,6 +215,86 @@ pub fn workspace_git_status(state: State<AppState>, id: String) -> Result<Vec<Gi
         .collect())
 }
 
+/// Collapse one porcelain entry into the file tree's mark. Untracked and added files read as new;
+/// a deletion on either side as deleted; conflicts win over everything else.
+fn tree_mark(pair: &str) -> &'static str {
+    if pair.contains('U') || pair == "AA" || pair == "DD" {
+        "U"
+    } else if pair == "??" || pair.contains('A') {
+        "A"
+    } else if pair.contains('D') {
+        "D"
+    } else {
+        "M"
+    }
+}
+
+/// Changed paths under `root`, relative to it, for each repository directory in `repos`. Untracked
+/// folders stay collapsed as one entry ending in `/` so large generated trees stay cheap. A
+/// directory that is not inside a Git repository contributes nothing.
+fn tree_marks(root: &Path, repos: &[PathBuf]) -> Vec<GitFile> {
+    let mut marks = Vec::new();
+    for dir in repos {
+        let Ok(place) = dir.strip_prefix(root) else {
+            continue;
+        };
+        let place = place.to_string_lossy().replace('\\', "/");
+        // Porcelain paths are relative to the repository top level, which may sit above `dir`.
+        let Some(inner) = run(dir, &["rev-parse", "--show-prefix"]).ok() else {
+            continue;
+        };
+        let inner = inner.trim_end_matches('\n');
+        let Ok(text) = run(
+            dir,
+            &[
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--untracked-files=normal",
+                "--no-renames",
+                "--",
+                ".",
+            ],
+        ) else {
+            continue;
+        };
+        for entry in text.split('\0') {
+            if entry.len() < 4 || !entry.is_char_boundary(3) {
+                continue;
+            }
+            let Some(path) = entry[3..].strip_prefix(inner) else {
+                continue;
+            };
+            marks.push(GitFile {
+                path: match place.is_empty() {
+                    true => path.to_string(),
+                    false => format!("{place}/{path}"),
+                },
+                status: tree_mark(&entry[..2]).to_string(),
+            });
+        }
+    }
+    marks
+}
+
+/// Git marks for the side file tree. Accepts a workspace or a project id, like `list_dir`, and
+/// never fails: a tree outside Git simply has no marks.
+#[tauri::command]
+pub fn tree_git_status(state: State<AppState>, id: String) -> Vec<GitFile> {
+    let Some(root) = super::cwd_of(&state, &id) else {
+        return Vec::new();
+    };
+    let repos = workspace_repos(&state, &id)
+        .map(|repos| {
+            repos
+                .iter()
+                .map(|repo| PathBuf::from(&repo.worktree))
+                .collect()
+        })
+        .unwrap_or_else(|_| vec![root.clone()]);
+    tree_marks(&root, &repos)
+}
+
 fn valid_path(root: &Path, path: &str) -> Result<PathBuf, String> {
     if path.is_empty() || path.contains('\0') || Path::new(path).components().any(|part| {
         !matches!(part, Component::Normal(name) if !name.to_string_lossy().eq_ignore_ascii_case(".git"))

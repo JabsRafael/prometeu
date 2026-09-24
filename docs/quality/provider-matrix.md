@@ -20,6 +20,7 @@ every combination of providers, states, languages and screen sizes.
 | Capability | Claude | Codex | Antigravity | Main evidence |
 | --- | --- | --- | --- | --- |
 | grouped settings and searchable resource library | shared UI; existing account and tool capabilities | same UI and existing capabilities | same navigation; external account notice and unsupported tool execution remain unchanged | `src/settings-navigation.test.ts`, `e2e/settings.spec.ts`, existing accounts, Cloud, MCP and notifications scenarios |
+| Git marks in the side file tree | independent of the CLI | independent of the CLI | shared application behavior | `src/tree-git.test.ts`, `tree_marks` tests in `session/git_tests.rs`; not covered in E2E |
 | copy a complete Markdown code block, including diff fences | shared presentation | shared presentation | shared presentation | `src/markdown.test.ts`, `e2e/markdown.spec.ts`; clipboard success and failure over the browser mock |
 | public bug reporting and private feedback with an account, image and capture | independent of the CLI | independent of the CLI | shared application behavior | `e2e/feedback.spec.ts`, the Cloud's `FeedbackTest` tests; opening the system browser, native capture and real GitHub require a manual smoke test |
 | organizations, invitations and institutional sharing | the same relay V4; local execution | the same relay V4; local execution | shared application behavior | `team-organizations.test.ts`, `worker.integration.test.ts`, `e2e/organizations.spec.ts`, Rails integration/browser |
