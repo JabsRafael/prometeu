@@ -4,6 +4,43 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.15.0] - 2026-09-24
+
+### New
+
+- **files:** Mark new, modified and conflicted files in the file tree
+- **files:** Tint changed files and show deleted ones struck through
+- **files:** Right-click a file in the tree to send it to the conversation
+- **viewer:** Preview markdown files in reader mode
+- **settings:** Connect an optional typesafe key
+- **launcher:** Review a request for missing context before starting
+- **changes:** Right-click a changed file to open, stage, discard or copy its path
+- **launcher:** Start a conversation from a skill with a project-declared artifact path
+- **viewer:** Find text in the open file and quick-open files by name
+
+### Fixes
+
+- **terminal:** Stop duplicating dead-key characters on linux
+- **files:** Keep ignored files in new folders unmarked in the file tree
+- **files:** Keep the file tree on the workspace on screen
+- **files:** Announce a copied path only when the clipboard took it
+- **tabs:** Prevent desk labels from overlapping
+- **clipboard:** Report success only after copying
+- **clipboard:** Translate workspace path copy errors
+- **viewer:** Refresh markdown preview when discarding draft
+- **chat:** Keep the conversation working until its subagents finish
+- **chat:** Stop a resumed turn from settling on its subagents
+- **settings:** Bind typesafe evaluations to the key they read and bound their context
+- **changes:** Recheck git availability when a menu item runs
+- **launcher:** Keep the chosen skill across provider switches and resumes
+- **viewer:** Keep quick open and find results accurate while typing and editing
+- **files:** Highlight the file the viewer is showing in the tree
+- **files:** Show staged-then-deleted files in the tree and keep its marks current
+
+### Performance
+
+- **files:** Keep file tree git scans off the main thread
+
 ## [0.14.1] - 2026-09-23
 
 ### Fixes
