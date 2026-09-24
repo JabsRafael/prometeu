@@ -48,7 +48,7 @@ optional for local work; model access comes from your own provider account.
   Notifications and sound start disabled; phone push is not included.
 - **Git review.** Read unified or side-by-side diffs, stage selected files,
   commit only the index, inspect history, compare branches, and resolve conflicts.
-- **Files, terminals, and browser preview.** Edit code, view PDFs and CSVs,
+- **Files, terminals, and browser preview.** Edit code, read Markdown, view PDFs and CSVs,
   run project scripts, and attach selected page elements or screenshots to a prompt.
 - **Delegation through MCP.** The built-in `prometeu` MCP is available but off
   by default. Select it in the coordinator workspace’s tools to create agents
