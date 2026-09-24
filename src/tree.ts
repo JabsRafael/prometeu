@@ -3,7 +3,7 @@ import { invoke } from "./ipc";
 import { fileIcon, icon } from "./icons";
 import * as menu from "./menu";
 import type { PathEntry } from "./paths";
-import { gitMarks, type GitMarks, type GoneEntry } from "./tree-git";
+import { gitMarks, latestOnly, type GitMarks, type GoneEntry } from "./tree-git";
 import { treeMenu } from "./tree-menu";
 import { $, debounce } from "./util";
 
@@ -107,9 +107,13 @@ async function draw(id: string) {
 /// A slow repository must not stack scans: a timer tick waits for the one still running.
 let loading: Promise<void> | null = null;
 
+/// A draw and the timer's repaint can scan at once; only the latest scan started replaces the marks.
+const scan = latestOnly();
+
 async function loadMarks(id: string) {
-  const files = await invoke("tree_git_status", { id }).catch(() => []);
-  if (workspace() === id) marks = gitMarks(files);
+  await scan(invoke("tree_git_status", { id }).catch(() => []), (files) => {
+    if (workspace() === id) marks = gitMarks(files);
+  });
 }
 
 /// Repaint rows in place, and rebuild them only when a file was deleted or restored.

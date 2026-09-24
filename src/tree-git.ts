@@ -57,3 +57,15 @@ export function gitMarks(files: GitFile[]): GitMarks {
     goneKey: deleted.join("\0"),
   };
 }
+
+/// Order overlapping loads: each call starts a load, and only the latest one started may apply its
+/// result. A draw and the timer's repaint can scan at once; an older scan finishing last must not
+/// restore stale marks or deleted rows.
+export function latestOnly() {
+  let started = 0;
+  return async <T>(load: Promise<T>, apply: (value: T) => void) => {
+    const mine = ++started;
+    const value = await load;
+    if (mine === started) apply(value);
+  };
+}

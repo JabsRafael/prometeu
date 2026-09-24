@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { gitMarks } from "./tree-git";
+import { gitMarks, latestOnly } from "./tree-git";
 
 const marks = gitMarks([
   { path: "Gemfile", status: "M" },
@@ -51,4 +51,20 @@ it("changes its deletion key only when the deleted set changes", () => {
   const same = gitMarks([{ path: "b", status: "D" }, { path: "a", status: "D" }, { path: "c", status: "M" }]);
   expect(same.goneKey).toBe(gitMarks([{ path: "a", status: "D" }, { path: "b", status: "D" }]).goneKey);
   expect(same.goneKey).not.toBe(gitMarks([{ path: "a", status: "D" }]).goneKey);
+});
+
+it("applies only the latest scan when overlapping scans finish out of order", async () => {
+  const scan = latestOnly();
+  const applied: string[] = [];
+  let finishOld!: (value: string) => void, finishNew!: (value: string) => void;
+  const older = scan(new Promise<string>((done) => (finishOld = done)), (v) => applied.push(v));
+  const newer = scan(new Promise<string>((done) => (finishNew = done)), (v) => applied.push(v));
+  finishNew("new");
+  await newer;
+  finishOld("old");
+  await older;
+  expect(applied).toEqual(["new"]);
+  // A later scan on its own still applies.
+  await scan(Promise.resolve("next"), (v) => applied.push(v));
+  expect(applied).toEqual(["new", "next"]);
 });
