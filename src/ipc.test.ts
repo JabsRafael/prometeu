@@ -23,6 +23,8 @@ it("infers results from command names and forwards arguments and options unchang
     invoke("resume_tab", { tab: "tab" });
     // @ts-expect-error Git uses the per-repository workspace_git_* commands.
     invoke("workspace_diff", { id: "workspace" });
+    // @ts-expect-error Opening a workspace root uses reveal_path with an empty relative path.
+    invoke("reveal", { id: "workspace" });
     // @ts-expect-error File writes require their full argument object.
     invoke("write_file");
     // @ts-expect-error Misspelled argument names are rejected.

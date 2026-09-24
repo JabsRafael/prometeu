@@ -174,8 +174,7 @@ does not produce those projections in new logs.
 
 ## Root of the file commands
 
-`list_dir`, `read_file`, `read_bytes`, `write_file`, `find_paths`, `reveal` and
-`reveal_path`
+`list_dir`, `read_file`, `read_bytes`, `write_file`, `find_paths` and `reveal_path`
 receive in `id` the workspace **or** the project. A workspace resolves in its
 working directory: a dedicated worktree, the clone itself, or the common parent
 of multiple worktrees. A project resolves in the registered clone's folder, which is what
@@ -184,10 +183,18 @@ two id spaces do not collide, and `session.rs::cwd_of` is the only function that
 performs that resolution — `dock.rs` imports it instead of repeating the rule. A
 path outside the root is still refused.
 
-`reveal` opens the root; `reveal_path` takes a `rel` and shows one entry of the
-tree. Finder selects a file with `-R`; systems served by `xdg-open` have no
+`reveal_path` requires `rel`: an empty string opens the root, while a nonempty
+path shows one entry of the tree. Keeping `rel` required preserves one IPC shape
+for both uses. Finder selects a file with `-R`; systems served by `xdg-open` have no
 selection flag, so a file there opens the folder holding it rather than the file,
-which would launch another application over it.
+which would launch another application over it. Resolution canonicalizes the
+root, so a symlinked root opens its target and a missing root fails before the
+file manager starts.
+
+The former `reveal` command is retired under the bundled IPC policy in
+[ADR 0043](../decisions/0043-retire-unused-ipc.md). Frontend and backend ship
+together, so no cross-version IPC shim applies; persisted state and relay
+clients are unchanged.
 
 `open_dock` accepts a project id only for a terminal: the shell only needs the
 folder, and without a workspace there is no script variable to pass. Setup and
