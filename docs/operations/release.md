@@ -54,6 +54,14 @@ changelog for the desktop app. There is no release PAT.
 Linux targets the Ubuntu 22.04 build baseline; building on a newer runner can
 raise the required glibc version. Other distributions still need a native
 smoke test. Linux ARM64 and Intel Macs have no published binary in this workflow.
+
+The AppImage must not carry `libwayland-*`: the runner's copies break EGL on
+current Mesa and WebKitGTK aborts with `EGL_BAD_PARAMETER`, leaving a black
+window. tauri-bundler cannot exclude libraries, so after the build
+`scripts/appimage-unbundle-wayland.sh` deletes them, repacks with a pinned
+appimagetool and runtime, and fails if any remain. The Linux job then signs the
+repacked file again and, on tags, replaces the AppImage, its `.sig` and the
+AppImage signatures in `latest.json` in the draft.
 Linux source and Arch package instructions remain in the [Linux guide](linux.md).
 
 The macOS job creates the draft first. The Linux job reuses its release ID and
