@@ -23,6 +23,7 @@ import {
   merged,
   prs,
   pending,
+  repoPath,
   tabLabel,
   type Board,
   type Choice,
@@ -67,7 +68,7 @@ export function init(context: Ctx) {
     refresh: async () => { if (openWs && hasDiff()) await loadChanges(openWs); },
     show: activateChanges,
     say: ctx.say,
-    openFile: openChange,
+    openFile: (repo, path) => void openRepoFile(repo, path),
     launchBranch: ctx.launchBranch,
     openWorkspace: ctx.openGitWorkspace,
     fileHost: changesHost,
@@ -77,7 +78,8 @@ export function init(context: Ctx) {
   dockbar.init({
     workspace: root,
     say: ctx.say,
-    openFile,
+    // The scripts file is relative to the primary repository.
+    openFile: (path) => openRepoFile(undefined, path),
     newTab,
     openBrowser: showWeb,
     enter: showShell,
@@ -916,10 +918,10 @@ function treeHost(): tree.Host {
 }
 
 /// The same resolution for a changed file, whose path is relative to its repository. The system
-/// file manager addresses the workspace, so reveal maps the path back like `openChange`.
+/// file manager addresses the workspace, so reveal maps the path back like `openRepoFile`.
 function changesHost(repo: string): fileMenu.Context {
   const ws = current();
-  return fileHost(ws ? repoRoot(ws, repo) : null, (path) => (ws ? `${underWorkspace(ws, repo)}${path}` : path));
+  return fileHost(ws ? repoRoot(ws, repo) : null, (path) => (ws ? repoPath(ws, repo, path) : path));
 }
 
 function fileHost(base: string | null, relative: (path: string) => string): fileMenu.Context {
@@ -1108,6 +1110,9 @@ async function closeChanges() {
 /// The preview shares the center with the conversation; other views replace both.
 function center(show: "chatwrap" | "viewer" | "diffview" | "webview" | "termview") {
   if (show !== "webview") restoreBrowserSide();
+  // Every route to the viewer, and every route away from it, passes here; the tree marks what it shows.
+  const id = root();
+  tree.select(show === "viewer" && id ? files(id).active : null);
   for (const id of ["chatwrap", "viewer", "diffview", "webview", "termview"] as const) $(id).hidden = id !== show;
   $("tabbody").classList.toggle("browser", show === "webview");
   $("websplit").hidden = show !== "webview";
@@ -1191,21 +1196,14 @@ function outstanding(id: string): { dirty: number; unpushed: number } | null {
   };
 }
 
-const repoRoot = (ws: Workspace, repo: string) => ws.repos.find((r) => r.name === repo)?.worktree ?? ws.worktree;
-
-/// A repository's folder relative to the workspace root, with its trailing slash; empty when they
-/// coincide.
-function underWorkspace(ws: Workspace, repo: string) {
-  const root = ws.worktree, mine = repoRoot(ws, repo);
-  return mine.startsWith(`${root}/`) ? `${mine.slice(root.length + 1)}/` : "";
-}
-
-/// Translate repository-relative diff paths into workspace-relative viewer paths, including the repository prefix for multi-repository workspaces.
-function openChange(repo: string, path: string) {
+/// Open a repository-relative path (see `repoPath`); the result is the string list_dir gives that
+/// file's row, so the tree can mark it.
+async function openRepoFile(repo: string | undefined, path: string) {
   const ws = current();
-  if (!ws) return;
-  void openFile(`${underWorkspace(ws, repo)}${path}`);
+  if (ws) await openFile(repoPath(ws, repo, path));
 }
+
+const repoRoot = (ws: Workspace, repo: string) => ws.repos.find((r) => r.name === repo)?.worktree ?? ws.worktree;
 
 /* Project-only view. */
 

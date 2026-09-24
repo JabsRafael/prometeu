@@ -250,6 +250,17 @@ export const merged = (ws: Workspace) => {
 /// Only archived, uncleaned workspaces with dedicated worktrees are eligible for cleanup; direct-clone workspaces are not.
 export const hasWorktree = (ws: Workspace) => ws.archived && !ws.cleaned && ws.worktree !== ws.repo;
 
+/// Translate a path relative to one repository (a diff entry, the dock's scripts file) into the
+/// workspace-relative path the viewer and list_dir use, adding the repository's directory in a
+/// multi-repository workspace. Without `repo`, the path belongs to the primary repository, like
+/// Rust's `Workspace::primary`; an unknown repository falls back to the workspace root.
+export function repoPath(ws: Pick<Workspace, "worktree" | "repos">, repo: string | undefined, path: string): string {
+  const root = ws.worktree;
+  const mine = (repo === undefined ? ws.repos[0] : ws.repos.find((r) => r.name === repo))?.worktree ?? root;
+  const under = mine.startsWith(`${root}/`) ? `${mine.slice(root.length + 1)}/` : "";
+  return `${under}${path}`;
+}
+
 /// Preparing or failed workspaces have no usable tabs, terminals, files, diffs, or docks; their cards explain the state.
 export const pending = (ws: Workspace) => ws.preparing || !!ws.failed;
 

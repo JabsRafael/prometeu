@@ -772,18 +772,47 @@ test("file edits survive board redraws and save", async ({ page }) => {
 
 /// The Files panel is how a file inside the worktree reaches the agent. Its menu crosses the tree,
 /// the workspace and the conversation draft, and the route it replaces is a Finder drag no unit test
-/// can exercise.
-test("the file tree hands a file to the conversation", async ({ page }) => {
+/// can exercise. The tree's mark follows the viewer across panels, which only the rebuilt DOM shows.
+test("the file tree marks the viewer's file and hands a file to the conversation", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Hello");
 
+  // A file opened from Changes is the one the tree marks once the person returns to Files.
+  await page.locator("#tab-diff").click();
+  await page.locator("#difflist .git-file-name", { hasText: "style.css" }).first().dblclick();
+  await expect(page.locator("#vcrumb")).toContainText("style.css");
   await page.locator("#tab-files").click();
+  await page.locator("#tree .treerow", { hasText: "src" }).click();
+  const style = page.locator('#tree .treerow[data-path="src/style.css"]');
+  await expect(style).toHaveClass(/\bselected\b/);
+
+  // The tab strip moves the mark too, and the conversation clears it.
+  await page.locator("#tree .treerow", { hasText: "README.md" }).click();
+  const readme = page.locator('#tree .treerow[data-path="README.md"]');
+  await expect(readme).toHaveClass(/\bselected\b/);
+  await expect(style).not.toHaveClass(/\bselected\b/);
+  await page.locator("#tabbar .tab.file", { hasText: "style.css" }).click();
+  await expect(style).toHaveClass(/\bselected\b/);
+  await expect(readme).not.toHaveClass(/\bselected\b/);
+  // Closing the shown file hands the viewer, and the mark, to its neighbor.
+  await page.locator("#tabbar .tab.file", { hasText: "style.css" }).locator(".tabx").click();
+  await expect(readme).toHaveClass(/\bselected\b/);
+  await page.locator("#tabbar .tab.file", { hasText: "README.md" }).locator(".tabx").click();
+  await expect(page.locator("#chatwrap")).toBeVisible();
+  await expect(page.locator("#tree .treerow.selected")).toHaveCount(0);
+
+  // The row a menu acts on, a folder included, is marked apart from the open file while the menu
+  // stays open.
+  const folder = page.locator('#tree .treerow[data-path="src"]');
+  await folder.click({ button: "right" });
+  await expect(folder).toHaveClass(/\btargeted\b/);
+  await page.keyboard.press("Escape");
+  await expect(folder).not.toHaveClass(/\btargeted\b/);
   const row = page.locator("#tree .treerow", { hasText: "CLAUDE.md" });
   await row.click({ button: "right" });
-
-  // The app menu answers the right-click, and the row it acted on stays marked.
-  await expect(row).toHaveClass(/\bselected\b/);
+  await expect(row).toHaveClass(/\btargeted\b/);
   await page.locator(".menu .mrow", { hasText: "Attach to the conversation" }).click();
+  await expect(row).not.toHaveClass(/\btargeted\b/);
   await expect(page.locator("#chatwrap .cfiles .injchip")).toContainText("CLAUDE.md");
 
   // The attachment travels as the mention the agent already understands.

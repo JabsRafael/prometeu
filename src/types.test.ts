@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { use } from "./i18n";
-import { branchTaken, fmtTokens, tabLabel, toggleSelection, type Board, type Selection, type Tab, type Workspace } from "./types";
+import { branchTaken, fmtTokens, repoPath, tabLabel, toggleSelection, type Board, type Selection, type Tab, type Workspace } from "./types";
 
 use("en");
 
@@ -101,5 +101,29 @@ describe("toggleSelection", () => {
     const layer: Selection = { base: "inherit", add: ["a"], remove: ["r"] };
     expect(toggleSelection(layer, "b", true)).toEqual({ base: "inherit", add: ["a", "b"], remove: ["r"] });
     expect(toggleSelection(layer, "a", false)).toEqual({ base: "inherit", add: [], remove: ["r", "a"] });
+  });
+});
+
+describe("repoPath", () => {
+  const repo = (name: string, worktree: string) => ({ path: `/src/${name}`, name, worktree, base: "main", pr: null });
+  const single = { worktree: "/wt/api/feat", repos: [repo("api", "/wt/api/feat")] };
+  const multi = { worktree: "/wt/api+web/feat", repos: [repo("api", "/wt/api+web/feat/api"), repo("web", "/wt/api+web/feat/web")] };
+
+  it("keeps repository paths as they are in a single-repository workspace", () => {
+    expect(repoPath(single, "api", "src/main.ts")).toBe("src/main.ts");
+    expect(repoPath(single, undefined, ".prometeu/settings.toml")).toBe(".prometeu/settings.toml");
+  });
+
+  it("prefixes the named repository's directory in a multi-repository workspace", () => {
+    expect(repoPath(multi, "web", "src/app.ts")).toBe("web/src/app.ts");
+    expect(repoPath(multi, "api", "src/main.ts")).toBe("api/src/main.ts");
+  });
+
+  it("places a path without a repository, like the dock's scripts file, under the primary repository", () => {
+    expect(repoPath(multi, undefined, ".prometeu/settings.toml")).toBe("api/.prometeu/settings.toml");
+  });
+
+  it("falls back to the workspace root for an unknown repository", () => {
+    expect(repoPath(multi, "gone", "README.md")).toBe("README.md");
   });
 });

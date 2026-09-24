@@ -215,7 +215,7 @@ for (const w of board.workspaces as (Workspace & { pr?: Pr | null })[]) {
 
 const tree: Record<string, { name: string; path: string; dir: boolean }[]> = {
   "": [
-    ...[".github", "app", "bin", "config", "db", "docs", "lib", "log", "public", "script", "spec", "storage", "tmp", "vendor"].map(
+    ...[".github", "app", "bin", "config", "db", "docs", "lib", "log", "public", "script", "spec", "src", "storage", "tmp", "vendor"].map(
       (name) => ({ name, path: name, dir: true }),
     ),
     ...[".dockerignore", ".env.example", ".gitignore", ".rspec", ".rubocop.yml", ".ruby-version", "CLAUDE.md", "Dockerfile", "Gemfile", "Gemfile.lock", "README.md", "config.ru"].map(
@@ -228,6 +228,8 @@ const tree: Record<string, { name: string; path: string; dir: boolean }[]> = {
     dir: true,
   })),
   "app/adapters": ["transcriber.rb", "waha.rb"].map((name) => ({ name, path: `app/adapters/${name}`, dir: false })),
+  // Mirrors the mock's changed files, so a file opened from Changes has a row in the tree.
+  src: ["icons.ts", "style.css"].map((name) => ({ name, path: `src/${name}`, dir: false })),
   bin: ["brakeman", "ci", "dev", "rails", "rake", "rubocop", "setup"].map((name) => ({ name, path: `bin/${name}`, dir: false })),
   docs: [
     { name: "customers.csv", path: "docs/customers.csv", dir: false },

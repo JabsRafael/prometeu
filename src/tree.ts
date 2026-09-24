@@ -12,10 +12,14 @@ import { $, debounce } from "./util";
 /// Preserve expanded folders across board redraws.
 const openDirs = new Set<string>();
 
-/// The row the person last acted on in the tree. Without it the context menu would appear over an
-/// unmarked row, leaving which entry it acts on to guesswork. Files opened elsewhere, such as from
-/// Changes, do not move it.
+/// The file the viewer is showing, whatever opened it: this tree, Changes, a tab or the dock. The
+/// workspace owns that choice and reports it through `select`; the tree only draws it.
 let selected: string | null = null;
+
+/// The row a context menu is acting on, file or folder, while that menu is open. A folder has no
+/// open file to mark, and a file may differ from the one on screen; without this the menu would sit
+/// over an unmarked row, leaving which entry it acts on to guesswork.
+let target: string | null = null;
 
 /// What the tree cannot know by itself: the absolute root, and whether a conversation takes files.
 export type Host = {
@@ -62,15 +66,28 @@ export function redraw() {
 export function reset() {
   openDirs.clear();
   selected = null;
+  target = null;
 }
 
 /// Debounce board-driven refreshes because each open folder requires list_dir; agent bursts would otherwise repeat identical IPC work.
 export const redrawSoon = debounce(200, redraw);
 
-function mark(path: string) {
+/// Mark the file the viewer shows, or none. Paths are relative to the tree's root, as list_dir
+/// returns them. The row is only marked, never scrolled into view: the person may be browsing
+/// elsewhere in the tree.
+export function select(path: string | null) {
   selected = path;
-  for (const row of $("tree").querySelectorAll(".treerow.selected")) row.classList.remove("selected");
-  $("tree").querySelector(`.treerow[data-path="${CSS.escape(path)}"]`)?.classList.add("selected");
+  markRows("selected", path);
+}
+
+function markRows(cls: "selected" | "targeted", path: string | null) {
+  for (const row of $("tree").querySelectorAll(`.treerow.${cls}`)) row.classList.remove(cls);
+  if (path) $("tree").querySelector(`.treerow[data-path="${CSS.escape(path)}"]`)?.classList.add(cls);
+}
+
+function aim(path: string | null) {
+  target = path;
+  markRows("targeted", path);
 }
 
 let drawn = 0;
@@ -141,6 +158,7 @@ async function fill(id: string, rel: string, into: HTMLElement | DocumentFragmen
     row.className = "treerow";
     row.dataset.path = entry.path;
     if (entry.path === selected) row.classList.add("selected");
+    if (entry.path === target) row.classList.add("targeted");
     row.style.paddingLeft = `${14 + depth * 20}px`;
     row.dataset.dir = entry.dir ? "1" : "0";
     if (gone) row.dataset.gone = "1";
@@ -177,7 +195,6 @@ async function fill(id: string, rel: string, into: HTMLElement | DocumentFragmen
     // row so the viewer and the composer keep the native editing menu.
     row.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      mark(entry.path);
       // A deleted entry has nothing on disk to open, attach or reveal.
       if (gone) return;
       const at = host();
@@ -195,11 +212,15 @@ async function fill(id: string, rel: string, into: HTMLElement | DocumentFragmen
             reveal: at.reveal,
           },
         }),
+        undefined,
+        () => aim(null),
       );
+      // After openAt: opening closes any previous menu, whose callback clears the old mark.
+      aim(entry.path);
     });
 
+    // Opening a file marks it through the workspace's `select`, like every other route to the viewer.
     row.addEventListener("click", () => {
-      mark(entry.path);
       if (entry.dir) void flip();
       else if (!gone) openFile(entry.path);
     });
