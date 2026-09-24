@@ -215,6 +215,86 @@ pub fn workspace_git_status(state: State<AppState>, id: String) -> Result<Vec<Gi
         .collect())
 }
 
+/// Collapse one porcelain entry into the file tree's mark. Untracked and added files read as new;
+/// a deletion on either side as deleted; conflicts win over everything else.
+fn tree_mark(pair: &str) -> &'static str {
+    if pair.contains('U') || pair == "AA" || pair == "DD" {
+        "U"
+    } else if pair == "??" || pair.contains('A') {
+        "A"
+    } else if pair.contains('D') {
+        "D"
+    } else {
+        "M"
+    }
+}
+
+/// Changed paths under `root`, relative to it, for each repository directory in `repos`. Untracked
+/// files are listed one by one, like the Changes pane, so ignored files inside a new folder stay
+/// unmarked. A directory that is not inside a Git repository contributes nothing.
+fn tree_marks(root: &Path, repos: &[PathBuf]) -> Vec<GitFile> {
+    let mut marks = Vec::new();
+    for dir in repos {
+        let Ok(place) = dir.strip_prefix(root) else {
+            continue;
+        };
+        let place = place.to_string_lossy().replace('\\', "/");
+        // Porcelain paths are relative to the repository top level, which may sit above `dir`.
+        let Some(inner) = run(dir, &["rev-parse", "--show-prefix"]).ok() else {
+            continue;
+        };
+        let inner = inner.trim_end_matches('\n');
+        let Ok(text) = run(
+            dir,
+            &[
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--untracked-files=all",
+                "--no-renames",
+                "--",
+                ".",
+            ],
+        ) else {
+            continue;
+        };
+        for entry in text.split('\0') {
+            if entry.len() < 4 || !entry.is_char_boundary(3) {
+                continue;
+            }
+            let Some(path) = entry[3..].strip_prefix(inner) else {
+                continue;
+            };
+            marks.push(GitFile {
+                path: match place.is_empty() {
+                    true => path.to_string(),
+                    false => format!("{place}/{path}"),
+                },
+                status: tree_mark(&entry[..2]).to_string(),
+            });
+        }
+    }
+    marks
+}
+
+/// Git marks for the side file tree. Accepts a workspace or a project id, like `list_dir`, and
+/// never fails: a tree outside Git simply has no marks. Async keeps the scan off the main thread.
+#[tauri::command(async)]
+pub fn tree_git_status(state: State<AppState>, id: String) -> Vec<GitFile> {
+    let Some(root) = super::cwd_of(&state, &id) else {
+        return Vec::new();
+    };
+    let repos = workspace_repos(&state, &id)
+        .map(|repos| {
+            repos
+                .iter()
+                .map(|repo| PathBuf::from(&repo.worktree))
+                .collect()
+        })
+        .unwrap_or_else(|_| vec![root.clone()]);
+    tree_marks(&root, &repos)
+}
+
 fn valid_path(root: &Path, path: &str) -> Result<PathBuf, String> {
     if path.is_empty() || path.contains('\0') || Path::new(path).components().any(|part| {
         !matches!(part, Component::Normal(name) if !name.to_string_lossy().eq_ignore_ascii_case(".git"))
@@ -427,6 +507,9 @@ pub enum GitAction {
     Pull,
     Push,
     Publish,
+    /// Throw away unstaged work: tracked paths return to their index version and untracked ones
+    /// are removed. Staged content and conflicts are never touched.
+    Discard,
 }
 
 fn action(
@@ -473,6 +556,39 @@ fn action(
             };
             args.extend(paths.iter().map(String::as_str));
             run(root, &args)?;
+        }
+        GitAction::Discard => {
+            if paths.is_empty() {
+                return Err(i18n::t("err.git.selection"));
+            }
+            let (mut tracked, mut untracked) = (Vec::new(), Vec::new());
+            for path in paths {
+                valid_path(root, path)?;
+                let file = current
+                    .changes
+                    .iter()
+                    .find(|file| &file.path == path)
+                    .filter(|_| !current.conflicts.iter().any(|file| &file.path == path))
+                    .ok_or_else(|| i18n::t("err.git.changed"))?;
+                if file.status == "?" {
+                    untracked.push(path.as_str());
+                } else {
+                    tracked.push(path.as_str());
+                }
+            }
+            if !tracked.is_empty() {
+                // Without `--source`, restore reads the index, so staged content survives.
+                let mut args = vec!["restore", "--worktree", "--"];
+                args.extend(tracked);
+                run(root, &args)?;
+            }
+            if !untracked.is_empty() {
+                // Clean refuses ignored files and directories without extra flags; status lists
+                // untracked files one by one, so only those exact paths go.
+                let mut args = vec!["clean", "--force", "--quiet", "--"];
+                args.extend(untracked);
+                run(root, &args)?;
+            }
         }
         GitAction::Commit => {
             if current.branch.is_none() {
@@ -587,7 +703,8 @@ pub fn workspace_git_action(
     remote: Option<String>,
 ) -> Result<(), String> {
     let _guard = MUTATION.try_lock().map_err(|_| i18n::t("err.git.busy"))?;
-    if matches!(operation, GitAction::Pull)
+    // Both rewrite files an agent may be editing mid-turn.
+    if matches!(operation, GitAction::Pull | GitAction::Discard)
         && lock(&state.board).workspaces.iter().any(|workspace| {
             workspace.id == id
                 && workspace

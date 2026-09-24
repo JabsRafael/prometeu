@@ -66,6 +66,7 @@ export type Commands = {
   cloud_organizations: { args: undefined; result: { user: CloudStatus["user"]; origin: string; organizations: Organization[] } };
   cloud_relay_ticket: { args: { organization: string; user: string; expectedOrigin: string }; result: string };
   cloud_status: { args: { refresh: boolean }; result: CloudStatus };
+  context_evaluate: { args: { request: import("./evaluation").EvaluationRequest }; result: import("./evaluation").EvaluationResult };
   create_scripts_file: { args: { id: string }; result: string };
   create_workspace: { args: { draft: Draft; cols: number; rows: number }; result: T.Workspace };
   dock_state: { args: { id: string }; result: T.DockState[] };
@@ -144,6 +145,10 @@ export type Commands = {
   team_config_set: { args: { config?: TeamConfig | null }; result: void };
   team_security: { args: undefined; result: unknown };
   team_security_set: { args: { state: unknown }; result: void };
+  typesafe_remove_key: { args: undefined; result: import("./evaluation").EvaluationStatus };
+  typesafe_save_key: { args: { key: string }; result: import("./evaluation").EvaluationStatus };
+  typesafe_set_enabled: { args: { enabled: boolean }; result: import("./evaluation").EvaluationStatus };
+  typesafe_status: { args: undefined; result: import("./evaluation").EvaluationStatus };
   usage: { args: undefined; result: Usage };
   workspace_branch: { args: { id: string }; result: string | null };
   workspace_git_action: { args: { id: string; repo: number; operation: T.GitAction; paths: string[]; message?: string | null; expected?: string | null; remote?: string | null }; result: void };
@@ -153,6 +158,7 @@ export type Commands = {
   workspace_git_history: { args: { id: string; repo: number }; result: T.GitCommit[] };
   workspace_git_resolve: { args: { id: string; repo: number; path: string; was: string; text: string }; result: void };
   workspace_git_status: { args: { id: string }; result: T.GitStatus[] };
+  tree_git_status: { args: { id: string }; result: T.GitFile[] };
   workspace_scripts: { args: { id: string }; result: T.Scripts };
   workspace_tools: { args: { id: string; agent?: T.ProviderId | null }; result: T.WorkspaceTools };
   write_file: { args: { id: string; rel: string; text: string; was: string }; result: void };

@@ -35,6 +35,12 @@ See [ADR 0024](../decisions/0024-typed-ipc.md).
 Local notification commands and the `notification-open` event are described in
 the [notification contract](notifications.md).
 
+The `typesafe_status`, `typesafe_save_key`, `typesafe_remove_key`,
+`typesafe_set_enabled` and `context_evaluate` commands are additive and
+described in the [context evaluation contract](context-evaluation.md). No
+command returns the API key; failures use `err.evaluation.*` codes and the
+browser mock answers without a key or network.
+
 ## Command rules
 
 - names use `snake_case` and must be unique;
@@ -174,7 +180,7 @@ does not produce those projections in new logs.
 
 ## Root of the file commands
 
-`list_dir`, `read_file`, `read_bytes`, `write_file`, `find_paths` and `reveal_path`
+`list_dir`, `tree_git_status`, `read_file`, `read_bytes`, `write_file`, `find_paths` and `reveal_path`
 receive in `id` the workspace **or** the project. A workspace resolves in its
 working directory: a dedicated worktree, the clone itself, or the common parent
 of multiple worktrees. A project resolves in the registered clone's folder, which is what
@@ -191,7 +197,9 @@ behaviour; an older frontend that never sends it is unaffected, and
 `session/find.rs` tests that directories cannot crowd out files.
 
 `reveal_path` requires `rel`: an empty string opens the root, while a nonempty
-path shows one entry of the tree. Keeping `rel` required preserves one IPC shape
+path shows one entry of the tree or, from the Changes panel, a changed file,
+whose repository-relative path the frontend prefixes with the repository's
+folder under the workspace root. Keeping `rel` required preserves one IPC shape
 for both uses. Finder selects a file with `-R`; systems served by `xdg-open` have no
 selection flag, so a file there opens the folder holding it rather than the file,
 which would launch another application over it. Resolution canonicalizes the

@@ -2,9 +2,11 @@ import { invoke } from "./ipc";
 import { avatar, icon } from "./icons";
 import { current as language, fromBack, t, tn, type Key } from "./i18n";
 import { $, h, template } from "./util";
-import { button as uiButton, input as uiInput, field } from "./ui";
+import { button as uiButton, confirmDialog, input as uiInput, field } from "./ui";
 import * as diff from "./diff";
 import * as menu from "./menu";
+import { changesMenu, type Availability, type Refusal } from "./changes-menu";
+import type * as fileMenu from "./file-menu";
 import type { GitAction, GitConflict, GitDiff, GitFile, GitStatus, RepoDiff, Workspace } from "./types";
 
 type Mode = "changes" | "staged" | "branches" | "history" | "compare" | "conflict";
@@ -18,6 +20,9 @@ type Context = {
   openFile: (repo: string, path: string) => void;
   launchBranch: (project: string, base: string, branch?: string) => void;
   openWorkspace: (id: string) => void;
+  /// What a file of this repository offers beyond the panel: the conversation and its path, the
+  /// same way the Files tree resolves them.
+  fileHost: (repo: string) => fileMenu.Context;
 };
 let context: Context;
 const views = new Map<string, View>();
@@ -184,6 +189,13 @@ function drawSidebar() {
   const target = { id: ws.id, repo: view.repo, index: repo.index };
   const act = (operation: GitAction, paths: string[] = [], remote?: string) => perform(target, operation, paths, remote);
   const disabled = busy || !!repo.error;
+  // Read live, not at draw time: the agent's status does not redraw this list.
+  const availability = (): Availability => {
+    const latest = current();
+    return { agentRunning: !!context.workspace()?.tabs.some(tab => tab.status === "rodando"), blocked: busy || !latest || !!latest.error };
+  };
+  // A blocked operation already shows its progress or error in the panel; only the agent needs saying.
+  const refused = (why: Refusal) => { if (why === "agent") context.say(t("err.git.agent"), true); };
   const branch = button(repo.branch ?? t("git.detached"), () => show("branches"), false, "ghost git-branch");
   branch.prepend(template("span", "", icon("git-branch", 13)));
   branch.title = `${repo.branch ?? t("git.detached")} · ${t("git.branches")}`;
@@ -284,6 +296,22 @@ function drawSidebar() {
       open.setAttribute("aria-current", String(selected));
       open.append(template("span", "git-reviewed", icon("check", 12)), h("span", "", file.path.slice(cut + 1)), h("small", "", file.path.slice(0, cut + 1)));
       if (file.status !== "D") open.ondblclick = () => context.openFile(repo.name, file.path);
+      // Replace the engine's page menu, which offers web actions over the file's path.
+      row.addEventListener("contextmenu", event => {
+        event.preventDefault();
+        const host = context.fileHost(repo.name);
+        menu.openAt({ x: event.clientX, y: event.clientY }, changesMenu(file, {
+          ...host, scope, availability,
+          hooks: {
+            ...host.hooks, refused,
+            review: () => selectFile(file, scope),
+            open: () => context.openFile(repo.name, file.path),
+            stage: () => void act("stage", [file.path]),
+            unstage: () => void act("unstage", [file.path]),
+            discard: () => void discard(file.path, () => act("discard", [file.path])),
+          },
+        }));
+      });
       const letter = h("span", `git-letter status-${file.status === "?" ? "new" : file.status}`, file.status === "?" ? "U" : file.status);
       const key = `git.status.${file.status}` as Key; letter.title = t(key);
       row.append(open, letter);
@@ -320,6 +348,15 @@ function drawSidebar() {
     if (range && (control instanceof HTMLTextAreaElement || control instanceof HTMLInputElement)) control.setSelectionRange(range[0], range[1]);
   } else if (focusMode) list.querySelector<HTMLElement>(`[data-mode="${focusMode}"]`)?.focus({ preventScroll: true });
   syncReview();
+}
+
+/// Discarding loses work Git cannot bring back, so it always asks first.
+async function discard(path: string, run: () => Promise<void>) {
+  const confirmed = await confirmDialog({
+    title: t("git.menu.discard.title", { path }), message: t("git.menu.discard.body"),
+    accept: t("git.menu.discard"), cancel: t("actions.cancel"),
+  });
+  if (confirmed) await run();
 }
 
 async function perform(target: { id: string; repo: number; index: string }, operation: GitAction, paths: string[] = [], remote?: string) {

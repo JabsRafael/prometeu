@@ -24,6 +24,7 @@ vi.mock("@xterm/xterm", () => ({
 }));
 
 import * as dock from "./dock";
+import { loneCompositionEnds } from "./term";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -39,7 +40,7 @@ beforeEach(() => {
   vi.stubGlobal("cancelAnimationFrame", () => {});
   fake.invoke.mockReset();
   dock.detach();
-  dock.init({} as HTMLElement, {} as HTMLElement);
+  dock.init(new EventTarget() as HTMLElement, new EventTarget() as HTMLElement);
 });
 
 it("keeps terminal input in the current workspace when an earlier open finishes late", async () => {
@@ -128,4 +129,29 @@ it("ignores failed older opens without detaching the current shell", async () =>
   await old;
   expect(dock.currentKey("shell")).toBe("second:terminal");
   expect(fake.terminals[1].output).toBe("second:terminal");
+});
+
+it("drops composition ends that no composition start opened", () => {
+  const lone = loneCompositionEnds();
+  expect(lone("compositionend")).toBe(true);
+  expect(lone("compositionstart")).toBe(false);
+  expect(lone("compositionend")).toBe(false);
+  expect(lone("compositionend")).toBe(true);
+});
+
+it("stops lone composition ends at the terminal host before xterm sees them", () => {
+  const host = new EventTarget();
+  const listen = vi.spyOn(host, "addEventListener");
+  dock.init(new EventTarget() as HTMLElement, host as HTMLElement);
+  expect(listen).toHaveBeenCalledWith("compositionend", expect.any(Function), true);
+
+  const dispatch = (type: string) => {
+    const event = new Event(type);
+    const stop = vi.spyOn(event, "stopPropagation");
+    host.dispatchEvent(event);
+    return stop;
+  };
+  expect(dispatch("compositionend")).toHaveBeenCalled();
+  expect(dispatch("compositionstart")).not.toHaveBeenCalled();
+  expect(dispatch("compositionend")).not.toHaveBeenCalled();
 });

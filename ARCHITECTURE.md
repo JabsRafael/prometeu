@@ -23,6 +23,7 @@ flowchart LR
     back <--> codex[Codex app-server]
     back <--> agy[Antigravity CLI NDJSON]
     back <--> local[Git, files and local processes]
+    back -. optional, explicit review .-> typesafe[TypeSafe API]
     ui <--> relay[Relay — Cloudflare Worker + Durable Object]
     relay <--> peer[Another member's Prometeu]
 ```
@@ -87,6 +88,17 @@ private items. See the [catalog contract](docs/contracts/cloud-catalog.md).
 Publication is a separate operational step. See the
 [contract](docs/contracts/cloud-account.md) and
 [ADR 0015](docs/decisions/0015-cloud-rails.md).
+
+## Optional context evaluation
+
+`evaluation.rs` defines an application-owned port for bounded, closed-question
+classification; `typesafe.rs` is its only adapter and keeps the person's own
+API key in a private file. The integration starts disabled and runs only on an
+explicit **Review request** in the launcher, whose rules live in
+`src/context-review.ts`. It is independent of the agent provider, the Cloud
+account, the timeline and the relay. See the
+[contract](docs/contracts/context-evaluation.md) and
+[ADR 0058](docs/decisions/0058-optional-context-evaluation.md).
 
 ## Local delegation
 
@@ -184,9 +196,10 @@ The detailed rules and the current state of each one are in
 | agents | `src/agents.ts`, `src/launcher.ts`, `src-tauri/src/agents.rs`, `src-tauri/src/claude.rs`, `src-tauri/src/codex.rs` |
 | workspaces | `src-tauri/src/session.rs`, `src-tauri/src/state.rs` |
 | workspace tool selection | `src-tauri/src/workspace_tools.rs` (use case), `src-tauri/src/session.rs` (Tauri commands) |
-| Git and files | `src/workspace-changes.ts`, `src/diff.ts`, `src/viewer.ts`, `src/find.ts`, `src/quick-open.ts`, `src/csv.ts`, `src-tauri/src/session/find.rs`, `src-tauri/src/session/git.rs`, `src-tauri/src/session/diff.rs`, `src-tauri/src/session/files.rs` |
+| Git and files | `src/workspace-changes.ts`, `src/changes-menu.ts`, `src/file-menu.ts`, `src/diff.ts`, `src/viewer.ts`, `src/find.ts`, `src/quick-open.ts`, `src/csv.ts`, `src-tauri/src/session/find.rs`, `src-tauri/src/session/git.rs`, `src-tauri/src/session/diff.rs`, `src-tauri/src/session/files.rs` |
 | MCP and plugins | `src/mcp.ts`, `src/plugins.ts`, `src-tauri/src/mcp.rs`, `src-tauri/src/plugins.rs`, `docs/contracts/plugin-marketplace.md` |
 | collaboration | shells `src/team.ts` (desktop) and `src/mobile/` (browser, bundle for the Cloud); core `src/team-member.ts`, `src/team-ports.ts`, features `src/team-owner.ts`, `src/team-viewer.ts`, `src/team-comments.ts`; `src/team-transport.ts`, `src/team-control.ts`, `relay/src/` |
+| optional context evaluation | `src-tauri/src/evaluation.rs` (port), `src-tauri/src/typesafe.rs` (adapter, key), `src/context-review.ts`, `src/context-review-view.ts`, `src/typesafe.ts`, `src/typesafe-settings.ts` |
 | terminal and preview | `src/dock*.ts`, `src/term.ts`, `src/browser.ts`, `src-tauri/src/dock.rs`, `src-tauri/src/pty.rs` |
 
 The preview shares the center with the conversation. Inspection and capture
