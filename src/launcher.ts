@@ -14,6 +14,8 @@ import * as plugins from "./plugins";
 import * as menu from "./menu";
 import { invoke } from "./ipc";
 import { pasteFiles } from "./paste";
+import { reviewControls } from "./context-review-view";
+import type { ReviewContext } from "./context-review";
 import { h, template } from "./util";
 import { branchTaken, type Board, type Issue, type IssueRef, type ProviderId, type Workspace } from "./types";
 
@@ -132,6 +134,7 @@ export function openLauncher(board: Board, opts: Open) {
           <div class="attach" id="d-inj" hidden></div>
           <div class="launcher-attachments" id="d-attachments"></div>
         </div>
+        <div class="launcher-review" id="d-review" hidden></div>
         <section class="launcher-repository" aria-labelledby="d-repository-title">
           <h2 id="d-repository-title" data-t="git.repository"></h2>
           <div class="launcher-fields" id="d-repository-fields"></div>
@@ -202,6 +205,8 @@ export function openLauncher(board: Board, opts: Open) {
   attach.insertAdjacentHTML("afterbegin", icon("paperclip", 14));
   $("d-attachments").append(attach);
   const cancel = button(t("account.cancel"), () => hide(), "ghost");
+  // Optional missing-context review; created after the draft helpers below exist.
+  let review: ReturnType<typeof reviewControls> | null = null;
   const create = button(t("launcher.go"), undefined, "pri");
   create.id = "d-go";
   create.append(h("kbd", "", "↵"));
@@ -244,6 +249,7 @@ export function openLauncher(board: Board, opts: Open) {
     hint.title = aviso || `${names} · ${onde}`;
     hint.textContent = aviso || onde;
     $<HTMLButtonElement>("d-go").disabled = !!aviso || receiving > 0 || needsChoice;
+    review?.update();
   };
   drawHint();
 
@@ -639,6 +645,7 @@ export function openLauncher(board: Board, opts: Open) {
   // Keep attachments visible between the prompt and footer because they belong to the first message.
   const injList = $("d-inj");
   const drawInject = () => {
+    review?.update();
     injList.hidden = !draft.inject.length;
     injList.replaceChildren(
       ...draft.inject.map((path, i) => {
@@ -677,7 +684,23 @@ export function openLauncher(board: Board, opts: Open) {
     },
   };
 
+  // Review input: the draft, the complete originating issue and the project metadata the launcher
+  // actually has. Attachments are counted as uninspected; their paths and contents are not sent.
+  const reviewContext = (): ReviewContext => ({
+    draft: prompt.value,
+    issue: seed
+      ? { identifier: seed.identifier, title: seed.title, description: seed.description, state: seed.state.name,
+          labels: seed.labels.map(label => label.name), team: seed.team, project: seed.project }
+      : null,
+    project: { name: projectName(), repositories: draft.extras.map(nameOf), base: draft.newBranch ? draft.base : "" },
+    attachments: draft.inject.length,
+  });
+  review = reviewControls({ panel: $("d-review"), prompt, context: reviewContext, edited: () => review?.update() });
+  $("d-actions").prepend(review.trigger);
+  prompt.addEventListener("input", () => review?.update());
+
   const hide = () => {
+    review?.close();
     menu.close();
     forgetCatalog();
     forgetAccounts();

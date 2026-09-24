@@ -40,6 +40,9 @@ initial avatar remains the repository's visual identity.
 - The UI keeps drafts and protects actions against old navigation responses.
 - The app does not become a complete Git client: it does not add a checkout on
   top of agents, force-push, line staging or rebase completion.
+- Discarding unstaged work is offered per file, confirmed, limited to the
+  worktree side and refused while an agent runs; staged content and conflicts
+  are never discarded.
 - There is no change in persistence, agent contracts or the relay.
 
 ## Evidence

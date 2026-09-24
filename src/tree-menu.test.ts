@@ -35,7 +35,7 @@ describe("file menu", () => {
       "sep",
       "Copy path",
       "Copy absolute path",
-      t("tree.menu.reveal"),
+      t("file.menu.reveal"),
     ]);
   });
 
@@ -62,7 +62,7 @@ describe("file menu", () => {
 
   it("reveals the file itself rather than the folder holding it", () => {
     const ctx = context();
-    pick(treeMenu(file, ctx), t("tree.menu.reveal")).run?.();
+    pick(treeMenu(file, ctx), t("file.menu.reveal")).run?.();
     expect(ctx.hooks.reveal).toHaveBeenCalledWith("src/main.ts");
   });
 });
@@ -74,7 +74,7 @@ describe("folder menu", () => {
       "sep",
       "Copy path",
       "Copy absolute path",
-      t("tree.menu.reveal"),
+      t("file.menu.reveal"),
     ]);
   });
 
@@ -105,6 +105,6 @@ describe("unavailable actions", () => {
 
   it("omits what needs an absolute path while the root is unresolved", () => {
     const items = treeMenu(file, context({ root: null }));
-    expect(labels(items)).toEqual(["Open", "sep", "Copy path", t("tree.menu.reveal")]);
+    expect(labels(items)).toEqual(["Open", "sep", "Copy path", t("file.menu.reveal")]);
   });
 });
