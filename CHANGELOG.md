@@ -4,6 +4,19 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.16.0] - 2026-09-24
+
+### New
+
+- **files:** Create, rename, trash and restore files from the file tree
+
+### Fixes
+
+- **files:** Protect git metadata, keep staged edits on restore and allow case-only renames
+- **files:** Keep concurrent case-only renames from replacing each other
+- **linux:** Open the AppImage on current Mesa instead of a black window
+- **linux:** Keep the libwayland check from passing on a closed pipe
+
 ## [0.15.0] - 2026-09-24
 
 ### New
