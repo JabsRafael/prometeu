@@ -230,8 +230,8 @@ fn tree_mark(pair: &str) -> &'static str {
 }
 
 /// Changed paths under `root`, relative to it, for each repository directory in `repos`. Untracked
-/// folders stay collapsed as one entry ending in `/` so large generated trees stay cheap. A
-/// directory that is not inside a Git repository contributes nothing.
+/// files are listed one by one, like the Changes pane, so ignored files inside a new folder stay
+/// unmarked. A directory that is not inside a Git repository contributes nothing.
 fn tree_marks(root: &Path, repos: &[PathBuf]) -> Vec<GitFile> {
     let mut marks = Vec::new();
     for dir in repos {
@@ -250,7 +250,7 @@ fn tree_marks(root: &Path, repos: &[PathBuf]) -> Vec<GitFile> {
                 "status",
                 "--porcelain=v1",
                 "-z",
-                "--untracked-files=normal",
+                "--untracked-files=all",
                 "--no-renames",
                 "--",
                 ".",

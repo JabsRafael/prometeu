@@ -76,8 +76,9 @@ other commands, accepts the same `id` as `list_dir`: a workspace or a project
 are relative to that tree root, so a grouping folder prefixes each worktree's
 folder and a project registered on a subfolder sees only its own changes.
 `status` is collapsed to one mark: `U` for conflicts, `A` for untracked or added
-files, `D` for deletions and `M` for the rest. Untracked folders are not
-expanded and arrive as a single path ending in `/`. A directory outside Git, or
+files, `D` for deletions and `M` for the rest. Untracked files are listed one by
+one, as in the Changes pane, so ignored files inside a new folder stay unmarked.
+A directory outside Git, or
 a repository that fails, contributes no marks instead of an error. The tree
 refreshes marks every 5 seconds while it is visible, because terminals and
 agents change files without board events.

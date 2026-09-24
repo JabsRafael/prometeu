@@ -7,7 +7,8 @@ const marks = gitMarks([
   { path: "app/models/old.rb", status: "D" },
   { path: "lib/tasks/merge.rake", status: "U" },
   { path: "lib/new.rb", status: "A" },
-  { path: "docs/", status: "A" },
+  { path: "docs/guide/intro.md", status: "A" },
+  { path: "vendor/engine/", status: "A" },
 ]);
 
 it("marks changed files by their own status", () => {
@@ -23,8 +24,11 @@ it("gives folders the strongest change below them, with deletions as modificatio
   expect(marks("config", true)).toBeNull();
 });
 
-it("treats everything inside an untracked folder as new", () => {
+it("marks a new folder from its listed files only", () => {
   expect(marks("docs", true)).toBe("A");
-  expect(marks("docs/guide/intro.md", false)).toBe("A");
+  expect(marks("docs/guide", true)).toBe("A");
+  expect(marks("docs/guide/.env", false)).toBeNull();
   expect(marks("docsite", true)).toBeNull();
+  expect(marks("vendor/engine", true)).toBe("A");
+  expect(marks("vendor/engine/lib.rb", false)).toBeNull();
 });

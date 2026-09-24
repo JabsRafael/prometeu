@@ -434,7 +434,7 @@ fn marks_of(root: &Path, repos: &[PathBuf]) -> Vec<(String, String)> {
 }
 
 #[test]
-fn tree_marks_cover_new_modified_deleted_and_untracked_folders() {
+fn tree_marks_list_new_files_one_by_one_without_ignored_ones() {
     let repo = Repository::new();
     repo.write("kept.txt", "one\n");
     repo.write("gone.txt", "one\n");
@@ -449,12 +449,15 @@ fn tree_marks_cover_new_modified_deleted_and_untracked_folders() {
     repo.git(&["add", "staged.txt"]);
     std::fs::create_dir_all(repo.0.join("fresh/deep")).unwrap();
     repo.write("fresh/deep/file.txt", "new\n");
+    repo.write("fresh/.env", "secret\n");
+    repo.write(".gitignore", ".env\n");
 
     assert_eq!(
         marks_of(&repo.0, std::slice::from_ref(&repo.0)),
         [
+            (".gitignore", "A"),
             ("added.txt", "A"),
-            ("fresh/", "A"),
+            ("fresh/deep/file.txt", "A"),
             ("gone.txt", "D"),
             ("kept.txt", "M"),
             ("new.txt", "A"),
