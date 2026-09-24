@@ -162,7 +162,9 @@ an existing modal. It accepts translated labels, stable item keys, groups,
 details, optional secondary actions, status text, refresh and a filter checkbox.
 It does not own domain catalogs or persistence. Its update method preserves the
 query, scroll and focused action; the model picker subscribes to catalog changes
-and supplies updated entries. Model favorites are secondary buttons, never
+and supplies updated entries. With a `search` callback the caller ranks each
+query itself; Command-P quick open passes the backend's fuzzy `find_paths`
+results through unchanged. Model favorites are secondary buttons, never
 nested interactive content inside a selectable button. Rows grow with wrapped
 model names and descriptions; square favorite buttons keep their focus indicator
 inside the scroll area. `e2e/model-picker.spec.ts` covers these bounds in the

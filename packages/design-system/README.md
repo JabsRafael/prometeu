@@ -196,7 +196,10 @@ A galeria demonstra envio local; `e2e/feedback.spec.ts` cobre integração deskt
 lifetime (`menu.isOpen`, `menu.close`, `menu.onClose`). It joins the anchor's
 open dialog when present. `options` supplies translated `label`,
 `searchPlaceholder`, `empty`, `items`, `select(key)`, optional `status`,
-`refresh: { label, run }`, `additional: { label, checked, change }`, and `closed`.
+`refresh: { label, run }`, `additional: { label, checked, change }`, `closed`
+and `search(query)`. With `search`, the caller owns ranking: the picker reports
+each query and shows the items passed to `update` without filtering them again,
+so fuzzy backend results are not discarded by the local term match.
 Items contain stable `key`, `label`, optional `detail`, `searchText`, `group`,
 `checked`, `disabled`, and `secondary: { label, pressed, run }`. The secondary
 button is independent of selection and exposes `aria-pressed`; the caller owns
@@ -213,6 +216,7 @@ or `close()` release the shared menu lifetime. Call `close()` before removing
 the host. This component does not load data or store preferences.
 
 The standalone gallery demonstrates 100 choices, disabled and selected items,
-secondary actions, refresh, additional choices and use inside a dialog.
+secondary actions, refresh, additional choices, asynchronous remote search and
+use inside a dialog.
 `e2e/search-picker.spec.ts` checks keyboard search, accents, pointer selection,
 focus order and a narrow dialog in Chromium and WebKit.

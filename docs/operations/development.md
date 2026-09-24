@@ -175,10 +175,12 @@ viewport sizes; sibling-tab state combinations stay in `workspace_tools.rs`,
 with one UI journey through the tool selectors.
 
 Account/settings variations, catalog management shortcuts, header styling, tab
-visibility preferences and recent-file ranking also have no dedicated browser
-gate. Recent-file collection and ranking remain covered in `timeline.test.ts`
-and `session/find.rs`; native Git/catalog rules keep their Rust coverage. Feedback
-keeps representative submission, attachment races and cancellation checks rather
+visibility preferences, recent-file ranking, the file viewer's find bar and
+Command-P quick open also have no dedicated browser gate. Recent-file collection
+and ranking remain covered in `timeline.test.ts` and `session/find.rs`; in-file
+matching, wraparound and marker markup in `find.test.ts`, and the palette's
+keyboard behavior in the shared `e2e/search-picker.spec.ts`; native Git/catalog
+rules keep their Rust coverage. Feedback keeps representative submission, attachment races and cancellation checks rather
 than repeating every replacement control. Removing a UI scenario does not imply
 that its presentation or wiring is proven by a backend test.
 

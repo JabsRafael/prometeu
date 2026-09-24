@@ -662,6 +662,18 @@ main { flex: 1; min-height: 0; position: relative; }
   caret-color: var(--fg);
 }
 #vtext::selection { background: var(--bg-raised-3); }
+/* Same geometry as #vtext; later in the DOM than the textarea so marks paint above its selection. */
+#vmarks {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+  margin: 0; font: inherit; white-space: pre; tab-size: 4; padding: 0 24px 0 0; color: transparent;
+}
+#vmarks mark { color: transparent; background: var(--wait-bg); border-radius: 2px; }
+#vmarks mark.on { background: color-mix(in srgb, var(--wait) 45%, transparent); outline: 1px solid var(--wait); }
+/* The find bar docks under the breadcrumb bar so it never covers code. */
+.vfind { flex: none; display: flex; align-items: center; gap: 4px; padding: 8px 12px 0; }
+.vfind .ui-input { flex: 0 1 280px; min-width: 120px; }
+.vfindn { min-width: 72px; padding: 0 6px; font-size: 12px; color: var(--fg-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.vfindn.none { color: var(--err); }
 .vcode ::selection { background: var(--bg-raised-3); }
 .vread { flex: 1; min-height: 0; overflow: auto; padding: 24px max(24px, calc((100% - 760px) / 2)) 60px; }
 /* Mark dirty files with a breadcrumb dot. */

@@ -134,12 +134,21 @@
                 <button id="vsave" class="ico" data-t-title="viewer.save" hidden></button>
                 <button id="vcancel" class="ico" data-t-title="viewer.cancel" hidden></button>
               </div>
+              <!-- Command-F searches the open code buffer; viewer.ts builds the query field. -->
+              <div class="vfind" id="vfind" role="search" hidden>
+                <span class="vfindn" id="vfindn" role="status" aria-live="polite"></span>
+                <button id="vfindprev" class="ico" data-t-title="viewer.find.prev"></button>
+                <button id="vfindnext" class="ico" data-t-title="viewer.find.next"></button>
+                <button id="vfindclose" class="ico" data-t-title="viewer.find.close"></button>
+              </div>
               <div class="vcode" id="vcode">
                 <div class="gutter" id="vgutter"></div>
                 <!-- Overlay syntax-highlighted pre content with a transparent-text editor that owns the
                      caret and selection. -->
                 <div class="vstack">
                   <textarea id="vtext" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
+                  <!-- Find matches draw as transparent-text marks between the editor and the highlighted text. -->
+                  <pre id="vmarks" aria-hidden="true"></pre>
                   <pre id="vpre"></pre>
                 </div>
               </div>

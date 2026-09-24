@@ -111,6 +111,22 @@ function pickerExample() {
   });
   return [trigger, selected];
 }
+/** The caller ranks each query itself, as an asynchronous file search would. */
+function remotePickerExample() {
+  const selected = notice("No file selected");
+  const files = Array.from({ length: 100 }, (_, n) => `src/module-${String(n).padStart(3, "0")}/index.ts`);
+  const results = query => files.filter(path => path.includes(query.toLowerCase())).slice(0, 20)
+    .map(path => ({ key: path, label: path.split("/").pop(), detail: path.slice(0, path.lastIndexOf("/")) }));
+  const trigger = button("Open file", () => {
+    const picker = searchablePicker(trigger, {
+      label: "Files", searchPlaceholder: "Search files by name", empty: "No files found", items: results(""),
+      select: key => { selected.textContent = `Opened: ${key}`; },
+      search: query => setTimeout(() => picker.update(results(query)), 150),
+    });
+  });
+  return [trigger, selected];
+}
+examples.append(card("Remote search", ...remotePickerExample()));
 examples.append(card("Search in large lists", ...pickerExample(), button("Search in dialog", () => {
   const dialog = formDialog({ title: "Search example", save: "Save", cancel: "Cancel", submit: async () => {}, error: String });
   dialog.body.append(...pickerExample()); dialog.open();

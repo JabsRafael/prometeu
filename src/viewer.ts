@@ -4,7 +4,8 @@ import { highlight } from "./highlight";
 import { md } from "./markdown";
 import { decode, parse } from "./csv";
 import { fileIcon, icon } from "./icons";
-import { button } from "./ui";
+import { findMatches, markup, MAX_MATCHES, nearest, step, type Match } from "./find";
+import { button, input } from "./ui";
 import { $ } from "./util";
 
 /// The file editor layers highlighted code over a transparent textarea.
@@ -27,6 +28,13 @@ let fail: (m: string) => void = () => {};
 let saved: (id: string) => void = () => {};
 let frame = 0;
 let reading = false;
+
+/// Find bar state. Matches are recomputed from the live buffer after every paint so edits never
+/// leave marks on stale offsets.
+let finding = false;
+let hits: Match[] = [];
+let active = -1;
+let query: HTMLInputElement;
 
 const box = () => $("vtext") as HTMLTextAreaElement;
 const here = () => (shown ? key(shown.id, shown.path) : "");
@@ -51,6 +59,7 @@ export function init(onError: (m: string) => void, onSaved: (id: string) => void
   $("vcancel").innerHTML = icon("x");
   $("vcancel").addEventListener("click", () => void revert());
 
+  initFind();
   const text = box();
   text.addEventListener("input", typed);
   // Only .vcode scrolls; native textarea scrolling would misalign the two layers.
@@ -61,7 +70,9 @@ export function init(onError: (m: string) => void, onSaved: (id: string) => void
   text.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       e.preventDefault();
-      void revert();
+      // With the find bar open, Escape dismisses it before it can discard a draft.
+      if (finding) closeFind();
+      else void revert();
       return;
     }
     if (e.key === "s" && (e.metaKey || e.ctrlKey)) {
@@ -76,6 +87,124 @@ export function init(onError: (m: string) => void, onSaved: (id: string) => void
       typed();
     }
   });
+}
+
+function initFind() {
+  query = input();
+  query.id = "vfindq";
+  query.type = "search";
+  query.spellcheck = false;
+  query.placeholder = t("viewer.find.placeholder");
+  query.setAttribute("aria-label", t("viewer.find.placeholder"));
+  $("vfind").prepend(query);
+  $("vfindprev").innerHTML = icon("chevron-up");
+  $("vfindnext").innerHTML = icon("chevron-down");
+  $("vfindclose").innerHTML = icon("x");
+  $("vfindprev").addEventListener("click", () => go(-1));
+  $("vfindnext").addEventListener("click", () => go(1));
+  $("vfindclose").addEventListener("click", () => closeFind());
+  query.addEventListener("input", () => search(box().selectionStart));
+  query.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      go(e.shiftKey ? -1 : 1);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      closeFind();
+    }
+  });
+  // The viewer owns Command-F only while an editable code buffer is on screen.
+  document.addEventListener("keydown", (e) => {
+    if (e.key.toLowerCase() !== "f" || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+    if (openFind()) e.preventDefault();
+  });
+}
+
+/// Open the find bar, seeded with a single-line selection. Return whether the viewer took the shortcut.
+function openFind(): boolean {
+  if (!shown || box().hidden || $("viewer").hidden || !$("viewer").getClientRects().length) return false;
+  if (document.querySelector("dialog[open]")) return false;
+  if (reading) view(false);
+  const ta = box();
+  // Only an editor selection seeds the query; repeating the shortcut in the bar keeps the typed text.
+  const picked = document.activeElement === ta ? ta.value.slice(ta.selectionStart, ta.selectionEnd) : "";
+  if (picked && !picked.includes("\n")) query.value = picked;
+  finding = true;
+  $("vfind").hidden = false;
+  query.focus();
+  query.select();
+  search(ta.selectionStart);
+  return true;
+}
+
+/// Close the bar, drop every mark and return to the editor with the active match still selected.
+function closeFind(refocus = true) {
+  if (!finding) return;
+  finding = false;
+  hits = [];
+  active = -1;
+  $("vfind").hidden = true;
+  $("vmarks").textContent = "";
+  if (refocus && !box().hidden) box().focus({ preventScroll: true });
+}
+
+/// Recompute matches for a new query, starting from the caret, and reveal the first one.
+function search(from: number) {
+  hits = findMatches(box().value, query.value);
+  active = nearest(hits, from);
+  marks();
+  reveal();
+}
+
+function go(delta: number) {
+  if (!finding || !hits.length) return;
+  active = step(active, hits.length, delta);
+  marks();
+  reveal();
+}
+
+/// After an edit or a disk refresh, keep the active match closest to where it was without moving the caret.
+function refind() {
+  if (!finding) return;
+  const was = active >= 0 ? hits[active]?.start ?? 0 : 0;
+  hits = findMatches(box().value, query.value);
+  active = nearest(hits, was);
+  marks();
+}
+
+function marks() {
+  $("vmarks").innerHTML = markup(box().value, hits, active);
+  const n = $("vfindn");
+  n.classList.toggle("none", !!query.value && !hits.length);
+  n.textContent = !query.value
+    ? ""
+    : !hits.length
+      ? t("viewer.find.none")
+      : t(hits.length >= MAX_MATCHES ? "viewer.find.countMany" : "viewer.find.count", {
+          at: active + 1,
+          total: hits.length,
+        });
+  ($("vfindprev") as HTMLButtonElement).disabled = !hits.length;
+  ($("vfindnext") as HTMLButtonElement).disabled = !hits.length;
+}
+
+/// Select the active match in the editor and scroll .vcode, the only scroller, to show it.
+function reveal() {
+  const m = hits[active];
+  if (!m) return;
+  const typing = document.activeElement === query;
+  box().setSelectionRange(m.start, m.end);
+  // Some engines focus a textarea whose selection changes; keep typing in the find field.
+  if (typing && document.activeElement !== query) query.focus({ preventScroll: true });
+  const mark = $("vmarks").querySelector("mark.on");
+  if (!mark) return;
+  const code = $("vcode");
+  const r = mark.getBoundingClientRect();
+  const c = code.getBoundingClientRect();
+  if (r.top < c.top || r.bottom > c.bottom) code.scrollTop += r.top - c.top - (c.height - r.height) / 2;
+  // The sticky gutter covers the left edge of the scroller.
+  const left = c.left + $("vgutter").offsetWidth;
+  if (r.left < left || r.right > c.right) code.scrollLeft += r.left - left - Math.max(0, (c.right - left - r.width) / 3);
 }
 
 /// Board events refresh open files; preserve scrolling when the content is unchanged.
@@ -110,6 +239,7 @@ export async function show(id: string, path: string) {
   ta.hidden = !!error;
   if (error) {
     drafts.delete(k);
+    closeFind(false);
     $("vgutter").textContent = "";
     $("vpre").innerHTML = `<span class="h-c"></span>`;
     $("vpre").children[0].textContent = error;
@@ -126,6 +256,8 @@ export async function show(id: string, path: string) {
   const at = same ? [ta.selectionStart, ta.selectionEnd] : [0, 0];
   ta.value = value;
   if (same) ta.setSelectionRange(Math.min(at[0], value.length), Math.min(at[1], value.length));
+  // A different file starts its matches from the top.
+  if (!same) active = -1;
   paint();
   chrome();
   view(reading);
@@ -137,6 +269,8 @@ export async function show(id: string, path: string) {
 
 function view(next: boolean) {
   reading = next;
+  // Marks belong to the source layout; the rendered preview has no find bar.
+  if (next) closeFind(false);
   $("vcode").hidden = next;
   $("vread").hidden = !next;
   $("vsource").setAttribute("aria-pressed", String(!next));
@@ -191,6 +325,7 @@ async function showBlob(id: string, path: string, kind: "pdf" | "csv") {
   $("vgutter").textContent = "";
   $("vpre").innerHTML = "";
   box().hidden = true;
+  closeFind(false);
   blob(!error);
   if (error) {
     $("vpre").innerHTML = `<span class="h-c"></span>`;
@@ -265,6 +400,7 @@ function paint() {
   for (let i = 1; i <= text.split("\n").length; i++) rows.push(String(i));
   $("vgutter").textContent = rows.join("\n");
   $("vpre").innerHTML = highlight(text, shown?.path ?? "");
+  refind();
 }
 
 /// Show save and discard controls only for unsaved drafts.

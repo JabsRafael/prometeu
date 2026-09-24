@@ -21,6 +21,9 @@ export type SearchPickerOptions = {
   refresh?: { label: string; run: () => void };
   additional?: { label: string; checked: boolean; change: (checked: boolean) => void };
   closed?: () => void;
+  /** Remote search: the caller ranks results for each query and answers through `update`; the
+   * picker then shows `items` as given instead of filtering them locally. */
+  search?: (query: string) => void;
 };
 
 const normalize = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase();
@@ -49,7 +52,7 @@ export function searchablePicker(anchor: HTMLElement, options: SearchPickerOptio
       ? { key: (document.activeElement as HTMLElement).dataset.key, secondary: (document.activeElement as HTMLElement).dataset.secondary } : undefined;
     const scroll = list.scrollTop;
     const terms = normalize(search.value.trim()).split(/\s+/).filter(Boolean);
-    const visible = items.filter(item => {
+    const visible = options.search ? items : items.filter(item => {
       const text = normalize(`${item.label} ${item.detail ?? ""} ${item.searchText ?? ""}`);
       return terms.every(term => text.includes(term));
     });
@@ -108,7 +111,7 @@ export function searchablePicker(anchor: HTMLElement, options: SearchPickerOptio
     // WebKit otherwise focuses the enclosing dialog before click, dismissing this panel as external focus.
     event.preventDefault(); target.focus({ preventScroll: true });
   });
-  search.oninput = draw;
+  search.oninput = options.search ? () => options.search!(search.value) : draw;
   const keyboard = (event: KeyboardEvent) => {
     const active = document.activeElement;
     if (event.key === "Tab") {
