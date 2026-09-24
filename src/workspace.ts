@@ -21,6 +21,7 @@ import {
   merged,
   prs,
   pending,
+  repoPath,
   tabLabel,
   type Board,
   type Choice,
@@ -74,8 +75,8 @@ export function init(context: Ctx) {
   dockbar.init({
     workspace: root,
     say: ctx.say,
-    // The scripts file is relative to the primary repository, like Rust's `Workspace::primary`.
-    openFile: (path) => openRepoFile(current()?.repos[0]?.name ?? "", path),
+    // The scripts file is relative to the primary repository.
+    openFile: (path) => openRepoFile(undefined, path),
     newTab,
     openBrowser: showWeb,
     enter: showShell,
@@ -1169,16 +1170,11 @@ function outstanding(id: string): { dirty: number; unpushed: number } | null {
   };
 }
 
-/// Translate repository-relative paths (diffs, the scripts file) into workspace-relative viewer
-/// paths, including the repository prefix for multi-repository workspaces. The result is the same
-/// string list_dir gives that file's row, so the tree can mark it.
-async function openRepoFile(repo: string, path: string) {
+/// Open a repository-relative path (see `repoPath`); the result is the string list_dir gives that
+/// file's row, so the tree can mark it.
+async function openRepoFile(repo: string | undefined, path: string) {
   const ws = current();
-  if (!ws) return;
-  const root = ws.worktree;
-  const mine = ws.repos.find((r) => r.name === repo)?.worktree ?? root;
-  const under = mine.startsWith(`${root}/`) ? `${mine.slice(root.length + 1)}/` : "";
-  await openFile(`${under}${path}`);
+  if (ws) await openFile(repoPath(ws, repo, path));
 }
 
 /* Project-only view. */
