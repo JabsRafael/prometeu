@@ -652,6 +652,8 @@ main { flex: 1; min-height: 0; position: relative; }
 #vpre {
   position: relative; z-index: 1; pointer-events: none;
   margin: 0; font: inherit; white-space: pre; color: var(--fg); padding-right: 24px; tab-size: 4;
+  /* An empty file still has one line to click into, like the gutter's line 1. */
+  min-height: 20px;
 }
 #vtext {
   position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%;

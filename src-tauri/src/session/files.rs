@@ -184,19 +184,38 @@ fn rename(root: &Path, from: &str, to: &str) -> Result<(), String> {
     if source == target {
         return Ok(());
     }
-    // A case-only rename on a case-insensitive disk resolves to the same entry, which is allowed.
-    let same = |a: &Path, b: &Path| {
-        a.canonicalize()
-            .ok()
-            .is_some_and(|a| b.canonicalize().ok() == Some(a))
-    };
-    if !same(&source, &target) {
+    // Only a case change of the same name in the same folder may find its own entry as the target
+    // (on a case-insensitive disk). Comparing inodes, not canonical paths, keeps two symlinks to one
+    // file distinct, so neither can replace the other.
+    let case_only = source.parent() == target.parent()
+        && source
+            .file_name()
+            .zip(target.file_name())
+            .is_some_and(|(a, b)| {
+                a != b && a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
+            })
+        && same_entry(&source, &target);
+    if !case_only {
         taken(&target)?;
     }
     if target.starts_with(&source) {
         return Err(i18n::t("err.files.name"));
     }
     std::fs::rename(&source, &target).map_err(i18n::io)
+}
+
+#[cfg(unix)]
+fn same_entry(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (a.symlink_metadata(), b.symlink_metadata()) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn same_entry(_: &Path, _: &Path) -> bool {
+    false
 }
 
 fn trash_entry(root: &Path, rel: &str) -> Result<(), String> {
@@ -343,6 +362,19 @@ mod tests {
         rename(&dir, "src", "lib").unwrap();
         assert_eq!(std::fs::read_to_string(dir.join("lib/c.md")).unwrap(), "a");
         assert_eq!(std::fs::read_to_string(dir.join("b.md")).unwrap(), "b");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two links to one file stay distinct entries, so renaming one onto the other is refused.
+    #[test]
+    fn rename_keeps_a_second_link_to_the_same_file() {
+        let dir = tmp("links");
+        std::fs::write(dir.join("target.md"), "x").unwrap();
+        std::os::unix::fs::symlink(dir.join("target.md"), dir.join("one.md")).unwrap();
+        std::os::unix::fs::symlink(dir.join("target.md"), dir.join("two.md")).unwrap();
+        assert!(rename(&dir, "one.md", "two.md").is_err());
+        assert!(dir.join("one.md").symlink_metadata().is_ok());
+        assert!(dir.join("two.md").symlink_metadata().is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

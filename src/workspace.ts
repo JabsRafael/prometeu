@@ -74,7 +74,7 @@ export function init(context: Ctx) {
     openFile,
     workspace: root,
     rootPath: () => (openWs ? current()?.worktree : proj?.path) ?? null,
-    moved: (from, to) => void treeMoved(from, to),
+    moved: (id, from, to) => void treeMoved(id, from, to),
     say: ctx.say,
   });
   dockbar.init({
@@ -1071,19 +1071,30 @@ function center(show: "chatwrap" | "viewer" | "diffview" | "webview" | "termview
   if (show !== "termview") dockbar.leave();
 }
 
-/// Keep file tabs on entries the tree renamed, and close the ones it trashed.
-async function treeMoved(from: string, to: string | null) {
-  const id = root();
-  if (!id) return;
+/// Keep file tabs and unsaved drafts on entries the tree renamed, and drop the ones it trashed.
+/// `id` is the workspace or project the action ran in, which may no longer be the one on screen.
+async function treeMoved(id: string, from: string, to: string | null) {
+  viewer.moveDrafts(id, from, to);
   const fs = files(id);
   const hit = (path: string) => path === from || path.startsWith(`${from}/`);
+  const shown = root() === id;
   if (to === null) {
-    for (const path of fs.open.filter(hit)) await closeFile(path);
+    const gone = fs.open.filter(hit);
+    if (!shown) {
+      fs.open = fs.open.filter(path => !hit(path));
+      if (fs.active && hit(fs.active)) fs.active = fs.open[0] ?? null;
+      return;
+    }
+    for (const path of gone) await closeFile(path);
     return;
   }
   const move = (path: string) => (hit(path) ? to + path.slice(from.length) : path);
   fs.open = fs.open.map(move);
   const active = fs.active && hit(fs.active) ? move(fs.active) : null;
+  if (!shown) {
+    if (active) fs.active = active;
+    return;
+  }
   if (active) return openFile(active);
   const ws = current();
   if (proj) drawProjectTabs();

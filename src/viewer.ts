@@ -70,6 +70,19 @@ export function init(onError: (m: string) => void, onSaved: (id: string) => void
 }
 
 /// Board events refresh open files; preserve scrolling when the content is unchanged.
+/// Unsaved drafts follow an entry the file tree renamed (`to`), or go with it to the trash (`to` is
+/// null), so reopening the new path keeps the edits and a trashed file leaves nothing behind.
+export function moveDrafts(id: string, from: string, to: string | null) {
+  const prefix = key(id, "");
+  for (const [k, value] of [...drafts]) {
+    if (!k.startsWith(prefix)) continue;
+    const path = k.slice(prefix.length);
+    if (path !== from && !path.startsWith(`${from}/`)) continue;
+    drafts.delete(k);
+    if (to !== null) drafts.set(key(id, to + path.slice(from.length)), value);
+  }
+}
+
 export async function show(id: string, path: string) {
   const kind = /\.pdf$/i.test(path) ? "pdf" : /\.csv$/i.test(path) ? "csv" : null;
   if (kind) return showBlob(id, path, kind);

@@ -19,8 +19,8 @@ type Context = {
   workspace: () => string | null;
   /// The tree root on disk, for copying absolute paths.
   rootPath: () => string | null;
-  /// Open tabs follow an entry the tree renamed (`to`) or trashed (`to` is null).
-  moved: (from: string, to: string | null) => void;
+  /// Open tabs of workspace `id` follow an entry the tree renamed (`to`) or trashed (`to` is null).
+  moved: (id: string, from: string, to: string | null) => void;
   say: (message: string, error?: boolean) => void;
 };
 
@@ -74,15 +74,19 @@ export function reset() {
 /// Debounce board-driven refreshes because each open folder requires list_dir; agent bursts would otherwise repeat identical IPC work.
 export const redrawSoon = debounce(200, redraw);
 
-/// Marks load before the rows because deleted files add rows of their own. An inline name being
-/// typed keeps its rows; the edit redraws when it ends.
+let drawn = 0;
+
+/// Marks load before the rows because deleted files add rows of their own. Rows are built off
+/// screen and swapped in at once: only the latest draw for the workspace still on screen may
+/// replace the tree, and never while a name is being typed in place (the edit redraws when it ends).
 async function draw(id: string) {
   if (rename.editing()) return;
-  const tree = $("tree");
+  const mine = ++drawn;
   const [entries] = await Promise.all([invoke("list_dir", { id, rel: "" }), loadMarks(id)]);
-  if (rename.editing()) return;
-  tree.replaceChildren();
-  await fill(id, "", tree, 0, entries);
+  const rows = document.createDocumentFragment();
+  await fill(id, "", rows, 0, entries);
+  if (mine !== drawn || rename.editing() || workspace() !== id) return;
+  $("tree").replaceChildren(rows);
 }
 
 /// A slow repository must not stack scans: a timer tick waits for the one still running.
@@ -129,7 +133,7 @@ function withGone(rel: string, listed: PathEntry[]): (PathEntry | GoneEntry)[] {
   return [...listed, ...gone].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
 }
 
-async function fill(id: string, rel: string, into: HTMLElement, depth: number, listed?: PathEntry[]) {
+async function fill(id: string, rel: string, into: HTMLElement | DocumentFragment, depth: number, listed?: PathEntry[]) {
   const entries = withGone(rel, listed ?? await invoke("list_dir", { id, rel }));
   for (const entry of entries) {
     const gone = "gone" in entry;
@@ -267,6 +271,7 @@ async function create(parent: string, dir: boolean) {
     const rel = join(parent, name);
     try {
       await invoke("create_path", { id, rel, dir });
+      if (workspace() !== id) return;
       if (dir) openDirs.add(rel);
       await draw(id);
       if (!dir) openFile(rel);
@@ -284,13 +289,14 @@ function startRename(row: HTMLElement, entry: PathEntry) {
     const to = join(parentOf(entry.path), name);
     try {
       await invoke("rename_path", { id, from: entry.path, to });
+      ctx.moved(id, entry.path, to);
+      if (workspace() !== id) return;
       for (const path of [...openDirs]) {
         if (path === entry.path || path.startsWith(`${entry.path}/`)) {
           openDirs.delete(path);
           openDirs.add(to + path.slice(entry.path.length));
         }
       }
-      ctx.moved(entry.path, to);
       await draw(id);
     } catch (error) {
       fail(error);
@@ -314,8 +320,8 @@ async function trash(entry: PathEntry) {
   if (!sure) return;
   try {
     await invoke("trash_path", { id, rel: entry.path });
-    ctx.moved(entry.path, null);
-    await draw(id);
+    ctx.moved(id, entry.path, null);
+    if (workspace() === id) await draw(id);
   } catch (error) {
     fail(error);
   }
@@ -327,7 +333,7 @@ async function restore(entry: PathEntry) {
   if (!id) return;
   try {
     await invoke("tree_restore", { id, rel: entry.path });
-    await draw(id);
+    if (workspace() === id) await draw(id);
   } catch (error) {
     fail(error);
   }
