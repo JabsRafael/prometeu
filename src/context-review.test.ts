@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  CONTEXT_BUDGET, MAX_SUGGESTIONS, QUESTIONS, appendToDraft, buildRequest, canReview, createReview, revisionOf, select,
+  CONTEXT_BUDGET, MAX_SUGGESTIONS, METADATA_LIMITS, QUESTIONS, appendToDraft, buildRequest, canReview, createReview, revisionOf, select,
   type ReviewContext, type ReviewView,
 } from "./context-review";
 import type { EvaluationAnswer, EvaluationPort, EvaluationRequest, EvaluationResult } from "./evaluation";
@@ -61,6 +61,27 @@ describe("request building", () => {
     expect(request.context).toContain("Description:\ndescrição");
   });
 
+  it("bounds oversized issue and project metadata so the request stays within the budget", () => {
+    const bytes = (text: string) => new TextEncoder().encode(text).length;
+    const huge = "título enorme ".repeat(5_000);
+    const request = buildRequest(context("ação ".repeat(20_000), {
+      issue: {
+        ...csvIssue, identifier: "BIL-".repeat(2_000), title: huge, state: "s".repeat(10_000), team: "t".repeat(10_000),
+        project: "p".repeat(10_000), labels: Array.from({ length: 2_000 }, (_, i) => `label-${i}`),
+        description: "descrição ".repeat(20_000),
+      },
+      project: { name: "n".repeat(10_000), repositories: Array.from({ length: 2_000 }, (_, i) => `repository-${i}`), base: "b".repeat(10_000) },
+      attachments: 3,
+    }));
+    expect(bytes(request.context)).toBeLessThanOrEqual(CONTEXT_BUDGET);
+    const title = request.context.split("\n").find(line => line.startsWith("Originating issue (complete):"))!;
+    expect(bytes(title)).toBeLessThanOrEqual(METADATA_LIMITS.field + METADATA_LIMITS.title + 64);
+    expect(request.context).toMatch(/Labels: label-0, label-1, .*…\n/);
+    expect(request.context).toContain("Description:\ndescrição");
+    expect(request.context).toContain("Request draft:\nação");
+    expect(request.context).toContain("3 attachment(s)");
+  });
+
   it("keeps questions closed and within the port bounds", () => {
     expect(QUESTIONS.length).toBeLessThanOrEqual(8);
     for (const question of QUESTIONS) {
@@ -82,6 +103,20 @@ describe("request building", () => {
     expect(revisionOf(context("Fix login", { issue: csvIssue }))).not.toBe(base);
     expect(revisionOf(context("Fix login", { attachments: 1 }))).not.toBe(base);
     expect(revisionOf(context("Fix login", { project: { ...project, name: "web" } }))).not.toBe(base);
+  });
+
+  it("changes the revision for every issue field the request sends", () => {
+    const base = revisionOf(context("", { issue: csvIssue }));
+    for (const changed of [
+      { identifier: "BIL-43" }, { title: "Other title" }, { description: "Other description" }, { state: "Done" },
+      { team: "Platform" }, { project: "Q3" }, { labels: ["bug", "urgent"] }, { labels: [] },
+    ]) {
+      const next = context("", { issue: { ...csvIssue, ...changed } });
+      expect(buildRequest(next).context).not.toBe(buildRequest(context("", { issue: csvIssue })).context);
+      expect(revisionOf(next), JSON.stringify(changed)).not.toBe(base);
+    }
+    expect(revisionOf(context("", { project: { ...project, repositories: ["web"] } }))).not.toBe(revisionOf(context("")));
+    expect(revisionOf(context("", { project: { ...project, base: "develop" } }))).not.toBe(revisionOf(context("")));
   });
 });
 

@@ -106,7 +106,8 @@ fn clean_key(key: &str) -> Result<String, String> {
 fn save_key(path: &Path, generation: &Generation, key: &str) -> Result<Status, String> {
     let key = clean_key(key)?;
     let _guard = STORAGE.lock().unwrap_or_else(|e| e.into_inner());
-    let mut saved = load(path).unwrap_or_default();
+    // A missing file is the default; an unreadable or invalid one is never overwritten.
+    let mut saved = load(path)?;
     saved.key = Some(key);
     store(path, &saved)?;
     generation.bump();
@@ -116,12 +117,14 @@ fn save_key(path: &Path, generation: &Generation, key: &str) -> Result<Status, S
 /// Removing the key also disables evaluation, so a later key needs an explicit enable again.
 fn remove_key(path: &Path, generation: &Generation) -> Result<Status, String> {
     let _guard = STORAGE.lock().unwrap_or_else(|e| e.into_inner());
+    let removed = match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(i18n::t("err.evaluation.storage")),
+    };
+    // Bumped even on failure: the file may have changed, so in-flight work must not be trusted.
     generation.bump();
-    match std::fs::remove_file(path) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(_) => return Err(i18n::t("err.evaluation.storage")),
-    }
+    removed?;
     Ok(status_of(path))
 }
 
@@ -143,14 +146,33 @@ fn credential(path: &Path) -> Option<String> {
     saved.key.filter(|_| saved.enabled)
 }
 
+/// Read the usable credential and the configuration generation as one snapshot. Every command that
+/// changes the file bumps the generation while holding the same lock, so an evaluation built from
+/// this key is stale as soon as the configuration it read changes.
+fn snapshot(path: &Path, generation: &Generation) -> (Option<String>, u64) {
+    let _guard = STORAGE.lock().unwrap_or_else(|e| e.into_inner());
+    (credential(path), generation.current())
+}
+
+/// Accept only an origin: HTTPS, or HTTP on loopback, without credentials, a path other than `/`, a
+/// query or a fragment. The endpoint is always built from the parsed origin, never the raw text.
+fn origin_of(value: &str) -> Option<String> {
+    let url = reqwest::Url::parse(value).ok()?;
+    let loopback = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
+    let secure = url.scheme() == "https" || (url.scheme() == "http" && loopback);
+    let bare = url.username().is_empty()
+        && url.password().is_none()
+        && url.path() == "/"
+        && url.query().is_none()
+        && url.fragment().is_none();
+    let origin = url.origin();
+    (secure && bare && origin.is_tuple()).then(|| origin.ascii_serialization())
+}
+
 fn origin() -> Option<String> {
     let value =
         std::env::var("PROMETEU_TYPESAFE_URL").unwrap_or_else(|_| DEFAULT_ORIGIN.to_string());
-    let url = reqwest::Url::parse(&value).ok()?;
-    let loopback = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
-    let secure = url.scheme() == "https" || (url.scheme() == "http" && loopback);
-    (secure && url.username().is_empty() && url.password().is_none() && url.query().is_none())
-        .then(|| value.trim_end_matches('/').to_string())
+    origin_of(&value)
 }
 
 /* Commands */
@@ -181,11 +203,13 @@ pub async fn context_evaluate(
     request: EvaluationRequest,
 ) -> Result<evaluation::EvaluationResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let adapter = credential(&file()).and_then(|key| Some(TypeSafe::new(origin()?, key)));
+        let (key, started) = snapshot(&file(), &GENERATION);
+        let adapter = key.and_then(|key| Some(TypeSafe::new(origin()?, key)));
         evaluation::run(
             &request,
             adapter.as_ref().map(|a| a as &dyn Evaluator),
             &GENERATION,
+            started,
         )
         .map_err(EvaluationError::to_ipc)
     })
@@ -653,16 +677,108 @@ mod tests {
 
     #[test]
     fn origins_require_https_except_loopback() {
-        for (value, ok) in [
-            ("https://api.typesafe.ai", true),
-            ("http://127.0.0.1:9", true),
-            ("http://example.com", false),
-            ("https://user:pw@api.typesafe.ai", false),
-            ("https://api.typesafe.ai?key=x", false),
+        for (value, expected) in [
+            ("https://api.typesafe.ai", Some("https://api.typesafe.ai")),
+            ("https://api.typesafe.ai/", Some("https://api.typesafe.ai")),
+            (
+                "https://api.typesafe.ai:443",
+                Some("https://api.typesafe.ai"),
+            ),
+            (
+                "https://API.TypeSafe.ai:8443",
+                Some("https://api.typesafe.ai:8443"),
+            ),
+            ("http://127.0.0.1:9", Some("http://127.0.0.1:9")),
+            ("http://localhost:9/", Some("http://localhost:9")),
+            ("http://[::1]:9", Some("http://[::1]:9")),
+            ("http://example.com", None),
+            ("https://user:pw@api.typesafe.ai", None),
+            ("https://user@api.typesafe.ai", None),
+            ("https://api.typesafe.ai?key=x", None),
+            ("https://api.typesafe.ai/?key=x", None),
+            ("https://api.typesafe.ai#frag", None),
+            ("https://api.typesafe.ai/other", None),
+            ("https://evil.example/v1/evaluate?x=", None),
+            ("file:///etc/passwd", None),
+            ("not a url", None),
         ] {
-            std::env::set_var("PROMETEU_TYPESAFE_URL", value);
-            assert_eq!(origin().is_some(), ok, "{value}");
+            assert_eq!(origin_of(value).as_deref(), expected, "{value}");
         }
-        std::env::remove_var("PROMETEU_TYPESAFE_URL");
+        assert_eq!(
+            origin_of(DEFAULT_ORIGIN).as_deref(),
+            Some(DEFAULT_ORIGIN),
+            "the default origin is accepted"
+        );
+    }
+
+    #[test]
+    fn saving_a_key_never_overwrites_an_unreadable_configuration() {
+        let path = temp();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "not json").unwrap();
+        let generation = Generation::new();
+        assert_eq!(
+            save_key(&path, &generation, KEY).unwrap_err(),
+            r#"i18n:{"code":"err.evaluation.storage"}"#
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "not json");
+        // A missing file is the default configuration, not an error.
+        let fresh = temp();
+        assert!(save_key(&fresh, &generation, KEY).unwrap().configured);
+    }
+
+    #[test]
+    fn a_result_is_stale_when_configuration_changes_after_the_credential_snapshot() {
+        use crate::evaluation::fake::Fake;
+        let path = temp();
+        let generation = Arc::new(Generation::new());
+        save_key(&path, &generation, KEY).unwrap();
+        set_enabled(&path, &generation, true).unwrap();
+        let answer = Answer {
+            id: "business_rule".into(),
+            outcome: "absent".into(),
+            confidence: 0.9,
+        };
+
+        // Replaced between the snapshot and the call: the old key is never sent.
+        let (key, started) = snapshot(&path, &generation);
+        assert_eq!(key.as_deref(), Some(KEY));
+        save_key(&path, &generation, "ts_live_other_key_456").unwrap();
+        let fake = Fake::new(Ok(vec![answer.clone()]));
+        assert_eq!(
+            evaluation::run(&request(), Some(&fake), &generation, started),
+            Err(EvaluationError::Stale)
+        );
+        assert!(fake.calls.borrow().is_empty());
+
+        // Disabled or removed while the old key's call is in flight: its result is discarded.
+        for change in [
+            (|p: &Path, g: &Generation| {
+                set_enabled(p, g, false).unwrap();
+            }) as fn(&Path, &Generation),
+            |p: &Path, g: &Generation| {
+                remove_key(p, g).unwrap();
+            },
+        ] {
+            save_key(&path, &generation, KEY).unwrap();
+            set_enabled(&path, &generation, true).unwrap();
+            let (key, started) = snapshot(&path, &generation);
+            assert_eq!(key.as_deref(), Some(KEY));
+            let mut fake = Fake::new(Ok(vec![answer.clone()]));
+            let (during, at) = (generation.clone(), path.clone());
+            fake.during = Some(Box::new(move || change(&at, &during)));
+            assert_eq!(
+                evaluation::run(&request(), Some(&fake), &generation, started),
+                Err(EvaluationError::Stale)
+            );
+            assert_eq!(fake.calls.borrow().len(), 1);
+        }
+
+        // An unchanged snapshot is accepted.
+        save_key(&path, &generation, KEY).unwrap();
+        set_enabled(&path, &generation, true).unwrap();
+        let (_, started) = snapshot(&path, &generation);
+        let fake = Fake::new(Ok(vec![answer]));
+        assert!(evaluation::run(&request(), Some(&fake), &generation, started).is_ok());
     }
 }

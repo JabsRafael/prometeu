@@ -26,12 +26,16 @@ of the Prometeu Cloud account.
   starts disabled again.
 - Enabling requires a saved key (`err.evaluation.noKey` otherwise).
 - Every save, replacement, removal, enable or disable bumps an in-memory
-  configuration generation. An evaluation that started under another generation
-  returns `stale`, and the adapter stops retrying. The frontend also bumps its
+  configuration generation while holding the configuration lock. An evaluation
+  reads the key, the enablement and the generation together under that lock;
+  if the generation changed after that snapshot it returns `stale` without
+  sending the old key, or discards the answer and stops retrying when the
+  change happens during the call. The frontend also bumps its
   own epoch and discards pending and shown results.
 - An unreadable or invalid file keeps the integration disabled and reports
   `err.evaluation.storage` as a visible configuration problem in Settings; it
-  never blocks normal work.
+  never blocks normal work. Saving a key over such a file fails with the same
+  code instead of overwriting it; a missing file is the default configuration.
 
 ## Persistence
 
@@ -85,7 +89,9 @@ deterministic fake. `mock:typesafeFail` simulates a failure code.
 ## Transport
 
 - Origin `https://api.typesafe.ai`, overridable with `PROMETEU_TYPESAFE_URL`
-  (HTTPS, or HTTP on loopback; no credentials, query or redirects).
+  (HTTPS, or HTTP on loopback). The override must be an origin only: userinfo,
+  a path other than `/`, a query or a fragment disable the adapter. The
+  endpoint is built from the parsed origin, and redirects are not followed.
 - 5-second connect and 15-second request timeouts; responses above 256 KiB are
   malformed.
 - At most three attempts for network errors, 429 and 500/502/503/504, with
@@ -126,8 +132,12 @@ context contains:
 - the number of attachments, marked as **uninspected**. Attachment paths and
   contents are never sent.
 
-The draft and the issue share a byte budget, the draft first; clipped text ends
-with a marker.
+Issue and project metadata are single-line fields capped per field (256 bytes;
+1 KiB for the title and for each joined list of labels or repositories) and
+clipped with `…`. The draft and the issue description share the rest of the
+byte budget, the draft first; clipped text ends with a marker. The final
+context therefore never exceeds the 22 KiB budget, below the port's 24 KiB
+bound.
 
 ## Missing-context review
 
@@ -158,22 +168,26 @@ Interaction:
   the draft; **Let the agent investigate** appends an explicit instruction;
   **Dismiss** suppresses that topic for the same draft and context and shows the
   next one;
-- every result is bound to the draft/context revision (draft, issue, project,
-  additional repositories, base branch and attachment count) and to the
-  configuration epoch. Edits, issue or project changes, submission, closing the
-  launcher, disabling, and key replacement or removal discard pending and shown
-  results;
+- every result is bound to the draft/context revision — every field the request
+  sends: the draft; the issue identifier, title, description, state, team,
+  project and labels; the project name, additional repositories and base
+  branch; and the attachment count — and to the configuration epoch. Edits,
+  issue or project changes, submission, closing the launcher, disabling, and
+  key replacement or removal discard pending and shown results;
 - **Create workspace** stays available during evaluation, after dismissal and
   on failure; drafts and attachments are preserved.
 
 ## Tests
 
 - `src-tauri/src/evaluation.rs`: disabled path makes no call, bounds, closed-set
-  validation, stale generation.
+  validation, stale generation during the call and after the credential
+  snapshot.
 - `src-tauri/src/typesafe.rs`: disabled defaults and old files, saving does not
   enable, removal disables, `0600` file, key absent from status and errors, the
   assumed wire shape, 401/429/503/offline/timeout/non-JSON translation, bounded
-  retries, recovery after a transient failure, cancellation between retries.
+  retries, recovery after a transient failure, cancellation between retries, a
+  key replaced, disabled or removed after the credential snapshot, no overwrite
+  of an invalid file, origin-only overrides.
 - `src/context-review.test.ts`: context building with the complete issue and
   uninspected attachments, byte budget, English and Portuguese examples including
   short, investigative, attachment and low-confidence negatives, the CSV example,

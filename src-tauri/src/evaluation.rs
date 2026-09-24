@@ -169,18 +169,23 @@ impl Generation {
 }
 
 /// Run one evaluation: validate, call the port unless disabled, and discard results whose
-/// configuration generation changed during the call.
+/// configuration generation changed after `started`. The caller reads the credential that built the
+/// evaluator and `started` in one step under the configuration lock, so a key replaced, removed or
+/// disabled after that snapshot is never sent and its result is never accepted as current.
 pub fn run(
     request: &EvaluationRequest,
     evaluator: Option<&dyn Evaluator>,
     generation: &Generation,
+    started: u64,
 ) -> Result<EvaluationResult, EvaluationError> {
     let Some(evaluator) = evaluator else {
         return Err(EvaluationError::Disabled);
     };
     validate(request)?;
-    let started = generation.current();
     let changed = || generation.current() != started;
+    if changed() {
+        return Err(EvaluationError::Stale);
+    }
     let answers = evaluator.evaluate(request, &changed);
     if changed() {
         return Err(EvaluationError::Stale);
@@ -256,7 +261,7 @@ mod tests {
     fn disabled_path_makes_zero_calls() {
         let generation = Generation::new();
         assert_eq!(
-            run(&request(), None, &generation),
+            run(&request(), None, &generation, 0),
             Err(EvaluationError::Disabled)
         );
     }
@@ -264,7 +269,7 @@ mod tests {
     #[test]
     fn a_fake_evaluator_answers_through_the_port() {
         let fake = Fake::new(Ok(vec![answer("absent", 0.9)]));
-        let result = run(&request(), Some(&fake), &Generation::new()).unwrap();
+        let result = run(&request(), Some(&fake), &Generation::new(), 0).unwrap();
         assert_eq!(result.answers, vec![answer("absent", 0.9)]);
         assert_eq!(fake.calls.borrow().len(), 1);
     }
@@ -283,7 +288,7 @@ mod tests {
         shaped.questions[0].id = "Bad Id".into();
         for bad in [large, duplicate, open, shaped] {
             assert_eq!(
-                run(&bad, Some(&fake), &generation),
+                run(&bad, Some(&fake), &generation, 0),
                 Err(EvaluationError::Invalid)
             );
         }
@@ -306,13 +311,13 @@ mod tests {
         ] {
             let fake = Fake::new(Ok(reply));
             assert_eq!(
-                run(&request(), Some(&fake), &generation),
+                run(&request(), Some(&fake), &generation, 0),
                 Err(EvaluationError::Malformed)
             );
         }
         let silent = Fake::new(Ok(vec![]));
         assert_eq!(
-            run(&request(), Some(&silent), &generation)
+            run(&request(), Some(&silent), &generation, 0)
                 .unwrap()
                 .answers
                 .len(),
@@ -329,8 +334,25 @@ mod tests {
             during.bump();
         }));
         assert_eq!(
-            run(&request(), Some(&fake), &generation),
+            run(&request(), Some(&fake), &generation, 0),
             Err(EvaluationError::Stale)
+        );
+    }
+
+    #[test]
+    fn a_configuration_change_after_the_snapshot_is_stale_without_a_call() {
+        let generation = Arc::new(Generation::new());
+        let fake = Fake::new(Ok(vec![answer("absent", 0.9)]));
+        // The credential and generation were read together; the key changes before the call.
+        let started = generation.current();
+        generation.bump();
+        assert_eq!(
+            run(&request(), Some(&fake), &generation, started),
+            Err(EvaluationError::Stale)
+        );
+        assert!(
+            fake.calls.borrow().is_empty(),
+            "the old key is never sent after a change"
         );
     }
 

@@ -86,59 +86,86 @@ export type Selection = { suggestions: Suggestion[]; reason: NoneReason | null }
 const encoder = new TextEncoder();
 const size = (text: string) => encoder.encode(text).length;
 
+/// Per-field caps for metadata, in UTF-8 bytes. Their sum stays far below the budget, so the draft
+/// and the description always keep most of it and the final context never exceeds it.
+export const METADATA_LIMITS = { field: 256, title: 1024, list: 1024 } as const;
+
 /// Clip to a UTF-8 byte budget without splitting a character.
-function clip(text: string, budget: number): string {
+function clip(text: string, budget: number, marker = "\n[…]"): string {
   if (size(text) <= budget) return text;
-  const marker = "\n[…]";
+  if (budget <= size(marker)) return "";
   let low = 0, high = text.length;
   while (low < high) {
     const middle = Math.ceil((low + high) / 2);
     if (size(text.slice(0, middle)) + size(marker) <= budget) low = middle; else high = middle - 1;
   }
+  // Never end on a lone high surrogate.
+  if (low > 0 && /[\uD800-\uDBFF]/.test(text[low - 1])) low--;
   return text.slice(0, low) + marker;
 }
+
+const line = (text: string, budget: number = METADATA_LIMITS.field) => clip(text.replace(/\s+/g, " ").trim(), budget, "…");
+const list = (items: string[]) => line(items.map(item => item.trim()).filter(Boolean).join(", "), METADATA_LIMITS.list);
 
 /// A review needs the person's own words or an attached issue; an empty launcher makes no call.
 export const canReview = (context: ReviewContext) => !!context.draft.trim() || !!context.issue;
 
+/// Everything the evaluator sees, normalized once. `buildRequest` renders only these fields and
+/// `revisionOf` hashes all of them, so a change the request would carry is always a new revision.
+function material(context: ReviewContext) {
+  const issue = context.issue;
+  return {
+    draft: context.draft.trim(),
+    issue: issue
+      ? {
+          identifier: issue.identifier,
+          title: issue.title,
+          description: issue.description?.trim() || null,
+          state: issue.state ?? null,
+          team: issue.team ?? null,
+          project: issue.project ?? null,
+          labels: issue.labels ?? [],
+        }
+      : null,
+    project: { name: context.project.name, repositories: context.project.repositories, base: context.project.base },
+    attachments: context.attachments,
+  };
+}
+
 /// The relevant revision of the draft and its context. Results for another revision are stale.
 export function revisionOf(context: ReviewContext): string {
-  return JSON.stringify([
-    context.draft.trim(), context.issue?.identifier ?? null, context.issue?.title ?? null,
-    context.issue?.description ?? null, context.project.name, context.project.repositories, context.project.base,
-    context.attachments,
-  ]);
+  return JSON.stringify(material(context));
 }
 
 /// Build the bounded context. The complete issue is included so information already present there is
-/// not requested again; the draft and issue share the budget, the draft first.
+/// not requested again; metadata fields are capped, and the draft and issue description share the
+/// rest of the budget, the draft first.
 export function buildRequest(context: ReviewContext): EvaluationRequest {
+  const { draft: draftText, issue, project: meta, attachments } = material(context);
   const project = [
     "Project metadata:",
-    `Project: ${context.project.name}`,
-    context.project.repositories.length ? `Additional repositories: ${context.project.repositories.join(", ")}` : "",
-    context.project.base ? `Base branch: ${context.project.base}` : "",
+    `Project: ${line(meta.name)}`,
+    meta.repositories.length ? `Additional repositories: ${list(meta.repositories)}` : "",
+    meta.base ? `Base branch: ${line(meta.base)}` : "",
   ].filter(Boolean).join("\n");
-  const uninspected = context.attachments
-    ? `Uninspected sources: ${context.attachments} attachment(s) were added but their contents were not inspected. ` +
+  const uninspected = attachments
+    ? `Uninspected sources: ${attachments} attachment(s) were added but their contents were not inspected. ` +
       "Do not treat information as absent if it could be in them; answer uninspected instead."
     : "Uninspected sources: none.";
   const fixed = size(project) + size(uninspected) + 256;
-  const draftText = context.draft.trim();
-  const issue = context.issue;
   const issueHead = issue
     ? [
-        `Originating issue (complete): ${issue.identifier} · ${issue.title}`,
-        issue.state ? `State: ${issue.state}` : "",
-        issue.team ? `Team: ${issue.team}` : "",
-        issue.project ? `Issue project: ${issue.project}` : "",
-        issue.labels?.length ? `Labels: ${issue.labels.join(", ")}` : "",
+        `Originating issue (complete): ${line(issue.identifier)} · ${line(issue.title, METADATA_LIMITS.title)}`,
+        issue.state ? `State: ${line(issue.state)}` : "",
+        issue.team ? `Team: ${line(issue.team)}` : "",
+        issue.project ? `Issue project: ${line(issue.project)}` : "",
+        issue.labels.length ? `Labels: ${list(issue.labels)}` : "",
       ].filter(Boolean).join("\n")
     : "";
   const remaining = CONTEXT_BUDGET - fixed - size(issueHead);
   const draftBudget = issue?.description ? Math.max(Math.floor(remaining / 2), remaining - size(issue.description)) : remaining;
   const draft = clip(draftText, draftBudget);
-  const description = issue?.description ? clip(issue.description.trim(), remaining - size(draft)) : "";
+  const description = issue?.description ? clip(issue.description, remaining - size(draft)) : "";
   const sections = [
     `Request draft:\n${draft || "(empty; the issue is the request)"}`,
     issue ? [issueHead, description ? `Description:\n${description}` : "Description: (none)"].join("\n") : "Originating issue: none.",

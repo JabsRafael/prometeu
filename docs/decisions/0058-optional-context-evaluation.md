@@ -39,7 +39,8 @@ Adopt option 3.
 - `src-tauri/src/evaluation.rs` owns the port: `EvaluationRequest` (bounded
   context text plus at most eight closed questions), answers with outcome and
   confidence, request and response validation against the closed sets, the
-  configuration generation that invalidates in-flight results, and the
+  configuration generation, read together with the credential, that
+  invalidates results started under an older configuration, and the
   application error codes `disabled`, `auth`, `rate_limited`, `unavailable`,
   `malformed`, `invalid` and `stale`. It has a fake for tests and a disabled
   path that makes no call.
@@ -61,8 +62,8 @@ The public TypeSafe documentation was not reachable from the environment in
 which the adapter was written. The request/response shape is an explicit,
 isolated assumption in `typesafe.rs::wire`, described in the
 [contract](../contracts/context-evaluation.md#assumed-typesafe-wire-shape). The
-endpoint origin can be overridden with `PROMETEU_TYPESAFE_URL` (HTTPS, or
-loopback HTTP for local testing). A correction changes only that module and its
+endpoint origin can be overridden with `PROMETEU_TYPESAFE_URL` (an origin only:
+HTTPS, or loopback HTTP for local testing). A correction changes only that module and its
 fixtures.
 
 ## Consequences
