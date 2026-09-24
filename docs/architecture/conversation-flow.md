@@ -111,7 +111,17 @@ and concurrency tests in `src-tauri/src/chat.rs`.
 The `Timeline` reducer turns V1 events into user items, assistant messages,
 tool blocks, requests, results, context and warnings. It is pure: it does not
 touch DOM, Tauri, disk, network or provider protocols. Legacy lines go through
-`conversation-legacy.ts` before the reducer.
+`conversation-legacy.ts` before the reducer. Its `busy` is the main turn;
+`working` adds the background tasks, and the conversation screen uses `working`
+for the Stop button and the busy composer so the person can still interrupt
+children that outlived the turn.
+
+Native subagents outlive the turn that started them, so a conversation settles
+only when the turn has ended *and* `background.changed` reports no task.
+`chat.rs` holds the tab in `Rodando` and keeps queued input waiting until then;
+the delegation execution holds `running` with its outcome already recorded. An
+interruption settles everything at once, since it ends the children too. See
+[ADR 0056](../decisions/0056-background-tasks-hold-completion.md).
 
 `alert.ts` tracks executions per tab from the live local `chat` events,
 separate from the unread state. `chat.rs` publishes `session.state` `starting`
@@ -124,9 +134,12 @@ A `turn.completed` with success or error, with no background tasks, becomes a
 candidate for the notice after 1 second. New activity cancels the candidate;
 silence alone never means completion. An interruption consumes the execution
 without creating a pending item. A terminal without activity, such as
-`/context`, also creates no pending item, except on error. Draining
-`background.changed` does not complete the execution: a terminal from the main
-agent is still required. Claude already normalizes tasks; Codex converts
+`/context`, also creates no pending item, except on error. A terminal that
+arrives while tasks are running is held until they drain, and only then becomes
+a candidate; draining alone completes nothing, a terminal from the main agent is
+always required, and the main agent answering again discards the held one.
+Looking at the conversation consumes it like any other completion. Claude
+already normalizes tasks; Codex converts
 `collabAgentToolCall.agentsStates`, `subAgentActivity` and known child events
 into the same event, preserving the isolation of the children's content.
 

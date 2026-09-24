@@ -70,7 +70,7 @@ export function init(context: Ctx) {
     openWorkspace: ctx.openGitWorkspace,
   });
 
-  tree.init({ openFile, workspace: root });
+  tree.init({ openFile, workspace: root, host: treeHost });
   dockbar.init({
     workspace: root,
     say: ctx.say,
@@ -110,7 +110,7 @@ export function init(context: Ctx) {
   });
   $("reveal").addEventListener("click", () => {
     const here = root();
-    if (here) invoke("reveal", { id: here }).catch((e) => ctx.say(fromBack(e), true));
+    if (here) invoke("reveal_path", { id: here, rel: "" }).catch((e) => ctx.say(fromBack(e), true));
   });
   // Agent board events refresh changes, but external commits do not. Refresh on window focus and while Changes is visible.
   window.addEventListener("focus", () => {
@@ -903,6 +903,30 @@ export function forget(alive: Set<string>) {
   for (const map of [filesOf, branchOf] as Map<string, unknown>[]) {
     for (const id of map.keys()) if (!alive.has(id)) map.delete(id);
   }
+}
+
+/// Resolve what the file tree cannot know by itself. The project view shares the tree but has no
+/// conversation, so there an attachment has no destination at all.
+function treeHost(): tree.Host {
+  const ws = current();
+  const target = session.fileDropTarget();
+  return {
+    root: proj ? proj.path : (ws?.worktree ?? null),
+    // The composer shortens the absolute path back against the worktree when it sends the message.
+    attach: target ? (absolute) => target.put([absolute]) : null,
+    attachHint: !target && ws ? t("tree.menu.attach.unsupported") : undefined,
+    // Announce the copy only once the clipboard accepted it; a refused write must not read as done.
+    copy: (text) => {
+      void navigator.clipboard
+        .writeText(text)
+        .then(() => ctx.say(t("say.copied", { path: text })))
+        .catch((e) => ctx.say(fromBack(e), true));
+    },
+    reveal: (path) => {
+      const id = root();
+      if (id) void invoke("reveal_path", { id, rel: path }).catch((e) => ctx.say(fromBack(e), true));
+    },
+  };
 }
 
 export async function openFile(path: string) {

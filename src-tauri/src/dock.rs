@@ -345,23 +345,6 @@ pub(crate) fn ensure_port(state: &State<AppState>, id: &str) -> Option<u16> {
     Some(port)
 }
 
-/// Open the workspace or project root folder in the file manager.
-#[tauri::command]
-pub fn reveal(state: State<AppState>, id: String) -> Result<(), String> {
-    let root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
-    let ok = crate::platform::opener()
-        .arg(&root)
-        .status()
-        .map_err(i18n::io)?
-        .success();
-    ok.then_some(()).ok_or_else(|| {
-        i18n::ta(
-            "err.session.openFailed",
-            &[("path", root.display().to_string())],
-        )
-    })
-}
-
 /// Open Run in the system browser for external inspection. Resolve its port from backend state
 /// rather than accepting an arbitrary URL over IPC.
 #[tauri::command]

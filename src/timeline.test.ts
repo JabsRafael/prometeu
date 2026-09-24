@@ -288,13 +288,31 @@ describe("Timeline", () => {
     expect(a.blocks[0].background).toBe(true);
     expect([...t.tasks.values()].map((k) => k.description)).toEqual(["explore"]);
     expect(t.busy).toBe(false);
+    // The turn ended, but the child it started has not: the conversation is still working.
+    expect(t.working).toBe(true);
     const touched = t.push(
       j({ type: "system", subtype: "task_notification", task_id: "bg1", tool_use_id: "tu1", status: "completed", summary: 'Agent "explore" finished' }),
     );
     expect(touched).toEqual([0, 1]);
     expect(a.blocks[0].background).toBe(false);
     expect(t.tasks.size).toBe(0);
+    expect(t.working).toBe(false);
     expect(t.items[1]).toMatchObject({ kind: "system", text: 'Agent "explore" finished', error: false });
+  });
+
+  it("stops working when an interruption ends the turn and the children it started", () => {
+    const t = new Timeline();
+    t.push(assistant("m1", { type: "tool_use", id: "tu1", name: "Agent", input: { description: "explore", run_in_background: true } }));
+    t.push(j({ type: "system", subtype: "task_started", task_id: "bg1", tool_use_id: "tu1", description: "explore", is_backgrounded: true }));
+    t.push(j({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "bg1", description: "explore" }] }));
+    expect(t.working).toBe(true);
+    const touched = t.push(j({ type: "result", subtype: "error_during_execution", is_error: true }));
+    expect(t.tasks.size).toBe(0);
+    expect(t.working).toBe(false);
+    const a = t.items[0];
+    if (a.kind !== "assistant" || a.blocks[0].kind !== "tool") throw new Error();
+    expect(a.blocks[0].background).toBe(false);
+    expect(touched).toContain(0);
   });
 
   it("normalizes task notifications from user XML into the same system row", () => {

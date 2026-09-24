@@ -18,6 +18,8 @@ type Conversation = {
   workspace: string;
   phase: "idle" | "sent" | "running";
   background: boolean;
+  /// A turn that ended while background tasks were still running, waiting for them to drain.
+  held: "ok" | "error" | null;
   pending: boolean;
   timer: ReturnType<typeof setTimeout> | null;
   requests: Set<string>;
@@ -29,6 +31,22 @@ const watching = (tab: string) => document.hasFocus() && ctx.visible(tab);
 function cancel(conversation: Conversation) {
   if (conversation.timer !== null) clearTimeout(conversation.timer);
   conversation.timer = null;
+}
+/// A terminal from the main agent becomes a notice candidate after a second of silence. Background
+/// tasks hold it back until they drain, so the person still hears about the work that outlived the turn.
+function complete(tab: string, conversation: Conversation, failed: boolean) {
+  if (conversation.phase === "idle" || conversation.timer !== null) return;
+  if (watching(tab)) {
+    conversation.phase = "idle";
+    return;
+  }
+  conversation.timer = setTimeout(() => {
+    conversation.timer = null;
+    conversation.phase = "idle";
+    conversation.pending = !watching(tab);
+    if (conversation.pending) ctx.notify?.(failed ? "error" : "done", tab);
+    badge();
+  }, SETTLE_MS);
 }
 let unread = new Set<string>();
 
@@ -43,7 +61,9 @@ export function looked() {
   for (const [tab, conversation] of conversations) {
     if (!watching(tab)) continue;
     conversation.pending = false;
-    if (conversation.timer !== null) {
+    // Looking at the conversation acknowledges a terminal, including one its subagents still hold.
+    if (conversation.held !== null || conversation.timer !== null) {
+      conversation.held = null;
       cancel(conversation);
       conversation.phase = "idle";
     }
@@ -65,7 +85,7 @@ export function boardChanged(board: Board) {
   for (const [tab, workspace] of owners) {
     const conversation = conversations.get(tab);
     if (conversation) conversation.workspace = workspace;
-    else conversations.set(tab, { workspace, phase: "idle", background: false, pending: false, timer: null, requests: new Set() });
+    else conversations.set(tab, { workspace, phase: "idle", background: false, held: null, pending: false, timer: null, requests: new Set() });
   }
   looked();
 }
@@ -84,6 +104,7 @@ export function chatChanged(tab: string, line: string) {
         cancel(conversation);
         conversation.phase = "idle";
         conversation.background = false;
+        conversation.held = null;
         conversation.pending = false;
         conversation.requests.clear();
         badge();
@@ -92,6 +113,7 @@ export function chatChanged(tab: string, line: string) {
       if (event.state !== "busy") return;
       cancel(conversation);
       conversation.phase = "sent";
+      conversation.held = null;
       conversation.pending = false;
       badge();
       return;
@@ -102,6 +124,8 @@ export function chatChanged(tab: string, line: string) {
     case "tool.input.delta":
     case "tool.completed":
       cancel(conversation);
+      // The main agent answering again invalidates the terminal its subagents were holding.
+      conversation.held = null;
       if (conversation.phase === "sent") conversation.phase = "running";
       return;
     case "user.message":
@@ -110,11 +134,19 @@ export function chatChanged(tab: string, line: string) {
     case "context.compaction":
       if (event.state === "started") cancel(conversation);
       return;
-    case "background.changed":
+    case "background.changed": {
       conversation.background = event.tasks.length > 0;
-      if (conversation.background) cancel(conversation);
-      // Finishing a background task is not the primary agent's final response.
+      if (conversation.background) {
+        cancel(conversation);
+        return;
+      }
+      // Draining is not the primary agent's final response; it only releases one already sent.
+      if (conversation.held === null) return;
+      const failed = conversation.held === "error";
+      conversation.held = null;
+      complete(tab, conversation, failed);
       return;
+    }
     case "request.opened":
     case "request.closed":
       cancel(conversation);
@@ -129,25 +161,22 @@ export function chatChanged(tab: string, line: string) {
     case "turn.completed":
       if (event.outcome === "interrupted") {
         cancel(conversation);
+        conversation.held = null;
         conversation.phase = "idle";
         return;
       }
       if (conversation.phase === "sent" && event.outcome !== "error") {
+        conversation.held = null;
         conversation.phase = "idle";
         return;
       }
-      if (conversation.phase === "idle" || conversation.background || conversation.timer !== null) return;
-      if (watching(tab)) {
-        conversation.phase = "idle";
+      if (conversation.phase === "idle") return;
+      // Subagents outlive the turn that started them; wait for them before offering the notice.
+      if (conversation.background) {
+        conversation.held = event.outcome === "error" ? "error" : "ok";
         return;
       }
-      conversation.timer = setTimeout(() => {
-        conversation.timer = null;
-        conversation.phase = "idle";
-        conversation.pending = !watching(tab);
-        if (conversation.pending) ctx.notify?.(event.outcome === "error" ? "error" : "done", tab);
-        badge();
-      }, SETTLE_MS);
+      complete(tab, conversation, event.outcome === "error");
   }
 }
 

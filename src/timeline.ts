@@ -53,6 +53,12 @@ export class Timeline {
   tasks = new Map<string, Task>();
   commands: Command[] = [];
 
+  /// `busy` is the primary turn; background tasks can outlive it. The conversation is only idle
+  /// when both have finished, so the person can still interrupt work started by a finished turn.
+  get working(): boolean {
+    return this.busy || this.tasks.size > 0;
+  }
+
   private legacy = new LegacyConversationAdapter();
   private tools = new Map<string, { item: number; block: number }>();
   private settled: number[] = [];
@@ -341,7 +347,8 @@ export class Timeline {
   private completeTurn(event: Extract<AnyConversationEventV1, { type: "turn.completed" }>): number[] {
     this.busy = false;
     this.compacting = false;
-    const touched: number[] = [];
+    // An interruption ends the children the turn started, whether or not the provider reports it.
+    const touched: number[] = event.outcome === "interrupted" ? this.changeBackground([]) : [];
     for (let index = this.items.length - 1; index >= 0; index--) {
       const item = this.items[index];
       if (item.kind === "assistant" && item.streaming) {

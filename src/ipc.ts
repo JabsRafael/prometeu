@@ -125,7 +125,7 @@ export type Commands = {
   remove_workspace: { args: { id: string }; result: void };
   rename_tab: { args: { workspace: string; tab: string; title: string }; result: void };
   rename_workspace: { args: { id: string; title: string }; result: void };
-  reveal: { args: { id: string }; result: void };
+  reveal_path: { args: { id: string; rel: string }; result: void };
   scripts_prompt: { args: { id: string }; result: string };
   set_awake: { args: { on: boolean }; result: void };
   set_lang: { args: { lang: Lang }; result: void };

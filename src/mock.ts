@@ -2117,7 +2117,7 @@ const mockCommands: IpcHandlers = {
   },
   pty_resize() {},
   remove_workspace() {},
-  reveal() {},
+  reveal_path() {},
 };
 
 function call(cmd: string, args: Record<string, any> = {}): unknown {

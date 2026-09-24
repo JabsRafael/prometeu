@@ -115,7 +115,9 @@ kind. `src/timeline.test.ts`, `e2e/conversation-requests.spec.ts` and the Rust
 remote-control tests cover those cases without changing the V1 wire format.
 
 `turn.completed` ends the turn and any visual compaction, but it does not end
-background tasks. Cost stays in the common event as an optional number: Claude
+background tasks. Consumers treat the conversation as working until the turn has
+ended and `background.changed` reports no task; only `interrupted` ends both at
+once. A terminal that arrives with tasks still running is held, never dropped. Cost stays in the common event as an optional number: Claude
 may fill it in and Codex may use `null` without introducing a provider extension
 into the history.
 
