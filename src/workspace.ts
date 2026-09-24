@@ -70,7 +70,13 @@ export function init(context: Ctx) {
     openWorkspace: ctx.openGitWorkspace,
   });
 
-  tree.init({ openFile, workspace: root });
+  tree.init({
+    openFile,
+    workspace: root,
+    rootPath: () => (openWs ? current()?.worktree : proj?.path) ?? null,
+    moved: (from, to) => void treeMoved(from, to),
+    say: ctx.say,
+  });
   dockbar.init({
     workspace: root,
     say: ctx.say,
@@ -1063,6 +1069,25 @@ function center(show: "chatwrap" | "viewer" | "diffview" | "webview" | "termview
   $("websplit").hidden = show !== "webview";
   if (show === "webview") $("chatwrap").hidden = false;
   if (show !== "termview") dockbar.leave();
+}
+
+/// Keep file tabs on entries the tree renamed, and close the ones it trashed.
+async function treeMoved(from: string, to: string | null) {
+  const id = root();
+  if (!id) return;
+  const fs = files(id);
+  const hit = (path: string) => path === from || path.startsWith(`${from}/`);
+  if (to === null) {
+    for (const path of fs.open.filter(hit)) await closeFile(path);
+    return;
+  }
+  const move = (path: string) => (hit(path) ? to + path.slice(from.length) : path);
+  fs.open = fs.open.map(move);
+  const active = fs.active && hit(fs.active) ? move(fs.active) : null;
+  if (active) return openFile(active);
+  const ws = current();
+  if (proj) drawProjectTabs();
+  else if (ws) drawTabs(ws);
 }
 
 async function closeFile(path: string) {

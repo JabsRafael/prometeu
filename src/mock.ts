@@ -360,6 +360,11 @@ type MockGit = {
 };
 const gitStates = new Map<string, MockGit>();
 const gitError = (code: string): never => { throw `i18n:${JSON.stringify({ code })}`; };
+const splitRel = (rel: string): [string, string] => {
+  const cut = rel.lastIndexOf("/");
+  return cut < 0 ? ["", rel] : [rel.slice(0, cut), rel.slice(cut + 1)];
+};
+const validName = (name: string) => !!name && name !== "." && name !== ".." && !/[/\\\0]/.test(name) && name.toLowerCase() !== ".git";
 const gitPatch = (file: Change, patch: string): Change => ({
   ...file, patch,
   added: patch.split("\n").filter((line) => line.startsWith("+")).length,
@@ -1357,6 +1362,43 @@ const mockCommands: IpcHandlers = {
   },
   list_dir(args) {
     return tree[args.rel ?? ""] ?? [];
+  },
+  // Tree actions edit the sample tree in memory with the backend's refusals for names and conflicts.
+  create_path(args) {
+    const [parent, name] = splitRel(args.rel);
+    const list = (tree[parent] ??= []);
+    if (!validName(name)) return gitError("err.files.name");
+    if (list.some(entry => entry.name === name)) throw `i18n:${JSON.stringify({ code: "err.files.exists", args: { name } })}`;
+    list.push({ name, path: args.rel, dir: args.dir });
+    if (args.dir) tree[args.rel] = [];
+    else files[args.rel] = "";
+  },
+  rename_path(args) {
+    const [from, [parent, name]] = [splitRel(args.from), splitRel(args.to)];
+    const source = tree[from[0]]?.find(entry => entry.name === from[1]);
+    if (!source || !validName(name)) return gitError("err.files.name");
+    if (args.from === args.to) return;
+    if ((tree[parent] ?? []).some(entry => entry.name === name)) throw `i18n:${JSON.stringify({ code: "err.files.exists", args: { name } })}`;
+    tree[from[0]] = tree[from[0]].filter(entry => entry !== source);
+    (tree[parent] ??= []).push({ ...source, name, path: args.to });
+    const move = (key: string) => key === args.from || key.startsWith(`${args.from}/`) ? args.to + key.slice(args.from.length) : key;
+    for (const key of Object.keys(tree)) {
+      const list = tree[key];
+      delete tree[key];
+      tree[move(key)] = list.map(entry => ({ ...entry, path: move(entry.path) }));
+    }
+    for (const key of Object.keys(files)) {
+      const text = files[key];
+      delete files[key];
+      files[move(key)] = text;
+    }
+  },
+  trash_path(args) {
+    const [parent, name] = splitRel(args.rel);
+    tree[parent] = (tree[parent] ?? []).filter(entry => entry.name !== name);
+    const inside = (key: string) => key === args.rel || key.startsWith(`${args.rel}/`);
+    for (const key of Object.keys(tree)) if (inside(key)) delete tree[key];
+    for (const key of Object.keys(files)) if (inside(key)) delete files[key];
   },
   // Viewer saves replace mock file contents. Concurrent disk-writer detection remains a Rust test.
   write_file(args) {

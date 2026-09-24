@@ -251,6 +251,8 @@ main { flex: 1; min-height: 0; position: relative; }
 .rename.sub { height: 30px; margin: 1px 0; padding: 0 8px; font-size: 13px; }
 .rename.crumb { width: 260px; height: 24px; padding: 0 8px; }
 .rename.tab { width: 150px; height: 24px; padding: 0 8px; }
+.treeedit { margin: 0 8px; padding-right: 8px; }
+.rename.tree { width: 100%; height: 26px; margin: 1px 0; padding: 0 8px; font: 13px var(--mono); }
 
 /* ---------- workspace ---------- */
 

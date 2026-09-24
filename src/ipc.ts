@@ -66,6 +66,7 @@ export type Commands = {
   cloud_organizations: { args: undefined; result: { user: CloudStatus["user"]; origin: string; organizations: Organization[] } };
   cloud_relay_ticket: { args: { organization: string; user: string; expectedOrigin: string }; result: string };
   cloud_status: { args: { refresh: boolean }; result: CloudStatus };
+  create_path: { args: { id: string; rel: string; dir: boolean }; result: void };
   create_scripts_file: { args: { id: string }; result: string };
   create_workspace: { args: { draft: Draft; cols: number; rows: number }; result: T.Workspace };
   dock_state: { args: { id: string }; result: T.DockState[] };
@@ -123,9 +124,10 @@ export type Commands = {
   refresh_prs: { args: undefined; result: void };
   remove_project: { args: { id: string }; result: void };
   remove_workspace: { args: { id: string }; result: void };
+  rename_path: { args: { id: string; from: string; to: string }; result: void };
   rename_tab: { args: { workspace: string; tab: string; title: string }; result: void };
   rename_workspace: { args: { id: string; title: string }; result: void };
-  reveal: { args: { id: string }; result: void };
+  reveal: { args: { id: string; rel?: string }; result: void };
   scripts_prompt: { args: { id: string }; result: string };
   set_awake: { args: { on: boolean }; result: void };
   set_lang: { args: { lang: Lang }; result: void };
@@ -144,6 +146,8 @@ export type Commands = {
   team_config_set: { args: { config?: TeamConfig | null }; result: void };
   team_security: { args: undefined; result: unknown };
   team_security_set: { args: { state: unknown }; result: void };
+  trash_path: { args: { id: string; rel: string }; result: void };
+  tree_git_status: { args: { id: string }; result: T.GitFile[] };
   usage: { args: undefined; result: Usage };
   workspace_branch: { args: { id: string }; result: string | null };
   workspace_git_action: { args: { id: string; repo: number; operation: T.GitAction; paths: string[]; message?: string | null; expected?: string | null; remote?: string | null }; result: void };
@@ -153,7 +157,6 @@ export type Commands = {
   workspace_git_history: { args: { id: string; repo: number }; result: T.GitCommit[] };
   workspace_git_resolve: { args: { id: string; repo: number; path: string; was: string; text: string }; result: void };
   workspace_git_status: { args: { id: string }; result: T.GitStatus[] };
-  tree_git_status: { args: { id: string }; result: T.GitFile[] };
   workspace_scripts: { args: { id: string }; result: T.Scripts };
   workspace_tools: { args: { id: string; agent?: T.ProviderId | null }; result: T.WorkspaceTools };
   write_file: { args: { id: string; rel: string; text: string; was: string }; result: void };

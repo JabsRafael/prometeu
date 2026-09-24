@@ -174,14 +174,36 @@ does not produce those projections in new logs.
 
 ## Root of the file commands
 
-`list_dir`, `tree_git_status`, `read_file`, `read_bytes`, `write_file`, `find_paths` and `reveal`
-receive in `id` the workspace **or** the project. A workspace resolves in its
+`list_dir`, `tree_git_status`, `read_file`, `read_bytes`, `write_file`,
+`create_path`, `rename_path`, `trash_path`, `find_paths` and `reveal` receive in `id` the workspace **or** the project. A workspace resolves in its
 working directory: a dedicated worktree, the clone itself, or the common parent
 of multiple worktrees. A project resolves in the registered clone's folder, which is what
 supports reading and editing a repository with no workspace on it at all. The
 two id spaces do not collide, and `session.rs::cwd_of` is the only function that
 performs that resolution — `dock.rs` imports it instead of repeating the rule. A
 path outside the root is still refused.
+
+### File tree actions
+
+The side tree works like a file manager through three commands, all relative to
+that root:
+
+| Command | Arguments | Effect |
+| --- | --- | --- |
+| `create_path` | `rel`, `dir` | creates an empty file or a folder; never replaces an existing entry |
+| `rename_path` | `from`, `to` | renames or moves an entry; refuses an existing target and moving a folder into itself |
+| `trash_path` | `rel` | moves the entry to the system trash instead of deleting it |
+
+The last component of a path must be one plain name: empty, `.`, `..`, `/`,
+`\`, NUL and `.git` (in any case) answer `err.files.name`, and an existing
+target answers `err.files.exists` with `name`. Only the parent folder is
+resolved through symlinks and must stay inside the root; the entry itself is
+not followed, so renaming or trashing a symlink acts on the link. Trash is used
+so untracked work, which Git cannot bring back, is still recoverable; a failure
+answers `err.files.trash` with the system's `cause`. `reveal` takes an optional
+`rel` and opens that folder, or the folder of that file, instead of the root.
+The UI moves the open file tabs of a renamed entry and closes those of a
+trashed one.
 
 `open_dock` accepts a project id only for a terminal: the shell only needs the
 folder, and without a workspace there is no script variable to pass. Setup and

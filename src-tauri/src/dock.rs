@@ -347,8 +347,12 @@ pub(crate) fn ensure_port(state: &State<AppState>, id: &str) -> Option<u16> {
 
 /// Open the workspace or project root folder in the file manager.
 #[tauri::command]
-pub fn reveal(state: State<AppState>, id: String) -> Result<(), String> {
-    let root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+pub fn reveal(state: State<AppState>, id: String, rel: Option<String>) -> Result<(), String> {
+    let mut root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+    // A tree entry opens its folder: the entry itself when it is a folder, else its parent.
+    if let Some(rel) = rel.filter(|rel| !rel.is_empty()) {
+        root = crate::session::files::folder_of(&root, &rel)?;
+    }
     let ok = crate::platform::opener()
         .arg(&root)
         .status()
