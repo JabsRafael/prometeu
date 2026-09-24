@@ -17,6 +17,7 @@ import * as rename from "./rename";
 import * as session from "./session";
 import * as team from "./team";
 import * as tree from "./tree";
+import { relocate, relocateTabs } from "./tree-moves";
 import {
   fmtTokens,
   label,
@@ -74,7 +75,13 @@ export function init(context: Ctx) {
     fileHost: changesHost,
   });
 
-  tree.init({ openFile, workspace: root, host: treeHost });
+  tree.init({
+    openFile,
+    workspace: root,
+    host: treeHost,
+    moved: (id, from, to) => void treeMoved(id, from, to),
+    say: ctx.say,
+  });
   dockbar.init({
     workspace: root,
     say: ctx.say,
@@ -1118,6 +1125,30 @@ function center(show: "chatwrap" | "viewer" | "diffview" | "webview" | "termview
   $("websplit").hidden = show !== "webview";
   if (show === "webview") $("chatwrap").hidden = false;
   if (show !== "termview") dockbar.leave();
+}
+
+/// Keep file tabs and unsaved drafts on entries the tree renamed, and drop the ones it trashed.
+/// `id` is the workspace or project the action ran in, which may no longer be the one on screen;
+/// its tabs then change in memory only and show when it returns.
+async function treeMoved(id: string, from: string, to: string | null) {
+  viewer.moveDrafts(id, from, to);
+  const fs = files(id);
+  const was = fs.active;
+  const shown = root() === id;
+  if (to === null && shown) {
+    // Closing picks the neighbor or returns to the conversation, as the tab's own close does.
+    for (const path of fs.open.filter((path) => relocate(path, from, null) === null)) await closeFile(path);
+    return;
+  }
+  Object.assign(fs, relocateTabs(fs, from, to));
+  if (!shown) return;
+  // The viewer reopens the file under its new name, keeping the draft, and the tree marks it.
+  if (fs.active !== was && fs.active) return openFile(fs.active);
+  if (proj) drawProjectTabs();
+  else {
+    const ws = current();
+    if (ws) drawTabs(ws);
+  }
 }
 
 async function closeFile(path: string) {

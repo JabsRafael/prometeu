@@ -6,6 +6,7 @@ import { decode, parse } from "./csv";
 import { fileIcon, icon } from "./icons";
 import { findCapped, follow, markup, nearest, step, type Match } from "./find";
 import { button, input } from "./ui";
+import { relocateKeys } from "./tree-moves";
 import { $ } from "./util";
 
 /// The file editor layers highlighted code over a transparent textarea.
@@ -224,6 +225,12 @@ function reveal() {
   // The sticky gutter covers the left edge of the scroller.
   const left = c.left + $("vgutter").offsetWidth;
   if (r.left < left || r.right > c.right) code.scrollLeft += r.left - left - Math.max(0, (c.right - left - r.width) / 3);
+}
+
+/// Unsaved drafts follow an entry the file tree renamed (`to`), or go with it to the trash (`to` is
+/// null), so reopening the new path keeps the edits and a trashed file leaves nothing behind.
+export function moveDrafts(id: string, from: string, to: string | null) {
+  relocateKeys(drafts, key(id, ""), from, to);
 }
 
 /// Board events refresh open files; preserve scrolling when the content is unchanged.

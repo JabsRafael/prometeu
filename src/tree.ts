@@ -1,10 +1,14 @@
-import { t } from "./i18n";
+import { fromBack, t } from "./i18n";
 import { invoke } from "./ipc";
 import { fileIcon, icon } from "./icons";
 import * as menu from "./menu";
 import type { PathEntry } from "./paths";
+import { mac } from "./platform";
+import * as rename from "./rename";
 import { gitMarks, latestOnly, type GitMarks, type GoneEntry } from "./tree-git";
-import { treeMenu } from "./tree-menu";
+import { parentOf, rootMenu, treeMenu, type Entry } from "./tree-menu";
+import { relocate } from "./tree-moves";
+import { confirmDialog } from "./ui";
 import { $, debounce } from "./util";
 
 /// Load worktree folders on demand in the side panel so large repositories do not require a full tree scan.
@@ -34,6 +38,11 @@ export type Host = {
 let openFile: (path: string) => void = () => {};
 let workspace: () => string | null = () => null;
 let host: () => Host = () => ({ root: null, attach: null, copy: () => {}, reveal: () => {} });
+/// Open tabs and drafts of `id` follow an entry the tree renamed (`to`) or trashed (`to` is null).
+let moved: (id: string, from: string, to: string | null) => void = () => {};
+let say: (message: string, error?: boolean) => void = () => {};
+/// A name is being typed in place; redraws wait so they do not drop the input.
+let editing = false;
 let marks: GitMarks = gitMarks([]);
 /// Agents and terminals change files without board events, so visible marks refresh on a timer.
 const MARKS_EVERY = 5_000;
@@ -42,10 +51,20 @@ export function init(ctx: {
   openFile: (path: string) => void;
   workspace: () => string | null;
   host: () => Host;
+  moved: (id: string, from: string, to: string | null) => void;
+  say: (message: string, error?: boolean) => void;
 }) {
   openFile = ctx.openFile;
   workspace = ctx.workspace;
   host = ctx.host;
+  moved = ctx.moved;
+  say = ctx.say;
+  $("tree").addEventListener("contextmenu", (e) => {
+    if ((e.target as HTMLElement).closest(".treerow, .treeedit")) return;
+    e.preventDefault();
+    if (!workspace()) return;
+    menu.openAt({ x: e.clientX, y: e.clientY }, rootMenu({ create: (parent, dir) => void create(parent, dir), reveal: host().reveal }));
+  });
   $("collapse").addEventListener("click", () => {
     openDirs.clear();
     redraw();
@@ -94,13 +113,14 @@ let drawn = 0;
 
 /// Marks load before the rows because deleted files add rows of their own. Rows are built off
 /// screen and swapped in at once: only the latest draw for the workspace still on screen may
-/// replace the tree.
+/// replace the tree, and never while a name is typed in place: the edit redraws when it ends.
 async function draw(id: string) {
+  if (editing) return;
   const mine = ++drawn;
   const [entries] = await Promise.all([invoke("list_dir", { id, rel: "" }), loadMarks(id)]);
   const rows = document.createDocumentFragment();
   await fill(id, "", rows, 0, entries);
-  if (mine !== drawn || workspace() !== id) return;
+  if (mine !== drawn || editing || workspace() !== id) return;
   $("tree").replaceChildren(rows);
 }
 
@@ -165,6 +185,7 @@ async function fill(id: string, rel: string, into: HTMLElement | DocumentFragmen
     if (entry.path === target) row.classList.add("targeted");
     row.style.paddingLeft = `${14 + depth * 20}px`;
     row.dataset.dir = entry.dir ? "1" : "0";
+    row.dataset.depth = String(depth);
     if (gone) row.dataset.gone = "1";
     row.innerHTML = `<span class="tw"></span><span class="tn"></span><span class="tg"></span><span class="tc"></span>`;
     // Expanded folders change their icon and hover chevron.
@@ -199,14 +220,13 @@ async function fill(id: string, rel: string, into: HTMLElement | DocumentFragmen
     // row so the viewer and the composer keep the native editing menu.
     row.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      // A deleted entry has nothing on disk to open, attach or reveal.
-      if (gone) return;
       const at = host();
       menu.openAt(
         { x: e.clientX, y: e.clientY },
         treeMenu(entry, {
           root: at.root,
           expanded: openDirs.has(entry.path),
+          gone,
           attachHint: at.attachHint,
           hooks: {
             open: openFile,
@@ -214,6 +234,10 @@ async function fill(id: string, rel: string, into: HTMLElement | DocumentFragmen
             attach: at.attach,
             copy: at.copy,
             reveal: at.reveal,
+            create: (parent, dir) => void create(parent, dir),
+            rename: startRename,
+            trash: (entry) => void trash(entry),
+            restore: (path) => void restore(path),
           },
         }),
         undefined,
@@ -221,6 +245,15 @@ async function fill(id: string, rel: string, into: HTMLElement | DocumentFragmen
       );
       // After openAt: opening closes any previous menu, whose callback clears the old mark.
       aim(entry.path);
+    });
+
+    // A focused row takes the file manager's shortcuts; a deleted one has nothing to rename or trash.
+    row.addEventListener("keydown", (e) => {
+      if (gone) return;
+      if (e.key === "F2") startRename(entry);
+      else if (mac ? e.metaKey && e.key === "Backspace" : e.key === "Delete") void trash(entry);
+      else return;
+      e.preventDefault();
     });
 
     // Opening a file marks it through the workspace's `select`, like every other route to the viewer.
@@ -235,4 +268,129 @@ async function fill(id: string, rel: string, into: HTMLElement | DocumentFragmen
       await fill(id, entry.path, kids, depth + 1, gone ? [] : undefined);
     }
   }
+}
+
+/* File manager actions. Each one captures the tree's id when it starts: the person may switch
+   workspaces while a name is typed or a confirmation is open. */
+
+const join = (parent: string, name: string) => (parent ? `${parent}/${name}` : name);
+/// A deleted entry can share its path with one now on disk of the other kind; actions take the live one.
+const rowOf = (path: string) => $("tree").querySelector<HTMLElement>(`.treerow:not([data-gone])[data-path="${CSS.escape(path)}"]`);
+const fail = (error: unknown) => say(fromBack(error), true);
+
+/// Type a name in place: an indented input that replaces `hide` (or sits before `before`) until
+/// Enter, Escape or blur. `done` receives the new name, or null when nothing changed.
+function editName(
+  at: { into: Element; before: Element | null; depth: number; hide?: HTMLElement },
+  value: string,
+  file: boolean,
+  done: (name: string | null) => Promise<void>,
+) {
+  const wrap = document.createElement("div");
+  wrap.className = "treeedit";
+  wrap.style.paddingLeft = `${14 + at.depth * 20}px`;
+  const slot = document.createElement("span");
+  wrap.append(slot);
+  at.into.insertBefore(wrap, at.before);
+  if (at.hide) at.hide.hidden = true;
+  editing = true;
+  rename.start(slot, value, (name) => {
+    editing = false;
+    wrap.remove();
+    if (at.hide) at.hide.hidden = false;
+    // Redraws skipped while typing are made up here, whatever the edit did.
+    void done(name).finally(redraw);
+  }, "tree");
+  const input = wrap.querySelector("input");
+  if (!input) return;
+  input.setAttribute("aria-label", t("tree.name"));
+  // Like a file manager, renaming a file selects its name without the extension.
+  const dot = value.lastIndexOf(".");
+  if (file && dot > 0) input.setSelectionRange(0, dot);
+}
+
+async function create(parent: string, dir: boolean) {
+  const id = workspace();
+  if (!id || editing) return;
+  if (parent) openDirs.add(parent);
+  await draw(id);
+  if (workspace() !== id || editing) return;
+  const row = parent ? rowOf(parent) : null;
+  const into = row ? row.nextElementSibling : $("tree");
+  if (!into) return;
+  const depth = row ? Number(row.dataset.depth) + 1 : 0;
+  editName({ into, before: into.firstElementChild, depth }, "", false, async (name) => {
+    if (!name) return;
+    const rel = join(parent, name);
+    try {
+      await invoke("create_path", { id, rel, dir });
+    } catch (error) {
+      return fail(error);
+    }
+    if (workspace() !== id) return;
+    if (dir) openDirs.add(rel);
+    else openFile(rel);
+  });
+}
+
+function startRename(entry: Entry) {
+  const id = workspace();
+  const row = rowOf(entry.path);
+  if (!id || !row?.parentElement || editing) return;
+  const depth = Number(row.dataset.depth);
+  editName({ into: row.parentElement, before: row, depth, hide: row }, entry.name, !entry.dir, async (name) => {
+    if (!name) return;
+    const to = join(parentOf(entry.path), name);
+    try {
+      await invoke("rename_path", { id, from: entry.path, to });
+    } catch (error) {
+      return fail(error);
+    }
+    moved(id, entry.path, to);
+    if (workspace() !== id) return;
+    // Expanded folders stay expanded under their new name.
+    for (const path of [...openDirs]) {
+      const next = relocate(path, entry.path, to);
+      if (next !== path) {
+        openDirs.delete(path);
+        if (next) openDirs.add(next);
+      }
+    }
+  });
+}
+
+async function trash(entry: Entry) {
+  const id = workspace();
+  if (!id) return;
+  // Keep showing which entry the confirmation is about.
+  aim(entry.path);
+  const sure = await confirmDialog({
+    title: t("tree.trash.title", { name: entry.name }),
+    message: t(entry.dir ? "tree.trash.folder" : "tree.trash.file"),
+    accept: t("tree.trash.accept"),
+    cancel: t("tree.trash.cancel"),
+  });
+  aim(null);
+  if (!sure) return;
+  try {
+    await invoke("trash_path", { id, rel: entry.path });
+  } catch (error) {
+    return fail(error);
+  }
+  moved(id, entry.path, null);
+  if (workspace() !== id) return;
+  for (const path of [...openDirs]) if (!relocate(path, entry.path, null)) openDirs.delete(path);
+  await draw(id);
+}
+
+/// Bring a deleted file or folder back from the last commit.
+async function restore(path: string) {
+  const id = workspace();
+  if (!id) return;
+  try {
+    await invoke("tree_restore", { id, rel: path });
+  } catch (error) {
+    return fail(error);
+  }
+  if (workspace() === id) await draw(id);
 }

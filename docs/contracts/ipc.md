@@ -180,8 +180,8 @@ does not produce those projections in new logs.
 
 ## Root of the file commands
 
-`list_dir`, `tree_git_status`, `read_file`, `read_bytes`, `write_file`, `find_paths` and `reveal_path`
-receive in `id` the workspace **or** the project. A workspace resolves in its
+`list_dir`, `tree_git_status`, `tree_restore`, `read_file`, `read_bytes`, `write_file`,
+`create_path`, `rename_path`, `trash_path`, `find_paths` and `reveal_path` receive in `id` the workspace **or** the project. A workspace resolves in its
 working directory: a dedicated worktree, the clone itself, or the common parent
 of multiple worktrees. A project resolves in the registered clone's folder, which is what
 supports reading and editing a repository with no workspace on it at all. The
@@ -205,6 +205,48 @@ selection flag, so a file there opens the folder holding it rather than the file
 which would launch another application over it. Resolution canonicalizes the
 root, so a symlinked root opens its target and a missing root fails before the
 file manager starts.
+
+### File tree actions
+
+The side tree works like a file manager through three commands, all relative to
+that root:
+
+| Command | Arguments | Effect |
+| --- | --- | --- |
+| `create_path` | `rel`, `dir` | creates an empty file or a folder; never replaces an existing entry |
+| `rename_path` | `from`, `to` | renames or moves an entry; refuses an existing target and moving a folder into itself |
+| `trash_path` | `rel` | moves the entry to the system trash instead of deleting it |
+
+The last component of a path must be one plain name: empty, `.`, `..`, `/`,
+`\` and NUL answer `err.files.name`, and an existing target answers
+`err.files.exists` with `name`. Git metadata is off limits at any depth: a
+`.git` component anywhere in the path (in any case), or a parent that resolves
+into one through a symlink, answers `err.files.name` for the new entry, both
+ends of a rename and the trashed entry. Only the parent folder is resolved
+through symlinks and must stay inside the root; the entry itself is not
+followed, so renaming or trashing a symlink acts on the link.
+
+A case change of the same name in the same folder is the only rename allowed
+onto a name that answers as existing. On a case-insensitive disk, the macOS and
+Windows default, the new spelling finds the source itself; the rename is
+allowed when the folder lists no entry spelled exactly that way, so a second,
+distinct entry (two symlinks to one file included) is still refused. Such a
+rename goes through a random temporary name in the same folder, since some file
+systems ignore a rename that changes only case, and is undone if the second
+step fails. Case-only renames run one at a time, so two concurrent detours can
+never meet on the same temporary name and replace a file. The same test covers both kinds of disk: on Linux CI
+(case-sensitive) it checks the listing check and the refusal of a second
+entry, and on macOS CI (case-insensitive) it checks the case-only rename in
+both directions. Trash is used so
+untracked work, which Git cannot bring back, is still recoverable; a failure
+answers `err.files.trash` with the system's `cause`. `trash_path` is async
+because the platform trash can be slow, notably through Finder on macOS.
+
+The UI moves the open file tabs and unsaved drafts of a renamed entry and drops
+those of a trashed one, in the workspace or project where the action started.
+The commands are new and additive: frontend and backend ship together, no
+persisted field changes, and relay clients never see them. `src/mock.ts` edits
+its sample tree with the same refusals for names and conflicts.
 
 The former `reveal` command is retired under the bundled IPC policy in
 [ADR 0043](../decisions/0043-retire-unused-ipc.md). Frontend and backend ship
