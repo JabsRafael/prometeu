@@ -295,6 +295,39 @@ jobs:
         with:
           args: --verbose --bundles appimage
 
+      # The bundled Ubuntu 22.04 libwayland breaks EGL on current Mesa (black window); the host must
+      # provide it. Repacking invalidates the updater signature, so sign the patched file again.
+      - name: Unbundle libwayland from the AppImage
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          shopt -s nullglob
+          images=(src-tauri/target/release/bundle/appimage/*.AppImage)
+          [ "${#images[@]}" -eq 1 ] || { echo "::error::expected exactly one AppImage"; exit 1; }
+          bash scripts/appimage-unbundle-wayland.sh "${images[0]}"
+          rm -f "${images[0]}.sig"
+          npx tauri signer sign "${images[0]}"
+          echo "APPIMAGE=${images[0]}" >> "$GITHUB_ENV"
+
+      # tauri-action already uploaded the unpatched AppImage and wrote its signature into latest.json.
+      # This job is the draft's last writer, so replacing both here cannot race the macOS entries.
+      - name: Replace the AppImage in the shared draft
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp "$APPIMAGE" "$RUNNER_TEMP/Prometeu_x86_64.AppImage"
+          cp "$APPIMAGE.sig" "$RUNNER_TEMP/Prometeu_x86_64.AppImage.sig"
+          gh release download "$GITHUB_REF_NAME" -R "$REPO" -p latest.json -D "$RUNNER_TEMP/manifest"
+          jq --arg sig "$(cat "$APPIMAGE.sig")" \
+            '.platforms |= with_entries(if (.value.url // "") | endswith(".AppImage") then .value.signature = $sig else . end)' \
+            "$RUNNER_TEMP/manifest/latest.json" > "$RUNNER_TEMP/latest.json"
+          gh release upload "$GITHUB_REF_NAME" -R "$REPO" --clobber \
+            "$RUNNER_TEMP/Prometeu_x86_64.AppImage" \
+            "$RUNNER_TEMP/Prometeu_x86_64.AppImage.sig" \
+            "$RUNNER_TEMP/latest.json"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: github.ref_type != 'tag'
         with:
