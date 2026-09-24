@@ -5,6 +5,7 @@ import * as browser from "./browser";
 import { openCleanup } from "./cleanup";
 import * as diff from "./diff";
 import * as dockbar from "./dockbar";
+import type * as fileMenu from "./file-menu";
 import { avatar, icon, stageIcon, wave } from "./icons";
 import { fromBack, stage as stageName, t, tn } from "./i18n";
 import { fitsEffort, modelLabel } from "./model-choice";
@@ -68,6 +69,7 @@ export function init(context: Ctx) {
     openFile: openChange,
     launchBranch: ctx.launchBranch,
     openWorkspace: ctx.openGitWorkspace,
+    fileHost: changesHost,
   });
 
   tree.init({ openFile, workspace: root, host: treeHost });
@@ -908,23 +910,37 @@ export function forget(alive: Set<string>) {
 /// Resolve what the file tree cannot know by itself. The project view shares the tree but has no
 /// conversation, so there an attachment has no destination at all.
 function treeHost(): tree.Host {
+  const host = fileHost(proj ? proj.path : (current()?.worktree ?? null), (path) => path);
+  return { root: host.root, attachHint: host.attachHint, ...host.hooks };
+}
+
+/// The same resolution for a changed file, whose path is relative to its repository. The system
+/// file manager addresses the workspace, so reveal maps the path back like `openChange`.
+function changesHost(repo: string): fileMenu.Context {
+  const ws = current();
+  return fileHost(ws ? repoRoot(ws, repo) : null, (path) => (ws ? `${underWorkspace(ws, repo)}${path}` : path));
+}
+
+function fileHost(base: string | null, relative: (path: string) => string): fileMenu.Context {
   const ws = current();
   const target = session.fileDropTarget();
   return {
-    root: proj ? proj.path : (ws?.worktree ?? null),
-    // The composer shortens the absolute path back against the worktree when it sends the message.
-    attach: target ? (absolute) => target.put([absolute]) : null,
-    attachHint: !target && ws ? t("tree.menu.attach.unsupported") : undefined,
-    // Announce the copy only once the clipboard accepted it; a refused write must not read as done.
-    copy: (text) => {
-      void navigator.clipboard
-        .writeText(text)
-        .then(() => ctx.say(t("say.copied", { path: text })))
-        .catch((e) => ctx.say(fromBack(e), true));
-    },
-    reveal: (path) => {
-      const id = root();
-      if (id) void invoke("reveal_path", { id, rel: path }).catch((e) => ctx.say(fromBack(e), true));
+    root: base,
+    attachHint: !target && ws ? t("file.menu.attach.unsupported") : undefined,
+    hooks: {
+      // The composer shortens the absolute path back against the worktree when it sends the message.
+      attach: target ? (absolute) => target.put([absolute]) : null,
+      // Announce the copy only once the clipboard accepted it; a refused write must not read as done.
+      copy: (text) => {
+        void navigator.clipboard
+          .writeText(text)
+          .then(() => ctx.say(t("say.copied", { path: text })))
+          .catch((e) => ctx.say(fromBack(e), true));
+      },
+      reveal: (path) => {
+        const id = root();
+        if (id) void invoke("reveal_path", { id, rel: relative(path) }).catch((e) => ctx.say(fromBack(e), true));
+      },
     },
   };
 }
@@ -1165,14 +1181,20 @@ function outstanding(id: string): { dirty: number; unpushed: number } | null {
   };
 }
 
+const repoRoot = (ws: Workspace, repo: string) => ws.repos.find((r) => r.name === repo)?.worktree ?? ws.worktree;
+
+/// A repository's folder relative to the workspace root, with its trailing slash; empty when they
+/// coincide.
+function underWorkspace(ws: Workspace, repo: string) {
+  const root = ws.worktree, mine = repoRoot(ws, repo);
+  return mine.startsWith(`${root}/`) ? `${mine.slice(root.length + 1)}/` : "";
+}
+
 /// Translate repository-relative diff paths into workspace-relative viewer paths, including the repository prefix for multi-repository workspaces.
 function openChange(repo: string, path: string) {
   const ws = current();
   if (!ws) return;
-  const root = ws.worktree;
-  const mine = ws.repos.find((r) => r.name === repo)?.worktree ?? root;
-  const under = mine.startsWith(`${root}/`) ? `${mine.slice(root.length + 1)}/` : "";
-  void openFile(`${under}${path}`);
+  void openFile(`${underWorkspace(ws, repo)}${path}`);
 }
 
 /* Project-only view. */

@@ -68,7 +68,7 @@ export type GitDiff = { base: string; head: string; files: Change[] };
 export type GitCommit = { oid: string; subject: string; author: string; date: string; outgoing: boolean };
 export type GitBranch = { name: string; current: boolean; remote: boolean; worktree: string | null; workspace: string | null };
 export type GitConflict = { current: string; ours: string | null; theirs: string | null };
-export type GitAction = "stage" | "unstage" | "commit" | "fetch" | "pull" | "push" | "publish";
+export type GitAction = "stage" | "unstage" | "commit" | "fetch" | "pull" | "push" | "publish" | "discard";
 
 /// Name the primary repository or every repository when a workspace spans several.
 export const repoLabel = (ws: Workspace) =>

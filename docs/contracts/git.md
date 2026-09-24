@@ -102,10 +102,18 @@ state.
 
 ### Mutations
 
-`operation` accepts `stage`, `unstage`, `commit`, `fetch`, `pull`, `push` and
-`publish`. Stage operates only on the chosen paths, as literal pathspecs.
-Unstage changes the index and preserves the files, including before the first
-commit. There is no automatic staging on commit.
+`operation` accepts `stage`, `unstage`, `discard`, `commit`, `fetch`, `pull`,
+`push` and `publish`. Stage operates only on the chosen paths, as literal
+pathspecs. Unstage changes the index and preserves the files, including before
+the first commit. There is no automatic staging on commit.
+
+Discard throws away unstaged work on the chosen paths, which must all be in the
+`changes` group and none in `conflicts`. A tracked path returns to its index
+version (`git restore --worktree`), so staged content survives; an untracked
+path is removed with `git clean`, which never touches ignored files or other
+untracked paths. It is refused while any tab of the workspace runs a turn,
+because the agent may be editing the same files. The UI offers it per file and
+asks for confirmation first; Git cannot bring the content back.
 
 Commit requires a message, a branch and a prepared index, or a pending merge
 without conflicts. The `expected` token identifies HEAD and the index entries;
@@ -121,6 +129,23 @@ sends only HEAD to the configured upstream reference. Publish requires a known
 remote and configures the branch's upstream. Both actions disable `followTags`,
 do not force-push and do not publish other branches or tags. Failures preserve
 the draft and the selection; the UI refreshes the status after the result.
+
+### File menu
+
+Right-clicking a file row opens a context menu built by the pure
+`src/changes-menu.ts`: **Open diff** (or **Resolve conflict** in the conflict
+group) and **Open file**, disabled with an explanation for a deleted file; then
+**Stage** or **Unstage** and **Discard changes**, per scope; then the groups the
+Files tree offers too, from `src/file-menu.ts`: attaching the file to the
+conversation, copying its repository-relative or absolute path and showing it in
+the file manager. A deleted file offers only its paths. Git items stay visible
+but disabled while another operation runs, and while an agent runs, with
+`err.git.agent` as the reason. Conflicts have no Git item: their editor stages
+the resolution. The menu acts on one file; there is no multiple selection.
+
+The tree and this panel keep separate builders and share only those trailing
+groups: the Git group, the scope and the agent state mean nothing to the tree,
+and a discriminated union over both subjects would make every hook conditional.
 
 ### Conflicts
 
@@ -158,7 +183,9 @@ uses its existing view model. There is no board, transcript or collaboration
 protocol migration.
 
 - `src-tauri/src/session/git_tests.rs`: real Git repositories, partial index,
-  special paths, commit, local remotes, conflicts and merge.
+  special paths, discard, commit, local remotes, conflicts and merge.
+- `src/changes-menu.test.ts`: the file menu per scope, for a deleted file and
+  while an agent runs.
 - `src/diff.test.ts`: line numbering on both sides and alignment of
   replacements, additions and deletions between hunks.
 - `e2e/git.spec.ts`: representative review and commit flows, filters, layout,

@@ -1268,6 +1268,13 @@ const mockCommands: IpcHandlers = {
         delete value.conflicts[path];
       }
       value.status.index = `mock-${++value.version}`;
+    } else if (operation === "discard") {
+      if (!selected.length) return gitError("err.git.selection");
+      const workspace = board.workspaces.find((workspace) => workspace.id === args.id);
+      if (workspace?.tabs.some((tab) => tab.status === "rodando")) return gitError("err.git.agent");
+      if (selected.some((path) => !value.changes.some((file) => file.path === path) || value.conflicts[path])) return gitError("err.git.changed");
+      // The worktree returns to the index, so only the unstaged side disappears.
+      value.changes = value.changes.filter((file) => !selected.includes(file.path));
     } else if (operation === "commit") {
       if (!status.branch) return gitError("err.git.detached");
       if (status.conflicts.length) return gitError("err.git.conflicts");

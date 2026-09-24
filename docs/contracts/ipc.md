@@ -184,7 +184,9 @@ performs that resolution — `dock.rs` imports it instead of repeating the rule.
 path outside the root is still refused.
 
 `reveal_path` requires `rel`: an empty string opens the root, while a nonempty
-path shows one entry of the tree. Keeping `rel` required preserves one IPC shape
+path shows one entry of the tree or, from the Changes panel, a changed file,
+whose repository-relative path the frontend prefixes with the repository's
+folder under the workspace root. Keeping `rel` required preserves one IPC shape
 for both uses. Finder selects a file with `-R`; systems served by `xdg-open` have no
 selection flag, so a file there opens the folder holding it rather than the file,
 which would launch another application over it. Resolution canonicalizes the
