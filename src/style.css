@@ -829,6 +829,8 @@ body.noside .side { display: none; }
   justify-content: flex-start;
 }
 .treerow:hover { background: var(--bg-raised-2); }
+/* Mark the row the person last acted on, like the Changes list. */
+.treerow.selected { background: var(--bg-raised-2); box-shadow: inset 2px 0 var(--tab-line); }
 .treerow .tw { display: flex; color: var(--fg-2); }
 .treerow .tn { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .treerow .tc { display: flex; color: var(--fg-2); opacity: 0; }

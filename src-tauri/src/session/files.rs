@@ -129,9 +129,46 @@ pub fn write_file(
     save(&file, &text, &was)
 }
 
+/// Finder selects the entry with -R, so the person sees which file the tree meant. Systems served
+/// by xdg-open have no selection flag; opening the file there would launch another application
+/// over it, so open the folder holding it instead.
+fn reveal_args(target: &Path, dir: bool, mac: bool) -> Vec<std::ffi::OsString> {
+    let own = |path: &Path| path.as_os_str().to_os_string();
+    if dir {
+        return vec![own(target)];
+    }
+    match mac {
+        true => vec![std::ffi::OsString::from("-R"), own(target)],
+        false => vec![own(target.parent().unwrap_or(target))],
+    }
+}
+
+/// Show one entry of the worktree in the system file manager. The workspace-wide `reveal` opens the
+/// root; the tree needs the file the person pointed at.
+#[tauri::command]
+pub fn reveal_path(state: State<AppState>, id: String, rel: String) -> Result<(), String> {
+    let root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+    let target = inside(&root, &rel)?;
+    let ok = crate::platform::opener()
+        .args(reveal_args(
+            &target,
+            target.is_dir(),
+            cfg!(target_os = "macos"),
+        ))
+        .status()
+        .map_err(i18n::io)?
+        .success();
+    ok.then_some(()).ok_or_else(|| {
+        i18n::ta(
+            "err.session.openFailed",
+            &[("path", target.display().to_string())],
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{inside, save};
+    use super::{inside, reveal_args, save};
 
     fn tmp(name: &str) -> std::path::PathBuf {
         let dir =
@@ -169,6 +206,47 @@ mod tests {
             "o que o agente escreveu\n"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Finder selects the file so the person sees which one the tree meant.
+    #[test]
+    fn reveal_selects_the_file_in_finder() {
+        let file = std::path::Path::new("/wt/app/src/main.ts");
+
+        assert_eq!(
+            reveal_args(file, false, true),
+            vec![
+                std::ffi::OsString::from("-R"),
+                std::ffi::OsString::from(file)
+            ]
+        );
+    }
+
+    /// xdg-open cannot select an entry, so open the folder holding the file instead of the file,
+    /// which would launch another application over it.
+    #[test]
+    fn reveal_opens_the_holding_folder_where_selection_is_unavailable() {
+        let file = std::path::Path::new("/wt/app/src/main.ts");
+
+        assert_eq!(
+            reveal_args(file, false, false),
+            vec![std::ffi::OsString::from("/wt/app/src")]
+        );
+    }
+
+    /// A folder is already the destination on either system.
+    #[test]
+    fn reveal_opens_a_folder_directly() {
+        let dir = std::path::Path::new("/wt/app/src");
+
+        assert_eq!(
+            reveal_args(dir, true, true),
+            vec![std::ffi::OsString::from(dir)]
+        );
+        assert_eq!(
+            reveal_args(dir, true, false),
+            vec![std::ffi::OsString::from(dir)]
+        );
     }
 
     /// A symlink outside the worktree must not authorize writing there.
