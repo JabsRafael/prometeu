@@ -278,8 +278,8 @@ fn tree_marks(root: &Path, repos: &[PathBuf]) -> Vec<GitFile> {
 }
 
 /// Git marks for the side file tree. Accepts a workspace or a project id, like `list_dir`, and
-/// never fails: a tree outside Git simply has no marks.
-#[tauri::command]
+/// never fails: a tree outside Git simply has no marks. Async keeps the scan off the main thread.
+#[tauri::command(async)]
 pub fn tree_git_status(state: State<AppState>, id: String) -> Vec<GitFile> {
     let Some(root) = super::cwd_of(&state, &id) else {
         return Vec::new();

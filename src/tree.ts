@@ -85,6 +85,9 @@ async function draw(id: string) {
   await fill(id, "", tree, 0, entries);
 }
 
+/// A slow repository must not stack scans: a timer tick waits for the one still running.
+let loading: Promise<void> | null = null;
+
 async function loadMarks(id: string) {
   const files = await invoke("tree_git_status", { id }).catch(() => []);
   if (workspace() === id) marks = gitMarks(files);
@@ -92,8 +95,10 @@ async function loadMarks(id: string) {
 
 /// Repaint rows in place, and rebuild them only when a file was deleted or restored.
 async function repaint(id: string) {
+  if (loading) return;
   const before = marks.goneKey;
-  await loadMarks(id);
+  loading = loadMarks(id).finally(() => (loading = null));
+  await loading;
   if (workspace() !== id) return;
   if (marks.goneKey !== before) await draw(id);
   else paintAll();
