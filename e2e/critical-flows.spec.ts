@@ -119,6 +119,14 @@ test("clicking a project opens clone files without a workspace", async ({ page }
   await page.locator("#tree .treerow", { hasText: "CLAUDE.md" }).click();
   await expect(page.locator("#viewer")).toBeVisible();
   await expect(page.locator("#vpre")).toContainText("Personal finance management");
+  await page.locator("#vpreview").click();
+  await expect(page.locator("#vread")).toBeVisible();
+  await expect(page.locator("#vread h1")).toHaveText("Njord");
+  await expect(page.locator("#vread strong")).toHaveText("left");
+  await expect(page.locator("#vpreview")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#vtext")).toBeHidden();
+  await page.locator("#vsource").click();
+  await expect(page.locator("#vtext")).toBeVisible();
 
   // Opened files become tabs and share the same add control as workspace tabs.
   await expect(page.locator("#tabbar .tab")).toHaveText(["CLAUDE.md"]);
@@ -714,6 +722,10 @@ test("file edits survive board redraws and save", async ({ page }) => {
   await page.locator("#vtext").fill(text);
   // The highlighted pre element reflects newly typed text.
   await expect(page.locator("#vpre")).toContainText("Edited manually by E2E.");
+  await page.locator("#vpreview").click();
+  await expect(page.locator("#vread")).toContainText("Edited manually by E2E.");
+  await page.locator("#vsource").click();
+  await expect(page.locator("#vtext")).toHaveValue(text);
   await expect(page.locator("#vsave")).toBeVisible();
   await expect(page.locator("#vcrumb")).toHaveClass(/\bdirty\b/);
 
@@ -730,6 +742,7 @@ test("file edits survive board redraws and save", async ({ page }) => {
   // Navigating to another file and back preserves the draft.
   await page.locator("#tree .treerow", { hasText: ".gitignore" }).click();
   await expect(page.locator("#vpre")).toContainText("Ignore bundler config");
+  await expect(page.locator("#vview")).toBeHidden();
   await expect(page.locator("#vsave")).toBeHidden();
   await page.locator("#tree .treerow", { hasText: "CLAUDE.md" }).click();
   await expect(page.locator("#vtext")).toHaveValue(text);
@@ -743,6 +756,13 @@ test("file edits survive board redraws and save", async ({ page }) => {
   await board();
   await expect(page.locator("#vpre")).toContainText("Edited manually by E2E.");
   await expect(page.locator("#vpre")).not.toContainText("Personal finance management");
+
+  await page.locator("#vtext").fill("# Temporary draft\n");
+  await page.locator("#vpreview").click();
+  await expect(page.locator("#vread")).toContainText("Temporary draft");
+  await page.locator("#vcancel").click();
+  await expect(page.locator("#vread")).toContainText("Edited manually by E2E.");
+  await expect(page.locator("#vread")).not.toContainText("Temporary draft");
 
   // Saving the edited file must not overwrite another file visited during editing.
   await page.locator("#tree .treerow", { hasText: ".gitignore" }).click();
