@@ -1677,6 +1677,36 @@ mod tests {
         assert!(link.on_line(r#"{"method":"turn/completed","params":{"threadId":"sub-1","turn":{"id":"child-turn","status":"completed"}}}"#).is_empty());
     }
 
+    /// The settlement rule is provider-neutral, so it is proven against what this adapter really
+    /// emits, not against handwritten canonical events. See ADR 0056.
+    #[test]
+    fn a_turn_ending_with_a_running_subagent_settles_only_when_the_child_finishes() {
+        let (mut link, out) = link(None);
+        opened(&mut link, &out);
+        link.on_line(
+            r#"{"method":"turn/started","params":{"threadId":"t-1","turn":{"id":"turn-1"}}}"#,
+        );
+        let mut work = crate::chat::Work::default();
+        let spawn = json!({
+            "method": "item/completed", "params": { "threadId": "t-1", "item": {
+                "type": "collabAgentToolCall", "id": "spawn-1", "tool": "spawnAgent",
+                "status": "completed", "senderThreadId": "t-1", "receiverThreadIds": ["sub-1"],
+                "prompt": "map", "agentsStates": { "sub-1": { "status": "running", "message": null } },
+            } },
+        })
+        .to_string();
+        for event in link.on_line(&spawn) {
+            assert!(!work.observe(&event));
+        }
+        let ended = link.on_line(r#"{"method":"turn/completed","params":{"threadId":"t-1","turn":{"id":"turn-1","status":"completed"}}}"#);
+        for event in ended {
+            assert!(!work.observe(&event), "turn ended, child has not");
+        }
+        let drain = link.on_line(r#"{"method":"turn/completed","params":{"threadId":"sub-1","turn":{"id":"child-turn","status":"completed"}}}"#);
+        assert_eq!(drain[0]["type"], "background.changed");
+        assert!(work.observe(&drain[0]));
+    }
+
     #[test]
     fn subagent_activity_does_not_confuse_envelopes_with_start_and_end_events() {
         let (mut link, out) = link(None);

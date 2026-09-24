@@ -233,7 +233,14 @@ busy conversations and retain a distinct ID for each accepted request key.
 
 Background `null` means no current authoritative observation; `[]` is an
 observed empty set. A successful main turn does not clear background tasks, and
-an empty background update does not complete a turn. Claude and Codex supply the
+an empty background update does not complete a turn on its own: the execution
+records its outcome when the main turn ends and only reaches `completed` when
+the tasks drain. An outcome on a `running` execution therefore means the main
+turn ended while its children kept working; completion is the `completed` state
+alone. An interruption completes immediately and drops the last observation of
+the children, which it also ended. This keeps `get_execution` and `send_message`
+in agreement: while a send is rejected as busy, the execution is not completed.
+See [ADR 0056](../decisions/0056-background-tasks-hold-completion.md). Claude and Codex supply the
 existing normalized signals; neither promises complete visibility into every
 native child process. Native provider subagents are distinct from other
 Prometeu delegations.

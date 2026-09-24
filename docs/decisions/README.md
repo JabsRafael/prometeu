@@ -93,3 +93,4 @@ Status: Proposed
 | [0053](0053-live-model-selection.md) | Live model catalogs and explicit selection identity |
 | [0054](0054-local-notifications.md) | Opt-in local notifications with independent sound |
 | [0055](0055-linux-desktop.md) | Linux desktop through system programs |
+| [0056](0056-background-tasks-hold-completion.md) | A turn only completes when its background tasks drain |

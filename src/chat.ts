@@ -1039,7 +1039,7 @@ export class ChatView {
       } else if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
         this.send();
-      } else if (e.key === "Escape" && this.tl.busy && !this.area.value) {
+      } else if (e.key === "Escape" && this.tl.working && !this.area.value) {
         e.preventDefault();
         this.interrupt();
       }
@@ -1281,8 +1281,8 @@ export class ChatView {
     // Local file attachment is unavailable for agents running on another Mac.
     q(".addfile").hidden =
       this.remote || !info.workspace || !capabilitiesOf(info.agent).attachments;
-    q(".stop").hidden = !this.tl.busy;
-    this.box.classList.toggle("busy", this.tl.busy);
+    q(".stop").hidden = !this.tl.working;
+    this.box.classList.toggle("busy", this.tl.working);
 
     const off = info.remote ? !info.remote.online : false;
     this.area.disabled = off;
@@ -1295,7 +1295,7 @@ export class ChatView {
             : t("chat.placeholder");
     this.area.setAttribute("aria-label", this.area.placeholder);
     const receiving = !!this.key && drafts.pending.has(this.key);
-    const hint = receiving ? t("chat.drop.receiving") : this.tl.compacting ? t("chat.compacting") : this.tl.busy ? t("chat.busy") : "";
+    const hint = receiving ? t("chat.drop.receiving") : this.tl.compacting ? t("chat.compacting") : this.tl.working ? t("chat.busy") : "";
     if (q(".hint").textContent !== hint) q(".hint").textContent = hint;
     this.paintWith(info);
     this.paintMcp(info);
