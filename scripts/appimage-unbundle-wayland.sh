@@ -36,7 +36,7 @@ rm -rf squashfs-root
 chmod +x repacked.AppImage
 ./repacked.AppImage --appimage-extract >/dev/null
 [ -d squashfs-root/usr ] || { echo "repacked AppImage has no usr/"; exit 1; }
-if find squashfs-root -name 'libwayland-*.so*' | grep -q .; then
+if [ -n "$(find squashfs-root -name 'libwayland-*.so*' -print -quit)" ]; then
   echo "repacked AppImage still bundles libwayland-*"
   exit 1
 fi
