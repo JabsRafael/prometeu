@@ -1,7 +1,8 @@
 import { t } from "./i18n";
 import { invoke } from "./ipc";
 import { fileIcon, icon } from "./icons";
-import { gitMarks, type Mark } from "./tree-git";
+import type { PathEntry } from "./paths";
+import { gitMarks, type GitMarks, type GoneEntry } from "./tree-git";
 import { $, debounce } from "./util";
 
 /// Load worktree folders on demand in the side panel so large repositories do not require a full tree scan.
@@ -11,7 +12,7 @@ const openDirs = new Set<string>();
 
 let openFile: (path: string) => void = () => {};
 let workspace: () => string | null = () => null;
-let markOf: ReturnType<typeof gitMarks> = () => null;
+let marks: GitMarks = gitMarks([]);
 /// Agents and terminals change files without board events, so visible marks refresh on a timer.
 const MARKS_EVERY = 5_000;
 
@@ -42,48 +43,63 @@ export function reset() {
 /// Debounce board-driven refreshes because each open folder requires list_dir; agent bursts would otherwise repeat identical IPC work.
 export const redrawSoon = debounce(200, redraw);
 
+/// Marks load before the rows because deleted files add rows of their own.
 async function draw(id: string) {
   const tree = $("tree");
-  const marks = loadMarks(id);
+  const [entries] = await Promise.all([invoke("list_dir", { id, rel: "" }), loadMarks(id)]);
   tree.replaceChildren();
-  await fill(id, "", tree, 0);
-  await marks;
-  paintAll();
+  await fill(id, "", tree, 0, entries);
 }
 
 async function loadMarks(id: string) {
   const files = await invoke("tree_git_status", { id }).catch(() => []);
-  if (workspace() === id) markOf = gitMarks(files);
+  if (workspace() === id) marks = gitMarks(files);
 }
 
+/// Repaint rows in place, and rebuild them only when a file was deleted or restored.
 async function repaint(id: string) {
+  const before = marks.goneKey;
   await loadMarks(id);
-  paintAll();
+  if (workspace() !== id) return;
+  if (marks.goneKey !== before) await draw(id);
+  else paintAll();
 }
 
 function paintAll() {
   for (const row of $("tree").querySelectorAll<HTMLElement>(".treerow")) paint(row);
 }
 
-/// Color the name and show the mark beside it; folders show a dot for changes inside them.
+/// Tint the row and show the mark beside the name; folders show a dot for changes inside them.
 function paint(row: HTMLElement) {
   const dir = row.dataset.dir === "1";
-  const mark: Mark | null = markOf(row.dataset.path!, dir);
+  const gone = row.dataset.gone === "1";
+  const mark = gone ? "D" : marks.mark(row.dataset.path!, dir);
   const badge = row.children[2] as HTMLElement;
   if (mark) row.dataset.git = mark;
   else delete row.dataset.git;
-  badge.textContent = mark ? (dir ? "•" : mark) : "";
-  badge.title = mark ? t(dir ? "tree.git.folder" : `tree.git.${mark}`) : "";
+  badge.textContent = mark ? (dir && !gone ? "•" : mark) : "";
+  badge.title = mark ? t(dir && !gone ? "tree.git.folder" : `tree.git.${mark}`) : "";
 }
 
-async function fill(id: string, rel: string, into: HTMLElement, depth: number) {
-  const entries = await invoke("list_dir", { id, rel });
+/// Merge deleted entries into the listing in list_dir's order: folders first, then by name.
+function withGone(rel: string, listed: PathEntry[]): (PathEntry | GoneEntry)[] {
+  const names = new Set(listed.map(entry => entry.name));
+  const gone = marks.gone(rel).filter(entry => !names.has(entry.name));
+  if (!gone.length) return listed;
+  const key = (entry: PathEntry) => `${entry.dir ? 0 : 1}${entry.name.toLowerCase()}`;
+  return [...listed, ...gone].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+}
+
+async function fill(id: string, rel: string, into: HTMLElement, depth: number, listed?: PathEntry[]) {
+  const entries = withGone(rel, listed ?? await invoke("list_dir", { id, rel }));
   for (const entry of entries) {
+    const gone = "gone" in entry;
     const row = document.createElement("button");
     row.className = "treerow";
     row.style.paddingLeft = `${14 + depth * 20}px`;
     row.dataset.path = entry.path;
     row.dataset.dir = entry.dir ? "1" : "0";
+    if (gone) row.dataset.gone = "1";
     row.innerHTML = `<span class="tw"></span><span class="tn"></span><span class="tg"></span><span class="tc"></span>`;
     // Expanded folders change their icon and hover chevron.
     const glyph = (open: boolean) => {
@@ -96,7 +112,8 @@ async function fill(id: string, rel: string, into: HTMLElement, depth: number) {
     into.append(row);
 
     if (!entry.dir) {
-      row.addEventListener("click", () => openFile(entry.path));
+      // A deleted file has nothing on disk to open.
+      if (!gone) row.addEventListener("click", () => openFile(entry.path));
       continue;
     }
 
@@ -110,7 +127,7 @@ async function fill(id: string, rel: string, into: HTMLElement, depth: number) {
         openDirs.delete(entry.path);
       } else {
         openDirs.add(entry.path);
-        if (!kids.childElementCount) await fill(id, entry.path, kids, depth + 1);
+        if (!kids.childElementCount) await fill(id, entry.path, kids, depth + 1, gone ? [] : undefined);
       }
       kids.hidden = isOpen;
       glyph(!isOpen);
@@ -119,7 +136,7 @@ async function fill(id: string, rel: string, into: HTMLElement, depth: number) {
     if (openDirs.has(entry.path)) {
       glyph(true);
       kids.hidden = false;
-      await fill(id, entry.path, kids, depth + 1);
+      await fill(id, entry.path, kids, depth + 1, gone ? [] : undefined);
     }
   }
 }

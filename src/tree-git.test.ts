@@ -9,26 +9,46 @@ const marks = gitMarks([
   { path: "lib/new.rb", status: "A" },
   { path: "docs/guide/intro.md", status: "A" },
   { path: "vendor/engine/", status: "A" },
+  { path: "legacy/api/v1.rb", status: "D" },
+  { path: "legacy/api/v2.rb", status: "D" },
+  { path: "legacy/README.md", status: "D" },
 ]);
 
 it("marks changed files by their own status", () => {
-  expect(marks("Gemfile", false)).toBe("M");
-  expect(marks("app/models/user.rb", false)).toBe("A");
-  expect(marks("README.md", false)).toBeNull();
+  expect(marks.mark("Gemfile", false)).toBe("M");
+  expect(marks.mark("app/models/user.rb", false)).toBe("A");
+  expect(marks.mark("app/models/old.rb", false)).toBe("D");
+  expect(marks.mark("README.md", false)).toBeNull();
 });
 
 it("gives folders the strongest change below them, with deletions as modifications", () => {
-  expect(marks("app", true)).toBe("M");
-  expect(marks("app/models", true)).toBe("M");
-  expect(marks("lib", true)).toBe("U");
-  expect(marks("config", true)).toBeNull();
+  expect(marks.mark("app", true)).toBe("M");
+  expect(marks.mark("app/models", true)).toBe("M");
+  expect(marks.mark("lib", true)).toBe("U");
+  expect(marks.mark("config", true)).toBeNull();
 });
 
 it("marks a new folder from its listed files only", () => {
-  expect(marks("docs", true)).toBe("A");
-  expect(marks("docs/guide", true)).toBe("A");
-  expect(marks("docs/guide/.env", false)).toBeNull();
-  expect(marks("docsite", true)).toBeNull();
-  expect(marks("vendor/engine", true)).toBe("A");
-  expect(marks("vendor/engine/lib.rb", false)).toBeNull();
+  expect(marks.mark("docs", true)).toBe("A");
+  expect(marks.mark("docs/guide", true)).toBe("A");
+  expect(marks.mark("docs/guide/.env", false)).toBeNull();
+  expect(marks.mark("docsite", true)).toBeNull();
+  expect(marks.mark("vendor/engine", true)).toBe("A");
+  expect(marks.mark("vendor/engine/lib.rb", false)).toBeNull();
+});
+
+it("lists deleted children per folder, folding deleted subtrees into one folder row", () => {
+  const names = (rel: string) => marks.gone(rel).map(entry => `${entry.path}${entry.dir ? "/" : ""}`).sort();
+  // Folders that still exist come back too; the tree drops names list_dir already returned.
+  expect(names("")).toEqual(["app/", "legacy/"]);
+  expect(names("app/models")).toEqual(["app/models/old.rb"]);
+  expect(names("legacy")).toEqual(["legacy/README.md", "legacy/api/"]);
+  expect(names("legacy/api")).toEqual(["legacy/api/v1.rb", "legacy/api/v2.rb"]);
+  expect(names("lib")).toEqual([]);
+});
+
+it("changes its deletion key only when the deleted set changes", () => {
+  const same = gitMarks([{ path: "b", status: "D" }, { path: "a", status: "D" }, { path: "c", status: "M" }]);
+  expect(same.goneKey).toBe(gitMarks([{ path: "a", status: "D" }, { path: "b", status: "D" }]).goneKey);
+  expect(same.goneKey).not.toBe(gitMarks([{ path: "a", status: "D" }]).goneKey);
 });

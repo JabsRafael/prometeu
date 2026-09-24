@@ -78,6 +78,8 @@ folder and a project registered on a subfolder sees only its own changes.
 `status` is collapsed to one mark: `U` for conflicts, `A` for untracked or added
 files, `D` for deletions and `M` for the rest. Untracked files are listed one by
 one, as in the Changes pane, so ignored files inside a new folder stay unmarked.
+The tree adds struck-through rows for `D` paths, which no longer exist on disk
+and therefore never come from `list_dir`.
 A directory outside Git, or
 a repository that fails, contributes no marks instead of an error. The tree
 refreshes marks every 5 seconds while it is visible, because terminals and
