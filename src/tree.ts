@@ -43,12 +43,18 @@ export function reset() {
 /// Debounce board-driven refreshes because each open folder requires list_dir; agent bursts would otherwise repeat identical IPC work.
 export const redrawSoon = debounce(200, redraw);
 
-/// Marks load before the rows because deleted files add rows of their own.
+let drawn = 0;
+
+/// Marks load before the rows because deleted files add rows of their own. Rows are built off
+/// screen and swapped in at once: only the latest draw for the workspace still on screen may
+/// replace the tree.
 async function draw(id: string) {
-  const tree = $("tree");
+  const mine = ++drawn;
   const [entries] = await Promise.all([invoke("list_dir", { id, rel: "" }), loadMarks(id)]);
-  tree.replaceChildren();
-  await fill(id, "", tree, 0, entries);
+  const rows = document.createDocumentFragment();
+  await fill(id, "", rows, 0, entries);
+  if (mine !== drawn || workspace() !== id) return;
+  $("tree").replaceChildren(rows);
 }
 
 /// A slow repository must not stack scans: a timer tick waits for the one still running.
@@ -87,15 +93,17 @@ function paint(row: HTMLElement) {
 }
 
 /// Merge deleted entries into the listing in list_dir's order: folders first, then by name.
+/// A name that changed type (a deleted file where a folder now stands, or the reverse) keeps both rows.
 function withGone(rel: string, listed: PathEntry[]): (PathEntry | GoneEntry)[] {
-  const names = new Set(listed.map(entry => entry.name));
-  const gone = marks.gone(rel).filter(entry => !names.has(entry.name));
+  const kind = (entry: PathEntry) => `${entry.dir ? "d" : "f"}${entry.name}`;
+  const names = new Set(listed.map(kind));
+  const gone = marks.gone(rel).filter(entry => !names.has(kind(entry)));
   if (!gone.length) return listed;
   const key = (entry: PathEntry) => `${entry.dir ? 0 : 1}${entry.name.toLowerCase()}`;
   return [...listed, ...gone].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
 }
 
-async function fill(id: string, rel: string, into: HTMLElement, depth: number, listed?: PathEntry[]) {
+async function fill(id: string, rel: string, into: HTMLElement | DocumentFragment, depth: number, listed?: PathEntry[]) {
   const entries = withGone(rel, listed ?? await invoke("list_dir", { id, rel }));
   for (const entry of entries) {
     const gone = "gone" in entry;
