@@ -21,6 +21,9 @@ export type SearchPickerOptions = {
   refresh?: { label: string; run: () => void };
   additional?: { label: string; checked: boolean; change: (checked: boolean) => void };
   closed?: () => void;
+  /** Remote search: the caller ranks results for each query and answers through `update`; the
+   * picker then shows `items` as given instead of filtering them locally. */
+  search?: (query: string) => void;
 };
 
 const normalize = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase();
@@ -29,6 +32,8 @@ const normalize = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036
 export function searchablePicker(anchor: HTMLElement, options: SearchPickerOptions) {
   let items = options.items;
   let alive = true;
+  /** Remote search only: the shown items answer an older query until `update` arrives. */
+  let pending = false;
   let reposition = () => {};
   const root = h("div", "menu ui-search-picker");
   root.setAttribute("role", "region");
@@ -49,7 +54,7 @@ export function searchablePicker(anchor: HTMLElement, options: SearchPickerOptio
       ? { key: (document.activeElement as HTMLElement).dataset.key, secondary: (document.activeElement as HTMLElement).dataset.secondary } : undefined;
     const scroll = list.scrollTop;
     const terms = normalize(search.value.trim()).split(/\s+/).filter(Boolean);
-    const visible = items.filter(item => {
+    const visible = options.search ? items : items.filter(item => {
       const text = normalize(`${item.label} ${item.detail ?? ""} ${item.searchText ?? ""}`);
       return terms.every(term => text.includes(term));
     });
@@ -61,7 +66,7 @@ export function searchablePicker(anchor: HTMLElement, options: SearchPickerOptio
       const row = h("div", "ui-search-picker-row");
       const choice = document.createElement("button");
       choice.type = "button"; choice.className = "ui-search-picker-choice"; choice.dataset.key = item.key;
-      choice.disabled = item.disabled ?? false;
+      choice.disabled = pending || (item.disabled ?? false);
       choice.setAttribute("aria-pressed", String(item.checked ?? false));
       const text = h("span", "ui-search-picker-text");
       text.append(h("span", "", item.label));
@@ -83,7 +88,8 @@ export function searchablePicker(anchor: HTMLElement, options: SearchPickerOptio
       }
       list.append(row);
     }
-    if (!visible.length) list.append(h("p", "ui-hint", options.empty));
+    if (!visible.length && !pending) list.append(h("p", "ui-hint", options.empty));
+    list.setAttribute("aria-busy", String(pending));
     list.scrollTop = scroll;
     if (focused) {
       const replacement = [...list.querySelectorAll<HTMLButtonElement>("button")].find(node =>
@@ -108,7 +114,9 @@ export function searchablePicker(anchor: HTMLElement, options: SearchPickerOptio
     // WebKit otherwise focuses the enclosing dialog before click, dismissing this panel as external focus.
     event.preventDefault(); target.focus({ preventScroll: true });
   });
-  search.oninput = draw;
+  // Stale remote results stay visible but unselectable, so Enter cannot open an answer to an
+  // earlier query while the new one is in flight.
+  search.oninput = options.search ? () => { pending = true; draw(); options.search!(search.value); } : draw;
   const keyboard = (event: KeyboardEvent) => {
     const active = document.activeElement;
     if (event.key === "Tab") {
@@ -150,5 +158,5 @@ export function searchablePicker(anchor: HTMLElement, options: SearchPickerOptio
   anchor.setAttribute("aria-expanded", "true"); anchor.setAttribute("aria-controls", root.id);
   window.addEventListener("resize", reposition);
   search.focus(); document.addEventListener("focusin", onFocus);
-  return { close, update(next: SearchPickerItem[], message = "") { items = next; status.textContent = message; draw(); reposition(); } };
+  return { close, update(next: SearchPickerItem[], message = "") { items = next; pending = false; status.textContent = message; draw(); reposition(); } };
 }

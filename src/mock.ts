@@ -1431,7 +1431,7 @@ const mockCommands: IpcHandlers = {
     };
     return Object.values(tree)
       .flat()
-      .filter((e) => e.path.toLowerCase().includes(q))
+      .filter((e) => !(args.files && e.dir) && e.path.toLowerCase().includes(q))
       .sort(
         (a, b) =>
           points(b.path) - points(a.path) ||

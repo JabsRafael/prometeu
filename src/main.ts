@@ -548,6 +548,11 @@ function act(a: appmenu.Action): boolean {
     case "ajustes":
       showSettings();
       return true;
+    // Command-P opens a file of the current workspace or project by name. It is consumed even
+    // without a local workspace so the webview never falls back to printing.
+    case "quickOpen":
+      ws.quickOpen();
+      return true;
     // Command-W closes the focused dock terminal first. When a native browser view owns focus, ignore stale dock focus and close the active center tab.
     case "fechar":
       return (document.hasFocus() && dockbar.closeFocused()) || ws.closeActive();
@@ -570,6 +575,7 @@ function shortcut(e: KeyboardEvent): appmenu.Action | null {
     return null;
   }
   if (k === "n") return "novoWorkspace";
+  if (k === "p") return "quickOpen";
   if (k === "t") return "novaConversa";
   if (k === "r") return "run";
   if (k === "b") return "lateral";

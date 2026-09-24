@@ -74,7 +74,7 @@ export type Commands = {
   feedback_image: { args: { path: string }; result: { name: string; type: "image/png" | "image/jpeg" | "image/webp"; data: string } };
   feedback_send: { args: { report: Record<string, unknown> }; result: void };
   file_stamp: { args: { id: string; rel: string }; result: string };
-  find_paths: { args: { id: string; query: string; recent: string[] }; result: PathEntry[] };
+  find_paths: { args: { id: string; query: string; recent: string[]; files?: boolean }; result: PathEntry[] };
   finish_workspace: { args: { id: string }; result: void };
   focus_tab: { args: { workspace: string; tab: string }; result: void };
   linear_connect: { args: undefined; result: T.LinearStatus };

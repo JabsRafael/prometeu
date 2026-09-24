@@ -13,6 +13,7 @@ export type Action =
   | "lateral"
   | "nota"
   | "ajustes"
+  | "quickOpen"
   | "voltar"
   | "avancar";
 
@@ -45,6 +46,7 @@ export async function install(run: (a: Action) => void) {
       bar(t("menu.file"), [
         our("novoWorkspace", "menu.file.newWorkspace", "CmdOrCtrl+N"),
         our("novaConversa", "menu.file.newChat", "CmdOrCtrl+T"),
+        our("quickOpen", "menu.file.quickOpen", "CmdOrCtrl+P"),
         os("Separator"),
         // Command-W closes the current tab; Shift-Command-W closes the window.
         our("fechar", "menu.file.close", "CmdOrCtrl+W"),

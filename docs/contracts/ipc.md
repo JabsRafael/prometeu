@@ -189,6 +189,13 @@ two id spaces do not collide, and `session.rs::cwd_of` is the only function that
 performs that resolution — `dock.rs` imports it instead of repeating the rule. A
 path outside the root is still refused.
 
+`find_paths` returns at most 40 ranked entries, files and directories alike.
+The optional `files: true` argument drops directories before candidate trimming
+and that row limit, so Command-P quick open never loses a matching file to
+better-ranked directories. Omitting it keeps the composer's `@` completion
+behaviour; an older frontend that never sends it is unaffected, and
+`session/find.rs` tests that directories cannot crowd out files.
+
 `reveal_path` requires `rel`: an empty string opens the root, while a nonempty
 path shows one entry of the tree or, from the Changes panel, a changed file,
 whose repository-relative path the frontend prefixes with the repository's

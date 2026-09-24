@@ -10,6 +10,7 @@ import { avatar, icon, stageIcon, wave } from "./icons";
 import { fromBack, stage as stageName, t, tn } from "./i18n";
 import { fitsEffort, modelLabel } from "./model-choice";
 import { openModelPicker } from "./model-picker";
+import { openQuickOpen } from "./quick-open";
 import * as menu from "./menu";
 import * as notes from "./notes";
 import * as rename from "./rename";
@@ -954,6 +955,15 @@ export async function openFile(path: string) {
   fs.active = path;
   await showFile();
   drawTabs(ws);
+}
+
+/// Command-P lists the open workspace's or project's files by name. Remote shares have no local
+/// index, so the shortcut does nothing for them.
+export function quickOpen() {
+  const id = root();
+  if (!id || (openWs && team.isRemote(openWs))) return;
+  // Open tabs, most recent last, rank first among equal matches.
+  openQuickOpen($("tabbar"), id, [...files(id).open].reverse(), (path) => void openFile(path));
 }
 
 async function showFile() {
