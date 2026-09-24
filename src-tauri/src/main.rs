@@ -61,6 +61,8 @@ pub struct AppState {
     /// Only ready agents may receive their initial message. Setup completion must not write to a
     /// process that is still starting.
     pub ready: Mutex<HashSet<String>>,
+    /// Background tasks still running per conversation, and the turn completion they hold back.
+    pub work: Mutex<HashMap<String, chat::Work>>,
 }
 
 /// Finder and desktop-launcher starts inherit a minimal PATH. Adopt the user's login-shell PATH so agents and
@@ -124,6 +126,7 @@ fn main() {
             ptys: Mutex::new(HashMap::new()),
             looking: Mutex::new(None),
             ready: Mutex::new(HashSet::new()),
+            work: Mutex::new(HashMap::new()),
         })
         .invoke_handler(tauri::generate_handler![
             notifications::notification_permission,

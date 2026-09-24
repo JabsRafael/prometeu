@@ -1,8 +1,10 @@
 import { invoke } from "./ipc";
-import { fromBack } from "./i18n";
+import { fromBack, t } from "./i18n";
 import { highlight } from "./highlight";
+import { md } from "./markdown";
 import { decode, parse } from "./csv";
 import { fileIcon, icon } from "./icons";
+import { button } from "./ui";
 import { $ } from "./util";
 
 /// The file editor layers highlighted code over a transparent textarea.
@@ -24,6 +26,7 @@ let fail: (m: string) => void = () => {};
 /// Notify Changes when a local edit modifies disk without an agent event.
 let saved: (id: string) => void = () => {};
 let frame = 0;
+let reading = false;
 
 const box = () => $("vtext") as HTMLTextAreaElement;
 const here = () => (shown ? key(shown.id, shown.path) : "");
@@ -32,6 +35,12 @@ const draft = () => drafts.get(here());
 export function init(onError: (m: string) => void, onSaved: (id: string) => void) {
   fail = onError;
   saved = onSaved;
+  const source = button(t("viewer.edit"), () => view(false), "ghost");
+  source.id = "vsource";
+  const preview = button(t("viewer.preview"), () => view(true), "ghost");
+  preview.id = "vpreview";
+  $("vview").setAttribute("aria-label", t("viewer.mode"));
+  $("vview").append(source, preview);
   $("vcopy").innerHTML = icon("copy");
   $("vcopy").addEventListener("click", () => {
     if (!shown) return;
@@ -93,6 +102,8 @@ export async function show(id: string, path: string) {
   shown = { id, path, text };
   crumb(path);
   blob(false);
+  if (!same) reading = false;
+  $("vview").hidden = !!error || !/\.(md|markdown)$/i.test(path);
 
   // Unreadable, binary, or oversized files display an error instead of an editable buffer.
   const ta = box();
@@ -117,7 +128,20 @@ export async function show(id: string, path: string) {
   if (same) ta.setSelectionRange(Math.min(at[0], value.length), Math.min(at[1], value.length));
   paint();
   chrome();
-  if (!same) $("vcode").scrollTo(0, 0);
+  view(reading);
+  if (!same) {
+    $("vcode").scrollTo(0, 0);
+    $("vread").scrollTo(0, 0);
+  }
+}
+
+function view(next: boolean) {
+  reading = next;
+  $("vcode").hidden = next;
+  $("vread").hidden = !next;
+  $("vsource").setAttribute("aria-pressed", String(!next));
+  $("vpreview").setAttribute("aria-pressed", String(next));
+  if (next) $("vread").innerHTML = md(box().value);
 }
 
 function crumb(path: string) {
@@ -134,6 +158,7 @@ function blob(on: boolean) {
   // The tab already names the file, and these formats have no save controls.
   $("vbar").hidden = on;
   $("vcode").hidden = on;
+  $("vread").hidden = true;
   $("vfile").hidden = !on;
   if (pdfUrl) URL.revokeObjectURL(pdfUrl);
   pdfUrl = "";
@@ -160,6 +185,8 @@ async function showBlob(id: string, path: string, kind: "pdf" | "csv") {
   if (currentRequest !== request) return;
   shown = { id, path, text: stamp };
   crumb(path);
+  reading = false;
+  $("vview").hidden = true;
   chrome();
   $("vgutter").textContent = "";
   $("vpre").innerHTML = "";
@@ -257,6 +284,7 @@ async function revert() {
   drafts.delete(here());
   box().value = text;
   paint();
+  if (reading) view(true);
   chrome();
   await show(id, path);
 }

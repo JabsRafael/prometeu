@@ -730,6 +730,9 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "diff.reviewFile": "Mark {path} reviewed",
   "diff.toggle": "Toggle diff for {path}",
   "viewer.copyPath": "Copy path",
+  "viewer.mode": "Markdown view",
+  "viewer.edit": "Edit",
+  "viewer.preview": "Preview",
   "viewer.save": "Save — ⌘S",
   "viewer.cancel": "Undo what was not saved — Esc",
   "web.back": "Back",
@@ -810,6 +813,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "chat.codeCopied": "Code copied",
   "chat.copyCodeFailed": "Could not copy code",
   "chat.copy": "Copy the reply",
+  "chat.copyFailed": "Could not copy the reply",
   "chat.with.pick": "who this conversation talks to — switching stops the process, and the next message resumes it",
   "chat.with.busy": "the agent is working — you can switch models once it stops",
   "chat.stop": "Stop",
@@ -1263,6 +1267,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
 
   "say.creating": "building the worktree…",
   "say.copied": "{path} copied",
+  "say.copyPathFailed": "Could not copy the path",
   "say.pickRepo": "Choose the repository",
 
   "note.permission": "wants permission for {tool}",

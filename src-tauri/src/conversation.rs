@@ -11,6 +11,23 @@ pub fn event(kind: &str, at: u64, fields: Value) -> Value {
     Value::Object(out)
 }
 
+/// The main agent producing output. Adapters keep native subagent content isolated, so these events
+/// always come from the primary turn: they mark a turn active again and invalidate a completion that
+/// background tasks were holding. `src/alert.ts` mirrors this list for the notice.
+pub fn agent_activity(event: &Value) -> bool {
+    matches!(
+        event["type"].as_str(),
+        Some(
+            "assistant.started"
+                | "assistant.block.started"
+                | "assistant.block"
+                | "assistant.delta"
+                | "tool.input.delta"
+                | "tool.completed"
+        )
+    )
+}
+
 pub fn now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

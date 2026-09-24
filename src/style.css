@@ -632,6 +632,9 @@ main { flex: 1; min-height: 0; position: relative; }
 .vcrumb .ic { margin-right: 6px; }
 .vcrumb span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vcrumb .nm { color: var(--fg); }
+.viewmode { display: flex; flex: none; padding: 2px; background: var(--bg-raised); border-radius: var(--r); }
+.viewmode button { min-height: 26px; height: 26px; padding: 0 7px; font-size: 11px; }
+.viewmode button[aria-pressed="true"] { background: var(--bg-raised-3); color: var(--fg); }
 .vcode {
   flex: 1; min-height: 0; overflow: auto; display: flex; align-items: flex-start;
   padding: 12px 0 24px; font-family: var(--mono); font-size: 13px; line-height: 20px;
@@ -660,6 +663,7 @@ main { flex: 1; min-height: 0; position: relative; }
 }
 #vtext::selection { background: var(--bg-raised-3); }
 .vcode ::selection { background: var(--bg-raised-3); }
+.vread { flex: 1; min-height: 0; overflow: auto; padding: 24px max(24px, calc((100% - 760px) / 2)) 60px; }
 /* Mark dirty files with a breadcrumb dot. */
 .vcrumb.dirty::after {
   content: ""; flex: none; width: 6px; height: 6px; margin-left: 8px;
@@ -1878,6 +1882,7 @@ body.noside .side { display: none; }
 /* Four default tiles support corner resizing, header dragging, collapse, and persistence. Only desk terminals use monospace throughout; workspace conversations keep the wider reading layout. */
 .desk .listmain { font-family: var(--mono); }
 .desk .tab { position: relative; font-family: var(--mono); font-size: 12px; padding-left: 12px; }
+.desk .tab .n { flex-shrink: 1; }
 /* Stop tile underlines before the separator. */
 .desk .tab.on { box-shadow: none; }
 .desk .tab.on::after { content: ""; position: absolute; left: 10px; right: 8px; bottom: 0; height: 2px; background: var(--accent); }
