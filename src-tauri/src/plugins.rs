@@ -255,7 +255,7 @@ fn read_json(path: &Path) -> Option<Value> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
 
-fn expand(source: &str) -> String {
+pub(crate) fn expand(source: &str) -> String {
     match source.strip_prefix("~/") {
         Some(rest) => paths::home().join(rest).display().to_string(),
         None => source.to_string(),

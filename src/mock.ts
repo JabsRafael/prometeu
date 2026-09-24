@@ -14,7 +14,7 @@ import type { Accounts } from "./statusbar";
 import type { CloudStatus } from "./cloud";
 import type { CatalogState, Kind } from "./catalog";
 import type { Skill } from "./skills";
-import { hasWorktree, type Board, type Change, type Choice, type DockKind, type EffectiveItem, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type ProjectTools, type Pr, type Provenance, type Scripts, type Selection, type Tab, type Tools, type Workspace } from "./types";
+import { hasWorktree, type Board, type Change, type Choice, type DockKind, type EffectiveItem, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type ProjectTools, type Pr, type Provenance, type ProviderId, type Scripts, type Selection, type Tab, type Tools, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
@@ -715,6 +715,23 @@ let pluginHub: Plugin[] = [
   { id: "ponytail", source: "~/dev/ponytail", note: "work in progress" },
 ];
 
+
+/// Skills shipped inside the mock plugins, as the backend reads them from `skills/*/SKILL.md`.
+const mockPluginSkills: Record<string, { name: string; description: string }[]> = {
+  caveman: [
+    { name: "caveman", description: "Talk in short, plain sentences." },
+    { name: "caveman-review", description: "Review a diff in plain words." },
+  ],
+};
+const pluginSkillsOfHub = () => pluginHub.filter(p => !p.id.startsWith("skill-"))
+  .flatMap(p => (mockPluginSkills[p.id] ?? []).map(skill => ({ plugin: p.id, ...skill })));
+/// Mirror the backend's kickoff validation: an empty choice or an installed skill (ADR 0057).
+function mockKickoff(id: string | undefined, agent: ProviderId) {
+  if (!id) return;
+  const known = [...skillHub.map(s => `skill-${s.id}/${s.id}`), ...pluginSkillsOfHub().map(s => `${s.plugin}/${s.name}`)];
+  if (!known.includes(id)) throw `i18n:${JSON.stringify({ code: "err.kickoff.missing", args: { skill: id } })}`;
+  if (agent === "antigravity" || agent === "gemini") throw 'i18n:{"code":"err.kickoff.unsupported"}';
+}
 
 /// Plugin creation progress uses timers instead of an agent.
 let pluginRun = 0;
@@ -1706,6 +1723,9 @@ const mockCommands: IpcHandlers = {
   plugin_hub() {
     return pluginHub;
   },
+  plugin_skills() {
+    return pluginSkillsOfHub();
+  },
   plugin_save(args) {
     const plugin = args.plugin as Plugin;
     if (mockCloud().user && mockCatalog().shared[`plugins:${plugin.id}`]) cloudWrite();
@@ -1895,6 +1915,7 @@ const mockCommands: IpcHandlers = {
   create_workspace(args) {
     const draft = args.draft;
     if (!mockAccounts.active[draft.agent]) throw 'i18n:{"code":"err.account.noActive"}';
+    mockKickoff(draft.kickoff, draft.agent);
     const id = `nova-${nextId++}`;
     const repo = String(draft.project).split("/").pop() ?? "repo";
     const fresh = ws(id, draft.project, repo, draft.title || draft.branch, draft.stage, []);
@@ -1933,7 +1954,7 @@ const mockCommands: IpcHandlers = {
         emit("board", board);
         return;
       }
-      fresh.tabs = [{ id: `t-${id}`, title: "", status: "pronta", note: null, tokens: null }];
+      fresh.tabs = [{ id: `t-${id}`, title: "", status: "pronta", note: null, tokens: null, kickoff: draft.kickoff || null }];
       fresh.active = fresh.tabs[0].id;
       emit("board", board);
     }, 1400);

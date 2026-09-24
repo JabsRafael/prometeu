@@ -102,6 +102,7 @@ compatibility still in use stays documented in the current contracts.
 - [ADR 0054](decisions/0054-local-notifications.md): opt-in local notifications with independent sound.
 - [ADR 0055](decisions/0055-linux-desktop.md): Linux desktop through system programs.
 - [ADR 0056](decisions/0056-background-tasks-hold-completion.md): a turn only completes when its background tasks drain.
+- [ADR 0057](decisions/0057-skill-kickoff-and-artifact-path.md): start a conversation from a skill, with a project-declared artifact path.
 - [ADR 0058](decisions/0058-optional-context-evaluation.md): optional context evaluation behind an application-owned port.
 
 ## Quality and operations

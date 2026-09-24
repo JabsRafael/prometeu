@@ -270,6 +270,22 @@ fields, and the workspace layer already was. `Selection` is a typed shape in
 them in its interface phase; the parity test in `src-tauri/tests/mock.rs` is what
 makes each one real.
 
+## Starting from a skill
+
+- `plugin_skills`: no arguments; returns `{ plugin, name, description }[]` for
+  the skills shipped by installed local-folder plugins, excluding standalone
+  skill packages. See the [plugin hub](plugin-marketplace.md#skills-inside-packages).
+- `create_workspace`: `draft.kickoff` is an optional `<package>/<skill>` string;
+  absent or empty starts without a skill, so older callers and the delegation
+  payload keep working. An unknown skill rejects with `err.kickoff.missing` and
+  a provider without `workspacePluginSelection` with `err.kickoff.unsupported`,
+  both before the card is published.
+
+The browser mock mirrors the catalog from its fixture plugins and the same
+validation. Semantics are in the
+[runtime contract](agent-runtime.md#skill-kickoff) and
+[ADR 0057](../decisions/0057-skill-kickoff-and-artifact-path.md).
+
 ## Legacy import
 
 `legacy_import_plan` does not change state. It returns the source, one of the

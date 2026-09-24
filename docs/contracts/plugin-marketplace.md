@@ -258,6 +258,19 @@ The hub keeps them under the ID `skill-<id>`, and they are chosen on their own
 above, without changing the CLIs' global configuration. See the
 [catalog contract](cloud-catalog.md).
 
+## Skills inside packages
+
+`plugin_skills` lists the skills installed plugins ship, for the launcher's
+*Start with* catalog ([ADR 0057](../decisions/0057-skill-kickoff-and-artifact-path.md)).
+For each hub entry whose source is a local folder — not a `.zip` or URL, and not
+a standalone `skill-<id>` package, which the skill hub already lists — the
+backend reads `skills/*/SKILL.md` and returns `{ plugin, name, description }`
+from its YAML frontmatter. Plain, quoted and folded scalars are understood;
+values are folded into one line. A missing `name` falls back to the folder name;
+an unreadable file or folder contributes nothing. Discovery reads only; it never
+selects, activates or trusts a package. Choosing a skill adds its package to
+one conversation's resolved set, never to a selection layer.
+
 ## Bundled Prometeu MCP
 
 The virtual `prometeu` server is present in the selectable universe, never in

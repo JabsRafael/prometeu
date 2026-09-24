@@ -125,6 +125,28 @@ Agents; `notifications` and `app` open General; `ferramentas`, `plugins` and
 rewrite the saved value or any underlying preference. No board, IPC or provider
 format changes. Compatibility is covered by `src/settings-navigation.test.ts`.
 
+## Skill kickoff
+
+`Tab.kickoff` is an optional `<package>/<skill>` string recording the *Start
+with* skill a conversation began from; it is omitted when absent, so ordinary
+tabs keep the previous shape and older boards load with none. A resume adds
+that package to the tab's resolved tools while the skill is still installed,
+and otherwise resumes without it and warns in the conversation; no selection
+layer stores it.
+
+The repository declares where artifacts land with `[method] artifacts` in
+`.prometeu/settings.toml`, read by `scripts.rs` with the same clone inheritance
+and primary-repository rule as `[tools]`. Only a relative path inside the
+repository is accepted; otherwise nothing is named.
+
+The last explicit launcher choice, including none, lives in desktop webview
+localStorage as the string `prometeu:kickoff`. A value the installed catalog no
+longer offers, or unavailable storage, starts without a skill. Tests:
+`state.rs::tabs_without_a_kickoff_keep_the_previous_format`,
+`scripts.rs::method_artifacts_are_inherited_normalized_and_never_invented` and
+`src/kickoff.test.ts`. See
+[ADR 0057](../decisions/0057-skill-kickoff-and-artifact-path.md).
+
 ## Model selection preferences
 
 These preferences live in desktop webview localStorage, not the board or relay:

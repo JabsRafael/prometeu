@@ -76,7 +76,8 @@ checkboxes, disclosures and dialog. The launcher composes shared fields,
 buttons, text input and checkboxes into a task/repository column and an
 agent/tools column. Narrow windows stack the columns in a scrolling body;
 the branch summary and creation actions remain in a separate, visible footer.
-Model search, favorites and native effort selection use the existing pickers.
+Model search, favorites and native effort selection use the existing pickers. The optional starting skill shares the prompt's attachment row as a ghost
+button and opens the launcher's searchable picker.
 Account identities wrap instead of truncating; account popovers share one row
 for adding and managing accounts, and the account dialog keeps its footer
 visible while its cards scroll. The optional missing-context review adds a ghost action to the launcher footer
