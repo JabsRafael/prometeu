@@ -509,8 +509,8 @@ mod tests {
     }
 
     /// Changing only the case keeps the entry, while a second entry spelled that way is refused.
-    /// Linux CI is case-sensitive; there `spelled` is what separates the two cases, and on a
-    /// case-insensitive disk the target lookup finds the source, which `spelled` does not list.
+    /// On a case-sensitive disk (Linux CI) `spelled` separates the two cases; on a case-insensitive
+    /// one (macOS CI) the target lookup finds the source, so the test renames the spelling back.
     #[test]
     fn case_only_rename_changes_the_spelling_but_never_replaces_another_entry() {
         let dir = tmp("case");
@@ -526,6 +526,20 @@ mod tests {
         assert_eq!(names, ["README.md"]);
         assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "r");
 
+        // Only a case-sensitive disk (Linux CI) can hold two entries that differ in case; on a
+        // case-insensitive one (the macOS default) the old spelling still finds the renamed file,
+        // so the same call is a case-only rename back.
+        if dir.join("readme.md").exists() {
+            rename(&dir, "README.md", "readme.md").unwrap();
+            let names: Vec<_> = std::fs::read_dir(&dir)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect();
+            assert_eq!(names, ["readme.md"]);
+            assert_eq!(std::fs::read_to_string(dir.join("readme.md")).unwrap(), "r");
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
         std::fs::write(dir.join("readme.md"), "other").unwrap();
         assert!(rename(&dir, "README.md", "readme.md").is_err());
         assert_eq!(

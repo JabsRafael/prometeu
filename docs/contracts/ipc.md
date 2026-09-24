@@ -233,9 +233,10 @@ allowed when the folder lists no entry spelled exactly that way, so a second,
 distinct entry (two symlinks to one file included) is still refused. Such a
 rename goes through a free temporary name in the same folder, since some file
 systems ignore a rename that changes only case, and is undone if the second
-step fails. Linux CI is case-sensitive, so tests cover the listing check and
-the refusal there; the case-insensitive lookup itself needs a manual check on
-macOS. Trash is used so
+step fails. The same test covers both kinds of disk: on Linux CI
+(case-sensitive) it checks the listing check and the refusal of a second
+entry, and on macOS CI (case-insensitive) it checks the case-only rename in
+both directions. Trash is used so
 untracked work, which Git cannot bring back, is still recoverable; a failure
 answers `err.files.trash` with the system's `cause`. `trash_path` is async
 because the platform trash can be slow, notably through Finder on macOS.
