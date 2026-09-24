@@ -284,6 +284,7 @@ async function revert() {
   drafts.delete(here());
   box().value = text;
   paint();
+  if (reading) view(true);
   chrome();
   await show(id, path);
 }

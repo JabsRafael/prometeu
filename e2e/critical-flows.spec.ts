@@ -757,6 +757,13 @@ test("file edits survive board redraws and save", async ({ page }) => {
   await expect(page.locator("#vpre")).toContainText("Edited manually by E2E.");
   await expect(page.locator("#vpre")).not.toContainText("Personal finance management");
 
+  await page.locator("#vtext").fill("# Temporary draft\n");
+  await page.locator("#vpreview").click();
+  await expect(page.locator("#vread")).toContainText("Temporary draft");
+  await page.locator("#vcancel").click();
+  await expect(page.locator("#vread")).toContainText("Edited manually by E2E.");
+  await expect(page.locator("#vread")).not.toContainText("Temporary draft");
+
   // Saving the edited file must not overwrite another file visited during editing.
   await page.locator("#tree .treerow", { hasText: ".gitignore" }).click();
   await expect(page.locator("#vpre")).toContainText("Ignore bundler config");
