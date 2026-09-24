@@ -16,6 +16,7 @@ mod delegation;
 mod dock;
 mod domain;
 mod embedded_mcp;
+mod evaluation;
 mod feedback;
 mod file_drop;
 mod github;
@@ -40,6 +41,7 @@ mod skills;
 mod state;
 mod team;
 mod transcript;
+mod typesafe;
 mod usage;
 mod workspace_tools;
 
@@ -271,6 +273,11 @@ fn main() {
             skills::skill_hub,
             skills::skill_save,
             skills::skill_remove,
+            typesafe::typesafe_status,
+            typesafe::typesafe_save_key,
+            typesafe::typesafe_remove_key,
+            typesafe::typesafe_set_enabled,
+            typesafe::context_evaluate,
         ])
         .setup(|app| {
             notifications::install(app.handle());

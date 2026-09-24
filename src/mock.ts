@@ -841,6 +841,40 @@ const dismissNotice = () => {
   document.querySelector(".notification-mock")?.remove();
 };
 
+/// The mock never receives or stores a key: it records only that one was configured, and answers
+/// with a deterministic local fake instead of calling TypeSafe. `mock:typesafeFail` simulates a
+/// failure code for manual checks.
+type MockTypeSafe = { configured: boolean; enabled: boolean };
+const mockTypeSafe = (): MockTypeSafe => {
+  const saved = JSON.parse(localStorage.getItem("mock:typesafe") ?? "null") as Partial<MockTypeSafe> | null;
+  const configured = saved?.configured === true;
+  return { configured, enabled: configured && saved?.enabled === true };
+};
+const saveMockTypeSafe = (value: MockTypeSafe) => {
+  localStorage.setItem("mock:typesafe", JSON.stringify(value));
+  return { ...mockTypeSafe(), problem: null };
+};
+function fakeEvaluation(request: import("./evaluation").EvaluationRequest): import("./evaluation").EvaluationAnswer[] {
+  const text = request.context;
+  const draft = /Request draft:\n([\s\S]*?)\n\n/.exec(text)?.[1] ?? "";
+  const kind = /investigat|investig|diagnos/i.test(text) ? "investigation" : /\b(bug|fix|error|erro|corrig|falha|crash)/i.test(text) ? "bug_fix" : "feature";
+  const rule = /\b(existing|existente)/i.test(text) && !/\b(skip|update|ignore|atualiz|ignor|pular)/i.test(text);
+  const outcome: Record<string, [string, number]> = {
+    task_kind: [kind, 0.9],
+    business_rule: rule ? ["absent", 0.9] : ["present", 0.9],
+    business_rule_resolver: ["person", 0.9],
+    business_rule_kind: ["existing_records", 0.85],
+    expected_behavior: draft.trim().length < 25 && !/Description:\n/.test(text) ? ["ambiguous", 0.85] : ["present", 0.9],
+    expected_behavior_resolver: ["person", 0.8],
+    reproduction: ["present", 0.9],
+    reproduction_resolver: ["agent", 0.8],
+  };
+  return request.questions.flatMap(question => {
+    const answer = outcome[question.id];
+    return answer && question.outcomes.includes(answer[0]) ? [{ id: question.id, outcome: answer[0], confidence: answer[1] }] : [];
+  });
+}
+
 const mockCommands: IpcHandlers = {
   notification_permission({ request }) {
     const status = localStorage.getItem("mock:notification-permission");
@@ -2103,6 +2137,30 @@ const mockCommands: IpcHandlers = {
     workspace.tabs = workspace.tabs.filter((t) => t.id !== args.tab);
     if (workspace.active === args.tab) workspace.active = workspace.tabs[0]?.id ?? null;
     emit("board", board);
+  },
+  typesafe_status() {
+    return { ...mockTypeSafe(), problem: null };
+  },
+  typesafe_save_key({ key }) {
+    const trimmed = key.trim();
+    if (trimmed.length < 8 || trimmed.length > 512 || /[^\x21-\x7e]/.test(trimmed)) throw 'i18n:{"code":"err.evaluation.key"}';
+    return saveMockTypeSafe({ ...mockTypeSafe(), configured: true });
+  },
+  typesafe_remove_key() {
+    return saveMockTypeSafe({ configured: false, enabled: false });
+  },
+  typesafe_set_enabled({ enabled }) {
+    const state = mockTypeSafe();
+    if (enabled && !state.configured) throw 'i18n:{"code":"err.evaluation.noKey"}';
+    return saveMockTypeSafe({ ...state, enabled });
+  },
+  context_evaluate({ request }) {
+    const state = mockTypeSafe();
+    if (!state.configured || !state.enabled) return Promise.reject('i18n:{"code":"err.evaluation.disabled"}');
+    const fail = localStorage.getItem("mock:typesafeFail");
+    return new Promise((done, reject) => setTimeout(() => fail
+      ? reject(`i18n:${JSON.stringify({ code: `err.evaluation.${fail}` })}`)
+      : done({ answers: fakeEvaluation(request) }), 700));
   },
   pty_resize() {},
   remove_workspace() {},

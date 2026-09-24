@@ -98,3 +98,8 @@
   .settings .setnavitem { width: auto; padding: 7px 9px; font-size: 12px; }
   .settings .setwrap .setpage { width: 100%; height: auto; padding: 24px 18px 36px; }
 }
+
+/* Optional TypeSafe key: the field grows, actions keep their content width and wrap on narrow windows. */
+.typesafe-key { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.typesafe-key > .ui-password { flex: 1 1 220px; min-width: 0; }
+.typesafe-enabled small { display: block; color: var(--fg-2); font-size: 11px; line-height: 1.5; }

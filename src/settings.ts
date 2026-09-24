@@ -19,6 +19,8 @@ import * as projects from "./projects";
 import * as news from "./news";
 import * as notifications from "./notification-settings";
 import * as team from "./team";
+import * as typesafe from "./typesafe";
+import { typesafeRows } from "./typesafe-settings";
 import type { LinearStatus } from "./types";
 import { settingsRow } from "./update";
 import { $, h, template } from "./util";
@@ -50,6 +52,9 @@ export async function init(context: Ctx) {
     status = payload;
     refreshPages("trabalho");
   });
+  // The optional TypeSafe integration starts disabled until its local configuration loads.
+  typesafe.onChange(() => refreshPages("trabalho"));
+  void typesafe.refresh();
   try {
     status = await invoke("linear_status");
   } catch {
@@ -101,7 +106,7 @@ const PAGES: Page[] = [
   { id: "trabalho", title: "settings.work", description: "settings.work.intro", glyph: "users", sections: [
     { id: "team", title: "settings.team", rows: teamRows },
     { id: "projects", title: "settings.localProjects", rows: projectRows, keywords: ["projects.title"] },
-    { id: "integrations", title: "settings.integrations", rows: () => [linearRow()] },
+    { id: "integrations", title: "settings.integrations", rows: () => [linearRow(), ...typesafeRows(ctx.say, draw)], keywords: ["typesafe.enabled"] },
   ] },
 ];
 
@@ -158,7 +163,7 @@ export function draw() {
     if (searchQuery.trim()) {
       const results = h("div", "settings-panel settings-results");
       for (const candidate of PAGES) for (const section of candidate.sections) {
-        const words = [t(candidate.title), t(section.title), ...(section.keywords ?? []).map(key => t(key)), section.id === "accounts" ? "Claude Codex Antigravity" : "", section.id === "integrations" ? "Linear" : ""];
+        const words = [t(candidate.title), t(section.title), ...(section.keywords ?? []).map(key => t(key)), section.id === "accounts" ? "Claude Codex Antigravity" : "", section.id === "integrations" ? "Linear TypeSafe" : ""];
         if (!matchesSettings(searchQuery, words.join(" "))) continue;
         const result = button("", () => navigate(candidate.id, section.id), "ghost");
         result.classList.add("settings-result");
