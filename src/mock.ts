@@ -362,6 +362,27 @@ type MockGit = {
 };
 const gitStates = new Map<string, MockGit>();
 const gitError = (code: string): never => { throw `i18n:${JSON.stringify({ code })}`; };
+// Fixed marks exercise files, nested folders, a new folder and deletions in the sample tree;
+// restoring a deleted entry from the tree removes its mark.
+let treeMarks = [
+  { path: "Gemfile", status: "M" },
+  { path: "README.md", status: "A" },
+  { path: "app/models/user.rb", status: "M" },
+  { path: "docs/guide.md", status: "A" },
+  { path: "Procfile", status: "D" },
+  { path: "app/models/legacy/report.rb", status: "D" },
+];
+const splitRel = (rel: string): [string, string] => {
+  const cut = rel.lastIndexOf("/");
+  return cut < 0 ? ["", rel] : [rel.slice(0, cut), rel.slice(cut + 1)];
+};
+const validName = (name: string) => !!name && name !== "." && name !== ".." && !/[/\\\0]/.test(name) && name.toLowerCase() !== ".git";
+const existsError = (name: string): never => { throw `i18n:${JSON.stringify({ code: "err.files.exists", args: { name } })}`; };
+/// Keep a folder the tree actions changed in list_dir's order: folders first, then by name.
+const sortTree = (rel: string) => {
+  const key = (entry: { name: string; dir: boolean }) => `${entry.dir ? 0 : 1}${entry.name.toLowerCase()}`;
+  tree[rel]?.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+};
 const gitPatch = (file: Change, patch: string): Change => ({
   ...file, patch,
   added: patch.split("\n").filter((line) => line.startsWith("+")).length,
@@ -1404,19 +1425,72 @@ const mockCommands: IpcHandlers = {
     value.status.index = `mock-${++value.version}`;
     return;
   },
-  // A few fixed marks exercise files, nested folders, a new folder and deletions in the sample tree.
   tree_git_status() {
-    return [
-      { path: "Gemfile", status: "M" },
-      { path: "README.md", status: "A" },
-      { path: "app/models/user.rb", status: "M" },
-      { path: "docs/guide.md", status: "A" },
-      { path: "Procfile", status: "D" },
-      { path: "app/models/legacy/report.rb", status: "D" },
-    ];
+    return structuredClone(treeMarks);
+  },
+  // Restoring puts the deleted sample entries back into the tree and drops their marks; like the
+  // backend, an entry that still exists is refused.
+  tree_restore(args) {
+    const under = (path: string) => path === args.rel || path.startsWith(`${args.rel}/`);
+    const back = treeMarks.filter((mark) => mark.status === "D" && under(mark.path));
+    if (!back.length) return gitError("err.session.outside");
+    for (const { path } of back) {
+      const parts = path.split("/");
+      parts.forEach((name, at) => {
+        const [parent, rel] = [parts.slice(0, at).join("/"), parts.slice(0, at + 1).join("/")];
+        const dir = at < parts.length - 1;
+        const list = (tree[parent] ??= []);
+        if (!list.some((entry) => entry.name === name)) list.push({ name, path: rel, dir });
+        sortTree(parent);
+        if (dir) tree[rel] ??= [];
+        else files[rel] ??= "";
+      });
+    }
+    treeMarks = treeMarks.filter((mark) => !back.includes(mark));
   },
   list_dir(args) {
     return tree[args.rel ?? ""] ?? [];
+  },
+  // Tree actions edit the sample tree in memory with the backend's refusals for names and conflicts.
+  create_path(args) {
+    const [parent, name] = splitRel(args.rel);
+    if (!validName(name) || (parent && !(parent in tree))) return gitError("err.files.name");
+    const list = (tree[parent] ??= []);
+    if (list.some((entry) => entry.name === name)) return existsError(name);
+    list.push({ name, path: args.rel, dir: args.dir });
+    sortTree(parent);
+    if (args.dir) tree[args.rel] = [];
+    else files[args.rel] = "";
+  },
+  rename_path(args) {
+    const [from, [parent, name]] = [splitRel(args.from), splitRel(args.to)];
+    const source = tree[from[0]]?.find((entry) => entry.name === from[1]);
+    if (!source || !validName(name) || (parent && !(parent in tree))) return gitError("err.files.name");
+    if (args.from === args.to) return;
+    if (args.to.startsWith(`${args.from}/`)) return gitError("err.files.name");
+    if (tree[parent].some((entry) => entry.name === name)) return existsError(name);
+    tree[from[0]] = tree[from[0]].filter((entry) => entry !== source);
+    tree[parent].push({ ...source, name, path: args.to });
+    sortTree(parent);
+    const move = (key: string) => (key === args.from || key.startsWith(`${args.from}/`) ? args.to + key.slice(args.from.length) : key);
+    for (const key of Object.keys(tree)) {
+      const list = tree[key];
+      delete tree[key];
+      tree[move(key)] = list.map((entry) => ({ ...entry, path: move(entry.path) }));
+    }
+    for (const key of Object.keys(files)) {
+      const text = files[key];
+      delete files[key];
+      files[move(key)] = text;
+    }
+  },
+  trash_path(args) {
+    const [parent, name] = splitRel(args.rel);
+    if (!tree[parent]?.some((entry) => entry.name === name)) return gitError("err.files.name");
+    tree[parent] = tree[parent].filter((entry) => entry.name !== name);
+    const inside = (key: string) => key === args.rel || key.startsWith(`${args.rel}/`);
+    for (const key of Object.keys(tree)) if (inside(key)) delete tree[key];
+    for (const key of Object.keys(files)) if (inside(key)) delete files[key];
   },
   // Viewer saves replace mock file contents. Concurrent disk-writer detection remains a Rust test.
   write_file(args) {

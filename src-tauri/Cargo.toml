@@ -45,6 +45,8 @@ base64 = "0.22"
 # Codex plugin cache versions must remain valid semver even when a compatible
 # manifest supplies an arbitrary version string.
 semver = "1"
+# Tree deletions go to the system trash so untracked work stays recoverable.
+trash = "5"
 
 # Reuse Tauri bindings to receive screenshots before they exist as files.
 [target.'cfg(target_os = "macos")'.dependencies]

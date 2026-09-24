@@ -56,6 +56,7 @@ optional for local work; model access comes from your own provider account.
   commit only the index, inspect history, compare branches, and resolve conflicts.
 - **Files, terminals, and browser preview.** Edit code, read Markdown, view PDFs and CSVs,
   find text in the open file (⌘F), open any file by name (⌘P),
+  create, rename and trash files from the side tree, restore deleted ones,
   run project scripts, and attach selected page elements or screenshots to a prompt.
 - **Delegation through MCP.** The built-in `prometeu` MCP is available but off
   by default. Select it in the coordinator workspace’s tools to create agents
