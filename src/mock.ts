@@ -377,6 +377,14 @@ const splitRel = (rel: string): [string, string] => {
   return cut < 0 ? ["", rel] : [rel.slice(0, cut), rel.slice(cut + 1)];
 };
 const validName = (name: string) => !!name && name !== "." && name !== ".." && !/[/\\\0]/.test(name) && name.toLowerCase() !== ".git";
+const gitMeta = (rel: string) => rel.split("/").some((part) => part.toLowerCase() === ".git");
+/// A folder the sample tree shows, whether or not it has listed children: most sample folders
+/// display as empty and gain a listing when something is created in them.
+const shownDir = (rel: string) => {
+  if (!rel) return true;
+  const [parent, name] = splitRel(rel);
+  return !!tree[parent]?.some((entry) => entry.dir && entry.name === name);
+};
 const existsError = (name: string): never => { throw `i18n:${JSON.stringify({ code: "err.files.exists", args: { name } })}`; };
 /// Keep a folder the tree actions changed in list_dir's order: folders first, then by name.
 const sortTree = (rel: string) => {
@@ -1454,7 +1462,7 @@ const mockCommands: IpcHandlers = {
   // Tree actions edit the sample tree in memory with the backend's refusals for names and conflicts.
   create_path(args) {
     const [parent, name] = splitRel(args.rel);
-    if (!validName(name) || (parent && !(parent in tree))) return gitError("err.files.name");
+    if (!validName(name) || gitMeta(args.rel) || !shownDir(parent)) return gitError("err.files.name");
     const list = (tree[parent] ??= []);
     if (list.some((entry) => entry.name === name)) return existsError(name);
     list.push({ name, path: args.rel, dir: args.dir });
@@ -1465,12 +1473,12 @@ const mockCommands: IpcHandlers = {
   rename_path(args) {
     const [from, [parent, name]] = [splitRel(args.from), splitRel(args.to)];
     const source = tree[from[0]]?.find((entry) => entry.name === from[1]);
-    if (!source || !validName(name) || (parent && !(parent in tree))) return gitError("err.files.name");
+    if (!source || !validName(name) || gitMeta(args.from) || gitMeta(args.to) || !shownDir(parent)) return gitError("err.files.name");
     if (args.from === args.to) return;
     if (args.to.startsWith(`${args.from}/`)) return gitError("err.files.name");
-    if (tree[parent].some((entry) => entry.name === name)) return existsError(name);
+    if (tree[parent]?.some((entry) => entry.name === name)) return existsError(name);
     tree[from[0]] = tree[from[0]].filter((entry) => entry !== source);
-    tree[parent].push({ ...source, name, path: args.to });
+    (tree[parent] ??= []).push({ ...source, name, path: args.to });
     sortTree(parent);
     const move = (key: string) => (key === args.from || key.startsWith(`${args.from}/`) ? args.to + key.slice(args.from.length) : key);
     for (const key of Object.keys(tree)) {
@@ -1483,6 +1491,8 @@ const mockCommands: IpcHandlers = {
       delete files[key];
       files[move(key)] = text;
     }
+    // Marks travel with the entry, so no struck-through row stays behind at the old path.
+    treeMarks = treeMarks.map((mark) => ({ ...mark, path: move(mark.path) }));
   },
   trash_path(args) {
     const [parent, name] = splitRel(args.rel);
@@ -1491,6 +1501,7 @@ const mockCommands: IpcHandlers = {
     const inside = (key: string) => key === args.rel || key.startsWith(`${args.rel}/`);
     for (const key of Object.keys(tree)) if (inside(key)) delete tree[key];
     for (const key of Object.keys(files)) if (inside(key)) delete files[key];
+    treeMarks = treeMarks.filter((mark) => !inside(mark.path));
   },
   // Viewer saves replace mock file contents. Concurrent disk-writer detection remains a Rust test.
   write_file(args) {

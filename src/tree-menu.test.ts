@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { t, use } from "./i18n";
 import * as menu from "./menu";
-import { relocate, rootMenu, treeMenu, type Context, type Entry, type Hooks } from "./tree-menu";
+import { rootMenu, treeMenu, type Context, type Entry, type Hooks } from "./tree-menu";
 
 beforeEach(() => use("en"));
 
@@ -222,22 +222,5 @@ describe("empty area menu", () => {
     expect(root.create).toHaveBeenCalledWith("", true);
     pick(items, t("file.menu.reveal")).run?.();
     expect(root.reveal).toHaveBeenCalledWith("");
-  });
-});
-
-describe("moved entries", () => {
-  it("carries the entry and everything inside it to the new name", () => {
-    expect(relocate("src", "src", "lib")).toBe("lib");
-    expect(relocate("src/deep/main.ts", "src", "lib")).toBe("lib/deep/main.ts");
-  });
-
-  it("leaves unrelated paths alone, including siblings that share a prefix", () => {
-    expect(relocate("src2/main.ts", "src", "lib")).toBe("src2/main.ts");
-    expect(relocate("README.md", "src", "lib")).toBe("README.md");
-  });
-
-  it("drops what went to the trash", () => {
-    expect(relocate("src/main.ts", "src", null)).toBeNull();
-    expect(relocate("src2/main.ts", "src", null)).toBe("src2/main.ts");
   });
 });

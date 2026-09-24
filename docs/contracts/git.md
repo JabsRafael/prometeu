@@ -89,10 +89,13 @@ agents change files without board events, and skips a tick while the previous
 scan is still running. A redraw may scan alongside a tick; only the latest scan
 started replaces the marks, so an older result finishing last is discarded.
 
-`tree_restore` brings such a row back from `HEAD`, in the index and on disk,
-finding the repository that holds `rel` under the tree root. It refuses an entry
-that still exists on disk, so it can never discard edits, and shares the Git
-mutation lock. It is async, like the scan.
+`tree_restore` brings such a row back to disk, finding the repository that
+holds `rel` under the tree root. The index wins over `HEAD`: a path the index
+still holds, such as a file with staged edits later removed from disk (`MD`), is
+written back from the index and stays staged, while a path whose deletion was
+staged too comes back from `HEAD`, in the index and on disk. A folder mixes both
+file by file. It refuses an entry that still exists on disk, so it can never
+discard edits, and shares the Git mutation lock. It is async, like the scan.
 
 Without an upstream, the counters are zero and the action is **Publish branch**.
 That does not mean the commits are published. A detached HEAD is

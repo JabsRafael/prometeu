@@ -612,3 +612,50 @@ fn restore_deleted_finds_the_repository_under_a_grouping_folder() {
     .unwrap();
     assert_eq!(repo.read("gone.md"), "gone\n");
 }
+
+/// Staged edits of a file that then left the disk come back as staged, not replaced by `HEAD`.
+#[test]
+fn restore_deleted_keeps_staged_edits() {
+    let repo = Repository::new();
+    repo.write("notes.md", "committed\n");
+    repo.commit("start");
+    repo.write("notes.md", "staged\n");
+    repo.git(&["add", "notes.md"]);
+    std::fs::remove_file(repo.0.join("notes.md")).unwrap();
+    let repos = [repo.0.clone()];
+
+    restore_deleted(&repo.0, &repos, "notes.md").unwrap();
+    assert_eq!(repo.read("notes.md"), "staged\n");
+    assert_eq!(
+        repo.git(&["diff", "--cached", "--name-only"]).trim(),
+        "notes.md"
+    );
+    assert_eq!(repo.git(&["diff", "--name-only"]).trim(), "");
+}
+
+/// A folder mixes both sources file by file: staged content where the index has it, `HEAD` where
+/// the deletion was staged. A file only in the index, added and then removed from disk, returns.
+#[test]
+fn restore_deleted_mixes_index_and_head_inside_a_folder() {
+    let repo = Repository::new();
+    std::fs::create_dir_all(repo.0.join("docs")).unwrap();
+    repo.write("docs/edited.md", "committed\n");
+    repo.write("docs/removed.md", "removed\n");
+    repo.commit("start");
+    repo.write("docs/edited.md", "staged\n");
+    repo.write("docs/added.md", "added\n");
+    repo.git(&["add", "docs"]);
+    repo.git(&["rm", "-q", "docs/removed.md"]);
+    std::fs::remove_dir_all(repo.0.join("docs")).unwrap();
+    let repos = [repo.0.clone()];
+
+    restore_deleted(&repo.0, &repos, "docs").unwrap();
+    assert_eq!(repo.read("docs/edited.md"), "staged\n");
+    assert_eq!(repo.read("docs/added.md"), "added\n");
+    assert_eq!(repo.read("docs/removed.md"), "removed\n");
+    assert_eq!(
+        repo.git(&["diff", "--cached", "--name-only"]).trim(),
+        "docs/added.md\ndocs/edited.md"
+    );
+    assert!(restore_deleted(&repo.0, &repos, "never").is_err());
+}

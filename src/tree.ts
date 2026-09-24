@@ -6,7 +6,8 @@ import type { PathEntry } from "./paths";
 import { mac } from "./platform";
 import * as rename from "./rename";
 import { gitMarks, latestOnly, type GitMarks, type GoneEntry } from "./tree-git";
-import { parentOf, relocate, rootMenu, treeMenu, type Entry } from "./tree-menu";
+import { parentOf, rootMenu, treeMenu, type Entry } from "./tree-menu";
+import { relocate } from "./tree-moves";
 import { confirmDialog } from "./ui";
 import { $, debounce } from "./util";
 

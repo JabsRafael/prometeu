@@ -305,8 +305,11 @@ fn tree_repos(state: &State<AppState>, id: &str) -> Option<(PathBuf, Vec<PathBuf
     Some((root, repos))
 }
 
-/// Bring a deleted tree entry back from `HEAD`, in the index and on disk. Only an entry that is
-/// gone from disk qualifies, so this can never discard edits to a file that still exists.
+/// Bring a deleted tree entry back to disk. Only an entry that is gone from disk qualifies, so this
+/// can never discard edits to a file that still exists. The index wins over `HEAD`: a file whose
+/// edits were staged before it left the disk comes back with that staged content, still staged, and
+/// only a path whose deletion was staged too comes back from `HEAD`, in the index and on disk. A
+/// folder mixes both, file by file.
 fn restore_deleted(root: &Path, repos: &[PathBuf], rel: &str) -> Result<(), String> {
     let (dir, inner) = repos
         .iter()
@@ -328,18 +331,36 @@ fn restore_deleted(root: &Path, repos: &[PathBuf], rel: &str) -> Result<(), Stri
     if path.symlink_metadata().is_ok() {
         return Err(i18n::ta("err.files.exists", &[("name", inner.to_string())]));
     }
-    run(
-        dir,
-        &[
-            "restore",
-            "--source=HEAD",
-            "--staged",
-            "--worktree",
-            "--",
-            inner,
-        ],
-    )
-    .map(drop)
+    let listed = |args: &[&str]| -> Vec<String> {
+        run(dir, args)
+            .map(|out| {
+                out.split('\0')
+                    .filter(|path| !path.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let staged = listed(&["ls-files", "-z", "--cached", "--", inner]);
+    // An unborn branch has no HEAD to list; the index is then the only source.
+    let committed = listed(&["ls-tree", "-r", "-z", "--name-only", "HEAD", "--", inner]);
+    let from_head: Vec<&str> = committed
+        .iter()
+        .filter(|path| !staged.contains(path))
+        .map(String::as_str)
+        .collect();
+    if staged.is_empty() && from_head.is_empty() {
+        return Err(i18n::t("err.session.outside"));
+    }
+    if !staged.is_empty() {
+        run(dir, &["restore", "--worktree", "--", inner])?;
+    }
+    if !from_head.is_empty() {
+        let mut args = vec!["restore", "--source=HEAD", "--staged", "--worktree", "--"];
+        args.extend(from_head);
+        run(dir, &args)?;
+    }
+    Ok(())
 }
 
 /// Restore a file or folder the tree shows as deleted. Accepts a workspace or a project id.

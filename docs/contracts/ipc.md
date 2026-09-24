@@ -218,12 +218,24 @@ that root:
 | `trash_path` | `rel` | moves the entry to the system trash instead of deleting it |
 
 The last component of a path must be one plain name: empty, `.`, `..`, `/`,
-`\`, NUL and `.git` (in any case) answer `err.files.name`, and an existing
-target answers `err.files.exists` with `name`. Only the parent folder is
-resolved through symlinks and must stay inside the root; the entry itself is
-not followed, so renaming or trashing a symlink acts on the link. A case change
-of the same entry is the only rename allowed onto an existing name; entries are
-compared by inode, so two symlinks to one file stay distinct. Trash is used so
+`\` and NUL answer `err.files.name`, and an existing target answers
+`err.files.exists` with `name`. Git metadata is off limits at any depth: a
+`.git` component anywhere in the path (in any case), or a parent that resolves
+into one through a symlink, answers `err.files.name` for the new entry, both
+ends of a rename and the trashed entry. Only the parent folder is resolved
+through symlinks and must stay inside the root; the entry itself is not
+followed, so renaming or trashing a symlink acts on the link.
+
+A case change of the same name in the same folder is the only rename allowed
+onto a name that answers as existing. On a case-insensitive disk, the macOS and
+Windows default, the new spelling finds the source itself; the rename is
+allowed when the folder lists no entry spelled exactly that way, so a second,
+distinct entry (two symlinks to one file included) is still refused. Such a
+rename goes through a free temporary name in the same folder, since some file
+systems ignore a rename that changes only case, and is undone if the second
+step fails. Linux CI is case-sensitive, so tests cover the listing check and
+the refusal there; the case-insensitive lookup itself needs a manual check on
+macOS. Trash is used so
 untracked work, which Git cannot bring back, is still recoverable; a failure
 answers `err.files.trash` with the system's `cause`. `trash_path` is async
 because the platform trash can be slow, notably through Finder on macOS.

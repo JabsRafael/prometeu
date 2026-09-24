@@ -142,11 +142,34 @@ fn valid_name(name: &str) -> Result<&str, String> {
     }
 }
 
+/// Git's own folder, at any depth: the tree never creates, renames or trashes inside repository
+/// metadata, whether it is named in `rel` or reached through a symlinked parent.
+fn git_metadata(path: &Path) -> bool {
+    path.components().any(|part| {
+        part.as_os_str()
+            .to_string_lossy()
+            .eq_ignore_ascii_case(".git")
+    })
+}
+
 /// Resolve `rel` without following its last component, so a symlink is renamed or trashed itself
-/// rather than its target. The parent must still resolve inside the root.
+/// rather than its target. The parent must still resolve inside the root, and no component may be
+/// `.git`, before or after resolving the parent's symlinks.
 fn entry(root: &Path, rel: &str) -> Result<PathBuf, String> {
+    let refused = || i18n::t("err.files.name");
+    if rel
+        .split(['/', '\\'])
+        .any(|part| part.eq_ignore_ascii_case(".git"))
+    {
+        return Err(refused());
+    }
     let (parent, name) = rel.rsplit_once('/').unwrap_or(("", rel));
-    Ok(inside(root, parent)?.join(valid_name(name)?))
+    let parent = inside(root, parent)?;
+    let base = root.canonicalize().map_err(i18n::io)?;
+    if git_metadata(parent.strip_prefix(&base).unwrap_or(&parent)) {
+        return Err(refused());
+    }
+    Ok(parent.join(valid_name(name)?))
 }
 
 fn taken(path: &Path) -> Result<(), String> {
@@ -184,38 +207,55 @@ fn rename(root: &Path, from: &str, to: &str) -> Result<(), String> {
     if source == target {
         return Ok(());
     }
-    // Only a case change of the same name in the same folder may find its own entry as the target
-    // (on a case-insensitive disk). Comparing inodes, not canonical paths, keeps two symlinks to one
-    // file distinct, so neither can replace the other.
-    let case_only = source.parent() == target.parent()
+    let case_only = case_change(&source, &target);
+    // On a case-insensitive disk (the macOS and Windows defaults) the new spelling already
+    // "exists": it is the source itself. That is the only target allowed to exist.
+    if !case_only || spelled(&target) {
+        taken(&target)?;
+    }
+    if target.starts_with(&source) {
+        return Err(i18n::t("err.files.name"));
+    }
+    if !case_only {
+        return std::fs::rename(&source, &target).map_err(i18n::io);
+    }
+    // Some file systems ignore a rename that only changes case; a detour through a free name in the
+    // same folder always lands on the new spelling, and is undone if the second step fails.
+    let detour = (0..)
+        .map(|n| source.with_file_name(format!(".prometeu-rename-{}-{n}", std::process::id())))
+        .find(|path| path.symlink_metadata().is_err())
+        .expect("an unbounded range always yields a free name");
+    std::fs::rename(&source, &detour).map_err(i18n::io)?;
+    std::fs::rename(&detour, &target).map_err(|error| {
+        let _ = std::fs::rename(&detour, &source);
+        i18n::io(error)
+    })
+}
+
+/// The same name in the same folder with only its case changed.
+fn case_change(source: &Path, target: &Path) -> bool {
+    source.parent() == target.parent()
         && source
             .file_name()
             .zip(target.file_name())
             .is_some_and(|(a, b)| {
                 a != b && a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
             })
-        && same_entry(&source, &target);
-    if !case_only {
-        taken(&target)?;
-    }
-    if target.starts_with(&source) {
-        return Err(i18n::t("err.files.name"));
-    }
-    std::fs::rename(&source, &target).map_err(i18n::io)
 }
 
-#[cfg(unix)]
-fn same_entry(a: &Path, b: &Path) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    match (a.symlink_metadata(), b.symlink_metadata()) {
-        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
-        _ => false,
-    }
-}
-
-#[cfg(not(unix))]
-fn same_entry(_: &Path, _: &Path) -> bool {
-    false
+/// Whether the folder lists an entry spelled exactly like `path`'s name. Where a case-insensitive
+/// lookup finds the source under the new spelling, the listing still shows only the old one, so
+/// this tells a second, distinct entry (refused) from the source itself (allowed) on every system
+/// and without following symlinks.
+fn spelled(path: &Path) -> bool {
+    let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
+        return false;
+    };
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|entry| entry.file_name() == name)
 }
 
 fn trash_entry(root: &Path, rel: &str) -> Result<(), String> {
@@ -295,7 +335,7 @@ pub fn reveal_path(state: State<AppState>, id: String, rel: String) -> Result<()
 
 #[cfg(test)]
 mod tests {
-    use super::{create, entry, inside, rename, reveal_args, save};
+    use super::{create, entry, inside, rename, reveal_args, save, spelled, trash_entry};
 
     fn tmp(name: &str) -> std::path::PathBuf {
         let dir =
@@ -432,6 +472,70 @@ mod tests {
             assert!(create(&dir, bad, false).is_err(), "{bad:?}");
         }
         assert!(create(&dir, "missing/new.md", false).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Git metadata is off limits at any depth, named directly or through a symlinked folder.
+    #[test]
+    fn git_metadata_is_refused_at_any_depth() {
+        let dir = tmp("git-meta");
+        for repo in ["", "sub/"] {
+            std::fs::create_dir_all(dir.join(format!("{repo}.git"))).unwrap();
+            std::fs::write(dir.join(format!("{repo}.git/config")), "x").unwrap();
+            std::fs::write(dir.join(format!("{repo}.git/HEAD")), "x").unwrap();
+        }
+        std::fs::write(dir.join("a.md"), "a").unwrap();
+        std::os::unix::fs::symlink(dir.join(".git"), dir.join("meta")).unwrap();
+
+        for bad in [
+            ".git/config",
+            "sub/.git/HEAD",
+            "sub/.GIT/HEAD",
+            "meta/config",
+        ] {
+            assert!(entry(&dir, bad).is_err(), "{bad:?}");
+            assert!(
+                create(&dir, &format!("{bad}.new"), false).is_err(),
+                "{bad:?}"
+            );
+            assert!(rename(&dir, bad, "moved").is_err(), "{bad:?}");
+            assert!(trash_entry(&dir, bad).is_err(), "{bad:?}");
+        }
+        assert!(rename(&dir, "a.md", ".git/x").is_err());
+        assert!(rename(&dir, "a.md", "sub/.git/x").is_err());
+        assert!(dir.join("a.md").is_file());
+        assert!(dir.join(".git/config").is_file() && dir.join("sub/.git/HEAD").is_file());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Changing only the case keeps the entry, while a second entry spelled that way is refused.
+    /// Linux CI is case-sensitive; there `spelled` is what separates the two cases, and on a
+    /// case-insensitive disk the target lookup finds the source, which `spelled` does not list.
+    #[test]
+    fn case_only_rename_changes_the_spelling_but_never_replaces_another_entry() {
+        let dir = tmp("case");
+        std::fs::write(dir.join("readme.md"), "r").unwrap();
+        assert!(spelled(&dir.join("readme.md")));
+        assert!(!spelled(&dir.join("README.md")));
+
+        rename(&dir, "readme.md", "README.md").unwrap();
+        let names: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["README.md"]);
+        assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "r");
+
+        std::fs::write(dir.join("readme.md"), "other").unwrap();
+        assert!(rename(&dir, "README.md", "readme.md").is_err());
+        assert_eq!(
+            std::fs::read_to_string(dir.join("readme.md")).unwrap(),
+            "other"
+        );
+        std::os::unix::fs::symlink(dir.join("README.md"), dir.join("link.md")).unwrap();
+        std::os::unix::fs::symlink(dir.join("README.md"), dir.join("LINK.md")).unwrap();
+        assert!(rename(&dir, "link.md", "LINK.md").is_err());
+        assert!(dir.join("link.md").symlink_metadata().is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

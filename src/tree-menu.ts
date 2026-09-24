@@ -84,14 +84,6 @@ export function rootMenu(hooks: RootHooks): menu.Item[] {
 
 export const parentOf = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf("/")));
 
-/// Where `path` is after the tree moved `from` to `to`: unchanged when unrelated, carried along when
-/// it is `from` or lies inside it, and null when `to` is null because the entry went to the trash.
-/// Tabs, drafts and expanded folders all follow a renamed entry through this one rule.
-export function relocate(path: string, from: string, to: string | null): string | null {
-  if (path !== from && !path.startsWith(`${from}/`)) return path;
-  return to === null ? null : to + path.slice(from.length);
-}
-
 function createItems(parent: string, hooks: RootHooks): menu.Item[] {
   return [
     { label: t("tree.menu.newFile"), glyph: icon("file-plus"), run: () => hooks.create(parent, false) },

@@ -17,7 +17,7 @@ import * as rename from "./rename";
 import * as session from "./session";
 import * as team from "./team";
 import * as tree from "./tree";
-import { relocate } from "./tree-menu";
+import { relocate, relocateTabs } from "./tree-moves";
 import {
   fmtTokens,
   label,
@@ -1140,8 +1140,7 @@ async function treeMoved(id: string, from: string, to: string | null) {
     for (const path of fs.open.filter((path) => relocate(path, from, null) === null)) await closeFile(path);
     return;
   }
-  fs.open = fs.open.flatMap((path) => relocate(path, from, to) ?? []);
-  fs.active = was === null ? null : relocate(was, from, to) ?? fs.open[0] ?? null;
+  Object.assign(fs, relocateTabs(fs, from, to));
   if (!shown) return;
   // The viewer reopens the file under its new name, keeping the draft, and the tree marks it.
   if (fs.active !== was && fs.active) return openFile(fs.active);
