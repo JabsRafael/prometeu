@@ -220,11 +220,16 @@ fn rename(root: &Path, from: &str, to: &str) -> Result<(), String> {
         return std::fs::rename(&source, &target).map_err(i18n::io);
     }
     // Some file systems ignore a rename that only changes case; a detour through a free name in the
-    // same folder always lands on the new spelling, and is undone if the second step fails.
-    let detour = (0..)
-        .map(|n| source.with_file_name(format!(".prometeu-rename-{}-{n}", std::process::id())))
-        .find(|path| path.symlink_metadata().is_err())
-        .expect("an unbounded range always yields a free name");
+    // same folder always lands on the new spelling, and is undone if the second step fails. A
+    // rename replaces an existing target, so the detour must never be a name someone else uses:
+    // each call draws its own random name, and case-only renames run one at a time so two detours
+    // in this process cannot meet between the check and the rename.
+    static DETOURS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one_at_a_time = DETOURS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let detour = source.with_file_name(format!(".prometeu-rename-{}", uuid::Uuid::new_v4()));
+    taken(&detour)?;
     std::fs::rename(&source, &detour).map_err(i18n::io)?;
     std::fs::rename(&detour, &target).map_err(|error| {
         let _ = std::fs::rename(&detour, &source);
@@ -550,6 +555,38 @@ mod tests {
         std::os::unix::fs::symlink(dir.join("README.md"), dir.join("LINK.md")).unwrap();
         assert!(rename(&dir, "link.md", "LINK.md").is_err());
         assert!(dir.join("link.md").symlink_metadata().is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Case-only renames detour through a temporary name; concurrent ones in the same folder must
+    /// never land on each other's detour and replace a file.
+    #[test]
+    fn concurrent_case_only_renames_keep_every_file() {
+        let dir = tmp("case-race");
+        let names: Vec<String> = (0..16).map(|n| format!("file{n}.md")).collect();
+        for name in &names {
+            std::fs::write(dir.join(name), name).unwrap();
+        }
+        std::thread::scope(|scope| {
+            for name in &names {
+                let dir = &dir;
+                scope.spawn(move || rename(dir, name, &name.to_uppercase()).unwrap());
+            }
+        });
+        let mut listed: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        listed.sort();
+        let mut expected: Vec<_> = names.iter().map(|name| name.to_uppercase()).collect();
+        expected.sort();
+        assert_eq!(listed, expected);
+        for name in &names {
+            assert_eq!(
+                std::fs::read_to_string(dir.join(name.to_uppercase())).unwrap(),
+                *name
+            );
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

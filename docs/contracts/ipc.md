@@ -231,9 +231,10 @@ onto a name that answers as existing. On a case-insensitive disk, the macOS and
 Windows default, the new spelling finds the source itself; the rename is
 allowed when the folder lists no entry spelled exactly that way, so a second,
 distinct entry (two symlinks to one file included) is still refused. Such a
-rename goes through a free temporary name in the same folder, since some file
+rename goes through a random temporary name in the same folder, since some file
 systems ignore a rename that changes only case, and is undone if the second
-step fails. The same test covers both kinds of disk: on Linux CI
+step fails. Case-only renames run one at a time, so two concurrent detours can
+never meet on the same temporary name and replace a file. The same test covers both kinds of disk: on Linux CI
 (case-sensitive) it checks the listing check and the refusal of a second
 entry, and on macOS CI (case-insensitive) it checks the case-only rename in
 both directions. Trash is used so
