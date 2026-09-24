@@ -886,6 +886,10 @@ pub struct Draft {
     /// The Linear issue that opened the launcher, when present.
     #[serde(default)]
     issue: Option<crate::linear::IssueRef>,
+    /// The launcher's "Start with" skill as `<package>/<skill>`; empty means none. Older callers
+    /// omit it (ADR 0057).
+    #[serde(default)]
+    kickoff: String,
     /// Model and effort persist on the workspace. Plan mode applies only to the initial
     /// conversation.
     #[serde(flatten)]
@@ -1386,6 +1390,18 @@ pub(crate) fn create_workspace_owned(
 ) -> Result<Workspace, String> {
     // Reject missing selection before publishing a card or preparing filesystem state.
     crate::accounts::active(draft.launch.agent)?;
+    // A kickoff rides the plugin-package pipeline, so it needs the same capability as plugin
+    // selection, and it must name a skill that is still installed (ADR 0057).
+    if crate::kickoff::resolve(
+        &draft.kickoff,
+        &crate::skills::load(),
+        &crate::plugins::load(),
+    )?
+    .is_some()
+        && !crate::agents::capabilities(draft.launch.agent).workspace_plugin_selection
+    {
+        return Err(i18n::t("err.kickoff.unsupported"));
+    }
     let repo_path = PathBuf::from(expand(&draft.project));
     let repo_name = repo_named(&repo_path)?;
 
@@ -1634,7 +1650,7 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
     // The first conversation keeps the launcher's model, instructions, and permissions, but its
     // tool axes resolve through the global and workspace layers like any other spawn. Resolution
     // runs git subprocesses and reads CLI configuration, so it happens off the board mutex.
-    let launch = {
+    let (mut launch, ws) = {
         let (global, trust, ws) = {
             let board = lock(&state.board);
             (
@@ -1650,25 +1666,40 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
             launch.plugins = tools.plugins;
             launch.skills = tools.skills;
         }
-        launch
+        (launch, ws)
     };
+    // A kickoff joins only this conversation's resolved set and opens its first message; no
+    // selection layer changes (ADR 0057).
+    let kickoff = crate::kickoff::resolve(
+        &draft.kickoff,
+        &crate::skills::load(),
+        &crate::plugins::load(),
+    )?;
+    let opening = kickoff.as_ref().map(|kickoff| {
+        let hub: Vec<String> = crate::plugins::load().into_iter().map(|p| p.id).collect();
+        crate::kickoff::ensure(&mut launch, &kickoff.id, &hub);
+        let artifacts = ws.as_ref().and_then(artifacts_of);
+        crate::kickoff::opening_line(kickoff, artifacts.as_deref())
+    });
     let delegated_id = lock(&state.board)
         .delegations
         .iter()
         .find(|d| d.workspace == id)
         .map(|d| d.id.clone());
-    let tab = spawn_tab_with_id(
+    let mut tab = spawn_tab_with_id(
         app,
         &state,
         id,
         "",
-        first_message(&draft.prompt, &draft.inject),
+        first_message(opening.as_deref(), &draft.prompt, &draft.inject),
         &launch,
         // The first conversation uses the launch settings already saved on the workspace, so it
         // needs no tab override.
         None,
         delegated_id,
     )?;
+    // Remember the kickoff on the tab so a resumed process keeps the method's package.
+    tab.kickoff = kickoff.map(|kickoff| kickoff.id);
 
     // If the workspace was removed during preparation, stop the newly started agent instead of
     // leaving a hidden process.
@@ -1826,10 +1857,21 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
         };
         let agent = ws.launch_of(tab, &ResolvedTools::default()).agent;
         let tools = resolve_workspace_tools(&global, &trust, &ws, agent);
+        let mut launch = ws.launch_of(tab, &tools);
+        // A conversation started from a skill keeps that skill's package across resumes (ADR 0057).
+        if let Some(kickoff) = ws
+            .tabs
+            .iter()
+            .find(|t| t.id == tab)
+            .and_then(|t| t.kickoff.as_deref())
+        {
+            let hub: Vec<String> = crate::plugins::load().into_iter().map(|p| p.id).collect();
+            crate::kickoff::ensure(&mut launch, kickoff, &hub);
+        }
         (
             ws.id.clone(),
             PathBuf::from(&ws.worktree),
-            ws.launch_of(tab, &tools),
+            launch,
             ws.cleaned,
             previous,
         )
@@ -1946,13 +1988,28 @@ fn spawn_tab_with_id(
         tokens: None,
         context_tokens: None,
         choice,
+        kickoff: None,
     })
 }
 
 /* ---------- plumbing ---------- */
 
-/// Attach initial context through @path mentions supported by the agent.
-fn first_message(prompt: &str, inject: &[String]) -> Option<String> {
+/// The declared `[method] artifacts` path of the primary repository, relative to the agent's
+/// working directory: the path itself for one repository, or under the primary repository's folder
+/// when several share a parent directory.
+fn artifacts_of(ws: &Workspace) -> Option<String> {
+    let primary = ws.primary();
+    let declared = crate::scripts::read_for(Path::new(&primary.worktree), Path::new(&primary.path))
+        .artifacts?;
+    let inside = Path::new(&primary.worktree)
+        .strip_prefix(&ws.worktree)
+        .unwrap_or(Path::new(""));
+    Some(inside.join(declared).to_string_lossy().into_owned())
+}
+
+/// Open with the kickoff line when there is one, then attach initial context through @path
+/// mentions supported by the agent, then the person's prompt.
+fn first_message(opening: Option<&str>, prompt: &str, inject: &[String]) -> Option<String> {
     let mentions = inject
         .iter()
         .filter(|p| !p.trim().is_empty())
@@ -1960,10 +2017,14 @@ fn first_message(prompt: &str, inject: &[String]) -> Option<String> {
         .collect::<Vec<_>>()
         .join(" ");
 
-    let parts: Vec<String> = [mentions, prompt.trim().to_string()]
-        .into_iter()
-        .filter(|s| !s.is_empty())
-        .collect();
+    let parts: Vec<String> = [
+        opening.unwrap_or_default().to_string(),
+        mentions,
+        prompt.trim().to_string(),
+    ]
+    .into_iter()
+    .filter(|s| !s.is_empty())
+    .collect();
     (!parts.is_empty()).then(|| parts.join("\n\n"))
 }
 
@@ -2342,8 +2403,8 @@ pub fn list_branches(project: String) -> Branches {
 #[cfg(test)]
 mod tests {
     use super::{
-        multi_pr_text, patch_map, pr_text, resolve_tools, Choice, Pr, ProviderId, Repo, RepoPr,
-        ResolvedTools, Tab, Workspace,
+        artifacts_of, first_message, multi_pr_text, patch_map, pr_text, resolve_tools, Choice,
+        Draft, Pr, ProviderId, Repo, RepoPr, ResolvedTools, Tab, Workspace,
     };
     use crate::dock::{is_terminal, multi_setup, quoted};
     use std::path::Path;
@@ -2712,7 +2773,85 @@ mod tests {
             tokens: None,
             context_tokens: None,
             choice,
+            kickoff: None,
         }
+    }
+
+    /// Launcher drafts sent before ADR 0057, including the delegation payload, carry no kickoff and
+    /// still deserialize as a conversation without one.
+    #[test]
+    fn drafts_without_a_kickoff_still_deserialize() {
+        let old: Draft = serde_json::from_value(serde_json::json!({
+            "project": "/r", "branch": "b", "base": "main", "worktree": true, "title": "t",
+            "stage": "s", "prompt": "p", "inject": [], "agent": "codex",
+        }))
+        .unwrap();
+        assert_eq!(old.kickoff, "");
+        let new: Draft = serde_json::from_value(serde_json::json!({
+            "project": "/r", "branch": "b", "base": "main", "worktree": true, "title": "t",
+            "stage": "s", "prompt": "p", "inject": [], "kickoff": "sdd-kit/specify",
+        }))
+        .unwrap();
+        assert_eq!(new.kickoff, "sdd-kit/specify");
+    }
+
+    /// The kickoff line opens the first message, ahead of attachments and the person's prompt.
+    #[test]
+    fn first_message_opens_with_the_kickoff_line() {
+        assert_eq!(
+            first_message(
+                Some("Use the \"specify\" skill."),
+                "  Build login  ",
+                &["a.md".into()]
+            ),
+            Some("Use the \"specify\" skill.\n\n@a.md\n\nBuild login".into())
+        );
+        assert_eq!(
+            first_message(Some("Use the \"specify\" skill."), "", &[]),
+            Some("Use the \"specify\" skill.".into())
+        );
+        assert_eq!(
+            first_message(None, "Build login", &[]),
+            Some("Build login".into())
+        );
+        assert_eq!(first_message(None, " ", &[]), None);
+    }
+
+    /// The declared artifact path is relative to the agent's working directory, which is the
+    /// primary repository's parent when several repositories share it; nothing is declared, nothing
+    /// is named.
+    #[test]
+    fn artifact_path_follows_the_primary_repository() {
+        let root =
+            std::env::temp_dir().join(format!("prometeu-artifacts-{}", uuid::Uuid::new_v4()));
+        let clone = root.join("app");
+        std::fs::create_dir_all(clone.join(".prometeu")).unwrap();
+        std::fs::write(
+            clone.join(".prometeu/settings.toml"),
+            "[method]\nartifacts = \"docs/specs\"\n",
+        )
+        .unwrap();
+        let parent = root.join("wt");
+        let primary = Repo {
+            path: clone.display().to_string(),
+            name: "app".into(),
+            worktree: parent.join("app").display().to_string(),
+            base: String::new(),
+            pr: None,
+        };
+        let mut multi = bare();
+        multi.worktree = parent.display().to_string();
+        multi.repos = vec![primary.clone()];
+        assert_eq!(artifacts_of(&multi).as_deref(), Some("app/docs/specs"));
+
+        let mut single = bare();
+        single.worktree = primary.worktree.clone();
+        single.repos = vec![primary];
+        assert_eq!(artifacts_of(&single).as_deref(), Some("docs/specs"));
+
+        std::fs::remove_file(clone.join(".prometeu/settings.toml")).unwrap();
+        assert_eq!(artifacts_of(&single), None);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

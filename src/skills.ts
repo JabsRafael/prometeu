@@ -11,6 +11,7 @@ let afterChange = async () => {};
 const watchers = new Set<() => void>();
 export const onChange = (fn: () => void) => { watchers.add(fn); return () => watchers.delete(fn); };
 export const packageIds = () => new Set(hub.map(s => `skill-${s.id}`));
+export const list = () => hub;
 export function init(report: typeof say, onChanged: () => Promise<void>) {
   say = report;
   afterChange = onChanged;

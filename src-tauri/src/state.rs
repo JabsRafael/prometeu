@@ -122,6 +122,11 @@ pub struct Tab {
     /// choice.
     #[serde(default)]
     pub choice: Option<Choice>,
+    /// The "Start with" skill this conversation began from, as `<package>/<skill>`. Resuming adds
+    /// its package to the resolved set again without touching any selection layer; absent in older
+    /// boards and in every other conversation (ADR 0057).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kickoff: Option<String>,
 }
 
 impl Tab {
@@ -546,6 +551,7 @@ impl Board {
                     tokens: None,
                     context_tokens: None,
                     choice: None,
+                    kickoff: None,
                 });
             }
             // Processes do not survive app restarts. Remove generated placeholder titles so the UI
@@ -1168,5 +1174,24 @@ mod tests {
         assert!(board.tools.skills.is_none());
         // An old board has approved no project declaration, so its `[tools]` stays gated.
         assert!(board.tool_trust.is_empty());
+    }
+
+    /// Tabs saved before ADR 0057 have no kickoff; a kickoff tab keeps its skill across a save, and
+    /// ordinary tabs keep writing the previous shape.
+    #[test]
+    fn tabs_without_a_kickoff_keep_the_previous_format() {
+        let board = board_json(
+            r#","tabs":[
+              {"id":"old","title":"","status":"pronta","note":null,"pending_prompt":null},
+              {"id":"new","title":"","status":"pronta","note":null,"pending_prompt":null,
+               "kickoff":"sdd-kit/specify"}]"#,
+        );
+        let tabs = &board.workspaces[0].tabs;
+        assert_eq!(tabs[0].kickoff, None);
+        assert_eq!(tabs[1].kickoff.as_deref(), Some("sdd-kit/specify"));
+        let old = serde_json::to_value(&tabs[0]).unwrap();
+        assert!(old.get("kickoff").is_none());
+        let new = serde_json::to_value(&tabs[1]).unwrap();
+        assert_eq!(new["kickoff"], "sdd-kit/specify");
     }
 }

@@ -40,6 +40,12 @@ run = "npm run dev -- --port $PROMETEU_PORT"
 #
 # [worktree]
 # copy = [".env", "config/master.key"]
+
+# Where a conversation started from a skill writes its artifacts, relative to
+# the repository. Without it Prometeu names no path.
+#
+# [method]
+# artifacts = "docs/specs"
 "#;
 
 #[derive(Deserialize, Default)]
@@ -59,6 +65,13 @@ struct WorktreeTable {
     copy: Option<Vec<String>>,
 }
 
+/// Method settings shared by the team through the versioned file (ADR 0057).
+#[derive(Deserialize, Default)]
+struct MethodTable {
+    /// Where artifacts of a conversation started from a skill land, relative to the repository.
+    artifacts: Option<String>,
+}
+
 #[derive(Deserialize, Default)]
 struct File {
     #[serde(default)]
@@ -69,6 +82,8 @@ struct File {
     /// own; project-declared items are gated on trust before injection.
     #[serde(default)]
     tools: Tools,
+    #[serde(default)]
+    method: MethodTable,
 }
 
 #[derive(Serialize, Clone)]
@@ -94,6 +109,9 @@ pub struct Scripts {
     /// The project layer of the tool selection read from the authoritative settings file, inherited
     /// from the clone like the scripts. Absent axes inherit the layers above (ADR 0045).
     pub tools: Tools,
+    /// The `[method] artifacts` path, relative to the repository and inherited from the clone like
+    /// the scripts. `None` when undeclared or unsafe, so the app injects no path (ADR 0057).
+    pub artifacts: Option<String>,
     /// Retain the raw optional copy declaration for read_for; the frontend receives the resolved
     /// list.
     #[serde(skip)]
@@ -139,10 +157,19 @@ pub fn read(root: &Path) -> Scripts {
             archive: trimmed(parsed.scripts.archive),
             copy: Vec::new(),
             tools: parsed.tools,
+            artifacts: artifacts(parsed.method.artifacts),
             declared: parsed.worktree.copy,
         };
     }
     Scripts::default()
+}
+
+/// Normalize the declared artifact path: relative, confined to the repository, without a leading
+/// `./` or trailing slash. Anything else is ignored rather than guessed.
+fn artifacts(value: Option<String>) -> Option<String> {
+    let raw = trimmed(value)?;
+    let rel = raw.trim_start_matches("./").trim_end_matches('/');
+    safe(rel).map(|path| path.to_string_lossy().into_owned())
 }
 
 fn trimmed(value: Option<String>) -> Option<String> {
@@ -808,5 +835,39 @@ default = true
             from_secondary.tools.plugins,
             Some(Selection::only(vec!["do-secundario".into()]))
         );
+    }
+
+    /// `[method] artifacts` is read like the other tables, inherited from the clone, and normalized;
+    /// an absent or escaping path yields no path at all (ADR 0057).
+    #[test]
+    fn method_artifacts_are_inherited_normalized_and_never_invented() {
+        let repo = tmp("method-repo");
+        write(
+            &repo,
+            ".prometeu/settings.toml",
+            "[scripts]\nrun = \"x\"\n\n[method]\nartifacts = \"./docs/specs/\"\n",
+        );
+        let wt = tmp("method-wt");
+        let inherited = read_for(&wt, &repo);
+        assert!(inherited.inherited);
+        assert_eq!(inherited.artifacts.as_deref(), Some("docs/specs"));
+
+        let plain = tmp("method-plain");
+        write(
+            &plain,
+            ".prometeu/settings.toml",
+            "[scripts]\nrun = \"x\"\n",
+        );
+        assert_eq!(read(&plain).artifacts, None);
+        assert_eq!(read(&tmp("method-none")).artifacts, None);
+        for bad in ["\"../outside\"", "\"/abs/path\"", "\"  \"", "3"] {
+            let dir = tmp("method-bad");
+            write(
+                &dir,
+                ".prometeu/settings.toml",
+                &format!("[method]\nartifacts = {bad}\n"),
+            );
+            assert_eq!(read(&dir).artifacts, None, "{bad}");
+        }
     }
 }

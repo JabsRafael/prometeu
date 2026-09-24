@@ -182,6 +182,7 @@ The detailed rules and the current state of each one are in
 | UI boot and coordination | `src/main.ts`, `src/workspace.ts`, `src/session.ts` |
 | conversation | `src/chat.ts`, `src/timeline.ts`, `src/chat-presentation.ts`, `src/desk.ts` |
 | agents | `src/agents.ts`, `src/launcher.ts`, `src-tauri/src/agents.rs`, `src-tauri/src/claude.rs`, `src-tauri/src/codex.rs` |
+| starting from a skill | `src/kickoff.ts`, `src/launcher.ts`, `src-tauri/src/kickoff.rs`, `[method]` in `src-tauri/src/scripts.rs`; see [ADR 0057](docs/decisions/0057-skill-kickoff-and-artifact-path.md) |
 | workspaces | `src-tauri/src/session.rs`, `src-tauri/src/state.rs` |
 | workspace tool selection | `src-tauri/src/workspace_tools.rs` (use case), `src-tauri/src/session.rs` (Tauri commands) |
 | Git and files | `src/workspace-changes.ts`, `src/diff.ts`, `src/viewer.ts`, `src/csv.ts`, `src-tauri/src/session/git.rs`, `src-tauri/src/session/diff.rs`, `src-tauri/src/session/files.rs` |

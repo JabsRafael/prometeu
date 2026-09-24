@@ -34,6 +34,8 @@ export type Tab = {
   pending_prompt?: string | null;
   /// An optional tab-specific model choice; absent choices inherit workspace defaults.
   choice?: Choice | null;
+  /// The "Start with" skill (`<package>/<skill>`) this conversation began from; absent otherwise.
+  kickoff?: string | null;
 };
 
 /// Provider, model, and effort form one choice because each model belongs to a provider and has supported effort levels.
@@ -300,6 +302,8 @@ export type Scripts = {
   archive: string | null;
   /// Copy source-clone ignored files such as .env before setup. Keep the declared list after copying so Setup remains available even without a setup command.
   copy: string[];
+  /// The `[method] artifacts` path declared by the repository; absent or null when undeclared.
+  artifacts?: string | null;
   port: number | null;
 };
 

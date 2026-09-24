@@ -20,6 +20,7 @@ mod feedback;
 mod file_drop;
 mod github;
 mod i18n;
+mod kickoff;
 mod linear;
 mod lock;
 mod machine;
@@ -271,6 +272,7 @@ fn main() {
             skills::skill_hub,
             skills::skill_save,
             skills::skill_remove,
+            kickoff::plugin_skills,
         ])
         .setup(|app| {
             notifications::install(app.handle());

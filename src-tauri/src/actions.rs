@@ -312,6 +312,7 @@ pub fn action_start(
                 prompt
             }),
             choice: Some(profile.choice.clone()),
+            kickoff: None,
             task: Some(Run {
                 command: name.clone(),
                 profile,

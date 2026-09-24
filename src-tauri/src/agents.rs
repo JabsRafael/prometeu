@@ -85,7 +85,7 @@ pub struct Agents {
     pub providers: Vec<AgentDescriptor>,
 }
 
-fn capabilities(id: ProviderId) -> AgentCapabilities {
+pub(crate) fn capabilities(id: ProviderId) -> AgentCapabilities {
     let common = AgentCapabilities {
         initial_plan_mode: false,
         workspace_mcp_selection: true,

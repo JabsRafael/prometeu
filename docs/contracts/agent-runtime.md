@@ -198,6 +198,27 @@ a Tauri application and verify invalid payloads, selection changes and tab
 preservation. The extraction preserves the layered IPC and persisted formats;
 see [ADR 0050](../decisions/0050-tested-application-boundaries.md).
 
+## Skill kickoff
+
+The launcher's *Start with* choice (`Draft.kickoff`, `<package>/<skill>`, empty
+for none) is an ephemeral addition over the layered resolution above
+([ADR 0057](../decisions/0057-skill-kickoff-and-artifact-path.md)). After the
+three lists are resolved for the first conversation, the core adds the skill's
+package to the axis its ID belongs to — `skill-<id>` to `skills`, a plugin to
+`plugins` — turning an inheriting `null` into a one-item list. No global,
+project or workspace layer changes, so later tabs keep the ordinary resolution.
+`Tab.kickoff` stores the choice and a resume of that tab adds the package again;
+a package no longer in the hub is ignored. Adapters receive ordinary lists and
+materialize them as today.
+
+The first message opens with one app-written line naming the skill, its
+plugin when it has one, and the repository's `[method] artifacts` path relative
+to the working directory, followed by attachments and the person's prompt. The
+line is rendered in the display language by the backend. An undeclared path is
+never named. The choice requires `workspacePluginSelection`; the core rejects it
+for other providers with `err.kickoff.unsupported`, and a skill missing from the
+installed catalog fails with `err.kickoff.missing` before a card is published.
+
 ## Conceptual port
 
 The design can be implemented with a trait, enum dispatch or grouped functions.

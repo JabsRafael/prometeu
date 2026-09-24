@@ -9,6 +9,8 @@ import { freshBranch } from "./branch";
 import { avatar, icon } from "./icons";
 import { paint, t } from "./i18n";
 import * as issues from "./issues";
+import * as kickoff from "./kickoff";
+import * as skills from "./skills";
 import * as mcp from "./mcp";
 import * as plugins from "./plugins";
 import * as menu from "./menu";
@@ -46,6 +48,8 @@ export type Draft = {
   mcp: string[] | null;
   /// Null plugin selection preserves inherited CLI behavior, following the MCP rule.
   plugins: string[] | null;
+  /// The "Start with" skill as `<package>/<skill>`; empty starts from the prompt alone (ADR 0057).
+  kickoff: string;
 };
 
 
@@ -103,13 +107,14 @@ export function openLauncher(board: Board, opts: Open) {
     plan: false,
     mcp: defaultMcp(),
     plugins: defaultPlugins(),
+    kickoff: "",
   };
   draft.effort = defaultEffort(draft);
   const conformCapabilities = () => {
     const capabilities = capabilitiesOf(draft.agent);
     if (!capabilities.initialPlanMode) draft.plan = false;
     if (!capabilities.workspaceMcpSelection) draft.mcp = null;
-    if (!capabilities.workspacePluginSelection) draft.plugins = null;
+    if (!capabilities.workspacePluginSelection) { draft.plugins = null; draft.kickoff = ""; }
     if (!capabilities.attachments) draft.inject = [];
   };
   conformCapabilities();
@@ -125,6 +130,7 @@ export function openLauncher(board: Board, opts: Open) {
     </header>
     <div class="picker" id="d-picker" hidden></div>
     <div class="picker" id="d-ipicker" hidden></div>
+    <div class="picker" id="d-kpicker" hidden></div>
     <div class="launcher-scroll"><div class="launcher-body">
       <section class="launcher-brief">
         <h2><label for="d-prompt" data-t="launcher.prompt"></label></h2>
@@ -200,7 +206,13 @@ export function openLauncher(board: Board, opts: Open) {
   attach.id = "d-add";
   attach.title = t("launcher.attach");
   attach.insertAdjacentHTML("afterbegin", icon("paperclip", 14));
-  $("d-attachments").append(attach);
+  // The starting skill sits next to the prompt it opens, sharing the attachment row.
+  const kickoffBtn = button("", undefined, "ghost");
+  kickoffBtn.id = "d-kickoff";
+  kickoffBtn.classList.add("launcher-kickoff");
+  kickoffBtn.insertAdjacentHTML("afterbegin", icon("sparkles", 14));
+  kickoffBtn.append(h("span", ""));
+  $("d-attachments").append(attach, kickoffBtn);
   const cancel = button(t("account.cancel"), () => hide(), "ghost");
   const create = button(t("launcher.go"), undefined, "pri");
   create.id = "d-go";
@@ -377,7 +389,7 @@ export function openLauncher(board: Board, opts: Open) {
       conformCapabilities();
       draft.effort = fitsEffort(draft.model, draft.effort, draft.agent);
       effortAdjusted = previousEffort !== draft.effort;
-      drawModel(); drawEffort(); drawPlan(); drawMcp(); drawPlugins(); drawAttach(); drawAccount(); drawHint();
+      drawModel(); drawEffort(); drawPlan(); drawMcp(); drawPlugins(); drawKickoff(); drawAttach(); drawAccount(); drawHint();
       prompt.focus();
     },
   }));
@@ -409,7 +421,7 @@ export function openLauncher(board: Board, opts: Open) {
         draft.effort = defaultEffort(resolved);
         needsChoice = false;
         conformCapabilities();
-        drawPlan(); drawMcp(); drawPlugins(); drawAttach(); drawAccount(); drawHint();
+        drawPlan(); drawMcp(); drawPlugins(); drawKickoff(); drawAttach(); drawAccount(); drawHint();
       }
     }
     drawModel(); drawEffort(); drawHint();
@@ -481,6 +493,53 @@ export function openLauncher(board: Board, opts: Open) {
   });
   const forgetPlugins = plugins.onChange(drawPlugins);
   drawPlugins();
+
+  /* Starting skill. */
+
+  // Offer the skills of the standalone hub and of installed plugins. The last explicit choice is a
+  // per-installation preference; a skill that is no longer installed falls back to none.
+  let kickoffTouched = false;
+  const kickoffEntries = () => kickoff.catalog(skills.list(), kickoff.pluginSkills());
+  const drawKickoff = () => {
+    const entries = kickoffEntries();
+    if (!entries.some((entry) => entry.id === draft.kickoff)) draft.kickoff = "";
+    const supported = capabilitiesOf(draft.agent).workspacePluginSelection;
+    if (supported && !kickoffTouched && !draft.kickoff) draft.kickoff = kickoff.storedKickoff(entries);
+    const chosen = entries.find((entry) => entry.id === draft.kickoff);
+    kickoffBtn.querySelector("span")!.textContent = chosen ? t("launcher.kickoff.chosen", { skill: chosen.name }) : t("launcher.kickoff.label");
+    kickoffBtn.classList.toggle("on", !!chosen);
+    kickoffBtn.title = chosen
+      ? [chosen.plugin ?? t("launcher.kickoff.standalone"), chosen.description].filter(Boolean).join(" · ")
+      : t("launcher.kickoff.hint");
+    kickoffBtn.hidden = !supported || !entries.length;
+    if (kickoffBtn.hidden) kickoffPick?.close();
+  };
+  const kickoffPick = picker({
+    btn: kickoffBtn,
+    el: $("d-kpicker"),
+    placeholder: t("launcher.kickoff.pick"),
+    rows: () => [
+      { id: "", label: t("launcher.kickoff.none"), run: () => chooseKickoff("") },
+      ...kickoffEntries().map((entry) => ({
+        id: entry.id,
+        label: entry.description ? `${entry.name} — ${entry.description}` : entry.name,
+        sub: entry.plugin ?? t("launcher.kickoff.standalone"),
+        run: () => chooseKickoff(entry.id),
+      })),
+    ],
+    none: () => t("launcher.kickoff.noMatch"),
+    current: () => draft.kickoff,
+    after: () => prompt.focus(),
+  });
+  const chooseKickoff = (id: string) => {
+    kickoffTouched = true;
+    draft.kickoff = id;
+    kickoff.rememberKickoff(id);
+    drawKickoff();
+  };
+  const forgetSkills = skills.onChange(drawKickoff);
+  drawKickoff();
+  void kickoff.refresh().then(drawKickoff).catch((error) => console.warn("plugin_skills", error));
 
   /* Branch base. */
 
@@ -625,14 +684,14 @@ export function openLauncher(board: Board, opts: Open) {
   setSeed(seed);
 
   sheet.addEventListener("mousedown", (e) => {
-    for (const p of [basePick, issuePick]) {
+    for (const p of [basePick, issuePick, kickoffPick]) {
       if (p.isOpen() && !p.contains(e.target as Node)) p.close();
     }
   });
   // Dismiss anchored menus on a scroll gesture, not on the browser scrolling a focused trigger into view.
   for (const event of ["wheel", "touchmove"]) {
     sheet.querySelector(".launcher-scroll")!.addEventListener(event, () => {
-      basePick.close(); issuePick.close(); menu.close();
+      basePick.close(); issuePick.close(); kickoffPick.close(); menu.close();
     }, { passive: true });
   }
 
@@ -683,6 +742,7 @@ export function openLauncher(board: Board, opts: Open) {
     forgetAccounts();
     forgetMcp();
     forgetPlugins();
+    forgetSkills();
     takeFiles = null;
     veil.replaceChildren();
     veil.hidden = true;

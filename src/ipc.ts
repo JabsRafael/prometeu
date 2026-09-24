@@ -110,6 +110,7 @@ export type Commands = {
   plugin_remove: { args: { id: string }; result: T.Plugin[] };
   plugin_save: { args: { plugin: T.Plugin; revision?: number | null }; result: T.Plugin[] };
   plugin_scrap: { args: { dir: string }; result: void };
+  plugin_skills: { args: undefined; result: import("./kickoff").PluginSkill[] };
   plugin_update: { args: { id: string }; result: T.Plugin[] };
   pr_open: { args: { id: string }; result: void };
   pr_prompt: { args: { id: string }; result: string };
