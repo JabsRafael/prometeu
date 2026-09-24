@@ -709,6 +709,11 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "tab.browser.closeKey": "Close the browser  ⌘W",
 
   "side.files": "Files",
+  "tree.git.A": "New",
+  "tree.git.M": "Modified",
+  "tree.git.D": "Deleted",
+  "tree.git.U": "Conflicted",
+  "tree.git.folder": "Contains changes",
   "side.changes": "Changes",
   "side.comments": "Comments",
   "side.review": "Review",

@@ -45,6 +45,7 @@ File paths are relative to the selected repository; absolute paths, traversals,
 | `workspace_git_branches` | `repo` | `GitBranch[]` |
 | `workspace_git_conflict` | `repo`, `path` | current, ours and theirs versions |
 | `workspace_git_resolve` | `repo`, `path`, `was`, `text` | empty or error |
+| `tree_git_status` | none; `id` may also be a project | `GitFile[]`, never an error |
 
 The TypeScript types are in `src/types.ts`. `src/ipc.ts`, the Tauri registry and
 `src/mock.ts` expose the same commands. No new field is persisted in the board;
@@ -66,6 +67,24 @@ the workspace is born without a worktree and without a branch (`list_branches`
 answers `git: false`, and the launcher locks both toggles), and the panel shows
 the Git error as with any repository that does not answer. Old responses cannot
 replace the selection of another workspace or repository.
+
+### File tree marks
+
+`tree_git_status` feeds the colors of the side **Files** tree and, unlike the
+other commands, accepts the same `id` as `list_dir`: a workspace or a project
+(see [the root of the file commands](ipc.md#root-of-the-file-commands)). Paths
+are relative to that tree root, so a grouping folder prefixes each worktree's
+folder and a project registered on a subfolder sees only its own changes.
+`status` is collapsed to one mark: `U` for conflicts, `A` for untracked or added
+files, `D` for deletions and `M` for the rest. Untracked files are listed one by
+one, as in the Changes pane, so ignored files inside a new folder stay unmarked.
+The tree adds struck-through rows for `D` paths, which no longer exist on disk
+and therefore never come from `list_dir`.
+A directory outside Git, or
+a repository that fails, contributes no marks instead of an error. The command is async so the scan never runs on the main thread. The tree
+refreshes marks every 5 seconds while it is visible, because terminals and
+agents change files without board events, and skips a tick while the previous
+scan is still running.
 
 Without an upstream, the counters are zero and the action is **Publish branch**.
 That does not mean the commits are published. A detached HEAD is
