@@ -207,7 +207,10 @@ Typed IPC and the browser mock expose:
   rename. Read, decode or write failures preserve the previous file and remove
   the temporary file. Destination checks reject symlinks and non-regular files;
   rename never follows a symlink introduced after the final check. Parent
-  permissions remain unchanged.
+  permissions remain unchanged. Success also requires syncing the containing
+  directory after rename. If that final sync fails, export reports an error
+  although the complete replacement may already be visible; its crash durability
+  has not been confirmed.
 - `telemetry_clear()`: deletes **all** local telemetry, irrespective of UI filters.
 
 Filter fields are optional `from`, `to`, `workspaceId`, or a paired
@@ -241,6 +244,14 @@ Retention is indefinite until deletion. JSONL starts with versioned metadata
 events. A period export may omit a start/completion outside its event window;
 metadata states the start-cohort distinction. Export without filters for the
 complete retained dataset. Transcripts and board files are never exported here.
+
+An abrupt process exit or power loss can leave a private (0600)
+`.prometeu-telemetry-*.tmp` sibling in the selected export directory. Ordinary
+errors remove it, but crash recovery does not track or sweep external export
+directories. These incomplete exports may contain metadata and can be removed
+manually when no export is running. Automatic recovery would need ownership and
+active-export tracking; it is outside the current deletion boundary, like
+completed exports and system backups.
 
 Failed capture never rejects an agent command. Diagnostics contain only a fixed
 message. A small private `telemetry-health.json` stores failure count and time;

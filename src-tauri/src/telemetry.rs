@@ -499,8 +499,14 @@ fn write_export(
         _ => Err(EXPORT_FAILURE.to_string()),
     };
     validate_destination()?;
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let directory = std::fs::File::open(parent).map_err(|_| EXPORT_FAILURE)?;
     // Keep streamed data beside the destination so publication is one atomic rename. Unlike
     // private app state, an export must never change its parent directory's permissions.
+    // ponytail: crashes can leave private siblings; tracked recovery is needed for automatic cleanup.
     let temporary = path.with_file_name(format!(".prometeu-telemetry-{}.tmp", id()));
     let file = std::fs::OpenOptions::new()
         .create_new(true)
@@ -516,7 +522,9 @@ fn write_export(
         drop(writer);
         validate_destination()?;
         // Rename replaces a directory entry, never follows a symlink swapped in after validation.
-        std::fs::rename(&temporary, path).map_err(|_| EXPORT_FAILURE.into())
+        std::fs::rename(&temporary, path).map_err(|_| EXPORT_FAILURE)?;
+        // File sync persists contents; directory sync persists the replacement itself.
+        directory.sync_all().map_err(|_| EXPORT_FAILURE.into())
     })();
     if result.is_err() {
         let _ = std::fs::remove_file(&temporary);
