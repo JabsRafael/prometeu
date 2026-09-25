@@ -36,7 +36,7 @@ export function typesafeRows(say: (text: string, isError?: boolean) => void, red
   key.control.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); save.click(); } });
   const keyRow = h("div", "typesafe-key");
   keyRow.append(key.root, save, remove);
-  const keyField = field(t("typesafe.key"), keyRow, t(status.configured ? "typesafe.key.configured" : "typesafe.key.missing"));
+  const keyField = field(t("typesafe.key"), keyRow, t(status.configured ? "typesafe.key.configured" : "typesafe.enabled.needKey"));
 
   const enabled = toggle(t("typesafe.enabled"), status.enabled);
   enabled.control.dataset.focus = "typesafe-enabled";
