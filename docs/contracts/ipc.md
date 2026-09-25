@@ -134,9 +134,11 @@ pasteboard: files copied in Finder keep the original path; an image is written
 as PNG in `<root>/attachments/<uuid>/pasted.png`, converting TIFF when that is
 the only available representation. On Linux it reads the GTK clipboard and
 writes an image, converted to PNG, to the same path; copied files are not read.
-A clipboard with neither a file nor an image returns an empty list, and the
-command is synchronous because AppKit and GTK both require the main thread.
-Elsewhere, it returns an empty list.
+A clipboard with neither a file nor an image returns an empty list. AppKit
+reads synchronously on the main thread. GTK requests the image asynchronously
+on the main thread; a worker converts and writes it. Linux rejects images above
+64 MiB of pixel data or PNG output and fails after 5 seconds if the clipboard
+owner does not respond. Elsewhere, it returns an empty list.
 
 `src/paste.ts` calls it when the paste event carries files, and also when the
 event carries no type at all: WebKitGTK hides a pasted image from the page that
