@@ -646,7 +646,10 @@ test("dropping a file attaches it despite an imprecise final position", async ({
   await composer.press("Enter");
   const bubble = page.locator("#chatwrap .turn.user .bubble").last();
   await expect(bubble).toContainText("Compare with this screenshot");
-  expect(await bubble.textContent()).toBe('@"/Users/me/Desktop/Screenshot 1.png"\n\nCompare with this screenshot');
+  // The agent receives the @path; the bubble shows it as a numbered image chip.
+  await expect(bubble.locator(".attachment-tag")).toHaveText("Image #1");
+  await expect(bubble.locator(".attachment-tag")).toHaveAttribute("title", path);
+  expect(await bubble.textContent()).toBe("Image #1\n\nCompare with this screenshot");
 });
 
 /// A large multi-repository diff mounts only rows near the viewport, avoiding thousands of offscreen DOM
@@ -821,7 +824,8 @@ test("the file tree marks the viewer's file and hands a file to the conversation
   await composer.press("Enter");
   const bubble = page.locator("#chatwrap .turn.user .bubble").last();
   await expect(bubble).toContainText("Review this");
-  expect(await bubble.textContent()).toBe("@CLAUDE.md\n\nReview this");
+  await expect(bubble.locator(".attachment-tag")).toHaveAttribute("title", "CLAUDE.md");
+  expect(await bubble.textContent()).toBe("CLAUDE.md\n\nReview this");
 });
 
 /// Double-clicking a file or activating its explicit diff button opens the full file in the viewer.

@@ -18,7 +18,7 @@ import {
   errorPeek,
   inputView,
   peek,
-  renderBrowserMessage,
+  renderUserMessage,
   tallyText,
   took,
   toolIcon,
@@ -369,7 +369,7 @@ export class ChatView {
       this.waiting.remove();
       return;
     }
-    renderBrowserMessage(this.waiting.querySelector<HTMLElement>(".bubble")!, text);
+    renderUserMessage(this.waiting.querySelector<HTMLElement>(".bubble")!, text);
     this.waiting.querySelector(".wlabel")!.textContent = t("chat.waiting");
     this.feed.querySelector(".nohint")?.remove();
     this.feed.append(this.waiting);
@@ -525,7 +525,7 @@ export class ChatView {
     switch (item.kind) {
       case "user": {
         const el = template("div", "turn user", `<div class="bubble"></div>`);
-        renderBrowserMessage(el.firstElementChild as HTMLElement, item.text);
+        renderUserMessage(el.firstElementChild as HTMLElement, item.text);
         return el;
       }
       case "ask":
