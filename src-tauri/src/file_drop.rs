@@ -98,6 +98,45 @@ pub fn paste_files() -> Result<Vec<String>, String> {
     Ok(Vec::new())
 }
 
+/// A pasted screenshot is larger than any text paste; past this the webview is not holding an image.
+const PASTED_IMAGE_LIMIT: usize = 64 * 1024 * 1024;
+
+/// Where no native pasteboard reader exists (Linux), the webview still receives the pasted image
+/// as a `File`. It sends the bytes here so the attachment lands in the same private directory the
+/// macOS pasteboard path uses. Only raster images the agents read are accepted.
+#[tauri::command]
+pub async fn paste_image(data: String, kind: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        save_pasted_image(&crate::paths::root(), &data, &kind)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn save_pasted_image(root: &std::path::Path, data: &str, kind: &str) -> Result<String, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let extension = match kind {
+        "image/png" => "png",
+        "image/jpeg" => "jpg",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        _ => return Err("chat.drop.failed".into()),
+    };
+    if data.len() / 4 * 3 > PASTED_IMAGE_LIMIT {
+        return Err("chat.drop.failed".into());
+    }
+    let bytes = STANDARD.decode(data).map_err(|_| "chat.drop.failed")?;
+    if bytes.is_empty() {
+        return Err("chat.drop.failed".into());
+    }
+    let file = root
+        .join("attachments")
+        .join(uuid::Uuid::new_v4().to_string())
+        .join(format!("pasted.{extension}"));
+    crate::paths::write_private_bytes(&file, &bytes)?;
+    Ok(file.to_string_lossy().into_owned())
+}
+
 #[cfg(target_os = "macos")]
 mod macos {
     use super::*;
@@ -334,5 +373,33 @@ mod tests {
         let end = serde_json::to_value(&drag).unwrap();
         assert_eq!(start["id"], end["id"]);
         assert_eq!(end["paths"][0], "/tmp/captura.png");
+    }
+
+    #[test]
+    fn pasted_images_land_privately_under_attachments() {
+        let root = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
+        let path = save_pasted_image(&root, "iVBORw0KGgo=", "image/png").unwrap();
+        let path = std::path::PathBuf::from(path);
+        assert!(path.starts_with(root.join("attachments")));
+        assert_eq!(path.file_name().unwrap(), "pasted.png");
+        assert_eq!(std::fs::read(&path).unwrap(), b"\x89PNG\r\n\x1a\n");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        let jpeg = save_pasted_image(&root, "/9j/", "image/jpeg").unwrap();
+        assert!(jpeg.ends_with("pasted.jpg"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn pasted_images_reject_other_types_and_broken_data() {
+        let root = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
+        assert!(save_pasted_image(&root, "PHN2Zz4=", "image/svg+xml").is_err());
+        assert!(save_pasted_image(&root, "not base64!", "image/png").is_err());
+        assert!(save_pasted_image(&root, "", "image/png").is_err());
+        assert!(!root.exists());
     }
 }

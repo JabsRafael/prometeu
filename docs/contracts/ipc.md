@@ -136,6 +136,15 @@ available representation. A clipboard with neither a file nor an image returns
 an empty list, and the command is synchronous because reading the pasteboard
 requires AppKit's main thread. Outside macOS, it returns an empty list.
 
+`paste_image` covers the platforms without a native pasteboard reader. When
+`paste_files` returns an empty list, `src/paste.ts` sends each pasted `File`
+whose type is `image/*` as `{ data, kind }`: `data` is the base64 content and
+`kind` its MIME type. The command accepts `image/png`, `image/jpeg`,
+`image/gif` and `image/webp` up to 64 MiB, writes
+`<root>/attachments/<uuid>/pasted.<ext>` with private permissions, and returns
+its path. Any other type, invalid base64 or empty content fails with
+`chat.drop.failed` without writing anything.
+
 `file-drag` adapts the native drag without changing Tauri's internal events. The
 registration uses `on_webview_event`, filtering the `main` webview: with the
 `unstable` feature, the runtime creates even the main webview as a child of the
