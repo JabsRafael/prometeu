@@ -1488,8 +1488,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "mobile.conversation": "Conversation {n}",
   "mobile.resolved": "resolved",
 
-  "typesafe.pitch": "Optional. Review a request for missing context before starting a workspace, with your own TypeSafe API key.",
-  "typesafe.flow": "Only when you choose Review request, the draft, the linked issue and the project name go directly from this Mac to TypeSafe with your key. Nothing is sent while you type, and workspaces never depend on it.",
+  "typesafe.pitch": "Check for missing context before starting a workspace.",
+  "typesafe.flow": "Only Review request sends your draft, linked issue and project name from this Mac to TypeSafe with your key. Typing sends nothing; workspace creation works without review.",
   "typesafe.key": "TypeSafe API key",
   "typesafe.key.placeholder": "Paste your API key",
   "typesafe.key.show": "Show",

@@ -58,13 +58,12 @@ Adopt option 3.
   Creating workspaces, sending prompts and running agents never depend on it,
   and a failure never falls back to another service or provider.
 
-The public TypeSafe documentation was not reachable from the environment in
-which the adapter was written. The request/response shape is an explicit,
-isolated assumption in `typesafe.rs::wire`, described in the
-[contract](../contracts/context-evaluation.md#assumed-typesafe-wire-shape). The
-endpoint origin can be overridden with `PROMETEU_TYPESAFE_URL` (an origin only:
-HTTPS, or loopback HTTP for local testing). A correction changes only that module and its
-fixtures.
+The adapter uses TypeSafe's documented System One HTTP API with `jev-latest`.
+Its request and response shape stays isolated in `typesafe.rs::wire`, described
+in the [contract](../contracts/context-evaluation.md#typesafe-system-one-wire-shape).
+The endpoint origin can be overridden with `PROMETEU_TYPESAFE_URL` (an origin
+only: HTTPS, or loopback HTTP for local testing). A wire correction changes
+only that module and its fixtures.
 
 ## Consequences
 
@@ -78,8 +77,9 @@ fixtures.
 - Thresholds are hypotheses. Suggestion usefulness, avoided rework, extra user
   effort and latency must be measured against ordinary submission; a clicked
   suggestion is not evidence of better outcomes.
-- Until the wire shape is confirmed against the live service, the integration
-  should be treated as unverified outside the automated suite.
+- The wire shape was checked against the public API and live Choice requests,
+  including one with eight questions, on 2026-09-24. Suggestion quality still
+  needs validation with real tasks.
 - Automatic review while typing, ongoing-chat review, mobile and remote
   sessions, repository indexing, image interpretation and free-form question
   generation are deferred.
