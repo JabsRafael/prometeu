@@ -202,8 +202,12 @@ Typed IPC and the browser mock expose:
 - `telemetry_events({ filter, cursor? })`: at most 500 events, nullable next cursor
   and health. Cursor is `(occurredAt, sequence)`.
 - `telemetry_export({ filter, path })`: writes a private `.jsonl` file selected by
-  the native save dialog. The open rejects symlinks atomically with `O_NOFOLLOW`
-  and rejects non-regular files before truncation; it never changes parent permissions.
+  the native save dialog. Streaming uses a private temporary file beside the
+  destination; only a complete, flushed and synced export replaces it by atomic
+  rename. Read, decode or write failures preserve the previous file and remove
+  the temporary file. Destination checks reject symlinks and non-regular files;
+  rename never follows a symlink introduced after the final check. Parent
+  permissions remain unchanged.
 - `telemetry_clear()`: deletes **all** local telemetry, irrespective of UI filters.
 
 Filter fields are optional `from`, `to`, `workspaceId`, or a paired
@@ -263,7 +267,8 @@ backups are outside this boundary; no forensic media erasure is promised.
 - `src-tauri/src/telemetry/tests.rs`: commit/reopen, deduplication/conflicts,
   future-version preservation, token cohorts, overlap/clipping, unknown durations,
   waits/cancellation, clock anomalies, content exclusion, PR relations, partial
-  snapshots, private permissions, symlink rejection, deletion generations/pages,
+  snapshots, private permissions, symlink rejection, atomic export replacement
+  and preservation on late decode/write failures, deletion generations/pages,
   post-clear late terminals, concurrent snapshot reads/commits, streaming export,
   WAL erasure, existing-database compatibility and capture failures.
 - `claude.rs::telemetry_main_usage_deduplicates_steps_and_excludes_restored_cost`

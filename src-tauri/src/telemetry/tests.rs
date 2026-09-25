@@ -820,3 +820,97 @@ fn existing_delete_journal_database_reopens_in_wal_without_losing_events() {
         original.id
     );
 }
+
+#[test]
+fn failed_row_decode_preserves_existing_export_and_removes_temporary_file() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = Temp::new();
+    let mut service = Service::new(dir.0.join("state"));
+    let scope = scope();
+    service.capture(0, &event(&scope, 1, Fact::ConversationCreated {}));
+    let malformed = event(
+        &scope,
+        2,
+        Fact::ContextCompacted {
+            before: None,
+            after: None,
+        },
+    );
+    service.capture(0, &malformed);
+    service
+        .store
+        .as_ref()
+        .unwrap()
+        .db
+        .execute(
+            "UPDATE events SET payload=?1 WHERE id=?2",
+            params![r#"{"before":"invalid","after":null}"#, malformed.id],
+        )
+        .unwrap();
+    let destination = dir.0.join("history.jsonl");
+    std::fs::write(&destination, "Previous export\n").unwrap();
+    std::fs::set_permissions(&destination, std::fs::Permissions::from_mode(0o640)).unwrap();
+    let queries = service.queries();
+    assert!(queries.export_to(&Filter::default(), &destination).is_err());
+    assert_eq!(
+        std::fs::read_to_string(&destination).unwrap(),
+        "Previous export\n"
+    );
+    assert_eq!(
+        std::fs::metadata(&destination)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o640
+    );
+    let absent = dir.0.join("new.jsonl");
+    assert!(queries.export_to(&Filter::default(), &absent).is_err());
+    assert!(!absent.exists());
+    assert_eq!(
+        std::fs::read_dir(&dir.0).unwrap().count(),
+        2,
+        "only state and the original export remain"
+    );
+}
+
+#[test]
+fn export_publishes_only_after_successful_stream_and_rejects_swapped_symlink() {
+    use std::os::unix::fs::symlink;
+    let dir = Temp::new();
+    std::fs::create_dir(&dir.0).unwrap();
+    let destination = dir.0.join("history.jsonl");
+    std::fs::write(&destination, "Previous export").unwrap();
+    assert!(write_export(&destination, |writer| {
+        writer.write_all(&[b'x'; 16384]).unwrap();
+        writer.flush().unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&destination).unwrap(),
+            "Previous export"
+        );
+        Err("err.telemetry.export".into())
+    })
+    .is_err());
+    assert_eq!(
+        std::fs::read_to_string(&destination).unwrap(),
+        "Previous export"
+    );
+    assert_eq!(std::fs::read_dir(&dir.0).unwrap().count(), 1);
+    let target = dir.0.join("other.txt");
+    std::fs::write(&target, "Keep this content").unwrap();
+    assert!(write_export(&destination, |writer| {
+        writer.write_all(b"Complete export").unwrap();
+        std::fs::remove_file(&destination).unwrap();
+        symlink(&target, &destination).unwrap();
+        Ok(())
+    })
+    .is_err());
+    assert_eq!(
+        std::fs::read_to_string(&target).unwrap(),
+        "Keep this content"
+    );
+    assert!(std::fs::symlink_metadata(&destination)
+        .unwrap()
+        .is_symlink());
+    assert_eq!(std::fs::read_dir(&dir.0).unwrap().count(), 2);
+}

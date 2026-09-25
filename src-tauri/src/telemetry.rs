@@ -487,36 +487,43 @@ fn write_export(
     path: &Path,
     write: impl FnOnce(&mut dyn std::io::Write) -> Result<()>,
 ) -> Result<()> {
-    // O_NOFOLLOW checks the destination at open time, including replacement after the save dialog.
     use std::io::Write;
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::OpenOptionsExt;
+    const EXPORT_FAILURE: &str = "err.telemetry.export";
     if path.extension().and_then(|v| v.to_str()) != Some("jsonl") {
-        return Err("err.telemetry.export".into());
+        return Err(EXPORT_FAILURE.into());
     }
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
+    let validate_destination = || match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        _ => Err(EXPORT_FAILURE.to_string()),
+    };
+    validate_destination()?;
+    // Keep streamed data beside the destination so publication is one atomic rename. Unlike
+    // private app state, an export must never change its parent directory's permissions.
+    let temporary = path.with_file_name(format!(".prometeu-telemetry-{}.tmp", id()));
+    let file = std::fs::OpenOptions::new()
+        .create_new(true)
         .write(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .mode(0o600)
-        .open(path)
-        .map_err(|_| "err.telemetry.export")?;
-    if !file
-        .metadata()
-        .map_err(|_| "err.telemetry.export")?
-        .is_file()
-    {
-        return Err("err.telemetry.export".into());
+        .open(&temporary)
+        .map_err(|_| EXPORT_FAILURE)?;
+    let result = (|| {
+        let mut writer = std::io::BufWriter::new(file);
+        write(&mut writer)?;
+        writer.flush().map_err(|_| EXPORT_FAILURE)?;
+        writer.get_ref().sync_all().map_err(|_| EXPORT_FAILURE)?;
+        drop(writer);
+        validate_destination()?;
+        // Rename replaces a directory entry, never follows a symlink swapped in after validation.
+        std::fs::rename(&temporary, path).map_err(|_| EXPORT_FAILURE.into())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
     }
-    file.set_permissions(std::fs::Permissions::from_mode(0o600))
-        .and_then(|_| file.set_len(0))
-        .map_err(|_| "err.telemetry.export")?;
-    let mut writer = std::io::BufWriter::new(&mut file);
-    write(&mut writer)?;
-    writer.flush().map_err(|_| "err.telemetry.export")?;
-    drop(writer);
-    file.sync_all().map_err(|_| "err.telemetry.export".into())
+    result
 }
+
 #[tauri::command(async)]
 pub fn telemetry_clear(state: State<AppState>) -> Result<()> {
     lock(&state.telemetry).clear()
