@@ -647,8 +647,8 @@ test("dropping a file attaches it despite an imprecise final position", async ({
   const bubble = page.locator("#chatwrap .turn.user .bubble").last();
   await expect(bubble).toContainText("Compare with this screenshot");
   // The agent receives the @path; the bubble shows it as a numbered image chip.
-  await expect(bubble.locator(".injchip")).toHaveText("Image #1");
-  await expect(bubble.locator(".injchip")).toHaveAttribute("title", path);
+  await expect(bubble.locator(".attachment-tag")).toHaveText("Image #1");
+  await expect(bubble.locator(".attachment-tag")).toHaveAttribute("title", path);
   expect(await bubble.textContent()).toBe("Image #1\n\nCompare with this screenshot");
 });
 
@@ -824,7 +824,7 @@ test("the file tree marks the viewer's file and hands a file to the conversation
   await composer.press("Enter");
   const bubble = page.locator("#chatwrap .turn.user .bubble").last();
   await expect(bubble).toContainText("Review this");
-  await expect(bubble.locator(".injchip")).toHaveAttribute("title", "CLAUDE.md");
+  await expect(bubble.locator(".attachment-tag")).toHaveAttribute("title", "CLAUDE.md");
   expect(await bubble.textContent()).toBe("CLAUDE.md\n\nReview this");
 });
 

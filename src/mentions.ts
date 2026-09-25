@@ -8,13 +8,15 @@ export function mentions(picked: string[], root: string | null): string {
     .join(" ");
 }
 
-const MENTIONS = /^@(?:"[^"\n]+"|[^\s"]+)(?: @(?:"[^"\n]+"|[^\s"]+))*(?=\n\n|$)/;
+const MENTION = String.raw`@(?:"([^"\n]+)"|([^\s"]+))`;
+const MENTIONS = new RegExp(String.raw`^${MENTION}(?: ${MENTION})*(?=\n\n|$)`);
 
 /// Reverse `mentions` for display: the attachment paragraph that opens a sent message. Only a first paragraph made entirely of mentions qualifies, so an @path typed inside the text stays text.
 export function leadingMentions(text: string): { paths: string[]; rest: string } | null {
   const line = MENTIONS.exec(text)?.[0];
   if (!line) return null;
-  const paths = line.split(/ (?=@)/).map((token) => token.slice(1).replace(/^"(.*)"$/, "$1"));
+  // Tokenize instead of splitting on " @": a quoted path may itself contain " @".
+  const paths = [...line.matchAll(new RegExp(MENTION, "g"))].map((m) => m[1] ?? m[2]);
   return { paths, rest: text.slice(line.length) };
 }
 

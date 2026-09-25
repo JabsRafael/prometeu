@@ -58,6 +58,8 @@ describe("sent attachments are read back for display", () => {
       rest: "\n\nlook at the panel",
     });
     expect(leadingMentions("@src/main.ts")).toEqual({ paths: ["src/main.ts"], rest: "" });
+    const quoted = mentions(["/Users/me/My Files/@archive/notes.md", "/tmp/a.png"], null);
+    expect(leadingMentions(quoted)?.paths).toEqual(["/Users/me/My Files/@archive/notes.md", "/tmp/a.png"]);
   });
 
   it("leaves mentions that are part of the typed text alone", () => {

@@ -1,5 +1,6 @@
 @import "./ui.css";
 @import "./browser-context.css";
+@import "./attachment-tag.css";
 
 /* Conductor measurements: main #141110; sidebar #1b1917; bars, composer, and modal #201e1c; selection #2b2826. Text: #eae8e6, #a4a09d, #756f6c; active underline #d8c2b3. Sidebar 256px, right panel 377px, header 38px + 1px border, tabs 39px + 1px border, rows 28px. */
 
@@ -339,8 +340,6 @@ main { flex: 1; min-height: 0; position: relative; }
 /* Dim the pending setup prompt and show its notice. */
 .turn.user.wait { flex-direction: column; align-items: flex-end; gap: 2px; }
 .turn.user.wait .bubble { opacity: 0.55; }
-/* Attachments sent with the message: the path stays in the chip's tooltip. */
-.turn.user .bubble > .injchip { margin: 0 6px 2px 0; padding: 0 8px; vertical-align: middle; white-space: nowrap; }
 .working i { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-3); animation: bounce 1.2s ease-in-out infinite; }
 .working i:nth-child(2) { animation-delay: 0.15s; }
 .working i:nth-child(3) { animation-delay: 0.3s; }

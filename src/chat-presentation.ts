@@ -58,7 +58,7 @@ export function renderUserMessage(host: HTMLElement, text: string): void {
   const attached = leadingMentions(text);
   let image = 0;
   const chips = (attached?.paths ?? []).map((path) => {
-    const chip = h("span", "injchip", isImage(path) ? t("chat.attachment.image", { n: ++image }) : path.split("/").pop() || path);
+    const chip = h("span", "attachment-tag", isImage(path) ? t("chat.attachment.image", { n: ++image }) : path.split("/").pop() || path);
     chip.title = path;
     return chip;
   });
