@@ -51,6 +51,13 @@ the text. Image and file metadata are reserved for an implementation that
 transports attachments separately; bytes and local paths do not enter the shared
 transcript by inference.
 
+The mentions open the text as their own paragraph, separated from the rest by a
+blank line (`src/mentions.ts`). The presentation reads back only that opening
+paragraph, and only when it consists entirely of mentions: images become
+numbered tags (`Image #1`, `Image #2`) and other files show their name, with
+the path in the tooltip. The transcript and the provider keep the paths as
+they are; a mention typed inside the text stays text.
+
 Browser element contexts use an additive textual convention inside `text`,
 without a new event or command type. The presentation turns only valid blocks
 into tags; the reducer, the adapters and the transcript preserve the complete

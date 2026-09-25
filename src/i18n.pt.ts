@@ -808,6 +808,7 @@ export const PT = {
   "web.width": "Largura máxima da página em pixels",
   "web.auto": "Auto",
   "web.selection": "Elemento selecionado",
+  "chat.attachment.image": "Imagem #{n}",
   "web.element": "Elemento selecionado",
   "web.removeElement": "Remover elemento selecionado",
   "web.contextDetails": "Elemento selecionado",

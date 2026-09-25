@@ -786,6 +786,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "web.width": "Maximum page width in pixels",
   "web.auto": "Auto",
   "web.selection": "Selected element",
+  "chat.attachment.image": "Image #{n}",
   "web.element": "Selected element",
   "web.removeElement": "Remove selected element",
   "web.contextDetails": "Selected element",

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isImage, leadingMentions } from "./mentions";
 import { mentions, short, typing } from "./paths";
 
 describe("path being typed", () => {
@@ -46,5 +47,28 @@ describe("message attachments become mentions", () => {
 
   it("preserves all absolute paths without a worktree", () => {
     expect(mentions(["/tmp/a.ts"], null)).toBe("@/tmp/a.ts");
+  });
+});
+
+describe("sent attachments are read back for display", () => {
+  it("returns the paths of the opening mention paragraph and keeps the rest", () => {
+    const text = `${mentions(["/home/me/Downloads/image.png", "/home/me/Downloads/image (2).png"], null)}\n\nlook at the panel`;
+    expect(leadingMentions(text)).toEqual({
+      paths: ["/home/me/Downloads/image.png", "/home/me/Downloads/image (2).png"],
+      rest: "\n\nlook at the panel",
+    });
+    expect(leadingMentions("@src/main.ts")).toEqual({ paths: ["src/main.ts"], rest: "" });
+  });
+
+  it("leaves mentions that are part of the typed text alone", () => {
+    expect(leadingMentions("@src/main.ts why does this fail?")).toBeNull();
+    expect(leadingMentions("see @src/main.ts")).toBeNull();
+    expect(leadingMentions("@src/main.ts\nnext line")).toBeNull();
+    expect(leadingMentions("")).toBeNull();
+  });
+
+  it("recognizes the image types a paste or capture produces", () => {
+    expect(["a.png", "b.JPG", "c.jpeg", "d.gif", "e.webp"].every(isImage)).toBe(true);
+    expect(isImage("notes.md")).toBe(false);
   });
 });

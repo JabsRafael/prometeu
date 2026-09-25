@@ -339,6 +339,8 @@ main { flex: 1; min-height: 0; position: relative; }
 /* Dim the pending setup prompt and show its notice. */
 .turn.user.wait { flex-direction: column; align-items: flex-end; gap: 2px; }
 .turn.user.wait .bubble { opacity: 0.55; }
+/* Attachments sent with the message: the path stays in the chip's tooltip. */
+.turn.user .bubble > .injchip { margin: 0 6px 2px 0; padding: 0 8px; vertical-align: middle; white-space: nowrap; }
 .working i { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-3); animation: bounce 1.2s ease-in-out infinite; }
 .working i:nth-child(2) { animation-delay: 0.15s; }
 .working i:nth-child(3) { animation-delay: 0.3s; }

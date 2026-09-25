@@ -646,7 +646,10 @@ test("dropping a file attaches it despite an imprecise final position", async ({
   await composer.press("Enter");
   const bubble = page.locator("#chatwrap .turn.user .bubble").last();
   await expect(bubble).toContainText("Compare with this screenshot");
-  expect(await bubble.textContent()).toBe('@"/Users/me/Desktop/Screenshot 1.png"\n\nCompare with this screenshot');
+  // The agent receives the @path; the bubble shows it as a numbered image chip.
+  await expect(bubble.locator(".injchip")).toHaveText("Image #1");
+  await expect(bubble.locator(".injchip")).toHaveAttribute("title", path);
+  expect(await bubble.textContent()).toBe("Image #1\n\nCompare with this screenshot");
 });
 
 /// A large multi-repository diff mounts only rows near the viewport, avoiding thousands of offscreen DOM

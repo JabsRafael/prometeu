@@ -2,6 +2,8 @@ import { icon, fileIcon } from "./icons";
 import { invoke } from "./ipc";
 import * as menu from "./menu";
 
+export { mentions, short } from "./mentions";
+
 /// Complete @file references in the composer using backend Git discovery. Both providers understand these paths; @mentions in the separate comments panel refer to people.
 
 export type PathEntry = { name: string; path: string; dir: boolean };
@@ -75,19 +77,3 @@ export function dismiss() {
   if (picking && menu.isOpen()) menu.close();
   picking = null;
 }
-
-/// Prepend attachments as @path references, matching the launcher's first-message behavior. Use workspace-relative paths for internal files, absolute paths otherwise, and quote paths containing spaces.
-export function mentions(picked: string[], root: string | null): string {
-  return picked
-    .filter(Boolean)
-    .map((p) => `@${quoted(short(p, root))}`)
-    .join(" ");
-}
-
-/// Use the path relative to the worktree when possible; retain absolute paths outside it.
-export function short(path: string, root: string | null): string {
-  const base = root?.replace(/\/+$/, "");
-  return base && path.startsWith(`${base}/`) ? path.slice(base.length + 1) : path;
-}
-
-const quoted = (path: string) => (/\s/.test(path) ? `"${path}"` : path);
