@@ -386,3 +386,18 @@ Process restarts preserve ownership and queued IDs with persisted pending input,
 mark other unfinished executions stopped and
 clear live background/request observations. No transcript migration applies.
 See the [embedded MCP contract](embedded-mcp.md) for fields and retry semantics.
+
+## Local telemetry
+
+`<root>/telemetry.sqlite3` stores canonical metadata independently of boards and
+transcripts, with a private `telemetry-health.json` failure record. Database and
+event versions are separate; unsupported future database versions are preserved.
+Short committed transactions, UUID/occurrence deduplication, indefinite retention,
+export and explicit erasure follow the [telemetry contract](telemetry.md).
+
+`Board.telemetry_ids` is an additive, default-empty map of domain keys to opaque
+UUIDs. It bridges legacy path-based project IDs and assigns repository/branch
+identities without placing names or paths in the event store. Existing UUID
+workspace/tab IDs are reused. These aliases remain domain state after telemetry
+is erased. Old boards/transcripts require no event backfill; compatibility is
+covered by existing board tests and `telemetry/tests.rs`.

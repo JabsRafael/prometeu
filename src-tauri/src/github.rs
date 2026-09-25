@@ -14,6 +14,7 @@ use tauri::{AppHandle, State};
 /// Refresh each repository's PR when opening the workspace; periodic refresh remains a fallback.
 #[tauri::command(async)]
 pub fn pr_open(app: AppHandle, state: State<AppState>, id: String) {
+    let generation = lock(&state.telemetry).generation;
     let found: Vec<(String, Option<Pr>)> = repos_of(&state, &id)
         .iter()
         .map(|repo| {
@@ -22,13 +23,14 @@ pub fn pr_open(app: AppHandle, state: State<AppState>, id: String) {
             (repo.name.clone(), pr)
         })
         .collect();
-    remember(&app, &state, &id, found);
+    remember(&app, &state, &id, found, generation);
 }
 
 /// Query gh once per clone, covering all its workspaces. Network failures and incomplete responses
 /// must preserve the last known board state.
 #[tauri::command(async)]
 pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
+    let generation = lock(&state.telemetry).generation;
     let alive: Vec<Workspace> = lock(&state.board)
         .workspaces
         .iter()
@@ -64,6 +66,7 @@ pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
     }
 
     let mut moved = false;
+    let mut associated = Vec::new();
     {
         let mut board = lock(&state.board);
         for (id, name, pr) in found {
@@ -73,11 +76,19 @@ pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
             let Some(repo) = workspace.repos.iter_mut().find(|repo| repo.name == name) else {
                 continue;
             };
+            if let Some(pr) = &pr {
+                if repo.pr.as_ref().is_none_or(|old| old.number != pr.number) {
+                    associated.push((id.clone(), repo.path.clone(), pr.number));
+                }
+            }
             moved |= write(repo, pr);
         }
     }
     if moved {
         publish(&app);
+        for (workspace, path, number) in associated {
+            crate::telemetry::associate(&app, generation, &workspace, &[(path, number)]);
+        }
     }
 }
 
@@ -152,8 +163,15 @@ fn list(dir: &Path, extra: &[&str]) -> Vec<Pr> {
 }
 
 /// Persist gh results for each repository on the board.
-fn remember(app: &AppHandle, state: &State<AppState>, id: &str, found: Vec<(String, Option<Pr>)>) {
+fn remember(
+    app: &AppHandle,
+    state: &State<AppState>,
+    id: &str,
+    found: Vec<(String, Option<Pr>)>,
+    generation: u64,
+) {
     let mut moved = false;
+    let mut associated = Vec::new();
     {
         let mut board = lock(&state.board);
         let Some(workspace) = board.workspace_mut(id) else {
@@ -163,11 +181,17 @@ fn remember(app: &AppHandle, state: &State<AppState>, id: &str, found: Vec<(Stri
             let Some(repo) = workspace.repos.iter_mut().find(|repo| repo.name == name) else {
                 continue;
             };
+            if let Some(pr) = &pr {
+                if repo.pr.as_ref().is_none_or(|old| old.number != pr.number) {
+                    associated.push((repo.path.clone(), pr.number));
+                }
+            }
             moved |= write(repo, pr);
         }
     }
     if moved {
         publish(app);
+        crate::telemetry::associate(app, generation, id, &associated);
     }
 }
 

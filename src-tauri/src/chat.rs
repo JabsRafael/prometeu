@@ -254,6 +254,8 @@ impl<F> ProcessIo<F> {
 /// responses such as `/context`. Each clone uses the same transcript buffer and sequence.
 #[derive(Clone)]
 pub struct Pump {
+    /// Serialize capture with publication, then commit outside transcript and chat locks.
+    telemetry: Arc<Mutex<crate::telemetry::Capture>>,
     app: AppHandle,
     id: String,
     sink: Arc<Mutex<Lines>>,
@@ -284,13 +286,24 @@ impl Pump {
             return;
         };
         {
-            let mut lines = lock(&self.sink);
-            self.record(&mut lines, text, &frame);
+            let mut capture = lock(&self.telemetry);
+            {
+                let mut lines = lock(&self.sink);
+                self.record(&mut lines, text, &frame);
+            }
+            if !self.gone.load(Ordering::Relaxed) {
+                capture.observe(&mut lock(&self.app.state::<AppState>().telemetry), &frame);
+            }
         }
         self.react(&frame);
     }
 
     fn record(&self, lines: &mut Lines, text: &str, frame: &Value) {
+        if frame["type"] == "telemetry.usage" {
+            return;
+        }
+        let public = public_text(text, frame);
+        let text = public.as_ref();
         if self.gone.load(Ordering::Relaxed) {
             return;
         }
@@ -329,6 +342,20 @@ impl Pump {
             }
         }
     }
+}
+
+/// Local measurements stop before conversation persistence and sharing. The original frame still
+/// reaches telemetry capture after publication; existing public completion fields stay intact.
+fn public_text<'a>(text: &'a str, frame: &Value) -> std::borrow::Cow<'a, str> {
+    if frame.get("telemetry").is_none() && frame.get("providerDurationMs").is_none() {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let mut public = frame.clone();
+    if let Some(fields) = public.as_object_mut() {
+        fields.remove("telemetry");
+        fields.remove("providerDurationMs");
+    }
+    std::borrow::Cow::Owned(public.to_string())
 }
 
 /// Append a private transcript line. Disk failures are logged while live display continues; prompts
@@ -520,6 +547,7 @@ pub(crate) fn launch(
     let (wire, mut translate) = wire(stdin);
 
     let pump = Pump {
+        telemetry: Arc::new(Mutex::new(crate::telemetry::Capture::default())),
         app: app.clone(),
         id: id.to_string(),
         sink: Arc::new(Mutex::new(Lines::seeded(seed))),
@@ -632,6 +660,7 @@ fn keep(frame: &Value) -> bool {
                 | "session.identity"
                 | "commands.updated"
                 | "usage.updated"
+                | "telemetry.usage"
         )
     )
 }
@@ -912,13 +941,35 @@ fn write_mode(
     frame: &Value,
     idle_only: bool,
 ) -> Result<(), String> {
-    let (pump, events) = {
+    let scope = (frame["type"] == "message.send")
+        .then(|| crate::telemetry::conversation_scope(&lock(&state.board), session))
+        .flatten();
+    let pump = lock(&state.chats)
+        .get(session)
+        .map(|chat| chat.pump.clone())
+        .ok_or_else(|| i18n::t("err.chat.gone"))?;
+    if scope.is_some()
+        && !lock(&pump.telemetry).initialized()
+        && crate::state::persist_now(&pump.app).is_err()
+    {
+        lock(&state.telemetry).failed();
+    }
+    let relations = if scope.is_some() {
+        crate::telemetry::conversation_relations(&lock(&state.board), session)
+    } else {
+        vec![]
+    };
+    let mut capture = lock(&pump.telemetry);
+    let generation = lock(&state.telemetry).generation;
+    let events = {
         let mut chats = lock(&state.chats);
         let chat = chats
             .get_mut(session)
             .filter(|c| c.alive())
             .ok_or_else(|| i18n::t("err.chat.gone"))?;
-        let pump = chat.pump.clone();
+        if !Arc::ptr_eq(&pump.telemetry, &chat.pump.telemetry) {
+            return Err(i18n::t("err.chat.gone"));
+        }
         let mut lines = lock(&pump.sink);
         if idle_only && chat.working() {
             return Err("conversation_busy".into());
@@ -939,8 +990,23 @@ fn write_mode(
             }
         };
         drop(lines);
-        (pump, events)
+        events
     };
+    {
+        let mut telemetry = lock(&state.telemetry);
+        if generation == telemetry.generation {
+            if let Some((scope, model)) = scope {
+                capture.accepted(&mut telemetry, scope, model);
+                for event in &relations {
+                    telemetry.capture(generation, event);
+                }
+            }
+            for event in &events {
+                capture.observe(&mut telemetry, event);
+            }
+        }
+    }
+    drop(capture);
     // Reactions may send another command or lock the board; release both locks first.
     for event in events {
         pump.react(&event);
@@ -1357,6 +1423,19 @@ pub fn chat_snapshot(state: State<AppState>, session: String) -> Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn telemetry_measurements_never_enter_transcripts_or_shared_conversation_lines() {
+        let frame = json!({"v":1,"type":"turn.completed","at":1,"outcome":"ok","message":"answer","durationMs":10,"costUsd":null,
+            "providerDurationMs":10,"telemetry":{"usage":{"inputTokens":123}}});
+        let serialized = frame.to_string();
+        let public: Value = serde_json::from_str(&public_text(&serialized, &frame)).unwrap();
+        assert!(public.get("telemetry").is_none());
+        assert!(public.get("providerDurationMs").is_none());
+        assert_eq!(public["message"], "answer");
+        assert_eq!(public["durationMs"], 10);
+        assert_eq!(frame["telemetry"]["usage"]["inputTokens"], 123);
+    }
 
     #[test]
     fn canonical_mcp_history_excludes_provider_child_transcripts() {

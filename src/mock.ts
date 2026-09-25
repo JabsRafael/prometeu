@@ -1,4 +1,5 @@
 import { t } from "./i18n";
+import * as telemetry from "./mock-telemetry";
 import type { Notice } from "./notifications";
 import { notificationView } from "./notification-view";
 import type { IpcCommand, IpcHandlers } from "./ipc";
@@ -2264,6 +2265,10 @@ const mockCommands: IpcHandlers = {
     if (workspace.active === args.tab) workspace.active = workspace.tabs[0]?.id ?? null;
     emit("board", board);
   },
+  telemetry_summary({ filter }) { return telemetry.summary(filter); },
+  telemetry_events({ filter, cursor }) { return telemetry.page(filter, cursor); },
+  telemetry_export({ filter }) { localStorage.setItem("mock:telemetryExport", telemetry.exportData(filter)); return null; },
+  telemetry_clear() { telemetry.clear(); return null; },
   typesafe_status() {
     return { ...mockTypeSafe(), problem: null };
   },
@@ -2308,6 +2313,8 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     }
 
     // Folder selection returns no sample project. Multiple-file selection supplies sample attachments.
+    case "plugin:dialog|save":
+      return "prometeu-telemetry.jsonl";
     case "plugin:dialog|open":
       return args.options?.multiple
         ? ["/Users/gustavo/dev/njord/docs/spec.md", "/Users/gustavo/Desktop/screenshot.png"]
