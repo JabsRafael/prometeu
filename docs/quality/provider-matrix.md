@@ -26,7 +26,9 @@ from the conversation settlement rule in ADR 0056.
 
 `telemetry/tests.rs`, the adapters' `telemetry_*` tests and
 `src/telemetry.test.ts` cover normalization, incomplete coverage, local query and
-erasure behavior. Existing command/publication tests cover accepted/failed sends
+erasure behavior, including late pre-erasure terminals, concurrent WAL readers,
+streaming export and symlink rejection. `src/telemetry-settings.test.ts` covers
+workspace option refresh while a filter stays selected. Existing command/publication tests cover accepted/failed sends
 and response ordering. Streaming input without a correlatable native terminal
 retains unknown turn attribution; capture health exposes that limit. These are
 fixture-based guarantees, not live certification of every installed provider

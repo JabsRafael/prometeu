@@ -1,5 +1,4 @@
 use super::*;
-use std::collections::{BTreeSet, HashMap};
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -91,42 +90,77 @@ pub(super) fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
         fact,
     })
 }
-impl Store {
-    pub(super) fn events(&self, filter: &Filter) -> Result<Vec<Event>> {
+// Reused within one read transaction so late completions and PR relations share a snapshot.
+const SELECTED: &str = "WITH selected AS NOT MATERIALIZED (
+    SELECT * FROM events WHERE (?1 IS NULL OR workspace_id=?1)
+    AND (?2 IS NULL OR workspace_id IN (SELECT workspace_id FROM events
+        WHERE type='pull_request.associated' AND json_extract(payload,'$.repositoryId')=?2
+        AND json_extract(payload,'$.pullRequest')=?3)))";
+
+pub struct Queries {
+    path: PathBuf,
+    health: Health,
+    readers: Arc<RwLock<()>>,
+}
+impl Service {
+    pub fn queries(&self) -> Queries {
+        Queries {
+            path: self.root.join("telemetry.sqlite3"),
+            health: self.health.clone(),
+            readers: self.readers.clone(),
+        }
+    }
+}
+impl Queries {
+    pub(super) fn read<T>(&self, run: impl FnOnce(&Store) -> Result<T>) -> Result<T> {
+        // Erasure waits for existing readers and exports, but capture never takes this lock.
+        let _reading = self.readers.read().unwrap_or_else(|e| e.into_inner());
+        if self.health.unavailable {
+            return Err(FAILURE.into());
+        }
+        let db =
+            Connection::open_with_flags(&self.path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .map_err(|_| FAILURE)?;
+        db.busy_timeout(std::time::Duration::from_millis(250))
+            .map_err(|_| FAILURE)?;
+        db.execute_batch("PRAGMA temp_store=FILE; PRAGMA cache_size=-2048; BEGIN;")
+            .map_err(|_| FAILURE)?;
+        // Connection close releases the snapshot before the erasure guard is released.
+        run(&Store { db })
+    }
+    pub fn summary(&self, filter: &Filter) -> Result<Summary> {
         filter.validate()?;
-        let mut statement=self.db.prepare("SELECT * FROM events WHERE (?1 IS NULL OR workspace_id=?1)
-            AND (?2 IS NULL OR workspace_id IN (SELECT workspace_id FROM events WHERE type='pull_request.associated'
-                AND json_extract(payload,'$.repositoryId')=?2 AND json_extract(payload,'$.pullRequest')=?3))
-            ORDER BY occurred_at, sequence").map_err(|_| FAILURE)?;
-        let result = statement
-            .query_map(
-                params![
-                    filter.workspace_id,
-                    filter.repository_id,
-                    filter.pull_request.map(|n| n as i64)
-                ],
-                row,
-            )
-            .map_err(|_| FAILURE)?
-            .collect::<std::result::Result<_, _>>()
-            .map_err(|_| FAILURE.into());
-        result
+        if self.health.unavailable {
+            return Ok(Summary {
+                health: self.health.clone(),
+                ..Default::default()
+            });
+        }
+        self.read(|store| store.summary(filter, self.health.clone()))
+    }
+    pub fn page(&self, filter: &Filter, cursor: Option<Cursor>) -> Result<Page> {
+        self.read(|store| store.page(filter, cursor, self.health.clone()))
+    }
+    pub fn export_to(&self, filter: &Filter, path: &Path) -> Result<()> {
+        self.read(|store| {
+            let summary = store.summary(filter, self.health.clone())?;
+            write_export(path, |writer| store.export(filter, &summary, writer))
+        })
+    }
+    #[cfg(test)]
+    pub fn export(&self, filter: &Filter) -> Result<String> {
+        self.read(|store| {
+            let summary = store.summary(filter, self.health.clone())?;
+            let mut bytes = Vec::new();
+            store.export(filter, &summary, &mut bytes)?;
+            String::from_utf8(bytes).map_err(|_| FAILURE.into())
+        })
     }
 }
 fn add(total: &mut Option<u64>, value: Option<u64>) {
     if let Some(value) = value {
         *total = Some(total.unwrap_or(0).saturating_add(value));
     }
-}
-fn union(intervals: &mut [(u64, u64)]) -> u64 {
-    intervals.sort_unstable();
-    let mut end = 0;
-    let mut total = 0;
-    for &(a, b) in intervals.iter() {
-        total += b.saturating_sub(a.max(end));
-        end = end.max(b);
-    }
-    total
 }
 /// Observed monotonic duration and wall placement must agree within one second. A clock jump
 /// cannot silently inflate overlap time. Incomplete intervals never end at the query boundary.
@@ -143,161 +177,167 @@ fn interval(
     let b = end.min(filter.to.unwrap_or(i64::MAX as u64));
     Ok((b > a || (start == end && filter.includes(start))).then_some((a, b)))
 }
-fn summarize(events: &[Event], filter: &Filter, health: Health) -> Summary {
-    let mut s = Summary {
-        health,
-        ..Summary::default()
-    };
-    let mut turns = HashMap::new();
-    let mut measurements = HashMap::new();
-    let mut completed = BTreeSet::new();
-    let mut executions = HashMap::new();
-    let mut ended = HashMap::new();
-    let mut waits = HashMap::new();
-    let mut received = HashMap::new();
-    let mut workspaces = BTreeSet::new();
-    // Insertion order determines latest usage, even after a wall-clock correction.
-    let mut ordered: Vec<_> = events.iter().collect();
-    ordered.sort_by_key(|e| e.sequence);
-    for e in ordered {
-        if let Some(w) = &e.scope.workspace_id {
-            workspaces.insert(w.clone());
-        }
-        if filter.includes(e.occurred_at) {
-            s.events += 1;
-            s.first_recorded_at = Some(
-                s.first_recorded_at
-                    .map_or(e.occurred_at, |v| v.min(e.occurred_at)),
-            );
-            s.last_recorded_at = Some(
-                s.last_recorded_at
-                    .map_or(e.occurred_at, |v| v.max(e.occurred_at)),
-            );
-        }
-        let tid = e.scope.turn_id.clone().unwrap_or_default();
-        match &e.fact {
-            Fact::TurnStarted { .. } => {
-                turns.insert(tid, e.occurred_at);
-            }
-            Fact::UsageObserved { measurement } => {
-                if !completed.contains(&tid) {
-                    measurements.insert(tid, measurement);
-                }
-            }
-            Fact::TurnCompleted { measurement, .. } => {
-                completed.insert(tid.clone());
-                measurements.insert(tid, measurement);
-            }
-            Fact::ExecutionStarted { execution_id } => {
-                executions.insert(execution_id, e.occurred_at);
-            }
-            Fact::ExecutionCompleted {
-                execution_id,
-                elapsed_ms,
-            } => {
-                ended.insert(execution_id, (e.occurred_at, *elapsed_ms));
-            }
-            Fact::HumanRequested { request_id, .. } => {
-                waits.insert(request_id, e.occurred_at);
-            }
-            Fact::HumanReceived {
-                request_id,
-                elapsed_ms,
-            } => {
-                received.insert(request_id, (e.occurred_at, *elapsed_ms, true));
-            }
-            Fact::HumanCancelled {
-                request_id,
-                elapsed_ms,
-            } => {
-                received.insert(request_id, (e.occurred_at, *elapsed_ms, false));
-            }
-            _ => {}
-        }
-    }
-    for (tid, at) in turns {
-        if !filter.includes(at) {
-            continue;
-        }
-        s.turns += 1;
-        if completed.contains(&tid) {
-            s.completed_turns += 1;
-        }
-        if let Some(m) = measurements.get(&tid) {
-            if (!completed.contains(&tid) || !m.complete)
-                && (m.usage.input_tokens.is_some() || m.usage.output_tokens.is_some())
-            {
-                s.partial_turns += 1;
-            }
-            if m.complete && m.usage.input_tokens.is_some() && m.usage.output_tokens.is_some() {
-                s.measured_turns += 1;
-            }
-            add(&mut s.input_tokens, m.usage.input_tokens);
-            add(&mut s.output_tokens, m.usage.output_tokens);
-            if let Some(cost) = m.usage.cost_usd {
-                s.cost_usd = Some(s.cost_usd.unwrap_or(0.) + cost);
-            }
-        }
-    }
-    let mut intervals = vec![];
-    for (id, start) in executions {
-        if let Some(&(end, elapsed)) = ended.get(id) {
-            match interval(start, end, elapsed, filter) {
-                Ok(Some((a, b))) => {
-                    s.complete_executions += 1;
-                    add(&mut s.execution_sum_ms, Some(b - a));
-                    intervals.push((a, b));
-                }
-                Err(()) if filter.includes(start) || filter.includes(end) => s.clock_anomalies += 1,
-                _ => {}
-            }
-        } else if start < filter.to.unwrap_or(i64::MAX as u64) {
-            s.incomplete_executions += 1;
-        }
-    }
-    if !intervals.is_empty() {
-        s.active_agent_ms = Some(union(&mut intervals));
-    }
-    let mut intervals = vec![];
-    for (id, start) in waits {
-        if let Some(&(end, elapsed, responded)) = received.get(id) {
-            match interval(start, end, elapsed, filter) {
-                Ok(Some(pair)) => {
-                    if responded {
-                        s.responded_waits += 1;
-                    } else {
-                        s.cancelled_waits += 1;
-                    }
-                    intervals.push(pair);
-                }
-                Err(()) if filter.includes(start) || filter.includes(end) => s.clock_anomalies += 1,
-                _ => {}
-            }
-        } else if start < filter.to.unwrap_or(i64::MAX as u64) {
-            s.incomplete_waits += 1;
-        }
-    }
-    if !intervals.is_empty() {
-        s.human_wait_ms = Some(union(&mut intervals));
-    }
-    s.workspace_ids = workspaces.into_iter().collect();
-    s
-}
-impl Service {
-    pub fn summary(&mut self, filter: &Filter) -> Result<Summary> {
+impl Store {
+    pub(super) fn summary(&self, filter: &Filter, health: Health) -> Result<Summary> {
         filter.validate()?;
-        let Some(store) = &self.store else {
-            return Ok(Summary {
-                health: self.health.clone(),
-                ..Summary::default()
-            });
-        };
-        // ponytail: aggregate selected workspace history in memory; materialize projections when
-        // measured history size makes this interactive query slow.
-        let events = store.events(filter)?;
-        Ok(summarize(&events, filter, self.health.clone()))
+        let parameters = params![
+            filter.workspace_id,
+            filter.repository_id,
+            filter.pull_request.map(|n| n as i64),
+            filter.from.unwrap_or(0) as i64,
+            filter.to.unwrap_or(i64::MAX as u64) as i64
+        ];
+        let mut s = self
+            .db
+            .query_row(
+                &format!(
+                    "{SELECTED}
+            SELECT COUNT(*),MIN(occurred_at),MAX(occurred_at) FROM selected
+            WHERE occurred_at>=?4 AND occurred_at<?5"
+                ),
+                parameters,
+                |r| {
+                    Ok(Summary {
+                        events: r.get::<_, i64>(0)? as u64,
+                        first_recorded_at: r.get::<_, Option<i64>>(1)?.map(|v| v as u64),
+                        last_recorded_at: r.get::<_, Option<i64>>(2)?.map(|v| v as u64),
+                        health,
+                        ..Default::default()
+                    })
+                },
+            )
+            .map_err(|_| FAILURE)?;
+        let mut statement = self.db.prepare(&format!("{SELECTED}
+            SELECT DISTINCT workspace_id FROM selected WHERE workspace_id IS NOT NULL ORDER BY workspace_id"))
+            .map_err(|_| FAILURE)?;
+        s.workspace_ids = statement
+            .query_map(
+                params![
+                    Option::<String>::None,
+                    filter.repository_id,
+                    filter.pull_request.map(|n| n as i64)
+                ],
+                |r| r.get(0),
+            )
+            .map_err(|_| FAILURE)?
+            .collect::<rusqlite::Result<_>>()
+            .map_err(|_| FAILURE)?;
+        // Resolve only the final snapshot for each start in the cohort; intermediate snapshots
+        // and completed turns never accumulate in application memory.
+        let mut statement = self.db.prepare(&format!("{SELECTED}
+            SELECT m.type,m.payload FROM selected AS start
+            LEFT JOIN events AS m ON m.sequence=COALESCE(
+                (SELECT sequence FROM events WHERE turn_id=start.turn_id AND type='turn.completed' ORDER BY sequence DESC LIMIT 1),
+                (SELECT sequence FROM events WHERE turn_id=start.turn_id AND type='turn.usage.observed' ORDER BY sequence DESC LIMIT 1))
+            WHERE start.type='turn.started' AND start.occurred_at>=?4 AND start.occurred_at<?5"))
+            .map_err(|_| FAILURE)?;
+        let mut rows = statement.query(parameters).map_err(|_| FAILURE)?;
+        while let Some(row) = rows.next().map_err(|_| FAILURE)? {
+            s.turns += 1;
+            let kind: Option<String> = row.get(0).map_err(|_| FAILURE)?;
+            let completed = kind.as_deref() == Some("turn.completed");
+            s.completed_turns += u64::from(completed);
+            if let Some(payload) = row.get::<_, Option<String>>(1).map_err(|_| FAILURE)? {
+                let fact: Fact = serde_json::from_value(serde_json::json!({"type":kind,"payload":serde_json::from_str::<serde_json::Value>(&payload).map_err(|_| FAILURE)?})).map_err(|_| FAILURE)?;
+                let m = fact.measurement().ok_or(FAILURE)?;
+                if (!completed || !m.complete)
+                    && (m.usage.input_tokens.is_some() || m.usage.output_tokens.is_some())
+                {
+                    s.partial_turns += 1;
+                }
+                if m.complete && m.usage.input_tokens.is_some() && m.usage.output_tokens.is_some() {
+                    s.measured_turns += 1;
+                }
+                add(&mut s.input_tokens, m.usage.input_tokens);
+                add(&mut s.output_tokens, m.usage.output_tokens);
+                if let Some(cost) = m.usage.cost_usd {
+                    s.cost_usd = Some(s.cost_usd.unwrap_or(0.) + cost);
+                }
+            }
+        }
+        for waiting in [false, true] {
+            let (start_type, end_types, identity) = if waiting {
+                (
+                    "human_input.requested",
+                    "'human_input.received','human_input.cancelled'",
+                    "requestId",
+                )
+            } else {
+                (
+                    "agent.execution.started",
+                    "'agent.execution.completed'",
+                    "executionId",
+                )
+            };
+            let mut statement = self.db.prepare(&format!("{SELECTED}
+                SELECT start.occurred_at,finish.occurred_at,json_extract(finish.payload,'$.elapsedMs'),finish.type
+                FROM selected AS start LEFT JOIN events AS finish ON finish.sequence=(
+                    SELECT sequence FROM events WHERE type IN ({end_types})
+                    AND json_extract(payload,'$.{identity}')=json_extract(start.payload,'$.{identity}')
+                    ORDER BY sequence DESC LIMIT 1)
+                WHERE start.type='{start_type}' ORDER BY start.occurred_at,start.sequence"))
+                .map_err(|_| FAILURE)?;
+            let mut rows = statement
+                .query(params![
+                    filter.workspace_id,
+                    filter.repository_id,
+                    filter.pull_request.map(|n| n as i64)
+                ])
+                .map_err(|_| FAILURE)?;
+            let mut union_end = 0;
+            let mut union_ms = None;
+            while let Some(row) = rows.next().map_err(|_| FAILURE)? {
+                let start = row.get::<_, i64>(0).map_err(|_| FAILURE)? as u64;
+                let end = row
+                    .get::<_, Option<i64>>(1)
+                    .map_err(|_| FAILURE)?
+                    .map(|v| v as u64);
+                if let Some(end) = end {
+                    let elapsed = row.get::<_, i64>(2).map_err(|_| FAILURE)? as u64;
+                    match interval(start, end, elapsed, filter) {
+                        Ok(Some((a, b))) => {
+                            if waiting {
+                                if row.get::<_, String>(3).map_err(|_| FAILURE)?
+                                    == "human_input.received"
+                                {
+                                    s.responded_waits += 1;
+                                } else {
+                                    s.cancelled_waits += 1;
+                                }
+                            } else {
+                                s.complete_executions += 1;
+                                add(&mut s.execution_sum_ms, Some(b - a));
+                            }
+                            add(&mut union_ms, Some(b.saturating_sub(a.max(union_end))));
+                            union_end = union_end.max(b);
+                        }
+                        Err(()) if filter.includes(start) || filter.includes(end) => {
+                            s.clock_anomalies += 1
+                        }
+                        _ => {}
+                    }
+                } else if start < filter.to.unwrap_or(i64::MAX as u64) {
+                    if waiting {
+                        s.incomplete_waits += 1;
+                    } else {
+                        s.incomplete_executions += 1;
+                    }
+                }
+            }
+            if waiting {
+                s.human_wait_ms = union_ms;
+            } else {
+                s.active_agent_ms = union_ms;
+            }
+        }
+        Ok(s)
     }
-    pub fn page(&self, filter: &Filter, cursor: Option<Cursor>) -> Result<Page> {
+    pub(super) fn page(
+        &self,
+        filter: &Filter,
+        cursor: Option<Cursor>,
+        health: Health,
+    ) -> Result<Page> {
         filter.validate()?;
         if cursor
             .as_ref()
@@ -305,8 +345,7 @@ impl Service {
         {
             return Err("err.telemetry.filter".into());
         }
-        let store = self.store.as_ref().ok_or(FAILURE)?;
-        let mut statement = store.db.prepare("SELECT * FROM events
+        let mut statement = self.db.prepare("SELECT * FROM events
             WHERE occurred_at >= ?1 AND occurred_at < ?2
             AND (?3 IS NULL OR workspace_id=?3)
             AND (?4 IS NULL OR workspace_id IN (SELECT workspace_id FROM events WHERE type='pull_request.associated' AND json_extract(payload,'$.repositoryId')=?4 AND json_extract(payload,'$.pullRequest')=?5))
@@ -341,18 +380,40 @@ impl Service {
         Ok(Page {
             events,
             next,
-            health: self.health.clone(),
+            health,
         })
     }
-    pub fn export(&self, filter: &Filter) -> Result<String> {
-        let events = self.store.as_ref().ok_or(FAILURE)?.events(filter)?;
-        let mut lines=vec![serde_json::json!({"exportVersion":1,"health":self.health,"filter":filter,"summary":summarize(&events,filter,self.health.clone()),"eventSelection":"occurrence period; turn usage uses start cohort"}).to_string()];
-        for e in events
-            .into_iter()
-            .filter(|e| filter.includes(e.occurred_at))
-        {
-            lines.push(serde_json::to_string(&e).map_err(|_| FAILURE)?);
+    pub(super) fn export(
+        &self,
+        filter: &Filter,
+        summary: &Summary,
+        writer: &mut dyn std::io::Write,
+    ) -> Result<()> {
+        fn line(writer: &mut dyn std::io::Write, value: &impl Serialize) -> Result<()> {
+            serde_json::to_writer(&mut *writer, value).map_err(|_| "err.telemetry.export")?;
+            writer
+                .write_all(b"\n")
+                .map_err(|_| "err.telemetry.export".into())
         }
-        Ok(lines.join("\n") + "\n")
+        line(
+            writer,
+            &serde_json::json!({"exportVersion":1,"health":summary.health,"filter":filter,"summary":summary,"eventSelection":"occurrence period; turn usage uses start cohort"}),
+        )?;
+        let mut statement = self.db.prepare(&format!("{SELECTED}
+            SELECT * FROM selected WHERE occurred_at>=?4 AND occurred_at<?5 ORDER BY occurred_at,sequence"))
+            .map_err(|_| FAILURE)?;
+        let mut rows = statement
+            .query(params![
+                filter.workspace_id,
+                filter.repository_id,
+                filter.pull_request.map(|n| n as i64),
+                filter.from.unwrap_or(0) as i64,
+                filter.to.unwrap_or(i64::MAX as u64) as i64
+            ])
+            .map_err(|_| FAILURE)?;
+        while let Some(r) = rows.next().map_err(|_| FAILURE)? {
+            line(writer, &row(r).map_err(|_| FAILURE)?)?;
+        }
+        Ok(())
     }
 }

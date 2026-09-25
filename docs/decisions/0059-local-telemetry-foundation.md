@@ -71,6 +71,12 @@ SQLite is an additional desktop dependency. It avoids implementing an index,
 deduplication store and query engine around event files. Short committed writes
 are the initial policy; an in-memory batch queue is not the durability boundary.
 
+Read-only WAL snapshots keep summaries and streaming exports outside the capture
+mutex. SQL joins and ordered row processing avoid loading retained history into
+application memory. This adds WAL disk growth while readers are active; deletion
+waits for readers and exports, then vacuums and truncates the WAL before success.
+Existing version-1 events remain readable; additional indexes are additive.
+
 Telemetry stays independent of board and transcript retention. Archive and
 worktree cleanup must not remove it. Explicit deletion overrides append-only
 retention and must also prevent pending callbacks from restoring erased data.

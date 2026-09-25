@@ -38,7 +38,7 @@ export function summary(filter: TelemetryFilter): TelemetrySummary {
     inputTokens: sum(usage.map(u => u.inputTokens)), outputTokens: sum(usage.map(u => u.outputTokens)), costUsd: sum(usage.map(u => u.costUsd)),
     incompleteExecutions: 0, completeExecutions: 0, clockAnomalies: 0, executionSumMs: null, activeAgentMs: null,
     respondedWaits: 0, cancelledWaits: 0, incompleteWaits: 0, humanWaitMs: null,
-    workspaceIds: [...new Set(all.flatMap(e => e.workspaceId ? [e.workspaceId] : []))], health: health() };
+    workspaceIds: [...new Set(selected({ ...filter, workspaceId: undefined }).flatMap(e => e.workspaceId ? [e.workspaceId] : []))], health: health() };
 }
 export function page(filter: TelemetryFilter, cursor?: TelemetryCursor): TelemetryPage {
   const records = selected(filter).filter(e => inPeriod(e.occurredAt, filter) && (!cursor || e.occurredAt > cursor.occurredAt || (e.occurredAt === cursor.occurredAt && e.sequence > cursor.sequence)));

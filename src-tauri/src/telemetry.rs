@@ -11,7 +11,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Arc, Mutex, RwLock},
 };
 use tauri::State;
 
@@ -303,9 +303,9 @@ impl Store {
             if version > 1 {
                 return Err("future_version".into());
             }
-            // DELETE journaling avoids retained WAL content; each event commits synchronously.
+            // Snapshot readers use WAL so summaries and exports never hold up live commits.
             db.execute_batch(
-                "PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA secure_delete=ON;",
+                "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA secure_delete=ON;",
             )?;
             if version == 0 {
                 let tx = db.transaction()?;
@@ -321,6 +321,8 @@ impl Store {
                     PRAGMA user_version=1;")?;
                 tx.commit()?;
             }
+            db.execute_batch("CREATE INDEX IF NOT EXISTS events_execution ON events(type, json_extract(payload,'$.executionId'), sequence);
+                CREATE INDEX IF NOT EXISTS events_request ON events(type, json_extract(payload,'$.requestId'), sequence);")?;
             Ok(Self { db })
         };
         work().map_err(|_| FAILURE.into())
@@ -368,7 +370,15 @@ impl Store {
         tx.execute_batch("DELETE FROM events; DELETE FROM sqlite_sequence WHERE name='events';")
             .map_err(|_| FAILURE)?;
         tx.commit().map_err(|_| FAILURE)?;
-        self.db.execute_batch("VACUUM;").map_err(|_| FAILURE.into())
+        self.db.execute_batch("VACUUM;").map_err(|_| FAILURE)?;
+        let busy: u32 = self
+            .db
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0))
+            .map_err(|_| FAILURE)?;
+        if busy != 0 {
+            return Err(FAILURE.into());
+        }
+        Ok(())
     }
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -384,6 +394,7 @@ pub struct Service {
     root: PathBuf,
     pub generation: u64,
     health: Health,
+    readers: Arc<RwLock<()>>,
 }
 impl Service {
     pub fn new(root: PathBuf) -> Self {
@@ -396,6 +407,7 @@ impl Service {
             root,
             generation: 0,
             health,
+            readers: Arc::new(RwLock::new(())),
         };
         match Store::open(&s.root.join("telemetry.sqlite3")) {
             Ok(store) => {
@@ -430,6 +442,8 @@ impl Service {
         }
     }
     fn clear(&mut self) -> Result<()> {
+        let readers = self.readers.clone();
+        let _exclusive = readers.write().unwrap_or_else(|e| e.into_inner());
         // Invalidate old in-flight capture even when erasure fails; never restore deleted rows.
         self.generation = self.generation.wrapping_add(1);
         let result = self
@@ -452,7 +466,8 @@ impl Service {
 
 #[tauri::command(async)]
 pub fn telemetry_summary(state: State<AppState>, filter: Filter) -> Result<Summary> {
-    lock(&state.telemetry).summary(&filter)
+    let queries = lock(&state.telemetry).queries();
+    queries.summary(&filter)
 }
 #[tauri::command(async)]
 pub fn telemetry_events(
@@ -460,15 +475,19 @@ pub fn telemetry_events(
     filter: Filter,
     cursor: Option<query::Cursor>,
 ) -> Result<Page> {
-    lock(&state.telemetry).page(&filter, cursor)
+    let queries = lock(&state.telemetry).queries();
+    queries.page(&filter, cursor)
 }
 #[tauri::command(async)]
 pub fn telemetry_export(state: State<AppState>, filter: Filter, path: String) -> Result<()> {
-    let contents = lock(&state.telemetry).export(&filter)?;
-    write_export(Path::new(&path), &contents)
+    let queries = lock(&state.telemetry).queries();
+    queries.export_to(&filter, Path::new(&path))
 }
-fn write_export(path: &Path, contents: &str) -> Result<()> {
-    // Export destinations belong to the person; never chmod their parent directory.
+fn write_export(
+    path: &Path,
+    write: impl FnOnce(&mut dyn std::io::Write) -> Result<()>,
+) -> Result<()> {
+    // O_NOFOLLOW checks the destination at open time, including replacement after the save dialog.
     use std::io::Write;
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     if path.extension().and_then(|v| v.to_str()) != Some("jsonl") {
@@ -476,16 +495,27 @@ fn write_export(path: &Path, contents: &str) -> Result<()> {
     }
     let mut file = std::fs::OpenOptions::new()
         .create(true)
-        .truncate(true)
+        .truncate(false)
         .write(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .mode(0o600)
         .open(path)
         .map_err(|_| "err.telemetry.export")?;
+    if !file
+        .metadata()
+        .map_err(|_| "err.telemetry.export")?
+        .is_file()
+    {
+        return Err("err.telemetry.export".into());
+    }
     file.set_permissions(std::fs::Permissions::from_mode(0o600))
+        .and_then(|_| file.set_len(0))
         .map_err(|_| "err.telemetry.export")?;
-    file.write_all(contents.as_bytes())
-        .and_then(|_| file.sync_all())
-        .map_err(|_| "err.telemetry.export".into())
+    let mut writer = std::io::BufWriter::new(&mut file);
+    write(&mut writer)?;
+    writer.flush().map_err(|_| "err.telemetry.export")?;
+    drop(writer);
+    file.sync_all().map_err(|_| "err.telemetry.export".into())
 }
 #[tauri::command(async)]
 pub fn telemetry_clear(state: State<AppState>) -> Result<()> {

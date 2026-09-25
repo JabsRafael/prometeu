@@ -45,7 +45,14 @@ fn commits_deduplicates_reopens_and_preserves_future_versions() {
     assert!(store.append(&conflict).is_err());
     drop(store);
     let store = Store::open(&path).unwrap();
-    assert_eq!(store.events(&Filter::default()).unwrap().len(), 1);
+    assert_eq!(
+        store
+            .page(&Filter::default(), None, Health::default())
+            .unwrap()
+            .events
+            .len(),
+        1
+    );
     store.db.pragma_update(None, "user_version", 99).unwrap();
     drop(store);
     assert!(Store::open(&path).is_err());
@@ -123,7 +130,7 @@ fn cohort_usage_overlap_and_incomplete_time_have_explicit_coverage() {
         2000,
         Fact::ExecutionStarted { execution_id: id() },
     );
-    let s = service.summary(&Filter::default()).unwrap();
+    let s = service.queries().summary(&Filter::default()).unwrap();
     assert_eq!((s.input_tokens, s.output_tokens), (Some(10000), Some(2000)));
     assert_eq!(
         (s.execution_sum_ms, s.active_agent_ms),
@@ -131,6 +138,7 @@ fn cohort_usage_overlap_and_incomplete_time_have_explicit_coverage() {
     );
     assert_eq!(s.incomplete_executions, 1);
     let s = service
+        .queries()
         .summary(&Filter {
             from: Some(1000),
             to: Some(6000),
@@ -140,6 +148,7 @@ fn cohort_usage_overlap_and_incomplete_time_have_explicit_coverage() {
     assert_eq!(s.input_tokens, Some(10000));
     assert_eq!(s.active_agent_ms, Some(5000));
     let s = service
+        .queries()
         .summary(&Filter {
             from: Some(6000),
             to: Some(11000),
@@ -168,7 +177,7 @@ fn capture_keeps_requests_in_turn_and_children_outlive_completion_without_conten
         &mut service,
         &json!({"type":"turn.completed","outcome":"ok"}),
     );
-    let s = service.summary(&Filter::default()).unwrap();
+    let s = service.queries().summary(&Filter::default()).unwrap();
     assert_eq!(s.turns, 1);
     assert_eq!(s.completed_turns, 1);
     assert_eq!(s.incomplete_executions, 1);
@@ -179,12 +188,13 @@ fn capture_keeps_requests_in_turn_and_children_outlive_completion_without_conten
     );
     assert_eq!(
         service
+            .queries()
             .summary(&Filter::default())
             .unwrap()
             .incomplete_executions,
         0
     );
-    let export = service.export(&Filter::default()).unwrap();
+    let export = service.queries().export(&Filter::default()).unwrap();
     for secret in ["PRIVATE", "secret-child", "secret-request"] {
         assert!(!export.contains(secret));
     }
@@ -205,13 +215,30 @@ fn erase_invalidates_late_callbacks_new_activity_starts_new_history() {
         &mut service,
         &json!({"type":"background.changed","tasks":[{"id":"late"}]}),
     );
-    assert_eq!(service.summary(&Filter::default()).unwrap().events, 0);
+    assert_eq!(
+        service
+            .queries()
+            .summary(&Filter::default())
+            .unwrap()
+            .events,
+        0
+    );
     capture.accepted(&mut service, scope, None);
-    assert_eq!(service.summary(&Filter::default()).unwrap().turns, 1);
+    assert_eq!(
+        service.queries().summary(&Filter::default()).unwrap().turns,
+        1
+    );
     service.clear().unwrap();
     drop(service);
-    let mut service = Service::new(dir.0.clone());
-    assert_eq!(service.summary(&Filter::default()).unwrap().events, 0);
+    let service = Service::new(dir.0.clone());
+    assert_eq!(
+        service
+            .queries()
+            .summary(&Filter::default())
+            .unwrap()
+            .events,
+        0
+    );
 }
 #[test]
 fn missing_store_does_not_fail_capture_and_health_survives_restart() {
@@ -222,6 +249,7 @@ fn missing_store_does_not_fail_capture_and_health_survives_restart() {
     service.capture(0, &event(&scope(), 1, Fact::ConversationCreated {}));
     assert!(
         service
+            .queries()
             .summary(&Filter::default())
             .unwrap()
             .health
@@ -261,6 +289,7 @@ fn late_pr_relations_deduplicate_workspaces_and_do_not_allocate_cost() {
     }
     for number in [1, 2] {
         let s = service
+            .queries()
             .summary(&Filter {
                 repository_id: Some(repo.clone()),
                 pull_request: Some(number),
@@ -321,7 +350,7 @@ fn overlapping_input_preserves_unknown_attribution_instead_of_charging_the_new_m
         &mut service,
         &json!({"type":"turn.completed","outcome":"ok"}),
     );
-    let summary = service.summary(&Filter::default()).unwrap();
+    let summary = service.queries().summary(&Filter::default()).unwrap();
     assert_eq!(summary.turns, 2);
     assert_eq!(summary.completed_turns, 0);
     assert!(summary.health.failures > 0);
@@ -375,13 +404,14 @@ fn request_cancellations_union_time_and_clock_jumps_are_not_measured_as_work() {
             elapsed_ms: 1000,
         },
     );
-    let summary = service.summary(&Filter::default()).unwrap();
+    let summary = service.queries().summary(&Filter::default()).unwrap();
     assert_eq!(summary.responded_waits, 1);
     assert_eq!(summary.cancelled_waits, 1);
     assert_eq!(summary.human_wait_ms, Some(10000));
     assert_eq!(summary.clock_anomalies, 1);
     assert_eq!(summary.active_agent_ms, None);
     let boundary = service
+        .queries()
         .summary(&Filter {
             from: Some(11000),
             to: Some(15000),
@@ -417,7 +447,11 @@ fn latest_snapshot_and_final_measurement_never_add_together_and_clear_removes_pa
     append(store, &scope, 2, Fact::UsageObserved { measurement: m(3) });
     append(store, &scope, 3, Fact::UsageObserved { measurement: m(4) });
     assert_eq!(
-        service.summary(&Filter::default()).unwrap().input_tokens,
+        service
+            .queries()
+            .summary(&Filter::default())
+            .unwrap()
+            .input_tokens,
         Some(4)
     );
     append(
@@ -432,12 +466,17 @@ fn latest_snapshot_and_final_measurement_never_add_together_and_clear_removes_pa
         },
     );
     assert_eq!(
-        service.summary(&Filter::default()).unwrap().input_tokens,
+        service
+            .queries()
+            .summary(&Filter::default())
+            .unwrap()
+            .input_tokens,
         Some(5)
     );
-    let before = service.page(&Filter::default(), None).unwrap();
+    let before = service.queries().page(&Filter::default(), None).unwrap();
     let needle = before.events[0].id.clone();
     let next = service
+        .queries()
         .page(
             &Filter::default(),
             Some(query::Cursor {
@@ -454,6 +493,7 @@ fn latest_snapshot_and_final_measurement_never_add_together_and_clear_removes_pa
     let event = event(&scope, 10, Fact::ConversationCreated {});
     service.capture(0, &event);
     assert!(service
+        .queries()
         .page(&Filter::default(), None)
         .unwrap()
         .events
@@ -469,7 +509,12 @@ fn export_is_private_without_changing_the_destination_directory() {
     let path = dir.0.join("history.jsonl");
     std::fs::write(&path, "old").unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
-    write_export(&path, "{\"exportVersion\":1}\n").unwrap();
+    write_export(&path, |writer| {
+        writer
+            .write_all(b"{\"exportVersion\":1}\n")
+            .map_err(|_| FAILURE.into())
+    })
+    .unwrap();
     assert_eq!(
         std::fs::metadata(&dir.0).unwrap().permissions().mode() & 0o777,
         0o755
@@ -482,7 +527,7 @@ fn export_is_private_without_changing_the_destination_directory() {
         std::fs::read_to_string(&path).unwrap(),
         "{\"exportVersion\":1}\n"
     );
-    assert!(write_export(&dir.0.join("telemetry.sqlite3"), "{}").is_err());
+    assert!(write_export(&dir.0.join("telemetry.sqlite3"), |_| Ok(())).is_err());
 }
 
 #[test]
@@ -498,7 +543,7 @@ fn failed_commit_reports_coverage_and_a_later_retry_still_commits_once() {
         .unwrap();
     let e = event(&scope(), 1, Fact::ConversationCreated {});
     service.capture(0, &e);
-    let s = service.summary(&Filter::default()).unwrap();
+    let s = service.queries().summary(&Filter::default()).unwrap();
     assert_eq!(s.events, 0);
     assert!(s.health.failures > 0);
     service
@@ -510,5 +555,268 @@ fn failed_commit_reports_coverage_and_a_later_retry_still_commits_once() {
         .unwrap();
     service.capture(0, &e);
     service.capture(0, &e);
-    assert_eq!(service.summary(&Filter::default()).unwrap().events, 1);
+    assert_eq!(
+        service
+            .queries()
+            .summary(&Filter::default())
+            .unwrap()
+            .events,
+        1
+    );
+}
+
+#[test]
+fn erased_run_cannot_complete_or_measure_a_new_overlapping_message() {
+    let dir = Temp::new();
+    let mut service = Service::new(dir.0.clone());
+    let mut capture = Capture::default();
+    let scope = scope();
+    capture.accepted(&mut service, scope.clone(), None);
+    service.clear().unwrap();
+    capture.accepted(&mut service, scope.clone(), None);
+    let measurement = Measurement {
+        complete: true,
+        usage: Usage {
+            input_tokens: Some(99),
+            output_tokens: Some(20),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    capture.observe(
+        &mut service,
+        &json!({"type":"telemetry.usage","measurement":measurement}),
+    );
+    capture.observe(
+        &mut service,
+        &json!({"type":"background.changed","tasks":[{"id":"old-child"}]}),
+    );
+    capture.observe(
+        &mut service,
+        &json!({"type":"turn.completed","outcome":"ok","telemetry":measurement}),
+    );
+    let summary = service.queries().summary(&Filter::default()).unwrap();
+    assert_eq!(summary.turns, 1);
+    assert_eq!(summary.completed_turns, 0);
+    assert_eq!(summary.input_tokens, None);
+    assert_eq!(summary.complete_executions, 0);
+    assert_eq!(summary.incomplete_executions, 0);
+    assert!(summary.health.failures > 0);
+    capture.accepted(&mut service, scope, None);
+    capture.observe(
+        &mut service,
+        &json!({"type":"background.changed","tasks":[{"id":"old-child"}]}),
+    );
+    capture.observe(
+        &mut service,
+        &json!({"type":"turn.completed","outcome":"ok"}),
+    );
+    let summary = service.queries().summary(&Filter::default()).unwrap();
+    assert_eq!(summary.turns, 2);
+    assert_eq!(summary.completed_turns, 1);
+    assert_eq!(summary.incomplete_executions, 0);
+}
+
+#[test]
+fn export_rejects_symlink_without_touching_target_or_permissions() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let dir = Temp::new();
+    std::fs::create_dir(&dir.0).unwrap();
+    let target = dir.0.join("private.txt");
+    let destination = dir.0.join("selected.jsonl");
+    std::fs::write(&target, "Keep this content").unwrap();
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o640)).unwrap();
+    symlink(&target, &destination).unwrap();
+    assert!(write_export(&destination, |_| panic!("symlink must not be opened")).is_err());
+    assert_eq!(
+        std::fs::read_to_string(&target).unwrap(),
+        "Keep this content"
+    );
+    assert_eq!(
+        std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+        0o640
+    );
+    std::fs::remove_file(&target).unwrap();
+    assert!(write_export(&destination, |_| Ok(())).is_err());
+    assert!(!target.exists());
+}
+
+#[test]
+fn snapshot_queries_allow_commits_and_erasure_truncates_wal_after_readers_finish() {
+    let dir = Temp::new();
+    let mut service = Service::new(dir.0.clone());
+    let first = event(&scope(), 1, Fact::ConversationCreated {});
+    service.capture(0, &first);
+    let shared = Mutex::new(service);
+    let queries = lock(&shared).queries();
+    queries
+        .read(|store| {
+            assert_eq!(
+                store.summary(&Filter::default(), Health::default())?.events,
+                1
+            );
+            let mut writer = shared
+                .try_lock()
+                .expect("query must not hold the capture mutex");
+            writer.capture(0, &event(&scope(), 2, Fact::ConversationCreated {}));
+            assert_eq!(
+                writer.health.failures, 0,
+                "reader must not block the SQLite commit"
+            );
+            assert!(
+                writer.readers.try_write().is_err(),
+                "erasure must wait for this snapshot"
+            );
+            assert_eq!(
+                store.summary(&Filter::default(), Health::default())?.events,
+                1
+            );
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(
+        lock(&shared)
+            .queries()
+            .summary(&Filter::default())
+            .unwrap()
+            .events,
+        2
+    );
+    lock(&shared).clear().unwrap();
+    for name in [
+        "telemetry.sqlite3",
+        "telemetry.sqlite3-wal",
+        "telemetry.sqlite3-shm",
+    ] {
+        let bytes = std::fs::read(dir.0.join(name)).unwrap_or_default();
+        assert!(!String::from_utf8_lossy(&bytes).contains(&first.id));
+        if name.ends_with("-wal") {
+            assert!(bytes.is_empty());
+        }
+    }
+}
+
+#[test]
+fn workspace_choices_include_other_histories_while_summary_stays_filtered() {
+    let dir = Temp::new();
+    let mut service = Service::new(dir.0.clone());
+    let first = scope();
+    let second = scope();
+    service.capture(0, &event(&first, 1, Fact::ConversationCreated {}));
+    service.capture(0, &event(&second, 2, Fact::ConversationCreated {}));
+    let summary = service
+        .queries()
+        .summary(&Filter {
+            workspace_id: first.workspace_id.clone(),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(summary.events, 1);
+    assert!(summary
+        .workspace_ids
+        .contains(first.workspace_id.as_ref().unwrap()));
+    assert!(summary
+        .workspace_ids
+        .contains(second.workspace_id.as_ref().unwrap()));
+}
+
+#[test]
+fn streamed_export_uses_one_snapshot_while_new_capture_commits() {
+    struct Writer<'a> {
+        service: &'a Mutex<Service>,
+        captured: bool,
+        lines: usize,
+    }
+    impl std::io::Write for Writer<'_> {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if !self.captured {
+                let mut service = self
+                    .service
+                    .try_lock()
+                    .expect("export must release capture mutex");
+                service.capture(0, &event(&scope(), 999, Fact::ConversationCreated {}));
+                assert_eq!(service.health.failures, 0);
+                self.captured = true;
+            }
+            self.lines += bytes.iter().filter(|&&b| b == b'\n').count();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let dir = Temp::new();
+    let mut service = Service::new(dir.0.clone());
+    let scope = scope();
+    for at in 0..600 {
+        service.capture(0, &event(&scope, at, Fact::ConversationCreated {}));
+    }
+    let shared = Mutex::new(service);
+    let queries = lock(&shared).queries();
+    queries
+        .read(|store| {
+            let summary = store.summary(&Filter::default(), Health::default())?;
+            assert_eq!(summary.events, 600);
+            let mut writer = Writer {
+                service: &shared,
+                captured: false,
+                lines: 0,
+            };
+            store.export(&Filter::default(), &summary, &mut writer)?;
+            assert_eq!(
+                writer.lines, 601,
+                "metadata plus the original snapshot, without late capture"
+            );
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(
+        lock(&shared)
+            .queries()
+            .summary(&Filter::default())
+            .unwrap()
+            .events,
+        601
+    );
+    let destination = dir.0.join("export.jsonl");
+    queries.export_to(&Filter::default(), &destination).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(destination)
+            .unwrap()
+            .lines()
+            .count(),
+        602
+    );
+}
+
+#[test]
+fn existing_delete_journal_database_reopens_in_wal_without_losing_events() {
+    let dir = Temp::new();
+    let path = dir.0.join("telemetry.sqlite3");
+    let mut store = Store::open(&path).unwrap();
+    let original = event(&scope(), 1, Fact::ConversationCreated {});
+    store.append(&original).unwrap();
+    store
+        .db
+        .execute_batch(
+            "DROP INDEX events_execution; DROP INDEX events_request; PRAGMA journal_mode=DELETE;",
+        )
+        .unwrap();
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    assert_eq!(
+        store
+            .db
+            .pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))
+            .unwrap(),
+        "wal"
+    );
+    assert_eq!(
+        store
+            .page(&Filter::default(), None, Health::default())
+            .unwrap()
+            .events[0]
+            .id,
+        original.id
+    );
 }

@@ -28,10 +28,10 @@ organization analytics, transcript backfill and a full Insights page are absent.
 ## Storage, identities and compatibility
 
 `<root>/telemetry.sqlite3` honors release/debug roots and `PROMETEU_ROOT`.
-The directory is private (0700); the database is 0600. Bundled SQLite uses DELETE
+The directory is private (0700); the database is 0600. Bundled SQLite uses WAL
 journaling, FULL synchronous commits, secure deletion and a 250 ms busy timeout.
-Journal files inherit the database's permissions. Each event uses a short
-transaction; a successful append means commit completed. No in-memory batch
+WAL and shared-memory files inherit the database's permissions. Each event uses
+a short transaction; a successful append means commit completed. No in-memory batch
 queue claims durability. `PRAGMA user_version` is the database migration version;
 event `schemaVersion` is independent. The first version is 1 for both. Unknown
 future database versions are preserved and reported unavailable.
@@ -56,13 +56,17 @@ workspace/repository/PR relation do not create another association.
 | `provider` | `claude`, `codex`, `antigravity`, or null |
 | `payload` | Event-specific typed JSON, never arbitrary native properties |
 
-Time, workspace/time and turn indexes support lookups. Event pages use indexed
-SQL and bounded keyset pagination. Summaries currently aggregate the selected
-workspace history in memory to join starts, late completions and associations.
-Export also materializes that selection. This is a deliberate first-version
-ceiling; materialized projections or streaming export become appropriate when
-measured history size makes these operations slow. Queries and capture serialize
-on the concrete service mutex, so large summaries can delay capture.
+Time, workspace/time, turn and execution/request indexes support lookups. Existing
+version-1 databases acquire the additional indexes and switch to WAL without
+rewriting events. Event pages use bounded keyset pagination. Queries open a
+separate read-only connection and transaction after releasing the capture mutex;
+WAL snapshots allow live commits during summaries and exports. SQL pairs turns
+with their final or latest partial measurements and pairs observed intervals;
+Rust consumes ordered rows without retaining event history or interval arrays.
+Exports stream JSONL from the same snapshot used for their summary. SQLite uses
+a bounded page cache and file-backed temporary sorting; workspace choices are
+the only history-sized collection returned by the summary. Query duration and
+WAL disk growth can still scale with history while a reader remains active.
 
 Some existing project IDs are paths. `Board.telemetry_ids`, a default-empty map,
 assigns UUID aliases to projects, repository clones and repository/branch pairs.
@@ -198,7 +202,8 @@ Typed IPC and the browser mock expose:
 - `telemetry_events({ filter, cursor? })`: at most 500 events, nullable next cursor
   and health. Cursor is `(occurredAt, sequence)`.
 - `telemetry_export({ filter, path })`: writes a private `.jsonl` file selected by
-  the native save dialog. It never changes parent-directory permissions.
+  the native save dialog. The open rejects symlinks atomically with `O_NOFOLLOW`
+  and rejects non-regular files before truncation; it never changes parent permissions.
 - `telemetry_clear()`: deletes **all** local telemetry, irrespective of UI filters.
 
 Filter fields are optional `from`, `to`, `workspaceId`, or a paired
@@ -213,7 +218,10 @@ Summary fields distinguish null from measured zero, complete from partial token
 coverage, starts from completions, received from cancelled waits and clock
 anomalies. Settings resolves current workspace names from the board, with a
 localized fallback for missing entries. It offers period/workspace filters,
-refresh, export and confirmed deletion without a large dashboard.
+refresh, export and confirmed deletion without a large dashboard. `workspaceIds`
+contains every retained workspace matching the PR relation, independent of the
+period and workspace selection. Refresh reloads names and options while keeping
+the selected workspace, including a fallback when it has disappeared.
 
 ## Privacy, retention and deletion
 
@@ -236,13 +244,18 @@ settings and exports expose incomplete history without event toasts or modals.
 An unavailable store stays unavailable until app restart. If all persistence
 fails, health can only survive in memory; no alternative event log is written.
 
-Clear serializes with capture, advances the capture generation, securely deletes
-rows, vacuums retained pages and removes capture-health history. Old generation
+Clear waits for active snapshot readers/exports, serializes with capture,
+advances the capture generation, securely deletes rows, vacuums retained pages,
+truncates the WAL and removes capture-health history. A successful clear cannot
+leave an older snapshot still exporting erased history. Old generation
 callbacks cannot restore events; known old child/request identities remain only
 as in-memory suppression markers. Journey/preparation/PR-discovery operations
 also carry their originating generation. New accepted activity can start fresh
-history; replay never backfills it. If erasure fails, report failure rather than
-claim success. Board state and transcripts stay intact. Exported files and system
+history; replay never backfills it. If a message arrives before an erased main
+run ends, its start remains incomplete and old usage/terminal observations are
+discarded until that run ends; no erased execution end is republished.
+If erasure fails, report failure rather than claim success. Board state and
+transcripts stay intact. Exported files and system
 backups are outside this boundary; no forensic media erasure is promised.
 
 ## Verification
@@ -250,14 +263,18 @@ backups are outside this boundary; no forensic media erasure is promised.
 - `src-tauri/src/telemetry/tests.rs`: commit/reopen, deduplication/conflicts,
   future-version preservation, token cohorts, overlap/clipping, unknown durations,
   waits/cancellation, clock anomalies, content exclusion, PR relations, partial
-  snapshots, private permissions, deletion generations/pages and capture failures.
+  snapshots, private permissions, symlink rejection, deletion generations/pages,
+  post-clear late terminals, concurrent snapshot reads/commits, streaming export,
+  WAL erasure, existing-database compatibility and capture failures.
 - `claude.rs::telemetry_main_usage_deduplicates_steps_and_excludes_restored_cost`
   and `codex.rs::telemetry_uses_thread_deltas_not_context_and_invalidates_resets`:
   provider normalization, deduplication and reset/resume boundaries.
 - Existing `chat.rs` command/publication, failed-send, request-response and
   background settlement tests; existing board and transcript compatibility tests.
 - `src/telemetry.test.ts`: local calendar bounds, mock start-cohort filtering,
-  paging/export and persistent deletion. `src-tauri/tests/mock.rs` checks IPC parity.
+  paging/export and persistent deletion. `src/telemetry-settings.test.ts` checks
+  refreshed workspace choices and preserved selection. `src-tauri/tests/mock.rs`
+  checks IPC parity.
 
 Follow the [E2E scope policy](../operations/development.md#e2e-scope): aggregation
 and persistence are checked below the browser; settings reuses already-tested

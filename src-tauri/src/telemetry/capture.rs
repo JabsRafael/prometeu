@@ -181,6 +181,8 @@ pub struct Capture {
     selected: Option<String>,
     turn: Option<String>,
     main: Option<Span>,
+    /// New input cannot claim the terminal of a run that survived history deletion.
+    erased_main: bool,
     children: HashMap<String, Span>,
     requests: HashMap<String, Span>,
     retired_children: HashSet<String>,
@@ -193,12 +195,13 @@ impl Capture {
     }
     pub fn accepted(&mut self, service: &mut Service, scope: Scope, selected: Option<String>) {
         if self.generation != service.generation {
+            self.erased_main |= self.main.take().is_some();
             self.retired_children.extend(self.children.keys().cloned());
             self.children.clear();
             self.retired_requests.extend(self.requests.keys().cloned());
             self.requests.clear();
         }
-        let overlapping = self.generation == service.generation && self.main.is_some();
+        let overlapping = self.main.is_some() || self.erased_main;
         self.generation = service.generation;
         self.selected = selected;
         let mut scope = scope;
@@ -264,7 +267,11 @@ impl Capture {
         }
     }
     pub fn observe(&mut self, service: &mut Service, frame: &Value) {
-        if self.generation != service.generation {
+        if self.generation != service.generation || self.erased_main {
+            if frame["type"] == "turn.completed" {
+                self.main = None;
+                self.erased_main = false;
+            }
             // Remember only native identities in memory so an old task snapshot cannot resurrect
             // erased executions after the next accepted message.
             if frame["type"] == "background.changed" {

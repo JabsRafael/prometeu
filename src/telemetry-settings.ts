@@ -28,8 +28,15 @@ export function telemetryRows(): HTMLElement[] {
   const refresh = async () => {
     const mine = ++revision;
     try {
-      const result = await invoke("telemetry_summary", { filter: filter() });
+      const [result, board] = await Promise.all([
+        invoke("telemetry_summary", { filter: filter() }),
+        invoke("load_board"),
+      ]);
       if (mine !== revision) return;
+      names = new Map(board.workspaces.map(w => [board.telemetry_ids?.[`workspace:${w.id}`] ?? w.id, w.title]));
+      const selected = workspace.value;
+      const ids = new Set([...result.workspaceIds, ...(selected ? [selected] : [])]);
+      workspace.setOptions([["", t("telemetry.all")], ...[...ids].map(id => [id, names.get(id) ?? t("telemetry.missingWorkspace", { id: id.slice(0, 8) })] as [string, string])], selected);
       summary.replaceChildren();
       if (result.health.unavailable) { status.textContent = t("err.telemetry.storage"); return; }
       const show = (key: Key, value: string | number | null) => summary.append(h("dt", "", t(key)), h("dd", "", value === null ? t("telemetry.unknown") : String(value)));
@@ -44,7 +51,6 @@ export function telemetryRows(): HTMLElement[] {
       show("telemetry.wait", result.humanWaitMs === null ? null : Math.round(result.humanWaitMs / 1000));
       show("telemetry.clock", result.clockAnomalies);
       status.textContent = t(result.health.unavailable ? "err.telemetry.storage" : result.health.failures ? "telemetry.incompleteHistory" : "telemetry.local");
-      if (!workspace.value) workspace.setOptions([["", t("telemetry.all")], ...result.workspaceIds.map(id => [id, names.get(id) ?? t("telemetry.missingWorkspace", { id: id.slice(0, 8) })] as [string, string])]);
     } catch (error) { if (mine === revision) { summary.replaceChildren(); failure(error); } }
   };
   const update = button(t("telemetry.refresh"), () => void refresh(), "ghost");
@@ -70,8 +76,6 @@ export function telemetryRows(): HTMLElement[] {
   controls.append(field(t("telemetry.from"), from), field(t("telemetry.through"), through), field(t("telemetry.workspace"), workspace.control));
   const actions = h("div", "telemetry-controls"); actions.append(update, exportButton, erase);
   root.append(h("p", "ui-hint", t("telemetry.description")), controls, summary, status, actions);
-  void invoke("load_board").then(board => {
-    names = new Map(board.workspaces.map(w => [board.telemetry_ids?.[`workspace:${w.id}`] ?? w.id, w.title]));
-  }).catch(() => {}).finally(() => void refresh());
+  void refresh();
   return [root];
 }
