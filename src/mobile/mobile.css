@@ -1,4 +1,5 @@
 @import "../browser-context.css";
+@import "../attachment-tag.css";
 
 /* Phone layout over the design-system tokens the Cloud already serves. */
 *, *::before, *::after { box-sizing: border-box; }

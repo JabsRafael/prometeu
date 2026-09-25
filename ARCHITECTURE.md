@@ -139,6 +139,21 @@ resumes the session when there is news. See the
 Formats and compatibility are in
 [`docs/contracts/persistence.md`](docs/contracts/persistence.md).
 
+## Local telemetry
+
+`telemetry.rs` owns the private local SQLite event store. Provider adapters
+normalize usage; accepted conversation input, live output, workspace use cases
+and PR discovery capture typed content-free facts. The store persists independent
+of transcript or board retention. Concrete queries reach the settings summary
+through typed IPC, with JSONL export and complete history deletion.
+
+A per-process capture gate preserves input/output order while commits run outside
+board, transcript and chat locks. Missing ends and ambiguous streaming-input
+attribution remain incomplete; telemetry failure never rejects agent commands.
+The first version has no Cloud synchronization or analytics upload. See the
+[contract](docs/contracts/telemetry.md) and
+[ADR 0059](docs/decisions/0059-local-telemetry-foundation.md).
+
 ## Internal public boundaries
 
 Three contracts require explicit compatibility:

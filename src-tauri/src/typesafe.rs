@@ -6,9 +6,7 @@
 //! endpoint, request/response wire shape, status codes and retries — stays in this file; callers
 //! see only `evaluation::EvaluationError` codes.
 //!
-//! The wire shape below is an assumption: the public documentation was not reachable when this
-//! adapter was written. It is isolated in `wire` with synthetic fixtures so a correction changes
-//! only this module.
+//! The vendor wire shape stays isolated in `wire` and follows the public System One API.
 
 use crate::evaluation::{self, Answer, EvaluationError, EvaluationRequest, Evaluator, Generation};
 use crate::{i18n, paths};
@@ -19,7 +17,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 const DEFAULT_ORIGIN: &str = "https://api.typesafe.ai";
-const ENDPOINT: &str = "/v1/evaluate";
+const ENDPOINT: &str = "/v1/systemone";
+const MODEL: &str = "jev-latest";
 const TIMEOUT: Duration = Duration::from_secs(15);
 const CONNECT: Duration = Duration::from_secs(5);
 const ATTEMPTS: usize = 3;
@@ -219,62 +218,72 @@ pub async fn context_evaluate(
 
 /* HTTP adapter */
 
-/// Assumed vendor wire shape; see the module note and the evaluation contract.
+/// TypeSafe System One wire shape; see the evaluation contract.
 mod wire {
     use crate::evaluation::{Answer, EvaluationRequest};
     use serde::Serialize;
     use serde_json::Value;
+    use std::collections::BTreeMap;
 
     #[derive(Serialize)]
     struct Question<'a> {
-        id: &'a str,
-        question: &'a str,
         #[serde(rename = "type")]
         kind: &'static str,
-        options: &'a [String],
+        instructions: &'a str,
+        criteria: BTreeMap<&'a str, Option<&'static str>>,
     }
 
     #[derive(Serialize)]
     struct Body<'a> {
         state: &'a str,
-        questions: Vec<Question<'a>>,
+        model: &'static str,
+        questions: BTreeMap<&'a str, Question<'a>>,
     }
 
     pub fn body(request: &EvaluationRequest) -> Value {
         serde_json::to_value(Body {
             state: &request.context,
+            model: super::MODEL,
             questions: request
                 .questions
                 .iter()
-                .map(|q| Question {
-                    id: &q.id,
-                    question: &q.prompt,
-                    kind: "enum",
-                    options: &q.outcomes,
+                .map(|q| {
+                    (
+                        q.id.as_str(),
+                        Question {
+                            kind: "choice",
+                            instructions: &q.prompt,
+                            criteria: q
+                                .outcomes
+                                .iter()
+                                .map(|outcome| (outcome.as_str(), None))
+                                .collect(),
+                        },
+                    )
                 })
                 .collect(),
         })
         .unwrap_or(Value::Null)
     }
 
-    /// `{ "answers": [{ "id", "value", "confidence" }] }`. A null value is an abstention; any other
-    /// shape is malformed. Closed-set validation happens in `evaluation::accept`.
+    /// Choice answers are keyed by question id. Closed-set validation happens in
+    /// `evaluation::accept`; omitted answers mean abstention at the application port.
     pub fn answers(value: &Value) -> Option<Vec<Answer>> {
-        let mut answers = Vec::new();
-        for item in value.get("answers")?.as_array()? {
-            let id = item.get("id")?.as_str()?;
-            let outcome = match item.get("value")? {
-                Value::Null => continue,
-                Value::String(outcome) => outcome,
-                _ => return None,
-            };
-            answers.push(Answer {
-                id: id.to_string(),
-                outcome: outcome.clone(),
-                confidence: item.get("confidence")?.as_f64()?,
-            });
-        }
-        Some(answers)
+        value
+            .get("answers")?
+            .as_object()?
+            .iter()
+            .map(|(id, item)| {
+                if item.get("type")?.as_str()? != "choice" {
+                    return None;
+                }
+                Some(Answer {
+                    id: id.clone(),
+                    outcome: item.get("choice")?.as_str()?.to_string(),
+                    confidence: item.get("confidence")?.as_f64()?,
+                })
+            })
+            .collect()
     }
 }
 
@@ -325,6 +334,7 @@ impl TypeSafe {
             200 => {}
             401 | 403 => return Attempt::Done(Err(EvaluationError::Auth)),
             429 => return Attempt::Retry(EvaluationError::RateLimited, wait),
+            529 => return Attempt::Retry(EvaluationError::Unavailable, wait),
             400 | 413 | 422 => return Attempt::Done(Err(EvaluationError::Invalid)),
             500 | 502 | 503 | 504 => return Attempt::Retry(EvaluationError::Unavailable, wait),
             _ => return Attempt::Done(Err(EvaluationError::Unavailable)),
@@ -569,24 +579,45 @@ mod tests {
 
     const RATE: &str =
         "HTTP/1.1 429 Too Many Requests\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}";
+    const OVERLOAD: &str =
+        "HTTP/1.1 529 Overloaded\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}";
     const DOWN: &str = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 18\r\nConnection: close\r\n\r\n{\"key\":\"ts_live\"}";
     const AUTH: &str = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 33\r\nConnection: close\r\n\r\n{\"error\":\"bad ts_live_secret_key\"}";
 
     #[test]
-    fn adapter_sends_the_assumed_shape_and_parses_answers() {
+    fn adapter_sends_system_one_shape_and_parses_choice_answers() {
         let (origin, seen) = server(vec![reply(
-            r#"{"answers":[{"id":"business_rule","value":"absent","confidence":0.91}]}"#,
+            r#"{"model":"jev-1.13.0","answers":{"business_rule":{"type":"choice","choice":"absent","confidence":0.91,"probabilities":{"present":0.09,"absent":0.91}}}}"#,
         )]);
         let answers = adapter(origin).evaluate(&request(), &|| false).unwrap();
-        assert_eq!(answers[0].outcome, "absent");
+        assert_eq!(
+            answers,
+            vec![Answer {
+                id: "business_rule".into(),
+                outcome: "absent".into(),
+                confidence: 0.91
+            }]
+        );
         let raw = seen.lock().unwrap()[0].clone();
-        assert!(raw.starts_with("POST /v1/evaluate "));
+        assert!(raw.starts_with("POST /v1/systemone "));
         assert!(raw.to_ascii_lowercase().contains(&format!(
             "authorization: bearer {}",
             KEY.to_ascii_lowercase()
         )));
-        assert!(raw.contains(r#""options":["present","absent"]"#));
-        assert!(raw.contains(r#""state":"Request: fix the CSV import""#));
+        let body: serde_json::Value =
+            serde_json::from_str(raw.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "state": "Request: fix the CSV import",
+                "model": "jev-latest",
+                "questions": {"business_rule": {
+                    "type": "choice",
+                    "instructions": "Is a business rule unresolved?",
+                    "criteria": {"present": null, "absent": null},
+                }},
+            })
+        );
     }
 
     #[test]
@@ -602,12 +633,25 @@ mod tests {
             Err(EvaluationError::RateLimited)
         );
         assert_eq!(seen.lock().unwrap().len(), ATTEMPTS, "retries are bounded");
+        let (origin, seen) = server(vec![OVERLOAD, OVERLOAD, OVERLOAD]);
+        assert_eq!(
+            adapter(origin).evaluate(&request(), &|| false),
+            Err(EvaluationError::Unavailable)
+        );
+        assert_eq!(seen.lock().unwrap().len(), ATTEMPTS);
         let (origin, _) = server(vec![DOWN, DOWN, DOWN]);
         assert_eq!(
             adapter(origin).evaluate(&request(), &|| false),
             Err(EvaluationError::Unavailable)
         );
         let (origin, _) = server(vec![reply(r#"{"result":"ok"}"#)]);
+        assert_eq!(
+            adapter(origin).evaluate(&request(), &|| false),
+            Err(EvaluationError::Malformed)
+        );
+        let (origin, _) = server(vec![reply(
+            r#"{"answers":{"business_rule":{"type":"noul","noul":0.9}}}"#,
+        )]);
         assert_eq!(
             adapter(origin).evaluate(&request(), &|| false),
             Err(EvaluationError::Malformed)
@@ -629,12 +673,12 @@ mod tests {
 
     #[test]
     fn adapter_recovers_after_a_transient_failure() {
-        let (origin, seen) = server(vec![
-            DOWN,
-            reply(r#"{"answers":[{"id":"business_rule","value":null,"confidence":0.2}]}"#),
-        ]);
+        let (origin, seen) = server(vec![DOWN, reply(r#"{"answers":{}}"#)]);
         let answers = adapter(origin).evaluate(&request(), &|| false).unwrap();
-        assert!(answers.is_empty(), "a null value abstains");
+        assert!(
+            answers.is_empty(),
+            "omitted answers abstain at the application port"
+        );
         assert_eq!(seen.lock().unwrap().len(), 2);
     }
 
@@ -698,7 +742,7 @@ mod tests {
             ("https://api.typesafe.ai/?key=x", None),
             ("https://api.typesafe.ai#frag", None),
             ("https://api.typesafe.ai/other", None),
-            ("https://evil.example/v1/evaluate?x=", None),
+            ("https://evil.example/v1/systemone?x=", None),
             ("file:///etc/passwd", None),
             ("not a url", None),
         ] {

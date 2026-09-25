@@ -2,6 +2,7 @@ import { grouped, kilo, sectionTotal, type Report } from "./context";
 import { splitBrowserContexts, type BrowserContext } from "./browser-context";
 import { type IconName } from "./icons";
 import { t } from "./i18n";
+import { isImage, leadingMentions } from "./mentions";
 import type { Block, ToolBlock } from "./timeline";
 import { button, disclosure, formDialog } from "./ui";
 import { h, template } from "./util";
@@ -52,9 +53,16 @@ export function browserContextChip(context: BrowserContext, remove?: () => void)
   return chip;
 }
 
-/** Preserve surrounding transcript text verbatim, including malformed or unsupported context blocks. */
-export function renderBrowserMessage(host: HTMLElement, text: string): void {
-  host.replaceChildren(...splitBrowserContexts(text).map(part =>
+/** Preserve surrounding transcript text verbatim, including malformed or unsupported context blocks. The agent still receives the attachment paths; only the bubble shows them as chips. */
+export function renderUserMessage(host: HTMLElement, text: string): void {
+  const attached = leadingMentions(text);
+  let image = 0;
+  const chips = (attached?.paths ?? []).map((path) => {
+    const chip = h("span", "attachment-tag", isImage(path) ? t("chat.attachment.image", { n: ++image }) : path.split("/").pop() || path);
+    chip.title = path;
+    return chip;
+  });
+  host.replaceChildren(...chips, ...splitBrowserContexts(attached ? attached.rest : text).map(part =>
     typeof part === "string" ? document.createTextNode(part) : browserContextChip(part)));
 }
 

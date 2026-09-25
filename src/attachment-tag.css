@@ -1,0 +1,2 @@
+/* Attachments sent with a message, shown on desktop and mobile: the path stays in the tooltip, and a long name is cut instead of widening the bubble. */
+.attachment-tag { display: inline-block; max-width: 100%; margin: 0 var(--space-2) 2px 0; padding: 0 var(--space-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; border: 1px solid var(--line-raised, var(--line)); border-radius: var(--r); background: var(--bg-raised, var(--bg)); color: var(--fg-2); font: var(--text-sm)/22px var(--mono); }

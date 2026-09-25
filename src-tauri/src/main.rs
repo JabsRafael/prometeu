@@ -41,6 +41,7 @@ mod session;
 mod skills;
 mod state;
 mod team;
+mod telemetry;
 mod transcript;
 mod typesafe;
 mod usage;
@@ -51,6 +52,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 pub struct AppState {
+    pub telemetry: Mutex<telemetry::Service>,
     pub board: Mutex<Board>,
     /// A single saver thread coalesces board writes; see state::spawn_saver.
     pub save: state::Saver,
@@ -123,6 +125,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(AppState {
+            telemetry: Mutex::new(telemetry::Service::new(paths::root())),
             board: Mutex::new(Board::load()),
             save: state::spawn_saver(),
             chats: Mutex::new(HashMap::new()),
@@ -150,6 +153,10 @@ fn main() {
             accounts::account_login,
             accounts::account_login_cancel,
             usage::usage,
+            telemetry::telemetry_summary,
+            telemetry::telemetry_events,
+            telemetry::telemetry_export,
+            telemetry::telemetry_clear,
             machine::machine,
             awake::set_awake,
             session::load_board,

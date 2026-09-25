@@ -51,6 +51,13 @@ the text. Image and file metadata are reserved for an implementation that
 transports attachments separately; bytes and local paths do not enter the shared
 transcript by inference.
 
+The mentions open the text as their own paragraph, separated from the rest by a
+blank line (`src/mentions.ts`). The presentation reads back only that opening
+paragraph, and only when it consists entirely of mentions: images become
+numbered tags (`Image #1`, `Image #2`) and other files show their name, with
+the path in the tooltip. The transcript and the provider keep the paths as
+they are; a mention typed inside the text stays text.
+
 Browser element contexts use an additive textual convention inside `text`,
 without a new event or command type. The presentation turns only valid blocks
 into tags; the reducer, the adapters and the transcript preserve the complete
@@ -243,3 +250,18 @@ is recorded in ADR 0004.
 - `codex.rs` tests: V1 commands, the JSON-RPC protocol and direct V1 output;
 - `chat.rs` tests: persistence, sequence and safe reconstruction of remote
   control.
+
+## Local telemetry observations
+
+Adapters can attach normalized `telemetry` measurements and nullable
+`providerDurationMs` to `turn.completed` before Pump capture. These internal fields
+follow the [telemetry contract](telemetry.md); Pump strips them before transcript
+persistence, live UI publication and sharing. Existing timeline parsers read the
+original completion fields. Claude's `costUsd` now reflects an attributable
+per-turn estimate, or null when only an unverified cumulative value exists.
+
+The internal `telemetry.usage` observation uses the same adapter envelope and
+Pump ordering gate, but never enters the conversation buffer, transport sequence,
+transcript or relay. It is consumed only by the owner's local event store.
+Quota `usage.updated` and context `context.updated` retain their existing meanings.
+Replay cannot capture new telemetry.

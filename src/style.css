@@ -1,5 +1,6 @@
 @import "./ui.css";
 @import "./browser-context.css";
+@import "./attachment-tag.css";
 
 /* Conductor measurements: main #141110; sidebar #1b1917; bars, composer, and modal #201e1c; selection #2b2826. Text: #eae8e6, #a4a09d, #756f6c; active underline #d8c2b3. Sidebar 256px, right panel 377px, header 38px + 1px border, tabs 39px + 1px border, rows 28px. */
 

@@ -10,7 +10,7 @@ let feedback = "";
 
 export function typesafeRows(say: (text: string, isError?: boolean) => void, redraw: () => void): HTMLElement[] {
   const status = typesafe.current();
-  const row = template("div", "setrow", `<span class="glyph">${icon("sparkles", 18)}</span><div class="txt"><b>TypeSafe</b><span></span></div>`);
+  const row = template("div", "setrow typesafe-heading", `<span class="glyph">${icon("sparkles", 18)}</span><div class="txt"><b>TypeSafe</b><span></span></div>`);
   row.querySelector(".txt span")!.textContent = t("typesafe.pitch");
 
   const key = password("", { show: t("typesafe.key.show"), hide: t("typesafe.key.hide") });
@@ -36,13 +36,12 @@ export function typesafeRows(say: (text: string, isError?: boolean) => void, red
   key.control.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); save.click(); } });
   const keyRow = h("div", "typesafe-key");
   keyRow.append(key.root, save, remove);
-  const keyField = field(t("typesafe.key"), keyRow, t(status.configured ? "typesafe.key.configured" : "typesafe.key.missing"));
+  const keyField = field(t("typesafe.key"), keyRow, t(status.configured ? "typesafe.key.configured" : "typesafe.enabled.needKey"));
 
   const enabled = toggle(t("typesafe.enabled"), status.enabled);
   enabled.control.dataset.focus = "typesafe-enabled";
-  enabled.label.classList.add("typesafe-enabled");
   enabled.control.disabled = !status.configured;
-  enabled.label.querySelector("span")!.append(h("small", "", t(status.configured ? "typesafe.enabled.hint" : "typesafe.enabled.needKey")));
+  enabled.control.title = t(status.configured ? "typesafe.enabled.hint" : "typesafe.enabled.needKey");
   enabled.control.onchange = () => {
     const on = enabled.control.checked;
     enabled.control.disabled = true;
@@ -53,7 +52,8 @@ export function typesafeRows(say: (text: string, isError?: boolean) => void, red
     });
   };
 
-  const rows: HTMLElement[] = [row, keyField, enabled.label, h("p", "ui-hint", t("typesafe.flow"))];
+  row.append(enabled.label);
+  const rows: HTMLElement[] = [row, keyField, h("p", "ui-hint typesafe-flow", t("typesafe.flow"))];
   if (status.problem) rows.push(notice(fromBack(status.problem), "warning"));
   if (feedback) {
     const saved = h("p", "ui-hint", feedback);

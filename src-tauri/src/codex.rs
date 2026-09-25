@@ -155,6 +155,27 @@ struct Open {
     text: String,
 }
 
+/// Thread totals include cache/reasoning subsets. A reset invalidates the entire turn delta.
+fn token_delta(
+    current: &crate::telemetry::Usage,
+    base: &crate::telemetry::Usage,
+) -> crate::telemetry::Usage {
+    let diff = |a: Option<u64>, b: Option<u64>| a.zip(b).and_then(|(a, b)| a.checked_sub(b));
+    let input = diff(current.input_tokens, base.input_tokens);
+    let output = diff(current.output_tokens, base.output_tokens);
+    if input.is_none() || output.is_none() {
+        return Default::default();
+    }
+    crate::telemetry::Usage {
+        input_tokens: input,
+        output_tokens: output,
+        cache_read_tokens: diff(current.cache_read_tokens, base.cache_read_tokens),
+        cache_write_tokens: diff(current.cache_write_tokens, base.cache_write_tokens),
+        reasoning_tokens: diff(current.reasoning_tokens, base.reasoning_tokens),
+        ..Default::default()
+    }
+}
+
 pub struct Link {
     out: Box<dyn Write + Send>,
     start: Start,
@@ -181,6 +202,10 @@ pub struct Link {
     open: Option<Open>,
     /// Conversation size when compaction started.
     compact_pre: Option<u64>,
+    telemetry_total: Option<crate::telemetry::Usage>,
+    telemetry_baseline: Option<crate::telemetry::Usage>,
+    telemetry_usage: crate::telemetry::Usage,
+    telemetry_terminals: std::collections::HashSet<String>,
 }
 
 impl Link {
@@ -204,6 +229,10 @@ impl Link {
             message_open: false,
             open: None,
             compact_pre: None,
+            telemetry_total: None,
+            telemetry_baseline: None,
+            telemetry_usage: Default::default(),
+            telemetry_terminals: Default::default(),
         };
         let _ = link.call(
             "initialize",
@@ -317,7 +346,10 @@ impl Link {
         if let Some(cmd) = text.strip_prefix('/') {
             let cmd = cmd.split_whitespace().next().unwrap_or("");
             if !cmd.contains('/') {
-                return self.slash(cmd);
+                let events = self.slash(cmd)?;
+                self.telemetry_baseline = self.telemetry_total.clone();
+                self.telemetry_usage = Default::default();
+                return Ok(events);
             }
         }
         let mut params = json!({
@@ -329,6 +361,8 @@ impl Link {
             params["effort"] = Value::String(self.start.effort.clone());
         }
         self.call("turn/start", params, Sent::Turn)?;
+        self.telemetry_baseline = self.telemetry_total.clone();
+        self.telemetry_usage = Default::default();
         Ok(vec![])
     }
 
@@ -583,6 +617,14 @@ impl Link {
                     .to_string();
                 self.model = msg["result"]["model"].as_str().unwrap_or("").to_string();
                 self.thread = Some(thread.clone());
+                self.telemetry_total = (!resumed).then(|| crate::telemetry::Usage {
+                    input_tokens: Some(0),
+                    output_tokens: Some(0),
+                    cache_read_tokens: Some(0),
+                    cache_write_tokens: Some(0),
+                    reasoning_tokens: Some(0),
+                    ..Default::default()
+                });
                 let mut out = vec![canonical(
                     "session.identity",
                     json!({ "providerSession": thread }),
@@ -751,6 +793,10 @@ impl Link {
         }
         match method {
             "turn/started" => {
+                if self.turn.as_deref() != p["turn"]["id"].as_str() {
+                    self.telemetry_baseline = self.telemetry_total.clone();
+                    self.telemetry_usage = Default::default();
+                }
                 self.turn = p["turn"]["id"].as_str().map(str::to_string);
                 self.block = 0;
                 self.message_open = false;
@@ -775,18 +821,45 @@ impl Link {
             "thread/tokenUsage/updated" => {
                 let usage = &p["tokenUsage"];
                 self.window = usage["modelContextWindow"].as_u64().or(self.window);
-                match usage["last"]["totalTokens"].as_u64() {
-                    Some(n) if n > 0 => {
-                        self.ctx = Some(n);
-                        vec![canonical(
-                            "context.updated",
-                            json!({ "used": n, "window": self.window }),
-                        )]
+                let total = &usage["total"];
+                let current = crate::telemetry::Usage {
+                    input_tokens: total["inputTokens"].as_u64(),
+                    output_tokens: total["outputTokens"].as_u64(),
+                    cache_read_tokens: total["cachedInputTokens"].as_u64(),
+                    cache_write_tokens: total["cacheWriteInputTokens"].as_u64(),
+                    reasoning_tokens: total["reasoningOutputTokens"].as_u64(),
+                    ..Default::default()
+                };
+                let mut out = vec![];
+                if current.input_tokens.is_some() && current.output_tokens.is_some() {
+                    if self.turn.is_some() {
+                        if let Some(base) = &self.telemetry_baseline {
+                            let delta = token_delta(&current, base);
+                            if delta.input_tokens.is_none() || delta.output_tokens.is_none() {
+                                self.telemetry_baseline = None;
+                            } else {
+                                self.telemetry_usage = delta;
+                            }
+                        }
+                        out.push(canonical("telemetry.usage",json!({"measurement":crate::telemetry::Measurement { usage:self.telemetry_usage.clone(), ..Default::default() }})));
                     }
-                    _ => vec![],
+                    self.telemetry_total = Some(current);
                 }
+                if let Some(n) = usage["last"]["totalTokens"].as_u64().filter(|n| *n > 0) {
+                    self.ctx = Some(n);
+                    out.push(canonical(
+                        "context.updated",
+                        json!({ "used": n, "window": self.window }),
+                    ));
+                }
+                out
             }
             "turn/completed" => {
+                if let Some(id) = p["turn"]["id"].as_str() {
+                    if !self.telemetry_terminals.insert(id.into()) {
+                        return vec![];
+                    }
+                }
                 let mut out = self.seal(None);
                 self.turn = None;
                 self.block = 0;
@@ -801,6 +874,15 @@ impl Link {
                     Some("interrupted") => turn_completed("interrupted", "", ms),
                     _ => turn_completed("ok", "", ms),
                 });
+                if let Some(completion) = out.last_mut() {
+                    completion["telemetry"] = json!(crate::telemetry::Measurement {
+                        complete: self.telemetry_baseline.is_some()
+                            && self.telemetry_usage.input_tokens.is_some()
+                            && self.telemetry_usage.output_tokens.is_some(),
+                        usage: self.telemetry_usage.clone(),
+                        ..Default::default()
+                    });
+                }
                 out
             }
             "error" => {
@@ -1179,6 +1261,7 @@ fn turn_completed(outcome: &str, message: &str, duration_ms: Option<u64>) -> Val
             "outcome": outcome,
             "message": message,
             "durationMs": duration_ms,
+            "providerDurationMs": duration_ms,
             "costUsd": Value::Null,
         }),
     )
@@ -1348,6 +1431,38 @@ mod tests {
             instructions: String::new(),
         };
         (Link::new(Box::new(out.clone()), start), out)
+    }
+
+    #[test]
+    fn telemetry_uses_thread_deltas_not_context_and_invalidates_resets() {
+        let (mut link, out) = link(None);
+        opened(&mut link, &out);
+        link.on_line(
+            r#"{"method":"turn/started","params":{"threadId":"t-1","turn":{"id":"one"}}}"#,
+        );
+        let update = r#"{"method":"thread/tokenUsage/updated","params":{"threadId":"t-1","turnId":"one","tokenUsage":{"total":{"inputTokens":100,"outputTokens":20,"cachedInputTokens":80,"reasoningOutputTokens":10},"last":{"totalTokens":999}}}}"#;
+        let observed = link.on_line(update);
+        assert_eq!(observed[0]["measurement"]["usage"]["inputTokens"], 100);
+        assert_eq!(observed[0]["measurement"]["usage"]["outputTokens"], 20);
+        assert_eq!(
+            link.on_line(update)[0]["measurement"]["usage"]["inputTokens"],
+            100
+        );
+        let end = link.on_line(r#"{"method":"turn/completed","params":{"threadId":"t-1","turn":{"id":"one","status":"completed"}}}"#);
+        assert_eq!(
+            end.last().unwrap()["telemetry"]["usage"]["cacheReadTokens"],
+            80
+        );
+        link.on_line(
+            r#"{"method":"turn/started","params":{"threadId":"t-1","turn":{"id":"two"}}}"#,
+        );
+        let reset = link.on_line(r#"{"method":"thread/tokenUsage/updated","params":{"threadId":"t-1","tokenUsage":{"total":{"inputTokens":1,"outputTokens":1}}}}"#);
+        assert!(reset[0]["measurement"]["usage"]["inputTokens"].is_null());
+        // A subsequent increase cannot repair a turn whose counter scope was lost.
+        assert!(link.on_line(update)[0]["measurement"]["usage"]["inputTokens"].is_null());
+        link.telemetry_total = None;
+        link.telemetry_baseline = None;
+        assert!(link.on_line(update)[0]["measurement"]["usage"]["inputTokens"].is_null());
     }
 
     #[test]

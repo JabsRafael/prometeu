@@ -427,3 +427,13 @@ ownership and workspace availability. The application-lifetime listener reloads
 the local board and rechecks the exact workspace/conversation before opening
 the existing preview. The browser mock can emit the same event for E2E tests.
 It contains no URL or arbitrary action and does not cross the relay.
+
+## Local telemetry
+
+`telemetry_summary`, `telemetry_events`, `telemetry_export` and `telemetry_clear`
+are local-only queries/export/erasure commands. Filters, cursor, coverage and
+return values are typed in `src/telemetry.ts`; Rust handlers and the browser mock
+share command names. No arbitrary SQL or native provider objects cross this
+boundary. The export destination comes from the native save dialog and is a
+`.jsonl` file. Erasure always clears the entire telemetry dataset. See the
+[telemetry contract](telemetry.md) for query cohorts and privacy guarantees.

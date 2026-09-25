@@ -99,7 +99,15 @@
   .settings .setwrap .setpage { width: 100%; height: auto; padding: 24px 18px 36px; }
 }
 
-/* Optional TypeSafe key: the field grows, actions keep their content width and wrap on narrow windows. */
+/* Keep the optional integration compact without changing shared controls. */
+.settings-panel > .typesafe-heading { flex-wrap: wrap; }
+.typesafe-heading > .ui-switch { margin-left: auto; }
+.settings-panel > .typesafe-heading + .ui-field { margin-top: 0; max-width: 600px; }
 .typesafe-key { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .typesafe-key > .ui-password { flex: 1 1 220px; min-width: 0; }
-.typesafe-enabled small { display: block; color: var(--fg-2); font-size: 11px; line-height: 1.5; }
+.settings-panel > .typesafe-flow { border-top: 1px solid var(--line); margin: 16px 0 0; padding: 12px 18px; font-size: 11px; }
+
+.telemetry-settings { padding: var(--space-4); }
+.telemetry-controls { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: end; }
+.telemetry-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2) var(--space-4); }
+.telemetry-summary dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }

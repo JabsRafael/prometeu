@@ -9,6 +9,31 @@ Chromium runs the retained scenarios; only cases explicitly tagged `@webkit`
 repeat in WebKit. References to both engines mean representative coverage, not
 every combination of providers, states, languages and screen sizes.
 
+## Local telemetry foundation
+
+[ADR 0059](../decisions/0059-local-telemetry-foundation.md) adds the same local
+capture/store/settings path for all providers. Main completion remains separate
+from the conversation settlement rule in ADR 0056.
+
+| Measurement | Claude | Codex | Antigravity |
+| --- | --- | --- | --- |
+| Main execution and accepted message turns | Captured | Captured | Captured |
+| Independent child execution and explicit human waits | When canonical signals expose them | When canonical signals expose them | Unavailable |
+| Main-agent input/output | Turn result; deduplicated message inputs provide partial coverage | Delta of verified thread totals; resume/reset without a baseline stays partial/unknown | Unknown |
+| Cache/reasoning | Cache read/write are input subsets; reasoning unknown | Cache is an input subset; reasoning is an output subset | Unknown |
+| Observed models/calls | Main assistant model IDs, partial per-model input, distinct message calls | Unknown without verified actual-model/call evidence | Unknown |
+| Per-turn cost | Same-session cumulative delta; restored/reset/overlapping-child spend excluded | Unknown | Unknown |
+
+`telemetry/tests.rs`, the adapters' `telemetry_*` tests and
+`src/telemetry.test.ts` cover normalization, incomplete coverage, local query and
+erasure behavior, including late pre-erasure terminals, concurrent WAL readers,
+streaming export and symlink rejection. `src/telemetry-settings.test.ts` covers
+workspace option refresh while a filter stays selected. Existing command/publication tests cover accepted/failed sends
+and response ordering. Streaming input without a correlatable native terminal
+retains unknown turn attribution; capture health exposes that limit. These are
+fixture-based guarantees, not live certification of every installed provider
+version. Full semantics are in the [contract](../contracts/telemetry.md).
+
 ## Legend
 
 - **Native:** the CLI already speaks the form consumed today.
@@ -72,7 +97,7 @@ every combination of providers, states, languages and screen sizes.
 | layered selection (global, project, workspace) per axis | resolved at spawn before the adapter | resolved at spawn before the adapter | Adapted; see verification boundary | `selection.rs` resolve tests, `session.rs::provenance_classifies_each_hub_item`, `session.rs::project_tools_require_approval_and_invalidate_it_when_hash_changes` and `session.rs::tool_axis_payload_is_validated_before_persistence`; the project `[tools]` layer is gated on trust-on-first-use of its hash, an undecided item stays `pending` and a rejected one stays `rejected` (both resolved yet not injected), and the setters refuse a malformed payload or an id on the wrong axis |
 | CLI-inherited MCP base (ADR 0046) | discovered from `~/.claude.json` and the working directory's `.mcp.json` plus its ancestors, nearest first; visible in the picker with the `cli` provenance and removable as a workspace delta; a declared axis materializes the whole effective set through the strict config | no discovered base; the CLI keeps loading its own configuration outside the picker | Unavailable | `selection.rs::cli_base_participates_in_the_chain`, `mcp.rs` inherited/universe tests and `mcp.rs::missing_selected_servers_prevent_materialization`, `session.rs::provenance_classifies_inherited_cli_configuration`, `src/mcp.test.ts`, mixed-provider picker and inheritance reset in `e2e/tools.spec.ts` |
 | hooks of a chosen plugin | active from `SessionStart` | `enabled = true` + trust limited to the `pluginId` and hash before the thread | Unavailable | `codex.rs` tests; a failure prevents the thread |
-| attachments in a message, capture thumbnails and pasting | adapted through a local path; promise and pasteboard materialized by macOS, pasted image by GTK on Linux | adapted through a local path; promise and pasteboard materialized by macOS, pasted image by GTK on Linux | Adapted; see verification boundary | `file_drop.rs`, `chat.ts`, `paste.ts`, `tree-menu.ts`, `changes-menu.ts` and the shared `file-menu.ts`; `e2e/file-drop.spec.ts`, dropped-file scenarios and the file tree menu in `e2e/critical-flows.spec.ts` cover the UI over the mock; `paste.test.ts` covers the paste detour, including the empty WebKitGTK clipboard; `tree-menu.test.ts` covers the menu an agent without attachments receives, `changes-menu.test.ts` the same groups on a changed file |
+| attachments in a message, capture thumbnails and pasting | adapted through a local path; promise and pasteboard materialized by macOS, pasted image by GTK on Linux | adapted through a local path; promise and pasteboard materialized by macOS, pasted image by GTK on Linux | Adapted; see verification boundary | `file_drop.rs`, `chat.ts`, `paste.ts`, `tree-menu.ts`, `changes-menu.ts` and the shared `file-menu.ts`; `e2e/file-drop.spec.ts`, dropped-file scenarios and the file tree menu in `e2e/critical-flows.spec.ts` cover the UI over the mock; `paste.test.ts` covers the paste detour, including the empty WebKitGTK clipboard; `paths.test.ts` covers reading sent attachments back as numbered image tags, shared by both agents; `tree-menu.test.ts` covers the menu an agent without attachments receives, `changes-menu.test.ts` the same groups on a changed file |
 | the browser's visual context | a tag in the draft and the history; complete HTML, CSS, URL and PNG mention on send | the same interface and textual contract | Adapted; see verification boundary | `browser-context.test.ts`, `e2e/browser-inspector.spec.ts`, `e2e/browser.spec.ts`, `browser.rs` tests; WKWebView capture and the AppKit gesture still require native verification |
 | unknown external event | ignored by the adapter | ignored by the adapter | Adapted; see verification boundary | `conversation.test.ts`, `claude.rs`/`codex.rs` tests |
 | the CLI's subagents | a sidechain off-screen; tasks in `background.changed` | `collabAgentToolCall.agentsStates`, `subAgentActivity` and known child events update the tasks; the children's content stays isolated | no child session signal; the turn settles on its terminal | `claude.rs`; isolation, spawn, activity and partial-state tests in `codex.rs` |
@@ -81,7 +106,7 @@ every combination of providers, states, languages and screen sizes.
 | live sharing | V1 after normalization | V1 after normalization | shared application behavior | `team*.test.ts`, E2E over the mock |
 | remote control from the owner's devices | the same relay v4; execution stays local | the same relay v4; execution stays local | shared application behavior | `team-channel.test.ts`, `team-organizations.test.ts`, `e2e/organizations.spec.ts` |
 | comments in a shared session | adapted after V1 | adapted after V1 | shared application behavior | `notes.test.ts`, `team.test.ts`, `relay/src/logic.test.ts`, E2E over the mock |
-| optional missing-context review before creating a workspace (bring-your-own TypeSafe key) | independent of the CLI; no protocol change | independent of the CLI; no protocol change | shared application behavior | `src/context-review.test.ts` (rules, EN/PT examples, stale results), `evaluation.rs` and `typesafe.rs` tests (port, credential lifecycle, adapter failures with synthetic responses); the live TypeSafe wire shape is unverified, see [context evaluation](../contracts/context-evaluation.md) |
+| optional missing-context review before creating a workspace (bring-your-own TypeSafe key) | independent of the CLI; no protocol change | independent of the CLI; no protocol change | shared application behavior | `src/context-review.test.ts` (rules, EN/PT examples, stale results), `evaluation.rs` and `typesafe.rs` tests (port, credential lifecycle, adapter failures with synthetic responses); System One wire checked against live API, see [context evaluation](../contracts/context-evaluation.md) |
 | desk with several conversations at once | adapted (the same conversation screen) | adapted (the same conversation screen) | shared application behavior | `desk.test.ts`, E2E over the mock |
 | Git: unified/side-by-side review, stage, discard, commit, remotes, branches, conflicts and the changed-file menu | adapted by the app; independent of the CLI | adapted by the app; independent of the CLI | shared application behavior | `session/git_tests.rs`, `diff.test.ts`, `changes-menu.test.ts`, `e2e/git.spec.ts` in Chromium/WebKit and a large review in `e2e/critical-flows.spec.ts`; the `git.md` contract |
 | Markdown file reader and source editor | shared file viewer; independent of the CLI | shared file viewer; independent of the CLI | shared application behavior | `e2e/critical-flows.spec.ts`; source edits and drafts retain existing save behavior |

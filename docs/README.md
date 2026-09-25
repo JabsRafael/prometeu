@@ -105,6 +105,13 @@ compatibility still in use stays documented in the current contracts.
 - [ADR 0057](decisions/0057-skill-kickoff-and-artifact-path.md): start a conversation from a skill, with a project-declared artifact path.
 - [ADR 0058](decisions/0058-optional-context-evaluation.md): optional context evaluation behind an application-owned port.
 
+## Local telemetry
+
+- [Local telemetry contract](contracts/telemetry.md): canonical content-free
+  events, usage semantics, SQLite persistence, coverage, queries and verification.
+- [ADR 0059](decisions/0059-local-telemetry-foundation.md): local telemetry with
+  common columns and typed JSON payloads in SQLite.
+
 ## Quality and operations
 
 - [`quality/provider-matrix.md`](quality/provider-matrix.md): support per agent

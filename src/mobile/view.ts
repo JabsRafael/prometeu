@@ -5,7 +5,7 @@ import { md } from "../markdown";
 import * as comments from "../team-comments";
 import * as member from "../team-member";
 import * as viewer from "../team-viewer";
-import { renderBrowserMessage, toolLabel } from "../chat-presentation";
+import { renderUserMessage, toolLabel } from "../chat-presentation";
 import { Timeline, summary, type Block, type Item } from "../timeline";
 import { h, template } from "../util";
 import { button as uiButton, input as uiInput } from "../ui";
@@ -331,7 +331,7 @@ function itemNode(item: Item): HTMLElement {
   switch (item.kind) {
     case "user": {
       const node = h("div", "m-item m-user");
-      renderBrowserMessage(node, item.text);
+      renderUserMessage(node, item.text);
       return node;
     }
     case "assistant": {
