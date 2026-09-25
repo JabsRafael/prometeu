@@ -94,7 +94,7 @@ pub fn set_stage(app: AppHandle, state: State<AppState>, id: String, stage: Stri
 /// Archiving preserves the transcript and initially keeps the worktree and branch. The interface
 /// offers their explicit cleanup after this command succeeds. Stop hidden processes so their
 /// requests do not wait for an absent reader.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn archive_workspace(app: AppHandle, state: State<AppState>, id: String, archived: bool) {
     archive(&app, &state, &id, archived);
 }
@@ -102,7 +102,7 @@ pub fn archive_workspace(app: AppHandle, state: State<AppState>, id: String, arc
 /// Finishing moves the workspace to the final stage and archives it. Archiving stops agents, docks,
 /// and resources handled by the archive script. The interface then offers worktree cleanup as a
 /// separate, confirmed decision.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn finish_workspace(app: AppHandle, state: State<AppState>, id: String) {
     {
         let mut board = lock(&state.board);
