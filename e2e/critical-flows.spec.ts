@@ -824,7 +824,8 @@ test("the file tree marks the viewer's file and hands a file to the conversation
   await composer.press("Enter");
   const bubble = page.locator("#chatwrap .turn.user .bubble").last();
   await expect(bubble).toContainText("Review this");
-  expect(await bubble.textContent()).toBe("@CLAUDE.md\n\nReview this");
+  await expect(bubble.locator(".injchip")).toHaveAttribute("title", "CLAUDE.md");
+  expect(await bubble.textContent()).toBe("CLAUDE.md\n\nReview this");
 });
 
 /// Double-clicking a file or activating its explicit diff button opens the full file in the viewer.
