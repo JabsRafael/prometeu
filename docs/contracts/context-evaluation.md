@@ -68,7 +68,7 @@ i18n-coded error. Failures reject with `i18n:{"code":"err.evaluation.<code>"}`:
 | `disabled` | integration off or without a key; no call was made |
 | `auth` | the service rejected the key (401/403) |
 | `rate_limited` | 429 after bounded retries |
-| `unavailable` | offline, timeout or 5xx after bounded retries, or any other status |
+| `unavailable` | offline, timeout, 5xx or 529 after bounded retries, or any other status |
 | `malformed` | response outside the closed questions, invalid confidence, oversized or not JSON |
 | `invalid` | request outside the port bounds, or refused by the service (400/413/422) |
 | `stale` | configuration changed during the call; the frontend ignores it silently |
@@ -94,29 +94,31 @@ deterministic fake. `mock:typesafeFail` simulates a failure code.
   endpoint is built from the parsed origin, and redirects are not followed.
 - 5-second connect and 15-second request timeouts; responses above 256 KiB are
   malformed.
-- At most three attempts for network errors, 429 and 500/502/503/504, with
+- At most three attempts for network errors, 429, 529 and 500/502/503/504, with
   400 ms and 1.2 s backoff or a `Retry-After` of at most three seconds.
 - The key travels only as `Authorization: Bearer`. Response bodies, URLs and
   library errors are discarded; errors carry only the application code.
 
-### Assumed TypeSafe wire shape
+### TypeSafe System One wire shape
 
-The public documentation was unreachable when the adapter was written, so this
-shape is an assumption isolated in `typesafe.rs::wire` and must be verified
-against the live service before release:
+The adapter follows the [TypeSafe HTTP API](https://docs.typesafe.ai/api) and
+keeps its request and response shape isolated in `typesafe.rs::wire`. Live
+requests with the person's key returned Choice answers on 2026-09-24, including
+one request with eight questions:
 
 ```http
-POST /v1/evaluate
+POST /v1/systemone
 Authorization: Bearer <key>
 
-{ "state": "<context>", "questions": [{ "id": "task_kind", "question": "…", "type": "enum", "options": ["bug_fix", "…"] }] }
+{ "state": "<context>", "model": "jev-latest", "questions": { "task_kind": { "type": "choice", "instructions": "…", "criteria": { "bug_fix": null, "feature": null } } } }
 ```
 
 ```json
-{ "answers": [{ "id": "task_kind", "value": "bug_fix", "confidence": 0.93 }] }
+{ "model": "jev-1.13.0", "answers": { "task_kind": { "type": "choice", "choice": "bug_fix", "confidence": 0.93, "probabilities": { "bug_fix": 0.93, "feature": 0.07 } } } }
 ```
 
-A `null` value is an abstention. Any other shape is `malformed`.
+The Choice result becomes the application-owned `{ id, outcome, confidence }`.
+An omitted answer is an abstention. Any other shape is `malformed`.
 
 ## External data flow
 
@@ -184,7 +186,7 @@ Interaction:
   snapshot.
 - `src-tauri/src/typesafe.rs`: disabled defaults and old files, saving does not
   enable, removal disables, `0600` file, key absent from status and errors, the
-  assumed wire shape, 401/429/503/offline/timeout/non-JSON translation, bounded
+  System One wire shape, 401/429/529/503/offline/timeout/non-JSON translation, bounded
   retries, recovery after a transient failure, cancellation between retries, a
   key replaced, disabled or removed after the credential snapshot, no overwrite
   of an invalid file, origin-only overrides.

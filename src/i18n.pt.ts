@@ -1533,8 +1533,8 @@ export const PT = {
   "mobile.conversation": "Conversa {n}",
   "mobile.resolved": "resolvido",
 
-  "typesafe.pitch": "Opcional. Revise um pedido em busca de contexto faltante antes de iniciar um workspace, com a sua própria chave de API do TypeSafe.",
-  "typesafe.flow": "Somente quando você escolhe Revisar pedido, o rascunho, a issue vinculada e o nome do projeto vão direto deste Mac para o TypeSafe com a sua chave. Nada é enviado enquanto você digita, e os workspaces nunca dependem disso.",
+  "typesafe.pitch": "Verifique se falta contexto antes de iniciar um workspace.",
+  "typesafe.flow": "Só Revisar pedido envia seu rascunho, a issue vinculada e o nome do projeto deste Mac ao TypeSafe com sua chave. Digitar não envia nada; criar um workspace funciona sem a revisão.",
   "typesafe.key": "Chave de API do TypeSafe",
   "typesafe.key.placeholder": "Cole a sua chave de API",
   "typesafe.key.show": "Mostrar",
