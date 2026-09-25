@@ -211,7 +211,10 @@ pub fn spawn(
     profile.apply(&mut cmd)?;
     let seed = paths::transcript(id, worktree);
     let wire = |stdin| {
-        let mut adapter = Adapter::default();
+        let mut adapter = Adapter {
+            fresh: !resume,
+            ..Adapter::default()
+        };
         (
             chat::Wire::Claude(Link::new(stdin)),
             Box::new(move |line: &str| adapter.translate_line(line)) as chat::Translate,
@@ -326,6 +329,12 @@ pub struct Adapter {
     tasks: HashMap<String, Value>,
     commands: Vec<Value>,
     terminal: HashSet<String>,
+    fresh: bool,
+    cost_baseline: Option<(String, f64)>,
+    observed_models: HashSet<String>,
+    telemetry_steps: HashMap<String, (String, crate::telemetry::Usage)>,
+    telemetry_results: HashSet<String>,
+    had_children: bool,
 }
 
 impl Adapter {
@@ -343,6 +352,9 @@ impl Adapter {
         if value["v"] == 1 {
             return vec![value.clone()];
         }
+        if value["isSidechain"] == true || !value["parent_tool_use_id"].is_null() {
+            self.had_children = true;
+        }
         if value["prometheusV1Mirror"] == true
             || value["isSidechain"] == true
             || !value["parent_tool_use_id"].is_null()
@@ -356,18 +368,7 @@ impl Adapter {
             Some("stream_event") => self.stream(value, at),
             Some("control_request") => self.request(value, at),
             Some("control_response") => self.command_list(value, at),
-            Some("result") => vec![event(
-                "turn.completed",
-                at,
-                json!({
-                    "outcome": if value["is_error"] == true {
-                        if turn_message(value).is_empty() { "interrupted" } else { "error" }
-                    } else { "ok" },
-                    "message": turn_message(value),
-                    "durationMs": value["duration_ms"].as_u64(),
-                    "costUsd": value["total_cost_usd"].as_f64(),
-                }),
-            )],
+            Some("result") => self.result(value, at),
             Some("system") => self.system(value, at),
             // Read the historical discriminant for legacy imports only.
             Some("prometheus") => self.legacy_app(value, at),
@@ -476,6 +477,72 @@ impl Adapter {
             .collect()
     }
 
+    fn result(&mut self, value: &Value, at: u64) -> Vec<Value> {
+        if let Some(native) = value["uuid"].as_str() {
+            if !self.telemetry_results.insert(native.into()) {
+                return vec![];
+            }
+        }
+        let raw = &value["usage"];
+        let input = raw["input_tokens"].as_u64();
+        let read = raw["cache_read_input_tokens"].as_u64();
+        let write = raw["cache_creation_input_tokens"].as_u64();
+        let total = input
+            .zip(read)
+            .zip(write)
+            .and_then(|((a, b), c)| a.checked_add(b)?.checked_add(c));
+        // Streaming results report per-turn main usage but session-cumulative tree cost.
+        // Never assign restored spend, reset counters or overlapping child spend to this turn.
+        let session = value["session_id"].as_str();
+        let cost = value["total_cost_usd"]
+            .as_f64()
+            .filter(|v| v.is_finite() && *v >= 0.);
+        let cost_usd = match (session, cost, &self.cost_baseline) {
+            (Some(session), Some(current), Some((previous, baseline)))
+                if session == previous && current >= *baseline =>
+            {
+                Some(current - baseline)
+            }
+            (Some(_), Some(current), None) if self.fresh => Some(current),
+            _ => None,
+        }
+        .filter(|_| !self.had_children && self.tasks.is_empty());
+        self.cost_baseline = session.zip(cost).map(|(s, c)| (s.into(), c));
+        self.fresh = false;
+        self.had_children = !self.tasks.is_empty();
+        let mut models: Vec<_> = self.observed_models.drain().collect();
+        models.sort();
+        let steps = self.telemetry_steps.len();
+        let partial = self.partial_usage();
+        let output = raw["output_tokens"].as_u64();
+        let measurement = crate::telemetry::Measurement {
+            complete: total.is_some() && output.is_some(),
+            usage_by_model: partial.usage_by_model,
+            observed_models: (!models.is_empty()).then_some(models),
+            usage: crate::telemetry::Usage {
+                input_tokens: total.or(partial.usage.input_tokens),
+                output_tokens: output,
+                cache_read_tokens: read,
+                cache_write_tokens: write,
+                cost_usd,
+                model_calls: (steps > 0).then_some(steps as u64),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        self.telemetry_steps.clear();
+        vec![event(
+            "turn.completed",
+            at,
+            json!({
+                "outcome": if value["is_error"] == true { if turn_message(value).is_empty() { "interrupted" } else { "error" } } else { "ok" },
+                "message": turn_message(value), "durationMs": value["duration_ms"].as_u64(),
+                "providerDurationMs": value["duration_ms"].as_u64(),
+                "costUsd": cost_usd, "telemetry": measurement
+            }),
+        )]
+    }
+
     fn assistant(&mut self, value: &Value, at: u64) -> Vec<Value> {
         self.pending_skill = None;
         let message = &value["message"];
@@ -496,12 +563,36 @@ impl Adapter {
         if message_id.is_empty() {
             return vec![];
         }
+        if let Some(model) = message["model"].as_str() {
+            self.observed_models.insert(model.into());
+        }
+        let raw = &message["usage"];
+        let read = raw["cache_read_input_tokens"].as_u64();
+        let write = raw["cache_creation_input_tokens"].as_u64();
+        let input = raw["input_tokens"]
+            .as_u64()
+            .zip(read)
+            .zip(write)
+            .and_then(|((a, b), c)| a.checked_add(b)?.checked_add(c));
+        let usage = crate::telemetry::Usage {
+            input_tokens: input,
+            cache_read_tokens: read,
+            cache_write_tokens: write,
+            ..Default::default()
+        };
+        let model = message["model"].as_str().unwrap_or("").to_string();
+        let changed = self.telemetry_steps.get(message_id) != Some(&(model.clone(), usage.clone()));
+        self.telemetry_steps
+            .insert(message_id.into(), (model, usage));
         self.select_message(message_id);
         let mut out = vec![];
         for raw in message["content"].as_array().into_iter().flatten() {
             let Some(block) = block(raw) else { continue };
             if block["kind"] == "tool" {
                 if let (Some(id), Some(name)) = (block["id"].as_str(), block["name"].as_str()) {
+                    if matches!(name, "Task" | "Agent") {
+                        self.had_children = true;
+                    }
                     self.tools.insert(id.to_string(), name.to_string());
                 }
             }
@@ -512,7 +603,58 @@ impl Adapter {
             ));
             self.next_block += 1;
         }
+        if changed && raw.is_object() {
+            out.push(event(
+                "telemetry.usage",
+                at,
+                json!({"measurement": self.partial_usage()}),
+            ));
+        }
         out
+    }
+
+    fn partial_usage(&self) -> crate::telemetry::Measurement {
+        let sum = |values: Vec<Option<u64>>| -> Option<u64> {
+            if values.is_empty() {
+                return None;
+            }
+            values
+                .into_iter()
+                .try_fold(0u64, |total, value| total.checked_add(value?))
+        };
+        let usage = |steps: Vec<&crate::telemetry::Usage>| crate::telemetry::Usage {
+            input_tokens: sum(steps.iter().map(|u| u.input_tokens).collect()),
+            cache_read_tokens: sum(steps.iter().map(|u| u.cache_read_tokens).collect()),
+            cache_write_tokens: sum(steps.iter().map(|u| u.cache_write_tokens).collect()),
+            model_calls: (!steps.is_empty()).then_some(steps.len() as u64),
+            ..Default::default()
+        };
+        let mut models: Vec<_> = self
+            .telemetry_steps
+            .values()
+            .filter_map(|(model, _)| (!model.is_empty()).then_some(model.clone()))
+            .collect();
+        models.sort();
+        models.dedup();
+        let rows = models
+            .iter()
+            .map(|model| crate::telemetry::ModelUsage {
+                model: model.clone(),
+                usage: usage(
+                    self.telemetry_steps
+                        .values()
+                        .filter(|(m, _)| m == model)
+                        .map(|(_, u)| u)
+                        .collect(),
+                ),
+            })
+            .collect::<Vec<_>>();
+        crate::telemetry::Measurement {
+            usage: usage(self.telemetry_steps.values().map(|(_, u)| u).collect()),
+            observed_models: (!models.is_empty()).then_some(models),
+            usage_by_model: (!rows.is_empty()).then_some(rows),
+            ..Default::default()
+        }
     }
 
     fn stream(&mut self, value: &Value, at: u64) -> Vec<Value> {
@@ -665,6 +807,7 @@ impl Adapter {
                 if id.is_empty() {
                     return vec![];
                 }
+                self.had_children = true;
                 self.tasks.insert(
                     id.to_string(),
                     json!({
@@ -909,6 +1052,34 @@ fn between<'a>(text: &'a str, start: &str, end: &str) -> Option<&'a str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn telemetry_main_usage_deduplicates_steps_and_excludes_restored_cost() {
+        let mut adapter = Adapter::default();
+        let message = json!({"type":"assistant","message":{"id":"step-1","model":"model-a","content":[],"usage":{"input_tokens":2,"cache_read_input_tokens":8,"cache_creation_input_tokens":0,"output_tokens":1}}});
+        let first = adapter.translate(&message);
+        assert_eq!(first[0]["measurement"]["usage"]["inputTokens"], 10);
+        assert!(first[0]["measurement"]["usage"]["outputTokens"].is_null());
+        assert!(adapter.translate(&message).is_empty());
+        let result = json!({"type":"result","uuid":"result-1","session_id":"s","usage":{"input_tokens":2,"cache_read_input_tokens":8,"cache_creation_input_tokens":0,"output_tokens":4},"total_cost_usd":2.0});
+        let first = adapter.translate(&result);
+        assert_eq!(first[0]["telemetry"]["usage"]["inputTokens"], 10);
+        assert_eq!(first[0]["telemetry"]["usage"]["outputTokens"], 4);
+        assert_eq!(first[0]["telemetry"]["usage"]["modelCalls"], 1);
+        assert!(first[0]["telemetry"]["usage"]["costUsd"].is_null());
+        assert!(adapter.translate(&result).is_empty());
+        let next = adapter.translate(
+            &json!({"type":"result","uuid":"result-2","session_id":"s","total_cost_usd":2.5}),
+        );
+        assert_eq!(next[0]["telemetry"]["usage"]["costUsd"], 0.5);
+        let reset =
+            adapter.translate(&json!({"type":"result","session_id":"reset","total_cost_usd":0.2}));
+        assert!(reset[0]["telemetry"]["usage"]["costUsd"].is_null());
+        adapter.had_children = true;
+        let child =
+            adapter.translate(&json!({"type":"result","session_id":"reset","total_cost_usd":0.4}));
+        assert!(child[0]["telemetry"]["usage"]["costUsd"].is_null());
+    }
 
     #[test]
     fn normalizes_streaming_and_final_blocks() {

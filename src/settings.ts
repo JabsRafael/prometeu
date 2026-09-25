@@ -20,6 +20,7 @@ import * as news from "./news";
 import * as notifications from "./notification-settings";
 import * as team from "./team";
 import * as typesafe from "./typesafe";
+import { telemetryRows } from "./telemetry-settings";
 import { typesafeRows } from "./typesafe-settings";
 import type { LinearStatus } from "./types";
 import { settingsRow } from "./update";
@@ -106,6 +107,7 @@ const PAGES: Page[] = [
   { id: "trabalho", title: "settings.work", description: "settings.work.intro", glyph: "users", sections: [
     { id: "team", title: "settings.team", rows: teamRows },
     { id: "projects", title: "settings.localProjects", rows: projectRows, keywords: ["projects.title"] },
+    { id: "telemetry", title: "telemetry.title", rows: telemetryRows },
     { id: "integrations", title: "settings.integrations", rows: () => [linearRow(), ...typesafeRows(ctx.say, draw)], keywords: ["typesafe.enabled"] },
   ] },
 ];

@@ -243,3 +243,18 @@ is recorded in ADR 0004.
 - `codex.rs` tests: V1 commands, the JSON-RPC protocol and direct V1 output;
 - `chat.rs` tests: persistence, sequence and safe reconstruction of remote
   control.
+
+## Local telemetry observations
+
+Adapters can attach normalized `telemetry` measurements and nullable
+`providerDurationMs` to `turn.completed` before Pump capture. These internal fields
+follow the [telemetry contract](telemetry.md); Pump strips them before transcript
+persistence, live UI publication and sharing. Existing timeline parsers read the
+original completion fields. Claude's `costUsd` now reflects an attributable
+per-turn estimate, or null when only an unverified cumulative value exists.
+
+The internal `telemetry.usage` observation uses the same adapter envelope and
+Pump ordering gate, but never enters the conversation buffer, transport sequence,
+transcript or relay. It is consumed only by the owner's local event store.
+Quota `usage.updated` and context `context.updated` retain their existing meanings.
+Replay cannot capture new telemetry.

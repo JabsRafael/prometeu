@@ -152,6 +152,10 @@ export type Commands = {
   typesafe_remove_key: { args: undefined; result: import("./evaluation").EvaluationStatus };
   typesafe_save_key: { args: { key: string }; result: import("./evaluation").EvaluationStatus };
   typesafe_set_enabled: { args: { enabled: boolean }; result: import("./evaluation").EvaluationStatus };
+  telemetry_summary: { args: { filter: import("./telemetry").TelemetryFilter }; result: import("./telemetry").TelemetrySummary };
+  telemetry_events: { args: { filter: import("./telemetry").TelemetryFilter; cursor?: import("./telemetry").TelemetryCursor }; result: import("./telemetry").TelemetryPage };
+  telemetry_export: { args: { filter: import("./telemetry").TelemetryFilter; path: string }; result: null };
+  telemetry_clear: { args: undefined; result: null };
   typesafe_status: { args: undefined; result: import("./evaluation").EvaluationStatus };
   usage: { args: undefined; result: Usage };
   workspace_branch: { args: { id: string }; result: string | null };

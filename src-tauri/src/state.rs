@@ -371,6 +371,9 @@ pub struct ToolTrust {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Board {
+    /// Opaque telemetry identities for legacy path-based projects and repository branches.
+    #[serde(default)]
+    pub telemetry_ids: crate::telemetry::Identities,
     /// Delegation ownership belongs to conversations, not processes or workspace membership.
     #[serde(default)]
     pub delegations: Vec<crate::delegation::Delegation>,
@@ -454,6 +457,7 @@ pub(crate) fn split_skills(plugins: &mut Option<Selection>, skills: &mut Option<
 impl Default for Board {
     fn default() -> Self {
         Board {
+            telemetry_ids: Default::default(),
             delegations: Vec::new(),
             actions: Default::default(),
             tools: Tools::default(),
@@ -472,6 +476,7 @@ impl Board {
         let current = path();
         let mut board = Self::load_at(&current);
         board.revive();
+        board.prepare_telemetry_ids();
         board
     }
 
@@ -705,7 +710,11 @@ impl Saver {
     /// Serialize snapshots, queueing and emission without holding the board during I/O.
     fn publish(&self, current: &Mutex<Board>, emit: impl FnOnce(&Board)) {
         let _publication = lock(&self.publication);
-        let board = Arc::new(lock(current).clone());
+        let board = {
+            let mut board = lock(current);
+            board.prepare_telemetry_ids();
+            Arc::new(board.clone())
+        };
         if self.later(board.clone()).is_err() {
             if let Err(error) = board.save() {
                 eprintln!("não gravei board.json depois de perder o saver: {error}");

@@ -9,6 +9,29 @@ Chromium runs the retained scenarios; only cases explicitly tagged `@webkit`
 repeat in WebKit. References to both engines mean representative coverage, not
 every combination of providers, states, languages and screen sizes.
 
+## Local telemetry foundation
+
+[ADR 0059](../decisions/0059-local-telemetry-foundation.md) adds the same local
+capture/store/settings path for all providers. Main completion remains separate
+from the conversation settlement rule in ADR 0056.
+
+| Measurement | Claude | Codex | Antigravity |
+| --- | --- | --- | --- |
+| Main execution and accepted message turns | Captured | Captured | Captured |
+| Independent child execution and explicit human waits | When canonical signals expose them | When canonical signals expose them | Unavailable |
+| Main-agent input/output | Turn result; deduplicated message inputs provide partial coverage | Delta of verified thread totals; resume/reset without a baseline stays partial/unknown | Unknown |
+| Cache/reasoning | Cache read/write are input subsets; reasoning unknown | Cache is an input subset; reasoning is an output subset | Unknown |
+| Observed models/calls | Main assistant model IDs, partial per-model input, distinct message calls | Unknown without verified actual-model/call evidence | Unknown |
+| Per-turn cost | Same-session cumulative delta; restored/reset/overlapping-child spend excluded | Unknown | Unknown |
+
+`telemetry/tests.rs`, the adapters' `telemetry_*` tests and
+`src/telemetry.test.ts` cover normalization, incomplete coverage, local query and
+erasure behavior. Existing command/publication tests cover accepted/failed sends
+and response ordering. Streaming input without a correlatable native terminal
+retains unknown turn attribution; capture health exposes that limit. These are
+fixture-based guarantees, not live certification of every installed provider
+version. Full semantics are in the [contract](../contracts/telemetry.md).
+
 ## Legend
 
 - **Native:** the CLI already speaks the form consumed today.

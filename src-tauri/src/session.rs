@@ -117,7 +117,9 @@ pub fn finish_workspace(app: AppHandle, state: State<AppState>, id: String) {
 }
 
 fn archive(state: &State<AppState>, id: &str, archived: bool) {
+    let generation = lock(&state.telemetry).generation;
     let mut dead: Vec<String> = Vec::new();
+    let mut changed = false;
     // Run the archive script before archiving, while its resources still exist. It cleans up
     // containers, databases, and tunnels asynchronously, without a PTY or blocking the window.
     if archived {
@@ -139,6 +141,7 @@ fn archive(state: &State<AppState>, id: &str, archived: bool) {
     {
         let mut board = lock(&state.board);
         if let Some(ws) = board.workspace_mut(id) {
+            changed = ws.archived != archived;
             ws.archived = archived;
             if archived {
                 dead = ws.tabs.iter().map(|t| t.id.clone()).collect();
@@ -151,6 +154,24 @@ fn archive(state: &State<AppState>, id: &str, archived: bool) {
     }
     // Stop processes outside the board lock: signalling and waiting must not block other sessions.
     stop(state, &dead);
+    if changed {
+        let scope = {
+            let board = lock(&state.board);
+            crate::telemetry::capture_workspace_scope(&board, id)
+        };
+        if let Some(scope) = scope {
+            crate::telemetry::record(
+                &state.telemetry,
+                generation,
+                scope,
+                if archived {
+                    crate::telemetry::Fact::WorkspaceArchived {}
+                } else {
+                    crate::telemetry::Fact::WorkspaceResumed {}
+                },
+            );
+        }
+    }
 }
 
 /// Stop these tab processes. Preserve transcripts and worktrees so the next message can resume
@@ -528,6 +549,7 @@ pub fn set_tab_choice(
     tab: String,
     choice: Choice,
 ) -> Result<(), String> {
+    let generation = lock(&state.telemetry).generation;
     {
         let mut board = lock(&state.board);
         let ws = board
@@ -537,6 +559,15 @@ pub fn set_tab_choice(
     }
     chat::kill(&state, &tab);
     publish(&app);
+    crate::telemetry::journey(
+        &app,
+        generation,
+        &id,
+        Some(&tab),
+        crate::telemetry::Fact::ProviderSelected {
+            scope: crate::telemetry::SelectionScope::Conversation,
+        },
+    );
     Ok(())
 }
 
@@ -1388,6 +1419,7 @@ pub(crate) fn create_workspace_owned(
     rows: u16,
     delegation: Option<crate::delegation::Delegation>,
 ) -> Result<Workspace, String> {
+    let generation = lock(&state.telemetry).generation;
     // Reject missing selection before publishing a card or preparing filesystem state.
     crate::accounts::active(draft.launch.agent)?;
     // A kickoff rides the plugin-package pipeline, so it needs the same capability as plugin
@@ -1573,16 +1605,29 @@ pub(crate) fn create_workspace_owned(
         crate::naming::rename_later(&app, &ws.id, &draft.prompt, &ws.title, &draft.launch);
     }
 
+    crate::telemetry::journey(
+        &app,
+        generation,
+        &ws.id,
+        None,
+        crate::telemetry::Fact::WorkspaceCreated {
+            mode: if draft.worktree {
+                crate::telemetry::CreationMode::Worktree
+            } else {
+                crate::telemetry::CreationMode::Repository
+            },
+        },
+    );
     let (bg, id) = (app.clone(), ws.id.clone());
-    std::thread::spawn(move || prepare(&bg, &id, draft, cols, rows));
+    std::thread::spawn(move || prepare(&bg, &id, draft, cols, rows, generation));
 
     Ok(ws)
 }
 
 /// Prepare directories, the agent, and setup away from the launcher thread. Preserve failed cards
 /// and their errors so the person can resolve the cause.
-fn prepare(app: &AppHandle, id: &str, draft: Draft, cols: u16, rows: u16) {
-    let Err(err) = build(app, id, &draft, cols, rows) else {
+fn prepare(app: &AppHandle, id: &str, draft: Draft, cols: u16, rows: u16, generation: u64) {
+    let Err(err) = build(app, id, &draft, cols, rows, generation) else {
         return;
     };
     let state = app.state::<AppState>();
@@ -1603,7 +1648,14 @@ fn prepare(app: &AppHandle, id: &str, draft: Draft, cols: u16, rows: u16) {
     publish(app);
 }
 
-fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Result<(), String> {
+fn build(
+    app: &AppHandle,
+    id: &str,
+    draft: &Draft,
+    cols: u16,
+    rows: u16,
+    generation: u64,
+) -> Result<(), String> {
     let state = app.state::<AppState>();
     let (repo, root, branch, repos) = {
         let board = lock(&state.board);
@@ -1716,6 +1768,24 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
         ws.clone()
     };
     publish(app);
+    if let Some(tab) = ws.tabs.last() {
+        crate::telemetry::journey(
+            app,
+            generation,
+            id,
+            Some(&tab.id),
+            crate::telemetry::Fact::ConversationCreated {},
+        );
+        crate::telemetry::journey(
+            app,
+            generation,
+            id,
+            Some(&tab.id),
+            crate::telemetry::Fact::ProviderSelected {
+                scope: crate::telemetry::SelectionScope::Workspace,
+            },
+        );
+    }
 
     // Copy secrets and other requested ignored files before running setup. Start the agent but hold
     // its first message until setup completes, so tools cannot run against missing dependencies.
@@ -1741,6 +1811,8 @@ pub fn new_tab(
     prompt: String,
     choice: Option<Choice>,
 ) -> Result<Tab, String> {
+    let generation = lock(&state.telemetry).generation;
+    let explicit_choice = choice.is_some();
     // Neither path restores plan mode; it belongs to the initial request.
     let (launch, choice) = {
         let (global, trust, ws) = {
@@ -1779,6 +1851,24 @@ pub fn new_tab(
         }
     }
     publish(&app);
+    crate::telemetry::journey(
+        &app,
+        generation,
+        &workspace,
+        Some(&tab.id),
+        crate::telemetry::Fact::ConversationCreated {},
+    );
+    if explicit_choice {
+        crate::telemetry::journey(
+            &app,
+            generation,
+            &workspace,
+            Some(&tab.id),
+            crate::telemetry::Fact::ProviderSelected {
+                scope: crate::telemetry::SelectionScope::Conversation,
+            },
+        );
+    }
     chat::ready_now(&app, &tab.id);
     Ok(tab)
 }
