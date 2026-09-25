@@ -103,7 +103,6 @@ export type Commands = {
   open_pr: { args: { id: string; repo: string }; result: void };
   open_run: { args: { id: string }; result: void };
   paste_files: { args: undefined; result: string[] };
-  paste_image: { args: { data: string; kind: string }; result: string };
   pin_workspace: { args: { id: string; pinned: boolean }; result: void };
   plugin_hub: { args: undefined; result: T.Plugin[] };
   plugin_install: { args: { source: string }; result: { dir: string; plugins: T.Plugin[]; saved: boolean } };

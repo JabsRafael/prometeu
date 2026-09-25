@@ -4,8 +4,8 @@ import { pasteFiles } from "./paste";
 
 vi.mock("./ipc", () => ({ invoke: vi.fn() }));
 
-const event = (files: unknown[]) =>
-  ({ clipboardData: { files }, preventDefault: vi.fn() }) as unknown as ClipboardEvent & { preventDefault: ReturnType<typeof vi.fn> };
+const event = (files: unknown[], types = files.length ? ["Files"] : ["text/plain"]) =>
+  ({ clipboardData: { files, types }, preventDefault: vi.fn() }) as unknown as ClipboardEvent & { preventDefault: ReturnType<typeof vi.fn> };
 
 it("attaches materialized paths and keeps the default paste for text", async () => {
   vi.mocked(invoke).mockResolvedValue(["/private/attachments/pasted.png"]);
@@ -34,17 +34,12 @@ it("reports backend failures instead of attaching nothing silently", async () =>
   expect(put).not.toHaveBeenCalled();
 });
 
-it("materializes the pasted images itself when the backend has no native pasteboard", async () => {
-  vi.mocked(invoke).mockImplementation((async (command: string) =>
-    command === "paste_files" ? [] : "/private/attachments/pasted.png") as typeof invoke);
+it("asks the backend when the webview hides the clipboard, as WebKitGTK does for images", async () => {
+  vi.mocked(invoke).mockResolvedValue(["/private/attachments/pasted.png"]);
   const put = vi.fn();
-  const fail = vi.fn();
-  const screenshot = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "image.png", { type: "image/png" });
-  const text = new File(["notes"], "notes.txt", { type: "text/plain" });
+  const hidden = event([], []);
 
-  pasteFiles(event([screenshot, text]), put, fail);
+  pasteFiles(hidden, put, vi.fn());
+  expect(hidden.preventDefault).toHaveBeenCalled();
   await vi.waitFor(() => expect(put).toHaveBeenCalledWith(["/private/attachments/pasted.png"]));
-  expect(invoke).toHaveBeenCalledWith("paste_image", { data: "iVBORw==", kind: "image/png" });
-  expect(invoke).not.toHaveBeenCalledWith("paste_image", expect.objectContaining({ kind: "text/plain" }));
-  expect(fail).not.toHaveBeenCalled();
 });

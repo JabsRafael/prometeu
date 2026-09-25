@@ -87,54 +87,48 @@ pub fn on_webview_event(webview: &Webview, event: &WebviewEvent) {
 }
 
 /// Clipboard files and images carry no path inside the webview. Materialize them like promised
-/// drops so every attachment path reaching an agent comes from this Mac's private directory.
-/// Tauri runs synchronous commands on the main thread, which AppKit requires for pasteboard reads;
-/// only the current clipboard item is written, so the pause stays imperceptible.
+/// drops so every attachment path reaching an agent comes from this machine's private directory.
+/// Tauri runs synchronous commands on the main thread, which AppKit and GTK require for clipboard
+/// reads; only the current clipboard item is written, so the pause stays imperceptible.
 #[tauri::command]
 pub fn paste_files() -> Result<Vec<String>, String> {
     #[cfg(target_os = "macos")]
     return macos::paste();
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    return linux::paste();
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     Ok(Vec::new())
 }
 
-/// A pasted screenshot is larger than any text paste; past this the webview is not holding an image.
-const PASTED_IMAGE_LIMIT: usize = 64 * 1024 * 1024;
-
-/// Where no native pasteboard reader exists (Linux), the webview still receives the pasted image
-/// as a `File`. It sends the bytes here so the attachment lands in the same private directory the
-/// macOS pasteboard path uses. Only raster images the agents read are accepted.
-#[tauri::command]
-pub async fn paste_image(data: String, kind: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        save_pasted_image(&crate::paths::root(), &data, &kind)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-fn save_pasted_image(root: &std::path::Path, data: &str, kind: &str) -> Result<String, String> {
-    use base64::{engine::general_purpose::STANDARD, Engine};
-    let extension = match kind {
-        "image/png" => "png",
-        "image/jpeg" => "jpg",
-        "image/gif" => "gif",
-        "image/webp" => "webp",
-        _ => return Err("chat.drop.failed".into()),
-    };
-    if data.len() / 4 * 3 > PASTED_IMAGE_LIMIT {
-        return Err("chat.drop.failed".into());
-    }
-    let bytes = STANDARD.decode(data).map_err(|_| "chat.drop.failed")?;
-    if bytes.is_empty() {
-        return Err("chat.drop.failed".into());
-    }
+#[cfg_attr(
+    not(any(target_os = "macos", target_os = "linux", test)),
+    allow(dead_code)
+)]
+fn save_pasted_png(root: &std::path::Path, png: &[u8]) -> Result<String, String> {
     let file = root
         .join("attachments")
         .join(uuid::Uuid::new_v4().to_string())
-        .join(format!("pasted.{extension}"));
-    crate::paths::write_private_bytes(&file, &bytes)?;
+        .join("pasted.png");
+    crate::paths::write_private_bytes(&file, png)?;
     Ok(file.to_string_lossy().into_owned())
+}
+
+/// WebKitGTK hands the page an empty clipboard for images, so GTK's own clipboard is the only
+/// reader. It converts whatever image format the source offered.
+#[cfg(target_os = "linux")]
+mod linux {
+    use gtk::{gdk, Clipboard};
+
+    pub fn paste() -> Result<Vec<String>, String> {
+        let clipboard = Clipboard::get(&gdk::SELECTION_CLIPBOARD);
+        let Some(image) = clipboard.wait_for_image() else {
+            return Ok(Vec::new());
+        };
+        let png = image
+            .save_to_bufferv("png", &[])
+            .map_err(|e| e.to_string())?;
+        super::save_pasted_png(&crate::paths::root(), &png).map(|path| vec![path])
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -240,12 +234,7 @@ mod macos {
         let Some(png) = copied_png(&pasteboard) else {
             return Ok(Vec::new());
         };
-        let directory = crate::paths::root()
-            .join("attachments")
-            .join(uuid::Uuid::new_v4().to_string());
-        let file = directory.join("pasted.png");
-        crate::paths::write_private_bytes(&file, &png)?;
-        Ok(vec![file.to_string_lossy().into_owned()])
+        save_pasted_png(&crate::paths::root(), &png).map(|path| vec![path])
     }
 
     pub fn receive(window: &Window, position: PhysicalPosition<f64>) -> bool {
@@ -378,28 +367,16 @@ mod tests {
     #[test]
     fn pasted_images_land_privately_under_attachments() {
         let root = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
-        let path = save_pasted_image(&root, "iVBORw0KGgo=", "image/png").unwrap();
-        let path = std::path::PathBuf::from(path);
+        let path = std::path::PathBuf::from(save_pasted_png(&root, b"\x89PNG").unwrap());
         assert!(path.starts_with(root.join("attachments")));
         assert_eq!(path.file_name().unwrap(), "pasted.png");
-        assert_eq!(std::fs::read(&path).unwrap(), b"\x89PNG\r\n\x1a\n");
+        assert_eq!(std::fs::read(&path).unwrap(), b"\x89PNG");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let mode = std::fs::metadata(&path).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600);
         }
-        let jpeg = save_pasted_image(&root, "/9j/", "image/jpeg").unwrap();
-        assert!(jpeg.ends_with("pasted.jpg"));
         std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn pasted_images_reject_other_types_and_broken_data() {
-        let root = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
-        assert!(save_pasted_image(&root, "PHN2Zz4=", "image/svg+xml").is_err());
-        assert!(save_pasted_image(&root, "not base64!", "image/png").is_err());
-        assert!(save_pasted_image(&root, "", "image/png").is_err());
-        assert!(!root.exists());
     }
 }

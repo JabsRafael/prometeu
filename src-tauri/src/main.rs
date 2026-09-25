@@ -220,7 +220,6 @@ fn main() {
             feedback::feedback_image,
             feedback::feedback_send,
             file_drop::paste_files,
-            file_drop::paste_image,
             session::pr_prompt,
             github::pr_open,
             github::refresh_prs,

@@ -2065,9 +2065,6 @@ const mockCommands: IpcHandlers = {
   paste_files() {
     return ["/Users/gustavo/.prometeu/attachments/pasted.png"];
   },
-  paste_image(args) {
-    return `/Users/gustavo/.prometeu/attachments/pasted.${args.kind === "image/jpeg" ? "jpg" : "png"}`;
-  },
   feedback_capture() {
     return "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aHlcAAAAASUVORK5CYII=";
   },

@@ -129,21 +129,18 @@ IPC to authenticate the WebSocket.
 | `file-drag` | `file_drop.rs`, main webview | `{ type, paths, position?, id?, error? }` |
 
 `paste_files` completes that path for the clipboard: with no arguments, it reads
-the macOS general pasteboard and returns paths. Files copied in Finder keep the
-original path; an image is written as PNG in
-`<root>/attachments/<uuid>/pasted.png`, converting TIFF when that is the only
-available representation. A clipboard with neither a file nor an image returns
-an empty list, and the command is synchronous because reading the pasteboard
-requires AppKit's main thread. Outside macOS, it returns an empty list.
+the system clipboard and returns paths. On macOS it reads the general
+pasteboard: files copied in Finder keep the original path; an image is written
+as PNG in `<root>/attachments/<uuid>/pasted.png`, converting TIFF when that is
+the only available representation. On Linux it reads the GTK clipboard and
+writes an image, converted to PNG, to the same path; copied files are not read.
+A clipboard with neither a file nor an image returns an empty list, and the
+command is synchronous because AppKit and GTK both require the main thread.
+Elsewhere, it returns an empty list.
 
-`paste_image` covers the platforms without a native pasteboard reader. When
-`paste_files` returns an empty list, `src/paste.ts` sends each pasted `File`
-whose type is `image/*` as `{ data, kind }`: `data` is the base64 content and
-`kind` its MIME type. The command accepts `image/png`, `image/jpeg`,
-`image/gif` and `image/webp` up to 64 MiB, writes
-`<root>/attachments/<uuid>/pasted.<ext>` with private permissions, and returns
-its path. Any other type, invalid base64 or empty content fails with
-`chat.drop.failed` without writing anything.
+`src/paste.ts` calls it when the paste event carries files, and also when the
+event carries no type at all: WebKitGTK hides a pasted image from the page that
+way. A paste with text types keeps the browser's own paste.
 
 `file-drag` adapts the native drag without changing Tauri's internal events. The
 registration uses `on_webview_event`, filtering the `main` webview: with the
